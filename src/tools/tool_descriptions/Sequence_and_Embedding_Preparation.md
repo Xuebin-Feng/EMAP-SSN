@@ -1,8 +1,8 @@
-# 🧼 Sanitize Sequences (`Sanitize_Sequences.py`)
+# Sanitize Sequences (`Sanitize_Sequences.py`)
 
 This script cleans raw FASTA sequence databases to prepare them for language model embedding. It filters out sequences outside target size boundaries, excludes sequences containing specific header keywords (such as fragments or partials), replaces unsafe non-standard characters, and reports sequence length distributions.
 
-### 📥 Input
+### Input
 
 #### Raw Sequence FASTA File `INPUT_FASTA`
 *   **Format**: Standard protein FASTA (`.fasta`) selected from the configured Sequence Sets directory.
@@ -15,7 +15,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
     MKVLLVSDA...
     ```
 
-### ⚙️ Parameters
+### Parameters
 
 | Parameter | Description |
 | :--- | :--- |
@@ -25,7 +25,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 | Maximum Sequence Length **`MAX_SEQ_LENGTH`** | The maximum sequence length allowed. |
 | Remove by Header String **`REMOVE_BY_HEADER_STRING`** | Excludes sequences whose headers contain this exact case-sensitive substring (e.g., `partial`, `fragment`, or `low quality`). Leave empty to disable; `None` is treated as a literal search word. |
 
-### 📤 Output
+### Output
 
 #### Sanitized FASTA File
 *   **Format**: Standard FASTA (`.fasta`).
@@ -57,18 +57,18 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 
 ---
 
-# 🧬 Generate Embeddings (`Generate_Embeddings.py`)
+# Generate Embeddings (`Generate_Embeddings.py`)
 
 This script extracts sequence embeddings from pre-trained protein language models such as ESM-2, ESM-C, Ankh, ProtBERT, and ProstT5. It maps residues to high-dimensional representation vectors and stores them in metadata-first HDF5 databases using the selected `float16` or `float32` precision.
 
-### 📥 Input
+### Input
 
 #### FASTA File `INPUT_FASTA`
 *   **Format**: Standard FASTA (`.fasta`), either raw or previously sanitized.
 *   **Created By**: A user-provided sequence set or `Sanitize_Sequences.py`.
 *   **Description**: Records are sanitized automatically in memory before embedding. This simplified pass does not filter by header text or sequence length and prints a result only when records change.
 
-### ⚙️ Parameters
+### Parameters
 
 | Parameter | Description |
 | :--- | :--- |
@@ -80,7 +80,7 @@ This script extracts sequence embeddings from pre-trained protein language model
 
 > **Model terms:** Model weights are downloaded separately and retain their publishers' licenses. In particular, Ankh Base and Ankh Large weights are under CC-BY-NC-SA-4.0; the program requires an acknowledgement before access. See `THIRD_PARTY_LICENSES.md` for the model inventory. These model terms do not relicense the Apache-2.0 program source.
 
-### 📤 Output
+### Output
 
 #### HDF5 Embedding Database
 *   **Format**: HDF5 (`.h5`).
@@ -113,11 +113,11 @@ This script extracts sequence embeddings from pre-trained protein language model
 
 ---
 
-# ✂️ Embedding Cropping (`Embedding_Cropping.py`)
+# Embedding Cropping (`Embedding_Cropping.py`)
 
 This script produces embeddings for cropped/partial sequences by slicing them directly out of an existing full-sequence embedding database, instead of embedding the cropped fragment in isolation. Protein language models compute every residue's representation using full self-attention context, so directly embedding a short fragment yields a different (context-impoverished) vector than the same residues would get inside their native full-length sequence. This script never re-runs the language model — it only reads a full-sequence HDF5 database (produced by `Generate_Embeddings.py`) and slices out the requested residue range for each cropped sequence, preserving the full-context representation.
 
-### 📥 Input
+### Input
 
 #### Full Embedding Database `INPUT_EMBED`
 *   **Format**: HDF5 embedding database (`.h5`).
@@ -127,11 +127,11 @@ This script produces embeddings for cropped/partial sequences by slicing them di
 *   **Format**: Standard FASTA (`.fasta`).
 *   **Description**: Partial sequences to produce contextual embeddings for. Records are sanitized identically to embedding generation. Each sanitized header must appear in `INPUT_EMBED`, and each sanitized sequence must be an exact contiguous substring of the stored full sequence.
 
-### ⚙️ Parameters
+### Parameters
 
 This script does not require additional configuration parameters — behavior is fully determined by the source embedding database and cropped FASTA.
 
-### 📤 Output
+### Output
 
 #### HDF5 Embedding Database
 *   **Format**: HDF5 (`.h5`), named `{CROPPED_FASTA}_[{model_name}]_embeddings.h5` — identical in structure to what `Generate_Embeddings.py` would produce if run directly on `CROPPED_FASTA`, so it is a drop-in input for downstream tools (`Embedding_PWA.py`, `Embedding_SSEARCH.py`, `Embedding_MSA.py`, etc.).

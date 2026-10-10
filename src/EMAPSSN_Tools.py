@@ -125,31 +125,16 @@ NEIGHBOR_JOINING_TREE_METHOD = "Neighbor-joining (Slow)"
 HOST_CACHE_SLIDER_SCALE = 10
 HOST_CACHE_SLIDER_STEPS = round(HOST_CACHE_MAX_GB * HOST_CACHE_SLIDER_SCALE)
 
-SECTION_CARD_STYLE = (
-    "QFrame#toolSectionCard { "
-    "  border: none; "
-    "  border-radius: 8px; "
-    "  background-color: #f4f6f8; "
-    "  padding: 16px; "
-    "  margin-bottom: 20px; "
-    "}"
-)
-PRIMARY_TITLE_STYLE = (
-    "font-weight: bold; font-size: 18px; margin-top: 5px; margin-bottom: 5px; "
-    "color: #2C3E50; border-bottom: 1px solid #3498DB; padding-bottom: 8px;"
-)
-
-
-def action_button_stylesheet(color):
-    """A card's header buttons share one font and height.
-
-    fit_buttons_to_text gives each its width, its text plus padding at each
-    end, so the stylesheet adds no horizontal padding of its own.
-    """
-    return (
-        f"background-color: {color}; color: white; font-weight: bold; "
-        "padding: 10px 0px;"
-    )
+# A tab is one card (the window theme draws it): its tools are sections of it,
+# a hairline between each two, as the Config's tabs are laid out.
+TOOLS_TAB_CONTENT_MARGIN = 18
+TOOLS_SECTION_SEPARATOR_PADDING = 24
+TOOLS_FORM_ROW_SPACING = 12
+TOOLS_FORM_HORIZONTAL_SPACING = 30
+# A section title's icon, before its text: the title role's 2 px padding
+# makes the gap between them 8 px.
+TOOL_TITLE_ICON_SIZE = 16
+TOOL_TITLE_ICON_GAP = 6
 
 
 COMPACT_ROW_GROUPS = {
@@ -250,20 +235,53 @@ NORMALIZATION_MODES = ("alignment_length", "shorter_sequence", "longer_sequence"
 # Each tool card's title, as the heading of its help file in
 # src/tools/tool_descriptions names it (a test keeps the two alike).
 TOOL_TITLES = {
-    "Embedding_MSA.py": QT_TRANSLATE_NOOP("Tools", "🧬 Embedding Multiple Sequence Alignment"),
-    "Sparse_MSA_Converter.py": QT_TRANSLATE_NOOP("Tools", "📉 Sparse MSA Converter"),
-    "Embedding_Injection.py": QT_TRANSLATE_NOOP("Tools", "🧬 Embedding Injection"),
-    "Embedding_Extraction.py": QT_TRANSLATE_NOOP("Tools", "📤 Embedding Extraction"),
-    "Network_Injection.py": QT_TRANSLATE_NOOP("Tools", "🧬 Network Injection"),
-    "Network_Extraction.py": QT_TRANSLATE_NOOP("Tools", "📤 Network Extraction"),
-    "Embedding_PWA.py": QT_TRANSLATE_NOOP("Tools", "🧬 Pairwise Embedding Alignment"),
-    "Embedding_SSEARCH.py": QT_TRANSLATE_NOOP("Tools", "🔍 Embedding Database Search"),
-    "Align_Similarity_Matrix.py": QT_TRANSLATE_NOOP("Tools", "🧬 Dynamic Programming Embedding Alignment"),
-    "Align_Substitution_Matrix.py": QT_TRANSLATE_NOOP("Tools", "🧬 Substitution Matrix Alignment"),
-    "Parse_BLAST_Output.py": QT_TRANSLATE_NOOP("Tools", "🔍 Parse BLAST Output"),
-    "Sanitize_Sequences.py": QT_TRANSLATE_NOOP("Tools", "🧼 Sanitize Sequences"),
-    "Generate_Embeddings.py": QT_TRANSLATE_NOOP("Tools", "🧬 Generate Embeddings"),
-    "Embedding_Cropping.py": QT_TRANSLATE_NOOP("Tools", "✂️ Embedding Cropping"),
+    "Embedding_MSA.py": QT_TRANSLATE_NOOP("Tools", "Embedding Multiple Sequence Alignment"),
+    "Sparse_MSA_Converter.py": QT_TRANSLATE_NOOP("Tools", "Sparse MSA Converter"),
+    "Embedding_Injection.py": QT_TRANSLATE_NOOP("Tools", "Embedding Injection"),
+    "Embedding_Extraction.py": QT_TRANSLATE_NOOP("Tools", "Embedding Extraction"),
+    "Network_Injection.py": QT_TRANSLATE_NOOP("Tools", "Network Injection"),
+    "Network_Extraction.py": QT_TRANSLATE_NOOP("Tools", "Network Extraction"),
+    "Embedding_PWA.py": QT_TRANSLATE_NOOP("Tools", "Pairwise Embedding Alignment"),
+    "Embedding_SSEARCH.py": QT_TRANSLATE_NOOP("Tools", "Embedding Database Search"),
+    "Align_Similarity_Matrix.py": QT_TRANSLATE_NOOP("Tools", "Dynamic Programming Embedding Alignment"),
+    "Align_Substitution_Matrix.py": QT_TRANSLATE_NOOP("Tools", "Substitution Matrix Alignment"),
+    "Parse_BLAST_Output.py": QT_TRANSLATE_NOOP("Tools", "Parse BLAST Output"),
+    "Sanitize_Sequences.py": QT_TRANSLATE_NOOP("Tools", "Sanitize Sequences"),
+    "Generate_Embeddings.py": QT_TRANSLATE_NOOP("Tools", "Generate Embeddings"),
+    "Embedding_Cropping.py": QT_TRANSLATE_NOOP("Tools", "Embedding Cropping"),
+}
+# The Lucide icon (src/resources/icons/lucide) beside each tool card's title,
+# and before its help page's title.
+TOOL_ICONS = {
+    "Embedding_MSA.py": "dna",
+    "Sparse_MSA_Converter.py": "trending-down",
+    "Embedding_Injection.py": "dna",
+    "Embedding_Extraction.py": "file-output",
+    "Network_Injection.py": "dna",
+    "Network_Extraction.py": "file-output",
+    "Embedding_PWA.py": "dna",
+    "Embedding_SSEARCH.py": "search",
+    "Align_Similarity_Matrix.py": "dna",
+    "Align_Substitution_Matrix.py": "dna",
+    "Parse_BLAST_Output.py": "search",
+    "Sanitize_Sequences.py": "sparkles",
+    "Generate_Embeddings.py": "dna",
+    "Embedding_Cropping.py": "scissors",
+}
+# Cards and help headings that name no tool.
+BENCHMARK_ICON = "timer"
+DIRECTORIES_ICON = "folder-open"
+INTERNAL_DOCUMENTATION_ICON = "file-text"
+MISSING_DOCUMENTATION_ICON = "triangle-alert"
+# The help pages' headings that name no script, in English and in each
+# translation that ships: the help panel draws the icon before each. A help
+# page's title that names its script gets the tool's icon from TOOL_ICONS.
+HELP_HEADING_ICONS = {
+    "Input": "file-input", "输入": "file-input",
+    "Output": "file-output", "输出": "file-output",
+    "Parameters": "settings", "参数": "settings",
+    "Stages": "settings", "阶段": "settings",
+    "Benchmark": BENCHMARK_ICON, "基准测试": BENCHMARK_ICON,
 }
 
 # The benchmark (src/resources/benchmark) has a card of its own at the end of
@@ -474,7 +492,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QPushButton, QMessageBox, QLabel, QScrollArea, QTextEdit,
                              QTextBrowser, QSplitter, QComboBox, QSlider, QDoubleSpinBox, 
                              QSpinBox, QFileDialog, QStyle, QStyleOptionSlider,
-                             QSizePolicy, QFrame, QInputDialog)
+                             QSizePolicy, QFrame, QInputDialog, QStackedWidget)
 from PySide6.QtCore import QEvent, Qt
 from desktop.Desktop_App import ResponsiveFieldLayout
 
@@ -491,14 +509,14 @@ except ImportError as exc:
     QWebEngineView = object
     QTWEBENGINE_IMPORT_ERROR = str(exc)
 
-from PySide6.QtGui import QColor, QIcon, QPalette
+from PySide6.QtGui import QColor, QIcon
 from desktop.Desktop_App import (
     MONOSPACE_QSS_FONT_STACK,
     UI_QSS_FONT_STACK,
     add_combo_options,
+    apply_studio_theme,
     combo_value,
     configure_qt_application_fonts,
-    force_light_palette,
     choose_language,
     install_translations,
     installed_language,
@@ -508,6 +526,16 @@ from desktop.Desktop_App import (
     redraw_in_language,
     select_combo_value,
     startup_language,
+)
+from desktop.Studio_Theme import (
+    TOKENS,
+    CardShadows,
+    IconLabel,
+    add_hint_icon,
+    icon_button,
+    icon_svg,
+    prepare_tab_widget,
+    set_role,
 )
 
 
@@ -548,27 +576,6 @@ def confirm_model_usage_terms(parent, model_name, terms):
             return False
         record_model_license_acceptance(model_name, terms)
         return True
-
-
-def apply_gated_input_palette(widget):
-    """Grey disabled inputs without replacing their native control theme."""
-    palette = widget.palette()
-    disabled = QPalette.ColorGroup.Disabled
-    for role in (
-        QPalette.ColorRole.Base,
-        QPalette.ColorRole.AlternateBase,
-        QPalette.ColorRole.Button,
-        QPalette.ColorRole.Window,
-    ):
-        palette.setColor(disabled, role, QColor("#f0f0f0"))
-    for role in (
-        QPalette.ColorRole.Text,
-        QPalette.ColorRole.ButtonText,
-        QPalette.ColorRole.WindowText,
-        QPalette.ColorRole.PlaceholderText,
-    ):
-        palette.setColor(disabled, role, QColor("#888888"))
-    widget.setPalette(palette)
 
 
 def _selection_supports_tf32(device_selection, candidates=None):
@@ -705,11 +712,12 @@ class ResponsiveTextBrowser(QWebEngineView):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setZoomFactor(1.0)
-        # Set a white background on the widget itself to prevent black flash during Chromium init
-        self.setStyleSheet("background-color: #ffffff;")
-        self.page().setBackgroundColor(QColor(255, 255, 255))
-        # Warm up the Chromium renderer with a blank white page
-        super().setHtml("<html><body style='background:#fff'></body></html>")
+        # The window's colour shows until Chromium draws its first page (never
+        # a black flash), and around the page's rounded card after.
+        self.setAutoFillBackground(True)
+        self.page().setBackgroundColor(QColor(TOKENS["window"]))
+        # Warm up the Chromium renderer with a blank page in that colour
+        super().setHtml(f"<html><body style='background:{TOKENS['window']}'></body></html>")
         
     def setReadOnly(self, read_only):
         pass
@@ -727,37 +735,85 @@ class ResponsiveTextBrowser(QWebEngineView):
 
         Its links are relative to src/resources/, the baseUrl setHtml gives it.
         """
-        github_style = """
+        # The page is a card, as the settings beside it are (desktop.Studio_Theme):
+        # the card scrolls inside its border, the window's colour around its
+        # corners, and every colour is one of the theme's tokens.
+        page_style = """
+        html, body {
+            margin: 0;
+            height: 100%;
+            background: __WINDOW__;
+        }
         body {
             font-family: __UI_FONT_STACK__;
             font-size: 13.5px;
             line-height: 1.5;
-            color: #24292e;
-            background-color: #ffffff;
-            padding: 24px;
+            color: __TEXT_SOFT__;
+        }
+        .help-card {
+            position: fixed;
+            inset: 0;
+            overflow: auto;
+            box-sizing: border-box;
+            background: __SURFACE__;
+            border: 1px solid __BORDER__;
+            border-radius: __RADIUS_CARD__px;
+        }
+        /* Scroll bars as the window's: an 8 px handle, 2 px from the edge, kept off the corners. */
+        .help-card::-webkit-scrollbar { width: 10px; height: 10px; }
+        .help-card::-webkit-scrollbar-track { background: transparent; margin: 6px; }
+        .help-card::-webkit-scrollbar-corner { background: transparent; }
+        .help-card::-webkit-scrollbar-thumb {
+            background-color: __SCROLL__;
+            background-clip: padding-box;
+            border: 0px solid transparent;
+            border-radius: 5px;
+        }
+        .help-card::-webkit-scrollbar-thumb:vertical { border-right-width: 2px; min-height: 32px; }
+        .help-card::-webkit-scrollbar-thumb:horizontal { border-bottom-width: 2px; min-width: 32px; }
+        .help-card::-webkit-scrollbar-thumb:hover { background-color: __TEXT_DISABLED__; }
+        .help-page {
+            padding: 20px 24px 24px;
             max-width: 800px;
             min-width: 600px;
             margin: 0 auto;
+        }
+        .help-page > :first-child {
+            margin-top: 0;
         }
         h1, h2, h3, h4, h5, h6 {
             margin-top: 24px;
             margin-bottom: 16px;
             font-weight: 600;
             line-height: 1.25;
-            color: #1f2328;
+            color: __TEXT__;
         }
         h1 {
             font-size: 1.8em;
             padding-bottom: 0.3em;
-            border-bottom: 1px solid #d0d7de;
+            border-bottom: 1px solid __BORDER__;
         }
         h2 {
             font-size: 1.4em;
             padding-bottom: 0.3em;
-            border-bottom: 1px solid #d0d7de;
+            border-bottom: 1px solid __BORDER__;
         }
         h3 {
             font-size: 1.15em;
+        }
+        /* A heading's Lucide icon (add_help_heading_icons), drawn in the colour set here. */
+        .heading-icon {
+            display: inline-block;
+            width: 0.95em;
+            height: 0.95em;
+            margin-right: 0.4em;
+            vertical-align: -0.12em;
+            color: __TEXT_SUBTLE__;
+        }
+        .heading-icon svg {
+            display: block;
+            width: 100%;
+            height: 100%;
         }
         p, ul, ol {
             margin-top: 0;
@@ -766,22 +822,25 @@ class ResponsiveTextBrowser(QWebEngineView):
         li {
             margin-top: 0.25em;
         }
+        a {
+            color: __ACCENT__;
+        }
         code {
             font-family: __MONOSPACE_FONT_STACK__;
             font-size: 85%;
-            background-color: #f6f8fa;
+            background-color: __SURFACE_MUTED__;
             padding: 2px 4px;
             border-radius: 4px;
-            color: #1f2328;
+            color: __TEXT__;
         }
         pre {
             font-family: __MONOSPACE_FONT_STACK__;
             font-size: 85%;
             padding: 16px;
             line-height: 1.45;
-            background-color: #f6f8fa;
-            border-radius: 6px;
-            border: 1px solid #d0d7de;
+            background-color: __WINDOW__;
+            border-radius: __RADIUS__px;
+            border: 1px solid __BORDER__;
             margin-bottom: 16px;
             overflow: auto;
         }
@@ -791,50 +850,55 @@ class ResponsiveTextBrowser(QWebEngineView):
         }
         table {
             border-collapse: collapse;
-            border: 1px solid #d0d7de;
+            border: 1px solid __BORDER__;
             width: 100%;
             margin-top: 0;
             margin-bottom: 16px;
         }
         table th {
             font-weight: 600;
-            background-color: #f6f8fa;
-            border: 1px solid #d0d7de;
+            color: __TEXT__;
+            background-color: __WINDOW__;
+            border: 1px solid __BORDER__;
             padding: 6px 10px;
             text-align: left;
         }
         table td {
-            border: 1px solid #d0d7de;
+            border: 1px solid __BORDER__;
             padding: 6px 10px;
             text-align: left;
         }
         details {
-            border: 1px solid #d0d7de;
-            border-radius: 6px;
+            border: 1px solid __BORDER__;
+            border-radius: __RADIUS__px;
             padding: 12px 16px;
             margin-top: 15px;
             margin-bottom: 15px;
-            background-color: #f6f8fa;
+            background-color: __WINDOW__;
         }
         summary {
-            font-weight: bold;
+            font-weight: 600;
             font-size: 110%;
             cursor: pointer;
-            color: #0969da;
+            color: __ACCENT__;
             outline: none;
         }
         details[open] {
-            background-color: #ffffff;
+            background-color: __SURFACE__;
         }
         details[open] summary {
-            border-bottom: 1px solid #d0d7de;
+            border-bottom: 1px solid __BORDER__;
             padding-bottom: 8px;
             margin-bottom: 12px;
         }
-        """.replace("__UI_FONT_STACK__", UI_QSS_FONT_STACK).replace(
-            "__MONOSPACE_FONT_STACK__", MONOSPACE_QSS_FONT_STACK
-        )
-        
+        """
+        for name, value in (
+            ("UI_FONT_STACK", UI_QSS_FONT_STACK),
+            ("MONOSPACE_FONT_STACK", MONOSPACE_QSS_FONT_STACK),
+            *((token.upper(), value) for token, value in TOKENS.items()),
+        ):
+            page_style = page_style.replace(f"__{name}__", str(value))
+
         # A language with a bundled font draws its script in it; English stays as it was.
         tag = language_tag(language)
         return f"""
@@ -845,7 +909,7 @@ class ResponsiveTextBrowser(QWebEngineView):
             <link rel="stylesheet" href="fonts/fonts.css">
             <style>
                 {language_web_font_css(language, "fonts/desktop/")}
-                {github_style}
+                {page_style}
             </style>
             <!-- KaTeX is vendored under src/resources so math renders offline.
                  These paths are relative to the baseUrl set below. -->
@@ -863,7 +927,9 @@ class ResponsiveTextBrowser(QWebEngineView):
                     }});"></script>
         </head>
         <body>
+            <div class="help-card"><main class="help-page">
             {html_content}
+            </main></div>
         </body>
         </html>
         """
@@ -928,7 +994,6 @@ class NoScrollSpinBox(QSpinBox):
         super().__init__(*args, **kwargs)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumHeight(28)
-        self.setStyleSheet("QSpinBox:disabled { background-color: #f0f0f0; color: #888; }")
     def wheelEvent(self, e):
         e.ignore()
 
@@ -937,7 +1002,6 @@ class NoScrollDoubleSpinBox(QDoubleSpinBox):
         super().__init__(*args, **kwargs)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setMinimumHeight(28)
-        self.setStyleSheet("QDoubleSpinBox:disabled { background-color: #f0f0f0; color: #888; }")
     def wheelEvent(self, e):
         e.ignore()
 
@@ -969,7 +1033,6 @@ class HostCacheControl(QWidget):
         self.spinbox.setDecimals(1)
         self.spinbox.setSingleStep(1.0)
         self.spinbox.setFixedWidth(78)
-        apply_gated_input_palette(self.spinbox)
 
         control_layout.addWidget(self.auto_button)
         control_layout.addWidget(self.slider, 1)
@@ -1171,6 +1234,117 @@ def render_markdown_with_math(text):
         html = html.replace(f"<!--BLOCK_MATH_{i}-->", math_str)
 
     return html
+
+
+_HELP_HEADING = re.compile(r"<h([1-6])>(.*?)</h\1>", re.S)
+_HELP_HEADING_SCRIPT = re.compile(r"<code>([\w.]+\.py)</code>")
+
+
+def inline_icon_svg(name):
+    """A bundled Lucide icon as one line of inline SVG, its strokes in the CSS colour (currentColor)."""
+    svg = re.sub(r"<!--.*?-->", "", icon_svg(name), flags=re.S)
+    svg = re.sub(r">\s+<", "><", " ".join(svg.split()))
+    return svg.replace("<svg ", '<svg aria-hidden="true" focusable="false" ', 1)
+
+
+def add_help_heading_icons(page_html, headings=None):
+    """Put an icon before each heading of a rendered help page that has one.
+
+    A heading that names a tool's script, as a help page's title does, gets
+    the tool's icon (TOOL_ICONS). Any other heading whose text is in
+    HELP_HEADING_ICONS, or in ``headings`` (its text to an icon's name), gets
+    that icon. The Markdown stays plain: the icons are added to its HTML.
+    """
+    known = {**HELP_HEADING_ICONS, **(headings or {})}
+
+    def with_icon(match):
+        level, inner = match.groups()
+        script = _HELP_HEADING_SCRIPT.search(inner)
+        if script:
+            name = TOOL_ICONS.get(script.group(1))
+        else:
+            name = known.get(html.unescape(re.sub(r"<[^>]+>", "", inner)).strip())
+        if not name:
+            return match.group(0)
+        icon = f'<span class="heading-icon">{inline_icon_svg(name)}</span>'
+        return f"<h{level}>{icon}{inner}</h{level}>"
+
+    return _HELP_HEADING.sub(with_icon, page_html)
+
+
+class ToolTitleLabel(QLabel):
+    """A card's title, after its icon.
+
+    The icon sits in the label's left margin, so the title starts where the
+    card's fields start and its text follows the icon. The icon stays level
+    with the first line when the title wraps.
+    """
+
+    def __init__(self, text, icon_name, parent=None):
+        super().__init__(text, parent)
+        self.setObjectName("toolTitle")
+        set_role(self, "title")
+        self.icon = IconLabel(icon_name, TOOL_TITLE_ICON_SIZE, parent=self)
+        self.icon.setObjectName("toolTitleIcon")
+        self.icon.setProperty("iconName", icon_name)
+        self.setContentsMargins(TOOL_TITLE_ICON_SIZE + TOOL_TITLE_ICON_GAP, 0, 0, 0)
+
+    def _place_icon(self):
+        contents = self.contentsRect()
+        metrics = self.fontMetrics()
+        line = metrics.height()
+        text = line
+        if self.wordWrap():
+            text = metrics.boundingRect(contents, Qt.TextFlag.TextWordWrap, self.text()).height()
+        top = contents.top() + max(0, (contents.height() - text) // 2)
+        self.icon.move(0, top + (line - TOOL_TITLE_ICON_SIZE) // 2)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_icon()
+
+
+def tool_tab_page():
+    """A tab's scrolling page, (scroll area, page, its layout): sections on the tab's card."""
+    page = QWidget()
+    scroll = QScrollArea()
+    scroll.setWidgetResizable(True)
+    scroll.setFrameShape(QFrame.Shape.NoFrame)
+    scroll.setWidget(page)
+    layout = QVBoxLayout(page)
+    margin = TOOLS_TAB_CONTENT_MARGIN
+    layout.setContentsMargins(margin, margin, margin, margin)
+    layout.setSpacing(0)
+    return scroll, page, layout
+
+
+def tool_section():
+    """A tool's section of a tab, (frame, its form): drawn on the tab's card, not a card itself."""
+    section = QFrame()
+    section.setObjectName("toolSectionCard")
+    layout = QFormLayout(section)
+    layout.setContentsMargins(0, 0, 0, 0)
+    layout.setHorizontalSpacing(TOOLS_FORM_HORIZONTAL_SPACING)
+    layout.setVerticalSpacing(TOOLS_FORM_ROW_SPACING)
+    return section, layout
+
+
+def add_tool_section(page_layout, section):
+    """Add a section to a tab's page, after a hairline if a section comes before it."""
+    if page_layout.count():
+        wrapper = QWidget()
+        wrapper_layout = QVBoxLayout(wrapper)
+        padding = TOOLS_SECTION_SEPARATOR_PADDING
+        wrapper_layout.setContentsMargins(0, padding, 0, padding)
+        separator = QFrame()
+        separator.setObjectName("toolSectionSeparator")
+        separator.setFrameShape(QFrame.Shape.NoFrame)
+        separator.setFixedHeight(1)
+        separator.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        set_role(separator, "separator")
+        wrapper_layout.addWidget(separator)
+        page_layout.addWidget(wrapper)
+    page_layout.addWidget(section)
 
 
 def _saved_settings_document():
@@ -2188,55 +2362,57 @@ class ToolsGUI(QMainWindow):
         self.left_top_layout = QVBoxLayout(self.left_top_widget)
         self.left_top_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.tabs = QTabWidget()
+        self.tabs = prepare_tab_widget(QTabWidget())
         self.left_top_layout.addWidget(self.tabs)
         
         # Left Bottom: Tip Panel & Action Buttons
         self.left_bottom_widget = QWidget()
         self.left_bottom_layout = QVBoxLayout(self.left_bottom_widget)
         self.left_bottom_layout.setContentsMargins(0, 0, 0, 0)
-        
+        self.left_bottom_layout.setSpacing(TOKENS["card_gap"])
+
         self.tip_panel = SpacedTipLabel(translate("Tools", "Hover or focus on an input to see its description."))
         self.tip_panel.setWordWrap(True)
         self.tip_panel.setMinimumHeight(20)
-        self.tip_panel.setStyleSheet("color: #444; font-style: normal; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
-        self.left_bottom_layout.addWidget(self.tip_panel)
-        
+        add_hint_icon(self.tip_panel)
+        self.left_bottom_layout.addWidget(self.tip_panel, 1)
+
         btn_layout = QHBoxLayout()
-        btn_exit = QPushButton(translate("Tools", "Exit"))
+        btn_exit = set_role(QPushButton(translate("Tools", "Exit")), "ghost")
         btn_exit.clicked.connect(self.close)
         btn_layout.addStretch()
         btn_layout.addWidget(btn_exit)
         self.left_bottom_layout.addLayout(btn_layout)
-        
+
         self.left_split.addWidget(self.left_top_widget)
         self.left_split.addWidget(self.left_bottom_widget)
-        
-        # Explicitly force the initial pixel heights (tabs get 450px, bottom gets 200px)
-        self.left_split.setSizes([450, 200])
-        
+
+        # The initial heights: the tabs get most of the room, the help card a few lines.
+        self.left_split.setSizes([500, 150])
+
         # Ensure that if the user resizes the window, extra space goes to the tabs
         self.left_split.setStretchFactor(0, 1)
         self.left_split.setStretchFactor(1, 0)
-        
+
         # --- RIGHT SIDE SETUP ---
         self.right_widget = QWidget()
         self.right_panel = QVBoxLayout(self.right_widget)
+        self.right_panel.setContentsMargins(0, 0, 0, 0)
+        self.right_panel.setSpacing(TOKENS["card_gap"])
         self.splitter.addWidget(self.right_widget)
-        
+
         # Set initial partition to 70% main panel (left) and 30% side panel (right)
         self.splitter.setSizes([70, 30])
         self.splitter.setStretchFactor(0, 7)
         self.splitter.setStretchFactor(1, 3)
-        
-        self.desc_title = QLabel(translate("Tools", "Script Description"))
-        self.desc_title.setStyleSheet("font-weight: bold; font-size: 14px; margin-bottom: 5px;")
-        self.desc_title.setFixedHeight(25)
+
+        # Level with the tab bar once the tabs exist (_align_help_with_tabs).
+        self.desc_title = set_role(QLabel(translate("Tools", "Script Description")), "title")
         self.right_panel.addWidget(self.desc_title, 0)
-        
+
+        # The help page draws its own card (ResponsiveTextBrowser.page_html).
         self.script_desc_text = ResponsiveTextBrowser()
         self.script_desc_text.setReadOnly(True)
-        self.script_desc_text.setStyleSheet("background-color: #ffffff; border: 1px solid #cbd5e1; border-radius: 4px;")
         font = self.script_desc_text.font()
         font.setPointSize(10)
         self.script_desc_text.setFont(font)
@@ -2244,7 +2420,7 @@ class ToolsGUI(QMainWindow):
         self.language_selector = LanguageSelector()
         self.language_selector.language_chosen.connect(lambda setting: choose_language(self, setting))
         self.right_panel.addLayout(language_selector_row(self.language_selector))
-        
+
         self.script_data = {} 
         self.tab_paths = [] 
         self._tool_form_layouts = []
@@ -2271,6 +2447,7 @@ class ToolsGUI(QMainWindow):
         self._prepare_responsive_controls()
         self._align_all_tool_cards()
         self._harmonize_tab_page_widths()
+        self._align_help_with_tabs()
         self._route_native_tooltips_to_tip_panel()
 
     def report_settings_load_error(self):
@@ -2289,6 +2466,15 @@ class ToolsGUI(QMainWindow):
             ).format(error=self.settings_load_error),
         )
 
+    def _align_help_with_tabs(self):
+        """Start the help card level with the tabs' card, and shade both cards."""
+        bar = self.tabs.tabBar()
+        bar.ensurePolished()
+        self.desc_title.setFixedHeight(bar.sizeHint().height())
+        self._card_shadows = CardShadows(
+            self.central_widget, [self.tabs.findChild(QStackedWidget), self.script_desc_text]
+        )
+
     def _route_native_tooltips_to_tip_panel(self):
         """Route every native widget tooltip through the shared help panel."""
         for widget in self.findChildren(QWidget):
@@ -2296,33 +2482,19 @@ class ToolsGUI(QMainWindow):
                 widget.installEventFilter(self)
     
     def create_directories_tab(self):
-        tab = QWidget()
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(tab)
-        
-        main_layout = QVBoxLayout(tab)
-        
-        form_widget = QFrame()
-        form_widget.setObjectName("toolSectionCard")
-        form_widget.setStyleSheet(SECTION_CARD_STYLE)
-        layout = QFormLayout(form_widget)
-        layout.setHorizontalSpacing(30)
-        layout.setVerticalSpacing(12)
-        
+        scroll, tab, main_layout = tool_tab_page()
+        form_widget, layout = tool_section()
+
         header = QWidget()
         header.setObjectName("toolHeader")
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(0)
 
-        desc_label = QLabel(translate("Tools", "📂 Global Directory Settings"))
-        desc_label.setObjectName("toolTitle")
-        desc_label.setStyleSheet(PRIMARY_TITLE_STYLE)
+        desc_label = ToolTitleLabel(translate("Tools", "Global Directory Settings"), DIRECTORIES_ICON)
 
-        btn_save = QPushButton(translate("Tools", "Save Directories"))
+        btn_save = set_role(QPushButton(translate("Tools", "Save Directories")), "primary")
         btn_save.setObjectName("saveDirectoriesButton")
-        btn_save.setStyleSheet(action_button_stylesheet("#4CAF50"))
         fit_buttons_to_text(btn_save)
         btn_save.clicked.connect(self.save_directories)
 
@@ -2380,11 +2552,10 @@ class ToolsGUI(QMainWindow):
             
             clean_val_str = str(current_val).replace('r"', '"').replace("r'", "'").strip("\"'")
             le = QLineEdit(clean_val_str)
-            open_button = QPushButton("📂")
+            open_button = icon_button("folder-open", translate("Tools", "Open Folder"))
             open_button.setFixedWidth(30)
-            open_button.setToolTip(translate("Tools", "Open Folder"))
             open_button.setEnabled(bool(le.text().strip()))
-            btn = QPushButton(translate("Tools", "Browse..."))
+            btn = set_role(QPushButton(translate("Tools", "Browse...")), "compact")
 
             def open_selected_folder(checked=False, line_edit=le):
                 raw_path = line_edit.text().strip()
@@ -2431,10 +2602,10 @@ class ToolsGUI(QMainWindow):
             lbl.installEventFilter(self)
             le.installEventFilter(self)
             
-        main_layout.addWidget(form_widget)
+        add_tool_section(main_layout, form_widget)
         main_layout.addStretch() # Pushes the form strictly to the top
         self._tool_form_layouts.append(layout)
-        
+
         self.tabs.addTab(scroll, translate("Tools", "Directories"))
         self.tab_paths.append("DIRECTORIES_TAB")
 
@@ -2496,8 +2667,9 @@ class ToolsGUI(QMainWindow):
             path = self.tab_paths[index]
             if path == "DIRECTORIES_TAB":
                 # The Markdown stays in the code; only the words are translated.
+                heading = translate("Tools", "Global Directory Settings")
                 dir_md = "## {heading}\n\n{text}".format(
-                    heading=translate("Tools", "📂 Global Directory Settings"),
+                    heading=heading,
                     text=translate(
                         "Tools",
                         "Define paths to folders used globally across the SSN tool scripts. "
@@ -2506,7 +2678,7 @@ class ToolsGUI(QMainWindow):
                 )
                 dir_html = render_markdown_with_math(dir_md)
                 dir_html = dir_html.replace("<table>", '<table border="1" cellpadding="6" style="border-collapse: collapse;">')
-                self.script_desc_text.setHtml(dir_html)
+                self.script_desc_text.setHtml(add_help_heading_icons(dir_html, {heading: DIRECTORIES_ICON}))
                 return
                 
             # Get the exact name of the current tab
@@ -2526,6 +2698,8 @@ class ToolsGUI(QMainWindow):
             alt_md_path = os.path.join(Help_Pages.HELP_PAGES_DIR, alt_md_name)
             
             markdown_content = ""
+            # Headings this window writes; a help page's own come from HELP_HEADING_ICONS.
+            headings = {translate("Tools", "Benchmark"): BENCHMARK_ICON}
             
             # Try the exact Markdown file, then the underscore version. Each
             # shows in the window's language when it has a current translation.
@@ -2540,14 +2714,18 @@ class ToolsGUI(QMainWindow):
                 docstring = s_data.get('docstring', '')
                 
                 if docstring.strip():
+                    heading = translate("Tools", "Internal Documentation")
+                    headings[heading] = INTERNAL_DOCUMENTATION_ICON
                     markdown_content = "## {heading}\n\n```text\n{docstring}\n```".format(
-                        heading=translate("Tools", "📄 Internal Documentation"),
+                        heading=heading,
                         docstring=docstring.strip(),
                     )
                 else:
                     # Final placeholder if absolutely nothing is found
+                    heading = translate("Tools", "Documentation Missing")
+                    headings[heading] = MISSING_DOCUMENTATION_ICON
                     markdown_content = "## {heading}\n\n{missing}\n\n{add_one}\n\n`{path}`".format(
-                        heading=translate("Tools", "⚠️ Documentation Missing"),
+                        heading=heading,
                         missing=translate("Tools", "No documentation file found for this tab."),
                         add_one=translate("Tools", "To add one, create a Markdown document at:"),
                         path=os.path.join('src', 'tools', 'tool_descriptions', md_name),
@@ -2555,7 +2733,7 @@ class ToolsGUI(QMainWindow):
             
             html_content = render_markdown_with_math(markdown_content.strip())
             html_content = html_content.replace("<table>", '<table border="1" cellpadding="6" style="border-collapse: collapse;">')
-            self.script_desc_text.setHtml(html_content)
+            self.script_desc_text.setHtml(add_help_heading_icons(html_content, headings))
             
     def _populate_script_layout(
         self,
@@ -2901,9 +3079,8 @@ class ToolsGUI(QMainWindow):
                     if idx >= 0: combo.setCurrentIndex(idx)
                 
                 # Add the folder button
-                btn = QPushButton("📂")
+                btn = icon_button("folder-open", translate("Tools", "Open Folder"))
                 btn.setFixedWidth(30)
-                btn.setToolTip(translate("Tools", "Open Folder"))
                 def open_folder(checked, dk=dir_key, df=folder):
                     import os
                     from PySide6.QtGui import QDesktopServices
@@ -3020,7 +3197,7 @@ class ToolsGUI(QMainWindow):
                 clean_val_str = str(actual_val).replace('r"', '"').replace("r'", "'").strip("\"'")
                 
                 le = QLineEdit(clean_val_str)
-                btn = QPushButton(translate("Tools", "Browse..."))
+                btn = set_role(QPushButton(translate("Tools", "Browse...")), "compact")
                 
                 def open_folder_dialog(checked=False, line_edit=le):
                     folder = QFileDialog.getExistingDirectory(
@@ -3047,7 +3224,6 @@ class ToolsGUI(QMainWindow):
             ui_element.installEventFilter(self)
             
             label = QLabel(s_def['display'])
-            label.setStyleSheet("QLabel:disabled { color: #888; }")
             self.tip_db[label] = tip
             label.installEventFilter(self)
             
@@ -3500,13 +3676,7 @@ class ToolsGUI(QMainWindow):
                 model_label = row_widgets.get(
                     "EMBEDDING_MODEL", (None, None)
                 )[0]
-                apply_gated_input_palette(embedding_set_combo)
-                for gated_widget in (
-                    ref_sequence,
-                    tar_sequence,
-                    model_combo,
-                ):
-                    apply_gated_input_palette(gated_widget)
+                # A gated field looks disabled through the theme's :disabled rules.
                 previous_embedding_set = embedding_set_combo.currentText()
 
                 def sync_manual_pairwise_controls():
@@ -3562,7 +3732,6 @@ class ToolsGUI(QMainWindow):
                 query_sequence_label = row_widgets.get(
                     "QUERY_SEQUENCE", (None, None)
                 )[0]
-                apply_gated_input_palette(query_sequence)
 
                 def sync_manual_query_control(checked):
                     query_sequence.setEnabled(checked)
@@ -3660,18 +3829,16 @@ class ToolsGUI(QMainWindow):
                 script_name,
                 script_name.removesuffix(".py").replace("_", " "),
             )
-        title_label = QLabel(tool_title)
-        title_label.setObjectName("toolTitle")
-        title_label.setStyleSheet(PRIMARY_TITLE_STYLE)
+        title_label = ToolTitleLabel(tool_title, TOOL_ICONS.get(script_name, "wrench"))
 
-        btn_run = QPushButton(translate("Tools", "Save && Run"))
+        # Running is the card's main action; Export a secondary one.
+        btn_run = set_role(QPushButton(translate("Tools", "Save && Run")), "primary")
         btn_run.setObjectName("saveRunButton")
         btn_run.setToolTip(translate(
             "Tools",
             "Save the current tool settings to the shared settings file "
             "and run this tool.",
         ))
-        btn_run.setStyleSheet(action_button_stylesheet("#4CAF50"))
         btn_run.clicked.connect(
             lambda checked, sp=script_path: self.save_and_run(sp)
         )
@@ -3686,7 +3853,6 @@ class ToolsGUI(QMainWindow):
             "command that runs the tool from it. The shared settings file is not "
             "changed, and the tool does not run.",
         ))
-        btn_export.setStyleSheet(action_button_stylesheet("#3498DB"))
         btn_export.clicked.connect(
             lambda checked, sp=script_path: self.export_settings(sp)
         )
@@ -3858,6 +4024,8 @@ class ToolsGUI(QMainWindow):
 
     def _prepare_responsive_controls(self):
         for combo in self.findChildren(QComboBox):
+            if isinstance(combo, LanguageSelector):
+                continue  # It fits its entries, beside the row's stretch.
             combo.setMinimumContentsLength(12)
             combo.setSizeAdjustPolicy(
                 QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -3882,13 +4050,8 @@ class ToolsGUI(QMainWindow):
         tab_key,
         scripts_dict,
     ):
-        tab = QWidget()
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setWidget(tab)
-        
-        main_layout = QVBoxLayout(tab)
-        
+        scroll, tab, main_layout = tool_tab_page()
+
         combined_docstring = ""
         script_idx = 0
         
@@ -3905,13 +4068,7 @@ class ToolsGUI(QMainWindow):
             docstring = ast.get_docstring(tree) or ""
             if not combined_docstring: combined_docstring = docstring
                 
-            form_widget = QFrame()
-            form_widget.setObjectName("toolSectionCard")
-            form_widget.setStyleSheet(SECTION_CARD_STYLE)
-            layout = QFormLayout(form_widget)
-            layout.setHorizontalSpacing(30)
-            layout.setVerticalSpacing(12)
-            
+            form_widget, layout = tool_section()
             layout.addRow(self._create_tool_header(script_name, script_path))
             
             self._populate_script_layout(
@@ -3922,13 +4079,13 @@ class ToolsGUI(QMainWindow):
                 source,
                 tree,
             )
-            main_layout.addWidget(form_widget)
+            add_tool_section(main_layout, form_widget)
             self._tool_form_layouts.append(layout)
             script_idx += 1
 
         if tab_key == BENCHMARK_TAB:
             benchmark_card, benchmark_layout = self._create_benchmark_card()
-            main_layout.addWidget(benchmark_card)
+            add_tool_section(main_layout, benchmark_card)
             self._tool_form_layouts.append(benchmark_layout)
 
         main_layout.addStretch()
@@ -3950,12 +4107,7 @@ class ToolsGUI(QMainWindow):
         The header holds one button, as narrow as a tool card's two, so the
         card shares every card's left section without widening it.
         """
-        card = QFrame()
-        card.setObjectName("toolSectionCard")
-        card.setStyleSheet(SECTION_CARD_STYLE)
-        layout = QFormLayout(card)
-        layout.setHorizontalSpacing(30)
-        layout.setVerticalSpacing(12)
+        card, layout = tool_section()
 
         header = QWidget()
         header.setObjectName("toolHeader")
@@ -3963,18 +4115,15 @@ class ToolsGUI(QMainWindow):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(0)
 
-        title_label = QLabel(translate("Tools", "⏱️ Benchmark"))
-        title_label.setObjectName("toolTitle")
-        title_label.setStyleSheet(PRIMARY_TITLE_STYLE)
+        title_label = ToolTitleLabel(translate("Tools", "Benchmark"), BENCHMARK_ICON)
 
-        run_button = QPushButton(translate("Tools", "Run Benchmark"))
+        run_button = set_role(QPushButton(translate("Tools", "Run Benchmark")), "primary")
         run_button.setObjectName("runBenchmarkButton")
         run_button.setToolTip(translate(
             "Tools",
             "Time EMAP-SSN's heavy calculations on the bundled sequence set and "
             "write a report. It asks before it starts.",
         ))
-        run_button.setStyleSheet(action_button_stylesheet("#4CAF50"))
         fit_buttons_to_text(run_button)
         run_button.clicked.connect(self.run_benchmark)
 
@@ -4000,10 +4149,9 @@ class ToolsGUI(QMainWindow):
         folder_layout.setContentsMargins(0, 0, 0, 0)
         folder_edit = QLineEdit(os.path.normpath(BENCHMARK_DIR))
         folder_edit.setReadOnly(True)
-        open_button = QPushButton("📂")
+        open_button = icon_button("folder-open", translate("Tools", "Open Folder"))
         open_button.setObjectName("openBenchmarkFolderButton")
         open_button.setFixedWidth(30)
-        open_button.setToolTip(translate("Tools", "Open Folder"))
         open_button.clicked.connect(self.open_benchmark_folder)
         folder_layout.addWidget(folder_edit)
         folder_layout.addWidget(open_button)
@@ -4570,9 +4718,9 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
         
     try:
-        force_light_palette(app)
+        apply_studio_theme(app)
     except Exception as e:
-        print(f"Warning: Could not force light palette: {e}")
+        print(f"Warning: Could not apply the window theme: {e}")
         app.setStyle("Fusion")
     window = ToolsGUI()
     window.single_instance = single_instance  # a language redraw hands it on

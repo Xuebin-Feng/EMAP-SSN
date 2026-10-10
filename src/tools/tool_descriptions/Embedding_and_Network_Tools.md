@@ -1,8 +1,8 @@
-# 🧬 Embedding Injection (`Embedding_Injection.py`)
+# Embedding Injection (`Embedding_Injection.py`)
 
 This script injects new sequence embeddings into an existing HDF5 embedding database. It scans the incoming FASTA sequence list, extracts pre-computed embeddings directly from the database for existing matches, and computes embeddings only for the newly added sequences to optimize compute time.
 
-### 📥 Input
+### Input
 
 #### Target Embedding Database `INPUT_EMBED`
 *   **Format**: Complete metadata-first HDF5 database (`.h5`) with `/headers`, `/sequences`, `/embeddings`, `model_name`, `saving_mode`, `num_sequences`, and `generation_complete`.
@@ -13,11 +13,11 @@ This script injects new sequence embeddings into an existing HDF5 embedding data
 *   **Created By**: User-compiled updated sequence set.
 *   **Sanitization**: Records are sanitized automatically in memory without header-substring or sequence-length filtering. A sanitization result is printed only when records change.
 
-### ⚙️ Parameters
+### Parameters
 
 This script does not require additional configuration parameters.
 
-### 📤 Output
+### Output
 
 #### Updated HDF5 Embedding Database
 *   **Format**: HDF5 (`.h5`).
@@ -53,11 +53,11 @@ This script does not require additional configuration parameters.
 
 ---
 
-# 📤 Embedding Extraction (`Embedding_Extraction.py`)
+# Embedding Extraction (`Embedding_Extraction.py`)
 
 This script extracts a subset of sequence embeddings from a master HDF5 database. By providing a list of target sequence headers (either as a FASTA or text file), it creates a smaller, filtered HDF5 embedding archive without running any model calculations.
 
-### 📥 Input
+### Input
 
 #### Source Embedding Database `INPUT_EMBED`
 *   **Format**: Complete metadata-first HDF5 embedding database (`.h5`).
@@ -68,11 +68,11 @@ This script extracts a subset of sequence embeddings from a master HDF5 database
 *   **Created By**: User-defined subset whitelist.
 *   **Validation**: FASTA records are sanitized exactly as in generation and their sequences must match the source metadata. Text lists sanitize headers and obtain sequences from the source.
 
-### ⚙️ Parameters
+### Parameters
 
 This script does not require additional configuration parameters.
 
-### 📤 Output
+### Output
 
 #### Extracted HDF5 Embedding Archive
 *   **Format**: HDF5 (`.h5`).
@@ -99,11 +99,11 @@ This script does not require additional configuration parameters.
 
 ---
 
-# 🧬 Network Injection (`Network_Injection.py`)
+# Network Injection (`Network_Injection.py`)
 
 This script performs incremental similarity network calculations. When new sequences are added to a project, it copies all pre-existing sequence-to-sequence alignment scores directly from the old network cache, aligning only the newly introduced sequence pairs to save time and compute resources.
 
-### 📥 Input
+### Input
 
 #### Target Network File `OLD_NETWORK`
 *   **Format**: Pre-existing HDF5 network database file (`.h5`).
@@ -113,7 +113,7 @@ This script performs incremental similarity network calculations. When new seque
 *   **Format**: Target HDF5 embedding database (`.h5`) containing all embeddings.
 *   **Created By**: `Embedding_Injection.py` (Embedding Injection utility).
 
-### ⚙️ Parameters
+### Parameters
 
 | Parameter | Description |
 | :--- | :--- |
@@ -125,7 +125,7 @@ This script performs incremental similarity network calculations. When new seque
 | Host Cache **`HOST_CACHE_GB`** | Maximum GiB used to retain packed embeddings across batches; `auto` applies a safe RAM budget capped at 128 GiB and `0` disables it. |
 | Matmul Precision | Inherited from `OLD_NETWORK`. Legacy networks are IEEE FP32; TF32 networks require NVIDIA CUDA so copied and new edges are never mixed. BF16 networks require a capable accelerator. Before calculating new edges, Network Injection prints a low-precision warning and reports FP32-relative alignment-length and raw-score statistics on up to 2,048 representative pairs; finite numerical differences never reject BF16. |
 
-### 📤 Output
+### Output
 
 #### Updated HDF5 Alignment Network
 *   **Format**: HDF5 (`.h5`).
@@ -161,11 +161,11 @@ This script performs incremental similarity network calculations. When new seque
 
 ---
 
-# 📤 Network Extraction (`Network_Extraction.py`)
+# Network Extraction (`Network_Extraction.py`)
 
 This script extracts sub-networks from a master HDF5 network based on a whitelist FASTA file. It retains only the alignment connections where both sequence nodes are in the whitelist, and re-indexes all remaining edge indices to produce a clean, self-contained filtered sub-network.
 
-### 📥 Input
+### Input
 
 #### Source Network File `INPUT_NET`
 *   **Format**: Master HDF5 network database file (`.h5`).
@@ -175,11 +175,11 @@ This script extracts sub-networks from a master HDF5 network based on a whitelis
 *   **Format**: Whitelist sequence FASTA file (`.fasta`) containing nodes to retain.
 *   **Created By**: User-defined subset whitelist.
 
-### ⚙️ Parameters
+### Parameters
 
 This script does not require additional configuration parameters.
 
-### 📤 Output
+### Output
 
 #### Extracted HDF5 Sub-Network Archive
 *   **Format**: HDF5 (`.h5`).

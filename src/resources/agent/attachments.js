@@ -37,7 +37,7 @@ function renderAttachments() {
         tile.appendChild(label);
         const remove = document.createElement('button');
         remove.type = 'button';
-        remove.textContent = '×';
+        remove.appendChild(icon('x'));  // The page's icon(), from its sprite.
         remove.setAttribute('aria-label', t('Remove attachment: {name}', {name: item.name}));
         remove.title = t('Remove attachment');
         remove.onclick = () => {

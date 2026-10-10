@@ -64,9 +64,10 @@ def activate(viewer):
     if hasattr(viewer, 'add_sidebar_button'):
         viewer.add_sidebar_button(
             "fold_view_btn",
-            translate("Viewer", "🧬 Fold View"),
+            translate("Viewer", "Fold View"),
             lambda: open_esmfold_ui(viewer),
-            translate("Viewer", "Open ESMFold & Mol* structure viewer")
+            translate("Viewer", "Open ESMFold & Mol* structure viewer"),
+            icon="dna",
         )
 
 

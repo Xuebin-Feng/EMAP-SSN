@@ -1,8 +1,8 @@
-# 🧬 Embedding Multiple Sequence Alignment (`Embedding_MSA.py`)
+# Embedding Multiple Sequence Alignment (`Embedding_MSA.py`)
 
 This script generates progressive Multiple Sequence Alignments (MSAs) using protein language model embeddings. It builds a complete guide-tree distance matrix from network scores, with regression-imputed values when the network is sparse, and then progressively aligns sequence clusters using gap-aware dynamic programming.
 
-### 📥 Input
+### Input
 
 #### Sequence Set `INPUT_FASTA`
 *   **Format**: Standard FASTA sequence database file (`.fasta`).
@@ -17,7 +17,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 *   **Format**: Pairwise HDF5 alignment network (`.h5`).
 *   **Created By**: `Align_Similarity_Matrix.py` (Embedding Alignment utility) or `Align_Substitution_Matrix.py` / `Parse_BLAST_Output.py`.
 
-### ⚙️ Parameters
+### Parameters
 
 | Parameter | Description |
 | :--- | :--- |
@@ -36,7 +36,7 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 | Compute Device **`DEVICE_SELECTION`** | Selects `auto` or a specific available CPU, CUDA, XPU, or MPS device for sequential profile score-matrix construction. Auto benchmarks three real leaf-to-leaf guide-tree merges near the 25th, 50th, and 90th score-matrix cost percentiles and selects one device for the full progressive merge. Guide-tree calculations and dynamic-programming traceback remain on CPU. |
 | Temporary Working Directory **`SAFE_TEMP_DIR`** | The temporary directory used to cache intermediate files and memory-mapped matrices. When unset, the cache is created in the run's alignment folder (`MSA_DIR`) and removed after the guide tree is built. |
 
-### 📤 Output
+### Output
 
 #### Multiple Sequence Alignment FASTA File
 *   **Format**: Aligned FASTA (`.fasta`).
@@ -104,24 +104,24 @@ This script generates progressive Multiple Sequence Alignments (MSAs) using prot
 
 ---
 
-# 📉 Sparse MSA Converter (`Sparse_MSA_Converter.py`)
+# Sparse MSA Converter (`Sparse_MSA_Converter.py`)
 
 This script compresses multiple sequence alignments (MSAs) into compact HDF5 files. It validates and sanitizes the aligned FASTA, converts residue strings to a SciPy Compressed Sparse Row (CSR) matrix, writes lookup metadata, and then moves the successfully converted source FASTA into a `Full_Alignments` subdirectory.
 
-### 📥 Input
+### Input
 
 #### MSA Alignment File `INPUT_FASTA`
 *   **Format**: Aligned FASTA (`.fasta`).
 *   **Created By**: `Embedding_MSA.py` (Embedding Multiple Alignment utility) or other external MSA tools (e.g. Clustal, MUSCLE).
 *   **Description**: Pre-calculated standard multiple sequence alignment file.
 
-### ⚙️ Parameters
+### Parameters
 
 | Parameter | Description |
 | :--- | :--- |
 | Convert All Alignments **`CONVERT_ALL`** | Toggle to convert all FASTA multiple alignments inside the input directory. If disabled, only the selected alignment file is converted. |
 
-### 📤 Output
+### Output
 
 #### Compressed Sparse MSA HDF5 File
 *   **Format**: HDF5 (`.h5`) named `<input_basename>_sparse.h5` beside the selected alignment.

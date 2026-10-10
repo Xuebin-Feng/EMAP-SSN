@@ -297,9 +297,10 @@ def activate(viewer):
     if hasattr(viewer, 'add_sidebar_button'):
         viewer.add_sidebar_button(
             name="metaDataBtn",
-            label=translate("Viewer", "📊 Meta Data"),
+            label=translate("Viewer", "Meta Data"),
             callback=viewer.open_metadata_ui,
-            tooltip=translate("Viewer", "Open Metadata Spreadsheet in browser")
+            tooltip=translate("Viewer", "Open Metadata Spreadsheet in browser"),
+            icon="chart-column",
         )
         if not hasattr(viewer, 'sidebar_buttons_to_persist'):
             viewer.sidebar_buttons_to_persist = []

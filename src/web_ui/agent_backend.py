@@ -959,9 +959,10 @@ def activate(viewer):
     if hasattr(viewer, "add_sidebar_button"):
         viewer.add_sidebar_button(
             name="agentBtn",
-            label=translate("Viewer", "🤖 Agent"),
+            label=translate("Viewer", "Agent"),
             callback=viewer.open_agent_ui,
-            tooltip=translate("Viewer", "Open AI Agent Chat Console in browser")
+            tooltip=translate("Viewer", "Open AI Agent Chat Console in browser"),
+            icon="bot",
         )
 
 

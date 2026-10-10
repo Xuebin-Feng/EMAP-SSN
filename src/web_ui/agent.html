@@ -28,72 +28,126 @@
     <script src="/page_text.js"></script>
     <script src="/agent_resource/marked.umd.js"></script>
     <style>
+        /* The Studio look of the desktop windows (src/desktop/Studio_Theme.py
+           TOKENS): zinc neutrals, hairline borders, 8 px controls, 12 px
+           cards, a near-black primary button and one indigo accent for focus.
+           Every colour is a custom property, set for each theme. */
         :root {
-            --bg-main: #f8fafc;
+            color-scheme: light;
+            --bg-main: #fafafa;
             --bg-card: #ffffff;
-            --border-color: #e2e8f0;
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --bg-bubble-user: #e2e8f0;
-            --text-bubble-user: #0f172a;
+            --bg-muted: #f4f4f5;
+            --bg-inset: #fafafa;
+            --border-color: #e4e4e7;
+            --field-border: #dcdce0;
+            --field-border-hover: #d4d4d8;
+            --text-primary: #09090b;
+            --text-soft: #3f3f46;
+            --text-secondary: #52525b;
+            --text-subtle: #71717a;
+            --text-disabled: #a1a1aa;
+            --input-bg: #ffffff;
+            --input-text: #09090b;
+            --input-disabled-bg: #fafafa;
+            --primary: #18181b;
+            --primary-hover: #27272a;
+            --primary-pressed: #3f3f46;
+            --primary-text: #fafafa;
+            --primary-disabled: #9b9ba0;
+            --primary-disabled-text: #fafafa;
+            --accent: #5b5bd6;
+            --accent-soft: #ebebfb;
+            --success: #15803d;
+            --success-soft: #f0fdf4;
+            --success-fill: #15803d;
+            --success-fill-text: #ffffff;
+            --warning: #b45309;
+            --warning-soft: #fffbeb;
+            --danger: #dc2626;
+            --danger-soft: #fef2f2;
+            --danger-border: #fecaca;
+            --bg-bubble-user: #f4f4f5;
+            --text-bubble-user: #09090b;
             --bg-bubble-agent: transparent;
-            --text-bubble-agent: #0f172a;
-            --primary: #0969da;
-            --primary-hover: #0353b2;
-            --danger: #ef4444;
+            --text-bubble-agent: #09090b;
+            --code-bg: #fafafa;
+            --code-border: #e4e4e7;
+            --code-text: #18181b;
+            --code-inline-bg: #f4f4f5;
+            --code-inline-text: #18181b;
+            --switch-off: #d4d4d8;
+            --switch-off-hover: #a1a1aa;
+            --switch-on: #18181b;
+            --switch-on-hover: #27272a;
+            --switch-thumb: #ffffff;
+            --switch-thumb-on: #ffffff;
+            --switch-thumb-shadow: rgba(9, 9, 11, 0.18);
+            --scroll: #d4d4d8;
+            --scroll-hover: #a1a1aa;
+            --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
+            --shadow-control: 0 1px 2px rgba(9, 9, 11, 0.05);
+            --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+            --radius: 8px;
+            --radius-card: 12px;
             --font-family: 'Noto Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
             --font-mono: 'Noto Sans Mono', 'Noto Sans SC', Consolas, Monaco, monospace;
-            --code-bg: #f6f8fa;
-            --code-border: #d0d7de;
-            --code-text: #24292f;
-            --code-inline-text: #cf222e;
-            --input-bg: #ffffff;
-            --input-text: #0f172a;
-            --connection-bg: #e2e8f0;
-            --connection-text: #475569;
-            --connection-active-bg: #dcfce7;
-            --connection-active-text: #15803d;
-            --connection-reconnecting-bg: #fef3c7;
-            --connection-reconnecting-text: #b45309;
-            --badge-bg: #f1f5f9;
-            --badge-text: #475569;
-            --shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.1);
-            --toggle-active-bg: #22c55e;
-            --toggle-active-text: #ffffff;
-            --toggle-active-border: #16a34a;
         }
 
         [data-theme="dark"] {
+            color-scheme: dark;
             --bg-main: #09090b;
             --bg-card: #18181b;
+            --bg-muted: #27272a;
+            --bg-inset: #111113;
             --border-color: #27272a;
-            --text-primary: #f4f4f5;
+            --field-border: #3f3f46;
+            --field-border-hover: #52525b;
+            --text-primary: #fafafa;
+            --text-soft: #d4d4d8;
             --text-secondary: #a1a1aa;
-            --bg-bubble-user: #27272a;
-            --text-bubble-user: #f4f4f5;
-            --bg-bubble-agent: transparent;
-            --text-bubble-agent: #f4f4f5;
-            --primary: #3b82f6;
-            --primary-hover: #2563eb;
-            --danger: #ef4444;
-            --code-bg: #161b22;
-            --code-border: #30363d;
-            --code-text: #e6edf3;
-            --code-inline-text: #ff7b72;
+            --text-subtle: #8e8e96;
+            --text-disabled: #52525b;
             --input-bg: #09090b;
-            --input-text: #f4f4f5;
-            --connection-bg: #27272a;
-            --connection-text: #a1a1aa;
-            --connection-active-bg: #064e3b;
-            --connection-active-text: #34d399;
-            --connection-reconnecting-bg: #78350f;
-            --connection-reconnecting-text: #fbbf24;
-            --badge-bg: #27272a;
-            --badge-text: #e4e4e7;
-            --shadow: 0 4px 6px -1px rgba(0,0,0,0.2), 0 2px 4px -1px rgba(0,0,0,0.1);
-            --toggle-active-bg: #22c55e;
-            --toggle-active-text: #ffffff;
-            --toggle-active-border: #16a34a;
+            --input-text: #fafafa;
+            --input-disabled-bg: #18181b;
+            --primary: #fafafa;
+            --primary-hover: #e4e4e7;
+            --primary-pressed: #d4d4d8;
+            --primary-text: #18181b;
+            --primary-disabled: #3f3f46;
+            --primary-disabled-text: #a1a1aa;
+            --accent: #8b8bf0;
+            --accent-soft: #26264d;
+            --success: #4ade80;
+            --success-soft: rgba(34, 197, 94, 0.12);
+            --success-fill: #4ade80;
+            --success-fill-text: #052e16;
+            --warning: #fbbf24;
+            --warning-soft: rgba(245, 158, 11, 0.14);
+            --danger: #f87171;
+            --danger-soft: rgba(239, 68, 68, 0.12);
+            --danger-border: rgba(239, 68, 68, 0.35);
+            --bg-bubble-user: #27272a;
+            --text-bubble-user: #fafafa;
+            --bg-bubble-agent: transparent;
+            --text-bubble-agent: #fafafa;
+            --code-bg: #111113;
+            --code-border: #27272a;
+            --code-text: #e4e4e7;
+            --code-inline-bg: #27272a;
+            --code-inline-text: #fafafa;
+            --switch-off: #3f3f46;
+            --switch-off-hover: #52525b;
+            --switch-on: #fafafa;
+            --switch-on-hover: #e4e4e7;
+            --switch-thumb: #fafafa;
+            --switch-thumb-on: #18181b;
+            --switch-thumb-shadow: rgba(0, 0, 0, 0.4);
+            --scroll: #3f3f46;
+            --scroll-hover: #52525b;
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+            --shadow-control: none;
+            --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
         }
 
         * { box-sizing: border-box; }
@@ -101,44 +155,74 @@
         body {
             margin: 0; padding: 0;
             font-family: var(--font-family);
+            font-size: 13px;
             background-color: var(--bg-main);
             color: var(--text-primary);
             height: 100vh;
             display: flex;
             flex-direction: column;
             overflow: hidden;
-            transition: background-color 0.2s, color 0.2s;
         }
+
+        b, strong { font-weight: 600; }
+
+        /* ── Icons (the sprite's symbols, drawn in the text colour) ─── */
+        .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+        .icon {
+            width: 16px; height: 16px;
+            flex-shrink: 0;
+            fill: none; stroke: currentColor; stroke-width: 2;
+            stroke-linecap: round; stroke-linejoin: round;
+            pointer-events: none;
+        }
+        .icon-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) { .icon-spin { animation: none; } }
 
         header {
             background-color: var(--bg-card);
             border-bottom: 1px solid var(--border-color);
-            padding: 10px 20px;
+            padding: 0 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             height: 52px;
-            box-shadow: var(--shadow);
             flex-shrink: 0;
-            transition: background-color 0.2s, border-color 0.2s;
         }
 
         header h1 {
             margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
             font-size: 15px;
             font-weight: 600;
-            color: var(--primary);
+            color: var(--text-primary);
         }
+        header h1 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
+
+        .header-actions { display: flex; align-items: center; gap: 10px; }
 
         .status-badge {
-            background-color: var(--connection-bg);
-            color: var(--connection-text);
-            font-size: 11px;
-            padding: 4px 10px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            height: 24px;
+            padding: 0 10px;
             border-radius: 9999px;
-            font-weight: 500;
-            transition: all 0.2s;
+            background-color: var(--bg-muted);
+            color: var(--text-secondary);
+            font-size: 12px;
+            white-space: nowrap;
         }
+        .status-badge::before {
+            content: "";
+            width: 6px; height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+        .status-badge[data-state="connected"] { background-color: var(--success-soft); color: var(--success); }
+        .status-badge[data-state="reconnecting"] { background-color: var(--warning-soft); color: var(--warning); }
 
         /* ── Workspace ───────────────────────────────────── */
         .workspace {
@@ -152,29 +236,39 @@
             flex: 1;
             display: flex;
             flex-direction: column;
+            gap: 8px;
             overflow: hidden;
             padding: 14px;
             min-width: 0;
         }
 
+        /* The chat card: its header and the conversation */
+        .chat-card {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+        }
+
         /* ── Pane header / controls ──────────────────────── */
         .pane-header {
-            padding: 8px 14px;
-            border: 1px solid var(--border-color);
-            border-bottom: none;
-            border-radius: 8px 8px 0 0;
-            background-color: var(--bg-card);
+            padding: 9px 12px 9px 16px;
+            border-bottom: 1px solid var(--border-color);
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
             gap: 8px;
             flex-shrink: 0;
-            transition: background-color 0.2s, border-color 0.2s;
         }
 
         .pane-title {
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 600;
             color: var(--text-primary);
             white-space: nowrap;
@@ -183,12 +277,13 @@
         .header-controls {
             display: flex;
             align-items: center;
-            gap: 7px;
+            gap: 8px;
             flex-wrap: wrap;
         }
 
-        /* iOS-style toggle switch */
+        /* The agent switch: a track and a knob, as the windows' switches */
         .ios-toggle {
+            position: relative;
             display: inline-flex;
             align-items: center;
             cursor: pointer;
@@ -196,108 +291,142 @@
             flex-shrink: 0;
         }
 
-        .ios-toggle input { display: none; }
+        .ios-toggle input {
+            position: absolute;
+            opacity: 0;
+            width: 1px; height: 1px;
+            margin: 0;
+            pointer-events: none;
+        }
 
         .ios-toggle-track {
-            width: 42px;
-            height: 24px;
+            width: 34px;
+            height: 20px;
             border-radius: 9999px;
-            background: #b0b7c3;
-            transition: background 0.22s;
+            background: var(--switch-off);
+            transition: background-color 0.15s;
             position: relative;
             flex-shrink: 0;
-            box-shadow: inset 0 1px 3px rgba(0,0,0,0.18);
         }
+        .ios-toggle:hover .ios-toggle-track { background: var(--switch-off-hover); }
 
-        [data-theme="dark"] .ios-toggle-track { background: #52525b; }
-
-        .ios-toggle input:checked + .ios-toggle-track {
-            background: var(--toggle-active-bg);
-        }
+        .ios-toggle input:checked + .ios-toggle-track { background: var(--switch-on); }
+        .ios-toggle:hover input:checked + .ios-toggle-track { background: var(--switch-on-hover); }
+        .ios-toggle input:focus-visible + .ios-toggle-track { box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--accent); }
 
         .ios-toggle-thumb {
             position: absolute;
-            top: 3px;
-            left: 3px;
-            width: 18px;
-            height: 18px;
+            top: 2px;
+            left: 2px;
+            width: 16px;
+            height: 16px;
             border-radius: 50%;
-            background: #ffffff;
-            box-shadow: 0 1px 4px rgba(0,0,0,0.28);
-            transition: transform 0.22s cubic-bezier(.4,0,.2,1);
+            background: var(--switch-thumb);
+            box-shadow: 0 1px 2px var(--switch-thumb-shadow);
+            transition: transform 0.15s ease, background-color 0.15s;
         }
 
         .ios-toggle input:checked + .ios-toggle-track .ios-toggle-thumb {
-            transform: translateX(18px);
+            transform: translateX(14px);
+            background: var(--switch-thumb-on);
         }
 
         /* Model selector dropdown */
         #model-selector {
-            padding: 5px 8px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-size: 12px;
+            height: 30px;
+            padding: 0 30px 0 10px;
+            border: 1px solid var(--field-border);
+            border-radius: var(--radius);
+            font-size: 13px;
             color: var(--text-primary);
-            background-color: var(--bg-card);
+            background: var(--input-bg) var(--select-chevron) no-repeat right 9px center / 14px 14px;
+            -webkit-appearance: none;
+            appearance: none;
             outline: none;
             cursor: pointer;
-            transition: all 0.15s;
             max-width: 180px;
             font-family: var(--font-family);
+            box-shadow: var(--shadow-control);
         }
-
-        #model-selector:focus { border-color: var(--primary); }
+        #model-selector:hover { border-color: var(--field-border-hover); }
+        #model-selector:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
         /* Model status label (left of toggle) */
         #active-model-badge {
-            font-size: 12px;
-            font-weight: 500;
-            color: var(--text-secondary);
+            font-size: 13px;
+            color: var(--text-subtle);
             white-space: nowrap;
             max-width: 180px;
             overflow: hidden;
             text-overflow: ellipsis;
-            transition: color 0.2s;
         }
 
         #active-model-badge.active {
-            color: var(--connection-active-text);
+            color: var(--success);
             font-weight: 600;
         }
 
+        /* Buttons: outline unless a variant says otherwise */
         .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 30px;
+            padding: 0 12px;
             background-color: var(--bg-card);
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            padding: 5px 11px;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-secondary);
+            border: 1px solid var(--field-border);
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-primary);
             cursor: pointer;
             outline: none;
-            transition: all 0.15s;
-            box-shadow: var(--shadow);
+            transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+            box-shadow: var(--shadow-control);
             white-space: nowrap;
             font-family: var(--font-family);
         }
-
-        .btn:hover {
-            background-color: var(--badge-bg);
-            color: var(--text-primary);
-            border-color: var(--text-secondary);
+        .btn:hover { background-color: var(--bg-muted); }
+        .btn:active { background-color: var(--border-color); }
+        .btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .btn:disabled {
+            cursor: not-allowed;
+            background-color: var(--input-disabled-bg);
+            border-color: var(--border-color);
+            color: var(--text-disabled);
+            box-shadow: none;
         }
 
         .btn-primary {
             background-color: var(--primary);
-            color: #fff;
             border-color: var(--primary);
+            color: var(--primary-text);
+            font-weight: 600;
+        }
+        .btn-primary:hover { background-color: var(--primary-hover); border-color: var(--primary-hover); }
+        .btn-primary:active { background-color: var(--primary-pressed); }
+        .btn-primary:disabled {
+            background-color: var(--primary-disabled);
+            border-color: var(--primary-disabled);
+            color: var(--primary-disabled-text);
+        }
+        .btn-primary.is-saved, .btn-primary.is-saved:hover {
+            background-color: var(--success-fill);
+            border-color: var(--success-fill);
+            color: var(--success-fill-text);
         }
 
-        .btn-primary:hover {
-            background-color: var(--primary-hover);
-            color: #fff;
-            border-color: var(--primary-hover);
+        .btn-ghost {
+            background-color: transparent;
+            border-color: transparent;
+            color: var(--text-secondary);
+            box-shadow: none;
         }
+        .btn-ghost:hover { background-color: var(--bg-muted); color: var(--text-primary); }
+
+        /* A square button showing only an icon */
+        .btn-icon { width: 30px; padding: 0; }
 
         .command-approval {
             display: flex;
@@ -309,21 +438,24 @@
 
         .command-approval code {
             font-family: var(--font-mono);
+            font-size: 12px;
+            background: var(--code-inline-bg);
+            border-radius: 4px;
+            padding: 1px 5px;
             overflow-wrap: anywhere;
         }
+
+        #command-request-status { font-size: 12.5px; color: var(--text-secondary); }
 
         /* ── Chat log ────────────────────────────────────── */
         #chat-log {
             flex: 1;
             overflow-y: auto;
-            border: 1px solid var(--border-color);
             background-color: var(--bg-card);
             padding: 16px;
             display: flex;
             flex-direction: column;
             gap: 14px;
-            margin-bottom: 10px;
-            transition: background-color 0.2s, border-color 0.2s;
         }
 
         .msg-wrapper { display: flex; width: 100%; animation: fadeInUp 0.18s ease-out; }
@@ -341,44 +473,47 @@
 
         .msg {
             max-width: 82%;
-            padding: 9px 13px;
-            border-radius: 12px;
+            padding: 8px 12px;
+            border-radius: var(--radius-card);
             word-wrap: break-word;
             font-size: 13.5px;
             line-height: 1.55;
         }
 
         .msg-system {
-            background-color: var(--badge-bg);
-            border: 1px solid var(--border-color);
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background-color: var(--bg-muted);
             color: var(--text-secondary);
-            font-size: 11.5px;
-            border-radius: 6px;
+            font-size: 12px;
+            line-height: 1.45;
+            border-radius: var(--radius);
             text-align: center;
-            padding: 4px 12px;
+            padding: 4px 10px;
             max-width: 86%;
         }
+        .msg-system .icon { width: 14px; height: 14px; color: var(--text-subtle); }
 
         .msg-user {
             background-color: var(--bg-bubble-user);
             color: var(--text-bubble-user);
-            border-bottom-right-radius: 2px;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow);
+            border-bottom-right-radius: 4px;
         }
 
         .msg-agent-header {
             display: flex;
             align-items: center;
-            gap: 5px;
+            gap: 6px;
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 600;
             text-transform: uppercase;
             letter-spacing: 0.05em;
-            color: var(--text-secondary);
+            color: var(--text-subtle);
             margin-bottom: 6px;
             user-select: none;
         }
+        .msg-agent-header .icon { width: 14px; height: 14px; }
 
         .msg-agent {
             background: var(--bg-bubble-agent);
@@ -386,54 +521,56 @@
             padding: 0;
             max-width: 100%;
             width: 100%;
+            border-radius: 0;
         }
 
         .msg-agent p { margin: 0 0 9px 0; }
         .msg-agent p:last-child { margin-bottom: 0; }
-        .msg-agent h1,h2,h3,h4 { margin: 14px 0 7px 0; color: var(--text-primary); font-weight: 600; }
+        .msg-agent h1, .msg-agent h2, .msg-agent h3, .msg-agent h4 { margin: 14px 0 7px 0; color: var(--text-primary); font-weight: 600; }
         .msg-agent h1 { font-size: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 3px; }
         .msg-agent h2 { font-size: 14px; }
         .msg-agent h3 { font-size: 13px; }
-        .msg-agent ul,ol { margin: 0 0 9px 0; padding-left: 20px; }
+        .msg-agent ul, .msg-agent ol { margin: 0 0 9px 0; padding-left: 20px; }
         .msg-agent li { margin-bottom: 3px; }
+        .msg-agent a { color: var(--accent); text-underline-offset: 2px; }
         .msg-agent code {
             font-family: var(--font-mono);
-            font-size: 11.5px;
-            background: var(--code-bg);
-            border: 1px solid var(--code-border);
+            font-size: 12px;
+            background: var(--code-inline-bg);
             color: var(--code-inline-text);
-            padding: 2px 5px;
+            padding: 1px 5px;
             border-radius: 4px;
         }
         .msg-agent pre {
             background: var(--code-bg);
             border: 1px solid var(--code-border);
-            border-radius: 6px;
+            border-radius: var(--radius);
             padding: 10px 14px;
             overflow-x: auto;
             margin: 7px 0 11px 0;
         }
-        .msg-agent pre code { padding:0; background:transparent; border:none; color:var(--code-text); font-size:12px; }
-        .msg-agent strong { font-weight: 600; color: var(--text-primary); }
+        .msg-agent pre code { padding:0; background:transparent; color:var(--code-text); font-size:12px; }
+        .msg-agent strong { color: var(--text-primary); }
         .msg-agent em { font-style: italic; }
-        .msg-agent blockquote { border-left:4px solid var(--primary); margin:0 0 9px 0; padding-left:11px; color:var(--text-secondary); font-style:italic; }
+        .msg-agent blockquote { border-left:2px solid var(--field-border-hover); margin:0 0 9px 0; padding-left:11px; color:var(--text-secondary); font-style:italic; }
+        .msg-agent table { border-collapse: collapse; margin: 0 0 9px 0; font-size: 12.5px; }
+        .msg-agent th, .msg-agent td { border: 1px solid var(--border-color); padding: 4px 8px; }
+        .msg-agent th { background: var(--bg-muted); font-weight: 600; }
 
         .msg-error {
-            background-color: #fef2f2;
-            border: 1px solid #fee2e2;
+            background-color: var(--danger-soft);
+            border: 1px solid var(--danger-border);
             color: var(--danger);
-            border-radius: 8px;
-            padding: 9px 13px;
+            border-radius: var(--radius);
+            padding: 8px 12px;
             max-width: 86%;
-            font-weight: 500;
         }
-        [data-theme="dark"] .msg-error { background-color:#450a0a; border-color:#7f1d1d; color:#fca5a5; }
 
         .code-box {
             background: var(--code-bg);
             border: 1px solid var(--code-border);
-            border-radius: 6px;
-            padding: 10px 14px;
+            border-radius: var(--radius);
+            padding: 8px 12px 10px;
             font-family: var(--font-mono);
             font-size: 12px;
             color: var(--code-text);
@@ -442,7 +579,6 @@
             word-wrap: break-word;
             line-height: 1.5;
             width: 100%;
-            box-shadow: var(--shadow);
         }
 
         .code-box-header, .terminal-output-header {
@@ -452,39 +588,47 @@
             border-bottom: 1px solid var(--code-border);
             margin-bottom: 7px;
             padding-bottom: 5px;
-            font-size: 10px;
+            min-height: 22px;
+            font-family: var(--font-family);
+            font-size: 11px;
             font-weight: 600;
-            color: var(--text-secondary);
+            color: var(--text-subtle);
             text-transform: uppercase;
             letter-spacing: 0.05em;
             user-select: none;
         }
 
         .copy-btn {
-            background: none; border: none;
+            display: inline-flex; align-items: center; gap: 4px;
+            height: 22px;
+            background: none; border: 1px solid transparent;
             color: var(--text-secondary);
-            cursor: pointer; font-size:11px; font-weight:500;
-            padding: 2px 6px; border-radius: 4px; transition: all 0.15s;
+            cursor: pointer; font-family: var(--font-family); font-size: 11.5px; font-weight: 400;
+            text-transform: none; letter-spacing: normal;
+            padding: 0 6px; border-radius: 6px; outline: none;
+            transition: background-color 0.15s, color 0.15s;
         }
-        .copy-btn:hover { color: var(--text-primary); background: var(--border-color); }
+        .copy-btn .icon { width: 13px; height: 13px; }
+        .copy-btn:hover { color: var(--text-primary); background: var(--bg-muted); }
+        .copy-btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .copy-btn.is-copied { color: var(--success); }
 
         .terminal-output-box {
             background: var(--code-bg); border: 1px solid var(--code-border);
-            border-radius: 6px; padding: 10px 14px;
+            border-radius: var(--radius); padding: 8px 12px 10px;
             font-family: var(--font-mono); font-size: 11.5px; color: var(--code-text);
             margin-top: 8px; white-space: pre-wrap; word-wrap: break-word;
-            line-height: 1.4; width: 100%; box-shadow: var(--shadow);
+            line-height: 1.4; width: 100%;
         }
         .terminal-output-box pre { margin:0; padding:0; background:transparent; border:none; overflow-x:auto; }
 
         .thought-box {
             background: var(--code-bg);
             border: 1px solid var(--code-border);
-            border-radius: 6px;
+            border-radius: var(--radius);
             margin-top: 11px;
             margin-bottom: 15px; /* Added spacing from the response text */
             width: 100%;
-            box-shadow: var(--shadow);
             overflow: hidden;
         }
         .thought-box-header {
@@ -492,25 +636,26 @@
             justify-content: space-between;
             align-items: center;
             padding: 8px 12px;
-            background: var(--code-bg);
             cursor: pointer;
             font-size: 11px;
             font-weight: 600;
-            color: var(--text-secondary);
+            color: var(--text-subtle);
             text-transform: uppercase;
             letter-spacing: 0.05em;
             user-select: none;
-            transition: background 0.15s;
+            transition: background-color 0.15s;
         }
         .thought-box-header:hover {
-            background: var(--border-color);
+            background: var(--bg-muted);
         }
         .thought-box-toggle {
-            font-size: 12px;
+            display: inline-flex;
+            transform: rotate(-90deg);
             transition: transform 0.2s ease;
         }
+        .thought-box-toggle .icon { width: 14px; height: 14px; }
         .thought-box.expanded .thought-box-toggle {
-            transform: rotate(90deg);
+            transform: none;
         }
         .thought-box-content {
             display: none;
@@ -522,17 +667,16 @@
             white-space: pre-wrap;
             word-wrap: break-word;
             line-height: 1.5;
-            background: var(--code-bg);
         }
         .thought-box.expanded .thought-box-content {
             display: block;
         }
 
         .token-info {
-            font-size: 10.5px; color: var(--text-secondary);
-            margin-top: 7px; display: inline-block;
-            background: var(--code-bg); border: 1px solid var(--code-border);
-            padding: 2px 8px; border-radius: 4px;
+            font-size: 11px; color: var(--text-subtle);
+            margin-top: 8px; display: inline-block;
+            background: var(--bg-muted);
+            padding: 2px 8px; border-radius: 6px;
         }
 
         /* ── Chat input bar ──────────────────────────────── */
@@ -541,11 +685,11 @@
         }
 
         #chat-input-field {
-            flex: 1; padding: 10px 14px;
-            border: 1px solid var(--border-color);
-            border-radius: 8px; font-size: 13.5px; outline: none;
+            flex: 1; padding: 10px 12px;
+            border: 1px solid var(--field-border);
+            border-radius: var(--radius); font-size: 13.5px; outline: none;
             background: var(--input-bg); color: var(--input-text);
-            box-shadow: var(--shadow); transition: border-color 0.15s, box-shadow 0.15s;
+            box-shadow: var(--shadow-control); transition: border-color 0.15s, box-shadow 0.15s;
             font-family: var(--font-family);
             resize: none;
             height: 40px;
@@ -553,8 +697,11 @@
             line-height: 1.4;
             overflow-y: auto;
         }
-        #chat-input-field:focus { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(59,130,246,0.2); }
-        #chat-input-field:disabled { background: var(--badge-bg); color: var(--text-secondary); cursor: not-allowed; }
+        #chat-input-field::placeholder { color: var(--text-subtle); }
+        #chat-input-field:placeholder-shown { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+        #chat-input-field:hover { border-color: var(--field-border-hover); }
+        #chat-input-field:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        #chat-input-field:disabled { background: var(--input-disabled-bg); border-color: var(--border-color); color: var(--text-disabled); cursor: not-allowed; box-shadow: none; }
 
         #chat-send-btn {
             height: 40px;
@@ -587,30 +734,27 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 11px 14px;
+            padding: 9px 10px 9px 16px;
             border-bottom: 1px solid var(--border-color);
-            font-size: 13px;
+            font-size: 14px;
             font-weight: 600;
+            white-space: nowrap;
             flex-shrink: 0;
         }
 
-        .close-btn {
-            background: none; border: none; cursor: pointer;
-            color: var(--text-secondary); font-size: 14px;
-            padding: 3px 6px; border-radius: 4px; transition: all 0.15s;
-        }
-        .close-btn:hover { background: var(--badge-bg); color: var(--text-primary); }
+        .panel-title { display: inline-flex; align-items: center; gap: 8px; }
+        .panel-title .icon { color: var(--text-secondary); }
 
         .cards-list {
             flex: 1;
             overflow-y: auto;
-            padding: 8px 8px 4px;
+            padding: 10px 10px 2px;
         }
 
         .panel-footer {
             display: flex;
             gap: 8px;
-            padding: 10px 8px;
+            padding: 10px;
             border-top: 1px solid var(--border-color);
             justify-content: space-between;
             flex-shrink: 0;
@@ -619,27 +763,27 @@
         /* ── Individual Model Card ───────────────────────── */
         .model-card {
             border: 1px solid var(--border-color);
-            border-radius: 8px;
+            border-radius: var(--radius-card);
             margin-bottom: 8px;
             overflow: hidden;
             background: var(--bg-card);
             transition: border-color 0.15s;
         }
-        .model-card:hover { border-color: var(--text-secondary); }
+        .model-card:hover { border-color: var(--field-border-hover); }
 
         .model-card-header {
             display: flex;
             align-items: center;
-            padding: 8px 10px;
-            gap: 5px;
+            padding: 6px 6px 6px 4px;
+            gap: 4px;
             cursor: pointer;
             user-select: none;
         }
 
         .card-name-label {
             flex: 1;
-            font-size: 12.5px;
-            font-weight: 500;
+            font-size: 13px;
+            font-weight: 600;
             color: var(--text-primary);
             overflow: hidden;
             text-overflow: ellipsis;
@@ -648,109 +792,172 @@
 
         .drag-handle {
             cursor: grab;
-            color: var(--text-secondary);
-            font-size: 14px;
-            padding: 2px 4px;
+            color: var(--text-disabled);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 24px;
+            height: 26px;
             flex-shrink: 0;
-            line-height: 1;
+            border-radius: 6px;
             user-select: none;
             touch-action: none;
         }
+        .drag-handle .icon { width: 14px; height: 14px; }
+        .drag-handle:hover { color: var(--text-secondary); }
         .drag-handle:active { cursor: grabbing; }
-        .model-card.drag-over-top    { border-top: 2px solid var(--primary); }
-        .model-card.drag-over-bottom { border-bottom: 2px solid var(--primary); }
+        .model-card.drag-over-top    { border-top: 2px solid var(--accent); }
+        .model-card.drag-over-bottom { border-bottom: 2px solid var(--accent); }
         .model-card.dragging         { opacity: 0.45; }
 
-        .card-delete-btn {
-            background: none; border: none; cursor: pointer;
-            color: var(--danger); font-size: 13px;
-            padding: 3px 5px; border-radius: 4px; transition: all 0.15s;
+        .card-delete-btn, .card-expand-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            padding: 0;
+            background: none;
+            border: 1px solid transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            color: var(--text-subtle);
+            outline: none;
+            transition: background-color 0.15s, color 0.15s;
             flex-shrink: 0;
         }
-        .card-delete-btn:hover { background: #fee2e2; }
-        [data-theme="dark"] .card-delete-btn:hover { background: #450a0a; color: #fca5a5; }
-
-        .card-expand-btn {
-            background: none; border: none; cursor: pointer;
-            color: var(--text-secondary); font-size: 18px;
-            padding: 3px 5px; border-radius: 4px; transition: all 0.15s;
-            flex-shrink: 0;
-            line-height: 1;
-        }
-        .card-expand-btn:hover { background: var(--badge-bg); color: var(--text-primary); }
+        .card-delete-btn .icon, .card-expand-btn .icon { width: 15px; height: 15px; }
+        .card-delete-btn:hover { background: var(--danger-soft); color: var(--danger); }
+        .card-expand-btn:hover { background: var(--bg-muted); color: var(--text-primary); }
+        .card-delete-btn:focus-visible, .card-expand-btn:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .card-expand-btn .icon { transition: transform 0.2s ease; }
+        .model-card.expanded .card-expand-btn .icon { transform: rotate(180deg); }
 
         .model-card-body {
-            padding: 10px 12px;
+            padding: 12px;
             display: none;
             flex-direction: column;
-            gap: 8px;
+            gap: 10px;
             border-top: 1px solid var(--border-color);
-            background-color: var(--bg-main);
+            background-color: var(--bg-inset);
         }
         .model-card.expanded .model-card-body { display: flex; }
 
         .card-field-label {
-            font-size: 10px;
-            font-weight: 700;
-            color: var(--text-secondary);
-            margin-bottom: 3px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-soft);
+            margin-bottom: 4px;
         }
 
         .card-field input[type="text"],
         .card-field input[type="password"],
-        .card-field input[type="number"] {
+        .card-field input[type="number"],
+        .card-options {
             width: 100%;
-            padding: 5px 8px;
-            border: 1px solid var(--border-color);
-            border-radius: 6px;
-            font-size: 12px;
+            height: 30px;
+            padding: 0 10px;
+            border: 1px solid var(--field-border);
+            border-radius: var(--radius);
+            font-size: 13px;
             background: var(--input-bg);
             color: var(--input-text);
             outline: none;
-            transition: border-color 0.15s;
+            transition: border-color 0.15s, box-shadow 0.15s;
             font-family: var(--font-family);
         }
-        .card-field input:focus { border-color: var(--primary); }
-
-        .show-key-btn {
-            padding: 4px 8px;
-            font-size: 11px;
-            flex-shrink: 0;
-            box-shadow: none;
+        .card-options {
+            height: 64px;
+            padding: 6px 10px;
+            font-family: var(--font-mono);
+            font-size: 12px;
+            resize: vertical;
         }
+        .card-field input::placeholder, .card-options::placeholder { color: var(--text-subtle); }
+        .card-field input:hover, .card-options:hover { border-color: var(--field-border-hover); }
+        .card-field input:focus, .card-options:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .card-options.is-invalid, .card-options.is-invalid:hover { border-color: var(--danger); }
+
+        .card-key-row { display: flex; gap: 6px; align-items: center; }
+        .card-key-row input { flex: 1; }
+
+        .show-key-btn { flex-shrink: 0; box-shadow: none; }
 
         /* Scrollbars */
-        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--border-color); border-radius: 3px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--text-secondary); }
+        ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); background-clip: content-box; }
 
-        /* Border-radius on chat log bottom corners */
-        #chat-log { border-radius: 0 0 8px 8px; }
-        #chat-composer { padding: 12px; border-top: 1px solid var(--border-color); min-width: 0; flex-shrink: 0; }
+        /* ── Composer card ───────────────────────────────── */
+        #chat-composer {
+            container-type: inline-size;
+            padding: 10px;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-card);
+            min-width: 0;
+            flex-shrink: 0;
+        }
         #chat-composer .chat-input-bar { padding: 0; border: 0; flex-wrap: nowrap; align-items: stretch; }
         #chat-composer textarea { min-width: 0; flex: 1 1 0; }
-        #capture-viewer-btn { font-size: 8px; line-height: 1.5; padding: 6px 10px; white-space: normal; }
+        /* Where the composer is too narrow for its label beside a usable input,
+           Capture Viewer shows only its camera; its title and aria-label name it. */
+        @container (max-width: 520px) {
+            #capture-viewer-btn { padding: 0 11px; }
+            #capture-viewer-btn .btn-label { display: none; }
+        }
         #capture-viewer-btn, #chat-send-btn { height: auto; align-self: stretch; flex-shrink: 0; }
-        #chat-composer.drag-over { outline: 2px dashed var(--primary); outline-offset: -3px; }
+        #chat-composer.drag-over { outline: 2px dashed var(--accent); outline-offset: -3px; }
         #attachment-tray, .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
         #attachment-tray:not(:empty) { margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
-        .attachment-tile { position: relative; width: 112px; padding: 5px; border: 1px solid var(--border-color); border-radius: 8px; }
+        .attachment-tile { position: relative; width: 112px; padding: 5px; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-inset); }
         .attachment-tile img { width: 100%; height: 76px; object-fit: contain; }
-        .attachment-tile span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
-        .attachment-tile button { position: absolute; top: 0; right: 0; width: 25px; height: 25px; border-radius: 50%; border: 1px solid var(--border-color); background: var(--bg-card); color: var(--text-primary); cursor: pointer; font-size: 20px; }
-        #attachment-notice { font-size: 13px; color: var(--text-secondary); overflow-wrap: anywhere; }
+        .attachment-tile span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text-secondary); margin-top: 3px; }
+        .attachment-tile button {
+            position: absolute; top: 3px; right: 3px;
+            display: flex; align-items: center; justify-content: center;
+            width: 22px; height: 22px; padding: 0;
+            border-radius: 50%; border: 1px solid var(--field-border);
+            background: var(--bg-card); color: var(--text-secondary);
+            cursor: pointer; box-shadow: var(--shadow-control); outline: none;
+        }
+        .attachment-tile button .icon { width: 13px; height: 13px; }
+        .attachment-tile button:hover { color: var(--text-primary); background: var(--bg-muted); }
+        .attachment-tile button:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+        .attachment-tile button:disabled { color: var(--text-disabled); cursor: not-allowed; }
+        #attachment-notice { font-size: 12.5px; color: var(--text-secondary); overflow-wrap: anywhere; }
         #attachment-notice:not(:empty) { margin-top: 8px; }
-        .message-attachments img { max-width: min(240px, 100%); max-height: 200px; object-fit: contain; margin-top: 8px; border-radius: 5px; }
+        .message-attachments img { max-width: min(240px, 100%); max-height: 200px; object-fit: contain; margin-top: 8px; border-radius: 6px; }
     </style>
 </head>
 <body>
+    <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
+    <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+        <symbol id="i-bot" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+        <symbol id="i-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9.671 4.136a2.34 2.34 0 0 1 4.659 0 2.34 2.34 0 0 0 3.319 1.915 2.34 2.34 0 0 1 2.33 4.033 2.34 2.34 0 0 0 0 3.831 2.34 2.34 0 0 1-2.33 4.033 2.34 2.34 0 0 0-3.319 1.915 2.34 2.34 0 0 1-4.659 0 2.34 2.34 0 0 0-3.32-1.915 2.34 2.34 0 0 1-2.33-4.033 2.34 2.34 0 0 0 0-3.831A2.34 2.34 0 0 1 6.35 6.051a2.34 2.34 0 0 0 3.319-1.915"/><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+        <symbol id="i-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></symbol>
+        <symbol id="i-save" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/><path d="M17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></symbol>
+        <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
+        <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></symbol>
+        <symbol id="i-trash-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+        <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
+        <symbol id="i-loader-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+        <symbol id="i-send" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></symbol>
+        <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="i-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></symbol>
+        <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/></symbol>
+    </svg>
+
     <header>
-        <h1 data-i18n>🤖 EMAP-SSN Agent Chat</h1>
-        <div style="display:flex;align-items:center;gap:10px;">
-            <button class="btn" id="theme-toggle-btn" style="border-radius:9999px;padding:4px 12px;font-weight:500;box-shadow:none;" data-i18n>🌙 Dark Mode</button>
+        <h1><svg class="icon" aria-hidden="true"><use href="#i-bot"/></svg><span data-i18n>EMAP-SSN Agent Chat</span></h1>
+        <div class="header-actions">
+            <button class="btn btn-ghost" id="theme-toggle-btn"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span id="theme-toggle-label" data-i18n>Dark Mode</span></button>
             <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>
     </header>
@@ -758,6 +965,7 @@
     <div class="workspace">
         <!-- Chat area -->
         <div class="chat-container">
+          <div class="chat-card">
             <div class="pane-header">
                 <span class="pane-title" data-i18n>Agent Control Panel</span>
                 <div class="header-controls">
@@ -767,17 +975,18 @@
                         <span class="ios-toggle-track"><span class="ios-toggle-thumb"></span></span>
                     </label>
                     <select id="model-selector" title="Select model card"></select>
-                    <button class="btn" id="models-panel-btn" title="Manage model cards" data-i18n>⚙ Models</button>
-                    <button class="btn" id="clear-chat-btn" data-i18n>Clear Chat</button>
+                    <button class="btn" id="models-panel-btn" title="Manage model cards"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Models</span></button>
+                    <button class="btn btn-ghost" id="clear-chat-btn" data-i18n>Clear Chat</button>
                 </div>
             </div>
             <div id="chat-log"></div>
+          </div>
             <div id="chat-composer">
               <div id="attachment-tray" aria-label="Pending image attachments"></div>
               <div class="chat-input-bar">
                 <textarea id="chat-input-field" placeholder="Ask the agent a question or give a command..." disabled></textarea>
-                <button class="btn" id="capture-viewer-btn" aria-label="Capture Viewer" data-i18n>Capture<br>Viewer</button>
-                <button class="btn btn-primary" id="chat-send-btn" disabled data-i18n>Send</button>
+                <button class="btn" id="capture-viewer-btn" aria-label="Capture Viewer" title="Capture Viewer"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span class="btn-label" data-i18n>Capture Viewer</span></button>
+                <button class="btn btn-primary" id="chat-send-btn" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg><span data-i18n>Send</span></button>
               </div>
               <div id="attachment-notice" role="status" aria-live="polite"></div>
             </div>
@@ -786,15 +995,15 @@
         <!-- Right panel: Model Cards Manager -->
         <div id="models-panel" class="models-panel">
             <div class="panel-header">
-                <span data-i18n>⚙ Model Cards</span>
-                <button id="close-panel-btn" class="close-btn" title="Close panel">✕</button>
+                <span class="panel-title"><svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg><span data-i18n>Model Cards</span></span>
+                <button id="close-panel-btn" class="btn btn-ghost btn-icon" title="Close panel"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
             </div>
             <div id="cards-list" class="cards-list">
                 <!-- Cards rendered by JS -->
             </div>
             <div class="panel-footer">
-                <button id="add-card-btn" class="btn" data-i18n>+ Add Model</button>
-                <button id="save-cards-btn" class="btn btn-primary" data-i18n>💾 Save</button>
+                <button id="add-card-btn" class="btn"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg><span data-i18n>Add Model</span></button>
+                <button id="save-cards-btn" class="btn btn-primary"><svg class="icon" id="save-cards-icon" aria-hidden="true"><use href="#i-save"/></svg><span id="save-cards-label" data-i18n>Save</span></button>
             </div>
         </div>
     </div>
@@ -843,6 +1052,20 @@
 
         function uid() { return Math.random().toString(36).slice(2, 10); }
 
+        // An icon from the page's sprite (its <symbol id="i-NAME">), drawn
+        // in the text colour; setIcon shows another one in its place.
+        const SVG_NS = "http://www.w3.org/2000/svg";
+        function icon(name) {
+            const svg = document.createElementNS(SVG_NS, "svg");
+            svg.setAttribute("class", "icon");
+            svg.setAttribute("aria-hidden", "true");
+            const use = document.createElementNS(SVG_NS, "use");
+            use.setAttribute("href", "#i-" + name);
+            svg.appendChild(use);
+            return svg;
+        }
+        function setIcon(svg, name) { svg.querySelector("use").setAttribute("href", "#i-" + name); }
+
         if (window.marked && typeof window.marked.setOptions === "function") {
             window.marked.setOptions({ gfm: true, breaks: true });
             // Explanations are untrusted (model output, or history reloaded from
@@ -882,8 +1105,10 @@
         }
 
         function updateThemeBtn(theme) {
-            const btn = document.getElementById("theme-toggle-btn");
-            if (btn) btn.textContent = theme === "dark" ? t("☀️ Light Mode") : t("🌙 Dark Mode");
+            const label = document.getElementById("theme-toggle-label");
+            if (label) label.textContent = theme === "dark" ? t("Light Mode") : t("Dark Mode");
+            const themeIcon = document.getElementById("theme-toggle-icon");
+            if (themeIcon) setIcon(themeIcon, theme === "dark" ? "sun" : "moon");
         }
 
         // ─── Model Cards ──────────────────────────────────────────────────────────
@@ -957,21 +1182,23 @@
             sendAction({ action: "set_backend", card_id: card.id });
             const saved = JSON.parse(savedCardsJson || "[]").find(c => c.id === card.id);
             if (saved && JSON.stringify(saved) !== JSON.stringify(card)) {
-                appendSystemMsg(t('Using the saved settings of "{model}": press 💾 Save to use the edits made here.', {model: card.name || t("this model")}));
+                appendSystemMsg(t('Using the saved settings of "{model}": press Save to use the edits made here.', {model: card.name || t("this model")}));
             }
         }
 
         function showCardsSaved() {
             const saveCardsBtn = document.getElementById("save-cards-btn");
-            if (!saveCardsBtn.dataset.label) saveCardsBtn.dataset.label = saveCardsBtn.textContent;
-            saveCardsBtn.textContent = t("✓ Saved!");
-            saveCardsBtn.style.backgroundColor = "#22c55e";
-            saveCardsBtn.style.borderColor = "#22c55e";
+            const label = document.getElementById("save-cards-label");
+            const saveIcon = document.getElementById("save-cards-icon");
+            if (!saveCardsBtn.dataset.label) saveCardsBtn.dataset.label = label.textContent;
+            label.textContent = t("Saved!");
+            setIcon(saveIcon, "check");
+            saveCardsBtn.classList.add("is-saved");
             clearTimeout(cardsSavedTimer);
             cardsSavedTimer = setTimeout(() => {
-                saveCardsBtn.textContent = saveCardsBtn.dataset.label;
-                saveCardsBtn.style.backgroundColor = "";
-                saveCardsBtn.style.borderColor = "";
+                label.textContent = saveCardsBtn.dataset.label;
+                setIcon(saveIcon, "save");
+                saveCardsBtn.classList.remove("is-saved");
             }, 1600);
         }
 
@@ -993,7 +1220,7 @@
             const dragHandle = document.createElement("span");
             dragHandle.className = "drag-handle";
             dragHandle.title = t("Drag to reorder");
-            dragHandle.textContent = "☰";
+            dragHandle.appendChild(icon("menu"));
             dragHandle.addEventListener("mousedown", (e) => e.stopPropagation());
 
             const nameLabel = document.createElement("span");
@@ -1002,14 +1229,16 @@
 
             const delBtn = document.createElement("button");
             delBtn.className = "card-delete-btn";
+            delBtn.type = "button";
             delBtn.title = t("Remove model");
-            delBtn.textContent = "✕";
+            delBtn.appendChild(icon("trash-2"));
             delBtn.addEventListener("click", (e) => { e.stopPropagation(); removeCard(index); });
 
             const expandBtn = document.createElement("button");
             expandBtn.className = "card-expand-btn";
+            expandBtn.type = "button";
             expandBtn.title = t("Expand / collapse");
-            expandBtn.textContent = "▾";
+            expandBtn.appendChild(icon("chevron-down"));
 
             header.appendChild(dragHandle);
             header.appendChild(nameLabel);
@@ -1019,7 +1248,6 @@
             header.addEventListener("click", (e) => {
                 if (e.target.closest(".card-delete-btn") || e.target.closest(".drag-handle")) return;
                 div.classList.toggle("expanded");
-                expandBtn.textContent = div.classList.contains("expanded") ? "▴" : "▾";
             });
 
             // Pointer-based drag-to-reorder (works inside PyQt WebEngineView)
@@ -1069,22 +1297,30 @@
             apiLbl.className = "card-field-label";
             apiLbl.textContent = t("API Key");
             const apiRow = document.createElement("div");
-            apiRow.style.cssText = "display:flex;gap:6px;align-items:center;";
+            apiRow.className = "card-key-row";
             const apiInp = document.createElement("input");
             apiInp.type = "password";
             apiInp.placeholder = t("sk-... (leave blank if not needed)");
             apiInp.value = card.api_key || "";
-            apiInp.style.flex = "1";
             apiInp.addEventListener("input", () => {
                 if (modelCards[index]) modelCards[index].api_key = apiInp.value;
             });
+            // An icon button: an eye shows the key, a crossed-out eye hides it.
             const showBtn = document.createElement("button");
-            showBtn.className = "btn show-key-btn";
+            showBtn.className = "btn btn-icon show-key-btn";
             showBtn.type = "button";
-            showBtn.textContent = t("Show");
+            const showIcon = icon("eye");
+            showBtn.appendChild(showIcon);
+            const showKeyLabel = () => {
+                const hidden = apiInp.type === "password";
+                showBtn.title = hidden ? t("Show") : t("Hide");
+                showBtn.setAttribute("aria-label", showBtn.title);
+                setIcon(showIcon, hidden ? "eye" : "eye-off");
+            };
+            showKeyLabel();
             showBtn.addEventListener("click", () => {
                 apiInp.type = apiInp.type === "password" ? "text" : "password";
-                showBtn.textContent = apiInp.type === "password" ? t("Show") : t("Hide");
+                showKeyLabel();
             });
             apiRow.appendChild(apiInp);
             apiRow.appendChild(showBtn);
@@ -1099,7 +1335,7 @@
             optLbl.className = "card-field-label";
             optLbl.textContent = t("Custom Options (JSON)");
             const optArea = document.createElement("textarea");
-            optArea.style.cssText = "width:100%;height:60px;font-family:var(--font-mono);font-size:11.5px;padding:6px;border:1px solid var(--border-color);border-radius:6px;background:var(--input-bg);color:var(--input-text);resize:vertical;";
+            optArea.className = "card-options";
             optArea.placeholder = t("e.g. {example}", {example: OPTIONS_EXAMPLE});
             
             let initialVal = "";
@@ -1117,13 +1353,13 @@
                 const rawVal = optArea.value.trim();
                 if (rawVal === "") {
                     modelCards[index].options = null;
-                    optArea.style.borderColor = "";
+                    optArea.classList.remove("is-invalid");
                 } else {
                     try {
                         modelCards[index].options = JSON.parse(rawVal);
-                        optArea.style.borderColor = ""; // valid
+                        optArea.classList.remove("is-invalid"); // valid
                     } catch (e) {
-                        optArea.style.borderColor = "var(--danger)";
+                        optArea.classList.add("is-invalid");
                     }
                 }
             });
@@ -1220,8 +1456,6 @@
             const last = cards[cards.length - 1];
             if (last) {
                 last.classList.add("expanded");
-                const expBtn = last.querySelector(".card-expand-btn");
-                if (expBtn) expBtn.textContent = "▴";
                 last.scrollIntoView({ behavior: "smooth" });
             }
         }
@@ -1307,13 +1541,11 @@
 
             eventSource.onopen = () => {
                 statusBadge.innerText = t("Connected");
-                statusBadge.style.backgroundColor = "var(--connection-active-bg)";
-                statusBadge.style.color = "var(--connection-active-text)";
+                statusBadge.dataset.state = "connected";
             };
             eventSource.onerror = () => {
                 statusBadge.innerText = t("Reconnecting...");
-                statusBadge.style.backgroundColor = "var(--connection-reconnecting-bg)";
-                statusBadge.style.color = "var(--connection-reconnecting-text)";
+                statusBadge.dataset.state = "reconnecting";
             };
             eventSource.onmessage = (event) => handleServerEvent(JSON.parse(event.data));
         }
@@ -1477,10 +1709,10 @@
         // analyzing: the model is reading back the results of the commands it ran.
         function setAgentThinking(modelName, analyzing = false) {
             const model = analyzing ? t("{model} (Analyzing results)", {model: modelName}) : modelName;
-            const text = t("⏳ Thinking ({model})...", {model});
+            const text = t("Thinking ({model})...", {model});
             const existing = document.getElementById("thinking-bubble");
             if (existing) {
-                const inner = existing.querySelector(".msg-system");
+                const inner = existing.querySelector(".thinking-text");
                 if (inner) inner.textContent = text;
                 return;
             }
@@ -1488,8 +1720,11 @@
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-system";
             wrapper.id = "thinking-bubble";
-            wrapper.innerHTML = `<div class="msg msg-system"></div>`;
-            wrapper.firstElementChild.textContent = text;
+            wrapper.innerHTML = `<div class="msg msg-system"><span class="thinking-text"></span></div>`;
+            const spinner = icon("loader-circle");
+            spinner.classList.add("icon-spin");
+            wrapper.firstElementChild.insertBefore(spinner, wrapper.firstElementChild.firstChild);
+            wrapper.querySelector(".thinking-text").textContent = text;
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
         }
@@ -1571,7 +1806,8 @@
 
             const hdr = document.createElement("div");
             hdr.className = "msg-agent-header";
-            hdr.innerHTML = `<span>🤖</span><span>${escapeHtml(t("Assistant"))}</span>`;
+            hdr.innerHTML = `<span>${escapeHtml(t("Assistant"))}</span>`;
+            hdr.insertBefore(icon("bot"), hdr.firstChild);
             wrapper.appendChild(hdr);
 
             if (reasoning) {
@@ -1580,7 +1816,8 @@
                 
                 const thoughtHdr = document.createElement("div");
                 thoughtHdr.className = "thought-box-header";
-                thoughtHdr.innerHTML = `<span>${escapeHtml(t("Thought Process"))}</span><span class="thought-box-toggle">▶</span>`;
+                thoughtHdr.innerHTML = `<span>${escapeHtml(t("Thought Process"))}</span><span class="thought-box-toggle"></span>`;
+                thoughtHdr.querySelector(".thought-box-toggle").appendChild(icon("chevron-down"));
                 
                 const thoughtContent = document.createElement("div");
                 thoughtContent.className = "thought-box-content";
@@ -1591,8 +1828,6 @@
                 
                 thoughtHdr.addEventListener("click", () => {
                     thoughtBox.classList.toggle("expanded");
-                    const isExpanded = thoughtBox.classList.contains("expanded");
-                    thoughtHdr.querySelector(".thought-box-toggle").textContent = isExpanded ? "▼" : "▶";
                 });
                 
                 wrapper.appendChild(thoughtBox);
@@ -1611,7 +1846,9 @@
                 boxHdr.innerHTML = `<span>${escapeHtml(t("Executed Command(s)"))}</span>`;
                 const copyBtn = document.createElement("button");
                 copyBtn.className = "copy-btn";
-                copyBtn.textContent = t("Copy");
+                copyBtn.type = "button";
+                copyBtn.innerHTML = `<span class="copy-label">${escapeHtml(t("Copy"))}</span>`;
+                copyBtn.insertBefore(icon("copy"), copyBtn.firstChild);
                 copyBtn.addEventListener("click", () => copyText(commands, copyBtn));
                 boxHdr.appendChild(copyBtn);
                 box.appendChild(boxHdr);
@@ -1691,10 +1928,17 @@
 
         function copyText(text, btn) {
             navigator.clipboard.writeText(text).then(() => {
-                const orig = btn.textContent;
-                btn.textContent = t("Copied!");
-                btn.style.color = "#34d399";
-                setTimeout(() => { btn.textContent = orig; btn.style.color = ""; }, 1500);
+                const label = btn.querySelector(".copy-label");
+                const copyIcon = btn.querySelector(".icon");
+                const orig = label.textContent;
+                label.textContent = t("Copied!");
+                setIcon(copyIcon, "check");
+                btn.classList.add("is-copied");
+                setTimeout(() => {
+                    label.textContent = orig;
+                    setIcon(copyIcon, "copy");
+                    btn.classList.remove("is-copied");
+                }, 1500);
             }).catch(err => console.error("Clipboard error:", err));
         }
 

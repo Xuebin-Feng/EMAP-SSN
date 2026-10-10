@@ -45,7 +45,7 @@ def print_help(meta_dir):
     Usage:
       meta
           Opens the HTML5 Metadata Spreadsheet in your web browser and registers 
-          the "📊 Meta Data" sidebar shortcut button.
+          the "Meta Data" sidebar shortcut button.
       meta [upload|import] <filename> [filename ...]
           Uploads and merges one or more metadata files (.xlsx, .xls, .csv; the
           extension may be omitted) into the current viewer session. Each path can

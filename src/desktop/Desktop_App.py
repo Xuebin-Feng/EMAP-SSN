@@ -37,6 +37,15 @@ from PySide6.QtWidgets import (
     QTextEdit,
 )
 
+from desktop.Studio_Theme import (
+    SWITCH_LABEL_GAP,
+    SWITCH_STYLESHEET,
+    SWITCH_WIDTH,
+    IconLabel,
+    apply_studio_theme,
+    paint_switch,
+    switch_label,
+)
 from utilities.App_Settings import AppSettingsError, read_app_settings, save_app_setting
 
 from utilities.Localization import (
@@ -566,28 +575,6 @@ def configure_qt_application_fonts(
         ui_family_available=ui_available,
         monospace_family_available=monospace_available,
     )
-
-
-def force_light_palette(app):
-    """Apply the shared light Fusion palette to a Qt application."""
-    from PySide6.QtGui import QColor, QPalette
-
-    app.setStyle("Fusion")
-    palette = QPalette()
-    palette.setColor(QPalette.ColorRole.Window, QColor(240, 240, 240))
-    palette.setColor(QPalette.ColorRole.WindowText, QColor(0, 0, 0))
-    palette.setColor(QPalette.ColorRole.Base, QColor(255, 255, 255))
-    palette.setColor(QPalette.ColorRole.AlternateBase, QColor(233, 233, 233))
-    palette.setColor(QPalette.ColorRole.ToolTipBase, QColor(255, 255, 220))
-    palette.setColor(QPalette.ColorRole.ToolTipText, QColor(0, 0, 0))
-    palette.setColor(QPalette.ColorRole.Text, QColor(0, 0, 0))
-    palette.setColor(QPalette.ColorRole.Button, QColor(240, 240, 240))
-    palette.setColor(QPalette.ColorRole.ButtonText, QColor(0, 0, 0))
-    palette.setColor(QPalette.ColorRole.BrightText, QColor(255, 0, 0))
-    palette.setColor(QPalette.ColorRole.Link, QColor(0, 0, 255))
-    palette.setColor(QPalette.ColorRole.Highlight, QColor(48, 140, 198))
-    palette.setColor(QPalette.ColorRole.HighlightedText, QColor(255, 255, 255))
-    app.setPalette(palette)
 
 
 def qt_monospace_font(base_font: "QFont | None" = None) -> "QFont":
@@ -1143,6 +1130,7 @@ class WrappedPlaceholderTextEdit(QTextEdit):
         self._placeholder.setForegroundRole(QPalette.ColorRole.PlaceholderText)
         self._placeholder.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         self._placeholder.hide()
+        self._placeholder.installEventFilter(self)
         self.textChanged.connect(self._show_placeholder)
 
     def placeholderText(self):
@@ -1160,6 +1148,15 @@ class WrappedPlaceholderTextEdit(QTextEdit):
             # Qt resets the label to the application font, so the Config's
             # monospace report font is given to the label outright.
             self._placeholder.setFont(self.font())
+
+    def eventFilter(self, watched, event):
+        # The application stylesheet re-resolves the label's font when it
+        # polishes the label, after the box's own FontChange has passed; give
+        # the box's font back whenever the label's drifts from it.
+        if (watched is self._placeholder and event.type() == QEvent.Type.FontChange
+                and self._placeholder.font() != self.font()):
+            self._placeholder.setFont(self.font())
+        return super().eventFilter(watched, event)
 
     def resizeEvent(self, event):
         # A scroll area gets its viewport's resizes here, scroll bars coming
@@ -1240,23 +1237,35 @@ def text_button_width(texts, font, padding=BUTTON_TEXT_PADDING):
     return widest + 2 * padding
 
 
+# Qt's styles leave this gap between a button's icon and its text.
+BUTTON_ICON_SPACING = 4
+
+
+def button_icon_room(button):
+    """Return the width a button's icon takes before its text: the icon and the gap after it."""
+    if button.icon().isNull():
+        return 0
+    return button.iconSize().width() + (BUTTON_ICON_SPACING if button.text() else 0)
+
+
 def clipped_button_text(button):
     """Return how many pixels of the button's text its style has no room for.
 
     A style can keep a frame or stylesheet padding inside the button, so the
-    room left for the text is narrower than the button.
+    room left for the text is narrower than the button. An icon takes its
+    width out of that room too.
     """
     option = QStyleOptionButton()
     button.initStyleOption(option)
     room = button.style().subElementRect(
         QStyle.SubElement.SE_PushButtonContents, option, button
-    ).width()
+    ).width() - button_icon_room(button)
     text = shown_button_text(button.text())
     return max(0, button.fontMetrics().horizontalAdvance(text) - room)
 
 
 def fit_buttons_to_text(*buttons, padding=BUTTON_TEXT_PADDING):
-    """Give ``buttons`` one fixed width: their widest text plus ``padding`` at each end.
+    """Give ``buttons`` one fixed width: their widest text and icon plus ``padding`` at each end.
 
     Should a style keep more room inside a button than the padding, the
     width grows by what it would clip, so no text is ever cut off.
@@ -1264,7 +1273,10 @@ def fit_buttons_to_text(*buttons, padding=BUTTON_TEXT_PADDING):
     width = 0
     for button in buttons:
         button.ensurePolished()  # A stylesheet may set the font the text is drawn in.
-        width = max(width, text_button_width([button.text()], button.font(), padding))
+        width = max(
+            width,
+            text_button_width([button.text()], button.font(), padding) + button_icon_room(button),
+        )
     for button in buttons:
         button.setFixedWidth(width)
     width += max(clipped_button_text(button) for button in buttons)
@@ -1274,23 +1286,16 @@ def fit_buttons_to_text(*buttons, padding=BUTTON_TEXT_PADDING):
 
 
 TOGGLE_SWITCH_HEIGHT = 28
-TOGGLE_ON_STYLESHEET = (
-    "QPushButton { background-color: #4CAF50; color: white; border-radius: 14px; "
-    "font-weight: bold; border: 1px solid #388E3C; }"
-)
-TOGGLE_OFF_STYLESHEET = (
-    "QPushButton { background-color: #e0e0e0; color: #333; border-radius: 14px; "
-    "font-weight: bold; border: 1px solid #bdbdbd; }"
-)
 
 
 class ToggleSwitch(QPushButton):
-    """A checkable pill that reads ``on_text`` or ``off_text``, "ON" and "OFF" by default.
+    """A checkable switch that reads ``on_text`` or ``off_text``, "ON" and "OFF" by default.
 
-    Its width fits the longer of the two texts, so toggling never resizes it.
-    Each toggle swaps the whole stylesheet, as the per-window copies this
-    replaces did, so a disabled style the Config's profile gating appends lasts
-    until the next toggle.
+    Studio_Theme.paint_switch draws it as a track and a knob, after the words
+    both texts share ("Auto" of "Auto ON" and "Auto OFF"). The text stays the
+    button's text, for screen readers and the translation checks. Its width
+    fits the longer of the two texts in bold, as the pill it replaced did, so
+    the layouts keep their sizes, and toggling never resizes it.
     """
 
     def __init__(self, on_text=None, off_text=None, parent=None):
@@ -1301,9 +1306,14 @@ class ToggleSwitch(QPushButton):
             off_text = QtCore.QCoreApplication.translate("ToggleSwitch", "OFF")
         self._texts = (off_text, on_text)
         self.setCheckable(True)
+        self.setStyleSheet(SWITCH_STYLESHEET)
         bold = QFont(self.font())
-        bold.setBold(True)  # Both stylesheets draw the text bold.
-        self.setFixedSize(text_button_width(self._texts, bold), TOGGLE_SWITCH_HEIGHT)
+        bold.setBold(True)
+        label = switch_label(self._texts)
+        drawn = SWITCH_WIDTH + (
+            QFontMetrics(self.font()).horizontalAdvance(label) + SWITCH_LABEL_GAP if label else 0
+        )
+        self.setFixedSize(max(text_button_width(self._texts, bold), drawn), TOGGLE_SWITCH_HEIGHT)
         self.toggled.connect(self._show_state)
         self._show_state(False)
 
@@ -1313,7 +1323,10 @@ class ToggleSwitch(QPushButton):
 
     def _show_state(self, checked):
         self.setText(self._texts[bool(checked)])
-        self.setStyleSheet(TOGGLE_ON_STYLESHEET if checked else TOGGLE_OFF_STYLESHEET)
+        self.update()
+
+    def paintEvent(self, event):
+        paint_switch(self)
 
 
 # =====================================================================
@@ -1654,7 +1667,7 @@ def language_selector_row(selector):
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
     row.addStretch()
-    globe = QLabel("🌐")
+    globe = IconLabel("globe")
     globe.setObjectName("languageGlobe")
     globe.setBuddy(selector)
     row.addWidget(globe)
@@ -1796,7 +1809,7 @@ __all__ = [
     "QtFontLoadStatus",
     "VispyFontLoadStatus",
     "configure_qt_application_fonts",
-    "force_light_palette",
+    "apply_studio_theme",
     "qt_monospace_font",
     "register_vispy_application_fonts",
     "vispy_language_face",
@@ -1815,10 +1828,10 @@ __all__ = [
     "shown_button_text",
     "text_button_width",
     "clipped_button_text",
+    "BUTTON_ICON_SPACING",
+    "button_icon_room",
     "fit_buttons_to_text",
     "TOGGLE_SWITCH_HEIGHT",
-    "TOGGLE_ON_STYLESHEET",
-    "TOGGLE_OFF_STYLESHEET",
     "ToggleSwitch",
     "PSEUDO_LANGUAGE",
     "PSEUDO_TRANSLATION_VARIABLE",

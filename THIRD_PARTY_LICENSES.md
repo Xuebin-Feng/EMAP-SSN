@@ -6,7 +6,7 @@ inventories third-party material that is either bundled in this repository or
 required at runtime, together with the licenses that govern it. Each such
 component remains under its own license.
 
-Last reviewed: 2026-10-09
+Last reviewed: 2026-10-10
 
 ---
 
@@ -28,6 +28,7 @@ body is otherwise unchanged.
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex) |
 | [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSans/` and `NotoSansMono/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
 | [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc) | 2.004-H2 (Google Fonts), cut down to GB2312 | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSansSC/` | [`LICENSE.Noto`](src/resources/fonts/LICENSE.Noto) |
+| [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (42 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
 | [UniProtKB/Swiss-Prot](https://www.uniprot.org/) sequences | Release 2026_03, 952 entries of InterPro IPR001279 | CC BY 4.0 | `src/resources/benchmark/benchmark_sequences.fasta`, `injection_sequences.fasta` | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); attribution in [`README.md`](src/resources/benchmark/README.md) |
 
 - Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15 from
@@ -88,6 +89,14 @@ body is otherwise unchanged.
   for both. Qt registers them only while the windows show Simplified Chinese.
   The recipe and source hashes are in `src/resources/fonts/desktop/README.md`
   and `src/resources/fonts/LICENSE.fonts`.
+- Lucide: Copyright (c) 2026 Lucide Icons and Contributors (ISC); the icons
+  derived from Feather are also Copyright (c) 2013-present Cole Bemis (MIT), as
+  the bundled `LICENSE` states. Vendored 2026-10-10 from the npm package
+  `lucide-static@1.47.0`, whose tarball matched the sha512 npm lists for that
+  version. `src/resources/icons/Update_Icons.py` copies the listed icons
+  unchanged and refuses any SVG holding more than plain shapes; the `qss/`
+  copies have a theme colour written in place of `currentColor`, and the web
+  pages inline the same markup. See `src/resources/icons/README.md`.
 - UniProtKB/Swiss-Prot: the benchmark's two sequence sets, made on 2026-10-09
   from UniProt release 2026_03 (released 2 September 2026) by the UniProt
   Consortium. The download held the 1,094 reviewed entries that InterPro entry
@@ -101,10 +110,12 @@ body is otherwise unchanged.
 The bodies of Mol*, Tabulator, marked, and KaTeX are upstream distribution
 artifacts. Mol* and Tabulator are not byte-for-byte unmodified because this
 project prepends attribution banners so their notices travel with the files if
-copied out. Only `fonts.css`, the two Noto Sans SC files and the two benchmark
+copied out. Only `fonts.css`, the two Noto Sans SC files, the coloured icon
+copies in `src/resources/icons/qss/` and the two benchmark
 sequence files are project-generated rather than upstream artifacts:
 `fonts.css` rewrites remote font URLs to local paths, the Noto Sans SC files
-are cut down from Google Fonts' variable font, and the sequence files are
+are cut down from Google Fonts' variable font, the icon copies have a colour
+written in, and the sequence files are
 selected from a UniProt download.
 
 ## 2. Remotely loaded assets

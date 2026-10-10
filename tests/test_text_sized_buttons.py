@@ -5,9 +5,10 @@
 """Buttons sized by their text (desktop.Desktop_App, "Buttons Sized by Their Text").
 
 Toggle switches, the Config's Pick buttons and the Viewer's sidebar buttons take
-their width from their text plus BUTTON_TEXT_PADDING at each end, so a longer
-text, such as a translation, widens a button instead of being cut off. A toggle
-covers both of its texts, so toggling never resizes it.
+their width from their text (and icon) plus BUTTON_TEXT_PADDING at each end, so a
+longer text, such as a translation, widens a button instead of being cut off. A
+toggle covers both of its texts, so toggling never resizes it; it is drawn as a
+switch after the words its texts share.
 """
 import os
 from pathlib import Path
@@ -22,20 +23,28 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from utilities import Hardware_Acceleration as _preload  # noqa: F401 - load torch before PySide6
-from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtGui import QColor, QFont, QFontMetrics
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QTextBrowser, QVBoxLayout, QWidget,
 )
 
 from desktop.Desktop_App import (
     BUTTON_TEXT_PADDING,
-    TOGGLE_OFF_STYLESHEET,
-    TOGGLE_ON_STYLESHEET,
     TOGGLE_SWITCH_HEIGHT,
     ToggleSwitch,
+    button_icon_room,
     clipped_button_text,
     configure_qt_application_fonts,
     fit_buttons_to_text,
+)
+from tests.theme_fixture import apply_theme_for_class  # noqa: E402
+from desktop.Studio_Theme import (
+    SWITCH_HEIGHT,
+    SWITCH_LABEL_GAP,
+    SWITCH_STYLESHEET,
+    SWITCH_WIDTH,
+    TOKENS,
+    switch_label,
 )
 
 
@@ -50,11 +59,22 @@ def bold_advance(font, text):
     return QFontMetrics(bold).horizontalAdvance(text)
 
 
+def switch_width(font, texts):
+    """A switch's width: its texts in bold plus padding, or the drawn label and switch if wider."""
+    label = switch_label(texts)
+    drawn = SWITCH_WIDTH + (
+        QFontMetrics(font).horizontalAdvance(label) + SWITCH_LABEL_GAP if label else 0
+    )
+    return max(max(bold_advance(font, text) for text in texts) + 2 * BUTTON_TEXT_PADDING, drawn)
+
+
 class TextSizedTestCase(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
         configure_qt_application_fonts(cls.app)
+        # Measured as shipped: the window theme's padding and borders count.
+        apply_theme_for_class(cls, cls.app)
 
     def assert_text_shows_whole(self, button):
         """The room the button's style leaves for its text holds all of it."""
@@ -75,8 +95,7 @@ class TextSizedTestCase(unittest.TestCase):
                     self.assert_text_shows_whole(switch)
                     sizes.add((switch.width(), switch.height()))
                     texts.append(switch.text())
-                needed = (max(bold_advance(switch.font(), text) for text in texts)
-                          + 2 * BUTTON_TEXT_PADDING)
+                needed = switch_width(switch.font(), switch.state_texts())
                 self.assertEqual(sizes, {(needed, TOGGLE_SWITCH_HEIGHT)}, texts)
 
 
@@ -84,42 +103,69 @@ class ToggleSwitchTests(TextSizedTestCase):
     def test_width_fits_the_longer_text_and_never_changes(self):
         cases = (("ON", "OFF"), ("Auto ON", "Auto OFF"),
                  # Translations may make either text the longer one.
-                 ("Automatisch eingeschaltet", "AUS"), ("I", "Complètement désactivé"))
+                 ("Automatisch eingeschaltet", "AUS"), ("I", "Complètement désactivé"),
+                 ("自动 开", "自动 关"))
         for on_text, off_text in cases:
             with self.subTest(on=on_text, off=off_text):
                 switch = ToggleSwitch(on_text, off_text)
                 self.addCleanup(switch.deleteLater)
                 switch.show()
-                expected = (max(bold_advance(switch.font(), text)
-                                for text in (on_text, off_text))
-                            + 2 * BUTTON_TEXT_PADDING)
+                expected = switch_width(switch.font(), (off_text, on_text))
+                # The texts in bold, padded, as the pill it replaced was sized.
+                self.assertGreaterEqual(
+                    expected,
+                    max(bold_advance(switch.font(), text) for text in (on_text, off_text))
+                    + 2 * BUTTON_TEXT_PADDING,
+                )
                 for checked in (False, True, False, True):
                     switch.setChecked(checked)
                     flush(self.app)
                     self.assertEqual(switch.text(), on_text if checked else off_text)
-                    self.assertEqual(
-                        switch.styleSheet(),
-                        TOGGLE_ON_STYLESHEET if checked else TOGGLE_OFF_STYLESHEET,
-                    )
+                    self.assertEqual(switch.styleSheet(), SWITCH_STYLESHEET)
                     self.assertEqual(
                         (switch.width(), switch.height()), (expected, TOGGLE_SWITCH_HEIGHT)
                     )
-                    # The stylesheet draws the text bold; it keeps its padding.
-                    self.assertTrue(switch.font().bold())
-                    self.assertGreaterEqual(
-                        switch.width() - switch.fontMetrics().horizontalAdvance(switch.text()),
-                        2 * BUTTON_TEXT_PADDING,
-                    )
                     self.assert_text_shows_whole(switch)
+
+    def test_the_label_is_the_words_both_texts_share(self):
+        self.assertEqual(switch_label(("OFF", "ON")), "")
+        self.assertEqual(switch_label(("Auto OFF", "Auto ON")), "Auto")
+        self.assertEqual(switch_label(("自动 关", "自动 开")), "自动")
+        self.assertEqual(switch_label(("关闭", "开启")), "")
+
+    def test_the_drawn_switch_fits_and_its_knob_moves(self):
+        for texts in (("ON", "OFF"), ("Auto ON", "Auto OFF")):
+            with self.subTest(texts=texts):
+                switch = ToggleSwitch(*texts)
+                self.addCleanup(switch.deleteLater)
+                label = switch_label(switch.state_texts())
+                left = (switch.fontMetrics().horizontalAdvance(label) + SWITCH_LABEL_GAP
+                        if label else 0)
+                self.assertLessEqual(left + SWITCH_WIDTH, switch.width())
+                # The knob's centre when off and when on, in the middle row.
+                y = TOGGLE_SWITCH_HEIGHT // 2
+                knob = SWITCH_HEIGHT // 2
+                off_x, on_x = left + knob, left + SWITCH_WIDTH - knob
+                colours = {}
+                for checked in (False, True):
+                    switch.setChecked(checked)
+                    image = switch.grab().toImage()
+                    colours[checked] = (image.pixelColor(off_x, y), image.pixelColor(on_x, y))
+                white = QColor("#ffffff")
+                # Off: the white knob sits left, on the light track; on: it sits right, on the dark track.
+                self.assertEqual(colours[False][0], white)
+                self.assertEqual(colours[False][1], QColor(TOKENS["switch_off"]))
+                self.assertEqual(colours[True][1], white)
+                self.assertEqual(colours[True][0], QColor(TOKENS["switch_on"]))
 
     def test_a_new_switch_reads_off_until_checked(self):
         switch = ToggleSwitch()
         self.addCleanup(switch.deleteLater)
         self.assertTrue(switch.isCheckable())
         self.assertFalse(switch.isChecked())
-        self.assertEqual((switch.text(), switch.styleSheet()), ("OFF", TOGGLE_OFF_STYLESHEET))
+        self.assertEqual((switch.text(), switch.styleSheet()), ("OFF", SWITCH_STYLESHEET))
         switch.setChecked(True)
-        self.assertEqual((switch.text(), switch.styleSheet()), ("ON", TOGGLE_ON_STYLESHEET))
+        self.assertEqual((switch.text(), switch.styleSheet()), ("ON", SWITCH_STYLESHEET))
 
 
 class FitButtonsToTextTests(TextSizedTestCase):
@@ -188,10 +234,9 @@ class ViewerSidebarTests(TextSizedTestCase):
         viewer = MainViewer.__new__(MainViewer)
         viewer.main_window = QMainWindow()
         self.addCleanup(viewer.main_window.deleteLater)
-        # The Viewer's own rule sets the sidebar buttons' font this way.
+        # The Viewer's own rule left-aligns the sidebar buttons this way.
         viewer.main_window.setStyleSheet(
-            "QWidget#rightPanel QPushButton { font-size: 10pt; font-weight: bold; "
-            "padding-left: 10px; padding-right: 10px; }"
+            "QWidget#rightPanel QPushButton { text-align: left; padding-left: 10px; }"
         )
         viewer.right_panel = QWidget()
         viewer.right_panel.setObjectName("rightPanel")
@@ -205,36 +250,38 @@ class ViewerSidebarTests(TextSizedTestCase):
     def assert_panel_fits(self, viewer):
         buttons = list(viewer.sidebar_buttons.values())
         widest = max(button.fontMetrics().horizontalAdvance(button.text())
-                     for button in buttons)
+                     + button_icon_room(button) for button in buttons)
         width = widest + 2 * BUTTON_TEXT_PADDING
         self.assertEqual({button.width() for button in buttons}, {width})
         margins = viewer.right_panel_layout.contentsMargins()
         self.assertEqual(viewer._panel_w, width + margins.left() + margins.right())
         self.assertEqual(viewer.main_window.minimumWidth(), viewer._panel_w)
         for button in buttons:
-            self.assertTrue(button.font().bold())
-            self.assertEqual(button.font().pointSize(), 10)
             self.assert_text_shows_whole(button)
 
     def test_buttons_share_the_widest_label_and_the_panel_fits_them(self):
         viewer = self.make_viewer()
-        viewer.add_sidebar_button("agentBtn", "🤖 Agent", lambda: None)
-        viewer.add_sidebar_button("metaDataBtn", "📊 Meta Data", lambda: None)
+        viewer.add_sidebar_button("agentBtn", "Agent", lambda: None, icon="bot")
+        viewer.add_sidebar_button("metaDataBtn", "Meta Data", lambda: None, icon="chart-column")
         self.assert_panel_fits(viewer)
+        # The icon takes its own room: the text still shows whole beside it.
+        for button in viewer.sidebar_buttons.values():
+            self.assertFalse(button.icon().isNull())
+            self.assertEqual(button_icon_room(button), button.iconSize().width() + 4)
 
     def test_only_a_new_button_opens_the_sidebar(self):
         viewer = self.make_viewer()
         opened = []
         viewer.set_sidebar_visible = opened.append
-        viewer.add_sidebar_button("agentBtn", "🤖 Agent", lambda: None)
+        viewer.add_sidebar_button("agentBtn", "Agent", lambda: None, icon="bot")
         self.assertEqual(opened, [True])
 
         # Asked for a button it already has, it leaves the sidebar as the user left it.
-        again = viewer.add_sidebar_button("agentBtn", "🤖 Agent", lambda: None)
+        again = viewer.add_sidebar_button("agentBtn", "Agent", lambda: None, icon="bot")
         self.assertIs(again, viewer.sidebar_buttons["agentBtn"])
         self.assertEqual(opened, [True])
 
-        viewer.add_sidebar_button("metaDataBtn", "📊 Meta Data", lambda: None)
+        viewer.add_sidebar_button("metaDataBtn", "Meta Data", lambda: None, icon="chart-column")
         self.assertEqual(opened, [True, True])
 
     def test_a_repeated_meta_agent_or_esmfold_call_leaves_a_closed_sidebar_closed(self):
@@ -259,10 +306,15 @@ class ViewerSidebarTests(TextSizedTestCase):
         self.assertEqual(opened, [])
         self.assertEqual(len(viewer.sidebar_buttons), 3)
         self.assertEqual(viewer.sidebar_buttons_to_persist, ["meta"])
+        # Each plugin's button shows its icon beside a label without an emoji.
+        for button in viewer.sidebar_buttons.values():
+            self.assertFalse(button.icon().isNull(), button.objectName())
+            self.assertTrue(button.text().isascii(), button.text())
+        self.assert_panel_fits(viewer)
 
     def test_a_longer_label_widens_every_button_and_the_panel(self):
         viewer = self.make_viewer()
-        viewer.add_sidebar_button("agentBtn", "🤖 Agent", lambda: None)
+        viewer.add_sidebar_button("agentBtn", "Agent", lambda: None, icon="bot")
         before = viewer._panel_w
         viewer.add_sidebar_button(
             "longBtn", "A label as long as a translation might make it", lambda: None

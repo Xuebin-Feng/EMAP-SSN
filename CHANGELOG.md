@@ -505,6 +505,18 @@ still change before version 1.0.0.
 - The Agent page switches only to a saved model card, named by its id, so a request can
   no longer point the agent at an unsaved server. Edits to a card take effect once
   saved, and the page says so when the model being switched on has unsaved edits.
+- The Configuration, Tools and VR Configuration windows, the Viewer's sidebar and slider,
+  and its Agent, Meta Data and Fold View pages share a new look: zinc greys, hairline
+  borders, rounded controls on rounded cards, tabs as a segmented control, switches for
+  the ON/OFF toggles, one dark main button per window (such as **Save & Run**), and one
+  indigo accent for focus and sliders. The Agent page keeps its dark mode. Line icons
+  from the open-source [Lucide](https://lucide.dev) set (ISC licence, bundled in
+  `src/resources/icons/`) replace the emoji the windows used as icons, so they look the
+  same on every system: the folder buttons, the language globe, the Tools card titles and
+  help headings, the Viewer's sidebar buttons, and the web pages' controls. The tool help
+  pages (`src/tools/tool_descriptions/*.md`) no longer contain emoji; the Tools help pane
+  draws the icons. Sliders no longer show tick marks. The tool scripts' printed ✅, ❌
+  and ⚠️ markers are unchanged.
 
 ### Fixed
 

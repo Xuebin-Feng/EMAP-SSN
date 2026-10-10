@@ -234,7 +234,25 @@ class ComposerTests(unittest.TestCase):
             self.wait_for(f'window.innerWidth === {width}')
             self.js("var input = document.getElementById('chat-input-field'); input.value = 'First line\\nSecond line\\nThird line\\nFourth line'; input.dispatchEvent(new Event('input'))")
             self.assertTrue(self.js("['capture-viewer-btn','chat-send-btn'].every(id => Math.abs(document.getElementById(id).getBoundingClientRect().height - document.getElementById('chat-input-field').getBoundingClientRect().height) < 1)"))
-            self.assertEqual(self.js("document.querySelectorAll('#capture-viewer-btn br').length"), 1)
+            # Capture Viewer: a camera and a one-line label, or where the label
+            # would squeeze the input, the camera alone, named by its title.
+            capture = json.loads(self.js("""JSON.stringify((() => {
+                const button = document.getElementById('capture-viewer-btn');
+                const label = button.querySelector('.btn-label');
+                return {
+                    shown: label.getClientRects().length > 0,
+                    lines: label.getBoundingClientRect().height / parseFloat(getComputedStyle(label).fontSize),
+                    icon: button.querySelector('use').getAttribute('href'),
+                    names: [button.title, button.getAttribute('aria-label')],
+                    input: document.getElementById('chat-input-field').getBoundingClientRect().width,
+                };
+            })())"""))
+            self.assertEqual(capture['shown'], width == 1000)
+            if capture['shown']:
+                self.assertLess(capture['lines'], 1.6)
+            self.assertEqual(capture['icon'], '#i-camera')
+            self.assertEqual(capture['names'], ['Capture Viewer', 'Capture Viewer'])
+            self.assertGreater(capture['input'], 600 if width == 1000 else 180)
 
     def test_explanation_markup_is_inert(self):
         explanation = '\n\n'.join([
@@ -297,6 +315,62 @@ class ComposerTests(unittest.TestCase):
         self.wait_for('violations.length >= 2')
         self.assertFalse(self.js("'pwned' in window"))
         self.assertTrue(self.js("violations.every(directive => directive.startsWith('script-src'))"))
+
+    def test_the_theme_button_switches_the_palette_and_its_icon(self):
+        state = """JSON.stringify({
+            theme: document.documentElement.dataset.theme,
+            label: document.getElementById('theme-toggle-btn').textContent,
+            icon: document.querySelector('#theme-toggle-btn use').getAttribute('href'),
+            page: getComputedStyle(document.body).backgroundColor,
+            card: getComputedStyle(document.querySelector('header')).backgroundColor,
+            primary: getComputedStyle(document.documentElement).getPropertyValue('--primary').trim(),
+        })"""
+        # The page remembers the choice for the next page this view loads.
+        self.addCleanup(self.js, "localStorage.removeItem('ssn_theme')")
+        self.js("document.documentElement.dataset.theme = 'light'; updateThemeBtn('light')")
+        light = json.loads(self.js(state))
+        self.js("document.getElementById('theme-toggle-btn').click()")
+        dark = json.loads(self.js(state))
+        self.assertEqual(light, {'theme': 'light', 'label': 'Dark Mode', 'icon': '#i-moon',
+                                 'page': 'rgb(250, 250, 250)', 'card': 'rgb(255, 255, 255)', 'primary': '#18181b'})
+        self.assertEqual(dark, {'theme': 'dark', 'label': 'Light Mode', 'icon': '#i-sun',
+                                'page': 'rgb(9, 9, 11)', 'card': 'rgb(24, 24, 27)', 'primary': '#fafafa'})
+        self.js("document.getElementById('theme-toggle-btn').click()")
+        self.assertEqual(json.loads(self.js(state))['theme'], 'light')
+
+    def test_every_icon_draws_a_symbol_of_the_pages_sprite(self):
+        # The page in the states that show icons: the cards panel with a card
+        # open and its key shown, a reply with its reasoning and commands, and
+        # the next turn in progress.
+        self.js("document.getElementById('models-panel-btn').click();"
+                "document.querySelector('.model-card-header').click();"
+                "document.querySelector('.show-key-btn').click();"
+                "appendAgentMsg('Done', 'select 1', null, '', 'Because');"
+                "document.querySelector('.thought-box-header').click();"
+                "setAgentThinking('Test vision model');"
+                "reserveAttachment('shot.png')")
+        # runJavaScript only converts primitive results, so the report is JSON.
+        report = json.loads(self.js("""JSON.stringify({
+            symbols: Array.from(document.querySelectorAll('.icon-sprite symbol'), symbol => '#' + symbol.id),
+            icons: Array.from(document.querySelectorAll('svg.icon use'))
+                .filter(use => use.closest('svg').getClientRects().length)
+                .map(use => [use.getAttribute('href'), use.getBBox().width]),
+            keyButton: document.querySelector('.show-key-btn').title,
+            removeAttachment: document.querySelector('#attachment-tray button use').getAttribute('href'),
+            text: document.body.innerText,
+        })"""))
+        shown = {href for href, _ in report['icons']}
+        self.assertLessEqual({'#i-bot', '#i-moon', '#i-settings', '#i-x', '#i-plus', '#i-save', '#i-send',
+                              '#i-menu', '#i-trash-2', '#i-chevron-down', '#i-eye-off', '#i-copy',
+                              '#i-loader-circle', '#i-camera'}, shown)
+        self.assertEqual(report['removeAttachment'], '#i-x')
+        self.assertLessEqual(shown, set(report['symbols']))
+        for href, width in report['icons']:
+            with self.subTest(icon=href):
+                self.assertGreater(width, 0)  # Its symbol was found, and has shapes to draw.
+        self.assertEqual(report['keyButton'], 'Hide')
+        for glyph in '🤖🌙☀⚙✕×💾✓☰⏳▾▴▶▼':
+            self.assertNotIn(glyph, report['text'])
 
 
 class ModelCardFixtureHandler(FixtureHandler):
@@ -380,6 +454,7 @@ class ModelCardPageTests(unittest.TestCase):
             cards: modelCards.map(card => card.name),
             errors: Array.from(document.querySelectorAll('#chat-log .msg-error'), e => e.textContent),
             button: document.getElementById('save-cards-btn').textContent,
+            buttonIcon: document.querySelector('#save-cards-btn use').getAttribute('href'),
         })"""))
 
     def test_a_file_that_cannot_be_loaded_is_never_saved_over(self):
@@ -401,7 +476,7 @@ class ModelCardPageTests(unittest.TestCase):
 
                 self.assertEqual(clicked['actions'], [])
                 self.assertEqual(clicked['cards'], self.DEFAULT_NAMES)
-                self.assertEqual(clicked['button'], '💾 Save')
+                self.assertEqual((clicked['button'], clicked['buttonIcon']), ('Save', '#i-save'))
                 # Then only the request for the Viewer's own parse error, which
                 # gives the position without quoting the file.
                 self.assertEqual(connected['actions'], [{'action': 'check_model_cards'}])
@@ -434,11 +509,12 @@ class ModelCardPageTests(unittest.TestCase):
         self.js("setAgentThinking('Test model'); document.getElementById('save-cards-btn').click()")
         [save] = self.state()['actions']
         self.assertEqual([card['name'] for card in save['cards']], ['My API'])
-        self.assertEqual(self.state()['button'], '💾 Save')
+        self.assertEqual([self.state()['button'], self.state()['buttonIcon']], ['Save', '#i-save'])
         self.js("handleServerEvent({type:'model_cards_saved',save_id:'another page'})")
-        self.assertEqual(self.state()['button'], '💾 Save')
+        self.assertEqual([self.state()['button'], self.state()['buttonIcon']], ['Save', '#i-save'])
         self.js(f"handleServerEvent({{type:'model_cards_saved',save_id:{json.dumps(save['save_id'])}}})")
-        self.assertEqual(self.state()['button'], '✓ Saved!')
+        self.assertEqual([self.state()['button'], self.state()['buttonIcon']], ['Saved!', '#i-check'])
+        self.assertTrue(self.js("document.getElementById('save-cards-btn').classList.contains('is-saved')"))
 
         self.js("handleServerEvent({type:'model_cards_error',save_id:'x',error:'Model cards were not saved: disk full'})")
         self.assertEqual(self.state()['errors'], ['Error: Model cards were not saved: disk full'])

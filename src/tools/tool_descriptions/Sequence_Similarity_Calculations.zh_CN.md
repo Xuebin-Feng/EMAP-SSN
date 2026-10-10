@@ -1,18 +1,18 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 17b49b9ffd25c74532105e95d985e3aa1abb0e69e46b83c1747536091160aef7 -->
-# 🧬 动态规划嵌入比对 (`Align_Similarity_Matrix.py`)
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 fd4f37641e8291b8f1ea61b460a08911a62efd8af0e0482a72dff0fbd6239a3d -->
+# 动态规划嵌入比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质嵌入计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵，而是通过比较每个残基稠密的高维嵌入向量来计算相似性矩阵。
 
 它使用以优化的 Numba JIT 函数实现的动态规划（局部比对用 Smith-Waterman，全局比对用 Needleman-Wunsch）为序列比对打分。为加快大型数据集的计算，它提供一个可选的预过滤步骤：根据池化后的序列嵌入计算全局余弦相似度（默认最大池化；内部也支持平均池化），并跳过得分最低的序列对的完整比对。
 
-### 📥 输入
+### 输入
 
 #### HDF5 嵌入数据库 `INPUT_HDF5`
 *   **格式**：HDF5（`.h5`）。
 *   **生成工具**：`Generate_Embeddings.py`（嵌入生成工具）。
 *   **说明**：以 $L \times D$ 数组的形式包含预先计算的残基嵌入。
 
-### ⚙️ 参数
+### 参数
 
 | 参数 | 说明 |
 | :--- | :--- |
@@ -27,7 +27,7 @@
 | 主机缓存 **`HOST_CACHE_GB`** | 打包嵌入缓存可使用的主机内存上限（GiB）。`auto` 至少保留 8 GiB 或物理内存的 25%，并将缓存上限设为 128 GiB；`0` 则只使用有界的 HDF5 分块。 |
 | 加速器精度 **`ACCELERATOR_PRECISION`** | `automatic_32bit` 会在最多 2,048 个按正式计算顺序排列的序列对上，用 `EXECUTION_MODE` 允许的每种执行模式测试 IEEE FP32 和 TF32。只有当这些方案保持比对长度不变、通过逐残基的分数容差检查、结果均为有限值，且最快的 TF32 方案比最快的 FP32 方案至少快 10% 时，才会选用 TF32。`bf16` 表示明确的低精度执行：归一化和分数后处理仍用 FP32，而归一化后的矩阵乘法操作数使用 BF16。它需要具备相应能力的加速器，会打印低精度警告，并针对每种设备/执行变体，在最多 2,048 个具有代表性的序列对上报告相对于 FP32 的比对长度和原始分数统计。有限的数值差异仅供参考，不会导致拒绝 BF16。旧的输入别名 `auto` 会被当作 `automatic_32bit`。 |
 
-### 📤 输出
+### 输出
 
 #### HDF5 比对网络
 *   **格式**：HDF5（`.h5`）。
@@ -91,18 +91,18 @@
 
 ---
 
-# 🧬 替换矩阵比对 (`Align_Substitution_Matrix.py`)
+# 替换矩阵比对 (`Align_Substitution_Matrix.py`)
 
 该脚本使用传统的氨基酸替换矩阵进行全对全的局部序列比对。它根据输入序列集构建一个本地 NCBI BLAST 数据库，并并行执行 BLASTP 查询。得到的 E 值会被转换为可线性比较的负 Log10(E) 边权重，用于构建网络。
 
-### 📥 输入
+### 输入
 
 #### 序列 FASTA 文件 `INPUT_FASTA`
 *   **格式**：标准 FASTA（`.fasta`）。
 *   **生成工具**：`Sanitize_Sequences.py`（序列清理工具）或用户提供的原始 FASTA。
 *   **说明**：用于运行 BLAST 的原始序列数据库。记录会先经过与 `Generate_Embeddings.py` 相同的规范清理：序列标题、残基、空记录和重复序列。
 
-### ⚙️ 参数
+### 参数
 
 | 参数 | 说明 |
 | :--- | :--- |
@@ -116,7 +116,7 @@ BLASTP 目前使用宽松的固定 E 值阈值 `1e300`，每个查询最多 `1,0
 中间的查询片段、BLAST 数据库、结果文件和解析批次会自动保存在所设网络目录中一个按序列集区分的临时文件夹里。
 中断后重新运行时，只复用输入、已清理清单、替换矩阵、线程数、BLASTP 版本、查询分块和源结果校验和仍然一致的完整 HDF5 批次。最终网络通过校验并成功发布后，临时工作区会被删除。
 
-### 📤 输出
+### 输出
 
 #### HDF5 比对网络
 *   **格式**：HDF5（`.h5`）。
@@ -159,11 +159,11 @@ BLASTP 目前使用宽松的固定 E 值阈值 `1e300`，每个查询最多 `1,0
 
 ---
 
-# 🔍 解析 BLAST 输出 (`Parse_BLAST_Output.py`)
+# 解析 BLAST 输出 (`Parse_BLAST_Output.py`)
 
 该脚本解析严格的、以制表符分隔的 BLAST+ 或 DIAMOND 输出（需配合必需的配套 FASTA），并将其转换为标准的 HDF5 E 值网络。完整的 FASTA 序列标题和所选的 BLAST 序列标题都按查看器共享的序列标题规则清理，然后精确匹配。双向命中和重复命中会合并为最强的无向边，没有任何命中的 FASTA 记录仍会作为孤立节点保留。
 
-### 📥 输入
+### 输入
 
 #### 表格格式 BLAST 输出文件 `INPUT_BLAST_TABULAR`
 *   **格式**：UTF-8 表格格式 BLAST 输出（`.tabular`、`.txt`、`.tab`、`.tsv`）。
@@ -175,7 +175,7 @@ BLASTP 目前使用宽松的固定 E 值阈值 `1e300`，每个查询最多 `1,0
 *   **用途**：定义查看器中的每个节点（包括没有 BLAST 命中的序列）以及节点的规范顺序。
 *   **序列标题规则**：`>` 之后的完整序列标题会被清理。重复的原始序列标题、清理后冲突、空序列标题、空序列以及无效的 FASTA 结构都会被拒绝。
 
-### ⚙️ 参数
+### 参数
 
 *   `BLAST_LAYOUT`：输入的解析方式。
     - `standard_outfmt6`：恰好 12 个字段；查询、目标和 E 值分别位于第 1、2 和 11 列。
@@ -203,7 +203,7 @@ diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-s
 
 两种程序生成的网络都保留 `model_name="BLAST"`，因此查看器会把它们作为 E 值网络加载。
 
-### 📤 输出
+### 输出
 
 #### HDF5 比对网络
 *   **格式**：HDF5（`.h5`），命名为 `<blast file name>_[BLAST]_EValue.h5`；若文件的注释头部声明了 DIAMOND，则为 `_[DIAMOND]_EValue.h5`。

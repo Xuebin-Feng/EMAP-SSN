@@ -34,8 +34,8 @@ from utilities import Help_Pages
 import Update_Translations
 
 # As a Windows checkout writes the English pages: with CRLF.
-ENGLISH = "# 🧬 Demo Tool (`Demo.py`)\r\n\r\nThe English help.\r\n"
-GERMAN = "# 🧬 Demo-Werkzeug (`Demo.py`)\n\nDie deutsche Hilfe.\n"
+ENGLISH = "# Demo Tool (`Demo.py`)\r\n\r\nThe English help.\r\n"
+GERMAN = "# Demo-Werkzeug (`Demo.py`)\n\nDie deutsche Hilfe.\n"
 
 
 class HelpPageTests(unittest.TestCase):
@@ -173,13 +173,100 @@ class ToolsHelpPageTests(unittest.TestCase):
 
     def test_tool_titles_come_from_the_english_pages(self):
         titles = self.tools.get_tool_titles()
-        self.assertEqual(titles["Embedding_MSA.py"], "🧬 Embedding Multiple Sequence Alignment")
+        self.assertEqual(titles["Embedding_MSA.py"], "Embedding Multiple Sequence Alignment")
         english = self.pages / "Embedding_MSA.md"
         # Listed after the English page, so its heading would win if it counted.
         Help_Pages.translation_path(english, "zh_CN").write_text(
-            Help_Pages.translation_marker(english) + "\n# 🧬 嵌入多序列比对 (`Embedding_MSA.py`)\n", encoding="utf-8"
+            Help_Pages.translation_marker(english) + "\n# 嵌入多序列比对 (`Embedding_MSA.py`)\n", encoding="utf-8"
         )
         self.assertEqual(self.tools.get_tool_titles(), titles)
+
+    def shown_html(self, window, key, language):
+        """The HTML the help panel is handed for the tab whose help page is ``key``."""
+        index = next(index for index in range(window.tabs.count())
+                     if window.tabs.widget(index).property("descriptionKey") == key)
+        with mock.patch.object(self.tools, "installed_language", return_value=language), \
+                mock.patch.object(window.script_desc_text, "setHtml") as shown:
+            window.on_tab_changed(index)
+        return shown.call_args.args[0]
+
+    def test_the_panel_draws_an_icon_before_each_title_and_section(self):
+        """The pages stay plain Markdown; the panel draws the icons, in English and Chinese."""
+        window = self.tools.ToolsGUI()
+        self.addCleanup(window.deleteLater)
+        icon = self.tools.inline_icon_svg
+        for language in (None, "zh_CN"):
+            with self.subTest(language=language):
+                shown = self.shown_html(window, "Embedding_MSA", language)
+                headings = re.findall(r"<h([13])>(.*?)</h\1>", shown, re.S)
+                self.assertEqual([level for level, _ in headings], ["1", "3", "3", "3"] * 2)
+                expected = ["dna", "file-input", "settings", "file-output",
+                            "trending-down", "file-input", "settings", "file-output"]
+                for (_, inner), name in zip(headings, expected):
+                    self.assertTrue(inner.startswith(f'<span class="heading-icon">{icon(name)}</span>'), inner)
+                # A heading the icon table doesn't know shows as it is.
+                self.assertEqual(shown.count('class="heading-icon"'), len(headings))
+        others = self.shown_html(window, "Others", "zh_CN")
+        self.assertIn(f'<h1><span class="heading-icon">{icon("timer")}</span>基准测试</h1>', others)
+        self.assertIn(f'<span class="heading-icon">{icon("settings")}</span>阶段</h3>', others)
+
+
+class HelpHeadingIconTests(unittest.TestCase):
+    """The icons the help panel draws before the help pages' headings."""
+
+    def setUp(self):
+        import EMAPSSN_Tools
+
+        self.tools = EMAPSSN_Tools
+
+    def test_a_heading_gets_its_tools_or_its_sections_icon(self):
+        icon = self.tools.inline_icon_svg
+        page = self.tools.add_help_heading_icons(
+            "<h1>Sanitize Sequences (<code>Sanitize_Sequences.py</code>)</h1>\n<h3>Input</h3>\n"
+            "<h3>输出</h3>\n<h3>Stages</h3>\n<h4>Sequence Set <code>INPUT_FASTA</code></h4>\n"
+            "<h2>A Heading &amp; More</h2>\n<h1>Unknown Tool (<code>Unknown.py</code>)</h1>",
+            {"A Heading & More": "file-text"},
+        )
+        self.assertEqual(page, (
+            f'<h1><span class="heading-icon">{icon("sparkles")}</span>'
+            "Sanitize Sequences (<code>Sanitize_Sequences.py</code>)</h1>\n"
+            f'<h3><span class="heading-icon">{icon("file-input")}</span>Input</h3>\n'
+            f'<h3><span class="heading-icon">{icon("file-output")}</span>输出</h3>\n'
+            f'<h3><span class="heading-icon">{icon("settings")}</span>Stages</h3>\n'
+            "<h4>Sequence Set <code>INPUT_FASTA</code></h4>\n"
+            f'<h2><span class="heading-icon">{icon("file-text")}</span>A Heading &amp; More</h2>\n'
+            "<h1>Unknown Tool (<code>Unknown.py</code>)</h1>"
+        ))
+
+    def test_the_icon_is_inline_svg_drawn_in_the_text_colour(self):
+        svg = self.tools.inline_icon_svg("file-input")
+        self.assertTrue(svg.startswith('<svg aria-hidden="true" focusable="false" '), svg)
+        self.assertIn('stroke="currentColor"', svg)
+        self.assertNotIn("<!--", svg)
+        self.assertNotIn("\n", svg)
+        self.assertNotRegex(svg, r">\s+<")
+
+    def test_every_tool_has_a_bundled_icon_and_every_page_heading_an_icon(self):
+        from desktop.Studio_Theme import LUCIDE_DIR
+
+        self.assertEqual(set(self.tools.TOOL_ICONS), set(self.tools.TOOL_TITLES))
+        names = {*self.tools.TOOL_ICONS.values(), *self.tools.HELP_HEADING_ICONS.values()}
+        for name in names:
+            with self.subTest(icon=name):
+                self.assertTrue((LUCIDE_DIR / f"{name}.svg").is_file())
+        for page in sorted(Help_Pages.HELP_PAGES_DIR.glob("*.md")):
+            text = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.name):
+                # Plain Markdown, as the MCP agents read it: no emoji and no icon markup.
+                headings = re.findall(r"^(#{1,6}) (.+)$", text, re.M)
+                for _, heading in headings:
+                    self.assertRegex(heading, r"^[\w(`]", heading)
+                self.assertNotIn("<svg", text)
+                self.assertNotIn("heading-icon", text)
+                # Each title and each of its sections gets an icon.
+                shown = self.tools.add_help_heading_icons(self.tools.render_markdown_with_math(text))
+                major = [heading for hashes, heading in headings if len(hashes) in (1, 3)]
+                self.assertEqual(shown.count('class="heading-icon"'), len(major), major)
 
 
 def page_structure(text):
@@ -257,6 +344,25 @@ class HelpPanelPageTests(unittest.TestCase):
                 shown = page("<p>Help</p>", language)
                 self.assertIn("<html>", shown)
                 self.assertNotIn("@font-face", shown)
+
+    def test_the_page_is_a_card_in_the_window_themes_colours(self):
+        import EMAPSSN_Tools
+        from desktop.Studio_Theme import TOKENS
+
+        shown = EMAPSSN_Tools.ResponsiveTextBrowser.page_html("<h3>Input</h3>", None)
+        # The help sits on a card that scrolls inside its border, as the tabs' card does.
+        self.assertRegex(shown, r'<div class="help-card"><main class="help-page">\s*<h3>Input</h3>')
+        card = re.search(r"\.help-card \{(.*?)\}", shown, re.S).group(1)
+        for rule in (f"background: {TOKENS['surface']};", f"border: 1px solid {TOKENS['border']};",
+                     f"border-radius: {TOKENS['radius_card']}px;", "overflow: auto;"):
+            self.assertIn(rule, card)
+        # A heading's icon takes the colour CSS gives it (its SVG strokes in currentColor).
+        icon = re.search(r"\.heading-icon \{(.*?)\}", shown, re.S).group(1)
+        self.assertIn(f"color: {TOKENS['text_subtle']};", icon)
+        self.assertNotIn("__", shown, "every placeholder is filled")
+        colours = set(re.findall(r"#[0-9a-fA-F]{3,8}\b", shown))
+        self.assertTrue(colours)
+        self.assertLessEqual(colours, {value for value in TOKENS.values() if isinstance(value, str)})
 
     def test_the_panel_shows_its_page_in_the_windows_language(self):
         import EMAPSSN_Tools

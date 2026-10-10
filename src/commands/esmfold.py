@@ -35,7 +35,7 @@ def print_help():
       esmfold
           With exactly 1 node selected, folds it using ESM3 1.4B (biohub/esm3-sm-open-v1).
           With no node selected, folds the node last clicked and says so. With no node
-          clicked either, registers the sidebar button "🧬 Fold View" and opens the Mol* viewer in the browser.
+          clicked either, registers the sidebar button "Fold View" and opens the Mol* viewer in the browser.
       esmfold multi
           Folds all currently selected nodes sequentially using ESM3 1.4B (biohub/esm3-sm-open-v1).
       esmfold large

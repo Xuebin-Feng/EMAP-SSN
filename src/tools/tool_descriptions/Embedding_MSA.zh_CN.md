@@ -1,9 +1,9 @@
-<!-- Translation of Embedding_MSA.md, sha256 fc38cf380a182a84654b135b28529f1187bbe13ad1bbb8da81fa3238809b5723 -->
-# 🧬 嵌入多序列比对 (`Embedding_MSA.py`)
+<!-- Translation of Embedding_MSA.md, sha256 b5f7c5322580423fb82494ac81b6606ac906cb44afc5fbc7e8f0ae154ca756e9 -->
+# 嵌入多序列比对 (`Embedding_MSA.py`)
 
 该脚本使用蛋白质语言模型嵌入生成渐进式多序列比对（MSA）。它根据网络分数构建完整的引导树距离矩阵（网络稀疏时用回归插补缺失的值），然后使用考虑空位的动态规划逐步比对各个序列簇。
 
-### 📥 输入
+### 输入
 
 #### 序列集 `INPUT_FASTA`
 *   **格式**：标准 FASTA 序列数据库文件（`.fasta`）。
@@ -18,7 +18,7 @@
 *   **格式**：双序列 HDF5 比对网络（`.h5`）。
 *   **生成工具**：`Align_Similarity_Matrix.py`（嵌入比对工具）或 `Align_Substitution_Matrix.py` / `Parse_BLAST_Output.py`。
 
-### ⚙️ 参数
+### 参数
 
 | 参数 | 说明 |
 | :--- | :--- |
@@ -37,7 +37,7 @@
 | 计算设备 **`DEVICE_SELECTION`** | 为按顺序构建谱（profile）分数矩阵选择 `auto` 或某个可用的 CPU、CUDA、XPU 或 MPS 设备。自动模式会对分数矩阵成本位于第 25、50 和 90 百分位附近的三次真实叶到叶引导树合并进行基准测试，并为整个渐进合并选定一个设备。引导树计算和动态规划回溯始终在 CPU 上进行。 |
 | 临时工作目录 **`SAFE_TEMP_DIR`** | 用于缓存中间文件和内存映射矩阵的临时目录。未设置时，缓存建在本次运行的比对文件夹（`MSA_DIR`）中，并在引导树构建完成后删除。 |
 
-### 📤 输出
+### 输出
 
 #### 多序列比对 FASTA 文件
 *   **格式**：已比对的 FASTA（`.fasta`）。
@@ -105,24 +105,24 @@
 
 ---
 
-# 📉 稀疏 MSA 转换器 (`Sparse_MSA_Converter.py`)
+# 稀疏 MSA 转换器 (`Sparse_MSA_Converter.py`)
 
 该脚本将多序列比对（MSA）压缩为紧凑的 HDF5 文件。它会验证并清理已比对的 FASTA，将残基字符串转换为 SciPy 压缩稀疏行（CSR）矩阵，写入查找元数据，然后把转换成功的源 FASTA 移入 `Full_Alignments` 子目录。
 
-### 📥 输入
+### 输入
 
 #### MSA 比对文件 `INPUT_FASTA`
 *   **格式**：已比对的 FASTA（`.fasta`）。
 *   **生成工具**：`Embedding_MSA.py`（嵌入多序列比对工具）或其他外部 MSA 工具（例如 Clustal、MUSCLE）。
 *   **说明**：预先计算好的标准多序列比对文件。
 
-### ⚙️ 参数
+### 参数
 
 | 参数 | 说明 |
 | :--- | :--- |
 | 转换所有比对 **`CONVERT_ALL`** | 切换是否转换输入目录中的所有 FASTA 多序列比对。禁用时只转换所选的比对文件。 |
 
-### 📤 输出
+### 输出
 
 #### 压缩稀疏 MSA HDF5 文件
 *   **格式**：HDF5（`.h5`），保存在所选比对旁，命名为 `<input_basename>_sparse.h5`。

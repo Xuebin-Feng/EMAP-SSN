@@ -1,17 +1,17 @@
-# 🧬 Dynamic Programming Embedding Alignment (`Align_Similarity_Matrix.py`)
+# Dynamic Programming Embedding Alignment (`Align_Similarity_Matrix.py`)
 
 This script computes an all-vs-all sequence similarity network (SSN) using residue-level protein embeddings. Instead of using traditional amino acid substitution matrices, it calculates similarity matrices by comparing the dense high-dimensional embedding vectors of each residue.
 
 It performs sequence alignment scoring using dynamic programming (Smith-Waterman for local alignment and Needleman-Wunsch for global alignment) implemented in optimized Numba JIT functions. To accelerate large datasets, it includes an optional pre-filtering step that computes global cosine similarity from pooled sequence embeddings (max pooling by default; mean pooling is supported internally) and skips full alignments for the lowest-scoring pairs.
 
-### 📥 Input
+### Input
 
 #### HDF5 Embedding Database `INPUT_HDF5`
 *   **Format**: HDF5 (`.h5`).
 *   **Created By**: `Generate_Embeddings.py` (Embedding Generation utility).
 *   **Description**: Contains pre-calculated residue embeddings as $L \times D$ arrays.
 
-### ⚙️ Parameters
+### Parameters
 
 | Parameter | Description |
 | :--- | :--- |
@@ -26,7 +26,7 @@ It performs sequence alignment scoring using dynamic programming (Smith-Waterman
 | Host Cache **`HOST_CACHE_GB`** | Maximum GiB of host RAM used for a packed embedding cache. `auto` preserves at least 8 GiB or 25% of physical RAM and caps the cache at 128 GiB; `0` uses bounded HDF5 tiles only. |
 | Accelerator Precision **`ACCELERATOR_PRECISION`** | `automatic_32bit` tests IEEE FP32 and TF32 through every execution mode allowed by `EXECUTION_MODE` on up to 2,048 production-ordered pairs. TF32 is selected only when those plans retain alignment lengths, pass per-residue score tolerances, remain finite, and the fastest TF32 plan is at least 10% faster than the fastest FP32 plan. `bf16` is explicit low-precision execution: normalization and score postprocessing remain FP32, while normalized matmul operands use BF16. It requires a capable accelerator, prints a low-precision warning, and reports FP32-relative alignment-length and raw-score statistics on up to 2,048 representative pairs for each device/execution variant. Finite numerical differences are informational and never reject BF16. The legacy input alias `auto` is accepted as `automatic_32bit`. |
 
-### 📤 Output
+### Output
 
 #### HDF5 Alignment Network
 *   **Format**: HDF5 (`.h5`).
@@ -90,18 +90,18 @@ The alignment pipeline is executed in the following steps:
 
 ---
 
-# 🧬 Substitution Matrix Alignment (`Align_Substitution_Matrix.py`)
+# Substitution Matrix Alignment (`Align_Substitution_Matrix.py`)
 
 This script runs all-vs-all local sequence alignments using traditional amino acid substitution matrices. It constructs a local NCBI BLAST database from the input sequence set and executes parallelized BLASTP queries. The resulting E-values are converted into linearly comparable negative Log10(E) edge weights for network mapping.
 
-### 📥 Input
+### Input
 
 #### Sequence FASTA File `INPUT_FASTA`
 *   **Format**: Standard FASTA (`.fasta`).
 *   **Created By**: `Sanitize_Sequences.py` (Sequence Sanitization utility) or user-provided raw FASTA.
 *   **Description**: Raw sequence database to run BLAST against. Records first undergo the same canonical header, residue, empty-record, and duplicate-sequence sanitization used by `Generate_Embeddings.py`.
 
-### ⚙️ Parameters
+### Parameters
 
 | Parameter | Description |
 | :--- | :--- |
@@ -115,7 +115,7 @@ BLASTP is currently run with a permissive fixed E-value cutoff of `1e300`, at mo
 Intermediate query segments, BLAST databases, result files, and parser batches are stored automatically in a sequence-specific temporary folder inside the configured Network Directory.
 Interrupted runs reuse only complete HDF5 batches whose input, sanitized manifest, substitution matrix, thread count, BLASTP version, query chunk, and source-result checksums still match. The temporary workspace is removed after the final network is validated and published successfully.
 
-### 📤 Output
+### Output
 
 #### HDF5 Alignment Network
 *   **Format**: HDF5 (`.h5`).
@@ -158,11 +158,11 @@ Interrupted runs reuse only complete HDF5 batches whose input, sanitized manifes
 
 ---
 
-# 🔍 Parse BLAST Output (`Parse_BLAST_Output.py`)
+# Parse BLAST Output (`Parse_BLAST_Output.py`)
 
 This script parses strict, tab-delimited BLAST+ or DIAMOND output against a required companion FASTA and converts it into a standard HDF5 E-value network. Complete FASTA and selected BLAST headers are sanitized with the viewer's shared header rule, then matched exactly. Reciprocal and repeated hits are collapsed to the strongest undirected edge while FASTA records with no hits remain available as orphan nodes.
 
-### 📥 Input
+### Input
 
 #### Tabular BLAST Output File `INPUT_BLAST_TABULAR`
 *   **Format**: UTF-8 tabular BLAST output (`.tabular`, `.txt`, `.tab`, `.tsv`).
@@ -174,7 +174,7 @@ This script parses strict, tab-delimited BLAST+ or DIAMOND output against a requ
 *   **Purpose**: Defines every viewer node, including sequences with no BLAST hits, and the canonical node order.
 *   **Header rule**: The complete header after `>` is sanitized. Duplicate raw headers, sanitization collisions, empty headers, empty sequences, and invalid FASTA structure are rejected.
 
-### ⚙️ Parameters
+### Parameters
 
 *   `BLAST_LAYOUT`: Input interpretation mode.
     - `standard_outfmt6`: Exactly 12 fields; query, subject, and E-value are columns 1, 2, and 11.
@@ -202,7 +202,7 @@ Import `sequences_diamond.tsv` with `standard_outfmt6` and the same `sequences.f
 
 Both programs' networks keep `model_name="BLAST"`, so the Viewer loads either as an E-value network.
 
-### 📤 Output
+### Output
 
 #### HDF5 Alignment Network
 *   **Format**: HDF5 (`.h5`), named `<blast file name>_[BLAST]_EValue.h5`, or `_[DIAMOND]_EValue.h5` when the file declares DIAMOND in its comment header.

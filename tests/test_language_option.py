@@ -532,7 +532,10 @@ class ToolsLanguageTests(LanguageTestCase):
         window.single_instance = Controller()
         window.resize(1300, 820)
         window.move(30, 50)
-        window.splitter.setSizes([900, 400])
+        # The help panel is wide enough for the language dropdown in both
+        # languages: the dropdown shows its whole entry, so it sets the panel's
+        # narrowest width, and the pseudo-language's entries are the longer.
+        window.splitter.setSizes([850, 450])
         window.tabs.setCurrentIndex(1)
         edited = 0
         for data in window.script_data.values():
@@ -563,6 +566,9 @@ class ToolsLanguageTests(LanguageTestCase):
         self.assertEqual(replacement.tabs.currentWidget().verticalScrollBar().value(), scroll_before)
         self.assertEqual(replacement.language_carry_over()["document"], before["document"])
         self.assertTrue(is_pseudo_translated(replacement.language_selector.itemText(0)))
+        for shown in (window, replacement):
+            selector = shown.language_selector
+            self.assertGreaterEqual(selector.width(), selector.sizeHint().width(), "its entry shows whole")
 
         back = replacement.switch_language(None)
         self.track(back)

@@ -895,8 +895,11 @@ class ToolExportGuiTests(unittest.TestCase):
                                 button.width(),
                                 text_button_width([button.text()], button.font()),
                             )
-                            self.assertTrue(button.font().bold())
                             self.assertEqual(clipped_button_text(button), 0)
+                        # Running is the card's main action, drawn as the window theme's
+                        # primary button; Export is an ordinary one.
+                        self.assertEqual(run_button.property("role"), "primary")
+                        self.assertIsNone(export_button.property("role"))
                         self.assertEqual(run_button.height(), export_button.height())
                         self.assertEqual(run_button.font().pointSizeF(),
                                          export_button.font().pointSizeF())
@@ -912,6 +915,19 @@ class ToolExportGuiTests(unittest.TestCase):
                         for phrase in ("standalone JSON file", "Setting Export Directory",
                                        "does not run"):
                             self.assertIn(phrase, export_button.toolTip())
+                        # The title is the tool's name after its icon: the icon starts
+                        # the title, where the fields start, and the text follows it.
+                        title = header.findChild(QLabel, "toolTitle")
+                        icon = title.findChild(QLabel, "toolTitleIcon")
+                        self.assertEqual(title.text(), "Sanitize Sequences")
+                        self.assertEqual(title.property("role"), "title")
+                        self.assertEqual(icon.property("iconName"), "sparkles")
+                        self.assertEqual(icon.x(), 0)
+                        self.assertGreater(title.contentsRect().left(), icon.width())
+                        self.assertLessEqual(
+                            abs(icon.geometry().center().y() - title.contentsRect().center().y()), 1,
+                            "the icon is level with the one line of text",
+                        )
                 finally:
                     for card in cards:
                         card.close()
@@ -960,6 +976,9 @@ class ToolExportGuiTests(unittest.TestCase):
                 title.mapTo(card, QPoint(0, 0)).x(),
                 field.mapTo(card, QPoint(0, 0)).x(),
             )
+            self.assertEqual(save_button.property("role"), "primary", "the tab's main action")
+            self.assertEqual(title.text(), "Global Directory Settings")
+            self.assertEqual(title.findChild(QLabel, "toolTitleIcon").property("iconName"), "folder-open")
         finally:
             fake_window.tabs.close()
             fake_window.close()
@@ -1027,6 +1046,11 @@ class ToolExportGuiTests(unittest.TestCase):
                     button_index = widgets.index(button)
                     self.assertIs(widgets[button_index - 1], fake_window.dir_inputs[key])
                     self.assertEqual(widgets[button_index + 1].text(), "Browse...")
+                    # An icon-only button (a folder icon) that says what it does.
+                    self.assertEqual((button.text(), button.property("role")), ("", "icon"))
+                    self.assertFalse(button.icon().isNull())
+                    self.assertEqual(button.toolTip(), "Open Folder")
+                    self.assertEqual(button.accessibleName(), "Open Folder")
 
             with tempfile.TemporaryDirectory() as temp_dir:
                 selected_folder = pathlib.Path(temp_dir, "selected", "embeddings")

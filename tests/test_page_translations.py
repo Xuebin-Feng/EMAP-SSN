@@ -669,6 +669,25 @@ class MetadataPageTests(WebPageTestCase):
         self.shown += self.page.dialogs
         self.assert_translated()
 
+    def test_a_press_on_a_buttons_icon_or_label_keeps_the_selection(self):
+        # A press elsewhere on the page clears the selection; the header
+        # buttons' icons and labels are elements of their own.
+        self.open(self.TABLE)
+        self.actions.clear()
+        press = "document.querySelector({!r}).dispatchEvent(new MouseEvent('mousedown', {{bubbles: true}}))"
+        for target in ("#export-btn .icon", "#export-btn span", "#help-btn .icon", "#undo-btn"):
+            self.js(press.format(target))
+        self.js(press.format(".workspace"))
+        deadline = time.monotonic() + 5
+        while not self.actions and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.02)
+        settled = time.monotonic() + 0.3  # Any other request the presses sent arrives too.
+        while time.monotonic() < settled:
+            self.app.processEvents()
+            time.sleep(0.02)
+        self.assertEqual(self.actions, [{"action": "clear_selection"}])
+
     def test_an_empty_table(self):
         self.open({"columns": ["Node ID"], "types": {}, "rows": [], "selected_indices": [], "visible_mask": []})
         self.wait_for("document.querySelector('.tabulator-placeholder') !== null")

@@ -27,22 +27,62 @@
          language (src/web_ui/Page_Texts.py). -->
     <script src="/page_text.js"></script>
     <style>
+        /* The Studio look of the desktop windows (src/desktop/Studio_Theme.py
+           TOKENS): zinc neutrals, hairline borders, 8 px controls, 12 px
+           cards, a near-black primary button and one indigo accent for focus
+           and selection. */
         :root {
-            --bg-main: #f8fafc;
+            color-scheme: light;
+            --bg-main: #fafafa;
             --bg-card: #ffffff;
-            --border-color: #e2e8f0;
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --primary: #0969da;
-            --primary-hover: #0353b2;
-            --danger: #ef4444;
+            --bg-muted: #f4f4f5;
+            --bg-table-header: #fafafa;
+            --border-color: #e4e4e7;
+            --field-border: #dcdce0;
+            --field-border-hover: #d4d4d8;
+            --text-primary: #09090b;
+            --text-soft: #3f3f46;
+            --text-secondary: #52525b;
+            --text-subtle: #71717a;
+            --text-disabled: #a1a1aa;
+            --primary: #18181b;
+            --primary-hover: #27272a;
+            --primary-pressed: #3f3f46;
+            --primary-text: #fafafa;
+            --accent: #5b5bd6;
+            --accent-soft: #ebebfb;
+            --selection: rgba(91, 91, 214, 0.1);
+            --success: #15803d;
+            --success-soft: #f0fdf4;
+            --warning: #b45309;
+            --warning-soft: #fffbeb;
+            --danger: #dc2626;
+            --danger-soft: #fef2f2;
+            --number-badge-bg: #f0fdf4;
+            --number-badge-border: #bbf7d0;
+            --number-badge-text: #15803d;
+            --text-badge-bg: #ebebfb;
+            --text-badge-border: #c9c9f4;
+            --text-badge-text: #4b4bc4;
+            --highlight-bg: rgba(245, 158, 11, 0.15);
+            --highlight-ring: #f59e0b;
+            --overlay: rgba(9, 9, 11, 0.45);
+            --scroll: #d4d4d8;
+            --scroll-hover: #a1a1aa;
+            --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
+            --shadow-control: 0 1px 2px rgba(9, 9, 11, 0.05);
+            --shadow-dialog: 0 16px 40px -8px rgba(9, 9, 11, 0.2), 0 4px 12px rgba(9, 9, 11, 0.06);
+            --radius: 8px;
+            --radius-card: 12px;
             --font-family: 'Noto Sans', 'Noto Sans SC', 'Segoe UI', -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
+            --font-mono: 'Noto Sans Mono', 'Noto Sans SC', Consolas, Monaco, monospace;
         }
 
         body {
             margin: 0;
             padding: 0;
             font-family: var(--font-family);
+            font-size: 13px;
             background-color: var(--bg-main);
             color: var(--text-primary);
             height: 100vh;
@@ -51,43 +91,83 @@
             overflow: hidden;
         }
 
+        b, strong { font-weight: 600; }
+
+        /* Icons: the sprite's symbols, drawn in the text colour */
+        .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+        .icon {
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            fill: none;
+            stroke: currentColor;
+            stroke-width: 2;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            pointer-events: none;
+        }
+
         /* Header bar */
         header {
             background-color: var(--bg-card);
             border-bottom: 1px solid var(--border-color);
-            padding: 12px 20px;
+            padding: 0 16px 0 20px;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            height: 30px;
+            height: 56px;
+            box-sizing: border-box;
+            flex-shrink: 0;
         }
 
         header h1 {
             margin: 0;
-            font-size: 16px;
+            font-size: 15px;
             font-weight: 600;
-            color: var(--primary);
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            white-space: nowrap;
+        }
+        header h1 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
+
+        .header-actions {
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
         .status-badge {
-            background-color: #e2e8f0;
-            color: var(--text-secondary);
-            font-size: 11px;
-            padding: 3px 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            height: 24px;
+            padding: 0 10px;
+            margin-left: 4px;
             border-radius: 9999px;
-            font-weight: 500;
+            background-color: var(--bg-muted);
+            color: var(--text-secondary);
+            font-size: 12px;
+            white-space: nowrap;
         }
+        .status-badge::before {
+            content: "";
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+        .status-badge[data-state="connected"] { background-color: var(--success-soft); color: var(--success); }
+        .status-badge[data-state="reconnecting"] { background-color: var(--warning-soft); color: var(--warning); }
 
         /* Workspace Grid */
         .workspace {
             display: flex;
             flex: 1;
-            height: calc(100vh - 55px);
+            height: calc(100vh - 56px);
             overflow: hidden;
-            background-color: var(--bg-card);
+            background-color: var(--bg-main);
         }
 
         .pane-main {
@@ -96,76 +176,57 @@
             flex-direction: column;
         }
 
-        .pane-header {
-            padding: 10px 16px;
-            border-bottom: 1px solid var(--border-color);
-            background-color: var(--bg-card);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            height: 25px;
-        }
-
-        .pane-title {
-            font-size: 13.5px;
-            font-weight: 600;
-            color: var(--text-primary);
-        }
-
-        .header-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        input[type="text"].filter-input {
-            padding: 4px 8px;
-            border: 1px solid var(--border-color);
-            border-radius: 4px;
-            font-size: 12px;
-            color: var(--text-primary);
-            background-color: var(--bg-card);
-            outline: none;
-        }
-
-        input[type="text"].filter-input:focus {
-            border-color: var(--primary);
-        }
-
+        /* Buttons: outline unless a variant says otherwise */
         .btn {
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 4px 12px;
-            font-size: 12px;
-            font-weight: 500;
-            border-radius: 4px;
-            border: 1px solid var(--border-color);
+            gap: 6px;
+            height: 30px;
+            padding: 0 12px;
+            font-family: var(--font-family);
+            font-size: 13px;
+            font-weight: 400;
+            border-radius: var(--radius);
+            border: 1px solid var(--field-border);
             background-color: var(--bg-card);
-            color: var(--text-secondary);
+            color: var(--text-primary);
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: background-color 0.15s, border-color 0.15s, color 0.15s;
             outline: none;
-            height: 24px;
+            box-shadow: var(--shadow-control);
             box-sizing: border-box;
+            white-space: nowrap;
         }
 
-        .btn:hover {
-            background-color: #f1f5f9;
-            color: var(--text-primary);
-        }
+        .btn:hover { background-color: var(--bg-muted); }
+        .btn:active { background-color: var(--border-color); }
+        .btn:focus-visible { position: relative; border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
         .btn-primary {
             background-color: var(--primary);
             border-color: var(--primary);
-            color: #ffffff;
+            color: var(--primary-text);
+            font-weight: 600;
         }
+        .btn-primary:hover { background-color: var(--primary-hover); border-color: var(--primary-hover); }
+        .btn-primary:active { background-color: var(--primary-pressed); }
 
-        .btn-primary:hover {
-            background-color: var(--primary-hover);
-            border-color: var(--primary-hover);
-            color: #ffffff;
+        .btn-ghost {
+            background-color: transparent;
+            border-color: transparent;
+            color: var(--text-secondary);
+            box-shadow: none;
         }
+        .btn-ghost:hover { background-color: var(--bg-muted); color: var(--text-primary); }
+
+        /* A square button showing only an icon */
+        .btn-icon { width: 30px; padding: 0; }
+
+        /* Undo and Redo, joined into one control */
+        .btn-group { display: inline-flex; }
+        .btn-group .btn:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+        .btn-group .btn + .btn { margin-left: -1px; border-top-left-radius: 0; border-bottom-left-radius: 0; }
 
         .tabulator-col-title {
             padding-right: 20px !important;
@@ -189,10 +250,14 @@
 
         .metadata-column-drag-handle {
             align-items: center;
+            color: var(--text-disabled);
+            cursor: grab;
             display: inline-flex;
             left: 0;
             position: absolute;
         }
+        .metadata-column-drag-handle .icon { width: 14px; height: 14px; }
+        .metadata-column-drag-handle:hover { color: var(--text-secondary); }
 
         .metadata-column-name {
             overflow: hidden;
@@ -205,14 +270,13 @@
             appearance: none;
             align-items: center;
             border: none;
+            border-radius: 4px;
             background: transparent;
-            color: var(--danger);
+            color: var(--text-subtle);
             cursor: pointer;
             display: inline-flex;
             justify-content: center;
             font: inherit;
-            font-size: 20px;
-            font-weight: 800;
             line-height: 1;
             height: 20px;
             margin: 0;
@@ -221,6 +285,7 @@
             width: 20px;
             padding: 0;
         }
+        .metadata-delete-column .icon { width: 14px; height: 14px; }
 
         #spreadsheet-table .tabulator-col-sorter {
             right: 10px !important;
@@ -228,7 +293,8 @@
 
         .metadata-delete-column:hover,
         .metadata-delete-column:focus-visible {
-            color: #b91c1c;
+            background: var(--danger-soft);
+            color: var(--danger);
             outline: none;
         }
 
@@ -241,7 +307,7 @@
         }
 
         .tabulator-col-title-holder {
-            font-size: 14px !important;
+            font-size: 13px !important;
             font-weight: 600 !important;
             padding: 8px 10px !important;
             display: flex !important;
@@ -252,8 +318,8 @@
         /* Style the filter container as a separate visual row */
         .tabulator-header-filter {
             margin-top: 0 !important;
-            padding: 4px 8px !important;
-            background-color: #f8fafc;
+            padding: 5px 8px !important;
+            background-color: var(--bg-card);
             border-top: 1px solid var(--border-color) !important;
             box-sizing: border-box !important;
             width: 100% !important;
@@ -262,56 +328,65 @@
         .metadata-typed-column .tabulator-header-filter {
             align-items: center;
             display: flex;
-            gap: 5px;
+            gap: 6px;
         }
 
         .metadata-typed-column .tabulator-header-filter::before {
             border: 1px solid;
-            border-radius: 3px;
+            border-radius: 4px;
             box-sizing: border-box;
             flex: 0 0 auto;
-            font-size: 9px;
-            font-weight: bold;
+            font-size: 9.5px;
+            font-weight: 600;
+            letter-spacing: 0.02em;
             line-height: 1;
-            padding: 2px 4px;
+            padding: 3px 4px;
         }
 
         /* The page's script sets each badge's text in the page's language. */
         .metadata-number-column .tabulator-header-filter::before {
-            background-color: #dafbe1;
-            border-color: #2da44e;
-            color: #1a7f37;
+            background-color: var(--number-badge-bg);
+            border-color: var(--number-badge-border);
+            color: var(--number-badge-text);
             content: var(--number-badge, "NUM");
         }
 
         .metadata-text-column .tabulator-header-filter::before {
-            background-color: #ddf4ff;
-            border-color: #388bfd;
-            color: #0969da;
+            background-color: var(--text-badge-bg);
+            border-color: var(--text-badge-border);
+            color: var(--text-badge-text);
             content: var(--text-badge, "TXT");
         }
 
         .tabulator-header-filter input {
             flex: 1 1 auto;
-            height: 20px !important;
+            height: 24px !important;
             min-width: 0;
-            padding: 2px 6px !important;
-            font-size: 11.5px !important;
-            border-radius: 4px !important;
+            padding: 2px 8px !important;
+            font-family: var(--font-family) !important;
+            font-size: 12px !important;
+            color: var(--text-primary);
+            background-color: var(--bg-card);
+            border-radius: 6px !important;
             box-sizing: border-box !important;
-            border: 1px solid #cbd5e1 !important;
+            border: 1px solid var(--field-border) !important;
             outline: none !important;
             font-weight: normal !important;
-            transition: border-color 0.15s ease-in-out !important;
+            transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out !important;
+        }
+
+        .tabulator-header-filter input:hover {
+            border-color: var(--field-border-hover) !important;
         }
 
         .tabulator-header-filter input:focus {
-            border-color: var(--primary) !important;
+            border-color: var(--accent) !important;
+            box-shadow: 0 0 0 1px var(--accent);
         }
 
         #table-container {
             flex: 1;
-            padding: 10px;
+            padding: 12px;
             overflow: hidden;
             position: relative;
         }
@@ -319,14 +394,101 @@
         #spreadsheet-table {
             height: 100%;
             border: 1px solid var(--border-color);
-            border-radius: 6px;
+            border-radius: var(--radius-card);
             overflow: hidden;
+            background-color: var(--bg-card);
+            box-shadow: var(--shadow-card);
+            font-size: 13px;
+        }
+
+        /* Tabulator's own colours, in the Studio's */
+        .tabulator .tabulator-header {
+            background-color: var(--bg-table-header);
+            border-bottom: 1px solid var(--border-color);
+            color: var(--text-soft);
+        }
+        .tabulator .tabulator-header .tabulator-col {
+            background: var(--bg-table-header);
+            border-right: 1px solid var(--border-color);
+        }
+        .tabulator .tabulator-header .tabulator-col.tabulator-sortable.tabulator-col-sorter-element:hover {
+            background-color: var(--bg-muted);
+        }
+        .tabulator .tabulator-header .tabulator-col.tabulator-moving {
+            background: var(--bg-muted);
+            border: 1px solid var(--field-border);
+        }
+        .tabulator .tabulator-header .tabulator-col.tabulator-range-highlight {
+            background-color: var(--bg-muted);
+            color: var(--text-primary);
+        }
+        .tabulator .tabulator-header .tabulator-col.tabulator-range-selected {
+            background-color: var(--accent-soft);
+            color: var(--text-primary);
+        }
+        .tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort=none] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+            border-bottom-color: var(--text-disabled);
+        }
+        .tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort=ascending] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+            border-bottom-color: var(--text-primary);
+        }
+        .tabulator .tabulator-header .tabulator-col.tabulator-sortable[aria-sort=descending] .tabulator-col-content .tabulator-col-sorter .tabulator-arrow {
+            border-top-color: var(--text-primary);
+        }
+        .tabulator .tabulator-tableholder {
+            background-color: var(--bg-card);
+        }
+        .tabulator .tabulator-tableholder .tabulator-table {
+            background-color: var(--bg-card);
+            color: var(--text-primary);
+        }
+        .tabulator .tabulator-tableholder .tabulator-placeholder .tabulator-placeholder-contents {
+            color: var(--text-subtle);
+            font-size: 14px;
+            font-weight: 400;
+        }
+        .tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range {
+            border-color: var(--accent);
+        }
+        .tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range.tabulator-range-active:after {
+            background-color: var(--accent);
+        }
+        .tabulator .tabulator-tableholder .tabulator-range-overlay .tabulator-range-cell-active {
+            border-color: var(--accent);
+        }
+        .tabulator-row,
+        .tabulator-row.tabulator-row-even {
+            background-color: var(--bg-card);
+        }
+        .tabulator-row.tabulator-selectable:hover {
+            background-color: var(--bg-muted);
+        }
+        .tabulator-row .tabulator-cell {
+            border-right: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--bg-muted);
+            padding: 5px 8px;
+        }
+        .tabulator-row .tabulator-cell.tabulator-editing {
+            border: 1px solid var(--accent);
+        }
+        .tabulator-row .tabulator-cell.tabulator-editing input {
+            font-family: var(--font-family);
+            font-size: 13px;
+            color: var(--text-primary);
+            padding: 0 7px;
+        }
+        .tabulator-row .tabulator-cell.tabulator-validation-fail {
+            border: 1px solid var(--danger);
+        }
+        .tabulator-row.tabulator-range-highlight .tabulator-cell.tabulator-range-row-header {
+            background-color: var(--bg-muted);
+            color: var(--text-primary);
         }
 
         /* Scrollbar styles */
         ::-webkit-scrollbar {
-            width: 6px;
-            height: 6px;
+            width: 8px;
+            height: 8px;
         }
 
         ::-webkit-scrollbar-track {
@@ -334,12 +496,15 @@
         }
 
         ::-webkit-scrollbar-thumb {
-            background: #cbd5e1;
-            border-radius: 3px;
+            background: var(--scroll);
+            border: 2px solid transparent;
+            border-radius: 4px;
+            background-clip: content-box;
         }
 
         ::-webkit-scrollbar-thumb:hover {
-            background: #94a3b8;
+            background: var(--scroll-hover);
+            background-clip: content-box;
         }
         /* Hide HTML5 spin-buttons on number inputs */
         input::-webkit-outer-spin-button,
@@ -353,56 +518,155 @@
 
         /* Excel-style cell selection borders and backgrounds */
         .tabulator-cell.tabulator-range-selected {
-            background-color: rgba(9, 105, 218, 0.12) !important;
+            background-color: var(--selection) !important;
         }
         .tabulator-cell.tabulator-range-selected-top {
-            border-top: 1px solid #0969da !important;
+            border-top: 1px solid var(--accent) !important;
         }
         .tabulator-cell.tabulator-range-selected-bottom {
-            border-bottom: 1px solid #0969da !important;
+            border-bottom: 1px solid var(--accent) !important;
         }
         .tabulator-cell.tabulator-range-selected-left {
-            border-left: 1px solid #0969da !important;
+            border-left: 1px solid var(--accent) !important;
         }
         .tabulator-cell.tabulator-range-selected-right {
-            border-right: 1px solid #0969da !important;
+            border-right: 1px solid var(--accent) !important;
         }
 
-        /* Style selected rows to look exactly like light blue cell range selections */
+        /* Style selected rows to look exactly like the cell range selections */
         .tabulator-row.tabulator-selected {
-            background-color: rgba(9, 105, 218, 0.12) !important;
+            background-color: var(--selection) !important;
             color: inherit !important;
         }
         .tabulator-row.tabulator-selected .tabulator-cell {
             background-color: transparent !important;
-            border-top: 1px solid #0969da !important;
-            border-bottom: 1px solid #0969da !important;
+            border-top: 1px solid var(--accent) !important;
+            border-bottom: 1px solid var(--accent) !important;
         }
         .tabulator-row.tabulator-selected .tabulator-cell:first-child {
-            border-left: 1px solid #0969da !important;
+            border-left: 1px solid var(--accent) !important;
         }
         .tabulator-row.tabulator-selected .tabulator-cell:last-child {
-            border-right: 1px solid #0969da !important;
+            border-right: 1px solid var(--accent) !important;
         }
 
         /* Row highlight style */
         .tabulator-row.row-highlighted {
-            background-color: rgba(245, 158, 11, 0.15) !important;
-            outline: 2px solid #f59e0b !important;
+            background-color: var(--highlight-bg) !important;
+            outline: 2px solid var(--highlight-ring) !important;
             outline-offset: -2px;
         }
 
+        /* Help dialog */
+        .modal-overlay {
+            position: fixed;
+            inset: 0;
+            background-color: var(--overlay);
+            z-index: 9999;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .modal-content {
+            position: relative;
+            box-sizing: border-box;
+            width: 500px;
+            max-width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+            padding: 24px;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-dialog);
+            animation: modalFadeIn 0.2s ease-out;
+        }
+
+        .modal-content h3 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .modal-content h3 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
+
+        .modal-close {
+            position: absolute;
+            top: 16px;
+            right: 16px;
+            width: 28px;
+            height: 28px;
+        }
+
+        .modal-section {
+            margin-top: 16px;
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-secondary);
+        }
+        .modal-section + .modal-section {
+            margin-top: 20px;
+            padding-top: 18px;
+            border-top: 1px solid var(--border-color);
+        }
+        .modal-group + .modal-group { margin-top: 16px; }
+        .modal-group > strong { color: var(--text-primary); font-size: 13.5px; }
+        .modal-section strong { color: var(--text-primary); }
+        .modal-section ul { margin: 6px 0 0 18px; padding: 0; }
+        .modal-section ul ul { margin-top: 4px; list-style-type: circle; }
+        .modal-section li.spaced { margin-top: 8px; }
+        .modal-section ul.rules { margin-top: 10px; }
+        .modal-section ul.rules > li { margin-bottom: 8px; }
+        .modal-section code {
+            font-family: var(--font-mono);
+            font-size: 12px;
+            color: var(--text-primary);
+            background: var(--bg-muted);
+            border-radius: 4px;
+            padding: 1px 4px;
+        }
+
+        .modal-footer {
+            margin-top: 24px;
+            display: flex;
+            justify-content: flex-end;
+        }
+        .modal-footer .btn { height: 32px; padding: 0 16px; }
+
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
     </style>
 </head>
 <body>
+    <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
+    <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+        <symbol id="i-chart-column" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v16a2 2 0 0 0 2 2h16"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/></symbol>
+        <symbol id="i-download" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15V3"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/></symbol>
+        <symbol id="i-upload" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m17 8-5-5-5 5"/><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/></symbol>
+        <symbol id="i-undo-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/></symbol>
+        <symbol id="i-redo-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5A5.5 5.5 0 0 0 9.5 20H13"/></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+        <symbol id="i-mouse-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 12.586 19 19"/><path d="M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
+        <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></symbol>
+    </svg>
+
     <header>
-        <h1 data-i18n>📊 EMAP-SSN Metadata Spreadsheet</h1>
-        <div style="display: flex; align-items: center; gap: 12px;">
-            <button class="btn btn-primary" id="import-btn" style="padding: 6px 16px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px;" data-i18n>+ Import</button>
-            <button class="btn" id="export-btn" title="Export Spreadsheet (CSV / Excel)" style="padding: 6px 16px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);" data-i18n>📤 Export</button>
-            <button class="btn" id="undo-btn" title="Undo (Ctrl+Z)" style="padding: 6px 12px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);" data-i18n>↶ Undo</button>
-            <button class="btn" id="redo-btn" title="Redo (Ctrl+Y)" style="padding: 6px 12px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);" data-i18n>↷ Redo</button>
-            <button class="btn" id="help-btn" style="padding: 6px 12px; font-size: 13px; height: 30px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; background-color: transparent; border: 1px solid var(--border-color); color: var(--text-secondary);" data-i18n>Help ?</button>
+        <h1><svg class="icon" aria-hidden="true"><use href="#i-chart-column"/></svg><span data-i18n>EMAP-SSN Metadata Spreadsheet</span></h1>
+        <div class="header-actions">
+            <button class="btn btn-primary" id="import-btn"><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>Import</span></button>
+            <button class="btn" id="export-btn" title="Export Spreadsheet (CSV / Excel)"><svg class="icon" aria-hidden="true"><use href="#i-upload"/></svg><span data-i18n>Export</span></button>
+            <div class="btn-group">
+                <button class="btn" id="undo-btn" title="Undo (Ctrl+Z)"><svg class="icon" aria-hidden="true"><use href="#i-undo-2"/></svg><span data-i18n>Undo</span></button>
+                <button class="btn" id="redo-btn" title="Redo (Ctrl+Y)"><svg class="icon" aria-hidden="true"><use href="#i-redo-2"/></svg><span data-i18n>Redo</span></button>
+            </div>
+            <button class="btn btn-ghost" id="help-btn"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Help</span></button>
             <div id="connection-status" class="status-badge" data-i18n>Connecting...</div>
         </div>
     </header>
@@ -426,6 +690,19 @@
         let currentSelectionIndices = null;
         let currentSelectionIndicesSet = null;
         let pendingNodeNameGesture = null;
+
+        // An icon from the page's sprite (its <symbol id="i-NAME">), drawn
+        // in the text colour.
+        const SVG_NS = "http://www.w3.org/2000/svg";
+        function icon(name) {
+            const svg = document.createElementNS(SVG_NS, "svg");
+            svg.setAttribute("class", "icon");
+            svg.setAttribute("aria-hidden", "true");
+            const use = document.createElementNS(SVG_NS, "use");
+            use.setAttribute("href", "#i-" + name);
+            svg.appendChild(use);
+            return svg;
+        }
 
         // The type badges of the columns' filters, which the page's style draws.
         document.documentElement.style.setProperty("--number-badge", JSON.stringify(t("NUM")));
@@ -472,10 +749,7 @@
 
             const dragHandle = document.createElement("span");
             dragHandle.className = "metadata-column-drag-handle";
-            dragHandle.textContent = "☰";
-            dragHandle.style.cursor = "grab";
-            dragHandle.style.color = "#94a3b8";
-            dragHandle.style.fontWeight = "bold";
+            dragHandle.appendChild(icon("menu"));
             wrapper.appendChild(dragHandle);
 
             const title = document.createElement("span");
@@ -486,7 +760,7 @@
             const deleteButton = document.createElement("button");
             deleteButton.type = "button";
             deleteButton.className = "metadata-delete-column";
-            deleteButton.textContent = "×";
+            deleteButton.appendChild(icon("x"));
             deleteButton.title = t("Delete metadata column {column}", {column: columnName});
             deleteButton.setAttribute("aria-label", t("Delete metadata column {column}", {column: columnName}));
             ["pointerdown", "mousedown"].forEach(eventName => {
@@ -680,14 +954,12 @@
 
             eventSource.onopen = () => {
                 statusBadge.innerText = t("Connected");
-                statusBadge.style.backgroundColor = "#dcfce7";
-                statusBadge.style.color = "#15803d";
+                statusBadge.dataset.state = "connected";
             };
 
             eventSource.onerror = () => {
                 statusBadge.innerText = t("Reconnecting...");
-                statusBadge.style.backgroundColor = "#fef3c7";
-                statusBadge.style.color = "#b45309";
+                statusBadge.dataset.state = "reconnecting";
             };
 
             eventSource.onmessage = (event) => {
@@ -960,7 +1232,7 @@
         document.addEventListener("mousedown", (e) => {
             // Check if the click is on an interactive element or inside the table cells/headers
             const isInsideCellOrCol = e.target.closest(".tabulator-cell") || e.target.closest(".tabulator-col") || e.target.closest(".tabulator-header");
-            const isInteractive = e.target.closest(".toolbar") || e.target.closest(".search-container") || e.target.tagName.toLowerCase() === "button" || e.target.closest(".modal-overlay") || e.target.closest("input");
+            const isInteractive = e.target.closest(".toolbar") || e.target.closest(".search-container") || e.target.closest("button") || e.target.closest(".modal-overlay") || e.target.closest("input");
             
             if (!isInsideCellOrCol && !isInteractive) {
                 // Prevent clearing when clicking scrollbars
@@ -1010,26 +1282,26 @@
     </script>
 
     <!-- Help Modal -->
-    <div id="help-modal" class="modal-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); z-index: 9999; justify-content: center; align-items: center; font-family: 'Noto Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;">
-        <div class="modal-content" style="background-color: var(--bg-card); border: 1px solid var(--border-color); border-radius: 12px; width: 500px; max-width: 90%; padding: 24px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); position: relative; animation: modalFadeIn 0.2s ease-out;">
-            <h3 style="margin-top: 0; font-size: 18px; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 8px;" data-i18n>🔍 Search Filter Rules</h3>
-            <button id="close-modal-btn" style="position: absolute; top: 16px; right: 16px; background: none; border: none; font-size: 20px; color: var(--text-secondary); cursor: pointer; line-height: 1;">&times;</button>
-            
-            <div style="margin-top: 16px; font-size: 13px; line-height: 1.6; color: var(--text-secondary);">
-                <div style="margin-bottom: 16px;">
-                    <strong style="color: var(--text-primary); font-size: 14px;" data-i18n>Text / Sequence Header Columns:</strong>
-                    <ul style="margin: 6px 0 0 16px; padding: 0;">
+    <div id="help-modal" class="modal-overlay" style="display: none;">
+        <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
+            <h3 id="help-modal-title"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span data-i18n>Search Filter Rules</span></h3>
+            <button id="close-modal-btn" class="btn btn-ghost btn-icon modal-close" title="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+
+            <div class="modal-section">
+                <div class="modal-group">
+                    <strong data-i18n>Text / Sequence Header Columns:</strong>
+                    <ul>
                         <li data-i18n><strong>Substring Match</strong>: Matches anywhere in the text by default (e.g. <code>candidatus</code>).</li>
                         <li data-i18n><strong>Wildcard Match</strong>: Use <code>*</code> for zero or more characters, or <code>?</code> for a single character (e.g. <code>*coli*</code>, <code>b*subtilis</code>, or <code>node?</code>).</li>
                     </ul>
                 </div>
-                
-                <div>
-                    <strong style="color: var(--text-primary); font-size: 14px;" data-i18n>Numerical Columns (e.g. Length):</strong>
-                    <ul style="margin: 6px 0 0 16px; padding: 0;">
+
+                <div class="modal-group">
+                    <strong data-i18n>Numerical Columns (e.g. Length):</strong>
+                    <ul>
                         <li data-i18n><strong>Range</strong>: Format <code>min-max</code> (e.g. <code>100-300</code>).</li>
                         <li><span data-i18n><strong>Operators</strong>: Prepend with math operators:</span>
-                            <ul style="margin: 4px 0 0 16px; padding: 0; list-style-type: circle;">
+                            <ul>
                                 <li data-i18n><code>&gt;=100</code> (greater than or equal to 100)</li>
                                 <li data-i18n><code>&lt;=150</code> (less than or equal to 150)</li>
                                 <li data-i18n><code>&gt;50</code> (greater than 50)</li>
@@ -1038,8 +1310,8 @@
                                 <li data-i18n><code>=10</code> or just <code>10</code> (exactly equal to 10)</li>
                             </ul>
                         </li>
-                        <li style="margin-top: 8px;"><span data-i18n><strong>Logical Commands</strong>: Combine comparisons enclosed in matching parentheses with operators:</span>
-                            <ul style="margin: 4px 0 0 16px; padding: 0; list-style-type: circle;">
+                        <li class="spaced"><span data-i18n><strong>Logical Commands</strong>: Combine comparisons enclosed in matching parentheses with operators:</span>
+                            <ul>
                                 <li data-i18n><code>&amp;</code> (AND): e.g. <code>(&gt;=100)&amp;(&lt;=500)</code></li>
                                 <li data-i18n><code>|</code> (OR): e.g. <code>(&gt;10)|(&lt;3)</code></li>
                                 <li data-i18n><code>^</code> (XOR): e.g. <code>(&gt;100)^(&gt;200)</code></li>
@@ -1049,26 +1321,18 @@
                 </div>
             </div>
 
-            <div style="margin-top: 24px; font-size: 13px; line-height: 1.6; color: var(--text-secondary); border-top: 1px solid var(--border-color); padding-top: 16px;">
-                <h3 style="margin-top: 0; font-size: 16px; font-weight: 600; color: var(--primary); display: flex; align-items: center; gap: 8px;" data-i18n>🖱️ Interaction Rules</h3>
-                
-                <ul style="margin: 8px 0 0 16px; padding: 0;">
-                    <li style="margin-bottom: 8px;" data-i18n><strong>Network Selection Filtering:</strong> Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</li>
-                    <li style="margin-bottom: 8px;" data-i18n><strong>Node Click Highlighting:</strong> Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</li>
+            <div class="modal-section">
+                <h3><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Interaction Rules</span></h3>
+                <ul class="rules">
+                    <li data-i18n><strong>Network Selection Filtering:</strong> Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</li>
+                    <li data-i18n><strong>Node Click Highlighting:</strong> Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</li>
                 </ul>
             </div>
-            
-            <div style="margin-top: 24px; display: flex; justify-content: flex-end;">
-                <button class="btn btn-primary" id="close-modal-btn-ok" style="padding: 6px 18px; font-size: 13px; height: 32px; border-radius: 6px; font-weight: 600;" data-i18n>Got it</button>
+
+            <div class="modal-footer">
+                <button class="btn btn-primary" id="close-modal-btn-ok" data-i18n>Got it</button>
             </div>
         </div>
     </div>
-    
-    <style>
-        @keyframes modalFadeIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-    </style>
 </body>
 </html>

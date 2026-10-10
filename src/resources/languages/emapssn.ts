@@ -60,11 +60,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🤖 EMAP-SSN Agent Chat</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>🌙 Dark Mode</source>
+        <source>Dark Mode</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -92,7 +88,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>⚙ Models</source>
+        <source>Models</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -112,15 +108,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Capture&lt;br&gt;Viewer</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Send</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>⚙ Model Cards</source>
+        <source>Model Cards</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -128,11 +120,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>+ Add Model</source>
+        <source>Add Model</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>💾 Save</source>
+        <source>Save</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -164,7 +156,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>☀️ Light Mode</source>
+        <source>Light Mode</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -188,7 +180,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Using the saved settings of &quot;{model}&quot;: press 💾 Save to use the edits made here.</source>
+        <source>Using the saved settings of &quot;{model}&quot;: press Save to use the edits made here.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -196,7 +188,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>✓ Saved!</source>
+        <source>Saved!</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -320,7 +312,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>⏳ Thinking ({model})...</source>
+        <source>Thinking ({model})...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4362,11 +4354,11 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>📊 EMAP-SSN Metadata Spreadsheet</source>
+        <source>EMAP-SSN Metadata Spreadsheet</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>+ Import</source>
+        <source>Import</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4374,7 +4366,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>📤 Export</source>
+        <source>Export</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4382,7 +4374,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>↶ Undo</source>
+        <source>Undo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4390,11 +4382,11 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>↷ Redo</source>
+        <source>Redo</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Help ?</source>
+        <source>Help</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4438,7 +4430,11 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🔍 Search Filter Rules</source>
+        <source>Search Filter Rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4506,7 +4502,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🖱️ Interaction Rules</source>
+        <source>Interaction Rules</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4572,59 +4568,59 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🧬 Embedding Multiple Sequence Alignment</source>
+        <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>📉 Sparse MSA Converter</source>
+        <source>Sparse MSA Converter</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🧬 Embedding Injection</source>
+        <source>Embedding Injection</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>📤 Embedding Extraction</source>
+        <source>Embedding Extraction</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🧬 Network Injection</source>
+        <source>Network Injection</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>📤 Network Extraction</source>
+        <source>Network Extraction</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🧬 Pairwise Embedding Alignment</source>
+        <source>Pairwise Embedding Alignment</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🔍 Embedding Database Search</source>
+        <source>Embedding Database Search</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🧬 Dynamic Programming Embedding Alignment</source>
+        <source>Dynamic Programming Embedding Alignment</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🧬 Substitution Matrix Alignment</source>
+        <source>Substitution Matrix Alignment</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🔍 Parse BLAST Output</source>
+        <source>Parse BLAST Output</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🧼 Sanitize Sequences</source>
+        <source>Sanitize Sequences</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🧬 Generate Embeddings</source>
+        <source>Generate Embeddings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>✂️ Embedding Cropping</source>
+        <source>Embedding Cropping</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5609,7 +5605,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>📂 Global Directory Settings</source>
+        <source>Global Directory Settings</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5716,11 +5712,15 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>📄 Internal Documentation</source>
+        <source>Benchmark</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>⚠️ Documentation Missing</source>
+        <source>Internal Documentation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Documentation Missing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5789,10 +5789,6 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     </message>
     <message>
         <source>Export this tool&apos;s current settings, with the directories, to a standalone JSON file in the Setting Export Directory, and show the command that runs the tool from it. The shared settings file is not changed, and the tool does not run.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>⏱️ Benchmark</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6027,7 +6023,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🤖 Agent</source>
+        <source>Agent</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6039,7 +6035,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>🧬 Fold View</source>
+        <source>Fold View</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6067,7 +6063,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>📊 Meta Data</source>
+        <source>Meta Data</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

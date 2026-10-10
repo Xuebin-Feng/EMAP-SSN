@@ -401,21 +401,32 @@ class ToolsRunTimeTextTests(WindowTestCase):
             self.assert_translated(display_text(caught.exception))
 
     def test_the_help_shown_for_the_directories_and_without_a_help_file(self):
+        panel = self.window.script_desc_text
         directories = self.window.tab_paths.index("DIRECTORIES_TAB")
-        self.window.on_tab_changed(directories)
-        help_text = self.window.script_desc_text.toPlainText()
+
+        def shown_icon(index):
+            """Show tab index's help; return the icon before its first heading."""
+            with mock.patch.object(panel, "setHtml", wraps=panel.setHtml) as shown:
+                self.window.on_tab_changed(index)
+            page = shown.call_args.args[0]
+            icons = {name: self.tools.inline_icon_svg(name)
+                     for name in ("folder-open", "file-text", "triangle-alert")}
+            return next((name for name, svg in icons.items() if page.startswith(
+                f'<h2><span class="heading-icon">{svg}</span>')), None)
+
+        self.assertEqual(shown_icon(directories), "folder-open")
+        help_text = panel.toPlainText()
         self.assert_translated(help_text)
         self.assertNotIn("##", help_text, "the Markdown heading is shown as a heading")
         # Without a help file, the tool's docstring shows under a heading, or,
         # without one, where a help file would go.
         self.window.tabs.widget(0).setProperty("descriptionKey", "No_Such_Help")
-        self.window.on_tab_changed(0)
-        heading = self.window.script_desc_text.toPlainText().splitlines()[0]
-        self.assertIn("📄", heading)
+        self.assertEqual(shown_icon(0), "file-text")
+        heading = panel.toPlainText().splitlines()[0]
         self.assert_translated(heading)
         self.window.script_data[self.window.tab_paths[0]]["docstring"] = ""
-        self.window.on_tab_changed(0)
-        help_text = self.window.script_desc_text.toPlainText()
+        self.assertEqual(shown_icon(0), "triangle-alert")
+        help_text = panel.toPlainText()
         missing_file = os.path.join("src", "tools", "tool_descriptions", "No_Such_Help.md")
         self.assertIn(missing_file, help_text)
         self.assert_translated(help_text.replace(missing_file, ""))

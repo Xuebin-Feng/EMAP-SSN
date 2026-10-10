@@ -218,16 +218,11 @@ PROFILE_ITEM_LABELS = {
 CONFIG_TAB_CONTENT_MARGIN = 18
 CONFIG_TAB_ROW_SPACING = 12
 CONFIG_FIELD_HORIZONTAL_SPACING = 12
-CONFIG_SEPARATOR_THICKNESS = 2
+CONFIG_SEPARATOR_THICKNESS = 1
 CONFIG_SEPARATOR_PADDING = 24
-PROFILE_DISABLED_LABEL_STYLESHEET = "QLabel:disabled { color: #888; }"
-PROFILE_DISABLED_SPINBOX_STYLESHEET = (
-    "QSpinBox:disabled, QDoubleSpinBox:disabled { "
-    "background-color: #f0f0f0; color: #888; }"
-)
-PROFILE_DISABLED_TOGGLE_STYLESHEET = (
-    "QPushButton:disabled { background-color: #e0e0e0; color: #888; "
-    "border-radius: 14px; font-weight: bold; border: 1px solid #bdbdbd; }"
+# A colour swatch: its colour, framed by a hairline that shows on white and on dark colours.
+SWATCH_STYLESHEET = (
+    "background-color: {color}; border: 1px solid rgba(9, 9, 11, 0.16); border-radius: 5px;"
 )
 
 
@@ -636,7 +631,7 @@ if __name__ == "__main__":
         combo_value,
         configure_qt_application_fonts,
         fit_buttons_to_text,
-        force_light_palette,
+        apply_studio_theme,
         choose_language,
         install_translations,
         installed_language,
@@ -653,37 +648,25 @@ if __name__ == "__main__":
         # so a sentence the two share is translated once.
         translate,
     )
+    from desktop.Studio_Theme import (
+        TOKENS,
+        CardShadows,
+        add_hint_icon,
+        icon_button,
+        prepare_tab_widget,
+        set_role,
+        status_color,
+    )
     from PySide6.QtCore import Qt, QUrl, QThread, Signal
     from PySide6.QtGui import (
         QColor,
         QDesktopServices,
         QIcon,
-        QPalette,
     )
     from matplotlib.backends.backend_qtagg import (
         FigureCanvasQTAgg,
         NavigationToolbar2QT,
     )
-
-    def apply_gated_input_palette(widget):
-        """Grey disabled inputs while retaining their native Fusion controls."""
-        palette = widget.palette()
-        disabled = QPalette.ColorGroup.Disabled
-        for role in (
-            QPalette.ColorRole.Base,
-            QPalette.ColorRole.AlternateBase,
-            QPalette.ColorRole.Button,
-            QPalette.ColorRole.Window,
-        ):
-            palette.setColor(disabled, role, QColor("#f0f0f0"))
-        for role in (
-            QPalette.ColorRole.Text,
-            QPalette.ColorRole.ButtonText,
-            QPalette.ColorRole.WindowText,
-            QPalette.ColorRole.PlaceholderText,
-        ):
-            palette.setColor(disabled, role, QColor("#888888"))
-        widget.setPalette(palette)
 
     # --- Custom Widget Classes ---
     class ScoreHistogramDialog(QDialog):
@@ -893,20 +876,20 @@ if __name__ == "__main__":
             self.left_top_widget = QWidget()
             self.left_top_layout = QVBoxLayout(self.left_top_widget)
             self.left_top_layout.setContentsMargins(0, 0, 0, 0)
-            self.tabs = QTabWidget()
+            self.tabs = prepare_tab_widget(QTabWidget())
             self.left_top_layout.addWidget(self.tabs)
             
             # Left Bottom: Tool Tip Box + Action Buttons
             self.left_bottom_widget = QWidget()
             self.left_bottom_layout = QVBoxLayout(self.left_bottom_widget)
-            self.left_bottom_layout.setContentsMargins(0, 0, 0, 6)
-            self.left_bottom_layout.setSpacing(6)
+            self.left_bottom_layout.setContentsMargins(0, 0, 0, 0)
+            self.left_bottom_layout.setSpacing(TOKENS["card_gap"])
             
             self.tip_panel = SpacedTipLabel(translate(
                 "Config", "Click or tab to an input or its label to see helpful tips here."
             ))
             self.tip_panel.setWordWrap(True)
-            self.tip_panel.setStyleSheet("color: #444; font-style: normal; background-color: #e8eaed; padding: 10px; border-radius: 5px;")
+            add_hint_icon(self.tip_panel)
             self.left_bottom_layout.addWidget(self.tip_panel, 1)
             
             action_row = QWidget()
@@ -914,20 +897,15 @@ if __name__ == "__main__":
             action_row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Maximum)
             btn_layout = ResponsiveFlowLayout(action_row)
             self.btn_check = QPushButton(translate("Config", "Consistency Check"))
-            self.btn_check.setStyleSheet("background-color: #f39c12; color: white; font-weight: bold; padding: 5px;")
             self.btn_check.clicked.connect(self.run_consistency_check)
             
             self.btn_save_run = QPushButton(translate("Config", "Save && Run"))
             self.btn_save_run.clicked.connect(self.save_and_run)
-            self.btn_save_run.setStyleSheet("background-color: #4CAF50; color: white; font-weight: bold; padding: 5px;")
+            set_role(self.btn_save_run, "primary")
 
             self.btn_export_layout = QPushButton(translate("Config", "Export Layout Settings"))
             self.btn_export_layout.clicked.connect(self.export_layout_settings)
             self.btn_export_layout.setEnabled(False)
-            self.btn_export_layout.setStyleSheet(
-                "background-color: #2196F3; color: white; "
-                "font-weight: bold; padding: 5px;"
-            )
             self.btn_export_layout.setToolTip(translate(
                 "Config", "Export a generation-only JSON file for the selected new layout cache."
             ))
@@ -935,7 +913,7 @@ if __name__ == "__main__":
             btn_save = QPushButton(translate("Config", "Save"))
             btn_save.clicked.connect(self.save_only)
             
-            btn_exit = QPushButton(translate("Config", "Exit"))
+            btn_exit = set_role(QPushButton(translate("Config", "Exit")), "ghost")
             btn_exit.clicked.connect(self.close)
             
             btn_layout.addWidget(self.btn_save_run, 1)
@@ -948,8 +926,8 @@ if __name__ == "__main__":
             self.left_split.addWidget(self.left_top_widget)
             self.left_split.addWidget(self.left_bottom_widget)
             
-            # Explicitly force the initial pixel heights (tabs get 550px, bottom gets 100px)
-            self.left_split.setSizes([450, 200])
+            # The initial heights: the tabs get most of the room, the help card four lines.
+            self.left_split.setSizes([500, 150])
             
             # Ensure that if the user resizes the window, extra space goes to the tabs, not the bottom
             self.left_split.setStretchFactor(0, 1)
@@ -959,15 +937,17 @@ if __name__ == "__main__":
             self.right_panel = QWidget()
             self.right_layout = QVBoxLayout(self.right_panel)
             self.right_layout.setContentsMargins(0, 0, 0, 0)
-            self.stat_label = QLabel(translate("Config", "Network Statistics Report"))
-            self.stat_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+            self.right_layout.setSpacing(TOKENS["card_gap"])
+            self.stat_label = set_role(QLabel(translate("Config", "Network Statistics Report")), "title")
             self.stat_display = WrappedPlaceholderTextEdit()
             self.stat_display.setReadOnly(True)
             self.stat_display.setPlaceholderText(translate(
                 "Config", "Select Fasta subset and HDF5 Network file, then click compute."
             ))
             self.stat_display.setFont(qt_monospace_font(self.stat_display.font()))
-            self.stat_display.setStyleSheet("background-color: #f5f5f5;")
+            set_role(self.stat_display, "report")
+            # The report is a table: a row scrolls sideways rather than wrapping.
+            self.stat_display.setLineWrapMode(WrappedPlaceholderTextEdit.LineWrapMode.NoWrap)
             self.right_layout.addWidget(self.stat_label)
             self.right_layout.addWidget(self.stat_display)
             self.language_selector = LanguageSelector()
@@ -1012,6 +992,7 @@ if __name__ == "__main__":
 
             self._align_label_column()
             self._prepare_responsive_layouts()
+            self._align_report_with_tabs()
             self._initializing_profiles = False
             if carried is None:
                 self._load_all_custom_profiles()
@@ -1098,8 +1079,19 @@ if __name__ == "__main__":
             scroll.setWidget(content)
             self.tabs.addTab(scroll, title)
 
+        def _align_report_with_tabs(self):
+            """Start the report card level with the settings card, and shade both cards."""
+            bar = self.tabs.tabBar()
+            bar.ensurePolished()
+            self.stat_label.setFixedHeight(bar.sizeHint().height())
+            self._card_shadows = CardShadows(
+                self.central_widget, [self.tabs.findChild(QStackedWidget), self.stat_display]
+            )
+
         def _prepare_responsive_layouts(self):
             for combo in self.findChildren(QComboBox):
+                if isinstance(combo, LanguageSelector):
+                    continue  # It fits its entries, beside the row's stretch.
                 combo.setMinimumContentsLength(12)
                 combo.setSizeAdjustPolicy(
                     QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
@@ -1163,9 +1155,8 @@ if __name__ == "__main__":
             name_input = QLineEdit()
             name_input.setPlaceholderText(translate("Config", "New profile name"))
             name_input.setVisible(False)
-            folder_button = QPushButton("📂")
+            folder_button = icon_button("folder-open", translate("Config", "Open this tab's saved config folder"))
             folder_button.setFixedWidth(30)
-            folder_button.setToolTip(translate("Config", "Open this tab's saved config folder"))
             row_layout.addWidget(selector, 1)
             row_layout.addWidget(name_input, 1)
             row_layout.addWidget(folder_button)
@@ -1214,7 +1205,7 @@ if __name__ == "__main__":
             separator.setSizePolicy(
                 QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
-            separator.setStyleSheet("background-color: #9e9e9e; border: none;")
+            set_role(separator, "separator")
             wrapper_layout.addWidget(separator)
             if isinstance(layout, QFormLayout):
                 layout.addRow(wrapper)
@@ -1432,41 +1423,9 @@ if __name__ == "__main__":
                 self.update_live_validators()
 
         def _set_profile_content_enabled(self, tab_id, enabled):
+            # A locked profile's fields look disabled through the theme's :disabled rules.
             content = self.profile_content_widgets[tab_id]
             roots = list(content) if isinstance(content, (list, tuple)) else [content]
-            seen = set()
-            color_swatches = set(self.color_swatches.values())
-            for root in roots:
-                candidates = [root, *root.findChildren(QWidget)]
-                for widget in candidates:
-                    identity = id(widget)
-                    if identity in seen or widget in color_swatches:
-                        continue
-                    seen.add(identity)
-                    if isinstance(widget, QLabel):
-                        current_style = widget.styleSheet()
-                        if PROFILE_DISABLED_LABEL_STYLESHEET not in current_style:
-                            widget.setStyleSheet(
-                                f"{current_style.rstrip()}\n"
-                                f"{PROFILE_DISABLED_LABEL_STYLESHEET}".strip()
-                            )
-                    elif isinstance(widget, (QSpinBox, QDoubleSpinBox)):
-                        current_style = widget.styleSheet()
-                        if PROFILE_DISABLED_SPINBOX_STYLESHEET not in current_style:
-                            widget.setStyleSheet(
-                                f"{current_style.rstrip()}\n"
-                                f"{PROFILE_DISABLED_SPINBOX_STYLESHEET}".strip()
-                            )
-                    elif isinstance(widget, QPushButton) and widget.isCheckable():
-                        current_style = widget.styleSheet()
-                        if PROFILE_DISABLED_TOGGLE_STYLESHEET not in current_style:
-                            widget.setStyleSheet(
-                                f"{current_style.rstrip()}\n"
-                                f"{PROFILE_DISABLED_TOGGLE_STYLESHEET}".strip()
-                            )
-                    elif isinstance(widget, (QLineEdit, QComboBox, QPushButton)):
-                        apply_gated_input_palette(widget)
-
             for root in roots:
                 root.setEnabled(enabled)
 
@@ -2033,13 +1992,18 @@ if __name__ == "__main__":
             combo.blockSignals(False)
             self.update_live_validators()
 
-        def _set_cache_unavailable(self, message, color="gray"):
+        def _show_cache_status(self, text, status, bold=False):
+            """Show the target cache line in a status colour ("success", "danger" or "subtle")."""
+            self.lbl_cache_tracker.setText(text)
+            weight = " font-weight: 600;" if bold else ""
+            self.lbl_cache_tracker.setStyleSheet(f"color: {status_color(status)};{weight}")
+
+        def _set_cache_unavailable(self, message, status="subtle"):
             self._carried_cache_choice = None
             self._cache_launch_allowed = False
             self.btn_save_run.setEnabled(False)
             self.current_cache_folder = None
-            self.lbl_cache_tracker.setText(message)
-            self.lbl_cache_tracker.setStyleSheet(f"color: {color};")
+            self._show_cache_status(message, status)
             self.cb_cache_file.blockSignals(True)
             self.cb_cache_file.clear()
             self.cb_cache_file.setEnabled(False)
@@ -2145,7 +2109,7 @@ if __name__ == "__main__":
             except Exception as error:
                 self._set_cache_unavailable(
                     translate("Config", "Cache compatibility error: {error}").format(error=error),
-                    "#d32f2f",
+                    "danger",
                 )
                 return
 
@@ -2161,12 +2125,9 @@ if __name__ == "__main__":
                 self.cb_cache_file.setEnabled(False)
                 self._toggle_new_cache_input()
                 self.btn_open_target_folder.setEnabled(False)
-                self.lbl_cache_tracker.setText(translate(
+                self._show_cache_status(translate(
                     "Config", "Error: %n compatible cache folder(s) found", None, len(folders)
-                ))
-                self.lbl_cache_tracker.setStyleSheet(
-                    "color: #d32f2f; font-weight: bold;"
-                )
+                ), "danger", bold=True)
                 if folders != self._last_duplicate_signature:
                     print("ERROR: Multiple compatible cache folders were found:")
                     for folder in folders:
@@ -2194,21 +2155,17 @@ if __name__ == "__main__":
                         saved_layout_dir, active_folder, filename
                     )
                     self.cb_cache_file.addItem(filename, relative_path)
-                self.lbl_cache_tracker.setText(translate(
+                self._show_cache_status(translate(
                     "Config", "Compatible Folder: {folder}"
-                ).format(folder=os.path.basename(active_folder)))
-                self.lbl_cache_tracker.setStyleSheet(
-                    "color: green; font-weight: bold;"
-                )
+                ).format(folder=os.path.basename(active_folder)), "success", bold=True)
                 self.btn_open_target_folder.setEnabled(True)
             else:
                 active_folder = default_folder
                 default_name = os.path.basename(default_folder)
                 self.current_cache_folder = active_folder
-                self.lbl_cache_tracker.setText(translate(
+                self._show_cache_status(translate(
                     "Config", "Target Folder: {folder} [Needs Computing]"
-                ).format(folder=default_name))
-                self.lbl_cache_tracker.setStyleSheet("color: #d32f2f;")
+                ).format(folder=default_name), "danger")
                 self.btn_open_target_folder.setEnabled(False)
 
             self.line_new_cache.setPlaceholderText(
@@ -2232,7 +2189,7 @@ if __name__ == "__main__":
             self._cache_hash_pending_keys = None
             if error:
                 self._set_cache_unavailable(
-                    translate("Config", "Cache hashing failed: {error}").format(error=error), "#d32f2f"
+                    translate("Config", "Cache hashing failed: {error}").format(error=error), "danger"
                 )
                 return
             sequence_key, network_key = cache_keys
@@ -2249,7 +2206,7 @@ if __name__ == "__main__":
             if not os.path.isfile(sequence_path) or not os.path.isfile(network_path):
                 self._cancel_cache_hashing()
                 self._set_cache_unavailable(
-                    translate("Config", "Target Cache: Selected input file is missing"), "#d32f2f"
+                    translate("Config", "Target Cache: Selected input file is missing"), "danger"
                 )
                 return
 
@@ -2259,7 +2216,7 @@ if __name__ == "__main__":
             except OSError as error:
                 self._cancel_cache_hashing()
                 self._set_cache_unavailable(
-                    translate("Config", "Cache input error: {error}").format(error=error), "#d32f2f"
+                    translate("Config", "Cache input error: {error}").format(error=error), "danger"
                 )
                 return
 
@@ -2279,7 +2236,7 @@ if __name__ == "__main__":
                 except Exception as error:
                     self._set_cache_unavailable(
                         translate("Config", "Cache compatibility error: {error}").format(error=error),
-                        "#d32f2f",
+                        "danger",
                     )
                 return
 
@@ -2338,9 +2295,8 @@ if __name__ == "__main__":
                 h_lay = QHBoxLayout(container)
                 h_lay.setContentsMargins(0, 0, 0, 0)
                 
-                btn = QPushButton("📂")
+                btn = icon_button("folder-open", translate("Config", "Open Folder"))
                 btn.setFixedWidth(30)
-                btn.setToolTip(translate("Config", "Open Folder"))
                 
                 def open_folder(checked):
                     import os
@@ -2450,9 +2406,6 @@ if __name__ == "__main__":
             self.spin_alignment_offset.setAccelerated(True)
             # A minimum rather than a fixed width, so it spans the row once the fields stack.
             self.spin_alignment_offset.setMinimumWidth(100)
-            self.spin_alignment_offset.setStyleSheet(
-                "QSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
-            )
 
             self.spin_min_occ = NoScrollDoubleSpinBox()
             self.spin_min_occ.setDecimals(2)
@@ -2511,14 +2464,6 @@ if __name__ == "__main__":
             ):
                 spinbox.setFixedHeight(input_spinbox_height)
             
-            # Apply styling for disabled states (grayed out)
-            disabled_spinbox_style = "QSpinBox:disabled, QDoubleSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
-            disabled_label_style = "QLabel:disabled { color: #888; }"
-            self.spin_umap_k.setStyleSheet(disabled_spinbox_style)
-            self.spin_umap_md.setStyleSheet(disabled_spinbox_style)
-            lbl_k.setStyleSheet(disabled_label_style)
-            lbl_md.setStyleSheet(disabled_label_style)
-            
             self.check_umap.toggled.connect(self.update_live_validators)
             self.spin_umap_k.valueChanged.connect(self.update_live_validators)
             self.labels["UMAP_MODE"] = QLabel(translate("Config", "Plot UMAP Instead:"))
@@ -2574,9 +2519,7 @@ if __name__ == "__main__":
             filter_container.setObjectName("wrapper")
 
             lbl_thresh = QLabel(translate("Config", "Similarity Threshold:"))
-            lbl_thresh.setStyleSheet("QLabel:disabled { color: #888; }")
             lbl_top = QLabel(translate("Config", "Top Edge %:"))
-            lbl_top.setStyleSheet("QLabel:disabled { color: #888; }")
 
             # Keep separate widgets and settings for each mode while sharing two slots.
             self._input_mode_stacks = []
@@ -2654,11 +2597,10 @@ if __name__ == "__main__":
             btn_lay.setContentsMargins(0, 0, 0, 0)
             
             self.btn_stats = QPushButton(translate("Config", "Compute Network Statistics"))
-            self.btn_stats.setStyleSheet("background-color: #2196F3; color: white;")
+            set_role(self.btn_stats, "muted")
             self.btn_stats.clicked.connect(self.run_statistics)
 
             self.btn_hist = QPushButton(translate("Config", "Histogram"))
-            self.btn_hist.setStyleSheet("background-color: #9C27B0; color: white;")
             self.btn_hist.clicked.connect(self.run_histogram)
             
             btn_lay.addWidget(self.btn_stats, 3)
@@ -2675,16 +2617,15 @@ if __name__ == "__main__":
             cache_lay.setContentsMargins(0, 0, 0, 0)
             
             self.lbl_cache_tracker = QLabel(translate("Config", "Target Folder: None"))
-            self.lbl_cache_tracker.setStyleSheet("color: gray;")
+            set_role(self.lbl_cache_tracker, "subtle")
             self.lbl_cache_tracker.setWordWrap(False)
             self.lbl_cache_tracker.setMinimumWidth(0)
             self.lbl_cache_tracker.setSizePolicy(
                 QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed
             )
             
-            self.btn_open_cache = QPushButton("📂")
+            self.btn_open_cache = icon_button("folder-open", translate("Config", "Open Target Cache Folder"))
             self.btn_open_cache.setFixedWidth(30)
-            self.btn_open_cache.setToolTip(translate("Config", "Open Target Cache Folder"))
             
             def open_cache_folder(checked):
                 import os
@@ -2721,9 +2662,8 @@ if __name__ == "__main__":
             self.line_new_cache.setVisible(False)
             self.line_new_cache.setEnabled(False)
             
-            self.btn_open_target_folder = QPushButton("📂")
+            self.btn_open_target_folder = icon_button("folder-open", translate("Config", "Open Specific Target Folder"))
             self.btn_open_target_folder.setFixedWidth(30)
-            self.btn_open_target_folder.setToolTip(translate("Config", "Open Specific Target Folder"))
             self.btn_open_target_folder.setEnabled(False)  # Greyed out by default
             
             def open_target_folder(checked):
@@ -2835,14 +2775,6 @@ if __name__ == "__main__":
                     self.labels["SIMILARITY_THRESHOLD"].setEnabled(thresh_enabled)
                 if "TOP_EDGE_PERCENT" in self.labels:
                     self.labels["TOP_EDGE_PERCENT"].setEnabled(top_edge_enabled)
-
-                disabled_spinbox_style = "QDoubleSpinBox:disabled { background-color: #f0f0f0; color: #888; }"
-                self.spin_thresh.setStyleSheet(
-                    disabled_spinbox_style if not thresh_enabled else ""
-                )
-                self.spin_top.setStyleSheet(
-                    disabled_spinbox_style if not top_edge_enabled else ""
-                )
 
             if hasattr(self, 'tabs') and self.tabs.count() > 2:
                 if is_umap and self.tabs.currentIndex() == 2:
@@ -3349,20 +3281,18 @@ if __name__ == "__main__":
                 
                 swatch = QLabel()
                 swatch.setFixedSize(20, 20)
-                swatch.setStyleSheet(f"background-color: {val}; border: 1px solid gray; border-radius: 3px;")
+                swatch.setStyleSheet(SWATCH_STYLESHEET.format(color=val))
                 
                 le = QLineEdit("" if val in [None, "None"] else str(val))
 
                 def update_color_swatch(value, color_swatch=swatch):
                     color = QColor(str(value).strip())
                     if color.isValid():
-                        color_swatch.setStyleSheet(
-                            f"background-color: {color.name()}; border: 1px solid gray; border-radius: 3px;"
-                        )
+                        color_swatch.setStyleSheet(SWATCH_STYLESHEET.format(color=color.name()))
 
                 le.textChanged.connect(update_color_swatch)
                 
-                btn = QPushButton(translate("Config", "Pick"))
+                btn = set_role(QPushButton(translate("Config", "Pick")), "compact")
                 fit_buttons_to_text(btn)
                 
                 def pick_color(checked, line_edit=le, color_swatch=swatch):
@@ -3373,7 +3303,7 @@ if __name__ == "__main__":
                     if color.isValid():
                         hex_val = color.name()
                         line_edit.setText(hex_val)
-                        color_swatch.setStyleSheet(f"background-color: {hex_val}; border: 1px solid gray; border-radius: 3px;")
+                        color_swatch.setStyleSheet(SWATCH_STYLESHEET.format(color=hex_val))
                 
                 btn.clicked.connect(pick_color)
                 
@@ -3809,9 +3739,8 @@ if __name__ == "__main__":
             self.directory_open_buttons = {}
 
             def add_open_folder_button(line_edit, key):
-                button = QPushButton("📂")
+                button = icon_button("folder-open", translate("Config", "Open Folder"))
                 button.setFixedWidth(30)
-                button.setToolTip(translate("Config", "Open Folder"))
                 button.setEnabled(bool(line_edit.text().strip()))
 
                 def open_selected_folder(checked=False):
@@ -4383,9 +4312,9 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
         
     try:
-        force_light_palette(app)
+        apply_studio_theme(app)
     except Exception as e:
-        print(f"Warning: Could not force light palette: {e}")
+        print(f"Warning: Could not apply the window theme: {e}")
         app.setStyle("Fusion")
     window = ConfigGUI()
     window.single_instance = single_instance  # a language redraw hands it on

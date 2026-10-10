@@ -1,14 +1,14 @@
-# 🧬 Pairwise Embedding Alignment (`Embedding_PWA.py`)
+# Pairwise Embedding Alignment (`Embedding_PWA.py`)
 
 This script aligns two sequences using their residue-level language model embeddings. It calculates dynamic programming alignment strings (Needleman-Wunsch or Smith-Waterman) and maps user-specified residue positions from the reference sequence directly onto target sequence positions to facilitate active site and feature comparison.
 
-### 📥 Input
+### Input
 
 #### Embedding Database `INPUT_EMBED`
 *   **Format**: Metadata-first HDF5 embedding database (`.h5`) containing sanitized headers, sequences, model metadata, and residue-level tensors. It is required whenever either sequence is selected by header.
 *   **Created By**: `Generate_Embeddings.py` (Embedding Generation utility).
 
-### ⚙️ Parameters
+### Parameters
 
 | Parameter | Description |
 | :--- | :--- |
@@ -25,7 +25,7 @@ This script aligns two sequences using their residue-level language model embedd
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score for global alignments. |
 | Generate Report **`GENERATE_REPORT`** | Toggle to compile and save a comprehensive HTML alignment report showing residue highlights and scores. |
 
-### 📤 Output
+### Output
 
 #### Alignment Result and Optional HTML Report
 *   **Console Output**: Always prints the alignment mode and score, input lengths, alignment length, percent identity, aligned residue strings, match marks, and any requested reference-to-target position mappings.
@@ -63,17 +63,17 @@ This script aligns two sequences using their residue-level language model embedd
 
 ---
 
-# 🔍 Embedding Database Search (`Embedding_SSEARCH.py`)
+# Embedding Database Search (`Embedding_SSEARCH.py`)
 
 This script queries a single sequence against an entire database using residue-level language model embeddings. By running parallel pairwise alignments against all database sequences, it ranks matching proteins by normalized local or global similarity scores, operating similarly to FASTA ssearch.
 
-### 📥 Input
+### Input
 
 #### Embedding Database `INPUT_EMBED`
 *   **Format**: A complete metadata-first HDF5 database (`.h5`) containing sanitized headers, sequences, and embeddings.
 *   **Created By**: `Generate_Embeddings.py` or another active embedding writer. SSEARCH does not generate a missing database automatically.
 
-### ⚙️ Parameters
+### Parameters
 
 | Parameter | Description |
 | :--- | :--- |
@@ -92,7 +92,7 @@ This script queries a single sequence against an entire database using residue-l
 | Accelerator Precision **`ACCELERATOR_PRECISION`** | `automatic_32bit` uses IEEE FP32 for small searches and considers validated TF32 only from 4,096 targets. Explicit `bf16` uses BF16 matmul operands with FP32 normalization and postprocessing and requires a capable CUDA/ROCm, XPU, or MPS accelerator. It prints a low-precision warning and reports FP32-relative selected-mode length and raw-score statistics on a separate length-stratified sample of up to 2,048 targets for each device/execution variant. Finite numerical differences are informational and never reject BF16. The legacy alias `auto` remains accepted. Forced TF32 requires NVIDIA CUDA. |
 | Export Top Hits FASTA **`GENERATE_FASTA`** | Toggle to export a FASTA file containing the sequences of the top *K* database hits. |
 
-### 📤 Output
+### Output
 
 #### Embedding Search Results
 *   **Text Report**: `Report_<name>.txt`, containing parameters, the percent-identity definition, and the full ranked hit table; the console shows at most the first 100 hits.
@@ -134,17 +134,17 @@ This script queries a single sequence against an entire database using residue-l
 
 ---
 
-# ⏱️ Benchmark
+# Benchmark
 
 **Run Benchmark** times EMAP-SSN's heavy calculations on a fixed set of public protein sequences, so reports from different computers and versions can be compared. It asks before it starts, then runs `src/resources/benchmark/Run_Benchmark.py` in a console window of its own, which shows the progress and, at the end, the report.
 
-### 📥 Input
+### Input
 
 #### Bundled Sequence Set
 *   **Sequences**: 860 reviewed UniProtKB/Swiss-Prot entries of the metallo-β-lactamase superfamily (InterPro IPR001279, release 2026_03), with 92 more held out for the injection stage. `src/resources/benchmark/README.md` says where they come from and how they were made.
 *   **Model**: ESM-2 8M (`esm2_t6_8m`). The first run downloads it into the Hugging Face cache, about 30 MB; the download is not timed.
 
-### ⚙️ Stages
+### Stages
 
 | Stage | What It Times |
 | :--- | :--- |
@@ -161,7 +161,7 @@ This script queries a single sequence against an entire database using residue-l
 
 Every device setting stays on **Auto**, so each tool runs its own hardware trials, and the report records what each one chose. A stage this computer can't run, such as BLAST without NCBI BLAST+, is skipped with the reason, and so are the stages that need it.
 
-### 📤 Output
+### Output
 
 #### Benchmark Report
 *   **Text Report**: `Benchmark_Report_<date>_<time>.txt` in the benchmark folder, which **Report Folder** opens. It is written in the window's language and records each stage's time, throughput, CPU time, memory peaks and device; every Auto decision; the hardware and software; and the conditions that affect the numbers.

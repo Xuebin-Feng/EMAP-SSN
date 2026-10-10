@@ -1,9 +1,9 @@
-<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 9638b8a84753d59940d9e77800574b9542b05acc5d975986448b231c9a98295d -->
-# 🧼 清理序列 (`Sanitize_Sequences.py`)
+<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 653906db32447349627211b72f6588157a732f11b40d347406c2dcfc1a65755e -->
+# 清理序列 (`Sanitize_Sequences.py`)
 
 该脚本清理原始 FASTA 序列数据库，为语言模型生成嵌入做好准备。它会过滤掉长度超出目标范围的序列，排除序列标题中含有特定关键词（例如片段或不完整序列）的序列，替换不安全的非标准字符，并报告序列长度分布。
 
-### 📥 输入
+### 输入
 
 #### 原始序列 FASTA 文件 `INPUT_FASTA`
 *   **格式**：从设置的序列集目录中选择的标准蛋白质 FASTA（`.fasta`）。
@@ -16,7 +16,7 @@
     MKVLLVSDA...
     ```
 
-### ⚙️ 参数
+### 参数
 
 | 参数 | 说明 |
 | :--- | :--- |
@@ -26,7 +26,7 @@
 | 最大序列长度 **`MAX_SEQ_LENGTH`** | 允许的最大序列长度。 |
 | 按序列标题字符串删除 **`REMOVE_BY_HEADER_STRING`** | 排除序列标题中含有这一子串（区分大小写、完全一致）的序列，例如 `partial`、`fragment` 或 `low quality`。留空即停用；`None` 会被当作字面意义上的搜索词。 |
 
-### 📤 输出
+### 输出
 
 #### 清理后的 FASTA 文件
 *   **格式**：标准 FASTA（`.fasta`）。
@@ -58,18 +58,18 @@
 
 ---
 
-# 🧬 生成嵌入 (`Generate_Embeddings.py`)
+# 生成嵌入 (`Generate_Embeddings.py`)
 
 该脚本使用预训练的蛋白质语言模型（例如 ESM-2、ESM-C、Ankh、ProtBERT 和 ProstT5）提取序列嵌入。它把残基映射为高维表示向量，并按所选的 `float16` 或 `float32` 精度存入元数据优先的 HDF5 数据库。
 
-### 📥 输入
+### 输入
 
 #### FASTA 文件 `INPUT_FASTA`
 *   **格式**：标准 FASTA（`.fasta`），原始的或已清理过的均可。
 *   **生成工具**：用户提供的序列集或 `Sanitize_Sequences.py`。
 *   **说明**：记录在生成嵌入之前会在内存中自动清理。这种简化的清理不按序列标题文本或序列长度过滤，只有记录发生变化时才打印结果。
 
-### ⚙️ 参数
+### 参数
 
 | 参数 | 说明 |
 | :--- | :--- |
@@ -81,7 +81,7 @@
 
 > **模型条款：** 模型权重单独下载，并保留其发布者的许可证。特别是，Ankh Base 和 Ankh Large 的权重采用 CC-BY-NC-SA-4.0 许可，程序在访问前要求用户确认。模型清单见 `THIRD_PARTY_LICENSES.md`。这些模型条款不会改变 Apache-2.0 程序源代码的许可。
 
-### 📤 输出
+### 输出
 
 #### HDF5 嵌入数据库
 *   **格式**：HDF5（`.h5`）。
@@ -114,11 +114,11 @@
 
 ---
 
-# ✂️ 嵌入裁剪 (`Embedding_Cropping.py`)
+# 嵌入裁剪 (`Embedding_Cropping.py`)
 
 该脚本为裁剪过的或不完整的序列生成嵌入：它直接从已有的全长序列嵌入数据库中切出所需部分，而不是单独为裁剪出的片段生成嵌入。蛋白质语言模型用完整的自注意力上下文计算每个残基的表示，因此直接为短片段生成嵌入，得到的向量会与这些残基在其原生全长序列中得到的向量不同（缺少上下文）。该脚本从不重新运行语言模型——它只读取全长序列的 HDF5 数据库（由 `Generate_Embeddings.py` 生成），为每条裁剪序列切出所需的残基范围，从而保留完整上下文的表示。
 
-### 📥 输入
+### 输入
 
 #### 全长嵌入数据库 `INPUT_EMBED`
 *   **格式**：HDF5 嵌入数据库（`.h5`）。
@@ -128,11 +128,11 @@
 *   **格式**：标准 FASTA（`.fasta`）。
 *   **说明**：需要生成上下文嵌入的部分序列。记录的清理方式与生成嵌入时完全相同。每个已清理的序列标题都必须出现在 `INPUT_EMBED` 中，每条已清理的序列都必须是所存全长序列的一个完全一致的连续子串。
 
-### ⚙️ 参数
+### 参数
 
 此脚本不需要额外的配置参数——其行为完全由源嵌入数据库和裁剪后的 FASTA 决定。
 
-### 📤 输出
+### 输出
 
 #### HDF5 嵌入数据库
 *   **格式**：HDF5（`.h5`），命名为 `{CROPPED_FASTA}_[{model_name}]_embeddings.h5`——其结构与直接对 `CROPPED_FASTA` 运行 `Generate_Embeddings.py` 得到的文件完全相同，因此可直接用作下游工具（`Embedding_PWA.py`、`Embedding_SSEARCH.py`、`Embedding_MSA.py` 等）的输入。

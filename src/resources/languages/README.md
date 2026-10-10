@@ -13,7 +13,7 @@ The Config and Tools windows' texts are marked, and so are the Viewer's window (
 
 ## Choose the language
 
-The Language dropdown (🌐) sits at the bottom right of the Config, Tools and VR Config windows. It lists:
+The Language dropdown (after a globe icon) sits at the bottom right of the Config, Tools and VR Config windows. It lists:
 
 - **System default**, which follows the operating system's display language when this folder has a catalog for it, and is English otherwise.
 - **English**.

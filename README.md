@@ -233,7 +233,7 @@ always use 2D layouts. Headless and MCP layout jobs also accept
 
 ### 🌐 Language
 
-The windows can show their text in another language. The **🌐** dropdown at the
+The windows can show their text in another language. The language dropdown (after a globe icon) at the
 bottom right of the Configuration and Tools windows, and of the optional VR
 viewer's Configuration window, offers
 **System default** (the operating system's display language when EMAP-SSN has
@@ -781,7 +781,7 @@ License, and [NOTICE](NOTICE) for required attributions.
 
 ### Third-party components
 
-This repository bundles Mol*, Tabulator, marked, KaTeX, the Noto fonts, and
+This repository bundles Mol*, Tabulator, marked, KaTeX, the Noto fonts, the Lucide icons, and
 the benchmark's protein sequences from UniProt (CC BY 4.0), depends on Python
 packages under a range of licenses, and can load
 protein-language-model weights governed by their own terms. A full inventory, including which components are redistributed

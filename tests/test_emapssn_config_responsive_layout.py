@@ -15,6 +15,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from tests.config_gui_loader import load_config_namespace, open_config_window
+from tests.theme_fixture import apply_theme_for_class
 
 
 class ResponsiveConfigTests(unittest.TestCase):
@@ -25,7 +26,7 @@ class ResponsiveConfigTests(unittest.TestCase):
         cls.gui_class = cls.namespace["ConfigGUI"]
         cls.app = cls.namespace["QApplication"].instance() or cls.namespace["QApplication"]([])
         cls.namespace["configure_qt_application_fonts"](cls.app)
-        cls.namespace["force_light_palette"](cls.app)
+        apply_theme_for_class(cls, cls.app)
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -138,6 +139,11 @@ class ResponsiveConfigTests(unittest.TestCase):
         self.show_optional_names()
         stacking_rows = {0: {"filterRow"}, 1: {"visualRow5"},
                          2: {"physicsSlidersRow1", "convergenceRow0"}}
+        # The narrowest page the window allows: Fusion sizes a tab widget 4 px
+        # wider than its page, a frame the theme's card replaces.
+        self.resize_panel(0)
+        narrowest = self.window.tabs.currentWidget().width()
+        self.assertLessEqual(narrowest, 600 + 4)
         for width in (600, 800, 1000, 1400, 600, 1400):
             self.resize_panel(width)
             for index in range(self.window.tabs.count()):
@@ -145,7 +151,7 @@ class ResponsiveConfigTests(unittest.TestCase):
                     self.window.tabs.setCurrentIndex(index)
                     self.flush()
                     scroll = self.window.tabs.currentWidget()
-                    self.assertEqual(scroll.width(), width)
+                    self.assertEqual(scroll.width(), max(width, narrowest))
                     self.assertEqual(scroll.horizontalScrollBar().maximum(), 0)
                     self.assert_geometry(scroll.widget())
                     if width in (600, 1400):
@@ -335,7 +341,8 @@ class ResponsiveConfigTests(unittest.TestCase):
                     self.assertEqual(right(offset), right(self.window.line_ref))
                     self.assertEqual(right(offset), right(self.window.spin_min_occ))
                 else:
-                    self.assertEqual(offset.width(), 100)
+                    # 100 px, unless the theme's padding makes the field need more.
+                    self.assertEqual(offset.width(), max(100, offset.minimumSizeHint().width()))
 
     def test_alignment_offset_ignores_hover_wheel_but_accepts_keyboard(self):
         from PySide6.QtCore import QPoint, QPointF, Qt
@@ -389,7 +396,8 @@ class ResponsiveConfigTests(unittest.TestCase):
                 self.window.left_split.setSizes([450, bottom_height])
                 self.flush()
                 panel = self.window.left_bottom_widget
-                self.assertEqual(panel.height() - row.geometry().bottom() - 1, 6)
+                # The buttons end level with the report card beside them.
+                self.assertEqual(panel.height() - row.geometry().bottom() - 1, 0)
                 self.assertEqual(row.height(), layout.heightForWidth(row.width()))
                 self.assertEqual(layout.itemAt(0).widget().x(), 0)
                 self.assertEqual(layout.itemAt(4).widget().geometry().right(), row.width() - 1)

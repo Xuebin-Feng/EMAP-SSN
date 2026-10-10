@@ -150,8 +150,8 @@ from desktop.Desktop_App import (
     VISPY_FALLBACK_FACE,
     configure_linux_qt_desktop_identity,
     configure_qt_application_fonts,
+    apply_studio_theme,
     fit_buttons_to_text,
-    force_light_palette,
     install_translations,
     installed_language,
     register_vispy_application_fonts,
@@ -162,6 +162,7 @@ from desktop.Desktop_App import (
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
 )
+from desktop.Studio_Theme import TOKENS, set_role, studio_icon
 from desktop.Viewer_State import (
     prepare_network,
     resolve_selected_cache,
@@ -840,6 +841,10 @@ class MainViewer:
         if qapp:
             try:
                 qt_font_status = configure_qt_application_fonts(qapp)
+                # The canvas was made before the bundled font became the
+                # application's; give it that font now, so the sidebar and
+                # slider built on it inherit it rather than the system font.
+                self.canvas.native.setFont(qapp.font())
                 vispy_font_status = register_vispy_application_fonts(
                     qt_font_status
                 )
@@ -955,12 +960,12 @@ class MainViewer:
         # is shown so cached hidden nodes cannot leave stale edges on screen.
         self.update_edges()
 
-        # Force light theme on the QApplication managed by Vispy
+        # The shared window theme, on the QApplication managed by Vispy
         if qapp:
             try:
-                force_light_palette(qapp)
+                apply_studio_theme(qapp)
             except Exception as e:
-                print(f"Warning: Could not force light palette: {e}")
+                print(f"Warning: Could not apply the window theme: {e}")
             
             # Set Application-wide Icon (covers Vispy and all spawned windows/dialogs)
             icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "viewer_logo.ico")
@@ -986,14 +991,13 @@ class MainViewer:
         self.slider.setRange(0, 1000)
         self.slider.setValue(0)
         self.slider.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        self.slider.setTickPosition(QtWidgets.QSlider.TickPosition.TicksBelow)
-        self.slider.setTickInterval(100)
         self.slider.valueChanged.connect(self.on_slider_value_changed)
         
         overlay_layout.addWidget(self.slider_label)
         overlay_layout.addWidget(self.slider)
         
-        # Style sheet matching the third image
+        # The slider takes the window theme; its label, drawn over the canvas,
+        # keeps the HUD's text colour.
         self.slider_overlay.setStyleSheet("""
             QWidget#sliderOverlay {
                 background: transparent;
@@ -1005,34 +1009,6 @@ class MainViewer:
                 color: %(text_color)s;
                 background: transparent;
                 min-width: 45px;
-            }
-            QSlider::groove:horizontal {
-                border: 1px solid #bcbcbc;
-                height: 4px;
-                background: #d8d8d8;
-                border-radius: 2px;
-            }
-            QSlider::sub-page:horizontal {
-                background: #3A96A6;
-                border: 1px solid #2E8B9A;
-                border-radius: 2px;
-            }
-            QSlider::handle:horizontal {
-                background: #ffffff;
-                border: 1px solid #bcbcbc;
-                width: 14px;
-                height: 16px;
-                margin-top: -6px;
-                margin-bottom: -6px;
-                border-radius: 3px;
-            }
-            QSlider::handle:horizontal:hover {
-                background: #f5f5f5;
-                border-color: #a0a0a0;
-            }
-            QSlider::handle:horizontal:pressed {
-                background: #e5e5e5;
-                border-color: #888888;
             }
         """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
         
@@ -1114,56 +1090,27 @@ class MainViewer:
         self.right_panel_layout.addStretch()
         
         # Single floating toggle button on the canvas.native to collapse/expand sidebar
-        self.toggle_sidebar_btn = QtWidgets.QPushButton(">>", self.canvas.native)
+        self.toggle_sidebar_btn = QtWidgets.QPushButton(self.canvas.native)
         self.toggle_sidebar_btn.setObjectName("toggleSidebarBtn")
+        set_role(self.toggle_sidebar_btn, "icon")
+        self.toggle_sidebar_btn.setIcon(studio_icon("panel-right-close"))
+        self.toggle_sidebar_btn.setIconSize(QtCore.QSize(16, 16))
         self.toggle_sidebar_btn.setToolTip(translate("Viewer", "Toggle sidebar panel"))
         self.toggle_sidebar_btn.setFixedWidth(30)
         self.toggle_sidebar_btn.setFixedHeight(30)
         self.toggle_sidebar_btn.clicked.connect(self.toggle_sidebar)
         self.toggle_sidebar_btn.hide()
         
-        # Apply modern premium stylesheet
+        # The sidebar floats over the canvas: a white card with a hairline on its
+        # left, holding a list of left-aligned buttons. The rest is the window theme.
         self.main_window.setStyleSheet("""
-            QMainWindow {
-                background-color: #f7f7f7;
-            }
             QWidget#rightPanel {
                 background-color: rgba(255, 255, 255, 0.95);
-                border-left: 1px solid #dcdcdc;
+                border-left: 1px solid %(border)s;
             }
-            QPushButton#toggleSidebarBtn {
-                background-color: #ffffff;
-                border: 1px solid #dcdcdc;
-                border-radius: 4px;
-                font-weight: bold;
-                color: %(text_color)s;
-            }
-            QPushButton#toggleSidebarBtn:hover {
-                background-color: #f0f0f0;
-                border-color: #c0c0c0;
-            }
-            QPushButton#toggleSidebarBtn:pressed {
-                background-color: #e5e5e5;
-            }
-            QWidget#rightPanel QPushButton {
-                background-color: #ffffff;
-                border: 1px solid #dcdcdc;
-                border-radius: 6px;
-                font-weight: bold;
-                color: %(text_color)s;
-                font-family: %(font)s;
-                font-size: 10pt;
-                padding-left: 10px;
-                padding-right: 10px;
-            }
-            QWidget#rightPanel QPushButton:hover {
-                background-color: #f0f8ff;
-                border-color: #0969da;
-            }
-            QWidget#rightPanel QPushButton:pressed {
-                background-color: #e2f0fe;
-            }
-        """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
+            QWidget#rightPanel QPushButton { text-align: left; padding-left: 10px; min-height: 24px; }
+            QWidget#rightPanel QPushButton:focus { padding-left: 9px; }
+        """ % {"border": TOKENS["border"]})
 
     def _update_console_text(self):
         """Helper to render the command line with a visible cursor."""
@@ -3004,7 +2951,9 @@ class MainViewer:
             self.right_panel.setVisible(visible)
             if hasattr(self, 'toggle_sidebar_btn'):
                 self.toggle_sidebar_btn.setVisible(True)
-                self.toggle_sidebar_btn.setText(">>" if visible else "<<")
+                self.toggle_sidebar_btn.setIcon(
+                    studio_icon("panel-right-close" if visible else "panel-right-open")
+                )
             self.reposition_expand_btn()
 
             # Immediately update the positions of HUD labels and slider
@@ -3054,7 +3003,7 @@ class MainViewer:
             raise RuntimeError(Message("This Viewer instance's web server is unavailable."))
         return f"{self.web_server_url}/{str(path).lstrip('/')}"
 
-    def add_sidebar_button(self, name, label, callback, tooltip=None):
+    def add_sidebar_button(self, name, label, callback, tooltip=None, icon=None):
         if not hasattr(self, 'sidebar_buttons'):
             self.sidebar_buttons = {}
         
@@ -3066,9 +3015,11 @@ class MainViewer:
         
         btn = QtWidgets.QPushButton(label, self.right_panel)
         btn.setObjectName(name)
+        if icon:  # a bundled Lucide icon's name, shown before the label
+            btn.setIcon(studio_icon(icon))
+            btn.setIconSize(QtCore.QSize(16, 16))
         if tooltip:
             btn.setToolTip(tooltip)
-        btn.setFixedHeight(35)
         btn.clicked.connect(callback)
         
         # Insert button in layout right before the bottom stretch spacer

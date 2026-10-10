@@ -25,17 +25,21 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         from EMAPSSN_Tools import DynamicComboBox
         from PySide6.QtWidgets import QApplication
         from tests.config_gui_loader import load_config_namespace, open_config_window
+        from tests.theme_fixture import apply_theme_for_class
+        from desktop.Studio_Theme import SWITCH_STYLESHEET, TOKENS
 
         # Keep the developer's viewer_settings.json, and the inputs it selects,
         # out of both the module defaults and the window.
         namespace = load_config_namespace()
         cls.app = QApplication.instance() or QApplication([])
         namespace["configure_qt_application_fonts"](cls.app)
-        namespace["force_light_palette"](cls.app)
+        apply_theme_for_class(cls, cls.app)
         cls.temp_directory = tempfile.TemporaryDirectory()
         cls.window = open_config_window(namespace["ConfigGUI"], cls.temp_directory.name)
         cls.window.show()
         cls.namespace = namespace
+        cls.switch_stylesheet = SWITCH_STYLESHEET
+        cls.tokens = TOKENS
         cls.dynamic_combo_class = DynamicComboBox
         cls.window._cache_hash_request_id += 1
         for worker in cls.window._cache_hash_workers.values():
@@ -241,9 +245,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(button.isChecked())
         self.assertFalse(button.isEnabled())
-        self.assertIn(
-            self.namespace["PROFILE_DISABLED_TOGGLE_STYLESHEET"], button.styleSheet()
-        )
+        self.assertEqual(button.styleSheet(), self.switch_stylesheet)
 
         physics_selector.setCurrentText("(new)")
         button.setChecked(False)
@@ -514,7 +516,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.app.processEvents()
         self.assertFalse(visual_content.isEnabled())
         default_node_size = self.window.inputs["NODE_SIZE"].value()
-        palette_type = self.namespace["QPalette"]
+        from PySide6.QtGui import QPalette as palette_type
         disabled_group = palette_type.ColorGroup.Disabled
 
         node_size_label = self.window.labels["NODE_SIZE"]
@@ -522,17 +524,12 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         node_size_slider = node_size_spinbox.parentWidget().findChild(
             self.namespace["QSlider"]
         )
+        # A locked profile's widgets are disabled; the theme's :disabled rules
+        # grey them, so none carries a stylesheet of its own.
         self.assertFalse(node_size_label.isEnabled())
-        self.assertIn(
-            self.namespace["PROFILE_DISABLED_LABEL_STYLESHEET"],
-            node_size_label.styleSheet(),
-        )
+        self.assertEqual(node_size_label.styleSheet(), "")
         self.assertFalse(node_size_spinbox.isEnabled())
-        self.assertIn(
-            self.namespace["PROFILE_DISABLED_SPINBOX_STYLESHEET"],
-            node_size_spinbox.styleSheet(),
-        )
-        self.assertNotIn("border: 1px solid #c8c8c8", node_size_spinbox.styleSheet())
+        self.assertEqual(node_size_spinbox.styleSheet(), "")
         self.assertIsNotNone(node_size_slider)
         self.assertFalse(node_size_slider.isEnabled())
         self.assertEqual(node_size_slider.styleSheet(), "")
@@ -547,7 +544,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 disabled_group,
                 palette_type.ColorRole.Base,
             ).name(),
-            "#f0f0f0",
+            self.tokens["field_disabled"],
         )
         self.assertIsNotNone(pick_button)
         self.assertFalse(pick_button.isEnabled())
@@ -556,15 +553,12 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 disabled_group,
                 palette_type.ColorRole.ButtonText,
             ).name(),
-            "#888888",
+            self.tokens["text_disabled"],
         )
 
         low_resource_toggle = self.window.inputs["LOW_RESOURCE_MODE"]
         self.assertFalse(low_resource_toggle.isEnabled())
-        self.assertIn(
-            self.namespace["PROFILE_DISABLED_TOGGLE_STYLESHEET"],
-            low_resource_toggle.styleSheet(),
-        )
+        self.assertEqual(low_resource_toggle.styleSheet(), self.switch_stylesheet)
         default_swatch = self.window.color_swatches["HOVER_COLOR"]
         default_swatch_image = default_swatch.grab().toImage()
         self.assertEqual(
@@ -603,23 +597,20 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         ):
             self.assertIsNotNone(widget)
             self.assertFalse(widget.isEnabled())
-        self.assertIn(
-            self.namespace["PROFILE_DISABLED_LABEL_STYLESHEET"],
-            self.window.labels["FASTA_DIR"].styleSheet(),
-        )
+        self.assertEqual(self.window.labels["FASTA_DIR"].styleSheet(), "")
         self.assertEqual(
             directory_input.palette().color(
                 disabled_group,
                 palette_type.ColorRole.Text,
             ).name(),
-            "#888888",
+            self.tokens["text_disabled"],
         )
         self.assertEqual(
             directory_button.palette().color(
                 disabled_group,
                 palette_type.ColorRole.Button,
             ).name(),
-            "#f0f0f0",
+            self.tokens["field_disabled"],
         )
         self.assertTrue(self.window.inputs["SAVED_CONFIG_DIR"].isEnabled())
 
@@ -634,27 +625,24 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             widget = self.window.inputs[key]
             self.assertFalse(widget.isEnabled())
             self.assertFalse(self.window.labels[key].isEnabled())
-            self.assertIn(
-                self.namespace["PROFILE_DISABLED_LABEL_STYLESHEET"],
-                self.window.labels[key].styleSheet(),
-            )
+            self.assertEqual(self.window.labels[key].styleSheet(), "")
         self.assertEqual(
             self.window.inputs["LAYOUT_DEVICE_SELECTION"].palette().color(
                 disabled_group,
                 palette_type.ColorRole.Text,
             ).name(),
-            "#888888",
+            self.tokens["text_disabled"],
         )
         self.assertEqual(
             self.window.inputs["DT"].palette().color(
                 disabled_group,
                 palette_type.ColorRole.Base,
             ).name(),
-            "#f0f0f0",
+            self.tokens["field_disabled"],
         )
-        self.assertIn(
-            self.namespace["PROFILE_DISABLED_TOGGLE_STYLESHEET"],
+        self.assertEqual(
             self.window.inputs["ENABLE_PROGRESSIVE_SIMULATION"].styleSheet(),
+            self.switch_stylesheet,
         )
 
         reset_buttons = [
@@ -900,7 +888,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         profile_field_positions = []
         setting_field_positions = []
         self.assertEqual(expected_spacing, 24)
-        self.assertEqual(expected_thickness, 2)
+        self.assertEqual(expected_thickness, 1)  # the theme's hairline
         self.assertEqual(
             self.namespace["DEFAULT_SAVED_CONFIG_DIR"],
             os.path.join("$cache_file$", "Saved_Config"),
@@ -1546,7 +1534,10 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             critical.assert_not_called()
 
     def test_layout_export_button_is_enabled_only_for_new_cache_generation(self):
-        self.assertIn("#2196F3", self.window.btn_export_layout.styleSheet())
+        # Save & Run is the one primary action; Export is an outline button.
+        self.assertEqual(self.window.btn_save_run.property("role"), "primary")
+        self.assertIsNone(self.window.btn_export_layout.property("role"))
+        self.assertEqual(self.window.btn_export_layout.styleSheet(), "")
         self.assertEqual(
             self.window.btn_export_layout.sizeHint().height(),
             self.window.btn_save_run.sizeHint().height(),

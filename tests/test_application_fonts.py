@@ -62,7 +62,6 @@ from desktop.Desktop_App import (  # noqa: E402
     VISPY_SIMPLIFIED_CHINESE_FACE,
     VISPY_UI_FACE,
     configure_qt_application_fonts,
-    force_light_palette,
     matplotlib_language_families,
     qt_monospace_font,
     register_vispy_application_fonts,
@@ -106,7 +105,7 @@ class ApplicationFontTests(unittest.TestCase):
         cls._owns_app = QApplication.instance() is None
         cls.app = QApplication.instance() or QApplication([])
         # These tests register the bundled Noto fonts and switch the application
-        # to them and to the Fusion light palette. A borrowed application gets
+        # to them. A borrowed application gets
         # its own look back: while Noto Sans stays registered, stylesheets that
         # name it first make widgets in later test modules measure wider.
         cls._saved_style = cls.app.style().name()
@@ -135,24 +134,6 @@ class ApplicationFontTests(unittest.TestCase):
             cls.app.setFont(cls._saved_font)
         cls.app = None
         gc.collect()
-
-    def test_light_palette_uses_shared_fusion_colors(self):
-        force_light_palette(self.app)
-
-        self.assertEqual(self.app.style().objectName().lower(), "fusion")
-        palette = self.app.palette()
-        self.assertEqual(
-            palette.color(QPalette.ColorRole.Window).getRgb()[:3],
-            (240, 240, 240),
-        )
-        self.assertEqual(
-            palette.color(QPalette.ColorRole.Highlight).getRgb()[:3],
-            (48, 140, 198),
-        )
-        self.assertEqual(
-            palette.color(QPalette.ColorRole.HighlightedText).getRgb()[:3],
-            (255, 255, 255),
-        )
 
     def test_manifest_declares_the_core_pack_and_the_chinese_font_and_hashes_match(self):
         self.assertEqual(len(FONT_FILES), 8)

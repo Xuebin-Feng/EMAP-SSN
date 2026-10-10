@@ -70,38 +70,36 @@
     </message>
     <message>
         <location filename="../../web_ui/agent.html" line="+22"/>
+        <location line="+936"/>
         <source>EMAP-SSN Agent Chat</source>
         <translation type="unfinished">EMAP-SSN 智能体对话</translation>
     </message>
     <message>
-        <location line="+729"/>
         <source>🤖 EMAP-SSN Agent Chat</source>
-        <translation type="unfinished">🤖 EMAP-SSN 智能体对话</translation>
+        <translation type="obsolete">🤖 EMAP-SSN 智能体对话</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <location line="+133"/>
         <source>🌙 Dark Mode</source>
-        <translation type="unfinished">🌙 深色模式</translation>
+        <translation type="obsolete">🌙 深色模式</translation>
     </message>
     <message>
-        <location line="-132"/>
+        <location line="+3"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Agent Control Panel</source>
         <translation type="unfinished">智能体控制面板</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+684"/>
+        <location line="+708"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-683"/>
+        <location line="-707"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -116,9 +114,8 @@
         <translation type="unfinished">管理模型卡</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>⚙ Models</source>
-        <translation type="unfinished">⚙ 模型</translation>
+        <translation type="obsolete">⚙ 模型</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -126,7 +123,7 @@
         <translation type="unfinished">清空对话</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>Pending image attachments</source>
         <translation type="unfinished">待发送的图片附件</translation>
     </message>
@@ -137,13 +134,14 @@
     </message>
     <message>
         <location line="+1"/>
+        <location line="+0"/>
+        <location line="+0"/>
         <source>Capture Viewer</source>
         <translation type="unfinished">截取查看器</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>Capture&lt;br&gt;Viewer</source>
-        <translation type="unfinished">截取&lt;br&gt;查看器</translation>
+        <translation type="obsolete">截取&lt;br&gt;查看器</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -151,27 +149,24 @@
         <translation type="unfinished">发送</translation>
     </message>
     <message>
-        <location line="+9"/>
         <source>⚙ Model Cards</source>
-        <translation type="unfinished">⚙ 模型卡</translation>
+        <translation type="obsolete">⚙ 模型卡</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+10"/>
         <source>Close panel</source>
         <translation type="unfinished">关闭面板</translation>
     </message>
     <message>
-        <location line="+6"/>
         <source>+ Add Model</source>
-        <translation type="unfinished">+ 添加模型</translation>
+        <translation type="obsolete">+ 添加模型</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>💾 Save</source>
-        <translation type="unfinished">💾 保存</translation>
+        <translation type="obsolete">💾 保存</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+45"/>
         <source>queued</source>
         <translation type="unfinished">已排队</translation>
     </message>
@@ -206,12 +201,11 @@
         <translation type="unfinished">已跳过</translation>
     </message>
     <message>
-        <location line="+45"/>
         <source>☀️ Light Mode</source>
-        <translation type="unfinished">☀️ 浅色模式</translation>
+        <translation type="obsolete">☀️ 浅色模式</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+74"/>
         <source>the Viewer answered HTTP {status}</source>
         <translation type="unfinished">查看器返回了 HTTP {status}</translation>
     </message>
@@ -232,25 +226,64 @@
     </message>
     <message>
         <location line="+24"/>
-        <location line="+66"/>
-        <location line="+57"/>
+        <location line="+68"/>
+        <location line="+58"/>
         <source>Model {number}</source>
         <translation type="unfinished">模型 {number}</translation>
     </message>
     <message>
-        <location line="-98"/>
         <source>Using the saved settings of &quot;{model}&quot;: press 💾 Save to use the edits made here.</source>
-        <translation type="unfinished">正在使用“{model}”已保存的设置：要使用此处的修改，请点击 💾 保存。</translation>
+        <translation type="obsolete">正在使用“{model}”已保存的设置：要使用此处的修改，请点击 💾 保存。</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-101"/>
         <source>this model</source>
         <translation type="unfinished">此模型</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>✓ Saved!</source>
-        <translation type="unfinished">✓ 已保存！</translation>
+        <translation type="obsolete">✓ 已保存！</translation>
+    </message>
+    <message>
+        <location line="-225"/>
+        <location line="+149"/>
+        <source>Dark Mode</source>
+        <translation type="unfinished">深色模式</translation>
+    </message>
+    <message>
+        <location line="-131"/>
+        <source>Models</source>
+        <translation type="unfinished">模型</translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>Model Cards</source>
+        <translation type="unfinished">模型卡</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Add Model</source>
+        <translation type="unfinished">添加模型</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Save</source>
+        <translation type="unfinished">保存</translation>
+    </message>
+    <message>
+        <location line="+103"/>
+        <source>Light Mode</source>
+        <translation type="unfinished">浅色模式</translation>
+    </message>
+    <message>
+        <location line="+76"/>
+        <source>Using the saved settings of &quot;{model}&quot;: press Save to use the edits made here.</source>
+        <translation type="unfinished">正在使用“{model}”已保存的设置：要使用此处的修改，请点击保存。</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Saved!</source>
+        <translation type="unfinished">已保存！</translation>
     </message>
     <message>
         <location line="+28"/>
@@ -258,17 +291,17 @@
         <translation type="unfinished">拖动以调整顺序</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
         <source>Remove model</source>
         <translation type="unfinished">移除模型</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>Expand / collapse</source>
         <translation type="unfinished">展开/折叠</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+25"/>
         <source>Name</source>
         <translation type="unfinished">名称</translation>
     </message>
@@ -308,8 +341,7 @@
         <translation type="unfinished">sk-...（不需要时留空）</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <location line="+3"/>
+        <location line="+13"/>
         <source>Show</source>
         <translation type="unfinished">显示</translation>
     </message>
@@ -319,7 +351,7 @@
         <translation type="unfinished">隐藏</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+20"/>
         <source>Custom Options (JSON)</source>
         <translation type="unfinished">自定义选项（JSON）</translation>
     </message>
@@ -334,7 +366,7 @@
         <translation type="unfinished">不能移除最后一个模型卡。</translation>
     </message>
     <message>
-        <location line="+108"/>
+        <location line="+106"/>
         <source>Clear chat? All chat history, including saved images, will be lost. Pending attachments will also be removed. This cannot be undone.</source>
         <translation type="unfinished">要清空对话吗？所有对话记录（包括已保存的图片）都将丢失，待发送的附件也会被移除。此操作无法撤销。</translation>
     </message>
@@ -349,12 +381,12 @@
         <translation type="unfinished">已连接</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+4"/>
         <source>Reconnecting...</source>
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+16"/>
         <source>Viewer commands: {status}</source>
         <translation type="unfinished">查看器命令：{status}</translation>
     </message>
@@ -405,11 +437,15 @@
     </message>
     <message>
         <location line="+1"/>
-        <source>⏳ Thinking ({model})...</source>
-        <translation type="unfinished">⏳ 思考中（{model}）…</translation>
+        <source>Thinking ({model})...</source>
+        <translation type="unfinished">思考中（{model}）…</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <source>⏳ Thinking ({model})...</source>
+        <translation type="obsolete">⏳ 思考中（{model}）…</translation>
+    </message>
+    <message>
+        <location line="+40"/>
         <source>Image</source>
         <translation type="unfinished">图片</translation>
     </message>
@@ -419,22 +455,22 @@
         <translation type="unfinished">助手</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Thought Process</source>
         <translation type="unfinished">思考过程</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+27"/>
         <source>Executed Command(s)</source>
         <translation type="unfinished">已执行的命令</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Copy</source>
         <translation type="unfinished">复制</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>Terminal Output</source>
         <translation type="unfinished">终端输出</translation>
     </message>
@@ -459,7 +495,7 @@
         <translation type="unfinished">请求失败（HTTP {status}）。</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+13"/>
         <source>Copied!</source>
         <translation type="unfinished">已复制！</translation>
     </message>
@@ -467,7 +503,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="+68"/>
+        <location filename="../../desktop/Desktop_App.py" line="+77"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -528,23 +564,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3213"/>
+        <location line="+3143"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3212"/>
+        <location line="-3142"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3724"/>
+        <location line="+3653"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3716"/>
+        <location line="-3645"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -559,7 +595,7 @@
         <translation type="unfinished">（新建）</translation>
     </message>
     <message>
-        <location line="+478"/>
+        <location line="+461"/>
         <source>Score Histogram</source>
         <translation type="unfinished">分数直方图</translation>
     </message>
@@ -579,18 +615,18 @@
         <translation type="unfinished">一致性检查</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
         <source>Save &amp;&amp; Run</source>
         <translation type="unfinished">保存并运行</translation>
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3250"/>
+        <location line="+3197"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3243"/>
+        <location line="-3194"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -605,38 +641,38 @@
         <translation type="unfinished">退出</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
         <source>Network Statistics Report</source>
         <translation type="unfinished">网络统计报告</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+3"/>
         <source>Select Fasta subset and HDF5 Network file, then click compute.</source>
         <translation type="unfinished">选择 FASTA 子集和 HDF5 网络文件，然后点击计算。</translation>
     </message>
     <message>
-        <location line="+198"/>
+        <location line="+212"/>
         <source>New profile name</source>
         <translation type="unfinished">新配置方案名称</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+2"/>
         <source>Open this tab&apos;s saved config folder</source>
         <translation type="unfinished">打开此选项卡的已保存配置文件夹</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>Saved Config:</source>
         <translation type="unfinished">已保存配置：</translation>
     </message>
     <message>
         <location line="+221"/>
-        <location line="+2071"/>
+        <location line="+2010"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-1958"/>
+        <location line="-1929"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1114,40 +1150,40 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+139"/>
-        <location line="+216"/>
+        <location line="+214"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
     </message>
     <message>
-        <location line="-100"/>
+        <location line="-93"/>
         <source>Target Cache: Missing input files</source>
         <translation type="unfinished">目标缓存：缺少输入文件</translation>
     </message>
     <message>
         <location line="+30"/>
-        <location line="+134"/>
+        <location line="+127"/>
         <source>Cache compatibility error: {error}</source>
         <translation type="unfinished">缓存兼容性错误：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="-117"/>
+        <location line="-110"/>
         <source>Error: %n compatible cache folder(s) found</source>
         <translation type="unfinished">
             <numerusform>错误：找到 %n 个兼容的缓存文件夹</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+30"/>
         <source>Compatible Folder: {folder}</source>
         <translation type="unfinished">兼容文件夹：{folder}</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+8"/>
         <source>Target Folder: {folder} [Needs Computing]</source>
         <translation type="unfinished">目标文件夹：{folder} [需要计算]</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+26"/>
         <source>Cache hashing failed: {error}</source>
         <translation type="unfinished">缓存哈希计算失败：{error}</translation>
     </message>
@@ -1172,13 +1208,13 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">正在检查输入文件…</translation>
     </message>
     <message>
-        <location line="+50"/>
-        <location line="+1471"/>
+        <location line="+48"/>
+        <location line="+1444"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1438"/>
+        <location line="-1410"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1220,7 +1256,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">比对偏移量：</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+18"/>
         <source>Min Occupancy %:</source>
         <translation type="unfinished">最低占有率 %：</translation>
     </message>
@@ -1240,7 +1276,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">UMAP 最小距离：</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+28"/>
         <source>Plot UMAP Instead:</source>
         <translation type="unfinished">改用 UMAP 绘图：</translation>
     </message>
@@ -1260,12 +1296,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">相似性阈值：</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+1"/>
         <source>Top Edge %:</source>
         <translation type="unfinished">保留高分边 %：</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+77"/>
         <source>Compute Network Statistics</source>
         <translation type="unfinished">计算网络统计</translation>
     </message>
@@ -1275,27 +1311,27 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">直方图</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+16"/>
         <source>Target Folder: None</source>
         <translation type="unfinished">目标文件夹：无</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+8"/>
         <source>Open Target Cache Folder</source>
         <translation type="unfinished">打开目标缓存文件夹</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+20"/>
         <source>Target Cache:</source>
         <translation type="unfinished">目标缓存：</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+18"/>
         <source>Open Specific Target Folder</source>
         <translation type="unfinished">打开指定的目标文件夹</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+20"/>
         <source>Selected Cache File:</source>
         <translation type="unfinished">所选缓存文件：</translation>
     </message>
@@ -1329,7 +1365,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">平均序列</translation>
     </message>
     <message>
-        <location line="+109"/>
+        <location line="+101"/>
         <source>Computing network statistics... This may take a moment for large HDF5 networks.</source>
         <translation type="unfinished">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
@@ -1527,7 +1563,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">节点边框颜色：</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+29"/>
         <source>Pick</source>
         <translation type="unfinished">选取</translation>
     </message>
@@ -1639,7 +1675,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+45"/>
         <location line="+45"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
@@ -1789,7 +1825,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="+1522"/>
+        <location filename="../../desktop/Desktop_App.py" line="+1526"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -3705,7 +3741,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Config.py" line="-4025"/>
+        <location filename="../../EMAPSSN_Config.py" line="-3959"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -3750,7 +3786,7 @@ Command-line usage:
         <translation type="unfinished">分数分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+677"/>
+        <location line="+673"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -3810,7 +3846,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="+1172"/>
+        <location filename="../../EMAPSSN_Viewer.py" line="+1119"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -3876,7 +3912,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+267"/>
+        <location line="+269"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -3891,7 +3927,7 @@ Command-line usage:
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+66"/>
         <source>This Viewer instance&apos;s web server is unavailable: {error}</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
@@ -4485,7 +4521,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已在 {url} 打开{page}</translation>
     </message>
     <message>
-        <location filename="../../web_ui/esmfold_backend.py" line="+84"/>
+        <location filename="../../web_ui/esmfold_backend.py" line="+85"/>
         <source>ESMFold Mol* UI</source>
         <translation type="unfinished">ESMFold Mol* 界面</translation>
     </message>
@@ -5616,34 +5652,30 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">EMAP-SSN 元数据</translation>
     </message>
     <message>
-        <location line="+377"/>
         <source>📊 EMAP-SSN Metadata Spreadsheet</source>
-        <translation type="unfinished">📊 EMAP-SSN 元数据电子表格</translation>
+        <translation type="obsolete">📊 EMAP-SSN 元数据电子表格</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>+ Import</source>
-        <translation type="unfinished">+ 导入</translation>
+        <translation type="obsolete">+ 导入</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+642"/>
         <source>Export Spreadsheet (CSV / Excel)</source>
         <translation type="unfinished">导出电子表格（CSV / Excel）</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>📤 Export</source>
-        <translation type="unfinished">📤 导出</translation>
+        <translation type="obsolete">📤 导出</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Undo (Ctrl+Z)</source>
         <translation type="unfinished">撤销（Ctrl+Z）</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>↶ Undo</source>
-        <translation type="unfinished">↶ 撤销</translation>
+        <translation type="obsolete">↶ 撤销</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -5651,22 +5683,20 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">重做（Ctrl+Y）</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>↷ Redo</source>
-        <translation type="unfinished">↷ 重做</translation>
+        <translation type="obsolete">↷ 重做</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Help ?</source>
-        <translation type="unfinished">帮助 ?</translation>
+        <translation type="obsolete">帮助 ?</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+3"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+38"/>
         <source>NUM</source>
         <translation type="unfinished">数值</translation>
     </message>
@@ -5676,7 +5706,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">文本</translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+55"/>
         <location line="+1"/>
         <source>Delete metadata column {column}</source>
         <translation type="unfinished">删除元数据列 {column}</translation>
@@ -5697,12 +5727,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已连接</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+5"/>
         <source>Reconnecting...</source>
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+54"/>
         <source>Metadata operation failed.</source>
         <translation type="unfinished">元数据操作失败。</translation>
     </message>
@@ -5712,12 +5742,51 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">未加载网络数据</translation>
     </message>
     <message>
-        <location line="+258"/>
         <source>🔍 Search Filter Rules</source>
-        <translation type="unfinished">🔍 搜索过滤规则</translation>
+        <translation type="obsolete">🔍 搜索过滤规则</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-368"/>
+        <source>EMAP-SSN Metadata Spreadsheet</source>
+        <translation type="unfinished">EMAP-SSN 元数据电子表格</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Import</source>
+        <translation type="unfinished">导入</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Export</source>
+        <translation type="unfinished">导出</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Undo</source>
+        <translation type="unfinished">撤销</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Redo</source>
+        <translation type="unfinished">重做</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Help</source>
+        <translation type="unfinished">帮助</translation>
+    </message>
+    <message>
+        <location line="+618"/>
+        <source>Search Filter Rules</source>
+        <translation type="unfinished">搜索过滤规则</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Close</source>
+        <translation type="unfinished">关闭</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Text / Sequence Header Columns:</source>
         <translation type="unfinished">文本列/序列标题列：</translation>
     </message>
@@ -5798,11 +5867,15 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+8"/>
-        <source>🖱️ Interaction Rules</source>
-        <translation type="unfinished">🖱️ 交互规则</translation>
+        <source>Interaction Rules</source>
+        <translation type="unfinished">交互规则</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <source>🖱️ Interaction Rules</source>
+        <translation type="obsolete">🖱️ 交互规则</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <source>&lt;strong&gt;Network Selection Filtering:&lt;/strong&gt; Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</source>
         <translation type="unfinished">&lt;strong&gt;按网络选区过滤：&lt;/strong&gt;在网络查看器中选择一组节点（例如使用选择工具）时，电子表格会自动过滤，只显示这些节点的数据。</translation>
     </message>
@@ -5820,7 +5893,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ToggleSwitch</name>
     <message>
-        <location filename="../../desktop/Desktop_App.py" line="-344"/>
+        <location filename="../../desktop/Desktop_App.py" line="-352"/>
         <source>ON</source>
         <translation type="unfinished">开</translation>
     </message>
@@ -5833,7 +5906,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1231"/>
+        <location line="-1227"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
@@ -5853,7 +5926,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">自动 32 位</translation>
     </message>
     <message>
-        <location line="+121"/>
+        <location line="+106"/>
         <source>Sequence &amp;&amp; Embedding Preparation</source>
         <translation type="unfinished">序列与嵌入准备</translation>
     </message>
@@ -5878,77 +5951,63 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">嵌入 MSA</translation>
     </message>
     <message>
-        <location line="+6"/>
         <source>🧬 Embedding Multiple Sequence Alignment</source>
-        <translation type="unfinished">🧬 嵌入多序列比对</translation>
+        <translation type="obsolete">🧬 嵌入多序列比对</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>📉 Sparse MSA Converter</source>
-        <translation type="unfinished">📉 稀疏 MSA 转换器</translation>
+        <translation type="obsolete">📉 稀疏 MSA 转换器</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>🧬 Embedding Injection</source>
-        <translation type="unfinished">🧬 嵌入注入</translation>
+        <translation type="obsolete">🧬 嵌入注入</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>📤 Embedding Extraction</source>
-        <translation type="unfinished">📤 嵌入提取</translation>
+        <translation type="obsolete">📤 嵌入提取</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>🧬 Network Injection</source>
-        <translation type="unfinished">🧬 网络注入</translation>
+        <translation type="obsolete">🧬 网络注入</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>📤 Network Extraction</source>
-        <translation type="unfinished">📤 网络提取</translation>
+        <translation type="obsolete">📤 网络提取</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>🧬 Pairwise Embedding Alignment</source>
-        <translation type="unfinished">🧬 双序列嵌入比对</translation>
+        <translation type="obsolete">🧬 双序列嵌入比对</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>🔍 Embedding Database Search</source>
-        <translation type="unfinished">🔍 嵌入数据库搜索</translation>
+        <translation type="obsolete">🔍 嵌入数据库搜索</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>🧬 Dynamic Programming Embedding Alignment</source>
-        <translation type="unfinished">🧬 动态规划嵌入比对</translation>
+        <translation type="obsolete">🧬 动态规划嵌入比对</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>🧬 Substitution Matrix Alignment</source>
-        <translation type="unfinished">🧬 替换矩阵比对</translation>
+        <translation type="obsolete">🧬 替换矩阵比对</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>🔍 Parse BLAST Output</source>
-        <translation type="unfinished">🔍 解析 BLAST 输出</translation>
+        <translation type="obsolete">🔍 解析 BLAST 输出</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>🧼 Sanitize Sequences</source>
-        <translation type="unfinished">🧼 清理序列</translation>
+        <translation type="obsolete">🧼 清理序列</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>🧬 Generate Embeddings</source>
-        <translation type="unfinished">🧬 生成嵌入</translation>
+        <translation type="obsolete">🧬 生成嵌入</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>✂️ Embedding Cropping</source>
-        <translation type="unfinished">✂️ 嵌入裁剪</translation>
+        <translation type="obsolete">✂️ 嵌入裁剪</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+67"/>
         <source>global</source>
         <comment>alignment mode</comment>
         <translation type="unfinished">全局</translation>
@@ -6058,14 +6117,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+900"/>
+        <location line="+1056"/>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
 展示平均嵌入余弦距离与网络分数之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="-768"/>
+        <location line="-914"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -6085,7 +6144,7 @@ Visualizes the isotonic regression fit between mean embedding cosine distances a
         <translation type="unfinished">查看许可</translation>
     </message>
     <message>
-        <location line="+146"/>
+        <location line="+125"/>
         <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
@@ -6132,7 +6191,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+273"/>
+        <location line="+330"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
@@ -6157,12 +6216,12 @@ Fedora / RHEL：
         <translation type="unfinished">主机缓存大小（GiB）</translation>
     </message>
     <message>
-        <location line="+132"/>
+        <location line="+131"/>
         <source>Unavailable saved file [{file}]</source>
         <translation type="unfinished">不可用的已保存文件 [{file}]</translation>
     </message>
     <message>
-        <location line="+152"/>
+        <location line="+263"/>
         <source>Sequence Set (.fasta): The raw FASTA sequence database to clean.
 Uppercases residues, trims terminal non-residues, masks invalid characters with &apos;X&apos;, and deduplicates headers.</source>
         <translation type="unfinished">序列集（.fasta）：要清理的原始 FASTA 序列库。
@@ -6892,12 +6951,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1214"/>
+        <location line="+1218"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1209"/>
+        <location line="-1213"/>
         <location line="+265"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
@@ -7259,7 +7318,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">生成 FASTA 文件：</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+38"/>
         <source>Hover or focus on an input to see its description.</source>
         <translation type="unfinished">将鼠标悬停在某个输入项上或使其获得焦点，即可查看其说明。</translation>
     </message>
@@ -7269,12 +7328,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">退出</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+29"/>
         <source>Script Description</source>
         <translation type="unfinished">脚本说明</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+49"/>
         <source>Tools Settings Not Loaded</source>
         <translation type="unfinished">未加载工具设置</translation>
     </message>
@@ -7288,18 +7347,16 @@ The window shows the default values, and the file was left unchanged. Saving dir
 窗口显示的是默认值，该文件保持不变。在您修正该文件，或删除它以从默认设置重新开始之前，无法保存目录或运行工具。</translation>
     </message>
     <message>
-        <location line="+36"/>
-        <location line="+181"/>
         <source>📂 Global Directory Settings</source>
-        <translation type="unfinished">📂 全局目录设置</translation>
+        <translation type="obsolete">📂 全局目录设置</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="+36"/>
         <source>Save Directories</source>
         <translation type="unfinished">保存目录</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+36"/>
         <source>Directory containing unaligned FASTA sequence files (.fasta) for sequence sets and subsets.</source>
         <translation type="unfinished">存放序列集和子集的未比对 FASTA 序列文件（.fasta）的目录。</translation>
     </message>
@@ -7359,26 +7416,26 @@ The window shows the default values, and the file was left unchanged. Saving dir
         <translation type="unfinished">设置导出目录：</translation>
     </message>
     <message>
-        <location line="+12"/>
-        <location line="+521"/>
-        <location line="+1100"/>
+        <location line="+10"/>
+        <location line="+527"/>
+        <location line="+1070"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1619"/>
-        <location line="+636"/>
+        <location line="-1594"/>
+        <location line="+642"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
     </message>
     <message>
-        <location line="-613"/>
-        <location line="+617"/>
+        <location line="-619"/>
+        <location line="+623"/>
         <source>Select Directory</source>
         <translation type="unfinished">选择目录</translation>
     </message>
     <message>
-        <location line="-589"/>
+        <location line="-595"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
@@ -7399,14 +7456,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1573"/>
+        <location line="+1550"/>
         <location line="+426"/>
         <location line="+30"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2041"/>
+        <location line="-2018"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -7414,12 +7471,12 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2031"/>
+        <location line="+2008"/>
         <source>Success</source>
         <translation type="unfinished">成功</translation>
     </message>
     <message>
-        <location line="-2030"/>
+        <location line="-2007"/>
         <source>Global directories saved to JSON successfully.</source>
         <translation type="unfinished">全局目录已保存到 JSON。</translation>
     </message>
@@ -7429,22 +7486,20 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">找不到目录“{folder}”。</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+22"/>
         <source>Define paths to folders used globally across the SSN tool scripts. These configurations are automatically saved, validated, and loaded at runtime by all scripts.</source>
         <translation type="unfinished">定义所有 SSN 工具脚本共用的文件夹路径。这些配置会自动保存和验证，并在所有脚本运行时加载。</translation>
     </message>
     <message>
-        <location line="+43"/>
         <source>📄 Internal Documentation</source>
-        <translation type="unfinished">📄 内部文档</translation>
+        <translation type="obsolete">📄 内部文档</translation>
     </message>
     <message>
-        <location line="+6"/>
         <source>⚠️ Documentation Missing</source>
-        <translation type="unfinished">⚠️ 缺少文档</translation>
+        <translation type="obsolete">⚠️ 缺少文档</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+56"/>
         <source>No documentation file found for this tab.</source>
         <translation type="unfinished">未找到此选项卡的文档文件。</translation>
     </message>
@@ -7484,12 +7539,12 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+180"/>
         <source>Setting: {name}</source>
         <translation type="unfinished">设置：{name}</translation>
     </message>
     <message>
-        <location line="+106"/>
+        <location line="+105"/>
         <location line="+7"/>
         <source>Remote API — local device not applicable</source>
         <translation type="unfinished">远程 API——不适用本地设备</translation>
@@ -7505,7 +7560,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">无法确定网络类型：{error}</translation>
     </message>
     <message>
-        <location line="+380"/>
+        <location line="+372"/>
         <source>Save &amp;&amp; Run</source>
         <translation type="unfinished">保存并运行</translation>
     </message>
@@ -7515,7 +7570,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">将当前工具设置保存到共享设置文件，并运行此工具。</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+9"/>
         <source>Export</source>
         <translation type="unfinished">导出</translation>
     </message>
@@ -7530,23 +7585,22 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">将此工具的当前设置连同目录导出为“设置导出目录”中的独立 JSON 文件，并显示据此运行该工具的命令。共享设置文件不会改变，工具也不会运行。</translation>
     </message>
     <message>
-        <location line="+284"/>
         <source>⏱️ Benchmark</source>
-        <translation type="unfinished">⏱️ 基准测试</translation>
+        <translation type="obsolete">⏱️ 基准测试</translation>
     </message>
     <message>
-        <location line="+4"/>
-        <location line="+59"/>
+        <location line="+271"/>
+        <location line="+57"/>
         <source>Run Benchmark</source>
         <translation type="unfinished">运行基准测试</translation>
     </message>
     <message>
-        <location line="-57"/>
+        <location line="-55"/>
         <source>Time EMAP-SSN&apos;s heavy calculations on the bundled sequence set and write a report. It asks before it starts.</source>
         <translation type="unfinished">在内置序列集上为 EMAP-SSN 的耗时计算计时，并写出报告。开始前会先询问。</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+37"/>
         <source>Report Folder:</source>
         <translation type="unfinished">报告文件夹：</translation>
     </message>
@@ -7740,7 +7794,99 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="-4419"/>
+        <source>Embedding Multiple Sequence Alignment</source>
+        <translation type="unfinished">嵌入多序列比对</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sparse MSA Converter</source>
+        <translation type="unfinished">稀疏 MSA 转换器</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Embedding Injection</source>
+        <translation type="unfinished">嵌入注入</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Embedding Extraction</source>
+        <translation type="unfinished">嵌入提取</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Network Injection</source>
+        <translation type="unfinished">网络注入</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Network Extraction</source>
+        <translation type="unfinished">网络提取</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Pairwise Embedding Alignment</source>
+        <translation type="unfinished">双序列嵌入比对</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Embedding Database Search</source>
+        <translation type="unfinished">嵌入数据库搜索</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Dynamic Programming Embedding Alignment</source>
+        <translation type="unfinished">动态规划嵌入比对</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Substitution Matrix Alignment</source>
+        <translation type="unfinished">替换矩阵比对</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Parse BLAST Output</source>
+        <translation type="unfinished">解析 BLAST 输出</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sanitize Sequences</source>
+        <translation type="unfinished">清理序列</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Generate Embeddings</source>
+        <translation type="unfinished">生成嵌入</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Embedding Cropping</source>
+        <translation type="unfinished">嵌入裁剪</translation>
+    </message>
+    <message>
+        <location line="+2243"/>
+        <location line="+176"/>
+        <source>Global Directory Settings</source>
+        <translation type="unfinished">全局目录设置</translation>
+    </message>
+    <message>
+        <location line="+32"/>
+        <location line="+1416"/>
+        <source>Benchmark</source>
+        <translation type="unfinished">基准测试</translation>
+    </message>
+    <message>
+        <location line="-1401"/>
+        <source>Internal Documentation</source>
+        <translation type="unfinished">内部文档</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Documentation Missing</source>
+        <translation type="unfinished">缺少文档</translation>
+    </message>
+    <message>
+        <location line="+1951"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>
@@ -7821,12 +7967,12 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../EMAPSSN_Viewer.py" line="-2264"/>
+        <location filename="../../EMAPSSN_Viewer.py" line="-2236"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
     <message>
-        <location line="+1210"/>
+        <location line="+1178"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
@@ -7841,9 +7987,13 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
     <message>
-        <location filename="../../web_ui/agent_backend.py" line="+86"/>
         <source>🤖 Agent</source>
-        <translation type="unfinished">🤖 智能体</translation>
+        <translation type="obsolete">🤖 智能体</translation>
+    </message>
+    <message>
+        <location filename="../../web_ui/agent_backend.py" line="+86"/>
+        <source>Agent</source>
+        <translation type="unfinished">智能体</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -7856,9 +8006,13 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">浏览器页面已打开</translation>
     </message>
     <message>
-        <location filename="../../web_ui/esmfold_backend.py" line="-17"/>
         <source>🧬 Fold View</source>
-        <translation type="unfinished">🧬 结构视图</translation>
+        <translation type="obsolete">🧬 结构视图</translation>
+    </message>
+    <message>
+        <location filename="../../web_ui/esmfold_backend.py" line="-18"/>
+        <source>Fold View</source>
+        <translation type="unfinished">结构视图</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -7892,8 +8046,12 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <location line="+115"/>
+        <source>Meta Data</source>
+        <translation type="unfinished">元数据</translation>
+    </message>
+    <message>
         <source>📊 Meta Data</source>
-        <translation type="unfinished">📊 元数据</translation>
+        <translation type="obsolete">📊 元数据</translation>
     </message>
     <message>
         <location line="+2"/>

@@ -1,10 +1,11 @@
 """Viewer web server (src/web_ui/Web_Server.py).
 
-Covers the Content-Security-Policy sent with HTML pages, port selection and
-the server lifecycle, plugin static routes (including that no request path
-reaches a file outside a route's directory) and named server-sent event
-clients. tests/test_agent_composer.py checks that the policy is enforced in
-Qt WebEngine; the same-origin guard is tested in tests/test_viewer_web_origin.py.
+Covers the Content-Security-Policy sent with HTML pages, the bundled pages'
+icons, port selection and the server lifecycle, plugin static routes
+(including that no request path reaches a file outside a route's directory)
+and named server-sent event clients. tests/test_agent_composer.py checks that
+the policy is enforced in Qt WebEngine and that the Agent page draws its
+icons; the same-origin guard is tested in tests/test_viewer_web_origin.py.
 """
 import base64
 import hashlib
@@ -12,6 +13,7 @@ import http.client
 import os
 from pathlib import Path
 from queue import Queue
+import re
 import socket
 import sys
 import tempfile
@@ -20,6 +22,7 @@ from types import SimpleNamespace
 import unittest
 from unittest import mock
 import urllib.request
+import xml.etree.ElementTree as ElementTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from web_ui import Web_Server
@@ -89,6 +92,59 @@ class PagePolicyTests(unittest.TestCase):
         esmfold = directives(content_security_policy('esmfold.html', b''))
         self.assertIn("'unsafe-eval'", esmfold['script-src'])
         self.assertEqual(esmfold['connect-src'], ["'self'", 'https:', 'data:'])
+
+
+class BundledPageIconTests(unittest.TestCase):
+    """The pages draw Lucide icons from a hidden sprite of their own, not emojis.
+
+    Each page holds an <svg> of <symbol id="i-NAME">s, and an icon is
+    <svg class="icon"><use href="#i-NAME"/></svg>, written in the markup or
+    made by the page's icon(NAME); setIcon(svg, NAME) shows another.
+    """
+
+    SYMBOL = re.compile(r'<symbol id="i-([a-z0-9-]+)" viewBox="0 0 24 24"([^>]*)>(.*?)</symbol>', re.DOTALL)
+    NAMED = (
+        re.compile(r'href="#i-([a-z0-9-]+)"'),
+        re.compile(r'''\bicon\(["']([a-z0-9-]+)["']\)'''),
+        re.compile(r'''\bsetIcon\(\w+, (?:[^;]*?\? )?["']([a-z0-9-]+)["'](?: : ["']([a-z0-9-]+)["'])?\)'''),
+    )
+    # The scripts a page loads that draw its icons too.
+    PAGE_SCRIPTS = {'agent.html': (SRC_DIR / 'resources' / 'agent' / 'attachments.js',)}
+    LUCIDE = SRC_DIR / 'resources' / 'icons' / 'lucide'
+    SVG = '{http://www.w3.org/2000/svg}'
+
+    def lucide(self, name):
+        """The bundled icon's root presentation attributes and its shapes, as (tag, attributes)."""
+        root = ElementTree.parse(self.LUCIDE / f'{name}.svg').getroot()
+        presentation = {key: value for key, value in root.attrib.items() if key in (
+            'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin')}
+        return presentation, [(shape.tag.replace(self.SVG, ''), shape.attrib) for shape in root]
+
+    def test_each_icon_is_a_bundled_lucide_icon_in_the_pages_sprite(self):
+        for page in ('agent.html', 'meta.html'):
+            with self.subTest(page=page):
+                source = (PAGES / page).read_text(encoding='utf-8')
+                self.assertIn('Icons from Lucide 1.47.0, ISC licence', source)
+                symbols = {}
+                for name, attributes, shapes in self.SYMBOL.findall(source):
+                    symbol = ElementTree.fromstring(f'<symbol{attributes}>{shapes}</symbol>')
+                    symbols[name] = (dict(symbol.attrib), [(shape.tag, shape.attrib) for shape in symbol])
+                self.assertTrue(symbols)
+                for name, symbol in symbols.items():
+                    self.assertEqual(symbol, self.lucide(name), name)
+                code = source + ''.join(script.read_text(encoding='utf-8')
+                                        for script in self.PAGE_SCRIPTS.get(page, ()))
+                named = {name for pattern in self.NAMED for match in pattern.findall(code)
+                         for name in ((match,) if isinstance(match, str) else match) if name}
+                self.assertTrue(named)
+                self.assertEqual(sorted(named - set(symbols)), [])
+                self.assertEqual(sorted(set(symbols) - named), [], 'a symbol nothing draws')
+
+    def test_no_page_shows_an_emoji_as_an_icon(self):
+        for page in ('agent.html', 'meta.html', 'esmfold.html'):
+            with self.subTest(page=page):
+                source = (PAGES / page).read_text(encoding='utf-8')
+                self.assertEqual([glyph for glyph in '🤖🌙☀⚙✕💾✓☰⏳📊📤🔍🖱' if glyph in source], [])
 
 
 class PagePolicyOverHTTPTests(unittest.TestCase):
