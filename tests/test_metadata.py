@@ -520,6 +520,176 @@ class MetadataUploadTests(unittest.TestCase):
         self.assertNotIn("Windows-1252", output)
 
 
+class MetadataNaWordsTests(unittest.TestCase):
+    """Words pandas would read as missing stay text in a text column.
+
+    "NA", "N/A", "None", "null" and "NaN" can be real values there (NA for
+    North America or Namibia). A number column still reads them as missing,
+    and an empty cell is blank in both.
+    """
+
+    WORDS = ["NA", "N/A", "None", "null", "NaN"]
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.folder = folder.name
+        self.viewer = self.make_viewer()
+
+    @staticmethod
+    def make_viewer():
+        viewer = make_viewer()
+        viewer.n_nodes = 8
+        viewer.full_headers = [f"n{i}" for i in range(1, 9)]
+        viewer.visible_mask = np.ones(8, dtype=bool)
+        viewer._save_state = mock.Mock()
+        viewer.metadata = {}
+        return viewer
+
+    def sheet_rows(self, last_region="Peru"):
+        """Header and type rows, then n1-n5 holding each word in every column,
+        n6 empty, n7 whitespace only, and n8 ordinary values. The third
+        column's property is literally named NA."""
+        rows = [["", "Region", "Score", "NA"], ["", "text", "number", "text"]]
+        rows += [[f"n{index}", word, word, word] for index, word in enumerate(self.WORDS, 1)]
+        rows.append(["n6", "", "", ""])
+        rows.append(["n7", "  ", "  ", "  "])
+        rows.append(["n8", last_region, "4.5", "x"])
+        return rows
+
+    def upload(self, viewer, *paths):
+        with mock.patch.object(meta_backend.Command_Engine, "command_failed"), \
+                mock.patch.object(meta_backend.Command_Engine, "command_succeeded"), \
+                contextlib.redirect_stdout(io.StringIO()) as output:
+            meta_backend.upload_metadata(viewer, list(paths))
+        return output.getvalue()
+
+    def assert_words_kept_in_text_and_missing_in_numbers(self, viewer, last_region="Peru"):
+        self.assertEqual(list(viewer.metadata), ["Region", "Score", "NA"])
+        self.assertEqual(
+            [entry["type"] for entry in viewer.metadata.values()], ["text", "number", "text"]
+        )
+        # Text: each word exactly as written; an empty or whitespace-only
+        # cell is the empty string.
+        self.assertEqual(
+            list(viewer.metadata["Region"]["values"]), self.WORDS + ["", "", last_region]
+        )
+        self.assertEqual(list(viewer.metadata["NA"]["values"]), self.WORDS + ["", "", "x"])
+        # Number: the words and the empty cells are all missing.
+        score = viewer.metadata["Score"]["values"]
+        self.assertTrue(np.isnan(score[:7]).all())
+        self.assertEqual(score[7], 4.5)
+
+    def test_a_csv_keeps_the_words_in_text_columns_and_blanks_number_columns(self):
+        path = write_metadata_csv(self.folder, "words.csv", self.sheet_rows())
+
+        self.upload(self.viewer, path)
+
+        self.assert_words_kept_in_text_and_missing_in_numbers(self.viewer)
+
+    def test_a_windows_code_page_csv_keeps_the_words_too(self):
+        path = write_metadata_csv(
+            self.folder, "words_cp1252.csv", self.sheet_rows(last_region="Café"),
+            encoding="cp1252",
+        )
+        with self.assertRaises(UnicodeDecodeError):
+            Path(path).read_text(encoding="utf-8")
+
+        output = self.upload(self.viewer, path)
+
+        self.assertIn("Windows-1252", output)
+        self.assert_words_kept_in_text_and_missing_in_numbers(self.viewer, last_region="Café")
+
+    def test_an_xlsx_keeps_the_words_in_text_columns_and_blanks_number_columns(self):
+        import openpyxl
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        for row in self.sheet_rows():
+            sheet.append([None if cell == "" else cell for cell in row])
+        # Written as a number cell, as Excel stores 4.5, not as text.
+        sheet["C10"] = 4.5
+        path = os.path.join(self.folder, "words.xlsx")
+        workbook.save(path)
+
+        self.upload(self.viewer, path)
+
+        self.assert_words_kept_in_text_and_missing_in_numbers(self.viewer)
+
+    def test_an_excel_error_cell_is_still_blank(self):
+        import openpyxl
+
+        workbook = openpyxl.Workbook()
+        sheet = workbook.active
+        sheet.append(["", "Region", "Score"])
+        sheet.append(["", "text", "number"])
+        # A formula error such as #N/A is not a word the user typed.
+        sheet.append(["n1", "#N/A", "#N/A"])
+        sheet.append(["n2", "ok", 2])
+        path = os.path.join(self.folder, "errors.xlsx")
+        workbook.save(path)
+
+        self.upload(self.viewer, path)
+
+        self.assertEqual(list(self.viewer.metadata["Region"]["values"][:2]), ["", "ok"])
+        self.assertTrue(np.isnan(self.viewer.metadata["Score"]["values"][0]))
+        self.assertEqual(self.viewer.metadata["Score"]["values"][1], 2.0)
+
+    def test_a_number_column_that_gets_a_word_keeps_its_earlier_value(self):
+        first = write_metadata_csv(
+            self.folder, "first.csv", [["", "Score"], ["", "number"], ["n1", "3"]]
+        )
+        second = write_metadata_csv(
+            self.folder, "second.csv",
+            [["", "Score"], ["", "number"], ["n1", "NA"], ["n2", "None"], ["n3", "nan"]],
+        )
+
+        self.upload(self.viewer, first)
+        self.upload(self.viewer, second)
+
+        score = self.viewer.metadata["Score"]["values"]
+        self.assertEqual(score[0], 3.0)
+        self.assertTrue(np.isnan(score[1:3]).all())
+
+    def test_a_sequence_header_of_na_matches_its_node_and_an_empty_one_does_not(self):
+        self.viewer.full_headers[0] = "NA"
+        path = write_metadata_csv(
+            self.folder, "header.csv",
+            [["", "Region"], ["", "text"], ["NA", "x"], ["", "y"], ["  ", "z"]],
+        )
+
+        output = self.upload(self.viewer, path)
+
+        self.assertEqual(self.viewer.metadata["Region"]["values"][0], "x")
+        self.assertEqual(list(self.viewer.metadata["Region"]["values"][1:]), [""] * 7)
+        self.assertIn("Matched 1 unique node. Ignored 2 rows.", " ".join(output.split()))
+
+    def test_the_words_reach_the_web_table_and_blanks_are_empty(self):
+        self.upload(self.viewer, write_metadata_csv(self.folder, "words.csv", self.sheet_rows()))
+
+        rows = self.viewer.get_serializable_metadata()
+
+        self.assertEqual([row["Region"] for row in rows[:5]], self.WORDS)
+        self.assertEqual([row["NA"] for row in rows[:5]], self.WORDS)
+        self.assertEqual(rows[5]["Region"], "")
+        self.assertEqual(rows[5]["Score"], "")
+        self.assertEqual(rows[0]["Score"], "")
+        self.assertEqual(rows[7]["Score"], 4.5)
+
+    def test_a_download_and_upload_round_trip_keeps_the_words(self):
+        self.upload(self.viewer, write_metadata_csv(self.folder, "words.csv", self.sheet_rows()))
+        target = os.path.join(self.folder, "exported.csv")
+        with mock.patch.object(meta_backend.Command_Engine, "print_help"), \
+                mock.patch.object(meta_backend.Command_Engine, "command_artifact"), \
+                mock.patch.object(meta_backend.Command_Engine, "command_succeeded"):
+            self.assertTrue(meta_backend.download_metadata(self.viewer, target))
+        fresh = self.make_viewer()
+
+        self.upload(fresh, target)
+
+        self.assert_words_kept_in_text_and_missing_in_numbers(fresh)
+
+
 class MetadataDownloadFailureTests(unittest.TestCase):
     def test_a_failed_export_keeps_the_earlier_file_and_leaves_no_partial_one(self):
         for name in ("metadata.xlsx", "metadata.csv"):

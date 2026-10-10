@@ -552,13 +552,12 @@ def calculate_logo_matrix(
             entropy = -np.sum(
                 probabilities[positive] * np.log2(probabilities[positive])
             )
-            # Preserve the historical calculation when reweighting is off.
-            # With reweighting enabled, use the effective non-gap observations
-            # available at this specific alignment column.
-            correction_count = (
-                valid_weight if identity_threshold is not None else raw_sequence_count
-            )
-            correction = 19.0 / (2.0 * np.log(2) * correction_count)
+            # The small-sample correction counts the observations at this
+            # column, as WebLogo's n does: the sequences with a residue here,
+            # or with reweighting their summed weight. Gaps are not counted,
+            # with or without reweighting. (with_gap scaling by occupancy is a
+            # separate step, below.)
+            correction = 19.0 / (2.0 * np.log(2) * valid_weight)
             information = max(0.0, np.log2(20) - (entropy + correction))
             heights = probabilities * information
 
@@ -946,6 +945,9 @@ def print_help():
                        and is never used as a filename. Strings of an expression are
                        joined with spaces, as in '#c1# & #c2#'.)
       4. MODE        : 'bits' (Default, Information Content) or 'pcts' (Percentages).
+                       Bits mode subtracts a small-sample correction computed from the
+                       number of sequences with a residue at the position (gaps are
+                       not counted), or with IDENTITY from their summed weight.
       5. GAP_MODE    : 'with_gap' (Default, scales total height by occupancy) or 'no_gap'.
       6. COLOR_SCHEME: Preset color scheme name. (Default: chemistry)
                        Can be provided standalone or as key-value (e.g. color=classic).

@@ -207,20 +207,68 @@ class LogoMatrixTests(unittest.TestCase):
         self.assertAlmostEqual(float(with_gap.sum()), 0.5)
         self.assertAlmostEqual(float(no_gap.sum()), 1.0)
 
-    def test_bits_correct_for_every_selected_sequence(self):
+    def test_bits_correct_for_the_non_gap_count(self):
         # log2(20) minus the small-sample correction 19 / (2 ln 2 N), N = 4.
         expected_bits = np.log2(20) - 19.0 / (8.0 * np.log(2))
         self.assertAlmostEqual(expected_bits, 0.8955, places=4)
 
         conserved, _ = calculate_logo_matrix(["A"] * 4, [0], mode="bits", gap_mode="no_gap")
-        half_gapped, _ = calculate_logo_matrix(
-            ["A", "A", "-", "-"], [0], mode="bits", gap_mode="with_gap"
-        )
-
         self.assertAlmostEqual(conserved[0, self.A_INDEX], expected_bits)
-        # Gap rows still count in N; with_gap scales by 50% occupancy.
-        self.assertAlmostEqual(half_gapped[0, self.A_INDEX], expected_bits * 0.5)
-        self.assertAlmostEqual(half_gapped[0, self.A_INDEX], 0.4478, places=4)
+
+        # Two residues and two gaps: N is 2, not 4. The correction
+        # 19 / (2 ln 2 * 2) = 6.85 exceeds log2(20) = 4.32, so the column
+        # carries no information in either gap mode (it used to read 0.4478
+        # with_gap, which counted the two gaps).
+        for gap_mode in ("with_gap", "no_gap"):
+            with self.subTest(gap_mode=gap_mode):
+                half_gapped, _ = calculate_logo_matrix(
+                    ["A", "A", "-", "-"], [0], mode="bits", gap_mode=gap_mode
+                )
+                self.assertEqual(float(half_gapped[0, self.A_INDEX]), 0.0)
+
+    def test_gapped_column_is_corrected_for_its_non_gap_count(self):
+        # Sixteen A and four gaps: N = 16.
+        #   correction = 19 / (2 * 0.693147 * 16) = 0.8566
+        #   bits       = 4.321928 - 0 - 0.8566    = 3.4653
+        # Counting the gaps (N = 20) would give 4.321928 - 0.6853 = 3.6366.
+        sequences = ["A"] * 16 + ["-"] * 4
+
+        no_gap, _ = calculate_logo_matrix(sequences, [0], mode="bits", gap_mode="no_gap")
+        with_gap, _ = calculate_logo_matrix(sequences, [0], mode="bits", gap_mode="with_gap")
+
+        self.assertAlmostEqual(no_gap[0, self.A_INDEX], 3.4653, places=4)
+        # with_gap then scales by the 16/20 occupancy, a separate step.
+        self.assertAlmostEqual(with_gap[0, self.A_INDEX], 3.4653 * 0.8, places=4)
+        self.assertAlmostEqual(with_gap[0, self.A_INDEX], 2.7723, places=4)
+
+    def test_mixed_gapped_column_uses_the_non_gap_count(self):
+        # Twelve A, four G, four gaps: N = 16, p = 0.75 / 0.25.
+        #   entropy = 0.811278, correction = 0.856600
+        #   information = 4.321928 - 0.811278 - 0.856600 = 2.654050
+        #   A = 0.75 * 2.654050 = 1.9905, G = 0.25 * 2.654050 = 0.6635
+        sequences = ["A"] * 12 + ["G"] * 4 + ["-"] * 4
+
+        heights, _ = calculate_logo_matrix(sequences, [0], mode="bits", gap_mode="no_gap")
+
+        self.assertAlmostEqual(heights[0, self.A_INDEX], 1.9905, places=4)
+        self.assertAlmostEqual(heights[0, "ACDEFGHIKLMNPQRSTVWY".index("G")], 0.6635, places=4)
+
+    def test_correction_counts_only_standard_residues_on_every_code_path(self):
+        # The ASCII fast path, a column past the shortest sequence, and a
+        # non-ASCII sequence (which forces the per-sequence loop) all give
+        # the hand-computed N = 16 value.
+        paths = {
+            "ascii": ["A"] * 16 + ["-"] * 2 + ["X"] * 2,
+            "short_rows": ["AAAA"] * 16 + ["AA"] * 4,
+            "non_ascii": ["A"] * 16 + ["-"] * 3 + ["\u00e9"],
+        }
+        for name, sequences in paths.items():
+            with self.subTest(path=name):
+                column = 3 if name == "short_rows" else 0
+                heights, _ = calculate_logo_matrix(
+                    sequences, [column], mode="bits", gap_mode="no_gap"
+                )
+                self.assertAlmostEqual(heights[0, self.A_INDEX], 3.4653, places=4)
 
 
 class LogoSequenceWeightingTests(unittest.TestCase):
@@ -277,6 +325,60 @@ class LogoSequenceWeightingTests(unittest.TestCase):
         self.assertAlmostEqual(float(weights.sum()), 1.0)
         self.assertAlmostEqual(weighted[0, a_index], 0.0)
         self.assertGreater(unweighted[0, a_index], 4.0)
+
+    def test_bits_match_with_and_without_identity_when_no_sequence_repeats(self):
+        # Twenty-five distinct sequences. Column 0 holds 13 A, 4 G, 3 L and
+        # five gaps, so it is gapped; columns 1 and 2 are fully occupied and
+        # make every sequence unique (their pair of letters never repeats).
+        aa = "ACDEFGHIKLMNPQRSTVWY"
+        first = list("A" * 13 + "G" * 4 + "L" * 3 + "-" * 5)
+        sequences = [first[i] + aa[i // 5] + aa[i % 5] for i in range(25)]
+        self.assertEqual(len(set(sequences)), 25)
+
+        # The gapped column is corrected for its 20 residues, not 25 rows:
+        # p = 13/20, 4/20, 3/20 and N = 20, in both modes. with_gap then
+        # scales by the 20/25 occupancy.
+        probabilities = np.array([13, 4, 3]) / 20.0
+        entropy = -np.sum(probabilities * np.log2(probabilities))
+        information = np.log2(20) - entropy - 19.0 / (2.0 * np.log(2) * 20)
+        expected_a = 13 / 20.0 * information
+        a_index = "ACDEFGHIKLMNPQRSTVWY".index("A")
+
+        for gap_mode, scale in (("with_gap", 20 / 25.0), ("no_gap", 1.0)):
+            with self.subTest(gap_mode=gap_mode):
+                plain, _ = calculate_logo_matrix(
+                    sequences, [0, 1, 2], mode="bits", gap_mode=gap_mode
+                )
+                weighted, weights = calculate_logo_matrix(
+                    sequences, [0, 1, 2], mode="bits", gap_mode=gap_mode,
+                    identity_threshold=1.0,
+                )
+                # Identity 100% merges only identical sequences: all weights 1.
+                np.testing.assert_allclose(weights, np.ones(25))
+                np.testing.assert_allclose(weighted, plain)
+                self.assertAlmostEqual(float(plain[0, a_index]), expected_a * scale)
+
+    def test_identity_correction_counts_the_summed_weight_of_non_gap_sequences(self):
+        # Twenty distinct sequences with A at column 0, five copies of one
+        # more (together they weigh 1), and four distinct gapped rows. The
+        # residue weight at column 0 is 20 + 1 = 21 and the gap rows add none.
+        #   correction = 19 / (2 * 0.693147 * 21) = 0.6527
+        #   bits       = 4.321928 - 0 - 0.6527    = 3.6693
+        aa = "ACDEFGHIKLMNPQRSTVWY"
+        sequences = (
+            ["A" + aa[i // 5] + aa[i % 5] for i in range(20)]
+            + ["AWW"] * 5
+            + ["-CC", "-DD", "-EE", "-FF"]
+        )
+        weighted, weights = calculate_logo_matrix(
+            sequences, [0], mode="bits", gap_mode="no_gap", identity_threshold=1.0
+        )
+
+        np.testing.assert_allclose(weights[20:25], np.full(5, 0.2))
+        self.assertAlmostEqual(float(weights.sum()), 25.0)
+        self.assertAlmostEqual(
+            float(weighted[0, aa.index("A")]), 3.6693, places=4
+        )
 
     def test_numba_and_numpy_counts_match_for_edge_cases_and_thresholds(self):
         sequences = [

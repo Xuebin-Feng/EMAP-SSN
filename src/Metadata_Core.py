@@ -59,6 +59,10 @@ RESERVED_METADATA_COLUMN_NAMES = ("id", "Node ID")
 NUMBER_TYPE_NAMES = ("number", "num", "numerical")
 TEXT_TYPE_NAMES = ("text", "string", "str")
 
+# read_csv / read_excel options that keep pandas' default NA words as text.
+# Only a cell with nothing in it is blank; see `_metadata_cell_is_blank`.
+_READ_CELLS_AS_WRITTEN = {"keep_default_na": False, "na_filter": False}
+
 
 class MetadataColumnDeleteError(ValueError):
     """Raised when a metadata-column deletion request is not atomic and valid."""
@@ -80,6 +84,14 @@ def export_metadata_value(value):
     if _is_integral_number(value):
         return int(value)
     return value
+
+def _metadata_cell_is_blank(value):
+    """True for a spreadsheet cell with nothing in it: empty, whitespace or missing.
+
+    Words such as "NA" or "None" are values, not blanks; whether a number
+    column can read them is decided where the column is converted.
+    """
+    return bool(pd.isna(value)) or str(value).strip() == ""
 
 def _parse_metadata_value(prop_type, value):
     if prop_type == "number":
@@ -247,16 +259,24 @@ def upload_metadata(viewer, file_paths):
             continue
 
         try:
+            # Cells are read as written: pandas' default NA words ("NA",
+            # "N/A", "None", "null", "NaN", ...) stay text instead of turning
+            # into blanks, since in a text column they can be real values
+            # (NA for North America or Namibia). An empty cell comes back as
+            # "" (a spreadsheet's error cell as NaN) and is blank below; a
+            # number column reads these words as missing when converting.
             if ext.lower() == ".csv":
                 try:
-                    df = pd.read_csv(filepath, header=None, dtype=str)
+                    df = pd.read_csv(filepath, header=None, dtype=str, **_READ_CELLS_AS_WRITTEN)
                 except UnicodeDecodeError:
                     # Excel saves a plain "CSV" in the system's Windows code
                     # page, not in UTF-8.
                     print(f"Note: {filename} is not valid UTF-8; reading it as Windows-1252 (cp1252).")
-                    df = pd.read_csv(filepath, header=None, dtype=str, encoding="cp1252")
+                    df = pd.read_csv(
+                        filepath, header=None, dtype=str, encoding="cp1252", **_READ_CELLS_AS_WRITTEN
+                    )
             else:
-                df = pd.read_excel(filepath, header=None)
+                df = pd.read_excel(filepath, header=None, **_READ_CELLS_AS_WRITTEN)
 
             if df.shape[0] < 3 or df.shape[1] < 2:
                 raise ValueError(Message(
@@ -320,7 +340,7 @@ def upload_metadata(viewer, file_paths):
 
             for df_row_idx in range(2, df.shape[0]):
                 header_val = df.iloc[df_row_idx, 0]
-                if pd.isna(header_val):
+                if _metadata_cell_is_blank(header_val):
                     unmatched_count += 1
                     continue
                 header_str = str(header_val).strip()
@@ -379,15 +399,22 @@ def upload_metadata(viewer, file_paths):
                 values_arr = viewer.metadata[prop_name]["values"]
                 for node_idx, df_row_idx in node_updates.items():
                     cell_val = df.iloc[df_row_idx, col_idx]
-                    if pd.isna(cell_val) or str(cell_val).strip() == "" or str(cell_val).strip().lower() == "nan":
+                    if _metadata_cell_is_blank(cell_val):
                         continue
-                    
+
                     if prop_type == 'number':
+                        # Anything that is not a number is missing: "NA",
+                        # "N/A", "None" and "null" as much as "abc". "nan"
+                        # parses but is missing too.
                         try:
-                            values_arr[node_idx] = float(cell_val)
+                            number = float(cell_val)
                         except (ValueError, TypeError):
-                            pass
+                            continue
+                        if not np.isnan(number):
+                            values_arr[node_idx] = number
                     else:
+                        # A text column keeps every word as written, "NA" and
+                        # "NaN" included; only an empty cell is blank.
                         values_arr[node_idx] = str(cell_val)
 
             successful_files.append(filename)

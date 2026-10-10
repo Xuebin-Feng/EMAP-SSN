@@ -51,6 +51,9 @@ def print_help(meta_dir):
           extension may be omitted) into the current viewer session. Each path can
           be absolute, relative, or located inside the metadata directory: {meta_dir}
           A single path may contain spaces, with or without quotes around it.
+          In a text column the words NA, N/A, None, null and NaN are kept as
+          written; only an empty cell is blank. In a number column they are
+          missing, like any other non-number.
       meta download
           Downloads the current session metadata to a generic file (e.g. metadata.csv, 
           or metadata1.csv if already taken) in {meta_dir}.
