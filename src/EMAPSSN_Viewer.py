@@ -1964,7 +1964,11 @@ class MainViewer:
     def update_nodes(self):
         colors = self.current_colors.copy()
         import matplotlib.colors as mcolors
-        if getattr(self, 'hovered_node_idx', None) is not None:
+        # A PNG capture (commands/print.py) sets transient_marks_hidden to leave
+        # out the hover colour and the left-click rings. Only their drawing
+        # stops: the hover and click state stays, so they return when it is cleared.
+        transient_marks = not getattr(self, 'transient_marks_hidden', False)
+        if transient_marks and getattr(self, 'hovered_node_idx', None) is not None:
             colors[self.hovered_node_idx] = mcolors.to_rgba(cfg.HOVER_COLOR)
             
         sizes = getattr(self, 'current_sizes', cfg.NODE_SIZE)
@@ -2012,7 +2016,7 @@ class MainViewer:
             # A clicked node's enlarged translucent ring and the node itself
             # must share one draw call. Interleave each ring directly before
             # its node; separate VisPy visuals can only be layered as wholes.
-            left_clicked = self._left_click_node_indices()
+            left_clicked = self._left_click_node_indices() if transient_marks else ()
             if len(left_clicked):
                 ring_before = np.isin(draw_order, left_clicked)
             else:

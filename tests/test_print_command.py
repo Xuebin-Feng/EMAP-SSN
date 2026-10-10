@@ -3,18 +3,21 @@ and EMAPSSN_Config modules: HUD hiding during capture, PNG margin trimming,
 output-name confinement, and the layered SVG export (edges filtered like the
 screen, configured colours, a failure with nothing written when every node is
 hidden), plus what the command checks before it writes (options, visible nodes),
-when it makes the save folder, and its automatic names."""
+when it makes the save folder, and its automatic names; the `zoom N` scale of
+full and svg, and the hover colour and click halo a PNG leaves out."""
 
+import contextlib
 import datetime
 import importlib.util
 import io
 import os
 import re
+import shutil
 import sys
 import tempfile
 import types
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from types import SimpleNamespace
 from unittest import mock
 
@@ -35,6 +38,7 @@ def load_print_command():
     import matplotlib.pyplot  # noqa: F401
     import vispy.app  # noqa: F401
     import vispy.scene  # noqa: F401
+    import commands.zoom  # noqa: F401
     import desktop.Desktop_App  # noqa: F401
     import utilities.Output_Names  # noqa: F401
     import Viewer_Visual_State  # noqa: F401
@@ -1007,6 +1011,527 @@ class PrintAutomaticNameTests(unittest.TestCase):
             for _ in range(2):
                 self.print_in_this_second(save_dir, ["mine"])
             self.assertEqual(os.listdir(save_dir), ["mine.png"])
+
+
+# A rendered tile, rows by columns: the 800 x 600 canvas of zoom_viewer().
+TILE_SHAPE = (600, 800)
+
+
+def zoom_viewer():
+    """A viewer whose 800 x 600 view shows 100 x 75 scene units, 0.125 per pixel.
+
+    Its four visible nodes span 100 x 50 units; with the 5 units the full
+    capture pads each side with, the network is 110 x 60 units.
+    """
+    viewer = PrintMarginTrimTests.make_viewer()
+    live_rect = SimpleNamespace(pos=(0.0, -12.5), width=100.0, height=75.0)
+    viewer.view = SimpleNamespace(
+        size=(800, 600),
+        camera=SimpleNamespace(rect=live_rect, _real_rect=live_rect, aspect=1.0),
+    )
+    viewer.canvas.size = (800, 600)
+    viewer.visible_mask = np.ones(4, dtype=bool)
+    viewer.pos = np.array(
+        [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [100.0, 50.0, 0.0], [0.0, 50.0, 0.0]]
+    )
+    return viewer
+
+
+class PrintZoomTests(unittest.TestCase):
+    """`zoom N` with full and svg: the scale of the view `zoom N` would set."""
+
+    def run_print(self, arguments, viewer=None):
+        viewer = viewer if viewer is not None else zoom_viewer()
+        live_rect = viewer.view.camera.rect
+        engine = print_command.Command_Engine
+        for reporter in (engine.command_artifact, engine.command_succeeded, engine.command_failed):
+            reporter.reset_mock()
+        tile_rects = []
+
+        def capture(captured_viewer, _is_transparent):
+            tile_rects.append(captured_viewer.view.camera.rect)
+            return np.ones(TILE_SHAPE + (4,), dtype=np.float32)
+
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        save_dir = os.path.join(root.name, "Saved_Images")
+        with mock.patch.object(
+            print_command, "PRINT_DIRECTORY", save_dir
+        ), mock.patch.object(
+            print_command, "_capture_tile", side_effect=capture
+        ) as capture_tile, mock.patch.object(
+            print_command, "_export_svg", return_value=True
+        ) as export_svg, mock.patch.object(
+            print_command.mpimg, "imsave"
+        ) as save, mock.patch.object(
+            print_command, "open_in_file_manager"
+        ), redirect_stdout(io.StringIO()):
+            print_command.run(viewer, arguments)
+        # The live camera is the one it was before, untouched.
+        self.assertIs(viewer.view.camera.rect, live_rect)
+        self.assertEqual(
+            (live_rect.pos, live_rect.width, live_rect.height), ((0.0, -12.5), 100.0, 75.0)
+        )
+        return SimpleNamespace(
+            viewer=viewer, engine=engine, capture=capture_tile, export_svg=export_svg,
+            save=save, save_dir=save_dir, tile_rects=tile_rects,
+        )
+
+    def failure(self, result):
+        result.engine.command_failed.assert_called_once()
+        return str(result.engine.command_failed.call_args.args[1])
+
+    def assert_refused(self, arguments, message):
+        result = self.run_print(arguments)
+        result.capture.assert_not_called()
+        result.export_svg.assert_not_called()
+        result.save.assert_not_called()
+        result.engine.command_succeeded.assert_not_called()
+        self.assertEqual(self.failure(result), message)
+        self.assertEqual(result.viewer.console_text.text, message)
+        self.assertTrue(result.viewer.instr_text.visible)
+        self.assertFalse(os.path.exists(result.save_dir))
+
+    # --- parsing ---------------------------------------------------------
+
+    def test_zoom_n_may_stand_anywhere_among_the_modifiers(self):
+        cases = (
+            (["full", "zoom", "500"], None),
+            (["fig1", "full", "zoom", "500"], "fig1.png"),
+            (["zoom", "500", "fig1", "full"], "fig1.png"),
+            (["fig1", "zoom", "500", "full", "transparent"], "fig1.png"),
+            (["my", "zoom", "500", "net", "full"], "my_net.png"),
+            (["ZOOM", "500", "Full"], None),
+        )
+        for arguments, name in cases:
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                result.save.assert_called_once()
+                saved = os.path.basename(result.save.call_args.args[0])
+                if name is None:
+                    self.assertTrue(saved.startswith("test_sequences_"), saved)
+                else:
+                    self.assertEqual(saved, name)
+                # Every tile after the first, which measures the canvas, is 500 units wide.
+                self.assertTrue(all(rect[2] == 500.0 for rect in result.tile_rects[1:]))
+
+    def test_svg_takes_zoom_n_and_the_name_alongside_it(self):
+        for arguments, name in (
+            (["svg", "zoom", "500"], None),
+            (["fig1", "svg", "zoom", "500"], "fig1.svg"),
+            (["zoom", "500", "svg", "fig1"], "fig1.svg"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                result.export_svg.assert_called_once()
+                self.assertEqual(result.export_svg.call_args.kwargs["view_width"], 500.0)
+                saved = os.path.basename(result.export_svg.call_args.args[1])
+                if name is None:
+                    self.assertTrue(saved.startswith("test_sequences_"), saved)
+                else:
+                    self.assertEqual(saved, name)
+
+    def test_without_zoom_the_svg_keeps_the_view_scale(self):
+        result = self.run_print(["fig1", "svg"])
+        self.assertIsNone(result.export_svg.call_args.kwargs["view_width"])
+
+    def test_a_name_such_as_zoom_png_is_still_a_name(self):
+        for arguments, name in (
+            (["zoom.png"], "zoom.png"),
+            (["zoom.png", "full", "zoom", "500"], "zoom.png"),
+            (["my", "zoom.png"], "my_zoom.png"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                self.assertEqual(os.path.basename(result.save.call_args.args[0]), name)
+
+    def test_zoom_without_a_width_is_refused(self):
+        message = "Error: zoom needs a view width, as in print full zoom 500."
+        for arguments in (["full", "zoom"], ["zoom", "full"], ["svg", "zoom", "svg"],
+                          ["fig1", "zoom", "transparent", "full"], ["zoom"]):
+            with self.subTest(arguments=arguments):
+                self.assert_refused(arguments, message)
+
+    def test_an_invalid_width_is_refused_as_the_zoom_command_refuses_it(self):
+        cases = (
+            ("wide", "Error: Zoom width must be a valid number."),
+            ("500.png", "Error: Zoom width must be a valid number."),
+            ("0", "Error: Zoom width must be a positive, finite number."),
+            ("-5", "Error: Zoom width must be a positive, finite number."),
+            ("nan", "Error: Zoom width must be a positive, finite number."),
+            ("inf", "Error: Zoom width must be a positive, finite number."),
+            ("1e400", "Error: Zoom width must be a positive, finite number."),
+            ("1e50", "Error: Zoom width is too large for the current view."),
+            ("1e-14", "Error: Zoom width is too small to draw accurately at the current view centre."),
+        )
+        for width, message in cases:
+            for modifier in ("full", "svg"):
+                with self.subTest(width=width, modifier=modifier):
+                    self.assert_refused([modifier, "zoom", width], message)
+
+    def test_a_canvas_without_area_is_refused(self):
+        viewer = zoom_viewer()
+        viewer.canvas.size = (0, 600)
+        result = self.run_print(["full", "zoom", "500"], viewer)
+        result.capture.assert_not_called()
+        self.assertEqual(
+            self.failure(result),
+            "Error: The canvas has no visible area, so the zoom cannot be applied.",
+        )
+
+    def test_zoom_given_twice_is_refused(self):
+        self.assert_refused(
+            ["full", "zoom", "500", "zoom", "300"], "Error: zoom N can be given only once."
+        )
+
+    def test_zoom_with_a_plain_png_is_refused(self):
+        message = "Error: zoom N works only with full or svg."
+        for arguments in (["zoom", "500"], ["fig1", "zoom", "500"],
+                          ["fig1", "transparent", "zoom", "500"]):
+            with self.subTest(arguments=arguments):
+                self.assert_refused(arguments, message)
+
+    def test_the_svg_rules_still_hold_with_zoom(self):
+        self.assert_refused(
+            ["svg", "full", "zoom", "500"],
+            "Error: 'SVG' export is not compatible with 'transparent' or 'full'.",
+        )
+        self.assert_refused(
+            ["my", "net", "svg", "zoom", "500"],
+            "Error: Maximum of 2 keywords allowed when using 'SVG' (e.g., 'print [filename] svg').",
+        )
+
+    # --- full ------------------------------------------------------------
+
+    def test_full_with_zoom_renders_tiles_n_units_wide_and_leaves_the_camera(self):
+        # 50 units across 800 pixels: 0.0625 units per pixel, so the 110 x 60
+        # network is 1760 x 960 pixels. The tiles keep the view's 4:3 shape.
+        result = self.run_print(["fig1", "full", "zoom", "50"])
+
+        result.engine.command_failed.assert_not_called()
+        # The first render measures the canvas from the live camera.
+        self.assertEqual(result.tile_rects[0].width, 100.0)
+        tiles = result.tile_rects[1:]
+        self.assertEqual(len(tiles), 9)
+        for rect in tiles:
+            self.assertEqual(rect[2:], (50.0, 37.5))
+        saved_image = result.save.call_args.args[1]
+        self.assertEqual(saved_image.shape, (960, 1760, 4))
+        self.assertIs(result.viewer.view.camera._real_rect, result.viewer.view.camera.rect)
+
+    def test_full_without_zoom_renders_at_the_view_scale(self):
+        # 0.125 units per pixel: 880 x 480 pixels, in 2 x 2 tiles of the live view's size.
+        result = self.run_print(["fig1", "full"])
+
+        tiles = result.tile_rects[1:]
+        self.assertEqual(len(tiles), 4)
+        for rect in tiles:
+            self.assertEqual(rect[2:], (100.0, 75.0))
+        self.assertEqual(result.save.call_args.args[1].shape, (480, 880, 4))
+
+    def test_zoom_at_the_view_width_gives_the_same_picture_as_no_zoom(self):
+        plain = self.run_print(["fig1", "full"])
+        zoomed = self.run_print(["fig1", "full", "zoom", "100"])
+
+        self.assertEqual(plain.tile_rects[1:], zoomed.tile_rects[1:])
+        np.testing.assert_array_equal(
+            plain.save.call_args.args[1], zoomed.save.call_args.args[1]
+        )
+
+    def test_a_small_zoomed_image_is_saved_with_a_warning(self):
+        # 500 units across 800 pixels: 0.625 per pixel, so 176 x 96 pixels.
+        result = self.run_print(["fig1", "full", "zoom", "500"])
+
+        result.save.assert_called_once()
+        self.assertEqual(result.save.call_args.args[1].shape, (96, 176, 4))
+        result.engine.command_failed.assert_not_called()
+        report = str(result.engine.command_succeeded.call_args.args[1])
+        warning = (
+            "Warning: the image is only 176×96 px. N in zoom N is the view width, "
+            "so a smaller N zooms in and gives a larger image."
+        )
+        self.assertTrue(report.endswith(warning), report)
+        self.assertTrue(report.startswith("Successfully saved full stitched snapshot: "))
+        self.assertEqual(result.viewer.console_text.text, f"Saved PNG: fig1.png {warning}")
+
+    def test_the_warning_needs_zoom_and_an_image_under_1000_pixels(self):
+        # No zoom: 880 x 480 pixels, and no warning. zoom 50: 1760 x 960, none either.
+        for arguments in (["fig1", "full"], ["fig1", "full", "zoom", "50"],
+                          ["fig1", "full", "transparent"]):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                report = str(result.engine.command_succeeded.call_args.args[1])
+                self.assertNotIn("Warning", report)
+                self.assertEqual(result.viewer.console_text.text, "Saved PNG: fig1.png")
+        # An SVG has no pixel size, so it never warns.
+        result = self.run_print(["fig1", "svg", "zoom", "50000"])
+        self.assertNotIn("Warning", str(result.engine.command_succeeded.call_args.args[1]))
+
+
+class PrintSvgZoomTests(unittest.TestCase):
+    """`print svg zoom N` writes the sizes of a view N units wide: N / view width per pixel."""
+
+    def svg(self, arguments, units_per_pixel=0.2):
+        viewer = square_network(
+            view=view_at(units_per_pixel), current_sizes=np.full(4, 12.0)
+        )
+        for name, value in vars(PrintMarginTrimTests.make_viewer()).items():
+            if name not in ("canvas", "view"):
+                setattr(viewer, name, value)
+        viewer.view.camera.rect.pos = (0.0, 0.0)
+        viewer.canvas.size = viewer.view.size
+        viewer.canvas.update = mock.Mock()
+        with tempfile.TemporaryDirectory() as save_dir, mock.patch.object(
+            print_command, "PRINT_DIRECTORY", save_dir
+        ), mock.patch.object(
+            print_command, "open_in_file_manager"
+        ), mock.patch.multiple(
+            print_command.cfg, create=True, EDGE_COLOR="#000000",
+            NODE_BOUNDARY_COLOR="#000000", EDGE_ALPHA=0.2, EDGE_WIDTH=1.5,
+            UMAP_MODE=False,
+        ), redirect_stdout(io.StringIO()):
+            print_command.run(viewer, arguments)
+            with open(os.path.join(save_dir, "net.svg"), encoding="utf-8") as handle:
+                return handle.read()
+
+    def test_node_radius_is_half_its_size_times_n_over_the_view_width(self):
+        svg = self.svg(["net", "svg", "zoom", "500"])
+
+        circles = elements(svg, "circle")
+        self.assertEqual(len(circles), 4)
+        # The SVG is written to three decimals.
+        for circle in circles:
+            self.assertAlmostEqual(number(circle, "r"), 12 / 2 * 500 / 800, delta=0.001)
+            self.assertAlmostEqual(number(circle, "stroke-width"), 0.5 * 500 / 800, delta=0.001)
+        for line in elements(svg, "line"):
+            self.assertAlmostEqual(number(line, "stroke-width"), 1.5 * 500 / 800, delta=0.001)
+
+    def test_the_scale_ignores_the_current_zoom(self):
+        self.assertEqual(
+            self.svg(["net", "svg", "zoom", "500"], units_per_pixel=0.2),
+            self.svg(["net", "svg", "zoom", "500"], units_per_pixel=0.05),
+        )
+
+    def test_zoom_at_the_view_width_writes_the_same_svg_as_no_zoom(self):
+        # The view at 0.2 units per pixel is 160 units wide.
+        self.assertEqual(self.svg(["net", "svg"]), self.svg(["net", "svg", "zoom", "160"]))
+
+    def test_the_scale_function_takes_the_view_width(self):
+        viewer = SimpleNamespace(view=view_at(0.2))
+        self.assertAlmostEqual(print_command._scene_units_per_pixel(viewer), 0.2)
+        self.assertAlmostEqual(print_command._scene_units_per_pixel(viewer, 400.0), 0.5)
+
+
+class FakeMarkers:
+    """The node Markers visual: keeps the data the Viewer last submitted."""
+
+    def __init__(self):
+        self.visible = True
+        self.data = None
+
+    def set_data(self, **kwargs):
+        self.data = kwargs
+
+    def set_gl_state(self, *args, **kwargs):
+        pass
+
+
+def marked_viewer(hovered=1, clicked=2, selected=(0,)):
+    """A real Viewer's node drawing on zoom_viewer()'s network.
+
+    Node `hovered` is under the mouse, node `clicked` has the left-click
+    halo, and the nodes in `selected` have selection borders.
+    """
+    from EMAPSSN_Viewer import MainViewer
+
+    viewer = MainViewer.__new__(MainViewer)
+    for name, value in vars(zoom_viewer()).items():
+        setattr(viewer, name, value)
+    viewer.n_nodes = 4
+    viewer.node_render_order = np.arange(4, dtype=np.int32)
+    viewer.current_colors = np.tile([0.25, 0.5, 1.0, 1.0], (4, 1)).astype(np.float32)
+    viewer.current_sizes = np.full(4, 10.0, dtype=np.float32)
+    viewer.current_shapes = np.full(4, "disc", dtype=object)
+    viewer.selected_indices = list(selected)
+    viewer.selected_node_idx = clicked
+    viewer.left_click_highlight_indices = None
+    viewer.hovered_node_idx = hovered
+    viewer.edges = np.empty((0, 2), dtype=np.int32)
+    viewer.markers = FakeMarkers()
+    viewer._update_hud_elements = mock.Mock()
+    viewer.update_nodes()
+    return viewer
+
+
+def drawn(viewer):
+    """What the Viewer submitted to its markers, copied."""
+    data = {
+        name: (np.array(value, copy=True) if isinstance(value, np.ndarray) else list(value))
+        for name, value in viewer.markers.data.items()
+    }
+    data["node_order"] = viewer._submitted_marker_node_order.copy()
+    data["rings"] = viewer._submitted_marker_ring_mask.copy()
+    return data
+
+
+def node_slot(data, node):
+    """The marker slot of node itself, not of its ring."""
+    return int(np.flatnonzero((data["node_order"] == node) & ~data["rings"])[0])
+
+
+class PrintTransientMarksTests(unittest.TestCase):
+    """A PNG leaves out the hover colour and the left-click halo, and keeps
+    the selection borders; the live view gets both marks back afterwards."""
+
+    def setUp(self):
+        import matplotlib.colors as mcolors
+        import EMAPSSN_Config
+
+        self.hover_rgba = np.array(mcolors.to_rgba(EMAPSSN_Config.HOVER_COLOR), dtype=np.float32)
+        patcher = mock.patch.multiple(
+            EMAPSSN_Config, create=True, CONNECTED_NODE_COLOR="red", NODE_BOUNDARY_COLOR="black",
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def run_print(self, viewer, arguments, capture_error=None, interrupt=False):
+        engine = print_command.Command_Engine
+        for reporter in (engine.command_artifact, engine.command_succeeded, engine.command_failed):
+            reporter.reset_mock()
+        during = []
+
+        def capture(captured_viewer, _is_transparent):
+            hidden = getattr(captured_viewer, "transient_marks_hidden", False)
+            during.append((drawn(captured_viewer), hidden))
+            if capture_error is not None:
+                raise capture_error
+            return np.ones(TILE_SHAPE + (4,), dtype=np.float32)
+
+        save_dir = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, save_dir, True)
+        patches = [
+            mock.patch.object(print_command, "PRINT_DIRECTORY", save_dir),
+            mock.patch.object(print_command, "_capture_tile", side_effect=capture),
+            mock.patch.object(print_command.mpimg, "imsave"),
+            mock.patch.object(print_command, "open_in_file_manager"),
+        ]
+        if interrupt:
+            patches.append(mock.patch.object(
+                print_command._CaptureEvents, "pause_if_due",
+                side_effect=print_command._CaptureInterrupted(print_command.Message("window resized")),
+            ))
+        with contextlib.ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            stack.enter_context(redirect_stdout(io.StringIO()))
+            stack.enter_context(redirect_stderr(io.StringIO()))
+            print_command.run(viewer, arguments)
+        return engine, during
+
+    def assert_drawn_without_transient_marks(self, viewer, before, during):
+        self.assertTrue(during)
+        for data, hidden in during:
+            self.assertTrue(hidden)
+            # No halo: one marker per visible node, in the same order as before.
+            self.assertFalse(data["rings"].any())
+            np.testing.assert_array_equal(
+                data["node_order"], before["node_order"][~before["rings"]]
+            )
+            # The hovered node has its own colour, not the hover colour.
+            np.testing.assert_array_equal(
+                data["face_color"][node_slot(data, 1)], viewer.current_colors[1]
+            )
+            # The clicked node is drawn as before, without its ring.
+            np.testing.assert_array_equal(
+                data["face_color"][node_slot(data, 2)],
+                before["face_color"][node_slot(before, 2)],
+            )
+            # Selection borders stay: colour and width of the selected node.
+            for name in ("edge_color", "edge_width"):
+                np.testing.assert_array_equal(
+                    data[name][node_slot(data, 0)], before[name][node_slot(before, 0)]
+                )
+            np.testing.assert_array_equal(data["edge_color"][node_slot(data, 0)], self.hover_rgba)
+            self.assertEqual(data["edge_width"][node_slot(data, 0)], 2.0)
+
+    def assert_restored(self, viewer, before):
+        after = drawn(viewer)
+        self.assertFalse(viewer.transient_marks_hidden)
+        self.assertEqual(viewer.hovered_node_idx, 1)
+        self.assertEqual(viewer.selected_node_idx, 2)
+        self.assertEqual(viewer.selected_indices, [0])
+        self.assertEqual(set(after), set(before))
+        for name in before:
+            np.testing.assert_array_equal(after[name], before[name], err_msg=name)
+        # The mouse is still over node 1, so it has the hover colour again,
+        # and node 2 its halo.
+        np.testing.assert_array_equal(after["face_color"][node_slot(after, 1)], self.hover_rgba)
+        self.assertEqual(after["node_order"][after["rings"]].tolist(), [2])
+
+    def test_the_viewer_draws_the_marks_this_test_relies_on(self):
+        before = drawn(marked_viewer())
+        np.testing.assert_array_equal(before["face_color"][node_slot(before, 1)], self.hover_rgba)
+        self.assertEqual(before["node_order"][before["rings"]].tolist(), [2])
+
+    def test_a_png_leaves_out_hover_and_halo_and_gets_them_back(self):
+        for arguments in (["marks"], ["marks", "transparent"], ["marks", "full"],
+                          ["marks", "full", "zoom", "50"]):
+            with self.subTest(arguments=arguments):
+                viewer = marked_viewer()
+                before = drawn(viewer)
+
+                engine, during = self.run_print(viewer, arguments)
+
+                engine.command_failed.assert_not_called()
+                engine.command_succeeded.assert_called_once()
+                self.assert_drawn_without_transient_marks(viewer, before, during)
+                self.assert_restored(viewer, before)
+
+    def test_the_marks_come_back_when_the_capture_fails(self):
+        for arguments in (["marks"], ["marks", "full"]):
+            with self.subTest(arguments=arguments):
+                viewer = marked_viewer()
+                before = drawn(viewer)
+
+                engine, during = self.run_print(
+                    viewer, arguments, capture_error=RuntimeError("render failed")
+                )
+
+                engine.command_failed.assert_called_once()
+                engine.command_succeeded.assert_not_called()
+                self.assert_drawn_without_transient_marks(viewer, before, during)
+                self.assert_restored(viewer, before)
+
+    def test_the_marks_come_back_when_a_full_capture_is_cancelled(self):
+        viewer = marked_viewer()
+        before = drawn(viewer)
+
+        engine, during = self.run_print(viewer, ["marks", "full"], interrupt=True)
+
+        engine.command_failed.assert_called_once()
+        self.assertIn("window resized", str(engine.command_failed.call_args.args[1]))
+        self.assert_drawn_without_transient_marks(viewer, before, during)
+        self.assert_restored(viewer, before)
+
+    def test_an_svg_and_a_refusal_leave_the_drawing_alone(self):
+        viewer = marked_viewer()
+        with mock.patch.object(viewer, "update_nodes", wraps=viewer.update_nodes) as update, \
+                mock.patch.object(print_command, "_export_svg", return_value=True):
+            self.run_print(viewer, ["marks", "svg"])
+            self.run_print(viewer, ["marks", "zoom", "500"])
+        update.assert_not_called()
+
+    def test_a_network_without_marks_is_not_redrawn(self):
+        viewer = marked_viewer(hovered=None, clicked=None)
+        with mock.patch.object(viewer, "update_nodes", wraps=viewer.update_nodes) as update:
+            engine, during = self.run_print(viewer, ["marks"])
+        engine.command_failed.assert_not_called()
+        update.assert_not_called()
+        self.assertFalse(during[0][1])
 
 
 if __name__ == "__main__":

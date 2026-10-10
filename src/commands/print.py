@@ -28,12 +28,18 @@ from vispy import app
 from vispy.scene.visuals import VisualNode
 from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
+from commands.zoom import view_for_width
 from desktop.Desktop_App import open_in_file_manager
-from utilities.Localization import Message
+from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import edge_stages
 
 PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
+# The words print reads as modifiers rather than as part of the file name.
+PRINT_MODIFIERS = ("transparent", "full", "svg", "zoom")
+# A full PNG drawn at a `zoom N` scale whose longest side is shorter than this
+# is still saved, with a warning that a smaller N gives a larger image.
+ZOOMED_IMAGE_MIN_SIDE_PX = 1000
 PNG_TRIM_PADDING_PX = 20
 PNG_ALPHA_TOLERANCE = 1.0 / 255.0
 PNG_BACKGROUND_TOLERANCE = 2.0 / 255.0
@@ -72,12 +78,26 @@ def print_help():
                     other modifiers). Node sizes and line widths follow the
                     current zoom, as on screen.
 
+    Scale (with full or svg only, anywhere among the modifiers):
+      zoom N      : Draws at the scale 'zoom N' would set, the view N scene
+                    units wide on the current canvas, without moving the
+                    view. N is checked as the zoom command checks it. A
+                    smaller N zooms in: a larger full PNG, and smaller nodes
+                    and lines relative to the network in an SVG. Node sizes
+                    stay in screen pixels. A full PNG whose longest side is
+                    under 1000 px is saved with a warning.
+
+    PNG captures leave out the hover colour of the node under the mouse and
+    the halo of the clicked node; selection borders stay.
+
     Examples:
       print                               (Saves view as a timestamped PNG)
       print my_network                    (Saves view as my_network.png)
       print my_network transparent        (Saves as a transparent PNG)
       print my_network full transparent   (Stitches a massive transparent PNG)
       print my_network svg                (Saves view as a vector SVG file)
+      print my_network full zoom 500      (Whole network, 500 units per view width)
+      print my_network svg zoom 500       (SVG sized as on a view 500 units wide)
     """)
 
 # The marker names a node's shape can hold: vispy's own aliases, which the
@@ -124,7 +144,7 @@ def _available_automatic_filename(directory, filename):
     return candidate
 
 
-def _scene_units_per_pixel(viewer):
+def _scene_units_per_pixel(viewer, view_width=None):
     """Return how many scene units one logical screen pixel spans in the view.
 
     Marker sizes and line widths are set in logical pixels: VisPy multiplies
@@ -134,23 +154,28 @@ def _scene_units_per_pixel(viewer):
     one, widened to the view's aspect ratio) onto the view, which is in
     logical pixels too. The Viewer fixes the aspect at 1, so one scale holds
     for both axes. A view with no area keeps the sizes as they are, 1 to 1.
+
+    view_width, the N of `print svg zoom N`, gives the scale of a view N
+    scene units wide instead of the current one.
     """
     view = viewer.view
     camera = view.camera
     rect = camera._real_rect if hasattr(camera, '_real_rect') else camera.rect
+    width = rect.width if view_width is None else view_width
     try:
-        scale = abs(float(rect.width)) / float(view.size[0])
+        scale = abs(float(width)) / float(view.size[0])
     except (TypeError, ValueError, ZeroDivisionError):
         return 1.0
     return scale if math.isfinite(scale) and scale > 0.0 else 1.0
 
 
-def _export_svg(viewer, filepath):
+def _export_svg(viewer, filepath, view_width=None):
     """Generates a structured, layered SVG vector file for Adobe Illustrator compatibility.
 
     Sizes set in screen pixels (node size and outline, edge width) are written
     in scene units at the current zoom, so the SVG keeps the proportions of
-    the view on screen.
+    the view on screen; with view_width, the N of `zoom N`, at the zoom of a
+    view N scene units wide instead.
 
     Returns False, writing nothing, when no node is visible.
     """
@@ -179,7 +204,7 @@ def _export_svg(viewer, filepath):
     h_bounds = max_y - min_y
 
     # Node sizes are screen pixels; the SVG is in scene units.
-    unit = _scene_units_per_pixel(viewer)
+    unit = _scene_units_per_pixel(viewer, view_width)
 
     # Add 5% padding so outer nodes aren't clipped by the viewport boundaries,
     # and at least what the largest node reaches past its centre: its radius,
@@ -395,6 +420,43 @@ def _capture_overlays(viewer):
     return unique
 
 
+def _shows_transient_marks(viewer):
+    """Whether the network shows a hover colour or a left-click halo."""
+    if getattr(viewer, 'hovered_node_idx', None) is not None:
+        return True
+    left_clicked = getattr(viewer, '_left_click_node_indices', None)
+    return callable(left_clicked) and len(left_clicked()) > 0
+
+
+def _hide_transient_marks(viewer):
+    """Take the hover colour and the left-click halo off the network for a PNG.
+
+    They mark where the mouse is and what was last clicked, not the network,
+    and the SVG never had them. Selection borders, set on purpose, stay. The
+    Viewer only stops drawing them (see transient_marks_hidden in its
+    update_nodes): its hover and click state is left as it is, so they come
+    back exactly as they were, the hover colour too while the mouse is still
+    over its node.
+
+    Returns the function that puts them back, or None when none is shown.
+    """
+    update_nodes = getattr(viewer, 'update_nodes', None)
+    if not callable(update_nodes) or not _shows_transient_marks(viewer):
+        return None
+
+    def restore():
+        viewer.transient_marks_hidden = False
+        update_nodes()
+
+    viewer.transient_marks_hidden = True
+    try:
+        update_nodes()
+    except Exception:
+        restore()
+        raise
+    return restore
+
+
 def _render_capture(viewer, is_transparent, overlays, rect=None):
     """Capture one tile with the HUD hidden and the camera at rect, if given.
 
@@ -557,6 +619,14 @@ def _trim_png_margins(
     right = min(int(content_cols.max()) + padding_px + 1, image.shape[1])
     return image[top:bottom, left:right]
 
+
+def _refuse(viewer, msg):
+    """Report msg, an error found before anything is drawn or written."""
+    Command_Engine.command_failed(viewer, msg)
+    print(f"\n{msg}")
+    Command_Engine.show_status(viewer, msg)
+
+
 def run(viewer, args):
 
     # 1. Setup paths
@@ -574,15 +644,31 @@ def run(viewer, args):
     is_transparent = False
     is_full = False
     is_svg = False
+    zoom_text = None
     final_args = []
     
-    for a in args:
+    words = iter(args)
+    for a in words:
         if a.lower() == "transparent":
             is_transparent = True
         elif a.lower() == "full":
             is_full = True
         elif a.lower() == "svg":
             is_svg = True
+        elif a.lower() == "zoom":
+            # The next word is N, whatever it holds, so it never joins the
+            # file name; a name such as zoom.png is not this keyword.
+            width = next(words, None)
+            if width is None or width.lower() in PRINT_MODIFIERS:
+                _refuse(viewer, Message(
+                    "Error: {syntax} needs a view width, as in {example}.",
+                    syntax="zoom", example="print full zoom 500",
+                ))
+                return
+            if zoom_text is not None:
+                _refuse(viewer, Message("Error: {syntax} can be given only once.", syntax="zoom N"))
+                return
+            zoom_text = width
         elif a.strip().startswith("-"):
             # Not a modifier, and not a name: it would be saved as "--flag.png".
             msg = Message(
@@ -597,6 +683,15 @@ def run(viewer, args):
         else:
             final_args.append(a)
             
+    # zoom N sets the scale of the whole network, which a capture of the
+    # view on screen does not draw.
+    if zoom_text is not None and not (is_full or is_svg):
+        _refuse(viewer, Message(
+            "Error: {syntax} works only with {full} or {svg}.",
+            syntax="zoom N", full="full", svg="svg",
+        ))
+        return
+
     # SVG Constraints
     if is_svg:
         if is_transparent or is_full:
@@ -606,11 +701,21 @@ def run(viewer, args):
             Command_Engine.show_status(viewer, msg)
             return
             
-        if len(args) > 2:
+        # zoom N is not counted: the name and svg are.
+        if len(args) - (0 if zoom_text is None else 2) > 2:
             msg = Message("Error: Maximum of 2 keywords allowed when using 'SVG' (e.g., 'print [filename] svg').")
             Command_Engine.command_failed(viewer, msg)
             print(f"\n{msg}")
             Command_Engine.show_status(viewer, msg)
+            return
+
+    # N is checked as `zoom N` checks it, against the current canvas and view.
+    zoom_width = None
+    if zoom_text is not None:
+        try:
+            zoom_width = view_for_width(viewer, zoom_text)[2]
+        except ValueError as error:
+            _refuse(viewer, error.args[0])
             return
 
     args = final_args
@@ -642,14 +747,17 @@ def run(viewer, args):
     
     # 4. A capture leaves the live view alone: each render hides the HUD and
     # moves the camera only between reading and restoring the live state,
-    # with no event processed in between (see _render_capture).
+    # with no event processed in between (see _render_capture). A PNG also
+    # leaves out the hover colour and click halo, put back once it is done.
     original_bgcolor = viewer.canvas.bgcolor
     overlays = _capture_overlays(viewer)
     events = None
+    restore_marks = None
+    size_warning = None
 
     try:
         if is_svg:
-            if not _export_svg(viewer, filepath):
+            if not _export_svg(viewer, filepath, view_width=zoom_width):
                 msg = Message("Error: No visible nodes to export.")
                 Command_Engine.command_failed(viewer, msg)
                 print(f"\n{msg}")
@@ -670,6 +778,14 @@ def run(viewer, args):
             # 1. Keep the aspect ratio locked to preserve rendering proportions
             camera = viewer.view.camera
             orig_real_rect = camera._real_rect if hasattr(camera, '_real_rect') else camera.rect
+            # Each tile shows the scene area the view shows now, or with zoom N
+            # the view `zoom N` sets: N units wide, in the view's own shape.
+            tile_world_w = orig_real_rect.width
+            tile_world_h = orig_real_rect.height
+            if zoom_width is not None:
+                tile_world_h = tile_world_h * zoom_width / tile_world_w
+                tile_world_w = zoom_width
+            restore_marks = _hide_transient_marks(viewer)
             events = _CaptureEvents(viewer, overlays)
             
             # 2. Get exact physical pixel resolution
@@ -684,8 +800,8 @@ def run(viewer, args):
             keep_px_h = tile_px_h - (2 * margin_px)
             
             # 4. Calculate exact Units-Per-Pixel (UPP) using the actual visible rect bounds
-            upp_x = orig_real_rect.width / tile_px_w
-            upp_y = orig_real_rect.height / tile_px_h
+            upp_x = tile_world_w / tile_px_w
+            upp_y = tile_world_h / tile_px_h
             
             # Calculate how much world space our "safe" area covers
             step_world_w = keep_px_w * upp_x
@@ -732,14 +848,14 @@ def run(viewer, args):
                     # The actual camera pushes OUTWARD by the margin size so clipping happens off-screen
                     cam_left = target_keep_left - (margin_px * upp_x)
                     cam_top = target_keep_top + (margin_px * upp_y)
-                    cam_bottom = cam_top - orig_real_rect.height
+                    cam_bottom = cam_top - tile_world_h
                     
                     # Render the tile from its own camera; the live one is back on return
                     tile_img = _render_capture(
                         viewer,
                         is_transparent,
                         overlays,
-                        (cam_left, cam_bottom, orig_real_rect.width, orig_real_rect.height),
+                        (cam_left, cam_bottom, tile_world_w, tile_world_h),
                     )
                     
                     # The Cookie Cutter: Snip off the unsafe clipped margins
@@ -774,6 +890,7 @@ def run(viewer, args):
                 Command_Engine.show_status(viewer, msg)
                 return
 
+            restore_marks = _hide_transient_marks(viewer)
             final_img = _render_capture(viewer, is_transparent, overlays)
 
         if not is_svg:
@@ -793,6 +910,13 @@ def run(viewer, args):
                 )
             os.makedirs(save_dir, exist_ok=True)
             mpimg.imsave(filepath, final_img)
+            # A scale the user chose can make a small picture; it is saved all the same.
+            if zoom_width is not None and max(trimmed_width, trimmed_height) < ZOOMED_IMAGE_MIN_SIDE_PX:
+                size_warning = Message(
+                    "Warning: the image is only {width}×{height} px. N in {syntax} is the view "
+                    "width, so a smaller N zooms in and gives a larger image.",
+                    width=trimmed_width, height=trimmed_height, syntax="zoom N",
+                )
         
         msg_type = "SVG snapshot" if is_svg else "snapshot"
         if is_transparent and not is_svg: msg_type = "transparent " + msg_type
@@ -802,8 +926,13 @@ def run(viewer, args):
         saved = f"Successfully saved {msg_type}: {filepath}"
         Command_Engine.command_artifact(viewer, filepath)
         print(f"\n{saved}")
+        status = Message("Saved {format}: {file}", format=image_format, file=filename)
+        if size_warning is not None:
+            print(size_warning)
+            saved = JoinedMessage([saved, size_warning])
+            status = JoinedMessage([status, size_warning])
         
-        Command_Engine.show_status(viewer, Message("Saved {format}: {file}", format=image_format, file=filename))
+        Command_Engine.show_status(viewer, status)
         
         # Open the save folder in the system file explorer
         open_in_file_manager(save_dir)
@@ -825,5 +954,7 @@ def run(viewer, args):
     finally:
         if events is not None:
             events.close()
+        if restore_marks is not None:
+            restore_marks()
         viewer.canvas.update()
     Command_Engine.command_succeeded(viewer, saved)

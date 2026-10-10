@@ -36,6 +36,50 @@ def _report_error(viewer, msg):
     Command_Engine.print_help(viewer, msg)
 
 
+def view_for_width(viewer, text):
+    """Return the view `zoom text` sets, as (left, bottom, width, height) in scene units.
+
+    The view is text scene units wide, keeps the current centre and takes the
+    canvas's aspect ratio. Nothing is changed here. A text that is not a width
+    the camera can draw raises ValueError holding the Message to show. The
+    print command checks the width of its own `zoom N` here too.
+    """
+    try:
+        new_width = float(text)
+    except ValueError:
+        raise ValueError(Message("Error: Zoom width must be a valid number.")) from None
+    # float() also accepts nan, inf and 1e400; none of them is a view width.
+    if not math.isfinite(new_width) or new_width <= 0:
+        raise ValueError(Message("Error: Zoom width must be a positive, finite number."))
+
+    canvas_width, canvas_height = viewer.canvas.size
+    if canvas_width <= 0 or canvas_height <= 0:
+        raise ValueError(Message("Error: The canvas has no visible area, so the zoom cannot be applied."))
+
+    rect = viewer.view.camera.rect
+
+    center_x = rect.pos[0] + (rect.width / 2.0)
+    center_y = rect.pos[1] + (rect.height / 2.0)
+
+    aspect_ratio = canvas_width / canvas_height
+
+    half_w = new_width / 2.0
+    half_h = (new_width / aspect_ratio) / 2.0
+    x_range = (center_x - half_w, center_x + half_w)
+    y_range = (center_y - half_h, center_y + half_h)
+    # A huge finite width can still overflow to inf on a tall canvas, and a
+    # scale below float32's normal range is too large.
+    if (not all(math.isfinite(value) for value in x_range + y_range)
+            or canvas_width < new_width * _FLOAT32_SMALLEST_NORMAL):
+        raise ValueError(Message("Error: Zoom width is too large for the current view."))
+    if (canvas_width > new_width * _FLOAT32_LARGEST
+            or new_width < max(abs(center_x), abs(center_y)) * canvas_width * _FLOAT32_EPSILON):
+        raise ValueError(Message(
+            "Error: Zoom width is too small to draw accurately at the current view centre."
+        ))
+    return (x_range[0], y_range[0], new_width, new_width / aspect_ratio)
+
+
 def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
         # The console line shows the first line; the terminal shows it all, in English.
@@ -48,51 +92,22 @@ def run(viewer, args):
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
+    # Every check runs before the camera is touched.
     try:
-        new_width = float(args[0])
-    except ValueError:
-        _report_error(viewer, Message("Error: Zoom width must be a valid number."))
+        new_rect = view_for_width(viewer, args[0])
+    except ValueError as error:
+        _report_error(viewer, error.args[0])
         return
-    # float() also accepts nan, inf and 1e400; none of them is a view width.
-    if not math.isfinite(new_width) or new_width <= 0:
-        _report_error(viewer, Message("Error: Zoom width must be a positive, finite number."))
-        return
-
-    canvas_width, canvas_height = viewer.canvas.size
-    if canvas_width <= 0 or canvas_height <= 0:
-        _report_error(viewer, Message("Error: The canvas has no visible area, so the zoom cannot be applied."))
-        return
+    new_width = new_rect[2]
 
     camera = viewer.view.camera
     rect = camera.rect
-
-    center_x = rect.pos[0] + (rect.width / 2.0)
-    center_y = rect.pos[1] + (rect.height / 2.0)
-
-    aspect_ratio = canvas_width / canvas_height
-
-    half_w = new_width / 2.0
-    half_h = (new_width / aspect_ratio) / 2.0
-    x_range = (center_x - half_w, center_x + half_w)
-    y_range = (center_y - half_h, center_y + half_h)
-    # Every check runs before the camera is touched. A huge finite width can still
-    # overflow to inf on a tall canvas, and a scale below float32's normal range is too large.
-    if (not all(math.isfinite(value) for value in x_range + y_range)
-            or canvas_width < new_width * _FLOAT32_SMALLEST_NORMAL):
-        _report_error(viewer, Message("Error: Zoom width is too large for the current view."))
-        return
-    if (canvas_width > new_width * _FLOAT32_LARGEST
-            or new_width < max(abs(center_x), abs(center_y)) * canvas_width * _FLOAT32_EPSILON):
-        _report_error(viewer, Message(
-            "Error: Zoom width is too small to draw accurately at the current view centre."
-        ))
-        return
 
     # The rectangle is set directly, as the print command does: set_range adds a margin
     # to the requested range, and its margin=0 still adds 0.1 to each side.
     previous = (rect.pos[0], rect.pos[1], rect.width, rect.height)
     try:
-        camera.rect = (x_range[0], y_range[0], new_width, new_width / aspect_ratio)
+        camera.rect = new_rect
     except Exception as error:
         # The camera may already hold the new rectangle, so put the previous one back.
         camera.rect = previous

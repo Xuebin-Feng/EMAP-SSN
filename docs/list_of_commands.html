@@ -1580,13 +1580,14 @@
                     <div class="syntax-content">print [filename] [modifiers]</div>
                     <button class="copy-btn" onclick="copyText('print', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> The print command exports the network view while temporarily suppressing interactive overlays such as instructions, zoom/tooltip text, hidden-node count, metadata HUD, and command-console text. Images are routed beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Saved_Images/</code>); a filename must be a plain file name, not a path, and receives <code>.png</code> or <code>.svg</code> when missing. Every PNG mode automatically trims background-only margins after rendering while retaining a fixed 20-pixel border around the rendered content; SVG view-box padding is unchanged.</p>
+                <p><strong>Overview:</strong> The print command exports the network view while temporarily suppressing interactive overlays such as instructions, zoom/tooltip text, hidden-node count, metadata HUD, and command-console text. PNG captures also leave out the hover colour of the node under the mouse and the halo of the clicked node, which return afterwards; selection borders stay. Images are routed beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Saved_Images/</code>); a filename must be a plain file name, not a path, and receives <code>.png</code> or <code>.svg</code> when missing. Every PNG mode automatically trims background-only margins after rendering while retaining a fixed 20-pixel border around the rendered content; SVG view-box padding is unchanged.</p>
                 
                 <div class="subheading">Modifiers</div>
                 <ul>
                     <li><strong>transparent:</strong> Removes the solid background, making the output PNG transparent.</li>
                     <li><strong>full:</strong> Bypasses OpenGL camera edge-clipping. Automatically pans the camera across the network, captures high-resolution tiles, and stitches them into a massive, ultra-high-resolution PNG. Can be combined with transparency.</li>
                     <li><strong>svg:</strong> Writes a layered Scalable Vector Graphic of the network as displayed, without shutting down the OpenGL viewer: visible nodes and the edges shown on screen (the similarity-threshold and UMAP-mode filters apply), in the configured edge and node-boundary colors. Text labels are not included. Node sizes and line widths follow the current zoom, so the SVG keeps the proportions shown on screen. Cannot be combined with other modifiers.</li>
+                    <li><strong>zoom N:</strong> Only with <code>full</code> or <code>svg</code>, anywhere among the modifiers. Draws at the scale <code>zoom N</code> would set, the view N scene units wide on the current canvas, without moving the view; N is checked as the <code>zoom</code> command checks it. With <code>full</code>, node sizes stay in screen pixels and a smaller N gives a larger image; an image whose longest side is under 1000&nbsp;px is still saved, with a warning. With <code>svg</code>, node sizes and line widths are written as on a view N units wide. Refused with a plain PNG. The word after <code>zoom</code> is always read as N, so a file named zoom is written <code>zoom.png</code>.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1595,6 +1596,8 @@
                     <li class="example-item"><span>print my_network transparent</span><button class="copy-btn" onclick="copyText('print my_network transparent', this)">Copy</button></li>
                     <li class="example-item"><span>print my_network full transparent</span><button class="copy-btn" onclick="copyText('print my_network full transparent', this)">Copy</button></li>
                     <li class="example-item"><span>print my_network svg</span><button class="copy-btn" onclick="copyText('print my_network svg', this)">Copy</button></li>
+                    <li class="example-item"><span>print my_network full zoom 500</span><button class="copy-btn" onclick="copyText('print my_network full zoom 500', this)">Copy</button></li>
+                    <li class="example-item"><span>print my_network svg zoom 500</span><button class="copy-btn" onclick="copyText('print my_network svg zoom 500', this)">Copy</button></li>
                 </ul>
             </section>
 
