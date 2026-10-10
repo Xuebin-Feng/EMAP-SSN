@@ -3170,6 +3170,34 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>scalar</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>tiled</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>serial</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>pool</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>tile-heavy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>balanced</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>matrix-heavy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{device}, {plan} plan</source>
         <translation type="unfinished"></translation>
     </message>

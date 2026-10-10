@@ -4429,32 +4429,67 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">没有阶段 {stage}。可用的阶段为 {stages}。</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+84"/>
+        <source>scalar</source>
+        <translation type="unfinished">标量</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>tiled</source>
+        <translation type="unfinished">分块</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>serial</source>
+        <translation type="unfinished">串行</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>pool</source>
+        <translation type="unfinished">进程池</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>tile-heavy</source>
+        <translation type="unfinished">偏重分块</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>balanced</source>
+        <translation type="unfinished">均衡</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>matrix-heavy</source>
+        <translation type="unfinished">偏重矩阵</translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>{device}, {plan} plan</source>
-        <translation type="unfinished">{device}，{plan} 方案</translation>
+        <translation type="unfinished">{device}，{plan}方案</translation>
     </message>
     <message numerus="yes">
         <location line="+2"/>
         <source>{device}, {plan} plan with the {profile} memory profile, %n lane(s)</source>
         <translation type="unfinished">
-            <numerusform>{device}，{plan} 方案，{profile} 内存配置，%n 个通道</numerusform>
+            <numerusform>{device}，{plan}方案，{profile}的内存配置，%n 个通道</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+3"/>
+        <location line="+4"/>
         <source>{device}, {plan} plan, %n lane(s)</source>
         <translation type="unfinished">
-            <numerusform>{device}，{plan} 方案，%n 个通道</numerusform>
+            <numerusform>{device}，{plan}方案，%n 个通道</numerusform>
         </translation>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+389"/>
+        <location line="+390"/>
         <source>CPU</source>
         <translation type="unfinished">CPU</translation>
     </message>
     <message>
-        <location line="-375"/>
+        <location line="-376"/>
         <source>not recorded</source>
         <translation type="unfinished">未记录</translation>
     </message>
@@ -4570,7 +4605,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+0"/>
-        <location line="+21"/>
+        <location line="+22"/>
         <source>Measured</source>
         <translation type="unfinished">测量值</translation>
     </message>

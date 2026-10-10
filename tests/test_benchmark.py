@@ -685,6 +685,25 @@ class BenchmarkLanguageTests(unittest.TestCase):
                 title = benchmark.decision_blocks({"kind": "layout_device", "size_class": size})[0][1]
                 self.assertIn(f" {Localization.pseudo_translate(size)} ", Localization.display_text(title))
 
+    def test_a_plan_names_its_variant_and_memory_profile_in_the_reports_language(self):
+        from tests.translation_fixtures import pseudo_language
+
+        pseudo_language(self, qt_application())
+        for variant in benchmark.PLAN_NAMES:
+            with self.subTest(variant=variant):
+                shown = benchmark.candidate_text({"device": "#1", "backend": "cpu", "variant": variant}, "search_plan")
+                self.assertIn(f" {Localization.pseudo_translate(variant)} ", Localization.display_text(shown))
+        for profile in benchmark.PROFILE_NAMES:
+            with self.subTest(profile=profile):
+                candidate = {"device": "#1", "backend": "cuda", "variant": "tiled", "profile": profile, "lanes": 2}
+                shown = Localization.display_text(benchmark.candidate_text(candidate, "alignment_plan"))
+                for name in ("tiled", profile):
+                    self.assertIn(f" {Localization.pseudo_translate(name)} ", shown)
+        precision = {"kind": "matmul_precision", "reason": "not_equivalent", "unit": "pairs/s",
+                     "rates": [{"precision": "ieee_fp32", "variant": "tiled", "value": 1.0}]}
+        rows = benchmark.decision_blocks(precision)[1][1]
+        self.assertEqual(Localization.display_text(rows[1][1]), Localization.pseudo_translate("tiled"))
+
     def test_a_run_in_the_pseudo_language_writes_only_the_txt_in_it(self):
         qt_application()
         folder = Path(self.enterContext(tempfile.TemporaryDirectory()))

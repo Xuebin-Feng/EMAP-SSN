@@ -1651,17 +1651,34 @@ def stage_rates(outcome, inputs):
     return []
 
 
+# The plans' variants and the memory profiles, as the report names them. The Tools
+# window names the first two "execution modes" too, so both read alike in a language.
+PLAN_NAMES = {
+    "scalar": Message("scalar"),
+    "tiled": Message("tiled"),
+    "serial": Message("serial"),
+    "pool": Message("pool"),
+}
+PROFILE_NAMES = {
+    "tile-heavy": Message("tile-heavy"),
+    "balanced": Message("balanced"),
+    "matrix-heavy": Message("matrix-heavy"),
+}
+
+
 def candidate_text(candidate, kind):
     """The device, and for a plan its variant and lanes, of one Auto candidate."""
     device = candidate.get("device") or candidate.get("spec") or "?"
     if kind in ("alignment_plan", "injection_plan", "search_plan") and candidate.get("variant"):
+        plan = PLAN_NAMES.get(candidate["variant"], candidate["variant"])
         if candidate.get("backend") == "cpu":
-            return Message("{device}, {plan} plan", device=device, plan=candidate["variant"])
+            return Message("{device}, {plan} plan", device=device, plan=plan)
         if candidate.get("profile"):
             return Message("{device}, {plan} plan with the {profile} memory profile, %n lane(s)",
-                           device=device, plan=candidate["variant"], profile=candidate["profile"],
+                           device=device, plan=plan, profile=PROFILE_NAMES.get(candidate["profile"],
+                                                                                candidate["profile"]),
                            n=int(candidate.get("lanes") or 1))
-        return Message("{device}, {plan} plan, %n lane(s)", device=device, plan=candidate["variant"],
+        return Message("{device}, {plan} plan, %n lane(s)", device=device, plan=plan,
                        n=int(candidate.get("lanes") or 1))
     return device
 
@@ -1920,7 +1937,8 @@ def decision_blocks(decision):
         if rates:
             blocks.append(("table", [[Message("Precision"), Message("Plan"), Message("Measured")]] + [
                 [PRECISION_NAMES.get(rate.get("precision"), str(rate.get("precision"))),
-                 str(rate.get("variant") or ""), value_text(rate.get("value"), decision.get("unit"))]
+                 PLAN_NAMES.get(rate.get("variant"), str(rate.get("variant") or "")),
+                 value_text(rate.get("value"), decision.get("unit"))]
                 for rate in rates
             ]))
         return blocks
