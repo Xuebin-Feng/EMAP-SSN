@@ -278,6 +278,10 @@ still change before version 1.0.0.
   the job ends, its `result` holds the benchmark's English summary: the outcome, the
   report paths, and each stage's time, throughput, device and Auto choices. `list_tools`
   describes the stages and the expected duration. MCP server version 0.14.0.
+- **`run stop`.** It stops the Python command scripts the Viewer is running, with
+  every process they started, and none of their commands run. With none running, it
+  says so and succeeds. A script started through MCP or the Agent page reports the
+  stop as cancelled.
 
 ### Changed
 
@@ -617,6 +621,21 @@ still change before version 1.0.0.
   colour's hue, a hue strip, the colour's hex code to type, and preset colours with the
   Viewer's defaults among them. Each choice fills the field at once; Enter or a click
   outside closes the card, and Esc puts the field's colour back.
+- **Leiden results depend only on the network.** `cluster` and `subcluster` sort the
+  edges into one order, each as its lower and higher node, before Leiden runs. Its
+  seeded partition used to change with the order and direction a cache stores the
+  edges in (130 against 129 clusters on one reordered network), so Leiden results
+  change once. On 48.7 million edges the sort takes 0.2 s when they are stored in node
+  order and up to 10 s when they are in random order.
+- **MCL starts from single precision in `subcluster` too.** `cluster mcl` built its
+  matrix from float32 scores and `subcluster mcl` from float64 ones; both use float32
+  now. MCL works in float64 from its first pruning on, so only its first round's
+  rounding changes, and a subcluster changes only where that tipped a node.
+- **`print full` refuses an image of more than 250 megapixels.** It works out the
+  image's size before drawing any tile, and refuses a larger one, with or without
+  `zoom N`, naming the smallest N that fits. It used to start anyway, and could run
+  for hours or fail only when memory ran out. The limit is `MAX_FULL_IMAGE_MEGAPIXELS`
+  in `src/commands/print.py`; making the image takes about 9 bytes of memory per pixel.
 
 ### Fixed
 
@@ -1064,6 +1083,11 @@ still change before version 1.0.0.
   failed generation, a window closed during generation, or a VR launch refused because
   another VR viewer was running left the file behind. Each now deletes the file as soon
   as it has read it; the VR layout launcher does the same for its layout settings file.
+- A Python command script started by `run` kept running after the Viewer closed, and
+  one that never ended kept further `.py` runs refused until the Viewer restarted.
+  Closing the Viewer now ends the script and every process it started, and quitting
+  it does the same for scripts started through MCP or the Agent page; `run stop` ends
+  them while the Viewer runs.
 
 ### Removed
 
