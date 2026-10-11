@@ -358,6 +358,19 @@ still change before version 1.0.0.
   macOS); they now check once more, quietly, after taking the setup lock, in case
   another launcher finished the setup first. Started from a terminal, they print why
   setup is needed once instead of three times (twice on Linux and macOS).
+- **Setup stops on an unsupported system and says why.** On Windows older than
+  Windows 10 version 1809 or not x64, an Intel Mac or macOS older than 14, or Linux
+  other than x86_64 or with glibc older than 2.34, setup used to fail partway through
+  with a package resolution error from uv. It now stops before it installs any Python
+  packages and names the requirement the system misses. Setting
+  `SSN_ALLOW_UNSUPPORTED_HOST=1` skips the check, for experiments on other systems.
+- **Every listed Python requirement is pinned.** The ESM runtime dependencies in
+  `src/esm_runtime_requirements.txt` and Markdown in `src/requirements.txt` had no
+  fixed versions, so a new install took whatever was newest that day. They are pinned
+  to the versions this release was tested with, like every other package the two
+  files name; their own dependencies still resolve to current compatible versions. The
+  first launch after updating installs the new pins and reuses the installed PyTorch
+  build once it validates.
 - Faster Viewer startup on large networks: edges are drawn without a per-edge Python
   loop, and the top-percent cutoff uses a partial sort. On a 12,927-node network with
   4.18 million displayed edges, headless readiness fell from 14.0 s to 9.6 s on the
@@ -1052,6 +1065,19 @@ still change before version 1.0.0.
   of the saved hardware profile, the first launch after updating on Linux with an AMD
   or Intel GPU, or an NVIDIA GPU without a working `nvidia-smi`, re-validates the
   installed PyTorch backend once without reinstalling it.
+- On Debian 13, and on distributions built on Ubuntu 24.04 such as Linux Mint 22 and
+  Pop!_OS, EMAP-SSN Tools never started. Its launcher checked for `libasound2` and
+  `libcups2`, which those systems carry only as `libasound2t64` and `libcups2t64`, so
+  the check failed on every launch, even after running the `sudo apt install` command
+  it printed: the new names were used only when `/etc/os-release` said `ID=ubuntu`.
+  Either name now satisfies the check, and a missing library is suggested under the
+  name apt offers. The check also covers the libraries Qt itself needs (OpenGL,
+  Fontconfig, FreeType and GLib, plus libxfixes3 and libxkbfile1 for QtWebEngine):
+  desktop systems always have them, but on a minimal Debian 13 the check passed and
+  then PySide6 failed to import with "libglib-2.0.so.0: cannot open shared object
+  file". The message EMAP-SSN Tools shows when QtWebEngine cannot load now gives the
+  package names for Debian 12 and 13 and Ubuntu-based distributions too, not only
+  Ubuntu's.
 - A hand-edited or damaged `ssn_backend.json` (the installer's state file in `.venv`)
   whose `schema` was not a number, such as `null`, `"abc"` or `NaN`, made every device
   lookup fail with `TypeError`, `ValueError` or `OverflowError`: the GUI's device
