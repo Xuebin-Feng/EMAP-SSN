@@ -578,6 +578,11 @@ still change before version 1.0.0.
   and ⚠️ markers are unchanged.
 - Tools' **Exit** button fills the row under the Script Description, up to the
   Language dropdown, so the tips card reaches the bottom of the window.
+- The **Pick** buttons of Config and VR Config open a colour picker on a card under the
+  button, in place of Qt's colour dialog: a square of saturation and brightness in the
+  colour's hue, a hue strip, the colour's hex code to type, and preset colours with the
+  Viewer's defaults among them. Each choice fills the field at once; Enter or a click
+  outside closes the card, and Esc puts the field's colour back.
 
 ### Fixed
 

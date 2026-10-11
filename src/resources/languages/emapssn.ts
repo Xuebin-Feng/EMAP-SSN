@@ -361,6 +361,17 @@
     </message>
 </context>
 <context>
+    <name>ColorPicker</name>
+    <message>
+        <source>Select Color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Color code</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>Config</name>
     <message>
         <source>EMAP-SSN Configuration</source>
@@ -1139,10 +1150,6 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <source>Pick</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Select Color</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

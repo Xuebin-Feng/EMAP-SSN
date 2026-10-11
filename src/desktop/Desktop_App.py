@@ -25,7 +25,9 @@ from PySide6.QtGui import (
     QFont,
     QFontMetrics,
     QFontMetricsF,
+    QLinearGradient,
     QPainter,
+    QPainterPath,
     QPalette,
     QPen,
     QTextCursor,
@@ -39,6 +41,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLayout,
+    QLineEdit,
     QMessageBox,
     QPushButton,
     QSplitter,
@@ -2273,6 +2276,305 @@ def redraw_in_language(window, language, build, catalog_dir=LANGUAGES_DIR, extra
     return replacement
 
 
+# =====================================================================
+# 10. The Colour Picker
+# =====================================================================
+
+# The picker's preset colours, in two rows: black, greys and white, then the
+# hue circle in Tailwind's 500 shades, with the Viewer's default colours
+# (grey text, #ff0000, #ffaa00 and #4488ff nodes) in place of their neighbours.
+COLOR_PRESETS = (
+    "#000000", "#808080", "#d4d4d8", "#ffffff", "#ff0000", "#f97316", "#ffaa00", "#eab308", "#84cc16",
+    "#22c55e", "#14b8a6", "#06b6d4", "#3b82f6", "#4488ff", "#6366f1", "#8b5cf6", "#d946ef", "#ec4899",
+)
+
+
+def color_from_text(text):
+    """The colour a field's text names (#rrggbb, rrggbb, #rgb or a name such as grey), or an invalid QColor."""
+    text = text.strip()
+    if re.fullmatch(r"[0-9a-fA-F]{3}|[0-9a-fA-F]{6}", text):
+        text = "#" + text
+    return QColor.fromString(text) if text else QColor()
+
+
+class ColorPicker(QWidget):
+    """A colour picker on a card that pops up, as the theme palette does.
+
+    A square in the colour's hue, saturation across and brightness down; a
+    hue strip; the colour beside its hex code, which takes typing; and preset
+    colours, the one shown ringed. Every change emits color_changed at once.
+    Enter, or a click outside the card, closes it; Esc closes it and emits
+    cancelled, for the colour it opened with to come back.
+    """
+
+    color_changed = QtCore.Signal(QColor)
+    cancelled = QtCore.Signal()
+
+    PAD = 12            # inside the card
+    GAP = 12            # between its parts
+    AREA_WIDTH = 248    # the square, and every part's width
+    AREA_HEIGHT = 156
+    HUE_HEIGHT = 12
+    SWATCH = 20         # a preset's diameter
+    SWATCH_GAP = 6      # between the presets' rows
+    PER_ROW = 9
+    FIELD_WIDTH = 112   # the hex code's field
+    RADIUS = 10         # the card's corners
+    SHADOW = 8          # as ThemeColorPalette's
+    # The hue strip stops short of 360 degrees, which is red again, at its left.
+    MAX_HUE = 359.99 / 360
+
+    def __init__(self, color, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint
+                         | Qt.WindowType.NoDropShadowWindowHint)
+        self._translucent = (sys.platform in ("win32", "darwin")
+                             or QApplication.platformName() in ("wayland", "offscreen"))
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, self._translucent)
+        self.setMouseTracking(True)
+        self.setAccessibleName(QtCore.QCoreApplication.translate("ColorPicker", "Select Color"))
+        self.hovered = None     # the preset under the mouse
+        self._dragging = None   # "area" or "hue", while the mouse drags in it
+        self._hue = self._saturation = self._value = 0.0
+        self._color = QColor()
+        self.hex_field = QLineEdit(self)
+        self.hex_field.setAccessibleName(QtCore.QCoreApplication.translate("ColorPicker", "Color code"))
+        self.hex_field.textEdited.connect(self._hex_edited)
+        self.hex_field.editingFinished.connect(lambda: self.hex_field.setText(self._color.name()))
+        self.hex_field.returnPressed.connect(self.close)
+        self._field_height = self.hex_field.sizeHint().height()
+        rows = math.ceil(len(COLOR_PRESETS) / self.PER_ROW)
+        self._card_size = QSize(
+            self.AREA_WIDTH + 2 * self.PAD,
+            2 * self.PAD + self.AREA_HEIGHT + self.HUE_HEIGHT + self._field_height + 3 * self.GAP
+            + rows * self.SWATCH + (rows - 1) * self.SWATCH_GAP,
+        )
+        margin = self.SHADOW if self._translucent else 0
+        self.setFixedSize(self._card_size.width() + 2 * margin, self._card_size.height() + 2 * margin)
+        field = self.color_swatch_rect()
+        self.hex_field.setGeometry(round(field.right() + 8), round(field.y()), self.FIELD_WIDTH, self._field_height)
+        color = QColor(color)
+        self._set_color(color if color.isValid() else QColor("#ffffff"), emit=False)
+
+    def color(self):
+        """The colour the picker shows."""
+        return QColor(self._color)
+
+    # --- Where its parts are ---
+
+    def card_rect(self):
+        """Where the card is, inside the shadow's margin when there is one."""
+        margin = self.SHADOW if self._translucent else 0
+        top = margin - 2 if self._translucent else 0
+        return QRectF(margin, top, self._card_size.width(), self._card_size.height())
+
+    def area_rect(self):
+        card = self.card_rect()
+        return QRectF(card.x() + self.PAD, card.y() + self.PAD, self.AREA_WIDTH, self.AREA_HEIGHT)
+
+    def hue_rect(self):
+        area = self.area_rect()
+        return QRectF(area.x(), area.bottom() + self.GAP, self.AREA_WIDTH, self.HUE_HEIGHT)
+
+    def color_swatch_rect(self):
+        """The colour shown, a square as tall as the hex code's field beside it."""
+        hue = self.hue_rect()
+        return QRectF(hue.x(), hue.bottom() + self.GAP, self._field_height, self._field_height)
+
+    def preset_rect(self, index):
+        row, column = divmod(index, self.PER_ROW)
+        step = (self.AREA_WIDTH - self.SWATCH) / (self.PER_ROW - 1)
+        top = self.color_swatch_rect().bottom() + self.GAP
+        return QRectF(self.area_rect().x() + column * step, top + row * (self.SWATCH + self.SWATCH_GAP),
+                      self.SWATCH, self.SWATCH)
+
+    def preset_at(self, position):
+        """The preset whose circle (with its ring) holds position, or None."""
+        for index in range(len(COLOR_PRESETS)):
+            if self.preset_rect(index).adjusted(-3, -3, 3, 3).contains(position):
+                return index
+        return None
+
+    # --- The colour ---
+
+    def _set_color(self, color, *, emit=True, keep_field=False):
+        """Show color as it is; a grey keeps the hue the strip shows."""
+        hue = color.hsvHueF()
+        if hue >= 0:
+            self._hue = min(hue, self.MAX_HUE)
+        self._saturation = max(0.0, color.hsvSaturationF())
+        self._value = color.valueF()
+        self._show(QColor(color.name()), emit, keep_field)
+
+    def _set_hsv(self):
+        self._show(QColor(QColor.fromHsvF(self._hue, self._saturation, self._value).name()), True, False)
+
+    def _show(self, color, emit, keep_field):
+        changed = color.name() != self._color.name()
+        self._color = color
+        if not keep_field:
+            self.hex_field.setText(color.name())
+        self.update()
+        if emit and changed:
+            self.color_changed.emit(QColor(color))
+
+    def _hex_edited(self, text):
+        color = color_from_text(text)
+        if color.isValid():
+            self._set_color(color, keep_field=True)
+
+    # --- Painting ---
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        card = self.card_rect()
+        radius = self.RADIUS if self._translucent else 0
+        if self._translucent:
+            painter.setPen(Qt.PenStyle.NoPen)
+            for grow, alpha in ((7.0, 4), (5.0, 6), (3.0, 9), (1.5, 12)):
+                painter.setBrush(QColor(9, 9, 11, alpha))
+                painter.drawRoundedRect(card.adjusted(-grow, -grow + 2, grow, grow + 2),
+                                        radius + grow, radius + grow)
+        painter.setPen(QPen(QColor(TOKENS["border"]), 1.0))
+        painter.setBrush(QColor(TOKENS["surface"]))
+        painter.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+
+        # Saturation from left to right, brightness from top to bottom, in the hue.
+        area = self.area_rect()
+        clip = QPainterPath()
+        clip.addRoundedRect(area, 8, 8)
+        painter.save()
+        painter.setClipPath(clip)
+        across = QLinearGradient(area.topLeft(), area.topRight())
+        across.setColorAt(0, QColor("#ffffff"))
+        across.setColorAt(1, QColor.fromHsvF(self._hue, 1, 1))
+        painter.fillRect(area, across)
+        down = QLinearGradient(area.topLeft(), area.bottomLeft())
+        down.setColorAt(0, QColor(0, 0, 0, 0))
+        down.setColorAt(1, QColor(0, 0, 0, 255))
+        painter.fillRect(area, down)
+        painter.restore()
+        self._paint_handle(painter, QtCore.QPointF(area.x() + self._saturation * area.width(),
+                                                   area.y() + (1 - self._value) * area.height()), self._color)
+
+        bar = self.hue_rect()
+        hues = QLinearGradient(bar.topLeft(), bar.topRight())
+        for step in range(7):
+            hues.setColorAt(step / 6, QColor.fromHsvF((step / 6) % 1.0, 1, 1))
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(hues)
+        painter.drawRoundedRect(bar, bar.height() / 2, bar.height() / 2)
+        self._paint_handle(painter, QtCore.QPointF(bar.x() + self._hue * bar.width(), bar.center().y()),
+                           QColor.fromHsvF(self._hue, 1, 1))
+
+        painter.setPen(QPen(QColor(0, 0, 0, 40), 1.0))
+        painter.setBrush(self._color)
+        painter.drawRoundedRect(self.color_swatch_rect().adjusted(0.5, 0.5, -0.5, -0.5), 6, 6)
+
+        for index, preset in enumerate(COLOR_PRESETS):
+            rect = self.preset_rect(index)
+            if preset == self._color.name():
+                _paint_ring(painter, rect, TOKENS["accent"])
+            elif index == self.hovered:
+                _paint_ring(painter, rect, TOKENS["field_border_hover"])
+            painter.setPen(QPen(QColor(0, 0, 0, 40), 1.0))
+            painter.setBrush(QColor(preset))
+            painter.drawEllipse(rect)
+        painter.end()
+
+    @staticmethod
+    def _paint_handle(painter, center, fill):
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 50))
+        painter.drawEllipse(center + QtCore.QPointF(0, 1), 9, 9)
+        painter.setBrush(QColor("#ffffff"))
+        painter.drawEllipse(center, 8, 8)
+        painter.setBrush(fill)
+        painter.drawEllipse(center, 5.5, 5.5)
+
+    # --- The mouse and keys ---
+
+    def mousePressEvent(self, event):
+        if event.button() != Qt.MouseButton.LeftButton:
+            super().mousePressEvent(event)
+            return
+        position = event.position()
+        if self.area_rect().contains(position):
+            self._dragging = "area"
+        elif self.hue_rect().adjusted(0, -4, 0, 4).contains(position):
+            self._dragging = "hue"
+        else:
+            index = self.preset_at(position)
+            if index is not None:
+                self._set_color(QColor(COLOR_PRESETS[index]))
+            return
+        self._drag_to(position)
+
+    def mouseMoveEvent(self, event):
+        position = event.position()
+        if self._dragging:
+            self._drag_to(position)
+            return
+        index = self.preset_at(position)
+        if index != self.hovered:
+            self.hovered = index
+            self.update()
+        over_part = (index is not None or self.area_rect().contains(position)
+                     or self.hue_rect().adjusted(0, -4, 0, 4).contains(position))
+        self.setCursor(Qt.CursorShape.PointingHandCursor if over_part else Qt.CursorShape.ArrowCursor)
+
+    def mouseReleaseEvent(self, event):
+        if self._dragging:
+            self._drag_to(event.position())
+            self._dragging = None
+
+    def _drag_to(self, position):
+        if self._dragging == "area":
+            area = self.area_rect()
+            self._saturation = min(1.0, max(0.0, (position.x() - area.x()) / area.width()))
+            self._value = 1.0 - min(1.0, max(0.0, (position.y() - area.y()) / area.height()))
+        else:
+            bar = self.hue_rect()
+            self._hue = min(self.MAX_HUE, max(0.0, (position.x() - bar.x()) / bar.width()))
+        self._set_hsv()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.cancelled.emit()
+            self.close()
+        elif event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
+
+def open_color_picker(button, field):
+    """Open a ColorPicker under button for the colour field (a QLineEdit) holds; return it.
+
+    The card's right edge lines up with the button's, below it, or above it
+    where the screen has no room below. Each colour picked goes into field
+    at once, as #rrggbb; Esc puts back the text field held. A field with no
+    colour opens at white.
+    """
+    original = field.text()
+    picker = ColorPicker(color_from_text(original), button)
+    picker.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+    picker.color_changed.connect(lambda color: field.setText(color.name()))
+    picker.cancelled.connect(lambda: field.setText(original))
+    card = picker.card_rect()
+    top_left = button.mapToGlobal(QtCore.QPoint(0, 0))
+    x = top_left.x() + button.width() - round(card.right())
+    y = top_left.y() + button.height() + 4 - round(card.top())
+    screen = button.screen().availableGeometry()
+    if y + card.bottom() > screen.bottom():
+        y = top_left.y() - 4 - round(card.bottom())
+    picker.move(max(screen.left(), min(x, screen.right() - picker.width())), y)
+    picker.show()
+    picker.hex_field.setFocus()
+    picker.hex_field.selectAll()
+    return picker
+
+
 __all__ = [
     "PRODUCT_NAME",
     "APPLICATION_VERSION",
@@ -2379,4 +2681,8 @@ __all__ = [
     "restore_view",
     "restore_view_positions",
     "redraw_in_language",
+    "COLOR_PRESETS",
+    "ColorPicker",
+    "color_from_text",
+    "open_color_picker",
 ]

@@ -580,7 +580,7 @@ if __name__ == "__main__":
         QHBoxLayout, QGridLayout, QTabWidget, QFormLayout, QLineEdit,
         QComboBox, QPushButton, QMessageBox,
         QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
-        QStyle, QStyleOptionSlider, QStyleOptionSpinBox, QFileDialog, QColorDialog,
+        QStyle, QStyleOptionSlider, QStyleOptionSpinBox, QFileDialog,
         QSizePolicy, QFrame, QScrollArea,
     )
     from desktop.Desktop_App import (
@@ -603,6 +603,7 @@ if __name__ == "__main__":
         language_selector_row,
         LanguageSelector,
         mark_name_item,
+        open_color_picker,
         qt_monospace_font,
         redraw_in_language,
         redraw_in_theme_color,
@@ -3182,15 +3183,9 @@ if __name__ == "__main__":
                 btn = set_role(QPushButton(translate("Config", "Pick")), "compact")
                 fit_buttons_to_text(btn)
                 
-                def pick_color(checked, line_edit=le, color_swatch=swatch):
-                    initial = line_edit.text()
-                    color = QColorDialog.getColor(
-                        QColor(initial) if initial else QColor("white"), self, translate("Config", "Select Color")
-                    )
-                    if color.isValid():
-                        hex_val = color.name()
-                        line_edit.setText(hex_val)
-                        color_swatch.setStyleSheet(SWATCH_STYLESHEET.format(color=hex_val))
+                def pick_color(checked, line_edit=le, button=btn):
+                    # The field, and so its swatch, follows the picker at once.
+                    self.color_picker = open_color_picker(button, line_edit)
                 
                 btn.clicked.connect(pick_color)
                 
