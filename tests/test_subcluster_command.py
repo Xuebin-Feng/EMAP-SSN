@@ -407,6 +407,46 @@ class LeidenSubclusterIsolateTests(unittest.TestCase):
         np.testing.assert_array_equal(viewer.current_colors[8], GREY)
 
 
+class MCLPrecisionTests(unittest.TestCase):
+    """cluster mcl and subcluster mcl give MCL the same float32 matrix, so a
+    cluster holding the whole network splits as cluster splits the network."""
+
+    def matrix_given_to_mcl(self, command, viewer, args):
+        captured = []
+        real = subcluster_command.network_clustering.markov_clusters
+
+        def capture(matrix, inflation):
+            captured.append(matrix.copy())
+            return real(matrix, inflation)
+
+        with mock.patch.object(
+            subcluster_command.network_clustering, "markov_clusters", side_effect=capture
+        ):
+            _succeeded, failed, _output = run_command(command, viewer, args)
+        failed.assert_not_called()
+        self.assertEqual(len(captured), 1)
+        return captured[0]
+
+    def test_both_commands_give_mcl_the_same_float32_matrix(self):
+        scores = (0.1, 0.7, 0.3, 0.05, 0.9, 1.0 / 3.0, 0.2)
+        # Desktop viewers hold float32 scores; other callers may hold float64.
+        for dtype in (np.float32, np.float64, None):
+            with self.subTest(dtype=dtype):
+                matrices = []
+                for command, args in (
+                    (subcluster_command.cluster_cmd, ["mcl", "2", "1"]),
+                    (subcluster_command, ["cluster_1", "mcl", "2", "1"]),
+                ):
+                    viewer = network_viewer(7, BARBELL_EDGES, cluster_labels=[1] * 7)
+                    if dtype is not None:
+                        viewer.edge_scores = np.asarray(scores, dtype=dtype)
+                    matrices.append(self.matrix_given_to_mcl(command, viewer, args))
+                whole, sub = matrices
+                self.assertEqual(whole.dtype, np.float32)
+                self.assertEqual(sub.dtype, np.float32)
+                np.testing.assert_array_equal(whole.toarray(), sub.toarray())
+
+
 class SubclusterNameTests(unittest.TestCase):
     """The cluster is named as expressions name it, without leading zeros."""
 

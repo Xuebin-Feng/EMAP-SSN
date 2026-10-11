@@ -192,6 +192,24 @@ def mcl_edge_score_error(scores):
     ], separator="\n")
 
 
+def mcl_adjacency(edges, scores, n_nodes):
+    """The symmetric adjacency matrix MCL runs on, in float32 for cluster and subcluster alike.
+
+    scores is None for an unweighted network, whose edges all weigh 1. Both
+    commands build it here, so MCL starts from the same precision in each.
+    """
+    import scipy.sparse as sp
+
+    row = np.concatenate([edges[:, 0], edges[:, 1]])
+    col = np.concatenate([edges[:, 1], edges[:, 0]])
+    if scores is None:
+        values = np.ones(len(row), dtype=np.float32)
+    else:
+        values = np.asarray(scores, dtype=np.float32)
+        values = np.concatenate([values, values])
+    return sp.csr_matrix((values, (row, col)), shape=(n_nodes, n_nodes))
+
+
 def label_mcl_clusters(clusters, n_nodes, min_size):
     """Label nodes by the clusters markov_clusters returns, 1-based; the rest are -1.
 
@@ -431,17 +449,9 @@ def run(viewer, args):
             return
 
         print("Building Sparse Adjacency Matrix...")
-        row = np.concatenate([edges[:, 0], edges[:, 1]])
-        col = np.concatenate([edges[:, 1], edges[:, 0]])
-        
-        # Optionally use edge scores if they exist in the viewer, else default to 1
-        if hasattr(viewer, 'edge_scores'):
-            d_vals = np.concatenate([viewer.edge_scores, viewer.edge_scores])
-        else:
-            d_vals = np.ones(len(row))
-            
-        matrix = sp.csr_matrix((d_vals, (row, col)), shape=(n_nodes, n_nodes))
-        
+        # The edge scores weigh the edges when the viewer has them; otherwise each weighs 1.
+        matrix = mcl_adjacency(edges, getattr(viewer, 'edge_scores', None), n_nodes)
+
         # Suppress SciPy sparsity warnings triggered by MCL, for this call only.
         import warnings
         from scipy.sparse import SparseEfficiencyWarning

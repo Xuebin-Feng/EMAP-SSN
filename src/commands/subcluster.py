@@ -312,7 +312,7 @@ def run(viewer, args):
     global_to_local[subgraph_nodes] = np.arange(len(subgraph_nodes), dtype=np.int32)
     local_edges = global_to_local[edges[inside]]
     if hasattr(viewer, 'edge_scores'):
-        local_edge_scores = np.asarray(viewer.edge_scores)[inside].astype(np.float64)
+        local_edge_scores = np.asarray(viewer.edge_scores)[inside]
     else:
         local_edge_scores = None
 
@@ -352,15 +352,8 @@ def run(viewer, args):
             return
 
         print("Building Sparse Adjacency Matrix...")
-        row = np.concatenate([local_edges[:, 0], local_edges[:, 1]])
-        col = np.concatenate([local_edges[:, 1], local_edges[:, 0]])
-        
-        if local_edge_scores is not None:
-            d_vals = np.concatenate([local_edge_scores, local_edge_scores])
-        else:
-            d_vals = np.ones(len(row))
-            
-        matrix = sp.csr_matrix((d_vals, (row, col)), shape=(n_sub, n_sub))
+        # As cluster builds it: float32, so MCL starts from the same precision.
+        matrix = cluster_cmd.mcl_adjacency(local_edges, local_edge_scores, n_sub)
         
         # Suppress SciPy sparsity warnings triggered by MCL, for this call only.
         import warnings
