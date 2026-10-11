@@ -360,6 +360,13 @@ wheel index](https://download.pytorch.org/whl/cpu/torch/), and the platform
 requirements linked below. "Tested" refers to this application, whereas a
 vendor listing alone does not constitute live application testing.
 
+Before it installs any Python packages, setup checks these floors: x64
+Windows 10 version 1809 or newer, Apple Silicon with macOS 14 or newer, or
+x86_64 Linux with glibc 2.34 or newer. On any other system it stops and names
+the requirement the system misses, instead of failing partway through the
+installation. Setting `SSN_ALLOW_UNSUPPORTED_HOST=1` skips the check for
+experiments; such systems remain unsupported.
+
 ### Accelerator support by platform
 
 | Accelerator | Windows x64 | Linux x86_64 | macOS ARM64 |
@@ -478,6 +485,13 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
   saved state. Physical GPU addresses, device enumeration order, and driver
   updates that remain within the same CUDA compatibility profile do not force
   PyTorch to be reinstalled; the existing build is validated and reused.
+- The packages the installer names are pinned to the versions this release
+  was tested with: the base requirements in `src/requirements.txt`, the ESM
+  runtime dependencies in `src/esm_runtime_requirements.txt`, PyTorch,
+  Transformers, and ESM. The packages those depend on are not locked and
+  resolve to current compatible versions. The first launch after an update
+  installs any changed pins and reuses the installed PyTorch build once it
+  validates.
 - A shared HPC `.venv` retains its installed accelerator build when inspected
   from a CPU-only login node. CPU work remains available there, and accelerator
   tensor validation resumes on a compute node. Moving to a genuinely different
@@ -554,7 +568,7 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
      ./install.sh
      ```
 
-     On Ubuntu/Debian, the installer detects missing Qt xcb and QtWebEngine system libraries and offers to install them with `sudo apt`. These libraries cannot be installed by `pip` or `uv`.
+     On Ubuntu/Debian, the installer detects missing system libraries for Qt, its xcb platform plugin, and QtWebEngine, and offers to install them with `sudo apt`. These libraries cannot be installed by `pip` or `uv`.
 
      > [!NOTE]
      > On Fedora/RHEL, install the equivalent system libraries before launching:
@@ -562,7 +576,8 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
      > sudo dnf install nss nspr libXcomposite libXdamage libXrandr libxkbcommon-x11 \
      >                  libXtst mesa-libgbm mesa-libEGL libxslt alsa-lib cups-libs \
      >                  xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms \
-     >                  xcb-util-renderutil
+     >                  xcb-util-renderutil mesa-libGL fontconfig freetype glib2 \
+     >                  libXfixes libxkbfile
      > ```
 
      This will configure execution permissions and generate launchers (`emapssn` and `emapssn_tools`) as well as system `.desktop` application entries.
