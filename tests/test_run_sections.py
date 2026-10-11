@@ -1,0 +1,335 @@
+# Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
+# SPDX-License-Identifier: Apache-2.0
+
+"""The section runner (tests/run_sections.py): every test module sits in exactly one section of tests/sections.toml, changed files map to the sections whose tests use them, and each section runs as its own process whose log decides the verdict."""
+
+from __future__ import annotations
+
+import ast
+import io
+import os
+from pathlib import Path
+import tempfile
+import textwrap
+import unittest
+from unittest import mock
+
+from tests import run_sections
+from tests.run_sections import (
+    UNASSIGNED,
+    ReferenceIndex,
+    Section,
+    Selector,
+    check_assignment,
+    child_environment,
+    load_config,
+    parse_log,
+    path_matches,
+    runnable_sections,
+    section_command,
+    test_modules as list_test_modules,
+)
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
+
+def write(root, files):
+    for relative, text in files.items():
+        path = Path(root, relative)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(textwrap.dedent(text), encoding="utf-8")
+
+
+class SectionsFileTests(unittest.TestCase):
+    """The real tests/sections.toml."""
+
+    def test_every_test_module_is_in_exactly_one_section(self):
+        _, problems = check_assignment(load_config(), list_test_modules())
+        self.assertEqual(problems, [], "fix tests/sections.toml")
+
+    def test_every_section_runs_something(self):
+        for section in load_config().sections.values():
+            with self.subTest(section=section.name):
+                self.assertTrue(section.discover or section.modules)
+
+    def test_every_repository_check_names_a_test_that_exists(self):
+        for test_id in load_config().repo_checks:
+            with self.subTest(test=test_id):
+                package, module, *names = test_id.split(".")
+                self.assertEqual(package, "tests")
+                tree = ast.parse((PROJECT_ROOT / "tests" / f"{module}.py").read_text(encoding="utf-8"))
+                scope = tree.body
+                for name in names:
+                    found = [node for node in scope
+                             if isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name == name]
+                    self.assertTrue(found, f"{name} is not defined in tests/{module}.py")
+                    scope = found[0].body
+
+    def test_the_runner_and_its_file_are_not_collected_as_tests(self):
+        modules = list_test_modules()
+        self.assertNotIn("run_sections", modules)
+        self.assertIn("test_run_sections", modules)
+
+
+class AssignmentTests(unittest.TestCase):
+    def config(self, **sections):
+        return run_sections.Config(
+            sections={name: Section(name, modules=modules) for name, modules in sections.items()},
+            rules=[], full_suite=[], repo_checks=[])
+
+    def test_duplicates_missing_and_unlisted_modules_are_reported(self):
+        config = self.config(a=["test_one", "test_two"], b=["test_two", "test_gone"])
+        owner, problems = check_assignment(config, ["test_one", "test_two", "test_new"])
+        self.assertEqual(owner, {"test_one": "a", "test_two": "a"})
+        self.assertEqual(problems, [
+            "test_two is listed in both a and b",
+            "test_gone (section b) is not a test module in tests/",
+            "test_new is in no section of tests/sections.toml",
+        ])
+
+    def test_a_full_run_still_runs_modules_the_file_forgot(self):
+        config = self.config(a=["test_one", "test_gone"])
+        sections = runnable_sections(config, ["test_one", "test_new"])
+        self.assertEqual(sections["a"].modules, ["test_one"])
+        self.assertEqual(sections[UNASSIGNED].modules, ["test_new"])
+
+
+class GlobTests(unittest.TestCase):
+    def test_a_single_star_stays_in_its_folder_and_a_double_star_does_not(self):
+        self.assertTrue(path_matches("src/commands/hide.py", ["src/commands/*.py"]))
+        self.assertFalse(path_matches("src/commands/sub/hide.py", ["src/commands/*.py"]))
+        self.assertTrue(path_matches("opt_vr/src/a/b.py", ["opt_vr/**"]))
+        self.assertTrue(path_matches("src/resources/languages/zh_CN/help/x.md",
+                                     ["src/resources/languages/*/help/**"]))
+        self.assertFalse(path_matches("opt_vr_old/x.py", ["opt_vr/**"]))
+        self.assertTrue(path_matches("opt_vr", ["opt_vr"]))
+
+
+class SelectionTests(unittest.TestCase):
+    """A small project: which sections each kind of change selects."""
+
+    FILES = {
+        "tests/__init__.py": "",
+        "tests/sections.toml": """\
+            [sections.alpha]
+            modules = ["test_alpha"]
+            [sections.beta]
+            modules = ["test_beta", "test_gamma"]
+            [sections.opt_vr]
+            cwd = "opt_vr"
+            discover = true
+            [full_suite]
+            paths = ["tests/__init__.py"]
+            [[rules]]
+            paths = ["assets/**"]
+            sections = ["beta"]
+            [[rules]]
+            paths = ["opt_vr", "opt_vr/**"]
+            sections = ["opt_vr"]
+            [repo_checks]
+            tests = ["tests.test_alpha.AlphaTests", "tests.test_beta.BetaTests.test_scan"]
+            """,
+        "tests/test_alpha.py": "import core\n",
+        "tests/test_beta.py": "from tests.helper import thing\n",
+        "tests/helper.py": "from widgets import widget\nthing = 1\n",
+        "tests/test_gamma.py": "PAGE = 'page.html'\nTARGET = 'Named_Module.attribute'\n",
+        "tests/test_new.py": "",
+        "src/core.py": "import deep\n",
+        "src/deep.py": "",
+        "src/widgets/__init__.py": "",
+        "src/widgets/widget.py": "",
+        "src/page.html": "",
+        "src/Named_Module.py": "",
+        "src/lonely.py": "",
+        "src/shared.py": "",
+        "assets/logo.png": "",
+        "docs/guide.md": "",
+        "opt_vr/tests/test_vr.py": "import shared\n",
+        "opt_vr/src/client.py": "",
+    }
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        write(self.root, self.FILES)
+        files = sorted(self.FILES)
+        self.selector = Selector(load_config(self.root), root=self.root,
+                                 index=ReferenceIndex(self.root, files=files))
+
+    def sections(self, path):
+        return self.selector.explain(path)[0]
+
+    def test_a_test_module_selects_its_own_section(self):
+        self.assertEqual(self.sections("tests/test_gamma.py"), {"beta"})
+        self.assertEqual(self.sections("tests/test_new.py"), {UNASSIGNED})
+
+    def test_a_file_a_test_imports_selects_that_tests_section(self):
+        self.assertEqual(self.sections("src/core.py"), {"alpha"})
+
+    def test_a_file_a_helper_module_imports_selects_the_helpers_users(self):
+        self.assertEqual(self.sections("src/widgets/widget.py"), {"beta"})
+        self.assertEqual(self.sections("tests/helper.py"), {"beta"})
+
+    def test_a_file_only_source_uses_selects_its_nearest_users(self):
+        sections, reasons = self.selector.explain("src/deep.py")
+        self.assertEqual(sections, {"alpha"})
+        self.assertIn("through src/core.py", reasons[0])
+
+    def test_file_names_and_module_names_in_strings_count(self):
+        self.assertEqual(self.sections("src/page.html"), {"beta"})
+        self.assertEqual(self.sections("src/Named_Module.py"), {"beta"})
+
+    def test_path_rules_add_sections(self):
+        self.assertEqual(self.sections("assets/logo.png"), {"beta"})
+        self.assertEqual(self.sections("opt_vr/src/client.py"), {"opt_vr"})
+
+    def test_main_code_the_vr_suite_uses_selects_it(self):
+        self.assertEqual(self.sections("src/shared.py"), {"opt_vr"})
+
+    def test_a_full_suite_file_selects_everything(self):
+        self.assertIsNone(self.sections("tests/__init__.py"))
+        self.assertTrue(self.selector.select(["src/core.py", "tests/__init__.py"]).everything)
+
+    def test_a_file_no_test_uses_selects_nothing_and_is_named(self):
+        selection = self.selector.select(["docs/guide.md", "src/lonely.py"])
+        self.assertEqual(selection.sections, set())
+        self.assertEqual(selection.unreferenced, ["docs/guide.md", "src/lonely.py"])
+
+    def test_python_source_changes_add_the_repository_checks_not_already_running(self):
+        self.assertFalse(self.selector.select(["docs/guide.md", "assets/logo.png"]).repo_checks)
+        selection = self.selector.select([".\\src\\lonely.py"])
+        self.assertTrue(selection.repo_checks)
+        self.assertEqual(self.selector.pending_repo_checks({"beta"}), ["tests.test_alpha.AlphaTests"])
+        self.assertEqual(self.selector.pending_repo_checks({"alpha", "beta"}), [])
+
+
+class LogTests(unittest.TestCase):
+    def test_a_passing_log(self):
+        log = b"....s\n------\nRan 5 tests in 1.250s\n\nOK (skipped=1)\n"
+        self.assertEqual(parse_log(log),
+                         ("ok", {"tests": 5, "failures": 0, "errors": 0, "skipped": 1}, []))
+
+    def test_a_failing_log_names_its_failures(self):
+        log = (b"FE.\n======\nFAIL: test_a (tests.test_x.T.test_a)\n------\nTraceback\n"
+               b"======\nERROR: test_b (tests.test_x.T.test_b)\n------\n"
+               b"Ran 3 tests in 0.1s\n\nFAILED (failures=1, errors=1, unexpected successes=1)\n")
+        status, counts, problems = parse_log(log)
+        self.assertEqual(status, "failed")
+        self.assertEqual(counts, {"tests": 3, "failures": 2, "errors": 1, "skipped": 0})
+        self.assertEqual(problems, ["FAIL: test_a (tests.test_x.T.test_a)",
+                                    "ERROR: test_b (tests.test_x.T.test_b)"])
+
+    def test_no_tests_and_a_crash(self):
+        self.assertEqual(parse_log(b"\nRan 0 tests in 0.000s\n\nNO TESTS RAN\n")[0], "empty")
+        self.assertEqual(parse_log(b"Fatal Python error: Segmentation fault\n")[0], "crashed")
+
+
+class CommandTests(unittest.TestCase):
+    def test_module_sections_name_their_modules_and_pass_filters_first(self):
+        section = Section("a", modules=["test_one", "test_two"])
+        self.assertEqual(section_command(section, "py", verbose=True, patterns=["fast"]),
+                         ["py", "-m", "unittest", "-v", "-k", "fast", "tests.test_one", "tests.test_two"])
+
+    def test_the_vr_suite_runs_by_discovery_and_checks_by_test_id(self):
+        self.assertEqual(section_command(Section("opt_vr", discover=True), "py"),
+                         ["py", "-m", "unittest", "discover", "-s", "tests", "-t", "."])
+        self.assertEqual(section_command(Section("r", tests=["tests.test_x.T"]), "py"),
+                         ["py", "-m", "unittest", "tests.test_x.T"])
+
+    def test_each_section_sets_up_its_own_private_test_folders(self):
+        # The marker tells tests/__init__.py that a parent already chose the folders;
+        # parallel sections must not share them.
+        environment = child_environment({"EMAPSSN_TEST_ENVIRONMENT": "123", "PATH": "x"})
+        self.assertEqual(environment, {"PATH": "x"})
+
+
+class RunTests(unittest.TestCase):
+    """Real child processes on a small project."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        write(self.root, {
+            "tests/__init__.py": "",
+            "tests/sections.toml": """\
+                [sections.good]
+                modules = ["test_pass"]
+                [sections.bad]
+                modules = ["test_fail"]
+                [sections.slow]
+                modules = ["test_sleep"]
+                """,
+            "tests/test_pass.py": """\
+                import os, unittest
+                class PassTests(unittest.TestCase):
+                    def test_private_folders(self):
+                        self.assertNotIn("EMAPSSN_TEST_ENVIRONMENT", os.environ)
+                """,
+            "tests/test_fail.py": """\
+                import unittest
+                class FailTests(unittest.TestCase):
+                    def test_fails(self):
+                        self.fail("on purpose")
+                """,
+            "tests/test_sleep.py": """\
+                import time, unittest
+                class SleepTests(unittest.TestCase):
+                    def test_sleeps(self):
+                        time.sleep(60)
+                """,
+            "tests/test_forgotten.py": """\
+                import unittest
+                class ForgottenTests(unittest.TestCase):
+                    def test_runs(self):
+                        pass
+                """,
+        })
+        patcher = mock.patch.object(run_sections, "LOG_BASE", self.root / "logs")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.logs = self.root / "run"
+        # As in a real test process, whose tests/__init__.py set the marker.
+        marker = mock.patch.dict(os.environ, {"EMAPSSN_TEST_ENVIRONMENT": "1"})
+        marker.start()
+        self.addCleanup(marker.stop)
+
+    def run_main(self, *arguments):
+        out = io.StringIO()
+        code = run_sections.main([*arguments, "--log-dir", str(self.logs)], root=self.root, out=out)
+        return code, out.getvalue()
+
+    def test_a_passing_section_exits_zero(self):
+        code, out = self.run_main("good")
+        self.assertEqual(code, 0, out)
+        self.assertIn("1 tests in", out)
+        self.assertTrue((self.logs / "good.log").is_file())
+
+    def test_a_failing_section_exits_one_and_names_the_test(self):
+        code, out = self.run_main("good", "bad", "-j", "2")
+        self.assertEqual(code, 1, out)
+        self.assertIn("bad: failed", out)
+        self.assertIn("FAIL: test_fails (tests.test_fail.FailTests.test_fails)", out)
+
+    def test_a_full_run_includes_modules_missing_from_the_file(self):
+        code, out = self.run_main("--all", "--skip", "bad", "slow")
+        self.assertEqual(code, 0, out)
+        self.assertIn("warning: test_forgotten is in no section", out)
+        self.assertIn(UNASSIGNED, out)
+
+    def test_a_section_past_its_timeout_is_stopped(self):
+        code, out = self.run_main("slow", "--timeout", "3")
+        self.assertEqual(code, 1, out)
+        self.assertIn("slow: timeout", out)
+
+    def test_an_unknown_section_is_a_usage_error(self):
+        code, out = self.run_main("nonexistent")
+        self.assertEqual(code, 2)
+        self.assertIn("unknown section(s): nonexistent", out)
+
+
+if __name__ == "__main__":
+    unittest.main()

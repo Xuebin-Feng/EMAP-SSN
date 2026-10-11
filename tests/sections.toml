@@ -1,0 +1,292 @@
+# Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
+# SPDX-License-Identifier: Apache-2.0
+
+# Test sections for tests/run_sections.py.
+#
+# Every tests/test_*.py module belongs to exactly one section; each section runs
+# in its own process, so a section gives the same verdict alone as in a full run.
+# tests/test_run_sections.py fails when a module is missing here, listed twice,
+# or no longer exists. Add a new test module to the section of the code it covers.
+#
+# `seconds` is a rough serial run time, used only to start the slowest sections
+# first; after a run the runner prefers the times it measured itself.
+
+[sections.commands]
+description = "Viewer commands, selection expressions, undo/redo, alignment panel"
+seconds = 25
+modules = [
+    "test_alignment_offset",
+    "test_cluster_command",
+    "test_color_command",
+    "test_command_catalog",
+    "test_command_feedback",
+    "test_export_command",
+    "test_group_command",
+    "test_hide_command",
+    "test_incomplete_alignment",
+    "test_label_analysis",
+    "test_label_command",
+    "test_logo_command",
+    "test_msa_sanitization",
+    "test_node_render_order",
+    "test_output_names",
+    "test_print_command",
+    "test_query_command",
+    "test_reference_resolution",
+    "test_reset_command",
+    "test_residue_snapshots",
+    "test_run_command",
+    "test_save_command",
+    "test_select_command",
+    "test_selection_adjacency_index",
+    "test_selection_expressions",
+    "test_spectrum_command",
+    "test_subcluster_command",
+    "test_viewer_undo_redo",
+    "test_viewer_undo_snapshots",
+    "test_zoom_command",
+]
+
+[sections.viewer]
+description = "Viewer window, command portal, inspection, sessions, web server"
+seconds = 35
+modules = [
+    "test_browser_page_opening",
+    "test_console_overlay_wrapping",
+    "test_display_scaling",
+    "test_metadata",
+    "test_prepare_network",
+    "test_viewer_command_portal",
+    "test_viewer_connection_output",
+    "test_viewer_inspection",
+    "test_viewer_inspection_http",
+    "test_viewer_portal_adapters",
+    "test_viewer_sessions",
+    "test_viewer_sidebar",
+    "test_viewer_startup_snapshot",
+    "test_viewer_web_origin",
+    "test_viewer_widgets",
+    "test_web_plugin_discovery",
+    "test_web_server",
+    "test_web_state_broadcast",
+]
+
+[sections.plugins]
+description = "Agent, ESMFold and metadata pages and backends, Biohub and ESMC APIs"
+seconds = 15
+modules = [
+    "test_agent_backend",
+    "test_agent_composer",
+    "test_agent_images",
+    "test_biohub_api",
+    "test_esmc_6b_api",
+    "test_esmfold_backend",
+    "test_esmfold_command",
+    "test_esmfold_worker",
+    "test_meta_backend",
+]
+
+[sections.mcp]
+description = "MCP server, workflow dispatch, pipeline jobs and settings, Viewer lifecycle"
+seconds = 60
+modules = [
+    "test_compute_capabilities",
+    "test_mcp_agent_instructions",
+    "test_mcp_pipeline_guidance",
+    "test_mcp_server",
+    "test_mcp_viewer_lifecycle",
+    "test_mcp_workflow_dispatch",
+    "test_pipeline_file_inspection",
+    "test_pipeline_jobs",
+    "test_pipeline_settings",
+]
+
+[sections.layout]
+description = "Layout engines, GPU kernels, spectral start, packing, time step"
+seconds = 45
+modules = [
+    "test_layout_engine_ssn",
+    "test_layout_engine_umap",
+    "test_layout_gpu_kernels",
+    "test_layout_packing",
+    "test_layout_time_step_guard",
+    "test_parallel_kernels",
+    "test_spectral_start",
+]
+
+[sections.caches]
+description = "Layout cache generator, cache manifest and metadata, headless settings"
+seconds = 20
+modules = [
+    "test_cache_manifest",
+    "test_cache_metadata",
+    "test_headless_settings",
+    "test_layout_cache_generator",
+    "test_viewer_settings_documents",
+]
+
+[sections.alignment]
+description = "Similarity and substitution matrix tools, SSEARCH, PWA, injection, BLAST"
+seconds = 30
+modules = [
+    "test_align_similarity_matrix_pipeline",
+    "test_align_substitution_matrix_pipeline",
+    "test_alignment_engine",
+    "test_bf16_precision",
+    "test_embedding_pwa",
+    "test_embedding_ssearch",
+    "test_embedding_ssearch_hardware",
+    "test_first_batch_benchmark",
+    "test_manual_sequence_controls",
+    "test_network_injection_pipeline",
+    "test_network_kernels",
+    "test_network_kernels_batch",
+    "test_parse_blast_output",
+    "test_population_std_singletons",
+    "test_workload_hardware",
+]
+
+[sections.embeddings]
+description = "Embedding generation, pLM plugins, MSA, sanitization, extraction"
+seconds = 25
+modules = [
+    "test_embedding_hdf5_metadata",
+    "test_embedding_injection",
+    "test_embedding_msa_configuration",
+    "test_embedding_msa_gui_logic",
+    "test_embedding_msa_memory",
+    "test_embedding_msa_merge",
+    "test_fasta_sanitization",
+    "test_model_plugins",
+    "test_network_extraction",
+    "test_plm_load_reports",
+    "test_plm_model_sequence_cleaning",
+    "test_sanitize_sequences",
+    "test_sparse_msa_converter",
+]
+
+[sections.config]
+description = "Config window: profiles, cache dropdown, launch, responsive layout"
+seconds = 25
+modules = [
+    "test_color_picker",
+    "test_dropdown_values",
+    "test_emapssn_config_cache_dropdown",
+    "test_emapssn_config_consistency_check",
+    "test_emapssn_config_launch",
+    "test_emapssn_config_profiles",
+    "test_emapssn_config_responsive_layout",
+    "test_emapssn_config_score_mode",
+    "test_statistics_report",
+]
+
+[sections.tools]
+description = "Tools window, tool pipeline and settings CLI, help pages, benchmark"
+seconds = 15
+modules = [
+    "test_background_job_scheduler",
+    "test_benchmark",
+    "test_benchmark_record",
+    "test_emapssn_tools_responsive_layout",
+    "test_emapssn_tools_window",
+    "test_tool_help_pages",
+    "test_tool_pipeline",
+    "test_tool_settings_cli",
+]
+
+[sections.language]
+description = "Language option, catalogs, translated pages, untranslated-text checks"
+seconds = 35
+modules = [
+    "test_language_option",
+    "test_language_packs",
+    "test_localization",
+    "test_page_translations",
+    "test_translation_loading",
+    "test_untranslated_text",
+    "test_update_translations",
+]
+
+[sections.theme]
+description = "Studio theme, theme colours, fonts, text-sized controls"
+seconds = 45
+modules = [
+    "test_application_fonts",
+    "test_studio_theme",
+    "test_text_sized_buttons",
+    "test_theme_colors",
+    "test_web_page_theme",
+]
+
+[sections.platform]
+description = "Launchers, installer, GPU detection, app settings, this runner"
+seconds = 10
+modules = [
+    "test_app_settings",
+    "test_application_window_activation",
+    "test_dependency_installation",
+    "test_desktop_launcher_monitor",
+    "test_detect_gpu",
+    "test_launcher_scripts",
+    "test_output_streams",
+    "test_run_sections",
+    "test_terminal_launcher",
+    "test_terminal_shell_launcher",
+]
+
+[sections.opt_vr]
+description = "The VR suite (opt_vr/tests, run by discovery inside opt_vr)"
+seconds = 70
+cwd = "opt_vr"
+discover = true
+
+# Files that change what every test sees: any change to them selects every section.
+[full_suite]
+paths = ["tests/__init__.py"]
+
+# Files the reference scan cannot connect to tests, because the code reaches them
+# through a folder scan or by name at run time.
+[[rules]]
+paths = ["src/commands/*.py"]
+sections = ["commands"]
+
+[[rules]]
+paths = ["src/web_ui/plugins/**", "src/resources/agent/**", "src/resources/esmfold/**", "src/resources/meta/**"]
+sections = ["plugins", "viewer"]
+
+[[rules]]
+paths = ["src/resources/languages/**", "src/resources/fonts/**"]
+sections = ["language"]
+
+[[rules]]
+paths = ["src/resources/languages/*/help/**", "src/tools/tool_descriptions/**"]
+sections = ["tools"]
+
+[[rules]]
+paths = ["src/resources/icons/**", "src/resources/fonts/**"]
+sections = ["theme"]
+
+[[rules]]
+paths = ["src/resources/pLM_models/**"]
+sections = ["embeddings"]
+
+[[rules]]
+paths = ["src/bin/**", "install.bat", "install.sh", "src/requirements.txt", "src/esm_runtime_requirements.txt"]
+sections = ["platform"]
+
+[[rules]]
+paths = ["opt_vr", "opt_vr/**"]
+sections = ["opt_vr"]
+
+# Checks that read every src/**/*.py file. A partial run (--changed) adds them
+# whenever a Python file under src/ changed, unless their own section runs anyway.
+[repo_checks]
+tests = [
+    "tests.test_benchmark_record.RecordedDecisionTests.test_every_caller_of_rank_benchmark_results_names_its_decision",
+    "tests.test_localization.ConsoleLineWriteGuardTests",
+    "tests.test_studio_theme.StudioIconTests.test_every_icon_the_code_names_is_bundled",
+    "tests.test_terminal_launcher.CallerIntegrationTests",
+    "tests.test_untranslated_text.CanvasTextTests",
+    "tests.test_update_translations.RepositoryCatalogTests",
+]
