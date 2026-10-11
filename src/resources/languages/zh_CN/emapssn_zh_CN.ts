@@ -2137,7 +2137,7 @@ Command-line usage:
         <location line="+16"/>
         <location filename="../../../commands/meta.py" line="+166"/>
         <location line="+114"/>
-        <location filename="../../../commands/print.py" line="+971"/>
+        <location filename="../../../commands/print.py" line="+973"/>
         <location line="+51"/>
         <location filename="../../../commands/query.py" line="+583"/>
         <location filename="../../../commands/reset.py" line="+114"/>
@@ -2667,7 +2667,7 @@ Command-line usage:
         <location filename="../../../commands/subcluster.py" line="-82"/>
         <location filename="../../../commands/undo.py" line="+48"/>
         <location line="+16"/>
-        <location filename="../../../commands/zoom.py" line="+87"/>
+        <location filename="../../../commands/zoom.py" line="+153"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
@@ -3748,7 +3748,12 @@ Command-line usage:
         <translation type="unfinished">错误：缩放宽度过小，在当前视图中心无法精确绘制。</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+30"/>
+        <source>Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.</source>
+        <translation type="unfinished">错误：缩放宽度必须介于 {narrowest} 和能显示所有节点的最大视图宽度 {widest} 之间。</translation>
+    </message>
+    <message>
+        <location line="+17"/>
         <source>Error: Zoom could not be applied: {error}</source>
         <translation type="unfinished">错误：无法应用缩放：{error}</translation>
     </message>

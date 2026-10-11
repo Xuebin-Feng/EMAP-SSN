@@ -30,6 +30,72 @@ _FLOAT32_LARGEST = float(np.finfo(np.float32).max)
 # a view narrower than |centre| * canvas_width * eps is off by half a pixel or more.
 _FLOAT32_EPSILON = float(np.finfo(np.float32).eps)
 
+# The view widths the Viewer keeps to, whether zoomed by the wheel, a pinch or
+# this command (view_width_limits): no narrower than MIN_VIEW_WIDTH, and no
+# wider than the nearest multiple of MAX_VIEW_WIDTH_STEP that shows every node,
+# hidden ones too, as the Viewer opens on them (opening_view). That widest view
+# follows the nodes as they are moved. print's zoom N doesn't take them.
+MIN_VIEW_WIDTH = 0.5
+MAX_VIEW_WIDTH_STEP = 100
+# The view the Viewer opens on: every node, a margin of FIT_MARGIN_FRACTION of
+# the network's extent on each side (at least FIT_MARGIN_MIN units), and then
+# OPENING_RANGE_MARGIN of that range on each side, as the camera's set_range
+# added when it opened the view.
+FIT_MARGIN_FRACTION = 0.05
+FIT_MARGIN_MIN = 10.0
+OPENING_RANGE_MARGIN = 0.05
+
+
+def opening_view(positions):
+    """The view the Viewer opens on, (left, bottom, width, height): every position with the margins above."""
+    points = np.asarray(positions, dtype=float)[:, :2]
+    low, high = points.min(axis=0), points.max(axis=0)
+    margin = np.maximum((high - low) * FIT_MARGIN_FRACTION, FIT_MARGIN_MIN)
+    low, high = low - margin, high + margin
+    extra = (high - low) * OPENING_RANGE_MARGIN
+    low, high = low - extra, high + extra
+    return (float(low[0]), float(low[1]), float(high[0] - low[0]), float(high[1] - low[1]))
+
+
+def view_width_limits(viewer):
+    """The narrowest and widest view width, in scene units, the Viewer zooms to.
+
+    The widest is the nearest multiple of MAX_VIEW_WIDTH_STEP at or above the
+    width whose view, at the canvas's shape, shows every node, hidden or not,
+    as the Viewer opens on them; it is None while there is no node to show.
+    """
+    positions = getattr(viewer, "pos", None)
+    if positions is None or len(positions) == 0:
+        return MIN_VIEW_WIDTH, None
+    _left, _bottom, needed, height = opening_view(positions)
+    canvas_width, canvas_height = viewer.canvas.size
+    if canvas_width > 0 and canvas_height > 0:
+        needed = max(needed, height * canvas_width / canvas_height)
+    if not math.isfinite(needed):
+        return MIN_VIEW_WIDTH, None
+    # A hair over a multiple, as floating point leaves 1100 * 1.21 / 1.21, is that multiple.
+    steps = max(1, math.ceil(needed / MAX_VIEW_WIDTH_STEP - 1e-9))
+    return MIN_VIEW_WIDTH, float(steps * MAX_VIEW_WIDTH_STEP)
+
+
+def limited_zoom_factor(viewer, factor):
+    """The camera's zoom factor (new width / width), cut to keep the view within view_width_limits.
+
+    A zoom that would cross a limit stops at it. One going further past a limit
+    the view is already beyond, as after the nodes were moved closer together,
+    does nothing; the other way, it zooms as asked.
+    """
+    scale = float(factor) if np.isscalar(factor) else float(factor[-1])
+    width = abs(viewer.view.camera.rect.width)
+    if not (math.isfinite(scale) and scale > 0 and width > 0):
+        return factor
+    narrowest, widest = view_width_limits(viewer)
+    if scale < 1:
+        return max(scale, min(1.0, narrowest / width))
+    if scale > 1 and widest is not None:
+        return min(scale, max(1.0, widest / width))
+    return scale
+
 
 def _report_error(viewer, msg):
     Command_Engine.command_failed(viewer, msg)
@@ -86,7 +152,10 @@ def run(viewer, args):
         msg = JoinedMessage([
             Message("Usage: {syntax}", syntax="zoom <width>"),
             "Description: Sets the camera view width to exactly <width> while keeping the current "
-            "center point and canvas aspect ratio.\nExamples:\n  zoom 500  (Sets the view width to 500 units)",
+            "center point and canvas aspect ratio. The width must be at least 0.5 and at most the "
+            "widest view that shows every node, hidden ones too, rounded up to a multiple of 100; "
+            "the mouse wheel stops at the same limits.\n"
+            "Examples:\n  zoom 500  (Sets the view width to 500 units)",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
@@ -99,6 +168,13 @@ def run(viewer, args):
         _report_error(viewer, error.args[0])
         return
     new_width = new_rect[2]
+    narrowest, widest = view_width_limits(viewer)
+    if widest is not None and not narrowest <= new_width <= widest:
+        _report_error(viewer, Message(
+            "Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.",
+            narrowest=f"{narrowest:g}", widest=f"{widest:g}",
+        ))
+        return
 
     camera = viewer.view.camera
     rect = camera.rect

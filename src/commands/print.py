@@ -97,8 +97,10 @@ def print_help():
     Scale (with full or svg only, anywhere among the modifiers):
       zoom N      : Draws at the scale 'zoom N' would set, the view N scene
                     units wide on the current canvas, without moving the
-                    view. N is checked as the zoom command checks it. A
-                    smaller N zooms in: a larger full PNG, and smaller nodes
+                    view. N must be a positive width the view can draw;
+                    the zoom command's 0.5 and whole-network limits don't
+                    apply. A smaller N zooms in: a larger full PNG, and
+                    smaller nodes
                     and lines relative to the network in an SVG. Node sizes
                     stay in screen pixels. A full PNG whose longest side is
                     under 1000 px is saved with a warning.

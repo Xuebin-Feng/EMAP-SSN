@@ -2947,6 +2947,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: Zoom could not be applied: {error}</source>
         <translation type="unfinished"></translation>
     </message>

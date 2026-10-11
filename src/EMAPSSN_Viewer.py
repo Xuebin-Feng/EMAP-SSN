@@ -872,6 +872,7 @@ class MainViewer:
             self._original_camera_mouse_event(event)
             
         self.view.camera.viewbox_mouse_event = safe_camera_mouse_event
+        self._limit_camera_zoom()
 
         # --- 4. Draw Initial State ---
         self.draw_network()
@@ -888,23 +889,10 @@ class MainViewer:
             qapp.aboutToQuit.connect(self.background_job_scheduler.shutdown)
             qapp.aboutToQuit.connect(self.shutdown_web_server)
         
-        # 1. Find the extreme coordinates of the final grid
-        min_x, min_y = np.min(self.pos[:, :2], axis=0)
-        max_x, max_y = np.max(self.pos[:, :2], axis=0)
-        
-        # 2. Calculate dimensions
-        width = max_x - min_x
-        height = max_y - min_y
-        
-        # 3. Add a 5% padding margin (or at least 10 units) so nodes don't touch the window edge
-        margin_x = max(width * 0.05, 10.0)
-        margin_y = max(height * 0.05, 10.0)
-        
-        # 4. Snap the camera to this precise rectangle
-        self.view.camera.set_range(
-            x=(min_x - margin_x, max_x + margin_x), 
-            y=(min_y - margin_y, max_y + margin_y)
-        )
+        # Open on every node with a margin, so none touches the window's edge
+        # (commands.zoom.opening_view); the widest zoom always leaves this view.
+        from commands.zoom import opening_view
+        self.view.camera.rect = opening_view(self.pos)
         
         # --- 5. Setup Similarity / E-value Slider Bar ---
         self.is_evalue = getattr(cfg, 'INPUT_IS_EVALUE', False)
@@ -986,6 +974,18 @@ class MainViewer:
         
         self._hud_timer.start()
         print("\nViewer Ready. Press [ENTER] to type commands.")
+
+    def _limit_camera_zoom(self):
+        """Keep zooming by the wheel or a pinch within the view widths the zoom
+        command keeps to (commands.zoom.view_width_limits): it stops at 0.5 wide
+        and at the nearest 100 that shows every node, wherever they are now."""
+        original_zoom = self.view.camera.zoom
+
+        def limited_zoom(factor, center=None):
+            from commands.zoom import limited_zoom_factor
+            original_zoom(limited_zoom_factor(self, factor), center)
+
+        self.view.camera.zoom = limited_zoom
 
     def _build_slider_overlay(self):
         """Set up the threshold slider over the canvas's bottom left, the controls' info button at its start."""

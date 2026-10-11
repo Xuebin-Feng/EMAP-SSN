@@ -146,6 +146,12 @@ still change before version 1.0.0.
   command line, the threshold slider and the status texts move with it. The sidebar is
   a card with round corners, clear of the window's edges, and each of its buttons
   centres its label in the room after its icon.
+- **The Viewer's view width has limits.** The mouse wheel, a touchpad pinch and `zoom N`
+  keep the view from 0.5 units wide up to the nearest multiple of 100 that shows every
+  node, hidden ones included, with the margin the Viewer opens with. That widest view
+  follows the nodes as they are moved, and the window's shape. A zoom stops at a limit;
+  `zoom` refuses a width outside them and names both. `print`'s `zoom N`, which sets an
+  image's scale rather than the view, keeps its own range.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts
