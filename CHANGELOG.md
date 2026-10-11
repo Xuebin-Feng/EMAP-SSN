@@ -238,9 +238,10 @@ still change before version 1.0.0.
 - **Simplified Chinese (简体中文), drafted and awaiting review.** The 🌐 dropdown offers
   简体中文, and "System default" picks it on a Simplified Chinese system. Every text of
   the windows, the Viewer's canvas and the two browser pages, VR Config's own texts and
-  the five tool help pages are drafted in Chinese with one glossary. The drafts show
-  until a native speaker reviews them in Qt Linguist, and the catalog update counts them
-  apart ("0 of 1124 texts translated; 1124 more drafted, awaiting review."). The
+  the five tool help pages are drafted in Chinese with one glossary; no native speaker
+  has reviewed them yet. The drafts show until a reviewer accepts them in Qt Linguist,
+  and the catalog update counts them apart ("0 of N texts translated; N more drafted,
+  awaiting review."). The
   browser views draw Chinese in the bundled Noto Sans SC too: a page served in Chinese,
   and the Tools help panel, carry its @font-face rules under one page family, 'EMAP-SSN
   Language', which their font stacks name after Noto Sans, as the windows' stacks name

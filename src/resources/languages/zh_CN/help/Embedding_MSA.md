@@ -1,7 +1,7 @@
 <!-- Translation of Embedding_MSA.md, sha256 b5f7c5322580423fb82494ac81b6606ac906cb44afc5fbc7e8f0ae154ca756e9 -->
 # Embedding 多序列比对 (`Embedding_MSA.py`)
 
-该脚本使用蛋白质语言模型（pLM） embedding 生成渐进式多序列比对（MSA）。它根据网络得分构建完整的引导树（guide tree）距离矩阵（网络稀疏时用回归插补缺失的值），然后使用考虑空位（gap）的动态规划（dynamic programming）逐步比对（alignment）各个序列簇（cluster）。
+该脚本使用蛋白质语言模型（pLM）embedding 生成渐进式多序列比对（MSA）。它根据网络得分构建完整的引导树（guide tree）距离矩阵（网络稀疏时用回归插补缺失的值），然后使用考虑空位（gap）的动态规划（dynamic programming）逐步比对（alignment）各个序列簇（cluster）。
 
 ### 输入
 
@@ -62,7 +62,7 @@
 
 4. **稀疏网络的保序回归**：
      若网络稀疏，距离矩阵就不完整。此时脚本会：
-     - 对残基（residue） embedding 做最大池化或平均池化，为所有序列生成全局表示向量 **u<sub>i</sub>**。
+     - 对残基（residue）embedding 做最大池化或平均池化，为所有序列生成全局表示向量 **u<sub>i</sub>**。
      - 计算所有序列两两之间经长度校正的余弦相似度（cosine similarity）：
        $$\text{Adj}(i, j) = \text{Sim}_{\text{cos}}(i, j) \times \left(\frac{\min(L_i, L_j)}{\max(L_i, L_j)}\right)^P$$
      - 拟合一个**保序回归**函数 $f$，把已知的 $\text{Adj}(i, j)$ 值映射到归一化网络得分 $S_{\text{norm}}(i, j)$。

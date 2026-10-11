@@ -7479,7 +7479,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+1"/>
         <source>Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved.</source>
-        <translation type="unfinished">保存生成的双序列比对（pairwise alignment） HTML 报告和 SSEARCH 结果文件的目录。</translation>
+        <translation type="unfinished">保存生成的双序列比对（pairwise alignment）HTML 报告和 SSEARCH 结果文件的目录。</translation>
     </message>
     <message>
         <location line="+1"/>

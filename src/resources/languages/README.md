@@ -126,10 +126,11 @@ The update reports any translation that changes a placeholder.
 
 A draft is a translation left unfinished, as Qt Linguist marks it. lrelease
 compiles it all the same, so the windows show the drafts until a reviewer
-changes them, and the update counts them apart:
+changes them, and the update counts them apart, with N the catalog's number of
+texts at the time:
 
 ```
-emapssn_zh_CN.ts: 0 of 1423 texts translated; 1423 more drafted, awaiting review.
+emapssn_zh_CN.ts: 0 of N texts translated; N more drafted, awaiting review.
 ```
 
 To review, open the language's two catalogs in Qt Linguist, correct each text
