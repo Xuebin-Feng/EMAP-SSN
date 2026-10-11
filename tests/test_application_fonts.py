@@ -300,6 +300,16 @@ class ApplicationFontTests(unittest.TestCase):
                 warnings.simplefilter("always")
                 incomplete = configure_qt_application_fonts(self.app, font_dir)
                 vispy = register_vispy_application_fonts(incomplete, font_dir)
+            # The copies are Noto Sans too, and Qt now draws its regular and
+            # bold faces from them. Were their folder deleted while they stay
+            # registered, Noto Sans would draw in Noto Sans Mono, and the
+            # application font would keep that even after tearDownClass sets
+            # it back, widening later modules' widgets.
+            copied_dir = font_dir.resolve()
+            for path in [path for path in Desktop_App._qt_font_ids if copied_dir in path.parents]:
+                font_id = Desktop_App._qt_font_ids.pop(path)
+                if font_id >= 0:
+                    QFontDatabase.removeApplicationFont(font_id)
 
         self.assertTrue(incomplete.ui_family_available)
         self.assertFalse(incomplete.monospace_family_available)
