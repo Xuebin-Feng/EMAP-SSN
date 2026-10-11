@@ -3125,7 +3125,7 @@ Command-line usage:
     <message>
         <location line="+147"/>
         <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at least {n}, or zoom out. The limit is {setting} in {file}.</source>
-        <translation type="unfinished">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过上限 {limit}。请使用 {syntax}，并让 N 至少为 {n}，或缩小视图。此上限是 {file} 中的 {setting}。</translation>
+        <translation type="unfinished">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过 {limit} 百万像素的上限。请使用 {syntax}，并让 N 至少为 {n}，或缩小视图。此上限由 {file} 中的 {setting} 设定。</translation>
     </message>
     <message>
         <location line="+50"/>
