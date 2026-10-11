@@ -513,6 +513,62 @@ class LeidenFastPathTests(unittest.TestCase):
                     )
 
 
+def reordered(rng, edges, weights):
+    """The same network with its edges in another order and direction."""
+    order = rng.permutation(len(edges))
+    edges, weights = edges[order].copy(), weights[order]
+    flip = rng.random(len(edges)) < 0.5
+    edges[flip] = edges[flip][:, ::-1]
+    return edges, weights
+
+
+class LeidenEdgeOrderTests(unittest.TestCase):
+    """leiden_partition sorts the edges first, so its seeded partition depends
+    on the network, not on the order and direction its edges are stored in."""
+
+    def test_the_partition_does_not_depend_on_edge_order(self):
+        try:
+            import graspologic_native  # noqa: F401
+        except ImportError:
+            self.skipTest("graspologic_native is not installed")
+        rng = np.random.default_rng(130)
+        for trial in range(10):
+            n_nodes = int(rng.integers(80, 300))
+            # Weak communities, so that the input order would move nodes.
+            edges, weights = planted_network(rng, n_nodes, 8, 0.15, 0.03)
+            for weighted in (True, False):
+                args = (weights if weighted else None, 1.0, 1)
+                expected = network_kernels.leiden_partition(n_nodes, edges, *args)
+                for shuffle in range(3):
+                    with self.subTest(trial=trial, weighted=weighted, shuffle=shuffle):
+                        other_edges, other_weights = reordered(rng, edges, weights)
+                        other_args = (other_weights if weighted else None, 1.0, 1)
+                        np.testing.assert_array_equal(
+                            network_kernels.leiden_partition(n_nodes, other_edges, *other_args),
+                            expected,
+                        )
+
+    def test_the_order_is_ascending_node_pairs_with_their_weights(self):
+        edges = np.asarray([(3, 1), (0, 2), (1, 0), (2, 3)], dtype=np.int64)
+        weights = np.asarray([4.0, 2.0, 1.0, 3.0])
+        ordered, ordered_weights = network_kernels._canonical_edge_order(edges, weights, 4)
+        np.testing.assert_array_equal(ordered, [(0, 1), (0, 2), (1, 3), (2, 3)])
+        np.testing.assert_array_equal(ordered_weights, [1.0, 2.0, 4.0, 3.0])
+
+    def test_copies_of_a_pair_are_ordered_by_weight(self):
+        edges = np.asarray([(0, 1), (2, 1), (1, 0), (1, 2), (0, 1)], dtype=np.int64)
+        weights = np.asarray([5.0, 1.0, 2.0, 7.0, 3.0])
+        expected = network_kernels._canonical_edge_order(edges, weights, 3)
+        np.testing.assert_array_equal(expected[0], [(0, 1), (0, 1), (0, 1), (1, 2), (1, 2)])
+        np.testing.assert_array_equal(expected[1], [2.0, 3.0, 5.0, 1.0, 7.0])
+        rng = np.random.default_rng(5)
+        for shuffle in range(20):
+            with self.subTest(shuffle=shuffle):
+                other = network_kernels._canonical_edge_order(*reordered(rng, edges, weights), 3)
+                np.testing.assert_array_equal(other[0], expected[0])
+                np.testing.assert_array_equal(other[1], expected[1])
+
+
 def load_without_numba():
     """A copy of Network_Kernels imported as it is when Numba is missing."""
     path = os.path.join(SRC_DIR, "utilities", "Network_Kernels.py")

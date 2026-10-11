@@ -818,8 +818,30 @@ def _label_isolated_nodes(labels, isolated, min_size):
     return labels
 
 
+def _canonical_edge_order(edges, weights, n_nodes):
+    """The edges as (smaller, larger) node pairs in ascending order, with their weights.
+
+    Leiden numbers the nodes in the order the edges name them, so its seeded
+    partition changes with the order and direction the edges are stored in.
+    Given in this order, it depends only on the network. Copies of a node pair,
+    which real networks don't have, are put in the order of their weights.
+    """
+    low = np.minimum(edges[:, 0], edges[:, 1])
+    high = np.maximum(edges[:, 0], edges[:, 1])
+    key = low * np.int64(max(n_nodes, 1)) + high
+    # Fast when the edges are stored almost in this order already.
+    order = np.argsort(key, kind="stable")
+    ordered = key[order]
+    if np.any(ordered[1:] == ordered[:-1]):
+        order = np.lexsort((weights, key))
+    return np.column_stack((low[order], high[order])), weights[order]
+
+
 def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
     """Partition a network with Leiden and return 1-based cluster labels.
+
+    The edges are sorted into one order first (``_canonical_edge_order``), so
+    the partition is the same however the network stores them.
 
     A node with no edge is a community of one: a singleton cluster when
     ``min_size`` is 1, like the Jaccard and MCL partitions, and Noise (-1)
@@ -857,6 +879,8 @@ def leiden_partition(n_nodes, edges, weights, resolution, min_size, seed=42):
 
     if not np.isfinite(weights).all():
         raise ValueError(Message("Leiden edge weights must be finite numbers."))
+
+    edges, weights = _canonical_edge_order(edges, weights, n_nodes)
 
     # leiden_csr refuses negative and non-finite weights, which leiden takes.
     csr_input = None
