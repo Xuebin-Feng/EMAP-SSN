@@ -26,6 +26,17 @@ SSN_LAUNCH_PACKAGES=(
     curl
 )
 
+# Libraries Qt's core and GUI modules link against. Desktop installations always
+# have them, but a minimal or server system (or a WSL image) does not, and PySide6
+# then fails to import. GLib is in SSN_T64_RENAMED_PACKAGES below. The fontconfig
+# tools (fc-cache, fc-list) register added fonts and let VisPy list them.
+SSN_QT_PACKAGES=(
+    libgl1
+    libfontconfig1
+    libfreetype6
+    fontconfig
+)
+
 SSN_XCB_PACKAGES=(
     libx11-xcb1
     libxcb1
@@ -57,6 +68,8 @@ SSN_WEBENGINE_PACKAGES=(
     libgbm1
     libegl1
     libxslt1.1
+    libxfixes3
+    libxkbfile1
 )
 
 SSN_MISSING_PACKAGES=()
@@ -180,37 +193,80 @@ ssn_package_is_installed() {
     dpkg-query -W -f='${db:Status-Abbrev}' "$1" 2>/dev/null | grep -q '^ii'
 }
 
-ssn_ubuntu_uses_t64_packages() {
+# Libraries that Debian's 64-bit time_t transition renamed with a "t64" suffix.
+# Ubuntu 24.04+, Debian 13+ and the distributions built on them (Linux Mint,
+# Pop!_OS, ...) carry only the new name, so either name satisfies the check,
+# whatever the distribution calls itself. GLib is needed by every launcher; the
+# sound and printing libraries only by QtWebEngine in EMAP-SSN Tools.
+SSN_T64_RENAMED_PACKAGES=(
+    libglib2.0-0
+)
+
+SSN_T64_RENAMED_WEBENGINE_PACKAGES=(
+    libasound2
+    libcups2
+)
+
+ssn_apt_knows_package() {
+    # True for a real package in apt's lists; a purely virtual name fails.
+    apt-cache show "$1" >/dev/null 2>&1
+}
+
+ssn_os_release_uses_t64_packages() {
+    # Fallback for hosts whose apt lists know neither name (never updated).
+    local os_release="${1:-/etc/os-release}"
     local ID="" VERSION_ID=""
 
-    [ -r /etc/os-release ] || return 1
-    # shellcheck disable=SC1091
-    . /etc/os-release
-    [ "$ID" = "ubuntu" ] &&
-        command -v dpkg >/dev/null 2>&1 &&
-        dpkg --compare-versions "${VERSION_ID:-0}" ge 24.04
+    [ -r "$os_release" ] || return 1
+    # shellcheck disable=SC1090,SC1091
+    . "$os_release"
+    command -v dpkg >/dev/null 2>&1 || return 1
+    case "$ID" in
+        ubuntu) dpkg --compare-versions "${VERSION_ID:-0}" ge 24.04 ;;
+        debian) dpkg --compare-versions "${VERSION_ID:-0}" ge 13 ;;
+        *) return 1 ;;
+    esac
+}
+
+ssn_t64_package_name() {
+    # The name to suggest installing for one of the t64-renamed libraries.
+    local package="$1"
+
+    if ssn_apt_knows_package "${package}t64"; then
+        printf '%s\n' "${package}t64"
+    elif ssn_apt_knows_package "$package"; then
+        printf '%s\n' "$package"
+    elif ssn_os_release_uses_t64_packages; then
+        printf '%s\n' "${package}t64"
+    else
+        printf '%s\n' "$package"
+    fi
 }
 
 ssn_collect_missing_gui_packages() {
     local launcher_kind="${1:-viewer}"
     local package
-    local packages=("${SSN_LAUNCH_PACKAGES[@]}" "${SSN_XCB_PACKAGES[@]}")
+    local packages=("${SSN_LAUNCH_PACKAGES[@]}" "${SSN_QT_PACKAGES[@]}" "${SSN_XCB_PACKAGES[@]}")
+    local renamed=("${SSN_T64_RENAMED_PACKAGES[@]}")
 
     SSN_MISSING_PACKAGES=()
     ssn_is_debian_family_linux || return 0
 
     if [ "$launcher_kind" = "tools" ] || [ "$launcher_kind" = "all" ]; then
         packages+=("${SSN_WEBENGINE_PACKAGES[@]}")
-        if ssn_ubuntu_uses_t64_packages; then
-            packages+=(libasound2t64 libcups2t64)
-        else
-            packages+=(libasound2 libcups2)
-        fi
+        renamed+=("${SSN_T64_RENAMED_WEBENGINE_PACKAGES[@]}")
     fi
 
     for package in "${packages[@]}"; do
         if ! ssn_package_is_installed "$package"; then
             SSN_MISSING_PACKAGES+=("$package")
+        fi
+    done
+
+    for package in "${renamed[@]}"; do
+        if ! ssn_package_is_installed "${package}t64" &&
+            ! ssn_package_is_installed "$package"; then
+            SSN_MISSING_PACKAGES+=("$(ssn_t64_package_name "$package")")
         fi
     done
 }

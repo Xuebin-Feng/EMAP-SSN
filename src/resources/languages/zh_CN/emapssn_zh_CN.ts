@@ -6215,14 +6215,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1085"/>
+        <location line="+1086"/>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
 展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="-936"/>
+        <location line="-937"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -6242,7 +6242,6 @@ Visualizes the isotonic regression fit between mean embedding cosine distances a
         <translation type="unfinished">查看许可</translation>
     </message>
     <message>
-        <location line="+125"/>
         <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
@@ -6265,7 +6264,7 @@ Fedora / RHEL:
 
 The first line above names the exact library that failed to load; if it is not
 covered by these commands, install the package that provides it.</source>
-        <translation type="unfinished">EMAP-SSN 工具无法加载用于显示文档面板的 QtWebEngine。
+        <translation type="obsolete">EMAP-SSN 工具无法加载用于显示文档面板的 QtWebEngine。
 
   {error}
 
@@ -6289,7 +6288,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+350"/>
+        <location line="+476"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
@@ -7892,7 +7891,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-4460"/>
+        <location line="-4461"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -7962,7 +7961,55 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">Embedding 裁剪</translation>
     </message>
     <message>
-        <location line="+2273"/>
+        <location line="+444"/>
+        <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
+
+  {error}
+
+QtWebEngine is installed with PySide6, but its bundled Chromium needs system
+libraries that pip cannot provide. Install them, then start EMAP-SSN Tools again.
+
+Ubuntu / Debian:
+  sudo apt install libnss3 libnspr4 libxcomposite1 libxdamage1 libxrandr2 \
+                   libxkbcommon-x11-0 libxtst6 libgbm1 libegl1 libxslt1.1 \
+                   libasound2t64 libcups2t64
+
+  On Ubuntu 22.04, Debian 12 and older, use libasound2 and libcups2 instead --
+  the t64 names exist only on Ubuntu 24.04+, Debian 13+ and distributions built
+  on them, such as Linux Mint 22.
+
+Fedora / RHEL:
+  sudo dnf install nss nspr libXcomposite libXdamage libXrandr \
+                   libxkbcommon-x11 libXtst mesa-libgbm mesa-libEGL libxslt \
+                   alsa-lib cups-libs
+
+The first line above names the exact library that failed to load; if it is not
+covered by these commands, install the package that provides it.</source>
+        <translation type="unfinished">EMAP-SSN 工具无法加载用于显示文档面板的 QtWebEngine。
+
+  {error}
+
+QtWebEngine 随 PySide6 一起安装，但其自带的 Chromium 需要 pip
+无法提供的系统库。请先安装这些库，然后重新启动 EMAP-SSN 工具。
+
+Ubuntu / Debian：
+  sudo apt install libnss3 libnspr4 libxcomposite1 libxdamage1 libxrandr2 \
+                   libxkbcommon-x11-0 libxtst6 libgbm1 libegl1 libxslt1.1 \
+                   libasound2t64 libcups2t64
+
+  在 Ubuntu 22.04、Debian 12 及更早版本上，请改用 libasound2 和 libcups2——
+  t64 名称只存在于 Ubuntu 24.04+、Debian 13+ 以及基于它们的发行版（如 Linux Mint 22）中。
+
+Fedora / RHEL：
+  sudo dnf install nss nspr libXcomposite libXdamage libXrandr \
+                   libxkbcommon-x11 libXtst mesa-libgbm mesa-libEGL libxslt \
+                   alsa-lib cups-libs
+
+上面第一行指出了加载失败的具体库；如果上述命令未涵盖该库，
+请安装提供它的软件包。</translation>
+    </message>
+    <message>
+        <location line="+1830"/>
         <location line="+176"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>

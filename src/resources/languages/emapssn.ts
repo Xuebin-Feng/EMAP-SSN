@@ -4784,8 +4784,9 @@ Ubuntu / Debian:
                    libxkbcommon-x11-0 libxtst6 libgbm1 libegl1 libxslt1.1 \
                    libasound2t64 libcups2t64
 
-  On Ubuntu 22.04 and older, use libasound2 and libcups2 instead -- the t64
-  suffix only exists on 24.04 and newer.
+  On Ubuntu 22.04, Debian 12 and older, use libasound2 and libcups2 instead --
+  the t64 names exist only on Ubuntu 24.04+, Debian 13+ and distributions built
+  on them, such as Linux Mint 22.
 
 Fedora / RHEL:
   sudo dnf install nss nspr libXcomposite libXdamage libXrandr \

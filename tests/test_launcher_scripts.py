@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -459,6 +460,154 @@ class PosixReadinessCheckCountTests(_ReadinessCheckCountMixin, unittest.TestCase
 
     def _command(self, launcher, mode):
         return ["/bin/bash", str(self.root / "src" / "bin" / launcher), *([mode] if mode else [])]
+
+
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class PosixGuiPackageCheckTests(unittest.TestCase):
+    """The Tools preflight accepts either name of the t64-renamed libraries.
+
+    It used to pick the libasound2t64/libcups2t64 names only for ID=ubuntu
+    24.04+, so Debian 13 (which has only the new names) and Ubuntu-based
+    derivatives such as Linux Mint 22 failed the check on every launch, even
+    after running the suggested apt command.
+
+    The old code read the host's own /etc/os-release, so which of the two
+    "satisfy" tests catches a return to it depends on the host: on a t64-era
+    host (Ubuntu 24.04+) the old-names test fails, elsewhere the new-names test
+    does. Keep both.
+    """
+
+    RENAMED = ("libasound2", "libcups2")
+    NEW_NAMES = ("libasound2t64", "libcups2t64")
+
+    def _missing(self, kind, *, absent=(), apt_knows=(), os_release_fallback=None):
+        """Run ssn_collect_missing_gui_packages against stub dpkg/apt.
+
+        Every package is installed except those in `absent`; apt-cache knows only
+        the names in `apt_knows`. Returns (missing packages, fallback consulted).
+        """
+        fallback = (
+            ""
+            if os_release_fallback is None
+            else "ssn_os_release_uses_t64_packages() { echo FALLBACK >&2; return "
+            f"{0 if os_release_fallback else 1}; }}"
+        )
+        program = "\n".join(
+            (
+                f". {shlex.quote(str(INSTALLER))}",
+                "uname() { echo Linux; }",
+                "apt() { :; }",
+                f"ABSENT=' {' '.join(absent)} '",
+                f"KNOWN=' {' '.join(apt_knows)} '",
+                # dpkg-query -W -f=... NAME; apt-cache show NAME
+                'dpkg-query() { case "$ABSENT" in *" ${!#} "*) return 1 ;; esac; printf "ii "; }',
+                'apt-cache() { case "$KNOWN" in *" $2 "*) return 0 ;; esac; return 100; }',
+                fallback,
+                f"ssn_collect_missing_gui_packages {kind}",
+                "printf '%s\\n' \"${SSN_MISSING_PACKAGES[@]}\"",
+            )
+        )
+        result = subprocess.run(
+            ["/bin/bash", "-c", program], check=False, capture_output=True, text=True
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return [line for line in result.stdout.splitlines() if line], "FALLBACK" in result.stderr
+
+    def test_new_names_satisfy_the_tools_check_on_debian_13_and_derivatives(self):
+        # Debian 13 and Mint 22 have only the t64 packages installed.
+        missing, consulted = self._missing(
+            "tools", absent=self.RENAMED, apt_knows=self.NEW_NAMES, os_release_fallback=False
+        )
+        self.assertEqual(missing, [])
+        self.assertFalse(consulted)
+
+    def test_old_names_still_satisfy_it_on_debian_12_and_ubuntu_22_04(self):
+        missing, _ = self._missing("tools", absent=self.NEW_NAMES, apt_knows=self.RENAMED)
+        self.assertEqual(missing, [])
+
+    def test_a_missing_library_is_suggested_under_the_name_apt_offers(self):
+        both_absent = self.RENAMED + self.NEW_NAMES
+        cases = {
+            "t64 system": (self.NEW_NAMES, list(self.NEW_NAMES)),
+            "older system": (self.RENAMED, list(self.RENAMED)),
+        }
+        for label, (known, expected) in cases.items():
+            with self.subTest(label):
+                missing, consulted = self._missing(
+                    "tools", absent=both_absent, apt_knows=known, os_release_fallback=False
+                )
+                self.assertEqual(missing, expected)
+                self.assertFalse(consulted)
+
+    def test_os_release_decides_only_when_apt_knows_neither_name(self):
+        both_absent = self.RENAMED + self.NEW_NAMES
+        for uses_t64, expected in ((True, list(self.NEW_NAMES)), (False, list(self.RENAMED))):
+            with self.subTest(uses_t64=uses_t64):
+                missing, consulted = self._missing(
+                    "tools", absent=both_absent, os_release_fallback=uses_t64
+                )
+                self.assertEqual(missing, expected)
+                self.assertTrue(consulted)
+
+    def test_the_viewer_check_does_not_need_the_webengine_libraries(self):
+        missing, _ = self._missing("viewer", absent=self.RENAMED + self.NEW_NAMES)
+        self.assertEqual(missing, [])
+
+    def test_every_launcher_needs_qts_core_libraries(self):
+        # A minimal Debian 13 (a server or WSL image) lacks these; PySide6 then
+        # failed to import with "libglib-2.0.so.0: cannot open shared object file"
+        # after the check had passed.
+        for kind in ("viewer", "tools"):
+            with self.subTest(kind=kind):
+                missing, _ = self._missing(
+                    kind,
+                    absent=("libgl1", "libfontconfig1", "libfreetype6", "fontconfig",
+                            "libglib2.0-0", "libglib2.0-0t64"),
+                    apt_knows=("libglib2.0-0t64",),
+                )
+                self.assertEqual(
+                    missing,
+                    ["libgl1", "libfontconfig1", "libfreetype6", "fontconfig", "libglib2.0-0t64"],
+                )
+                # Either GLib name satisfies it, like the other renamed libraries.
+                for absent in ("libglib2.0-0", "libglib2.0-0t64"):
+                    missing, _ = self._missing(kind, absent=(absent,))
+                    self.assertEqual(missing, [])
+
+    def test_the_tools_check_needs_qtwebengines_x_libraries(self):
+        missing, _ = self._missing("tools", absent=("libxfixes3", "libxkbfile1"))
+        self.assertEqual(missing, ["libxfixes3", "libxkbfile1"])
+        missing, _ = self._missing("viewer", absent=("libxfixes3", "libxkbfile1"))
+        self.assertEqual(missing, [])
+
+    @unittest.skipUnless(shutil.which("dpkg"), "dpkg --compare-versions is Debian-only")
+    def test_os_release_fallback_knows_the_renaming_releases(self):
+        cases = {
+            ("ubuntu", "24.04"): 0,
+            ("ubuntu", "22.04"): 1,
+            ("debian", "13"): 0,
+            ("debian", "12"): 1,
+            ("linuxmint", "22"): 1,
+        }
+        with tempfile.TemporaryDirectory() as temporary:
+            for (distribution, version), expected in cases.items():
+                os_release = Path(temporary) / f"{distribution}-{version}"
+                os_release.write_text(
+                    f'ID={distribution}\nVERSION_ID="{version}"\n', encoding="utf-8"
+                )
+                with self.subTest(distribution=distribution, version=version):
+                    result = subprocess.run(
+                        [
+                            "/bin/bash",
+                            "-c",
+                            f". {shlex.quote(str(INSTALLER))}\n"
+                            f"ssn_os_release_uses_t64_packages {shlex.quote(str(os_release))}",
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+                    self.assertEqual(result.returncode, expected, result.stderr)
 
 
 if __name__ == "__main__":
