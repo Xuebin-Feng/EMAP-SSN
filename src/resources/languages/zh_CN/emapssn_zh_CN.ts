@@ -581,23 +581,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3025"/>
+        <location line="+3030"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3024"/>
+        <location line="-3029"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3534"/>
+        <location line="+3539"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3526"/>
+        <location line="-3531"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -636,12 +636,12 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3031"/>
+        <location line="+3036"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3028"/>
+        <location line="-3033"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -682,12 +682,12 @@
     </message>
     <message>
         <location line="+221"/>
-        <location line="+1841"/>
+        <location line="+1846"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-1760"/>
+        <location line="-1765"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1223,12 +1223,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+48"/>
-        <location line="+1252"/>
+        <location line="+1257"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1218"/>
+        <location line="-1223"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1243,19 +1243,17 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">MSA 输入（.fasta / _sparse.h5）：</translation>
     </message>
     <message>
-        <location line="+8"/>
         <source>global</source>
         <comment>alignment score mode</comment>
-        <translation type="unfinished">全局</translation>
+        <translation type="obsolete">全局</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>local</source>
         <comment>alignment score mode</comment>
-        <translation type="unfinished">局部</translation>
+        <translation type="obsolete">局部</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+23"/>
         <source>Alignment Score Mode:</source>
         <translation type="unfinished">比对得分模式：</translation>
     </message>
@@ -1395,7 +1393,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-2309"/>
+        <location line="-2314"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1495,7 +1493,19 @@ Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &a
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+1177"/>
+        <location line="+585"/>
+        <source>global (Needleman-Wunsch)</source>
+        <comment>alignment score mode</comment>
+        <translation type="unfinished">全局（Needleman-Wunsch）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>local (Smith-Waterman)</source>
+        <comment>alignment score mode</comment>
+        <translation type="unfinished">局部（Smith-Waterman）</translation>
+    </message>
+    <message>
+        <location line="+596"/>
         <source>Network statistics computed successfully.</source>
         <translation type="unfinished">网络统计计算完成。</translation>
     </message>
@@ -3785,7 +3795,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-3840"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-3845"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6126,19 +6136,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">✂️ 嵌入裁剪</translation>
     </message>
     <message>
-        <location line="+67"/>
         <source>global</source>
         <comment>alignment mode</comment>
-        <translation type="unfinished">全局</translation>
+        <translation type="obsolete">全局</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>local</source>
         <comment>alignment mode</comment>
-        <translation type="unfinished">局部</translation>
+        <translation type="obsolete">局部</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+75"/>
         <source>alignment_length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -7982,7 +7990,19 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">Embedding 裁剪</translation>
     </message>
     <message>
-        <location line="+444"/>
+        <location line="+48"/>
+        <source>global (Needleman-Wunsch)</source>
+        <comment>alignment mode</comment>
+        <translation type="unfinished">全局（Needleman-Wunsch）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>local (Smith-Waterman)</source>
+        <comment>alignment mode</comment>
+        <translation type="unfinished">局部（Smith-Waterman）</translation>
+    </message>
+    <message>
+        <location line="+395"/>
         <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}

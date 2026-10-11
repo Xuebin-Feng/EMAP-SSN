@@ -2435,9 +2435,14 @@ if __name__ == "__main__":
             # --- Rest of Inputs ---
             # Use NoScrollComboBox here to prevent accidental scroll wheel changes
             self.cb_score_mode = NoScrollComboBox()
+            # Its options name their algorithms. At its narrowest it keeps
+            # about four characters, so the row is no wider than when they
+            # read just "global" and "local". Set before anything measures
+            # it: a combo box keeps the minimum width it first works out.
+            self.cb_score_mode.setMinimumContentsLength(4)
             add_combo_options(self.cb_score_mode, ["global", "local"], [
-                translate("Config", "global", "alignment score mode"),
-                translate("Config", "local", "alignment score mode"),
+                translate("Config", "global (Needleman-Wunsch)", "alignment score mode"),
+                translate("Config", "local (Smith-Waterman)", "alignment score mode"),
             ])
             select_combo_value(self.cb_score_mode, str(globals().get("ALIGNMENT_SCORE", "global")))
             

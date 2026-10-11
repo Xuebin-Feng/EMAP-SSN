@@ -315,6 +315,10 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **The global and local alignment choices name their algorithms.** Config's and VR
+  Config's Alignment Score Mode and Tools' Alignment Mode offer global (Needleman-Wunsch)
+  and local (Smith-Waterman). Settings files still store `global` and `local`.
+
 - **The mouse works in the Viewer while a command is typed.** With the command line
   open, a click does what it does with the line closed: a right-click selects, drags
   and draws a selection box, a left-click focuses a node, Shift- and Ctrl-click copy a

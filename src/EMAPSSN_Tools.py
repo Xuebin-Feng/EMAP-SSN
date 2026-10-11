@@ -296,8 +296,8 @@ BENCHMARK_SCRIPT = os.path.join(BENCHMARK_DIR, "Run_Benchmark.py")
 # takes its labels from these too, so it reads the same.
 def alignment_mode_labels(modes):
     labels = {
-        "global": translate("Tools", "global", "alignment mode"),
-        "local": translate("Tools", "local", "alignment mode"),
+        "global": translate("Tools", "global (Needleman-Wunsch)", "alignment mode"),
+        "local": translate("Tools", "local (Smith-Waterman)", "alignment mode"),
     }
     return [labels[mode] for mode in modes]
 

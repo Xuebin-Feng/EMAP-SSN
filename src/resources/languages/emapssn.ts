@@ -977,12 +977,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>global</source>
+        <source>global (Needleman-Wunsch)</source>
         <comment>alignment score mode</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>local</source>
+        <source>local (Smith-Waterman)</source>
         <comment>alignment score mode</comment>
         <translation type="unfinished"></translation>
     </message>
@@ -4666,12 +4666,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>global</source>
+        <source>global (Needleman-Wunsch)</source>
         <comment>alignment mode</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>local</source>
+        <source>local (Smith-Waterman)</source>
         <comment>alignment mode</comment>
         <translation type="unfinished"></translation>
     </message>
