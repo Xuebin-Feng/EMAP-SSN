@@ -348,6 +348,12 @@ still change before version 1.0.0.
   paths; the Viewer keeps loading. Cancelling the call, including a client-side tool
   timeout, also leaves it running. The Viewer now logs when it validates its inputs
   and when it builds the network display.
+- **Setup no longer repeats the readiness check.** When `.venv` needs installing or
+  repairing, the EMAP-SSN and EMAP-SSN Tools launchers started from a desktop shortcut
+  checked it three more times after the shortcut's own check (twice on Linux and
+  macOS); they now check once more, quietly, after taking the setup lock, in case
+  another launcher finished the setup first. Started from a terminal, they print why
+  setup is needed once instead of three times (twice on Linux and macOS).
 - Faster Viewer startup on large networks: edges are drawn without a per-edge Python
   loop, and the top-percent cutoff uses a partial sort. On a 12,927-node network with
   4.18 million displayed edges, headless readiness fell from 14.0 s to 9.6 s on the

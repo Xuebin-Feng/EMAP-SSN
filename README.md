@@ -325,7 +325,7 @@ and the [Viewer Command Reference](docs/list_of_commands.html) for command synta
 
 ## ✅ Compatibility
 
-*Compatibility snapshot: September 2026.* Compatibility is the intersection of
+*Compatibility snapshot: October 2026.* Compatibility is the intersection of
 the application detector, the pinned Python packages, the operating system,
 and the installed GPU driver. A device can be eligible for an installation
 attempt without being guaranteed to work; the installer records it as
@@ -347,7 +347,7 @@ The status terms used below are:
 | --- | --- | --- |
 | Windows x64 | Supported | CPU use requires Windows 10 version 1809 or newer. NVIDIA CUDA requires Windows 10 22H2 or Windows 11. Intel XPU requires Windows 11. Native AMD ROCm requires Windows 11 25H2 build 26200+, the only Windows build covered by the ROCm 7.14 profile. Windows 11 is recommended. |
 | Windows x86 (32-bit) | Unsupported | The pinned binary dependencies do not provide Win32 wheels. |
-| Windows ARM64 | Unsupported | Python 3.13 and `uv` exist for ARM64, but the pinned PyTorch 2.12.0 Python 3.13 CPU artifact and the CUDA, XPU, and ROCm builds used by this project do not provide a complete native ARM64 environment. Running the x64 environment under Windows emulation is not project-supported. |
+| Windows ARM64 | Unsupported | Python 3.13, `uv`, and the PyTorch 2.12.0 CPU wheel exist for Windows ARM64, but other pinned packages have no Windows ARM64 wheel for Python 3.13: biopython 1.88 publishes none, numba 0.67.0 publishes one only for Python 3.14, and the PyTorch package index has none for MarkupSafe, which PyTorch requires. The CUDA, XPU, and ROCm builds are x64-only. Running the x64 environment under Windows emulation is not project-supported. |
 | Linux x86_64 | Tested on Ubuntu and Debian | Exact tested release numbers were not recorded. The pinned Qt wheel requires glibc 2.34 or newer; Ubuntu 22.04+ and Debian 12+ satisfy that baseline. The installer automates GUI system dependencies only on Debian-family systems. |
 | Other x86_64 Linux distributions | Provisional | Modern glibc-based distributions may work after their Qt/XCB/QtWebEngine packages are installed manually. Fedora, RHEL, SUSE, Arch, and other distributions have not been project-tested. Accelerator support remains subject to the narrower vendor tables below. |
 | Linux ARM64 and other Linux architectures | Unsupported | Some individual upstream packages publish ARM wheels, but the complete pinned application environment has not been resolved or project-tested on these architectures. |
@@ -355,7 +355,7 @@ The status terms used below are:
 | macOS x86_64 | Unsupported | PyTorch 2.12.0 used by this project does not provide the required Intel macOS runtime. |
 
 The operating-system baseline follows the pinned [Qt 6.11 platform
-matrix](https://doc.qt.io/qt-6/supported-platforms.html), the [official PyTorch
+matrix](https://doc.qt.io/qt-6.11/supported-platforms.html), the [official PyTorch
 wheel index](https://download.pytorch.org/whl/cpu/torch/), and the platform
 requirements linked below. "Tested" refers to this application, whereas a
 vendor listing alone does not constitute live application testing.
@@ -451,7 +451,7 @@ automatic workload benchmarks compare available devices with CPU; integrated
 graphics are not excluded based on assumed performance.
 
 The Intel driver must already be installed. See the [PyTorch Intel XPU
-matrix](https://docs.pytorch.org/docs/stable/notes/get_start_xpu.html) for the
+matrix](https://docs.pytorch.org/docs/2.12/notes/get_start_xpu.html) for the
 validated hardware and operating-system combinations.
 
 #### Apple MPS
@@ -560,7 +560,9 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
      > On Fedora/RHEL, install the equivalent system libraries before launching:
      > ```bash
      > sudo dnf install nss nspr libXcomposite libXdamage libXrandr libxkbcommon-x11 \
-     >                  libXtst mesa-libgbm mesa-libEGL libxslt alsa-lib cups-libs
+     >                  libXtst mesa-libgbm mesa-libEGL libxslt alsa-lib cups-libs \
+     >                  xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms \
+     >                  xcb-util-renderutil
      > ```
 
      This will configure execution permissions and generate launchers (`emapssn` and `emapssn_tools`) as well as system `.desktop` application entries.
