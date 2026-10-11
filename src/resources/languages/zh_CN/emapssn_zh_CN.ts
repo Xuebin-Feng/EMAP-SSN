@@ -66,7 +66,7 @@
     <message>
         <location line="+90"/>
         <source>Could not confirm submission. Press Send to retry the same message. Your draft is retained.</source>
-        <translation type="unfinished">无法确认已提交。点击“发送”可重试同一条消息。您的草稿已保留。</translation>
+        <translation type="unfinished">无法确认是否已提交。点击“发送”可重试同一条消息。草稿已保留。</translation>
     </message>
     <message>
         <location filename="../../../web_ui/agent.html" line="+22"/>
@@ -178,7 +178,7 @@
     <message>
         <location line="+1"/>
         <source>awaiting user input</source>
-        <translation type="unfinished">等待用户操作</translation>
+        <translation type="unfinished">等待用户输入</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -222,7 +222,7 @@
     <message>
         <location line="+1"/>
         <source>Model cards could not be loaded from model_card.json ({reason}). Changes made on this page will not be saved: correct the file, or delete it to start over from the default cards, then reload this page.</source>
-        <translation type="unfinished">无法从 model_card.json 加载模型卡（{reason}）。在此页面上所做的更改不会被保存：请修正该文件，或删除它以从默认的模型卡重新开始，然后重新加载此页面。</translation>
+        <translation type="unfinished">无法从 model_card.json 加载模型卡（{reason}）。此页面上的更改不会保存：请修正该文件，或删除该文件以从默认模型卡重新开始，然后重新加载此页面。</translation>
     </message>
     <message>
         <location line="+24"/>
@@ -482,7 +482,7 @@
     <message>
         <location line="+11"/>
         <source>Tokens: {total} ({prompt} prompt, {completion} completion)</source>
-        <translation type="unfinished">Token：{total}（提示 {prompt}，生成 {completion}）</translation>
+        <translation type="unfinished">Token：{total}（提示 {prompt}，补全 {completion}）</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -728,7 +728,7 @@ Missing examples: {examples}</source>
         <location line="+4"/>
         <source>SUCCESS: FASTA is a strict subset of HDF5.
 {summary}</source>
-        <translation type="unfinished">成功：FASTA 是 HDF5 的严格子集。
+        <translation type="unfinished">成功：FASTA 是 HDF5 的真子集。
 {summary}</translation>
     </message>
     <message numerus="yes">
@@ -777,7 +777,7 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <location line="+7"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
-            <numerusform>它同样匹配 %n 个序列标题，将使用网络顺序中的第一个。其他：{others}</numerusform>
+            <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
@@ -789,7 +789,7 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <location line="+33"/>
         <source>Saved Config: Selects the settings profile used for this tab.
 (custom) uses the current viewer_settings.json values; (default) uses read-only built-in defaults; (new) creates a named profile; named entries load profiles from the Saved Config Directory.</source>
-        <translation type="unfinished">已保存配置：选择此选项卡使用的设置配置方案。
+        <translation type="unfinished">已保存配置：选择此选项卡使用的配置方案。
 （自定义）使用当前 viewer_settings.json 中的值；（默认）使用只读的内置默认值；（新建）创建一个命名的配置方案；其他命名条目从已保存配置目录加载配置方案。</translation>
     </message>
     <message>
@@ -979,7 +979,7 @@ Auto Benchmark measures representative workloads and may choose a different back
         <source>Attractive Hookean spring constant pulling nodes joined by retained network edges closer together.
 Every retained edge has the same spring strength; its similarity score determines filtering, not attraction strength.</source>
         <translation type="unfinished">胡克弹簧常数：弹簧以引力把由保留的网络边相连的节点拉近。
-每条保留的边弹簧强度相同；其相似性得分只决定是否被过滤，不决定引力大小。</translation>
+每条保留的边的弹簧强度相同；其相似性得分只决定是否被过滤，不决定引力大小。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -1133,7 +1133,7 @@ Used for custom node coloring, categorization, and annotation in the visualizer.
         <source>Directory containing text files with lists of sequence headers matching network query criteria.
 Used to store and track sequence cohorts identified in the visualizer.</source>
         <translation type="unfinished">存放文本文件的目录，文件中列出符合网络查询条件的序列标题。
-用于存储和跟踪在查看器中识别出的序列组。</translation>
+用于存储和跟踪在查看器中识别出的序列子集。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -1364,19 +1364,19 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <location line="+1"/>
         <source>shorter_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">较短序列</translation>
+        <translation type="unfinished">较短序列长度</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>longer_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">较长序列</translation>
+        <translation type="unfinished">较长序列长度</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>average_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">平均序列</translation>
+        <translation type="unfinished">平均序列长度</translation>
     </message>
     <message>
         <location line="+99"/>
@@ -1387,7 +1387,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <location line="+28"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
-            <numerusform>FASTA 文件不是网络文件的严格子集。网络中缺少 %n 条序列。</numerusform>
+            <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
         </translation>
     </message>
     <message>
@@ -1422,19 +1422,19 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <location line="+1"/>
         <source>Shorter Sequence</source>
         <comment>normalization</comment>
-        <translation type="unfinished">较短序列</translation>
+        <translation type="unfinished">较短序列长度</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Longer Sequence</source>
         <comment>normalization</comment>
-        <translation type="unfinished">较长序列</translation>
+        <translation type="unfinished">较长序列长度</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Average Sequence</source>
         <comment>normalization</comment>
-        <translation type="unfinished">平均序列</translation>
+        <translation type="unfinished">平均序列长度</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -1621,12 +1621,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     <message>
         <location line="+7"/>
         <source>Auto ON</source>
-        <translation type="unfinished">自动：开</translation>
+        <translation type="unfinished">自动</translation>
     </message>
     <message>
         <location line="+0"/>
         <source>Auto OFF</source>
-        <translation type="unfinished">自动：关</translation>
+        <translation type="unfinished">自动</translation>
     </message>
     <message>
         <location line="+24"/>
@@ -1838,7 +1838,7 @@ Command-line usage:
     <message>
         <location line="+7"/>
         <source>The language of the windows. Config and Tools switch at once; other windows use it the next time they open.</source>
-        <translation type="unfinished">窗口使用的语言。配置和工具窗口会立即切换；其他窗口在下次打开时使用。</translation>
+        <translation type="unfinished">窗口使用的语言。配置和工具窗口会立即切换；其他窗口在下次打开时生效。</translation>
     </message>
     <message>
         <location line="+45"/>
@@ -1881,7 +1881,7 @@ Command-line usage:
     <message>
         <location line="+22"/>
         <source>Queued background job #{job}: {command} (position {position}) -&gt; {file}</source>
-        <translation type="unfinished">已排队后台任务 #{job}：{command}（第 {position} 位）-&gt; {file}</translation>
+        <translation type="unfinished">已排队后台任务 #{job}：{command}（第 {position} 位）→ {file}</translation>
     </message>
     <message>
         <location line="+86"/>
@@ -1901,12 +1901,12 @@ Command-line usage:
     <message>
         <location line="+22"/>
         <source>Background job #{job} failed after {seconds}s ({command}): {error}</source>
-        <translation type="unfinished">后台任务 #{job} 在 {seconds} 秒后失败（{command}）：{error}</translation>
+        <translation type="unfinished">后台任务 #{job} 运行 {seconds} 秒后失败（{command}）：{error}</translation>
     </message>
     <message>
         <location filename="../../../Command_Engine.py" line="+123"/>
         <source>Negative range bound in &apos;{text}&apos; must be written in parentheses, for example &apos;(-1)-0&apos; or &apos;(-1.5)-(-0.5)&apos;. Parentheses are required around negative values in a range.</source>
-        <translation type="unfinished">“{text}”中的负数范围边界必须写在括号中，例如 &apos;(-1)-0&apos; 或 &apos;(-1.5)-(-0.5)&apos;。范围中的负值必须加括号。</translation>
+        <translation type="unfinished">“{text}”中的负数范围边界必须写在括号内，例如 &apos;(-1)-0&apos; 或 &apos;(-1.5)-(-0.5)&apos;。范围中的负值必须加括号。</translation>
     </message>
     <message>
         <location line="+70"/>
@@ -2061,7 +2061,7 @@ Command-line usage:
     <message>
         <location line="+41"/>
         <source>Negative alignment position &apos;({residues}){position}&apos; must be written as &apos;({residues})({position})&apos;. Parentheses are required around negative positions.</source>
-        <translation type="unfinished">负的比对位置“({residues}){position}”必须写成“({residues})({position})”。负位置必须加括号。</translation>
+        <translation type="unfinished">负的比对位置“({residues}){position}”必须写成 &apos;({residues})({position})&apos;。负位置必须加括号。</translation>
     </message>
     <message>
         <location line="+26"/>
@@ -2331,7 +2331,7 @@ Command-line usage:
     <message>
         <location line="-40"/>
         <source>Error: Unrecognized color argument &apos;{argument}&apos;. Expected a Boolean expression, color, scale with trailing x, or shape.</source>
-        <translation type="unfinished">错误：无法识别的着色参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放倍数或形状。</translation>
+        <translation type="unfinished">错误：无法识别的 color 参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放倍数或形状。</translation>
     </message>
     <message>
         <location line="+13"/>
@@ -2380,7 +2380,7 @@ Command-line usage:
     <message>
         <location line="+21"/>
         <source>Nothing is selected, so the last clicked node is folded: {node}.</source>
-        <translation type="unfinished">未选择任何节点，因此折叠最后点击的节点的结构：{node}。</translation>
+        <translation type="unfinished">未选择任何节点，因此将折叠最后点击的节点的结构：{node}。</translation>
     </message>
     <message>
         <location line="+19"/>
@@ -2584,7 +2584,7 @@ Command-line usage:
         <location line="+19"/>
         <source>Removed %n group(s) from {instances}.</source>
         <translation type="unfinished">
-            <numerusform>已从{instances}中删除 %n 个分组。</numerusform>
+            <numerusform>已从 {instances} 中删除 %n 个分组。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
@@ -2905,7 +2905,7 @@ Command-line usage:
     <message>
         <location line="+111"/>
         <source>Invalid insertion position &apos;{value}&apos;; the fractional suffix must be positive.</source>
-        <translation type="unfinished">无效的插入位置“{value}”：小数后缀必须为正数。</translation>
+        <translation type="unfinished">无效的插入位置“{value}”：小数部分必须为正数。</translation>
     </message>
     <message>
         <location line="+35"/>
@@ -2934,7 +2934,7 @@ Command-line usage:
     <message>
         <location line="+148"/>
         <source>Unknown color scheme &apos;{value}&apos;. Use a preset from the help, or a color such as red or #ff0000.</source>
-        <translation type="unfinished">未知的配色方案“{value}”。请使用帮助中的预设，或使用 red 或 #ff0000 这样的颜色。</translation>
+        <translation type="unfinished">未知的配色方案“{value}”。请使用帮助中的预设，或 red、#ff0000 这样的颜色。</translation>
     </message>
     <message>
         <location line="+12"/>
@@ -3009,7 +3009,7 @@ Command-line usage:
     <message>
         <location line="+17"/>
         <source>Error: No aligned nodes matched the logo selection criteria.</source>
-        <translation type="unfinished">错误：没有已比对的节点符合序列标识图的选择条件。</translation>
+        <translation type="unfinished">错误：没有已比对的节点符合序列标识图的筛选条件。</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -3126,7 +3126,7 @@ Command-line usage:
     <message>
         <location line="+6"/>
         <source>Error: {syntax} can be given only once.</source>
-        <translation type="unfinished">错误：{syntax} 只能给出一次。</translation>
+        <translation type="unfinished">错误：{syntax} 只能指定一次。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -3187,7 +3187,7 @@ Command-line usage:
     <message>
         <location line="+5"/>
         <source>Error saving {format}. Check console.</source>
-        <translation type="unfinished">保存 {format} 出错。请查看终端。</translation>
+        <translation type="unfinished">保存 {format} 出错。请查看控制台。</translation>
     </message>
     <message>
         <location filename="../../../commands/query.py" line="-471"/>
@@ -3558,7 +3558,7 @@ Command-line usage:
         <location line="+8"/>
         <source>%n node(s) with invalid values colored gray.</source>
         <translation type="unfinished">
-            <numerusform>%n 个值无效的节点已着为灰色。</numerusform>
+            <numerusform>%n 个值无效的节点已着色为灰色。</numerusform>
         </translation>
     </message>
     <message>
@@ -3574,7 +3574,7 @@ Command-line usage:
     <message>
         <location line="+22"/>
         <source>Error: Legacy spectrum prefixes are no longer supported. Use &apos;{syntax}&apos;.</source>
-        <translation type="unfinished">错误：不再支持旧的 spectrum 前缀。请使用“{syntax}”。</translation>
+        <translation type="unfinished">错误：不再支持旧的 spectrum 前缀。请使用 &apos;{syntax}&apos;。</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -3630,7 +3630,7 @@ Command-line usage:
     <message>
         <location line="+31"/>
         <source>No nodes matched the selection criteria (only visible nodes are colored).</source>
-        <translation type="unfinished">没有节点符合选择条件（只为可见节点着色）。</translation>
+        <translation type="unfinished">没有节点符合筛选条件（只为可见节点着色）。</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -3692,7 +3692,7 @@ Command-line usage:
     <message>
         <location line="+105"/>
         <source>No subcluster of {cluster} reached the minimum size {min_size}; nothing was changed.</source>
-        <translation type="unfinished">{cluster} 中没有子簇达到最小大小 {min_size}；未做任何更改。</translation>
+        <translation type="unfinished">{cluster} 中没有子簇达到最小簇大小 {min_size}；未做任何更改。</translation>
     </message>
     <message numerus="yes">
         <location line="+77"/>
@@ -4010,7 +4010,7 @@ Command-line usage:
     <message>
         <location line="+8"/>
         <source>Property names {names} are reserved for the metadata table&apos;s row index. Rename the column and upload the file again.</source>
-        <translation type="unfinished">属性名 {names} 保留给元数据表的行索引使用。请重命名该列，然后重新上传文件。</translation>
+        <translation type="unfinished">属性名称 {names} 保留给元数据表的行索引使用。请重命名该列，然后重新上传文件。</translation>
     </message>
     <message>
         <location line="+52"/>
@@ -4135,7 +4135,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
     <message>
         <location filename="../../../utilities/Sequence_Utils.py" line="+48"/>
         <source>Negative position &apos;{position}&apos; must be written as &apos;({position})&apos;. Parentheses are required around negative positions.</source>
-        <translation type="unfinished">负位置“{position}”必须写成“({position})”。负位置必须加括号。</translation>
+        <translation type="unfinished">负位置“{position}”必须写成 &apos;({position})&apos;。负位置必须加括号。</translation>
     </message>
     <message>
         <location line="+27"/>
@@ -4261,7 +4261,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
     <message>
         <location line="+97"/>
         <source>That command is not waiting to be run or discarded.</source>
-        <translation type="unfinished">该命令并未在等待运行或丢弃。</translation>
+        <translation type="unfinished">该命令当前不处于待运行或待丢弃状态。</translation>
     </message>
     <message>
         <location line="+41"/>
@@ -4286,7 +4286,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
     <message>
         <location line="+5"/>
         <source>This headless Viewer has no OpenGL context to render with; relaunch it in normal mode to capture the view.</source>
-        <translation type="unfinished">此无界面查看器没有可用于绘制的 OpenGL 上下文；请以正常模式重新启动它以截取视图。</translation>
+        <translation type="unfinished">此无界面查看器没有可用于渲染的 OpenGL 上下文；请以正常模式重新启动它以截取视图。</translation>
     </message>
     <message>
         <location filename="../../../web_ui/agent_backend.py" line="-171"/>
@@ -5051,7 +5051,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+4"/>
         <source>Stage times include the time each tool spends on its own Auto hardware trials.</source>
-        <translation type="unfinished">各阶段时间包含各工具进行自动硬件试验所用的时间。</translation>
+        <translation type="unfinished">各阶段时间包含各工具自身自动硬件试验所用的时间。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -5076,12 +5076,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+2"/>
         <source>A machine&apos;s first run also compiles kernels that later runs load from a cache, so it can be slower.</source>
-        <translation type="unfinished">一台计算机首次运行时还会编译计算内核，以后的运行从缓存加载它们，因此首次运行可能较慢。</translation>
+        <translation type="unfinished">计算机首次运行时还会编译计算内核，后续运行则从缓存加载，因此首次运行可能较慢。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Compare reports only when their protocol versions and sequence sets match.</source>
-        <translation type="unfinished">只有测试规程版本和序列集都相同时，报告才可比较。</translation>
+        <translation type="unfinished">只有基准测试规程版本和序列集都相同时，报告才可比较。</translation>
     </message>
     <message>
         <location line="+8"/>
@@ -5364,7 +5364,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+3"/>
         <source>No stage recorded an Auto decision.</source>
-        <translation type="unfinished">没有阶段记录自动决策。</translation>
+        <translation type="unfinished">没有任何阶段记录自动决策。</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -5422,7 +5422,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+4"/>
         <source>Peak GPU memory</source>
-        <translation type="unfinished">峰值 GPU 内存</translation>
+        <translation type="unfinished">峰值显存</translation>
     </message>
     <message>
         <location line="+0"/>
@@ -5624,7 +5624,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location filename="../../../commands/redo.py" line="-31"/>
         <location filename="../../../commands/undo.py" line="-32"/>
         <source>Error: {syntax} takes a positive whole number of steps, not &apos;{value}&apos;.</source>
-        <translation type="unfinished">错误：{syntax} 需要一个正整数步数，而不是“{value}”。</translation>
+        <translation type="unfinished">错误：{syntax} 的步数必须为正整数，而不是“{value}”。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -5862,7 +5862,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+3"/>
         <source>&lt;strong&gt;Logical Commands&lt;/strong&gt;: Combine comparisons enclosed in matching parentheses with operators:</source>
-        <translation type="unfinished">&lt;strong&gt;逻辑组合&lt;/strong&gt;：用以下运算符组合各自用括号括起来的比较：</translation>
+        <translation type="unfinished">&lt;strong&gt;逻辑运算&lt;/strong&gt;：用以下运算符组合各自置于配对括号内的比较：</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -6109,19 +6109,19 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+1"/>
         <source>shorter_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">较短序列</translation>
+        <translation type="unfinished">较短序列长度</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>longer_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">较长序列</translation>
+        <translation type="unfinished">较长序列长度</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>average_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">平均序列</translation>
+        <translation type="unfinished">平均序列长度</translation>
     </message>
     <message>
         <location line="+7"/>
@@ -6425,7 +6425,7 @@ More negative values penalize gap insertions and extensions, resulting in fewer 
         <source>Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.
 Controls gap insertion penalties across end-to-end full-length alignments.</source>
         <translation type="unfinished">全局比对空位罚分：Needleman-Wunsch 全局比对中使用的空位罚分。
-控制首尾相接的全长比对中插入空位的罚分。</translation>
+控制端到端全长比对中插入空位的罚分。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7416,7 +7416,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+57"/>
         <source>Tools Settings Not Loaded</source>
-        <translation type="unfinished">未加载工具设置</translation>
+        <translation type="unfinished">工具设置未加载</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7425,7 +7425,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
 The window shows the default values, and the file was left unchanged. Saving directories and running tools will not work until you correct the file, or delete it to start over from the default settings.</source>
         <translation type="unfinished">{error}
 
-窗口显示的是默认值，该文件保持不变。在您修正该文件，或删除它以从默认设置重新开始之前，无法保存目录或运行工具。</translation>
+窗口显示的是默认值，文件未被修改。在修正该文件，或删除它以从默认设置重新开始之前，无法保存目录或运行工具。</translation>
     </message>
     <message>
         <source>📂 Global Directory Settings</source>
@@ -7464,7 +7464,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+1"/>
         <source>Directory where per-tool JSON settings files are exported for command-line execution.</source>
-        <translation type="unfinished">导出各工具 JSON 设置文件以便从命令行运行的目录。</translation>
+        <translation type="unfinished">保存各工具导出的 JSON 设置文件（供命令行运行）的目录。</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -7569,7 +7569,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+22"/>
         <source>Define paths to folders used globally across the SSN tool scripts. These configurations are automatically saved, validated, and loaded at runtime by all scripts.</source>
-        <translation type="unfinished">定义所有 SSN 工具脚本共用的文件夹路径。这些配置会自动保存和验证，并在所有脚本运行时加载。</translation>
+        <translation type="unfinished">定义所有 SSN 工具脚本共用的文件夹路径。这些配置会自动保存和验证，并由所有脚本在运行时加载。</translation>
     </message>
     <message>
         <source>📄 Internal Documentation</source>
@@ -7628,7 +7628,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <location line="+105"/>
         <location line="+7"/>
         <source>Remote API — local device not applicable</source>
-        <translation type="unfinished">远程 API——不适用本地设备</translation>
+        <translation type="unfinished">远程 API——本地设备不适用</translation>
     </message>
     <message>
         <location line="+128"/>
@@ -7688,7 +7688,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+2"/>
         <source>The benchmark&apos;s folder. Each run saves its report here as a .txt named by the date and time the run started, in the window&apos;s language, with an English .json beside it. Reports are never deleted.</source>
-        <translation type="unfinished">基准测试的文件夹。每次运行都会把报告以 .txt 保存在这里，文件名为运行开始的日期和时间，使用窗口的语言，旁边另有一份英文 .json。报告从不删除。</translation>
+        <translation type="unfinished">基准测试的文件夹。每次运行都会把报告以 .txt 保存在这里，文件名为运行开始的日期和时间，使用窗口的语言，旁边另有一份英文 .json。报告一律不删除。</translation>
     </message>
     <message>
         <location line="+17"/>
@@ -7706,7 +7706,7 @@ Start the benchmark?</source>
     <message>
         <location line="+149"/>
         <source>Enter a name for the exported settings file.</source>
-        <translation type="unfinished">请输入导出的设置文件的名称。</translation>
+        <translation type="unfinished">请输入导出设置文件的名称。</translation>
     </message>
     <message>
         <location line="+7"/>

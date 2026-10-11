@@ -9,7 +9,7 @@
 
 #### HDF5 嵌入数据库 `INPUT_HDF5`
 *   **格式**：HDF5（`.h5`）。
-*   **生成工具**：`Generate_Embeddings.py`（嵌入生成工具）。
+*   **创建者**：`Generate_Embeddings.py`（嵌入生成工具）。
 *   **说明**：以 $L \times D$ 数组的形式包含预先计算的残基嵌入。
 
 ### 参数
@@ -99,7 +99,7 @@
 
 #### 序列 FASTA 文件 `INPUT_FASTA`
 *   **格式**：标准 FASTA（`.fasta`）。
-*   **生成工具**：`Sanitize_Sequences.py`（序列清理工具）或用户提供的原始 FASTA。
+*   **创建者**：`Sanitize_Sequences.py`（序列清理工具）或用户提供的原始 FASTA。
 *   **说明**：用于运行 BLAST 的原始序列数据库。记录会先经过与 `Generate_Embeddings.py` 相同的规范清理：序列标题、残基、空记录和重复序列。
 
 ### 参数
@@ -108,7 +108,7 @@
 | :--- | :--- |
 | 替换矩阵 **`MATRIX`** | BLAST 比对中用于传统打分的氨基酸替换矩阵（例如 BLOSUM45、BLOSUM50、BLOSUM62、BLOSUM80、BLOSUM90、PAM30、PAM70、PAM250）。 |
 | BLAST 线程数 **`NUM_THREADS`** | 分配给 BLASTP 执行和结果解析的 CPU 线程数。 |
-| 处理批大小 **`BATCH_SIZE`** | 在写入中间 HDF5 文件和编制最终网络时，一次缓冲或复制的已解析边的最大数量。 |
+| 处理批大小 **`BATCH_SIZE`** | 在写入中间 HDF5 文件和汇总最终网络时，一次缓冲或复制的已解析边的最大数量。 |
 | BLASTP 目录 **`BLASTP_DIR`** | 可选的目录，其中包含 `blastp` 和 `makeblastdb`。留空时，工具会在 `PATH` 和受支持平台的安装位置中查找。 |
 
 BLASTP 目前使用宽松的固定期望值阈值 `1e300`，每个查询最多 `1,000,000` 条目标序列，每个目标只保留一个 HSP，并使用条件性组成统计（`-comp_based_stats 2`）。这些是实现中的常量，而不是界面中的字段。
@@ -167,7 +167,7 @@ BLASTP 目前使用宽松的固定期望值阈值 `1e300`，每个查询最多 `
 
 #### 表格格式 BLAST 输出文件 `INPUT_BLAST_TABULAR`
 *   **格式**：UTF-8 表格格式 BLAST 输出（`.tabular`、`.txt`、`.tab`、`.tsv`）。
-*   **生成工具**：在外部运行的 NCBI BLASTP 或 DIAMOND `blastp`。
+*   **创建者**：在外部运行的 NCBI BLASTP 或 DIAMOND `blastp`。
 *   **结构**：通过 `BLAST_LAYOUT` 选择 `standard_outfmt6`、`outfmt7_fields` 或 `custom_columns`。DIAMOND 默认的 `--outfmt 6` 包含 12 个标准列。
 
 #### 配套 FASTA 文件 `INPUT_FASTA`
@@ -198,7 +198,7 @@ diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-s
 
 *   **必须使用 `-k 0`。** DIAMOND 默认每个查询最多报告 25 条目标序列（`--max-target-seqs 25`），因此不加 `-k 0` 导入的全对全网络会悄悄丢失每个查询前 25 个命中之外的所有边。`--top` 也会以同样的方式截断命中列表，不应使用。
 *   **`--header verbose`** 会写入 `# DIAMOND v…` 和 `# Invocation: …` 注释行。导入程序会把它们记录为网络的搜索程序、版本和命令，将输出命名为 `<name>_[DIAMOND]_EValue.h5`，并检查记录的 `--max-target-seqs`。没有这一头部时，DIAMOND 输出仍可导入，但来源未知，并使用 `[BLAST]` 名称。`--header simple` 会写入一行列名，这会被拒绝。
-*   **序列标题**：请搜索序列标题中不含空格的 FASTA（例如由 `Sanitize_Sequences.py` 写出的文件），使 `qseqid`/`sseqid` 包含完整的序列标题；或者使用上面的标题列。
+*   **序列标题**：请选择序列标题中不含空格的 FASTA 进行搜索（例如由 `Sanitize_Sequences.py` 写出的文件），使 `qseqid`/`sseqid` 包含完整的序列标题；或者使用上面的标题列。
 *   **灵敏度与阈值**：`--very-sensitive` 或 `--ultra-sensitive` 能找到 SSN 所依赖的远缘同源序列；更快的模式会漏掉更多远缘序列对。`--max-hsps 1`（DIAMOND 的默认值）对每个序列对只保留一个比对。期望值阈值决定了之后的得分阈值所能用到的最弱的边。
 
 两种程序生成的网络都保留 `model_name="BLAST"`，因此查看器会把它们作为期望值网络加载。
@@ -223,7 +223,7 @@ diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-s
 解析完成后，诊断信息会报告有多少条 FASTA 记录作为查询出现，以及任一查询报告的不同目标的最大数量。下面每项检查都会打印一条警告并存入 `import_warnings`，但不会中止导入：
 
 *   `--header verbose` 记录的 DIAMOND 命令使用了 `--top`，或者使用的 `--max-target-seqs` 限制小于至少一个查询达到的序列数。
-*   没有记录的命令时：在达到最大目标数的查询中，至少有三个、且至少占其 10% 的查询，作为命中被多于该数量的查询报告。期望值阈值附近的弱命中偶尔会缺少对应的反向命中，但许多查询在同一个共同数量上出现这种情况，正是每查询数量限制的特征：DIAMOND 的默认值 25、BLAST+ 的默认值 500，或者自行选定的 `-k`。成员恰好都达到最大数量的完整家族不会被标记。若同一查询的行不连续，则跳过此项检查。
+*   未记录命令时：在达到最大目标数的查询中，至少有三个、且至少占其 10% 的查询，作为命中被多于该数量的查询报告。期望值阈值附近的弱命中偶尔会缺少对应的双向命中，但许多查询在同一个共同数量上出现这种情况，正是每查询数量限制的特征：DIAMOND 的默认值 25、BLAST+ 的默认值 500，或者自行选定的 `-k`。成员恰好都达到最大数量的完整家族不会被标记。若同一查询的行不连续，则跳过此项检查。
 *   一些 FASTA 记录从未作为查询出现，而其他查询却报告了自身命中，这说明搜索没有覆盖整个 FASTA，或提前停止了。非常短或低复杂度的序列也可能没有自身命中。
 
 `emapssn_pipeline(action="inspect_file")` 会报告已导入网络中记录的警告；对于尚未导入的 DIAMOND 文件，则报告其搜索程序、版本和限制。
@@ -246,6 +246,6 @@ diamond blastp -d sequences -q sequences.fasta -o sequences_diamond.tsv --very-s
      写出每段最多 1,000,000 行已解析数据的有序分段，在外部归并，并对每个规范的无向序列对只保留得分最高的比对。最终的序列对严格有序且唯一。
 
 5. **经校验的原子化发布**：
-     写入一个 `.partial` HDF5 文件，校验其结构、序列标题、有限的得分、规范的序列对、排序、唯一性和来源信息，然后以原子方式替换最终输出。没有边的网络也是有效的。
+     写入一个 `.partial` HDF5 文件，校验其结构、序列标题、得分的有限性、规范的序列对、排序、唯一性和来源信息，然后以原子方式替换最终输出。没有边的网络也是有效的。
 
 </details>
