@@ -1080,6 +1080,14 @@ still change before version 1.0.0.
   file". The message EMAP-SSN Tools shows when QtWebEngine cannot load now gives the
   package names for Debian 12 and 13 and Ubuntu-based distributions too, not only
   Ubuntu's.
+- An NVIDIA Blackwell GPU (RTX 50 series and other compute capability 10.x or 12.x
+  cards) with a driver older than 580 got the CUDA 12.6 build, which has no Blackwell
+  kernels: setup downloaded it, failed validation and moved to the CPU with only a
+  validation error. Setup now leaves such a GPU out, prints a warning to update the
+  NVIDIA driver to 580 or newer, and uses the CPU until then; after the update, the
+  next launch installs CUDA 13.2. Whenever a GPU build fails to install or validate,
+  setup now ends with a warning naming the build, the error (for a failed tensor check,
+  each GPU's own error), and the `--refresh-backend` command that tries the GPU again.
 - A hand-edited or damaged `ssn_backend.json` (the installer's state file in `.venv`)
   whose `schema` was not a number, such as `null`, `"abc"` or `NaN`, made every device
   lookup fail with `TypeError`, `ValueError` or `OverflowError`: the GUI's device
