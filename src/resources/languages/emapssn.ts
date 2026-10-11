@@ -2435,6 +2435,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at least {n}, or zoom out. The limit is {setting} in {file}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: {syntax} needs a view width, as in {example}.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2656,6 +2660,16 @@ Command-line usage:
     </message>
     <message>
         <source>Error reading/executing command file: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Stopped %n Python script(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>No Python script is running.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

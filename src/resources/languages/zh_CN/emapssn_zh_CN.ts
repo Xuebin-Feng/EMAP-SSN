@@ -2137,7 +2137,7 @@ Command-line usage:
         <location line="+16"/>
         <location filename="../../../commands/meta.py" line="+166"/>
         <location line="+114"/>
-        <location filename="../../../commands/print.py" line="+934"/>
+        <location filename="../../../commands/print.py" line="+971"/>
         <location line="+51"/>
         <location filename="../../../commands/query.py" line="+583"/>
         <location filename="../../../commands/reset.py" line="+114"/>
@@ -2150,7 +2150,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-87"/>
         <location filename="../../../commands/alignment.py" line="+49"/>
-        <location filename="../../../commands/cluster.py" line="+286"/>
+        <location filename="../../../commands/cluster.py" line="+304"/>
         <location filename="../../../commands/color.py" line="+95"/>
         <location filename="../../../commands/esmfold.py" line="-59"/>
         <location filename="../../../commands/export.py" line="+103"/>
@@ -2185,7 +2185,7 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../commands/alignment.py" line="+22"/>
-        <location filename="../../../commands/run.py" line="+176"/>
+        <location filename="../../../commands/run.py" line="+199"/>
         <source>Error opening file dialog: {error}</source>
         <translation type="unfinished">打开文件对话框出错：{error}</translation>
     </message>
@@ -2221,7 +2221,7 @@ Command-line usage:
         <translation type="unfinished">加载失败，已恢复为之前的比对。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-170"/>
+        <location filename="../../../commands/cluster.py" line="-188"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
         <translation type="unfinished">错误：MCL inflation 必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
@@ -2253,7 +2253,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+129"/>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished">当前未定义任何簇。</translation>
     </message>
@@ -2271,7 +2271,7 @@ Command-line usage:
     </message>
     <message numerus="yes">
         <location filename="../../../Command_Engine.py" line="-163"/>
-        <location filename="../../../commands/cluster.py" line="+151"/>
+        <location filename="../../../commands/cluster.py" line="+143"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
@@ -2289,14 +2289,14 @@ Command-line usage:
         <translation type="obsolete">错误：缺少 Numba 库。</translation>
     </message>
     <message>
-        <location line="-138"/>
+        <location line="-130"/>
         <location filename="../../../commands/subcluster.py" line="+194"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message>
-        <location line="+45"/>
-        <location filename="../../../commands/subcluster.py" line="+42"/>
+        <location line="+37"/>
+        <location filename="../../../commands/subcluster.py" line="+35"/>
         <source>Missing library! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
@@ -2554,7 +2554,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/group.py" line="+7"/>
         <location line="+11"/>
-        <location filename="../../../commands/subcluster.py" line="-224"/>
+        <location filename="../../../commands/subcluster.py" line="-217"/>
         <source>No groups are currently defined.</source>
         <translation type="unfinished">当前未定义任何分组。</translation>
     </message>
@@ -2652,13 +2652,13 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-375"/>
+        <location filename="../../../commands/cluster.py" line="-385"/>
         <location filename="../../../commands/hide.py" line="+25"/>
         <location filename="../../../commands/meta.py" line="+10"/>
         <location filename="../../../commands/redo.py" line="+48"/>
         <location line="+15"/>
         <location filename="../../../commands/reference.py" line="+84"/>
-        <location filename="../../../commands/run.py" line="-41"/>
+        <location filename="../../../commands/run.py" line="-47"/>
         <location filename="../../../commands/save.py" line="+31"/>
         <location filename="../../../commands/subcluster.py" line="-82"/>
         <location filename="../../../commands/undo.py" line="+48"/>
@@ -3109,7 +3109,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../../commands/print.py" line="-215"/>
+        <location filename="../../../commands/print.py" line="-243"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -3119,7 +3119,12 @@ Command-line usage:
         <translation type="unfinished">截取过程中网络显示发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
     <message>
-        <location line="+169"/>
+        <location line="+147"/>
+        <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at least {n}, or zoom out. The limit is {setting} in {file}.</source>
+        <translation type="unfinished">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过上限 {limit}。请使用 {syntax}，并让 N 至少为 {n}，或缩小视图。此上限是 {file} 中的 {setting}。</translation>
+    </message>
+    <message>
+        <location line="+50"/>
         <source>Error: {syntax} needs a view width, as in {example}.</source>
         <translation type="unfinished">错误：{syntax} 需要一个视图宽度，例如 {example}。</translation>
     </message>
@@ -3160,7 +3165,7 @@ Command-line usage:
     <message>
         <location line="+56"/>
         <location line="+11"/>
-        <location line="+112"/>
+        <location line="+116"/>
         <source>Error: No visible nodes to export.</source>
         <translation type="unfinished">错误：没有可导出的可见节点。</translation>
     </message>
@@ -3350,7 +3355,7 @@ Command-line usage:
         <translation type="unfinished">未知的重置目标：{targets}。未重置任何内容。</translation>
     </message>
     <message>
-        <location filename="../../../commands/run.py" line="-62"/>
+        <location filename="../../../commands/run.py" line="-79"/>
         <source>Error: The script holds {count} commands, more than the {limit} a script may run. None were run.</source>
         <translation type="unfinished">错误：该脚本含有 {count} 条命令，超过了脚本最多可运行的 {limit} 条。未运行任何命令。</translation>
     </message>
@@ -3371,8 +3376,20 @@ Command-line usage:
             <numerusform>未运行：其余 %n 条命令。</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <location line="+46"/>
+        <source>Stopped %n Python script(s).</source>
+        <translation type="unfinished">
+            <numerusform>已停止 %n 个 Python 脚本。</numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+77"/>
+        <location line="+2"/>
+        <source>No Python script is running.</source>
+        <translation type="unfinished">没有正在运行的 Python 脚本。</translation>
+    </message>
+    <message>
+        <location line="+52"/>
         <source>File selection cancelled.</source>
         <translation type="unfinished">已取消选择文件。</translation>
     </message>
@@ -3387,7 +3404,7 @@ Command-line usage:
         <translation type="unfinished">正在执行 Python 脚本…</translation>
     </message>
     <message>
-        <location line="-78"/>
+        <location line="-101"/>
         <source>Error: Python script failed (exit code {code}):</source>
         <translation type="unfinished">错误：Python 脚本运行失败（退出代码 {code}）：</translation>
     </message>
@@ -3406,7 +3423,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+25"/>
-        <location line="+100"/>
+        <location line="+123"/>
         <source>Error reading/executing command file: {error}</source>
         <translation type="unfinished">读取或执行命令文件出错：{error}</translation>
     </message>
@@ -3690,7 +3707,7 @@ Command-line usage:
         <translation type="unfinished">错误：{cluster} 内部没有边，无法进行子聚类。</translation>
     </message>
     <message>
-        <location line="+105"/>
+        <location line="+98"/>
         <source>No subcluster of {cluster} reached the minimum size {min_size}; nothing was changed.</source>
         <translation type="unfinished">{cluster} 中没有子簇达到最小簇大小 {min_size}；未做任何更改。</translation>
     </message>
@@ -5475,7 +5492,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">Leiden 聚类失败：{error}</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+50"/>
         <source>Leiden resolution must be a finite number; got {resolution}.</source>
         <translation type="unfinished">Leiden 分辨率必须是有限数；实际为 {resolution}。</translation>
     </message>
