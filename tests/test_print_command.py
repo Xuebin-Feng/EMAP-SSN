@@ -1460,6 +1460,59 @@ class PrintZoomTests(unittest.TestCase):
         self.assertTrue(report.startswith("Successfully saved full stitched snapshot: "))
         self.assertEqual(result.viewer.console_text.text, f"Saved PNG: fig1.png {warning}")
 
+    # --- size limit ------------------------------------------------------
+
+    def limited(self, megapixels):
+        patcher = mock.patch.object(print_command, "MAX_FULL_IMAGE_MEGAPIXELS", megapixels)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_a_full_image_over_the_limit_is_refused_before_any_tile(self):
+        # zoom 50 makes 1760 x 960 px, 1.69 megapixels.
+        self.limited(1)
+        result = self.run_print(["fig1", "full", "zoom", "50"])
+
+        message = (
+            "Error: The full image would be 1760×960 px (2 megapixels), more than the "
+            "limit of 1. Use print full zoom N with N of at least 65.7, or zoom out. "
+            "The limit is MAX_FULL_IMAGE_MEGAPIXELS in src/commands/print.py."
+        )
+        self.assertEqual(self.failure(result), message)
+        self.assertEqual(result.viewer.console_text.text, message)
+        # Only the render that measures the canvas: no tile was drawn.
+        self.assertEqual(len(result.tile_rects), 1)
+        result.save.assert_not_called()
+        result.engine.command_succeeded.assert_not_called()
+        self.assertTrue(result.viewer.zoom_text.visible)
+        self.assertFalse(os.path.exists(result.save_dir))
+
+    def test_the_n_it_suggests_fits_the_limit(self):
+        for limit, arguments, smallest in (
+            (1, ["fig1", "full", "zoom", "50"], "65.7"),
+            # Without zoom N, the scale is the view's: 100 units wide, 880 x 480 px.
+            (0.2, ["fig1", "full"], "147"),
+        ):
+            with self.subTest(arguments=arguments):
+                self.limited(limit)
+                refused = self.run_print(arguments)
+                self.assertIn(f"N of at least {smallest}, or zoom out", self.failure(refused))
+
+                result = self.run_print(["fig1", "full", "zoom", smallest])
+                result.engine.command_failed.assert_not_called()
+                height, width = result.save.call_args.args[1].shape[:2]
+                self.assertLessEqual(width * height, limit * 1e6)
+
+    def test_an_image_at_the_limit_is_made(self):
+        self.limited(1)
+        self.assertIsNone(print_command.full_image_size_refusal(1000, 1000, 50.0))
+        self.assertIsNotNone(print_command.full_image_size_refusal(1001, 1000, 50.0))
+
+    def test_the_suggested_n_is_rounded_up_to_three_digits(self):
+        for value, text in ((65.64, "65.7"), (1234.5, "1240"), (100.0, "100"),
+                            (999.9, "1000"), (0.012345, "0.0124")):
+            with self.subTest(value=value):
+                self.assertEqual(print_command._round_up(value), text)
+
     def test_the_warning_needs_zoom_and_an_image_under_1000_pixels(self):
         # No zoom: 880 x 480 pixels, and no warning. zoom 50: 1760 x 960, none either.
         for arguments in (["fig1", "full"], ["fig1", "full", "zoom", "50"],

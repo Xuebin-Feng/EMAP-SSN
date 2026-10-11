@@ -42,6 +42,11 @@ PRINT_MODIFIER_SYNTAX = "transparent, full, svg, zoom N"
 # A full PNG drawn at a `zoom N` scale whose longest side is shorter than this
 # is still saved, with a warning that a smaller N gives a larger image.
 ZOOMED_IMAGE_MIN_SIDE_PX = 1000
+# print full refuses, before drawing any tile, a PNG of more megapixels than
+# this. 250 is about 15,800 x 15,800 px, more than an A0 poster at 300 dpi
+# (140). Making the image takes about 9 bytes of memory per pixel, so raise
+# the limit only as far as the computer's memory allows.
+MAX_FULL_IMAGE_MEGAPIXELS = 250
 PNG_TRIM_PADDING_PX = 20
 PNG_ALPHA_TOLERANCE = 1.0 / 255.0
 PNG_BACKGROUND_TOLERANCE = 2.0 / 255.0
@@ -97,6 +102,10 @@ def print_help():
                     and lines relative to the network in an SVG. Node sizes
                     stay in screen pixels. A full PNG whose longest side is
                     under 1000 px is saved with a warning.
+
+    Size limit: a full PNG of more than MAX_FULL_IMAGE_MEGAPIXELS megapixels
+    (250 as shipped) is refused before any tile is drawn, with the smallest
+    N that fits. The limit is set in src/commands/print.py.
 
     PNG captures leave out the hover colour of the node under the mouse and
     the halo of the clicked node; selection borders stay.
@@ -853,6 +862,34 @@ class _PngMosaic:
         return image[top:bottom, left:right]
 
 
+def _round_up(value):
+    """value rounded up to three significant digits, as text."""
+    exponent = math.floor(math.log10(value)) - 2
+    step = 10.0 ** exponent
+    return f"{math.ceil(value / step) * step:.{max(0, -exponent)}f}"
+
+
+def full_image_size_refusal(width, height, view_width):
+    """The Message refusing a full PNG of width x height px, or None within the limit.
+
+    view_width is the scene width the image is drawn at, the N of `zoom N` or
+    the current view's width. The pixel count falls with its square, which
+    gives the smallest N that fits; 1% more allows for rounding.
+    """
+    megapixels = width * height / 1e6
+    if megapixels <= MAX_FULL_IMAGE_MEGAPIXELS:
+        return None
+    smallest = view_width * math.sqrt(megapixels / MAX_FULL_IMAGE_MEGAPIXELS) * 1.01
+    return Message(
+        "Error: The full image would be {width}×{height} px ({megapixels} megapixels), "
+        "more than the limit of {limit}. Use {syntax} with N of at least {n}, or zoom out. "
+        "The limit is {setting} in {file}.",
+        width=width, height=height, megapixels=math.ceil(megapixels),
+        limit=MAX_FULL_IMAGE_MEGAPIXELS, syntax="print full zoom N", n=_round_up(smallest),
+        setting="MAX_FULL_IMAGE_MEGAPIXELS", file="src/commands/print.py",
+    )
+
+
 def _refuse(viewer, msg):
     """Report msg, an error found before anything is drawn or written."""
     Command_Engine.command_failed(viewer, msg)
@@ -1091,6 +1128,10 @@ def run(viewer, args):
             canvas_h = n_rows * keep_px_h
             target_px_w = int((world_right - world_left) / upp_x)
             target_px_h = int((world_top - world_bottom) / upp_y)
+            refusal = full_image_size_refusal(target_px_w, target_px_h, tile_world_w)
+            if refusal is not None:
+                _refuse(viewer, refusal)
+                return
             mosaic = _PngMosaic(
                 canvas_h, canvas_w, target_px_h, target_px_w, is_transparent, original_bgcolor,
             )
