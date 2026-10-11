@@ -167,6 +167,20 @@ class ColorPickerTests(unittest.TestCase):
         self.assertTrue(closed(picker))
         self.assertEqual(field.text(), "#000000")
 
+    def test_a_left_click_outside_the_card_closes_it_keeping_the_colour(self):
+        for where in ("outside the window", "on the card's shadow"):
+            with self.subTest(where=where):
+                field, _button, picker = self.open_for("grey")
+                click(picker, picker.preset_rect(0).center().toPoint())
+                point = QPoint(-20, -20) if where == "outside the window" else QPoint(1, picker.height() - 1)
+                if picker.card_rect().contains(QPointF(point)):
+                    picker.close()
+                    self.skipTest("the card fills its window where the window system can't draw a shadow")
+                click(picker, point)
+                flush(self.app)
+                self.assertTrue(closed(picker))
+                self.assertEqual(field.text(), "#000000")
+
 
 class PickButtonTests(unittest.TestCase):
     """Config's Pick buttons open the picker; VR Config's code does the same."""

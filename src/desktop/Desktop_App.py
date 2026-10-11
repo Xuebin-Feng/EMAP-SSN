@@ -2495,10 +2495,18 @@ class ColorPicker(QWidget):
     # --- The mouse and keys ---
 
     def mousePressEvent(self, event):
+        position = event.position()
+        if not self.card_rect().contains(position):
+            # Outside the card, as on its shadow, any button closes it; QWidget
+            # closes a popup on a press outside the window.
+            if self.rect().contains(position.toPoint()):
+                self.close()
+            else:
+                super().mousePressEvent(event)
+            return
         if event.button() != Qt.MouseButton.LeftButton:
             super().mousePressEvent(event)
             return
-        position = event.position()
         if self.area_rect().contains(position):
             self._dragging = "area"
         elif self.hue_rect().adjusted(0, -4, 0, 4).contains(position):
