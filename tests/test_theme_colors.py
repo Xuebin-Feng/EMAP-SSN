@@ -127,6 +127,9 @@ class ThemeColorShadeTests(unittest.TestCase):
         })
         self.assertEqual(theme_tokens("teal")["text_subtle"], "#71717a")
         self.assertEqual(theme_tokens("teal")["field_border"], "#dcdce0")
+        # The lines between sections are thicker than a card's 1 px hairline.
+        self.assertGreaterEqual(theme_tokens("teal")["separator_thickness"], 2)
+        self.assertIn(f"max-height: {TOKENS['separator_thickness']}px", studio_stylesheet())
 
     def test_purple_keeps_the_first_accent_and_black_has_no_colour(self):
         self.assertEqual(theme_tokens("purple")["accent"], "#5b5bd6")
@@ -414,7 +417,13 @@ class WindowThemeColorTests(unittest.TestCase):
         lines = [frame for frame in window.findChildren(QFrame)
                  if frame.property("role") == "separator" and frame.isVisible()]
         self.assertTrue(lines, f"{type(window).__name__} shows no section line")
-        return {line.grab().toImage().pixelColor(line.width() // 2, 0).name() for line in lines}
+        colours = set()
+        for line in lines:
+            # As thick as the theme's separator_thickness, drawn in the colour all the way through.
+            self.assertEqual(line.height(), TOKENS["separator_thickness"], line.objectName())
+            image = line.grab().toImage()
+            colours |= {image.pixelColor(image.width() // 2, y).name() for y in range(image.height())}
+        return colours
 
     def test_the_same_colour_needs_no_redraw(self):
         window = self.open_config()

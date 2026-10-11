@@ -126,3 +126,52 @@ def misplaced_translations(pages_dir=None, languages_dir=None):
             match = _OLD_TRANSLATION_NAME.match(path.name)
             misplaced.append((path, help_folder(match["language"], languages_dir) / f"{match['name']}.md"))
     return misplaced
+
+
+# A page's Parameter tables list one setting per row: its name and key, such
+# as "Pre-filtering Strength **`PREFILTER_STRENGTH`**", then what it does.
+# Every such table, on every page and in every language, gives the first
+# column the same width, room for any name and key in at most three lines
+# (tests/test_tool_help_pages.py measures them). A pane narrower than
+# PARAMETER_STACK_BELOW has no room for both columns, so there each row
+# stacks, its name over what it does, and the page's sides narrow to
+# NARROW_PAGE_PADDING, room for the longest key on one line.
+PARAMETER_COLUMN_WIDTH = 260
+PARAMETER_STACK_BELOW = 580
+NARROW_PAGE_PADDING = 12
+_TABLE_BOX = re.compile(r'<div class="table-scroll">(<table>.*?</table>)</div>', re.S)
+_FIRST_CELL = re.compile(r"<tr>\s*<td[^>]*>(.*?)</td>", re.S)
+
+
+def is_parameter_table(table_html):
+    """Whether a table names a setting in a row: a first-column cell holds a bold key, **`KEY`**."""
+    return any("<strong><code>" in cell for cell in _FIRST_CELL.findall(table_html))
+
+
+def mark_parameter_tables(page_html):
+    """page_html with the box of each Parameter table (div.table-scroll) also of class "parameters"."""
+    def mark(match):
+        if not is_parameter_table(match.group(1)):
+            return match.group(0)
+        return f'<div class="table-scroll parameters">{match.group(1)}</div>'
+
+    return _TABLE_BOX.sub(mark, page_html)
+
+
+def parameter_table_css(tokens):
+    """The help pane's rules for Parameter tables, in tokens' colours (a theme's tokens)."""
+    return f"""
+        .parameters table {{ table-layout: fixed; }}
+        .parameters th:first-child {{ width: {PARAMETER_COLUMN_WIDTH}px; }}
+        @media (max-width: {PARAMETER_STACK_BELOW - 1}px) {{
+            .help-page {{ padding-left: {NARROW_PAGE_PADDING}px; padding-right: {NARROW_PAGE_PADDING}px; }}
+            .parameters thead {{ display: none; }}
+            .parameters table, .parameters tbody, .parameters tr, .parameters td {{
+                display: block;
+                width: auto;
+            }}
+            .parameters td {{ border: none; }}
+            .parameters tr + tr {{ border-top: 1px solid {tokens['border']}; }}
+            .parameters td:first-child {{ background-color: {tokens['window']}; color: {tokens['text']}; }}
+        }}
+        """

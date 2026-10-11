@@ -315,6 +315,171 @@ class HelpHeadingIconTests(unittest.TestCase):
         self.assertRegex(page, r"\.table-scroll \{\s*overflow-x: auto;")
 
 
+# Measuring a Parameter cell as the help pane draws it (Help_Pages): its name in
+# Noto Sans (Noto Sans SC for Chinese) at the page's 13.5 px, then its key in
+# bold Noto Sans Mono at 85% with 4 px of padding each side, wrapped greedily
+# at spaces, after hyphens and between Chinese characters; an over-long piece
+# breaks anywhere. Checked against Chromium on every shipped cell at widths
+# 150-300 px, it counted the same lines in all but one case, a cell within a
+# pixel of a break, so the checks below keep WRAP_MARGIN to spare.
+PAGE_FONT_SIZE = 13.5
+WRAP_MARGIN = 6
+# The help pane as Tools opens on Windows, at its default and narrowest width
+# (a 953 px window), measured 2026-10-11. The offscreen platform's fonts open
+# a wider window, so the tests can't take it from one.
+NARROWEST_HELP_PANE = 317
+_CJK = "⺀-鿿豈-﫿＀-￯"
+
+
+def page_fonts():
+    from PySide6.QtGui import QRawFont
+
+    noto = SRC / "resources" / "fonts" / "desktop" / "noto"
+    return {
+        "latin": QRawFont(str(noto / "NotoSans" / "NotoSans-Regular.ttf"), PAGE_FONT_SIZE),
+        "cjk": QRawFont(str(noto / "NotoSansSC" / "NotoSansSC-Regular.ttf"), PAGE_FONT_SIZE),
+        "key": QRawFont(str(noto / "NotoSansMono" / "NotoSansMono-Bold.ttf"), PAGE_FONT_SIZE * 0.85),
+    }
+
+
+def text_width(fonts, text, font=None):
+    from PySide6.QtGui import QRawFont
+
+    total = 0.0
+    for run in re.findall(f"[{_CJK}]+|[^{_CJK}]+", text):
+        raw = font or fonts["cjk" if re.match(f"[{_CJK}]", run) else "latin"]
+        advances = raw.advancesForGlyphIndexes(raw.glyphIndexesForString(run), QRawFont.LayoutFlag.KernedAdvances)
+        total += sum(advance.x() for advance in advances)
+    return total
+
+
+def parameter_lines(fonts, name, key, width):
+    """How many lines a Parameter cell's name and key take at width (see above)."""
+    pieces = []  # (width, a space before it)
+    for word in name.split():
+        parts = re.findall(f"[{_CJK}]|[^{_CJK}]+", word) if re.search(f"[{_CJK}]", word) \
+            else re.findall(r"[^-]+-|[^-]+|-", word)
+        pieces += [(text_width(fonts, part), index == 0) for index, part in enumerate(parts)]
+    if key:
+        pieces.append((text_width(fonts, key, fonts["key"]) + 8, True))
+    space = text_width(fonts, " ")
+    lines, used = 1, 0.0
+    for piece, spaced in pieces:
+        gap = space if spaced and used else 0.0
+        if used and used + gap + piece > width:
+            lines, used, gap = lines + 1, 0.0, 0.0
+        if piece > width:
+            extra = -(-piece // width) - 1
+            lines, used = lines + int(extra), piece - extra * width
+        else:
+            used += gap + piece
+    return lines
+
+
+def parameter_cells(text):
+    """(name, key) of each first-column cell of a page's Parameter tables (one naming a **`KEY`**)."""
+    cells, table = [], None
+    for line in text.splitlines() + [""]:
+        if re.match(r"^\|\s*:?-{3,}", line):
+            table = []
+        elif table is not None and line.startswith("|"):
+            first = line.strip().strip("|").split("|")[0]
+            key = re.search(r"\*\*`([^`]+)`\*\*", first)
+            name = re.sub(r"\*\*`[^`]+`\*\*", "", first).replace("`", "").replace("**", "").strip()
+            table.append((name, key.group(1) if key else ""))
+        elif table is not None:
+            cells += table if any(key for _name, key in table) else []
+            table = None
+    return cells
+
+
+def shipped_help_pages():
+    """(label, Markdown) of every English help page and every shipped translation."""
+    pages = sorted(Help_Pages.HELP_PAGES_DIR.glob("*.md")) \
+        + sorted((Help_Pages.TRANSLATIONS_DIR / "zh_CN" / "help").glob("*.md"))
+    return [(f"{page.parent.name}/{page.name}", page.read_text(encoding="utf-8")) for page in pages]
+
+
+class ParameterTableTests(unittest.TestCase):
+    """Every page's Parameter tables share one name column, wide enough for any name in three lines."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        import EMAPSSN_Tools
+
+        cls.tools = EMAPSSN_Tools
+
+    def test_the_parameter_tables_and_only_they_are_marked_in_every_language(self):
+        counted = 0
+        for label, text in shipped_help_pages():
+            tables = re.split(r"\n(?=\|[^\n]*\n\|\s*:?-{3,})", text)[1:]
+            keyed = sum(bool(re.search(r"^\|[^|\n]*\*\*`[^`]+`\*\*", table, re.M)) for table in tables)
+            shown = self.tools.render_markdown_with_math(text)
+            with self.subTest(page=label):
+                self.assertEqual(shown.count('<div class="table-scroll parameters">'), keyed)
+                self.assertEqual(shown.count('<div class="table-scroll">'), len(tables) - keyed)
+            counted += keyed
+        # Nine tables in each of English and Chinese.
+        self.assertEqual(counted, 18)
+        # A table whose first column names no setting keeps the plain box.
+        self.assertFalse(Help_Pages.is_parameter_table(
+            "<table><tbody><tr>\n<td>Load</td><td>Reading the <code>cache</code></td></tr></tbody></table>"))
+
+    def test_the_name_column_has_one_width_and_rows_stack_in_a_narrow_pane(self):
+        page = self.tools.ResponsiveTextBrowser.page_html("<p>Help</p>", None)
+        self.assertIn(".parameters table { table-layout: fixed; }", page)
+        self.assertIn(f".parameters th:first-child {{ width: {Help_Pages.PARAMETER_COLUMN_WIDTH}px; }}", page)
+        narrow = re.search(r"@media \(max-width: (\d+)px\) \{(.*)\}", page, re.S)
+        self.assertEqual(int(narrow.group(1)), Help_Pages.PARAMETER_STACK_BELOW - 1)
+        self.assertIn(".parameters thead { display: none; }", narrow.group(2))
+        self.assertRegex(narrow.group(2), r"\.parameters table, .*\{\s*display: block;")
+        self.assertIn(f"padding-left: {Help_Pages.NARROW_PAGE_PADDING}px", narrow.group(2))
+        # The narrow rules come after the page's own, so they win.
+        self.assertLess(page.index(".help-page {"), page.index("@media"))
+
+    def test_every_name_and_key_fits_three_lines_in_the_column(self):
+        fonts = page_fonts()
+        width = Help_Pages.PARAMETER_COLUMN_WIDTH - WRAP_MARGIN
+        worst = 0
+        for label, text in shipped_help_pages():
+            for name, key in parameter_cells(text):
+                lines = parameter_lines(fonts, name, key, width)
+                worst = max(worst, lines)
+                self.assertLessEqual(lines, 3, f"{label}: {name} {key}")
+        self.assertEqual(worst, 3)  # "Include Imputed Pairs in Final Consensus" and its key
+
+    def test_in_the_narrowest_pane_rows_stack_and_every_name_fits_three_lines(self):
+        # Too narrow for both columns, so each row stacks.
+        self.assertLess(NARROWEST_HELP_PANE, Help_Pages.PARAMETER_STACK_BELOW)
+        # A stacked name's room: the pane less the card's border (1 px a side), its
+        # scroll bar (10 px), the narrow page's padding, the table's border (1 px a
+        # side) and a cell's padding (10 px a side). Chromium measured 259 px.
+        room = NARROWEST_HELP_PANE - 2 - 10 - 2 * Help_Pages.NARROW_PAGE_PADDING - 2 - 20
+        self.assertEqual(room, 259)
+        fonts = page_fonts()
+        for label, text in shipped_help_pages():
+            for name, key in parameter_cells(text):
+                lines = parameter_lines(fonts, name, key, room - WRAP_MARGIN)
+                self.assertLessEqual(lines, 3, f"{label}: {name} {key}")
+
+    def test_the_measure_wraps_as_the_pane_does(self):
+        fonts = page_fonts()
+        key = "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS"
+        name = "Include Imputed Pairs in Final Consensus"
+        # The lines Chromium drew for these cells at these widths.
+        for cell, counted in (
+            ((name, key), {150: 4, 240: 4, 250: 3}),
+            (("在最终一致树中纳入插补的序列对", key), {200: 4, 240: 3, 250: 2}),
+            (("Noise-Perturbed Consensus Guide Tree", "BOOTSTRAP_TREE"), {170: 3, 200: 2}),
+            (("Pre-filtering Strength", "PREFILTER_STRENGTH"), {150: 2}),
+            (("启用长度过滤", "ENABLE_LENGTH_FILTER"), {200: 2, 240: 1}),
+        ):
+            for width, lines in counted.items():
+                with self.subTest(cell=cell, width=width):
+                    self.assertEqual(parameter_lines(fonts, *cell, width), lines)
+
+
 def page_structure(text):
     """What a help page's translation keeps of its English page.
 

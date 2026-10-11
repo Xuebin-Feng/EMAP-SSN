@@ -888,7 +888,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         profile_field_positions = []
         setting_field_positions = []
         self.assertEqual(expected_spacing, 24)
-        self.assertEqual(expected_thickness, 1)  # the theme's hairline
+        self.assertEqual(expected_thickness, self.tokens["separator_thickness"])  # the theme's lines
         self.assertEqual(
             self.namespace["DEFAULT_SAVED_CONFIG_DIR"],
             os.path.join("$cache_file$", "Saved_Config"),

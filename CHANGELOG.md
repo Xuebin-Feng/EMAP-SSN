@@ -16,7 +16,7 @@ still change before version 1.0.0.
   `app_settings.json` and redraws the window in it at once, keeping everything it shows.
   Only the accents take the colour: the main button (such as **Save & Run**), switches
   that are on, focus rings, slider fills and selections; a light shade of it draws the
-  lines between a tab's sections, and a light tint of it fills the tab bar, the tips
+  2 px lines between a tab's sections, and a light tint of it fills the tab bar, the tips
   card and secondary buttons such as **Compute Network Statistics**. Each shade has a
   fixed depth, so no colour changes the contrast.
   Borders, icons, greyed-out fields, tooltips and status colours look the same in every
@@ -293,6 +293,11 @@ still change before version 1.0.0.
   1,110 px wide with the report open. When the room runs short, the first column
   (Alignment Score Mode, Alignment Reference ID, Similarity Threshold) narrows before the
   others, and the number fields keep room for their usual values.
+- The Parameter tables of Tools' Script Description give the parameter column one width
+  in every table, on every page and in every language, room for any setting's name and
+  key in three lines. Each table used to size the column to its own text, so names took
+  up to four lines in English and six in Chinese. In a help panel too narrow for both
+  columns, as Tools opens, each row stacks instead: the name over what it does.
 - Faster commands on large networks. After every command the Viewer rebuilt the metadata
   table for the web page even when no page was open: 2.7 s per command at 500,000 nodes
   with 4 columns, 10.3 s with 30, paid on every line of a `run` script. It now skips that

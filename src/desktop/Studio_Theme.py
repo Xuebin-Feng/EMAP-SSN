@@ -216,6 +216,7 @@ GEOMETRY = {
     "radius": 8,                 # controls
     "radius_card": 12,           # cards
     "card_gap": 8,               # between a tab bar and its card, and between cards
+    "separator_thickness": 2,    # the lines between a card's sections
 }
 
 
@@ -343,7 +344,9 @@ ROLES = {
         "title": "a panel heading",
         "subtle": "secondary text, such as a status line",
     },
-    "QFrame": {"separator": "a 1 px line between sections, in a light shade of the theme colour"},
+    "QFrame": {
+        "separator": "a line between sections, separator_thickness thick, in a light shade of the theme colour",
+    },
     "QTextEdit": {"report": "a read-only report card"},
 }
 
@@ -567,7 +570,9 @@ QPushButton[role="compact"] {{ padding: 3px 9px; }}
 QPushButton[role="compact"]:focus {{ padding: 2px 8px; }}
 
 /* Panels */
-QFrame[role="separator"] {{ background: {t['separator']}; border: none; max-height: 1px; }}
+QFrame[role="separator"] {{
+    background: {t['separator']}; border: none; max-height: {t['separator_thickness']}px;
+}}
 QLabel[role="hint"] {{
     background: {t['tint']}; color: {t['text_muted']};
     border: 1px solid {t['tint']}; border-radius: {t['radius_card']}px;

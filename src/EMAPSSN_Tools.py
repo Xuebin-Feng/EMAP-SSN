@@ -936,7 +936,7 @@ class ResponsiveTextBrowser(QWebEngineView):
             <link rel="stylesheet" href="fonts/fonts.css">
             <style>
                 {language_web_font_css(language, "fonts/desktop/")}
-                {page_style}
+                {page_style}{Help_Pages.parameter_table_css(tinted_tokens())}
             </style>
             <!-- KaTeX is vendored under src/resources so math renders offline.
                  These paths are relative to the baseUrl set below. -->
@@ -1251,8 +1251,8 @@ def render_markdown_with_math(text):
     
     # Compile markdown to HTML
     html = markdown.markdown(text, extensions=['tables', 'fenced_code', 'md_in_html'])
-    # A table wider than the pane scrolls on its own, so the text around it still fits.
-    html = html.replace("<table>", '<div class="table-scroll"><table>').replace("</table>", "</table></div>")
+    # A table wider than the pane scrolls on its own; Parameter tables share one column width (Help_Pages).
+    html = Help_Pages.mark_parameter_tables(html.replace("<table>", '<div class="table-scroll"><table>').replace("</table>", "</table></div>"))
     
     # Restore inline math
     for i, math_str in enumerate(inline_math):
@@ -1368,7 +1368,7 @@ def add_tool_section(page_layout, section):
         separator = QFrame()
         separator.setObjectName("toolSectionSeparator")
         separator.setFrameShape(QFrame.Shape.NoFrame)
-        separator.setFixedHeight(1)
+        separator.setFixedHeight(TOKENS["separator_thickness"])
         separator.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         set_role(separator, "separator")
         wrapper_layout.addWidget(separator)

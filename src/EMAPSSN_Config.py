@@ -218,7 +218,7 @@ PROFILE_ITEM_LABELS = {
 CONFIG_TAB_CONTENT_MARGIN = 18
 CONFIG_TAB_ROW_SPACING = 12
 CONFIG_FIELD_HORIZONTAL_SPACING = 12
-CONFIG_SEPARATOR_THICKNESS = 1
+CONFIG_SEPARATOR_THICKNESS = 2  # the theme's separator_thickness (desktop.Studio_Theme.GEOMETRY)
 CONFIG_SEPARATOR_PADDING = 24
 # A colour swatch: its colour, framed by a hairline that shows on white and on dark colours.
 SWATCH_STYLESHEET = (
