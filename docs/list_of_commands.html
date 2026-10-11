@@ -836,7 +836,7 @@
                     <div class="syntax-content">zoom &lt;width&gt;</div>
                     <button class="copy-btn" onclick="copyText('zoom', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Sets the camera rectangle to exactly the specified numeric width while preserving its current center and the canvas aspect ratio. The width must be a positive, finite number.</p>
+                <p><strong>Function:</strong> Sets the camera rectangle to exactly the specified numeric width while preserving its current center and the canvas aspect ratio. The width must be at least 0.5 and at most the widest view that shows every node, hidden ones too, rounded up to a multiple of 100; that widest view follows the nodes as they move and the window's shape. A width outside those limits is refused with both limits named. The mouse wheel, a touchpad pinch and the View Width box beside the threshold slider stop at the same limits.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>zoom 500</span><button class="copy-btn" onclick="copyText('zoom 500', this)">Copy</button></li>

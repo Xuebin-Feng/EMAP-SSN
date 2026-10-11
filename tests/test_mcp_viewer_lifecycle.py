@@ -5,7 +5,8 @@ launch_id while the Viewer is still loading, readiness probing, exits before
 readiness, Windows console flags, POSIX terminal launches, connection isolation
 between MCP clients, and close/disconnect semantics. Several tests start real
 headless Viewers; test_visible_viewer_launch_through_headless_config opens a
-real console and Viewer window by design.
+real console and Viewer window by design (on Linux it skips when no terminal
+emulator is installed).
 """
 import asyncio
 import io
@@ -37,6 +38,7 @@ from desktop.Viewer_State import (
     VIEWER_SECTIONS,
 )
 from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
+from utilities.Terminal_Launcher import TerminalUnavailableError, _find_linux_terminal
 from EMAPSSN_MCP_Server import mcp
 from mcp import Client, StdioServerParameters
 
@@ -165,6 +167,13 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(settings_path.read_bytes(), original_bytes)
 
     async def test_visible_viewer_launch_through_headless_config(self):
+        if sys.platform.startswith("linux"):
+            # A minimal Linux (a bare Debian image, say) has no terminal to open; the
+            # launch then refuses with TerminalUnavailableError, which other tests cover.
+            try:
+                _find_linux_terminal()
+            except TerminalUnavailableError:
+                self.skipTest("no supported terminal emulator is installed")
         fixture = SettingsTests(); fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         with mock.patch.dict(os.environ, _launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions")),
