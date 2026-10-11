@@ -372,13 +372,14 @@ class ResponsiveConfigTests(unittest.TestCase):
     def test_the_first_column_narrows_before_the_rest_of_the_row(self):
         """The aligned rows split into halves while both halves fit. Narrower, the
         first column gives way, down to its own minimum, while the rest of the row
-        keeps its minimum. The fields stay side by side down to 771 px, which the
-        narrowest window has room for once the report is collapsed."""
+        keeps its minimum. The fields stay side by side down to the width they
+        need, which the narrowest window has room for once the report is
+        collapsed: 771 px with Windows' text, 778 px with Linux's, whose FreeType
+        draws the row's labels 1 to 3 px wider each."""
         from PySide6.QtCore import QPoint
         rows = [self.window.findChild(self.namespace["QWidget"], name) for name in
                 ("alignmentModeRow", "alignmentReferenceRow", "filterRow")]
         need = rows[0].layout()._wide_width()
-        self.assertLessEqual(need, 771)
         self.assertEqual({row.layout()._wide_width() for row in rows}, {need})
         gap = self.namespace["CONFIG_FIELD_HORIZONTAL_SPACING"]
         first_min = max(row.layout()._column_minima()[0] for row in rows)
@@ -408,6 +409,7 @@ class ResponsiveConfigTests(unittest.TestCase):
         self.window.main_split.setSizes([sum(self.window.main_split.sizes()), 0])
         self.flush()
         self.assertEqual(self.window.width(), self.window.minimumWidth())
+        self.assertLessEqual(need, rows[0].width())
         self.assertFalse(any(row.property("stacked") for row in rows))
         self.assert_geometry(self.window.tabs.currentWidget().widget())
 
