@@ -3849,12 +3849,12 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1154"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1130"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+733"/>
+        <location line="+661"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -3874,7 +3874,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+726"/>
+        <location line="+709"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -3915,7 +3915,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+269"/>
+        <location line="+333"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -8048,22 +8048,26 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2290"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2238"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
     <message>
-        <location line="+14"/>
         <source>Hide these instructions</source>
-        <translation type="unfinished">隐藏交互说明</translation>
+        <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="+1218"/>
+        <location line="-83"/>
+        <source>Mouse and keyboard controls</source>
+        <translation type="unfinished">鼠标和键盘操作</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
     <message>
-        <location line="+453"/>
+        <location line="+1649"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
@@ -8143,6 +8147,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <location line="+2"/>
         <source>Open Metadata Spreadsheet in browser</source>
         <translation type="unfinished">在浏览器中打开元数据电子表格</translation>
+    </message>
+</context>
+<context>
+    <name>ViewerControls</name>
+    <message>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+126"/>
+        <source>Close</source>
+        <translation type="unfinished">关闭</translation>
     </message>
 </context>
 </TS>

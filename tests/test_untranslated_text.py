@@ -802,7 +802,6 @@ class ViewerCanvasTextTests(WindowTestCase):
                 mock.patch.object(EMAPSSN_Viewer.scene.visuals, "Rectangle", Visual):
             viewer.create_hud()
         viewer._update_hud_elements()
-        self.assert_translated(viewer.instr_text.text)
         self.assert_translated(viewer.zoom_text.text, "1234.5")
         self.assert_translated(viewer.hidden_text.text, "2")
 

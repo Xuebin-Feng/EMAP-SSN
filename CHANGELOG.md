@@ -15,9 +15,10 @@ still change before version 1.0.0.
   of the eight, each named on hover, and a choice saves it for that window in
   `app_settings.json` and redraws the window in it at once, keeping everything it shows.
   Only the accents take the colour: the main button (such as **Save & Run**), switches
-  that are on, focus rings, slider fills and selections, and a light tint of it fills
-  the tab bar, the tips card and secondary buttons such as **Compute Network
-  Statistics**. Each shade has a fixed depth, so no colour changes the contrast.
+  that are on, focus rings, slider fills and selections; a light shade of it draws the
+  lines between a tab's sections, and a light tint of it fills the tab bar, the tips
+  card and secondary buttons such as **Compute Network Statistics**. Each shade has a
+  fixed depth, so no colour changes the contrast.
   Borders, icons, greyed-out fields, tooltips and status colours look the same in every
   theme colour. The one exception is Tools' Script Description: its text, borders and
   code backgrounds take a tint of the colour, and its collapsible sections' titles the
@@ -132,11 +133,19 @@ still change before version 1.0.0.
   while both are open, a choice made on one shows on the other at once. Until a choice
   is made, a page follows the system's dark setting. The Meta Data page sets its theme
   before it is drawn, so a dark page never shows light first.
-- **The Viewer's instruction line can be closed.** A × after its first row hides the
-  key and mouse actions listed at the top of the Viewer, and the command line moves
-  back up by the rows they had pushed it down. The line shows again each time the
-  Viewer starts; nothing is saved. Its rows leave room for the ×, so they still end
-  before the sidebar toggle.
+- **The Viewer's mouse and keyboard controls open from a button.** The line of key and
+  mouse actions across the top of the Viewer is gone. An info button at the start of
+  the threshold slider opens them on a card in a light tint of the theme colour, each
+  action's keys as key caps beside what it does. A click outside the card, Esc, its ×
+  or the button again closes it, and the keyboard stays with the network, so
+  **[ENTER]** still opens the command line. The command line moves up to the top of
+  the window, level with the sidebar's toggle, and its box takes the theme colour: a
+  light tint of it inside, the colour itself round the edge.
+- **The Viewer's sidebar slides.** Its toggle slides the sidebar open and closed instead
+  of switching it at once, and a click mid-slide turns it around where it is. The
+  command line, the threshold slider and the status texts move with it. The sidebar is
+  a card with round corners, clear of the window's edges, and each of its buttons
+  centres its label in the room after its icon.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts
@@ -981,9 +990,8 @@ still change before version 1.0.0.
   unvalidated, as an unreadable one already did, and every visible device is offered.
 - The Viewer's instruction line (`[ENTER] Command | [LeftClick] Highlight | …`) is
   wider than the default 1200 × 800 window in English, so its end ran under the
-  sidebar's toggle and past the window's edge. It now wraps between actions to end
-  before the toggle, at any window size, with the sidebar shown or hidden, and the
-  command line below it moves down by the rows it gains.
+  sidebar's toggle and past the window's edge. The actions now open on a card from a
+  button by the threshold slider (see Added).
 - The statistics report in Config and VR Config cut its hint off after "Select Fasta
   subset and HDF5" at the window's default size, in every language: Qt shows only the
   first line of a text box's placeholder. The hint now wraps to the report's width.

@@ -11,8 +11,9 @@ focus rings, slider fills and selection.
 
 * The theme colour is a colour family (THEME_COLORS), not a shade, and only
   the accents take it (ACCENT_SHADES): the primary button, switches that are
-  on, focus rings, slider fills and selection, and a light tint of it on the
-  tab bar, the hint card and muted buttons. Each has a fixed OKLCH lightness
+  on, focus rings, slider fills and selection, a light shade of it on the
+  lines between a card's sections, and a light tint of it on the tab bar,
+  the hint card and muted buttons. Each has a fixed OKLCH lightness
   and chroma, and the family gives the hue, so no family changes the contrast.
   Everything else, from borders and icons to greyed-out fields, keeps the same
   greys in every colour (NEUTRAL_SHADES). Black has no colour at all
@@ -89,7 +90,7 @@ NEUTRAL_SHADES = {
         "window": "#fafafa",
         "surface": "#ffffff",           # cards: the tab pane, reports
         "surface_muted": "#f4f4f5",     # hover fills
-        "border": "#e4e4e7",            # card hairlines and separators
+        "border": "#e4e4e7",            # card hairlines
         # Text (contrast on white)
         "text": "#09090b",
         "text_soft": "#3f3f46",         # report body, switch labels
@@ -155,6 +156,9 @@ ACCENT_SHADES = {
         "tint_hover": (0.920, 0.020),
         # The statistics report's histogram bars, behind its text
         "histogram": (0.925, 0.040),
+        # The 1 px lines between a card's sections (the "separator" role), as
+        # light as a field's hovered border
+        "separator": (0.870, 0.070),
     },
     "light_page": {
         "badge_text": (0.487, ACCENT_CHROMA),
@@ -184,6 +188,7 @@ BLACK_ACCENTS = {
         "accent": "#52525b", "accent_soft": "#e4e4e7",
         "switch_on": "#18181b", "switch_on_hover": "#27272a",
         "track": "#efeff1", "tint": "#f4f4f5", "tint_hover": "#e4e4e7", "histogram": "#e4e4e7",
+        "separator": "#d4d4d8",
     },
     "light_page": {"badge_text": "#3f3f46", "badge_border": "#d4d4d8", "switch_thumb_on": "#ffffff"},
     "dark_page": {
@@ -338,7 +343,7 @@ ROLES = {
         "title": "a panel heading",
         "subtle": "secondary text, such as a status line",
     },
-    "QFrame": {"separator": "a 1 px line between sections"},
+    "QFrame": {"separator": "a 1 px line between sections, in a light shade of the theme colour"},
     "QTextEdit": {"report": "a read-only report card"},
 }
 
@@ -562,7 +567,7 @@ QPushButton[role="compact"] {{ padding: 3px 9px; }}
 QPushButton[role="compact"]:focus {{ padding: 2px 8px; }}
 
 /* Panels */
-QFrame[role="separator"] {{ background: {t['border']}; border: none; max-height: 1px; }}
+QFrame[role="separator"] {{ background: {t['separator']}; border: none; max-height: 1px; }}
 QLabel[role="hint"] {{
     background: {t['tint']}; color: {t['text_muted']};
     border: 1px solid {t['tint']}; border-radius: {t['radius_card']}px;

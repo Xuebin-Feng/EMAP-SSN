@@ -136,7 +136,9 @@ import itertools
 import math
 import queue
 from vispy import scene, app
+from vispy.color import Color
 from PySide6 import QtWidgets, QtCore, QtGui
+import shiboken6
 
 import EMAPSSN_Config as cfg
 if _startup_settings is not None:
@@ -171,6 +173,7 @@ from desktop.Desktop_App import (
     vispy_points_for_logical_pixels,
 )
 from desktop.Studio_Theme import TOKENS, set_role, studio_icon
+from desktop.Viewer_Widgets import ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel
 from desktop.Viewer_State import (
     prepare_network,
     resolve_selected_cache,
@@ -236,28 +239,23 @@ def _wrap_console_text_for_display(text, max_width, measure_width):
     return "\n".join(lines)
 
 
-# What separates the actions the HUD's instruction line lists.
-HUD_INSTRUCTION_SEPARATOR = " | "
-# The square button after the instruction line's first row that hides the line.
-HUD_CLOSE_BUTTON_SIZE = 20
+# How long the sidebar takes to slide fully open or closed, in ms; 0 switches it at once.
+SIDEBAR_SLIDE_MS = 220
+# The command line's box: a light tint of the theme colour, a touch see-through over the network.
+COMMAND_BOX_OPACITY = 0.95
 
 
-def _wrap_instructions_for_display(text, max_width, measure_width):
-    """Wrap the HUD's instruction line between the actions it lists.
-
-    Actions are packed onto rows no wider than max_width, and the separator
-    at a break is dropped. Only an action wider than max_width on its own
-    breaks inside, as the console line does.
-    """
-    rows = []
-    for action in text.split(HUD_INSTRUCTION_SEPARATOR):
-        if rows and measure_width(rows[-1] + HUD_INSTRUCTION_SEPARATOR + action) <= max_width:
-            rows[-1] += HUD_INSTRUCTION_SEPARATOR + action
-        else:
-            rows.append(action)
-    return "\n".join(
-        _wrap_console_text_for_display(row, max_width, measure_width) for row in rows
-    )
+def _sidebar_room(viewer):
+    """The canvas width the Viewer's sidebar covers: its width when open, none
+    when closed, and the width shown so far while it slides
+    (MainViewer.set_sidebar_visible)."""
+    sliding = getattr(viewer, '_sidebar_slide_width', None)
+    if sliding is not None:
+        return sliding
+    panel = getattr(viewer, 'right_panel', None)
+    if panel is not None and panel.isVisible():
+        return getattr(viewer, '_panel_w', 120)
+    return 0
 
 
 def _vispy_text_width_pixels(text_visual, text):
@@ -658,9 +656,7 @@ class HUDDisplay:
 
     def show(self, text):
         w, h = self.viewer.canvas.size
-        panel_visible = hasattr(self.viewer, 'right_panel') and self.viewer.right_panel.isVisible()
-        panel_w = getattr(self.viewer, '_panel_w', 120) if panel_visible else 0
-        pos = self.pos_fn((w - panel_w, h))
+        pos = self.pos_fn((w - _sidebar_room(self.viewer), h))
 
         if self.text_visual is None:
             self.text_visual = scene.visuals.Text(
@@ -689,9 +685,7 @@ class HUDDisplay:
     def update_position(self):
         if self.text_visual is not None and self.visible:
             w, h = self.viewer.canvas.size
-            panel_visible = hasattr(self.viewer, 'right_panel') and self.viewer.right_panel.isVisible()
-            panel_w = getattr(self.viewer, '_panel_w', 120) if panel_visible else 0
-            self.text_visual.pos = self.pos_fn((w - panel_w, h))
+            self.text_visual.pos = self.pos_fn((w - _sidebar_room(self.viewer), h))
 
     def on_node_clicked(self, node_idx):
         """Override in subclasses to handle left-click updates."""
@@ -735,33 +729,26 @@ class MainViewer:
         # scaled by the canvas pixel scale (DPI factor) at runtime.
         # =========================================================================
         self.hud_layout = {
-            # 1. Top-left Instructions (" [ENTER] Command | [LeftClick] Highlight | ... ")
-            "instr_x": 10.0,             # Horizontal coordinate from left edge
-            "instr_y": 10.0,             # Vertical coordinate from top edge (baseline)
-            "instr_anchor_x": "left",    # Horizontal text alignment: 'left', 'center', 'right'
-            "instr_anchor_y": "bottom",  # Vertical text alignment: 'top', 'middle', 'bottom'
-            "instr_right_padding": 10.0, # Gap left before the sidebar toggle; a longer line wraps
-            "instr_close_gap": 6.0,      # Gap between the first row's end and its close button
-            
-            # 2. Command Line Text (" Cmd: <input> ")
+            # 1. Command Line Text (" Cmd: <input> "). The mouse and keyboard
+            #    controls open from the info button by the threshold slider.
             "console_text_x": 30.0,      # Horizontal coordinate from left edge
-            "console_text_y": 60.0,      # Vertical coordinate from top edge (baseline)
+            "console_text_y": 20.0,      # Top of the text; its box's top then lines up with the sidebar toggle's
             "console_text_anchor_x": "left",
             "console_text_anchor_y": "bottom",
             "font_size_px": 16.0,        # Logical-pixel size shared by all HUD text
-            
-            # 3. Command Line Background Box
+
+            # 2. Command Line Background Box
             "console_bg_height": 40.0,   # Vertical height of the background box
             "console_bg_min_width": 250.0, # Minimum width of the background box when empty/short
             "console_bg_left_offset": 20.0, # Fixed horizontal left position of the box
             "console_bg_y_offset": 20.0, # Positive values move only the box downward
             "console_bg_radius": 10.0,    # Radius for the rounded corners (0.0 for sharp corners)
             "console_bg_padding_x": 20.0, # Fixed logical padding added to the end of the command box
-            # 4. Background-job status text below the command box
+            # 3. Background-job status text below the command box
             "background_job_status_gap": 8.0,
             "background_job_status_right_padding": 20.0,
-            
-            # 5. Bottom-right status stack, from bottom to top:
+
+            # 4. Bottom-right status stack, from bottom to top:
             #    Hidden Nodes, View Width, selected metadata property.
             "status_x_offset": 10.0,       # Distance from the right edge of the window
             "status_bottom_offset": 30.0,  # Distance from the bottom edge to Hidden Nodes
@@ -976,6 +963,8 @@ class MainViewer:
         if qapp:
             try:
                 apply_studio_theme(qapp, configured_theme_color(CONFIG_THEME_SETTING))
+                # The HUD was drawn before the theme colour was known.
+                self._color_command_box()
             except Exception as e:
                 print(f"Warning: Could not apply the window theme: {e}")
             
@@ -986,46 +975,7 @@ class MainViewer:
             if os.path.exists(icon_path):
                 qapp.setWindowIcon(QtGui.QIcon(icon_path))
 
-        # Create overlay container widget as a child of the native canvas
-        self.slider_overlay = QtWidgets.QWidget(self.canvas.native)
-        self.slider_overlay.setObjectName("sliderOverlay")
-        
-        overlay_layout = QtWidgets.QHBoxLayout(self.slider_overlay)
-        overlay_layout.setContentsMargins(5, 5, 5, 5)
-        overlay_layout.setSpacing(10)
-        
-        self.slider_label = QtWidgets.QLabel()
-        self.slider_label.setObjectName("sliderLabel")
-        self.slider_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
-        self.update_slider_label_text(self.current_slider_threshold)
-        
-        self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.slider.setRange(0, 1000)
-        self.slider.setValue(0)
-        self.slider.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        self.slider.valueChanged.connect(self.on_slider_value_changed)
-        
-        overlay_layout.addWidget(self.slider_label)
-        overlay_layout.addWidget(self.slider)
-        
-        # The slider takes the window theme; its label, drawn over the canvas,
-        # keeps the HUD's text colour.
-        self.slider_overlay.setStyleSheet("""
-            QWidget#sliderOverlay {
-                background: transparent;
-            }
-            QLabel#sliderLabel {
-                font-family: %(font)s;
-                font-size: 12pt;
-                font-weight: normal;
-                color: %(text_color)s;
-                background: transparent;
-                min-width: 45px;
-            }
-        """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
-        
-        self.position_slider_overlay()
-        self.slider_overlay.show()
+        self._build_slider_overlay()
         
         # --- 6. Set up MainWindow & WebServer ---
         self._build_main_window()
@@ -1064,6 +1014,57 @@ class MainViewer:
         self._hud_timer.start()
         print("\nViewer Ready. Press [ENTER] to type commands.")
 
+    def _build_slider_overlay(self):
+        """Set up the threshold slider over the canvas's bottom left, the controls' info button at its start."""
+        # The overlay is a child of the native canvas.
+        self.slider_overlay = QtWidgets.QWidget(self.canvas.native)
+        self.slider_overlay.setObjectName("sliderOverlay")
+        
+        overlay_layout = QtWidgets.QHBoxLayout(self.slider_overlay)
+        overlay_layout.setContentsMargins(5, 5, 5, 5)
+        overlay_layout.setSpacing(10)
+
+        # The info button at the slider's start opens the mouse and keyboard
+        # controls on a card above it.
+        self.controls_button = ControlsButton(
+            translate("Viewer", "Mouse and keyboard controls"),
+            translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes"),
+        )
+        overlay_layout.addWidget(self.controls_button)
+
+        self.slider_label = QtWidgets.QLabel()
+        self.slider_label.setObjectName("sliderLabel")
+        self.slider_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
+        self.update_slider_label_text(self.current_slider_threshold)
+        
+        self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
+        self.slider.setRange(0, 1000)
+        self.slider.setValue(0)
+        self.slider.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        self.slider.valueChanged.connect(self.on_slider_value_changed)
+        
+        overlay_layout.addWidget(self.slider_label)
+        overlay_layout.addWidget(self.slider)
+        
+        # The slider takes the window theme; its label, drawn over the canvas,
+        # keeps the HUD's text colour.
+        self.slider_overlay.setStyleSheet("""
+            QWidget#sliderOverlay {
+                background: transparent;
+            }
+            QLabel#sliderLabel {
+                font-family: %(font)s;
+                font-size: 12pt;
+                font-weight: normal;
+                color: %(text_color)s;
+                background: transparent;
+                min-width: 45px;
+            }
+        """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
+        
+        self.position_slider_overlay()
+        self.slider_overlay.show()
+
     def _build_main_window(self):
         """Set up the main window around the canvas: its title, the sidebar and the sidebar's toggle."""
         # The sidebar's width until its buttons size it (_fit_sidebar_to_buttons).
@@ -1089,11 +1090,13 @@ class MainViewer:
         # Set the Vispy canvas directly as the central widget
         self.main_window.setCentralWidget(self.canvas.native)
         
-        # Collapsible Right Panel Container (overlay on the canvas.native)
-        self.right_panel = QtWidgets.QWidget(self.canvas.native)
+        # Collapsible right panel over the canvas.native: a card with round
+        # corners, clear of the canvas's top, right and bottom edges, so its
+        # right margin holds that inset too.
+        self.right_panel = SidebarPanel(self.canvas.native)
         self.right_panel.setObjectName("rightPanel")
         right_panel_layout = QtWidgets.QVBoxLayout(self.right_panel)
-        right_panel_layout.setContentsMargins(10, 20, 10, 20)
+        right_panel_layout.setContentsMargins(10, 20, 10 + SIDEBAR_INSET, 20)
         right_panel_layout.setSpacing(15)
         right_panel_layout.setAlignment(QtCore.Qt.AlignmentFlag.AlignTop | QtCore.Qt.AlignmentFlag.AlignHCenter)
         
@@ -1113,39 +1116,12 @@ class MainViewer:
         self.toggle_sidebar_btn.clicked.connect(self.toggle_sidebar)
         self.toggle_sidebar_btn.hide()
 
-        # A close button after the instruction line's first row
-        # (update_instruction_layout places it). Closing hides the line until
-        # the Viewer next starts; nothing is saved. A click leaves the
-        # keyboard with the canvas, where [ENTER] opens the command line.
-        self.close_instructions_btn = QtWidgets.QPushButton(self.canvas.native)
-        self.close_instructions_btn.setObjectName("closeInstructionsBtn")
-        self.close_instructions_btn.setIcon(studio_icon("x"))
-        self.close_instructions_btn.setIconSize(QtCore.QSize(14, 14))
-        hide_text = translate("Viewer", "Hide these instructions")
-        self.close_instructions_btn.setToolTip(hide_text)
-        self.close_instructions_btn.setAccessibleName(hide_text)
-        self.close_instructions_btn.setFixedSize(HUD_CLOSE_BUTTON_SIZE, HUD_CLOSE_BUTTON_SIZE)
-        self.close_instructions_btn.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
-        self.close_instructions_btn.clicked.connect(self.close_instructions)
-        
-        # The sidebar floats over the canvas: a white card with a hairline on its
-        # left, holding a list of left-aligned buttons. The instructions' close
-        # button is a bare cross, filled only under the mouse. The rest is the
-        # window theme.
+        # The sidebar's buttons (SidebarButton) start 10 px in, where their
+        # icons go. The card paints itself; the rest is the window theme.
         self.main_window.setStyleSheet("""
-            QWidget#rightPanel {
-                background-color: rgba(255, 255, 255, 0.95);
-                border-left: 1px solid %(border)s;
-            }
-            QWidget#rightPanel QPushButton { text-align: left; padding-left: 10px; min-height: 24px; }
+            QWidget#rightPanel QPushButton { padding-left: 10px; min-height: 24px; }
             QWidget#rightPanel QPushButton:focus { padding-left: 9px; }
-            QPushButton#closeInstructionsBtn {
-                background: transparent; border: none; border-radius: 6px;
-                padding: 0px;
-            }
-            QPushButton#closeInstructionsBtn:hover { background: %(hover)s; }
-            QPushButton#closeInstructionsBtn:pressed { background: %(border)s; }
-        """ % {"border": TOKENS["border"], "hover": TOKENS["surface_muted"]})
+        """)
 
     def _update_console_text(self):
         """Helper to render the command line with a visible cursor."""
@@ -1185,7 +1161,6 @@ class MainViewer:
         """Apply logical-pixel sizing to static and dynamically-created text."""
         hud_font_size = self._hud_font_size_points()
         for attribute_name in (
-            'instr_text',
             'console_text',
             'background_job_status_text',
             'zoom_text',
@@ -1204,78 +1179,12 @@ class MainViewer:
             if visual is not None:
                 visual.font_size = hud_font_size
 
-    def update_instruction_layout(self):
-        """Wrap the instruction line into the room left of the sidebar toggle.
-
-        In English the line is wider than a default-size window. Its rows
-        break between actions, and update_console_background moves the
-        command line down by the rows the wrapping adds. The close button
-        follows the first row, so every row leaves room for it. Once closed,
-        the line and its button are hidden and push nothing down.
-        """
-        text_visual = getattr(self, 'instr_text', None)
-        if text_visual is None:
-            return
-        close_button = getattr(self, 'close_instructions_btn', None)
-        if getattr(self, '_instructions_closed', False):
-            text_visual.visible = False
-            if close_button is not None:
-                close_button.hide()
-            self._instruction_extra_height = 0.0
-            return
-
-        cfg_hud = self.hud_layout
-        close_gap = cfg_hud.get("instr_close_gap", 6.0)
-        panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
-        panel_width = getattr(self, '_panel_w', 120) if panel_visible else 0
-        right_edge = self.canvas.size[0] - panel_width
-        toggle = getattr(self, 'toggle_sidebar_btn', None)
-        if toggle is not None and toggle.isVisible():
-            # The toggle sits in the instructions' top margin, so they end before it.
-            right_edge = min(right_edge, toggle.x())
-        close_room = close_button.width() + close_gap if close_button is not None else 0.0
-        available_width = max(
-            1.0,
-            right_edge - cfg_hud.get("instr_right_padding", 10.0) - cfg_hud["instr_x"] - close_room,
-        )
-
-        logical_text = getattr(self, '_instruction_logical_text', text_visual.text or "")
-        layout_key = (logical_text, available_width, text_visual.font_size)
-        if layout_key == getattr(self, '_instruction_layout_key', None):
-            return
-        self._instruction_layout_key = layout_key
-
-        rendered_text = _wrap_instructions_for_display(
-            logical_text,
-            available_width,
-            lambda text: _vispy_text_width_pixels(text_visual, text),
-        )
-        if text_visual.text != rendered_text:
-            text_visual.text = rendered_text
-        added_rows = rendered_text.count('\n')
-        self._instruction_extra_height = (
-            added_rows * _vispy_text_line_height_pixels(text_visual) if added_rows else 0.0
-        )
-
-        if close_button is not None:
-            row_height = _vispy_text_line_height_pixels(text_visual)
-            # VisPy hangs 'bottom'-anchored text below its position in the
-            # canvas's y-down pixels; the button is centred on the first row.
-            row_top = cfg_hud["instr_y"] - {
-                "top": row_height, "center": row_height / 2.0, "middle": row_height / 2.0,
-            }.get(cfg_hud.get("instr_anchor_y", "bottom"), 0.0)
-            first_row = rendered_text.split('\n', 1)[0]
-            close_button.move(
-                round(cfg_hud["instr_x"] + _vispy_text_width_pixels(text_visual, first_row) + close_gap),
-                round(row_top + (row_height - close_button.height()) / 2.0),
-            )
-            close_button.show()
-
-    def close_instructions(self):
-        """Hide the instruction line until the Viewer next starts, and move the
-        command line back up by the rows the line had pushed it down."""
-        self._instructions_closed = True
-        self._update_hud_elements()
+    def _color_command_box(self):
+        """Fill the command line's box with a light tint of the theme colour, edged in the colour itself."""
+        box = getattr(self, 'console_bg', None)
+        if box is not None:
+            box.color = Color(TOKENS["tint"], alpha=COMMAND_BOX_OPACITY)
+            box.border_color = TOKENS["accent"]
 
     def update_console_background(self):
         """Wrap the console visually and size its background to the rendered rows."""
@@ -1292,9 +1201,7 @@ class MainViewer:
         left_gap = cfg_hud["console_text_x"] - cfg_hud["console_bg_left_offset"]
         padding_x = cfg_hud.get("console_bg_padding_x", 20.0)
 
-        panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
-        panel_width = getattr(self, '_panel_w', 120) if panel_visible else 0
-        effective_canvas_width = self.canvas.size[0] - panel_width
+        effective_canvas_width = self.canvas.size[0] - _sidebar_room(self)
         max_width = max(1.0, effective_canvas_width - 40.0)
         available_text_width = max(
             1.0,
@@ -1339,8 +1246,7 @@ class MainViewer:
         height = base_height + extra_height
         radius = cfg_hud["console_bg_radius"]
         center_x = left_edge + width / 2.0
-        # The rows the instruction line wraps onto push the command line down.
-        text_y = cfg_hud["console_text_y"] + getattr(self, '_instruction_extra_height', 0.0)
+        text_y = cfg_hud["console_text_y"]
         text_visual.pos = (cfg_hud["console_text_x"], text_y)
         text_anchor_y = cfg_hud.get("console_text_anchor_y", "bottom")
         if text_anchor_y == "top":
@@ -1381,9 +1287,7 @@ class MainViewer:
         def measure_text_width(text):
             return _vispy_text_width_pixels(text_visual, text)
 
-        panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
-        panel_width = getattr(self, '_panel_w', 120) if panel_visible else 0
-        effective_canvas_width = self.canvas.size[0] - panel_width
+        effective_canvas_width = self.canvas.size[0] - _sidebar_room(self)
         right_padding = cfg_hud.get("background_job_status_right_padding", 20.0)
         available_width = max(
             1.0,
@@ -2027,9 +1931,7 @@ class MainViewer:
     def position_slider_overlay(self):
         if hasattr(self, 'slider_overlay') and hasattr(self, 'canvas'):
             canvas_w, canvas_h = self.canvas.size
-            panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
-            panel_w = getattr(self, '_panel_w', 120) if panel_visible else 0
-            effective_w = canvas_w - panel_w
+            effective_w = canvas_w - _sidebar_room(self)
             overlay_w = max(100, effective_w - 220)
             overlay_h = 45
             overlay_x = 20
@@ -2337,21 +2239,7 @@ class MainViewer:
     def create_hud(self):
         cfg_hud = self.hud_layout
         hud_font_size = self._hud_font_size_points()
-        
-        self.instr_text = scene.visuals.Text(
-            text=translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes"),
-            bold=False, 
-            face=self.vispy_ui_face,
-            font_size=hud_font_size,
-            color='gray', 
-            pos=(cfg_hud["instr_x"], cfg_hud["instr_y"]), 
-            anchor_y=cfg_hud["instr_anchor_y"], 
-            anchor_x=cfg_hud["instr_anchor_x"], 
-            parent=self.canvas.scene
-        )
-        # The line as written; update_instruction_layout shows it wrapped.
-        self._instruction_logical_text = self.instr_text.text
-        
+
         self.console_bg = scene.visuals.Rectangle(
             center=(
                 cfg_hud["console_bg_left_offset"]
@@ -2366,10 +2254,9 @@ class MainViewer:
                 cfg_hud["console_bg_min_width"] / 2.0,
                 cfg_hud["console_bg_height"] / 2.0,
             ),
-            color=(0.95, 0.95, 0.95, 0.95), 
-            border_color='black', 
             parent=self.canvas.scene
         )
+        self._color_command_box()
         self.console_bg.visible = False
 
         self._console_logical_text = ""
@@ -2784,9 +2671,7 @@ class MainViewer:
     
     def _update_hud_elements(self, event=None):
         """Updates the zoom indicator, hidden nodes count, and maintains the tooltip pixel gap."""
-        panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
-        panel_w = getattr(self, '_panel_w', 120) if panel_visible else 0
-        effective_canvas_w = self.canvas.size[0] - panel_w
+        effective_canvas_w = self.canvas.size[0] - _sidebar_room(self)
         effective_size = (effective_canvas_w, self.canvas.size[1])
         
         # 1. Update Zoom Indicator (Visible World Width)
@@ -2813,10 +2698,8 @@ class MainViewer:
 
             self.tooltip.pos = screen_pos[:2] + [15, -15]
 
-        # Keep the instruction line and the one-line console value visually
-        # wrapped as the canvas or sidebar width changes. The console follows
-        # the instructions' last row, so they wrap first.
-        self.update_instruction_layout()
+        # Keep the one-line console value visually wrapped as the canvas or
+        # sidebar width changes.
         self.update_console_background()
 
         # 4. Update any registered HUD displays
@@ -2978,8 +2861,7 @@ class MainViewer:
         # scene transforms. Refresh the HUD synchronously so pixel-anchored
         # text follows the window instead of waiting for a Qt-backed timer,
         # which can be starved during interactive window resizing. The Qt
-        # overlays move first: the instruction line ends before the sidebar
-        # toggle's new position.
+        # overlays move first.
         if hasattr(self, 'slider_overlay'):
             self.position_slider_overlay()
         if hasattr(self, 'reposition_expand_btn'):
@@ -2987,46 +2869,115 @@ class MainViewer:
         self._update_hud_elements()
 
     def reposition_expand_btn(self):
+        """Put the sidebar and its toggle where the room it covers now leaves them.
+
+        While it slides, the panel's left part shows and the canvas clips the
+        rest; the toggle keeps 10 px clear of its left edge.
+        """
         if hasattr(self, 'canvas'):
             w, h = self.canvas.size
-            panel_visible = hasattr(self, 'right_panel') and self.right_panel.isVisible()
+            left = round(w - _sidebar_room(self))
             panel_w = getattr(self, '_panel_w', 120)
             if hasattr(self, 'right_panel'):
-                self.right_panel.setGeometry(w - panel_w, 0, panel_w, h)
+                self.right_panel.setGeometry(left, 0, panel_w, h)
             if hasattr(self, 'toggle_sidebar_btn'):
-                if panel_visible:
-                    self.toggle_sidebar_btn.setGeometry(w - panel_w - 40, 10, 30, 30)
-                else:
-                    self.toggle_sidebar_btn.setGeometry(w - 40, 10, 30, 30)
+                self.toggle_sidebar_btn.setGeometry(left - 40, 10, 30, 30)
 
     def toggle_sidebar(self):
         if hasattr(self, 'right_panel'):
-            visible = not self.right_panel.isVisible()
-            self.set_sidebar_visible(visible)
+            # Mid-slide the panel is still shown: the toggle turns it around.
+            opening = getattr(self, '_sidebar_open', None)
+            if opening is None:
+                opening = self.right_panel.isVisible()
+            self.set_sidebar_visible(not opening)
 
-    def set_sidebar_visible(self, visible):
+    def set_sidebar_visible(self, visible, *, animate=None):
+        """Open or close the sidebar.
+
+        In a shown window it slides over SIDEBAR_SLIDE_MS, and its toggle,
+        the slider and the HUD follow it at each frame. animate=False, a
+        hidden or headless window, or SIDEBAR_SLIDE_MS 0 switch it at once.
+        A call while it slides turns it around from where it is.
+        """
         has_buttons = bool(getattr(self, 'sidebar_buttons', {}))
         if hasattr(self, 'right_panel'):
+            start = _sidebar_room(self)
+            self._stop_sidebar_slide()
             if not has_buttons:
+                self._sidebar_open = False
                 self.right_panel.hide()
                 if hasattr(self, 'toggle_sidebar_btn'):
                     self.toggle_sidebar_btn.hide()
                 self.reposition_expand_btn()
                 return
 
-            self.right_panel.setVisible(visible)
+            self._sidebar_open = visible
             if hasattr(self, 'toggle_sidebar_btn'):
                 self.toggle_sidebar_btn.setVisible(True)
                 self.toggle_sidebar_btn.setIcon(
                     studio_icon("panel-right-close" if visible else "panel-right-open")
                 )
-            self.reposition_expand_btn()
+            panel_w = getattr(self, '_panel_w', 120)
+            end = panel_w if visible else 0
+            duration = SIDEBAR_SLIDE_MS * abs(end - start) / max(panel_w, 1)
+            if animate is None:
+                animate = self._sidebar_can_slide()
+            if not animate or duration < 1:
+                self.right_panel.setVisible(visible)
+                self._follow_sidebar()
+                return
 
-            # Immediately update the positions of HUD labels and slider
-            if hasattr(self, 'position_slider_overlay'):
-                self.position_slider_overlay()
-            if hasattr(self, '_update_hud_elements'):
-                self._update_hud_elements()
+            # Shown both ways while it slides; hidden at the end of a close.
+            self.right_panel.show()
+            animation = QtCore.QVariantAnimation(self.main_window)
+            animation.setStartValue(float(start))
+            animation.setEndValue(float(end))
+            animation.setDuration(round(duration))
+            animation.setEasingCurve(QtCore.QEasingCurve.Type.OutCubic)
+
+            def step(value, animation=animation):
+                if getattr(self, '_sidebar_animation', None) is animation:
+                    self._sidebar_slide_width = float(value)
+                    self._follow_sidebar()
+
+            def finish(animation=animation):
+                if getattr(self, '_sidebar_animation', None) is animation:
+                    self._stop_sidebar_slide()
+                    self.right_panel.setVisible(self._sidebar_open)
+                    self._follow_sidebar()
+
+            animation.valueChanged.connect(step)
+            animation.finished.connect(finish)
+            self._sidebar_animation = animation
+            self._sidebar_slide_width = float(start)
+            animation.start()
+
+    def _sidebar_can_slide(self):
+        """Whether the sidebar slides: only in a shown window, with a slide time."""
+        window = getattr(self, 'main_window', None)
+        return (
+            SIDEBAR_SLIDE_MS > 0
+            and not getattr(self, 'headless', False)
+            and window is not None
+            and window.isVisible()
+        )
+
+    def _stop_sidebar_slide(self):
+        """Stop a slide where it is; the sidebar's room is its open or closed width again."""
+        animation = getattr(self, '_sidebar_animation', None)
+        self._sidebar_animation = None
+        self._sidebar_slide_width = None
+        if animation is not None and shiboken6.isValid(animation):
+            animation.stop()
+            animation.deleteLater()
+
+    def _follow_sidebar(self):
+        """Move the panel, its toggle, the slider and the HUD to the sidebar's room now."""
+        self.reposition_expand_btn()
+        if hasattr(self, 'position_slider_overlay'):
+            self.position_slider_overlay()
+        if hasattr(self, '_update_hud_elements'):
+            self._update_hud_elements()
 
     # show_existing_dialog is keyword-only so that a Qt signal connected to
     # these (the sidebar button's clicked(bool)) never passes it a value.
@@ -3079,7 +3030,7 @@ class MainViewer:
             self.sidebar_buttons[name].show()
             return self.sidebar_buttons[name]
         
-        btn = QtWidgets.QPushButton(label, self.right_panel)
+        btn = SidebarButton(label, self.right_panel)
         btn.setObjectName(name)
         if icon:  # a bundled Lucide icon's name, shown before the label
             btn.setIcon(studio_icon(icon))

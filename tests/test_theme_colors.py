@@ -28,7 +28,7 @@ if str(SRC) not in sys.path:
 from PySide6.QtCore import QPoint, Qt  # noqa: E402
 import shiboken6  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication, QComboBox, QTextBrowser, QVBoxLayout, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QComboBox, QFrame, QTextBrowser, QVBoxLayout, QWidget  # noqa: E402
 
 from desktop import Desktop_App  # noqa: E402
 from desktop.Desktop_App import (  # noqa: E402
@@ -123,7 +123,7 @@ class ThemeColorShadeTests(unittest.TestCase):
         self.assertEqual(set(ACCENT_SHADES["light"]), {
             "primary", "primary_hover", "primary_pressed", "primary_text", "primary_focus",
             "accent", "accent_soft", "switch_on", "switch_on_hover", "track", "tint", "tint_hover",
-            "histogram",
+            "histogram", "separator",
         })
         self.assertEqual(theme_tokens("teal")["text_subtle"], "#71717a")
         self.assertEqual(theme_tokens("teal")["field_border"], "#dcdce0")
@@ -134,7 +134,8 @@ class ThemeColorShadeTests(unittest.TestCase):
         black = theme_tokens("black")
         expected = {"window": "#fafafa", "track": "#efeff1", "border": "#e4e4e7", "text_subtle": "#71717a",
                     "primary": "#18181b", "primary_text": "#fafafa", "accent": "#52525b",
-                    "accent_soft": "#e4e4e7", "switch_on": "#18181b", "tooltip": "#18181b"}
+                    "accent_soft": "#e4e4e7", "switch_on": "#18181b", "tooltip": "#18181b",
+                    "separator": "#d4d4d8"}
         self.assertEqual({token: black[token] for token in expected}, expected)
         self.assertEqual(web_page_properties("black", dark=True)["--primary"], "#fafafa")
         # Every colour Black uses, on the page too, is a grey: red, green and blue equal or nearly.
@@ -149,7 +150,8 @@ class ThemeColorShadeTests(unittest.TestCase):
     def test_a_colour_family_changes_the_hue_not_the_depth(self):
         # Equal accents of two families differ, at the same OKLCH lightness.
         purple, teal = theme_tokens("purple"), theme_tokens("teal")
-        for token in ("primary", "primary_focus", "accent", "accent_soft", "switch_on", "track", "tint"):
+        for token in ("primary", "primary_focus", "accent", "accent_soft", "switch_on", "track", "tint",
+                      "separator"):
             with self.subTest(token=token):
                 self.assertNotEqual(purple[token], teal[token])
                 self.assertAlmostEqual(oklab_lightness(purple[token]), oklab_lightness(teal[token]),
@@ -378,6 +380,10 @@ class WindowThemeColorTests(unittest.TestCase):
 
     def test_choosing_a_colour_saves_it_for_config_and_redraws_keeping_the_fields(self):
         window = self.open_config()
+        # The lines between sections take a light shade of the colour, not the cards' grey hairline.
+        purple = theme_tokens(DEFAULT_THEME_COLOR)["separator"]
+        self.assertNotEqual(purple, theme_tokens(DEFAULT_THEME_COLOR)["border"])
+        self.assertEqual(self.section_line_colours(window), {purple})
         window.inputs["ALIGNMENT_REFERENCE"].setText("REF_7")
         window.tabs.setCurrentIndex(1)
         with mock.patch.object(self.namespace["ConfigGUI"], "_read_custom_settings", return_value={}):
@@ -391,6 +397,7 @@ class WindowThemeColorTests(unittest.TestCase):
         self.assertEqual(replacement.inputs["ALIGNMENT_REFERENCE"].text(), "REF_7")
         self.assertEqual(replacement.tabs.currentIndex(), 1)
         self.assertIn(theme_tokens("teal")["primary"], self.app.styleSheet())
+        self.assertEqual(self.section_line_colours(replacement), {theme_tokens("teal")["separator"]})
 
     def test_tools_keeps_its_own_colour(self):
         window = self.open_tools()
@@ -399,6 +406,15 @@ class WindowThemeColorTests(unittest.TestCase):
         replacement = self.track(Desktop_App._redrawn_windows[-1])
         self.assertEqual(replacement.theme_switch.color(), "green")
         self.assertEqual(replacement.theme_switch.theme_setting, TOOLS_THEME_SETTING)
+        self.assertEqual(self.section_line_colours(replacement), {theme_tokens("green")["separator"]})
+
+    def section_line_colours(self, window):
+        """The colours of the lines between the window's shown sections (the "separator" role)."""
+        flush(self.app)
+        lines = [frame for frame in window.findChildren(QFrame)
+                 if frame.property("role") == "separator" and frame.isVisible()]
+        self.assertTrue(lines, f"{type(window).__name__} shows no section line")
+        return {line.grab().toImage().pixelColor(line.width() // 2, 0).name() for line in lines}
 
     def test_the_same_colour_needs_no_redraw(self):
         window = self.open_config()

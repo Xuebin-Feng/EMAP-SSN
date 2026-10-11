@@ -269,7 +269,6 @@ class DisplayScalingTests(unittest.TestCase):
         viewer = MainViewer.__new__(MainViewer)
         viewer.hud_layout = {"font_size_px": 18.0}
         viewer.canvas = SimpleNamespace(dpi=144.0)
-        viewer.instr_text = SimpleNamespace(font_size=0.0)
         viewer.console_text = SimpleNamespace(font_size=0.0)
         viewer.background_job_status_text = SimpleNamespace(font_size=0.0)
         viewer.zoom_text = SimpleNamespace(font_size=0.0)

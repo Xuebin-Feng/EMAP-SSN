@@ -6031,15 +6031,15 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Toggle sidebar panel</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Hide these instructions</source>
+        <source>Mouse and keyboard controls</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle sidebar panel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6096,6 +6096,13 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Open Metadata Spreadsheet in browser</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ViewerControls</name>
+    <message>
+        <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

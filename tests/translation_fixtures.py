@@ -152,7 +152,7 @@ CANVAS_TEXT_CALLS = {
     "report_selection_error": (3, "operation"),
 }
 # The HUD's text visuals, whose .text a file sets itself.
-HUD_TEXTS = frozenset({"instr_text", "zoom_text", "hidden_text", "background_job_status_text"})
+HUD_TEXTS = frozenset({"zoom_text", "hidden_text", "background_job_status_text"})
 # Calls whose result is marked text: a message, or a translation.
 MARKING_CALLS = frozenset({"Message", "JoinedMessage", "translate", "tr", "display_text"})
 

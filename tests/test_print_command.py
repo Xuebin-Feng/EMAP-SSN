@@ -88,7 +88,6 @@ class PrintMetadataHUDTests(unittest.TestCase):
             hud_displays={
                 "meta_display": SimpleNamespace(text_visual=metadata_visual)
             },
-            instr_text=SimpleNamespace(visible=True),
             tooltip=SimpleNamespace(visible=True),
             view=SimpleNamespace(
                 camera=SimpleNamespace(rect="original rect", aspect=1.0)
@@ -128,7 +127,6 @@ class PrintMarginTrimTests(unittest.TestCase):
             console_text=SimpleNamespace(text="previous message"),
             hidden_text=SimpleNamespace(visible=True),
             hud_displays={},
-            instr_text=SimpleNamespace(visible=True),
             tooltip=SimpleNamespace(visible=True),
             view=SimpleNamespace(
                 camera=SimpleNamespace(rect="original rect", aspect=1.0)
@@ -458,7 +456,7 @@ class PrintOutputNameTests(unittest.TestCase):
                     export_svg.assert_not_called()
                     save.assert_not_called()
                     self.assertIn("path separators", str(failed.call_args.args[1]))
-                    self.assertTrue(viewer.instr_text.visible)
+                    self.assertTrue(viewer.zoom_text.visible)
             # Nothing was written, so the save folder was not even made.
             self.assertEqual(os.listdir(root), [])
 
@@ -652,7 +650,7 @@ class PrintSvgOutcomeTests(unittest.TestCase):
         engine.command_artifact.assert_not_called()
         open_folder.assert_not_called()
         self.assertEqual(viewer.console_text.text, "Error: No visible nodes to export.")
-        self.assertTrue(viewer.instr_text.visible)
+        self.assertTrue(viewer.zoom_text.visible)
 
     def test_svg_with_visible_nodes_reports_the_written_file(self):
         viewer, engine, open_folder, written, save_dir = self.run_svg_print([True] * 4)
@@ -1105,7 +1103,7 @@ class PrintCommandChecksTests(unittest.TestCase):
                 engine.command_succeeded.assert_not_called()
                 engine.command_artifact.assert_not_called()
                 self.assertEqual(viewer.console_text.text, "Error: No visible nodes to export.")
-                self.assertTrue(viewer.instr_text.visible)
+                self.assertTrue(viewer.zoom_text.visible)
                 self.assertFalse(os.path.exists(save_dir))
 
     def test_png_with_visible_nodes_is_still_saved(self):
@@ -1292,7 +1290,7 @@ class PrintZoomTests(unittest.TestCase):
         result.engine.command_succeeded.assert_not_called()
         self.assertEqual(self.failure(result), message)
         self.assertEqual(result.viewer.console_text.text, message)
-        self.assertTrue(result.viewer.instr_text.visible)
+        self.assertTrue(result.viewer.zoom_text.visible)
         self.assertFalse(os.path.exists(result.save_dir))
 
     # --- parsing ---------------------------------------------------------
@@ -1586,7 +1584,7 @@ class PrintFileNameTests(unittest.TestCase):
         result.engine.command_failed.assert_called_once()
         self.assertEqual(str(result.engine.command_failed.call_args.args[1]), message)
         self.assertEqual(result.viewer.console_text.text, message)
-        self.assertTrue(result.viewer.instr_text.visible)
+        self.assertTrue(result.viewer.zoom_text.visible)
         self.assertFalse(os.path.exists(result.save_dir))
 
     # --- one word --------------------------------------------------------

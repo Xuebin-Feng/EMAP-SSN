@@ -47,7 +47,7 @@ PNG_ALPHA_TOLERANCE = 1.0 / 255.0
 PNG_BACKGROUND_TOLERANCE = 2.0 / 255.0
 # Viewer HUD overlays drawn over the network, left out of every capture.
 CAPTURE_HIDDEN_OVERLAYS = (
-    'instr_text', 'zoom_text', 'tooltip', 'hidden_text', 'console_bg',
+    'zoom_text', 'tooltip', 'hidden_text', 'console_bg',
     'console_text', 'background_job_status_text', 'selection_box',
 )
 # The SVG is written as it is made, this many edges or nodes at a time, so a

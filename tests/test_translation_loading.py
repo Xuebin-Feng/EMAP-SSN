@@ -528,12 +528,15 @@ class StartupWiringTests(unittest.TestCase):
         tree = ast.parse((SRC / "EMAPSSN_Viewer.py").read_text(encoding="utf-8"))
         viewer = next(node for node in tree.body if isinstance(node, ast.ClassDef) and node.name == "MainViewer")
         methods = {node.name: node for node in viewer.body if isinstance(node, ast.FunctionDef)}
-        # The main window, with the sidebar and its toggle, is built in _build_main_window.
+        # The main window, with the sidebar and its toggle, is built in _build_main_window,
+        # and the threshold slider, with the controls' info button, in _build_slider_overlay.
         for widget in ("QMainWindow", "QPushButton"):
             self.assertTrue(calls_in(methods["_build_main_window"], widget), widget)
+        for widget in ("QLabel", "ControlsButton"):
+            self.assertTrue(calls_in(methods["_build_slider_overlay"], widget), widget)
         self.assert_installed_between(
             methods["__init__"], before=["SceneCanvas", "instance"],
-            after=["create_hud", "QLabel", "_build_main_window"],
+            after=["create_hud", "_build_slider_overlay", "_build_main_window"],
         )
 
     def test_the_viewer_takes_its_language_face_before_it_draws_any_text(self):
