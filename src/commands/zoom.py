@@ -30,11 +30,12 @@ _FLOAT32_LARGEST = float(np.finfo(np.float32).max)
 # a view narrower than |centre| * canvas_width * eps is off by half a pixel or more.
 _FLOAT32_EPSILON = float(np.finfo(np.float32).eps)
 
-# The view widths the Viewer keeps to, whether zoomed by the wheel, a pinch or
-# this command (view_width_limits): no narrower than MIN_VIEW_WIDTH, and no
-# wider than the nearest multiple of MAX_VIEW_WIDTH_STEP that shows every node,
-# hidden ones too, as the Viewer opens on them (opening_view). That widest view
-# follows the nodes as they are moved. print's zoom N doesn't take them.
+# The view widths the Viewer keeps to, whether zoomed by the wheel, a pinch,
+# the View Width box or this command (view_width_limits): no narrower than
+# MIN_VIEW_WIDTH, and no wider than the nearest multiple of MAX_VIEW_WIDTH_STEP
+# that shows every node, hidden ones too, as the Viewer opens on them
+# (opening_view). That widest view follows the nodes as they are moved.
+# print's zoom N doesn't take them.
 MIN_VIEW_WIDTH = 0.5
 MAX_VIEW_WIDTH_STEP = 100
 # The view the Viewer opens on: every node, a margin of FIT_MARGIN_FRACTION of
@@ -146,6 +147,40 @@ def view_for_width(viewer, text):
     return (x_range[0], y_range[0], new_width, new_width / aspect_ratio)
 
 
+def set_view_width(viewer, text):
+    """Set the view `zoom text` asks for, and return its width.
+
+    The zoom command and the Viewer's View Width box both zoom here. Every
+    check runs before the camera is touched: a width the camera can't draw,
+    or one outside view_width_limits, raises ValueError holding the Message
+    to show, and the view stays as it was.
+    """
+    new_rect = view_for_width(viewer, text)
+    new_width = new_rect[2]
+    narrowest, widest = view_width_limits(viewer)
+    if widest is not None and not narrowest <= new_width <= widest:
+        raise ValueError(Message(
+            "Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.",
+            narrowest=f"{narrowest:g}", widest=f"{widest:g}",
+        ))
+
+    camera = viewer.view.camera
+    rect = camera.rect
+
+    # The rectangle is set directly, as the print command does: set_range adds a margin
+    # to the requested range, and its margin=0 still adds 0.1 to each side.
+    previous = (rect.pos[0], rect.pos[1], rect.width, rect.height)
+    try:
+        camera.rect = new_rect
+    except Exception as error:
+        # The camera may already hold the new rectangle, so put the previous one back.
+        camera.rect = previous
+        raise ValueError(Message("Error: Zoom could not be applied: {error}", error=error)) from error
+
+    viewer._hud_timer.start()
+    return new_width
+
+
 def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
         # The console line shows the first line; the terminal shows it all, in English.
@@ -161,36 +196,11 @@ def run(viewer, args):
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
-    # Every check runs before the camera is touched.
     try:
-        new_rect = view_for_width(viewer, args[0])
+        new_width = set_view_width(viewer, args[0])
     except ValueError as error:
         _report_error(viewer, error.args[0])
         return
-    new_width = new_rect[2]
-    narrowest, widest = view_width_limits(viewer)
-    if widest is not None and not narrowest <= new_width <= widest:
-        _report_error(viewer, Message(
-            "Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.",
-            narrowest=f"{narrowest:g}", widest=f"{widest:g}",
-        ))
-        return
-
-    camera = viewer.view.camera
-    rect = camera.rect
-
-    # The rectangle is set directly, as the print command does: set_range adds a margin
-    # to the requested range, and its margin=0 still adds 0.1 to each side.
-    previous = (rect.pos[0], rect.pos[1], rect.width, rect.height)
-    try:
-        camera.rect = new_rect
-    except Exception as error:
-        # The camera may already hold the new rectangle, so put the previous one back.
-        camera.rect = previous
-        _report_error(viewer, Message("Error: Zoom could not be applied: {error}", error=error))
-        return
-
-    viewer._hud_timer.start()
 
     msg = Message("Zoom snapped to View Width: {width}", width=new_width)
     Command_Engine.print_help(viewer, msg)

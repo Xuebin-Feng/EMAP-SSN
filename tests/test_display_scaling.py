@@ -247,23 +247,27 @@ class DisplayScalingTests(unittest.TestCase):
         viewer.position_slider_overlay.assert_called_once_with()
         viewer.reposition_expand_btn.assert_called_once_with()
 
-    def test_bottom_right_status_positions_have_equal_line_spacing(self):
+    def test_bottom_right_status_stack_sits_above_the_view_width_box(self):
+        from EMAPSSN_Viewer import SLIDER_ROW_BOTTOM, SLIDER_ROW_HEIGHT
+        from desktop.Viewer_Widgets import VIEW_WIDTH_BOX_HEIGHT
+
         viewer = MainViewer.__new__(MainViewer)
         viewer.hud_layout = {
             "status_x_offset": 10.0,
-            "status_bottom_offset": 30.0,
-            "status_line_spacing": 25.0,
+            "status_box_gap": 8.0,
+            "status_line_spacing": 32.0,
         }
         size = (1000.0, 800.0)
 
         hidden_pos = viewer._status_hud_position(0, size)
-        view_width_pos = viewer._status_hud_position(1, size)
-        property_pos = viewer._status_hud_position(2, size)
+        property_pos = viewer._status_hud_position(1, size)
 
-        self.assertEqual(hidden_pos[0], view_width_pos[0])
-        self.assertEqual(view_width_pos[0], property_pos[0])
-        self.assertEqual(hidden_pos[1] - view_width_pos[1], 25.0)
-        self.assertEqual(view_width_pos[1] - property_pos[1], 25.0)
+        # The box is centred on the slider row; Hidden Nodes ends 8 px above it,
+        # and the metadata property a line and more above Hidden Nodes.
+        box_top = 800.0 - SLIDER_ROW_BOTTOM - SLIDER_ROW_HEIGHT / 2.0 - VIEW_WIDTH_BOX_HEIGHT / 2.0
+        self.assertEqual(hidden_pos, (990.0, box_top - 8.0))
+        self.assertEqual(property_pos, (990.0, box_top - 8.0 - 32.0))
+        self.assertGreaterEqual(hidden_pos[1] - property_pos[1], 30.0)
 
     def test_vispy_text_scaling_includes_background_job_status(self):
         viewer = MainViewer.__new__(MainViewer)
@@ -271,7 +275,6 @@ class DisplayScalingTests(unittest.TestCase):
         viewer.canvas = SimpleNamespace(dpi=144.0)
         viewer.console_text = SimpleNamespace(font_size=0.0)
         viewer.background_job_status_text = SimpleNamespace(font_size=0.0)
-        viewer.zoom_text = SimpleNamespace(font_size=0.0)
         viewer.hidden_text = SimpleNamespace(font_size=0.0)
         viewer.tooltip = None
         viewer.hud_displays = {}
@@ -283,12 +286,12 @@ class DisplayScalingTests(unittest.TestCase):
             viewer.console_text.font_size,
         )
 
-    def test_metadata_property_display_uses_status_line_above_view_width(self):
+    def test_metadata_property_display_uses_status_line_above_hidden_nodes(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.hud_layout = {
             "status_x_offset": 10.0,
-            "status_bottom_offset": 30.0,
-            "status_line_spacing": 25.0,
+            "status_box_gap": 8.0,
+            "status_line_spacing": 32.0,
         }
         viewer.hud_displays = {}
         viewer.metadata = {"Length": {"values": [125]}}
@@ -305,20 +308,21 @@ class DisplayScalingTests(unittest.TestCase):
         size = (1000.0, 800.0)
         self.assertEqual(
             display.pos_fn(size),
-            viewer._status_hud_position(2, size),
+            viewer._status_hud_position(1, size),
         )
 
     def test_zero_hidden_nodes_and_view_width_use_configured_text_color(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.hud_layout = {
             "status_x_offset": 10.0,
-            "status_bottom_offset": 30.0,
-            "status_line_spacing": 25.0,
+            "status_box_gap": 8.0,
+            "status_line_spacing": 32.0,
         }
         viewer.canvas = FakeCanvas(size=(1000, 800))
         viewer.view = mock.Mock()
         viewer.view.camera.rect.width = 250.0
-        viewer.zoom_text = mock.Mock()
+        viewer.view_width_box = SimpleNamespace(spin_box=mock.Mock())
+        viewer.pos = np.array([[0.0, 0.0], [900.0, 0.0], [450.0, 300.0]])
         viewer.hidden_text = mock.Mock()
         viewer.visible_mask = np.ones(3, dtype=bool)
         viewer.selected_node_idx = None
@@ -328,8 +332,10 @@ class DisplayScalingTests(unittest.TestCase):
 
         viewer._update_hud_elements()
 
-        self.assertEqual(viewer.zoom_text.color, cfg.TEXT_COLOR)
         self.assertEqual(viewer.hidden_text.color, cfg.TEXT_COLOR)
+        # The View Width box shows the width, with the limits zooms keep to:
+        # 0.5, and 1100 for this network (test_zoom_command's).
+        viewer.view_width_box.spin_box.show_width.assert_called_once_with(250.0, 0.5, 1100.0)
 
     def test_hidden_nodes_take_a_dark_shade_of_the_theme_colour(self):
         from desktop.Studio_Theme import set_theme_color, theme_color, theme_tokens

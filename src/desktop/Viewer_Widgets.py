@@ -17,6 +17,9 @@
   as a card with round corners, SIDEBAR_INSET clear of the canvas's top,
   right and bottom edges. SidebarButton is one of its buttons: the icon at
   the start, the label centred in the room after it.
+* The view's width. ViewWidthBox, at the canvas's bottom right level with the
+  threshold slider, is the translated "View Width: {width}" with a
+  ViewWidthSpinBox in place of {width}: it shows the view's width and sets it.
 """
 
 from __future__ import annotations
@@ -29,6 +32,7 @@ from PySide6.QtCore import QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPalette, QPen
 from PySide6.QtWidgets import (
     QApplication,
+    QDoubleSpinBox,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -366,11 +370,118 @@ class SidebarButton(QPushButton):
         painter.end()
 
 
+# A step of the View Width box's arrows, of the wheel over it or of Up/Down
+# widens or narrows the view by this factor, about a notch of the mouse wheel
+# over the network.
+VIEW_WIDTH_STEP = 1.25
+# The box's height, in px: the status texts above it go by it.
+VIEW_WIDTH_BOX_HEIGHT = 28
+# The widest width its field shows without scrolling; with no limit to keep
+# to (no nodes), also the widest it takes.
+VIEW_WIDTH_ROOM = 999999.9
+
+
+class ViewWidthSpinBox(QDoubleSpinBox):
+    """The view's width, in scene units, to read and to set.
+
+    The arrows, the wheel over it and Up/Down widen or narrow the view
+    VIEW_WIDTH_STEP at a time, as the mouse wheel zooms, not by a fixed
+    amount. A typed width counts on Enter, or when the box loses the
+    keyboard; Esc puts back the width the view has. valueChanged reports only
+    what the user set, as show_width, for the view's own changes, sends
+    nothing; dismissed is Esc.
+    """
+
+    dismissed = QtCore.Signal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDecimals(1)
+        self.setKeyboardTracking(False)
+        self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.setFixedHeight(VIEW_WIDTH_BOX_HEIGHT)
+        self.setRange(0.0, VIEW_WIDTH_ROOM)
+        # The keyboard only when clicked: never on opening or by Tab, so it
+        # stays with the network and [ENTER] opens the command line.
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self._shown = self.value()
+
+    def sizeHint(self):
+        # As wide as VIEW_WIDTH_ROOM needs in the font it has now, whatever the
+        # range is, so the box keeps its width as the limits change.
+        hint = super().sizeHint()
+        metrics = self.fontMetrics()
+        extra = (metrics.horizontalAdvance(self.textFromValue(VIEW_WIDTH_ROOM))
+                 - metrics.horizontalAdvance(self.textFromValue(self.maximum())))
+        return QSize(hint.width() + max(0, extra), hint.height()).boundedTo(self.maximumSize())
+
+    def minimumSizeHint(self):
+        return self.sizeHint()
+
+    def stepBy(self, steps):
+        self.setValue(self.value() * VIEW_WIDTH_STEP ** steps)
+
+    def show_width(self, width, narrowest, widest):
+        """Show the view's width, with the limits it keeps to as the range.
+
+        Nothing changes while the box is being typed in. A view beyond a limit,
+        as after the nodes were moved closer together, still shows its width.
+        """
+        if self.hasFocus():
+            return
+        top = VIEW_WIDTH_ROOM if widest is None else widest
+        blocked = self.blockSignals(True)
+        try:
+            self.setRange(min(narrowest, width), max(top, width))
+            self.setValue(width)
+        finally:
+            self.blockSignals(blocked)
+        self._shown = self.value()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            blocked = self.blockSignals(True)
+            try:
+                self.setValue(self._shown)  # Its text too, typed or not.
+            finally:
+                self.blockSignals(blocked)
+            self.dismissed.emit()
+            return
+        super().keyPressEvent(event)
+
+
+class ViewWidthBox(QWidget):
+    """The translated "View Width: {width}", with a ViewWidthSpinBox for {width}.
+
+    The text either side of {width} goes either side of the box, so a
+    language that puts the number first keeps its order.
+    """
+
+    def __init__(self, template, parent=None):
+        super().__init__(parent)
+        self.setObjectName("viewWidthBox")
+        before, _field, after = template.partition("{width}")
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        self.before = QLabel(before.strip())
+        self.spin_box = ViewWidthSpinBox()
+        self.after = QLabel(after.strip())
+        for widget in (self.before, self.spin_box, self.after):
+            layout.addWidget(widget)
+        self.before.setVisible(bool(self.before.text()))
+        self.after.setVisible(bool(self.after.text()))
+
+
 __all__ = [
     "ControlsButton",
     "ControlsCard",
     "SIDEBAR_INSET",
     "SidebarButton",
     "SidebarPanel",
+    "VIEW_WIDTH_BOX_HEIGHT",
+    "VIEW_WIDTH_STEP",
+    "ViewWidthBox",
+    "ViewWidthSpinBox",
     "controls_rows",
 ]

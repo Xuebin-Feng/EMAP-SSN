@@ -152,6 +152,18 @@ still change before version 1.0.0.
   follows the nodes as they are moved, and the window's shape. A zoom stops at a limit;
   `zoom` refuses a width outside them and names both. `print`'s `zoom N`, which sets an
   image's scale rather than the view, keeps its own range.
+- **The Viewer's view width is a box to type in.** The View Width at the bottom right is
+  now a spin box, level with the threshold slider. Type a width and press Enter, or use
+  its arrows, Up/Down or the wheel over it, 1.25 times wider or narrower a step, and the
+  view zooms about its centre as `zoom N` does, within the same limits; Esc puts the box
+  back. It follows the view's width as the view changes. Hidden Nodes sits just above
+  it, and a metadata value `meta` shows sits above that. `zoom` stays, for scripts, the
+  agent and MCP.
+- **The mouse wheel zooms smoothly.** A notch zooms as far as before, about a fifth of
+  the view, but over a few frames, most of it in the first tenth of a second, instead of
+  in one jump. Quick notches add up, and a notch the other way takes one back. The point
+  under the cursor stays put and the width limits still hold; a pan, `zoom`, the View
+  Width box or a print ends the zoom where it is.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts

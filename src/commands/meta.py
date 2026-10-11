@@ -231,7 +231,7 @@ def run(viewer, args):
                     super().__init__(
                         viewer=main_viewer,
                         name='meta_display',
-                        pos_fn=lambda size: main_viewer._status_hud_position(2, size),
+                        pos_fn=lambda size: main_viewer._status_hud_position(1, size),
                         anchor_x='right',
                         anchor_y='bottom'
                     )

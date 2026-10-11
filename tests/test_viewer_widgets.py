@@ -3,12 +3,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """The Viewer's widgets (desktop.Viewer_Widgets): its controls card and the
-info button that opens it, and its sidebar's rounded card and buttons.
+info button that opens it, its sidebar's rounded card and buttons, and the
+View Width box.
 
 The Viewer lists its mouse and keyboard actions in one translated text. The
 card reads it, as shipped in English and in Chinese, into key caps beside
 what each action does, on a light tint of the theme colour. A sidebar button
-centres its label in the room after its icon.
+centres its label in the room after its icon. The View Width box steps the
+view's width by a factor, as the wheel zooms, and reports only what the
+user set.
 """
 
 import ast
@@ -36,6 +39,10 @@ from desktop.Viewer_Widgets import (  # noqa: E402
     ControlsCard,
     SidebarButton,
     SidebarPanel,
+    VIEW_WIDTH_BOX_HEIGHT,
+    VIEW_WIDTH_STEP,
+    ViewWidthBox,
+    ViewWidthSpinBox,
     controls_rows,
 )
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
@@ -180,6 +187,101 @@ class ControlsCardTests(unittest.TestCase):
         self.assertIsNone(self.button.toggle_card())
         flush(self.app)
         self.assertFalse(self.button.card_is_open())
+
+
+class ViewWidthBoxTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        apply_theme_for_class(cls, cls.app)
+
+    def make_spin_box(self, width=242.0, narrowest=0.5, widest=1100.0):
+        spin_box = ViewWidthSpinBox()
+        self.addCleanup(spin_box.deleteLater)
+        spin_box.show_width(width, narrowest, widest)
+        sets = []
+        spin_box.valueChanged.connect(sets.append)
+        return spin_box, sets
+
+    def test_the_view_shows_without_a_signal_and_the_user_sets_with_one(self):
+        spin_box, sets = self.make_spin_box()
+        self.assertEqual(spin_box.text(), "242.0")
+        self.assertEqual((spin_box.minimum(), spin_box.maximum()), (0.5, 1100.0))
+        spin_box.show_width(300.04, 0.5, 1200.0)
+        self.assertEqual((spin_box.text(), sets), ("300.0", []))
+        spin_box.setValue(500.0)
+        self.assertEqual(sets, [500.0])
+        # A width beyond the limits, as after the nodes were moved together, still shows.
+        spin_box.show_width(1500.0, 0.5, 1100.0)
+        self.assertEqual(spin_box.value(), 1500.0)
+        # With no limit to keep to, a wide view still shows.
+        spin_box.show_width(5000.0, 0.5, None)
+        self.assertEqual(spin_box.value(), 5000.0)
+
+    def test_a_step_zooms_by_a_factor_and_stops_at_the_limits(self):
+        spin_box, sets = self.make_spin_box(width=400.0)
+        spin_box.stepBy(1)
+        spin_box.stepBy(-2)
+        self.assertEqual(sets, [400.0 * VIEW_WIDTH_STEP, round(400.0 / VIEW_WIDTH_STEP, 1)])
+        self.assertGreaterEqual(VIEW_WIDTH_STEP, 1.1)
+        spin_box.stepBy(20)
+        self.assertEqual(sets[-1], 1100.0)
+        spin_box.stepBy(-60)
+        self.assertEqual(sets[-1], 0.5)
+
+    def test_typing_counts_on_enter_and_esc_puts_back_the_view(self):
+        spin_box, sets = self.make_spin_box()
+        dismissed = []
+        spin_box.dismissed.connect(lambda: dismissed.append(True))
+        self.assertFalse(spin_box.keyboardTracking())
+        spin_box.lineEdit().selectAll()
+        QTest.keyClicks(spin_box, "750")
+        self.assertEqual(sets, [])
+        QTest.keyClick(spin_box, Qt.Key.Key_Escape)
+        self.assertEqual((spin_box.text(), sets, dismissed), ("242.0", [], [True]))
+        spin_box.lineEdit().selectAll()
+        QTest.keyClicks(spin_box, "750")
+        QTest.keyClick(spin_box, Qt.Key.Key_Return)
+        self.assertEqual(sets, [750.0])
+
+    def test_the_view_waits_while_the_box_is_typed_in(self):
+        spin_box, _sets = self.make_spin_box()
+        window = QWidget()
+        self.addCleanup(window.deleteLater)
+        spin_box.setParent(window)
+        window.show()
+        spin_box.setFocus()
+        self.app.processEvents()
+        if not spin_box.hasFocus():
+            self.skipTest("this platform gives no window the keyboard")
+        spin_box.show_width(900.0, 0.5, 1100.0)
+        self.assertEqual(spin_box.text(), "242.0")
+
+    def test_it_never_takes_the_keyboard_from_the_network_unasked(self):
+        spin_box, _sets = self.make_spin_box()
+        self.assertEqual(spin_box.focusPolicy(), Qt.FocusPolicy.ClickFocus)
+
+    def test_its_width_holds_as_the_limits_change(self):
+        spin_box, _sets = self.make_spin_box(widest=100.0)
+        narrow = spin_box.sizeHint()
+        spin_box.show_width(242.0, 0.5, 250000.0)
+        self.assertEqual(spin_box.sizeHint(), narrow)
+        self.assertEqual(narrow.height(), VIEW_WIDTH_BOX_HEIGHT)
+        self.assertGreaterEqual(narrow.width(), QFontMetrics(spin_box.font()).horizontalAdvance("999999.9"))
+
+    def test_the_text_either_side_of_the_width(self):
+        for template, before, after in (("View Width: {width}", "View Width:", ""),
+                                        ("{width} units wide", "", "units wide"),
+                                        ("视图宽度：{width}", "视图宽度：", "")):
+            box = ViewWidthBox(template)
+            self.addCleanup(box.deleteLater)
+            with self.subTest(template=template):
+                self.assertEqual((box.before.text(), box.after.text()), (before, after))
+                self.assertEqual(box.before.isVisibleTo(box), bool(before))
+                self.assertEqual(box.after.isVisibleTo(box), bool(after))
+                layout = box.layout()
+                self.assertEqual([layout.itemAt(index).widget() for index in range(layout.count())],
+                                 [box.before, box.spin_box, box.after])
 
 
 class SidebarWidgetTests(unittest.TestCase):

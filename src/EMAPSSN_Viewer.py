@@ -173,7 +173,10 @@ from desktop.Desktop_App import (
     vispy_points_for_logical_pixels,
 )
 from desktop.Studio_Theme import TOKENS, set_role, studio_icon
-from desktop.Viewer_Widgets import ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel
+from desktop.Viewer_Zoom import SmoothWheelZoom
+from desktop.Viewer_Widgets import (
+    ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, VIEW_WIDTH_BOX_HEIGHT, ViewWidthBox,
+)
 from desktop.Viewer_State import (
     prepare_network,
     resolve_selected_cache,
@@ -249,6 +252,17 @@ CLICK_STATUS_SEPARATOR = "  ·  "
 # Between the controls' info button and the threshold's value, in px: wide
 # enough that the button doesn't read as a mark on the number.
 SLIDER_INFO_GAP = 26
+# The slider row along the canvas's bottom, in px: the threshold slider from
+# the left, the View Width box at the right, level with it.
+SLIDER_ROW_HEIGHT = 45
+SLIDER_ROW_BOTTOM = 15
+SLIDER_ROW_LEFT = 20
+SLIDER_BOX_GAP = 20  # between the slider's end and the View Width box
+
+
+def _slider_row_centre(canvas_height):
+    """The y, in canvas px, of the middle of the slider row."""
+    return canvas_height - SLIDER_ROW_BOTTOM - SLIDER_ROW_HEIGHT / 2.0
 
 
 def _sidebar_room(viewer):
@@ -726,11 +740,12 @@ class MainViewer:
             "background_job_status_gap": 8.0,
             "background_job_status_right_padding": 20.0,
 
-            # 4. Bottom-right status stack, from bottom to top:
-            #    Hidden Nodes, View Width, selected metadata property.
-            "status_x_offset": 10.0,       # Distance from the right edge of the window
-            "status_bottom_offset": 30.0,  # Distance from the bottom edge to Hidden Nodes
-            "status_line_spacing": 25.0,
+            # 4. Bottom-right status stack, above the View Width box (level with
+            #    the threshold slider), from bottom to top: Hidden Nodes, then
+            #    the selected metadata property.
+            "status_x_offset": 10.0,       # Distance from the right edge of the window, the box's too
+            "status_box_gap": 8.0,         # Between the View Width box and Hidden Nodes
+            "status_line_spacing": 32.0,   # Hidden Nodes to the metadata property, bottom to bottom
             "status_anchor_x": "right",
             "status_anchor_y": "bottom"
         }
@@ -867,17 +882,12 @@ class MainViewer:
         # Replace the camera's handler with our custom wrapper
         self.view.camera.viewbox_key_event = safe_camera_key_event
 
-        # ---> NEW: Disable default Vispy Right-Click Zoom <---
+        # The camera's own mouse handling, less the right button and with a
+        # smooth wheel (_camera_mouse_event); zooms keep to the width limits.
         self._original_camera_mouse_event = self.view.camera.viewbox_mouse_event
-        
-        def safe_camera_mouse_event(event):
-            # If the event involves the right mouse button (button 2), block it from the camera
-            if getattr(event, 'button', None) == 2 or 2 in getattr(event, 'buttons', []):
-                return 
-            self._original_camera_mouse_event(event)
-            
-        self.view.camera.viewbox_mouse_event = safe_camera_mouse_event
+        self.view.camera.viewbox_mouse_event = self._camera_mouse_event
         self._limit_camera_zoom()
+        self._wheel_zoom = SmoothWheelZoom(self.view.camera, self.view.camera.zoom, self._hud_timer.start)
 
         # --- 4. Draw Initial State ---
         self.draw_network()
@@ -988,13 +998,32 @@ class MainViewer:
         original_zoom = self.view.camera.zoom
 
         def limited_zoom(factor, center=None):
+            """Zoom, cut at the limits, and return the factor applied."""
             from commands.zoom import limited_zoom_factor
-            original_zoom(limited_zoom_factor(self, factor), center)
+            limited = limited_zoom_factor(self, factor)
+            original_zoom(limited, center)
+            return limited
 
         self.view.camera.zoom = limited_zoom
 
+    def _camera_mouse_event(self, event):
+        """The camera's mouse handling, without the right button, which selects
+        and drags nodes, and with the wheel zooming smoothly."""
+        if getattr(event, 'button', None) == 2 or 2 in getattr(event, 'buttons', []):
+            return
+        camera = self.view.camera
+        # VisPy's zoom a notch, about the point under the cursor, played out
+        # over a few frames (desktop.Viewer_Zoom) rather than in one.
+        if event.type == 'mouse_wheel' and not event.handled and camera.interactive:
+            center = camera._scene_transform.imap(event.pos)
+            self._wheel_zoom.add((1 + camera.zoom_factor) ** (-event.delta[1] * 30), center)
+            event.handled = True
+            return
+        self._original_camera_mouse_event(event)
+
     def _build_slider_overlay(self):
-        """Set up the threshold slider over the canvas's bottom left, the controls' info button at its start."""
+        """Set up the slider row over the canvas's bottom: the threshold slider from
+        the left, the controls' info button at its start, and the View Width box at the right."""
         # The overlay is a child of the native canvas.
         self.slider_overlay = QtWidgets.QWidget(self.canvas.native)
         self.slider_overlay.setObjectName("sliderOverlay")
@@ -1041,9 +1070,45 @@ class MainViewer:
                 min-width: 45px;
             }
         """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
-        
+
+        # The view's width, to read and to set as `zoom` does, at the row's
+        # right; its text keeps the HUD's text colour, as the slider's value does.
+        self.view_width_box = ViewWidthBox(translate("Viewer", "View Width: {width}"), self.canvas.native)
+        self.view_width_box.setStyleSheet("""
+            QWidget#viewWidthBox { background: transparent; }
+            QWidget#viewWidthBox QLabel {
+                font-family: %(font)s;
+                font-size: 12pt;
+                color: %(text_color)s;
+                background: transparent;
+            }
+            QWidget#viewWidthBox QDoubleSpinBox { font-family: %(font)s; font-size: 12pt; }
+        """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
+        spin_box = self.view_width_box.spin_box
+        spin_box.valueChanged.connect(self._zoom_to_box_width)
+        spin_box.editingFinished.connect(self._return_keyboard_to_canvas)
+        spin_box.dismissed.connect(self._return_keyboard_to_canvas)
+
         self.position_slider_overlay()
         self.slider_overlay.show()
+        self.view_width_box.show()
+
+    def _zoom_to_box_width(self, width):
+        """Zoom to the width set in the View Width box, as `zoom` does (commands.zoom.set_view_width)."""
+        from commands.zoom import set_view_width
+        try:
+            set_view_width(self, width)
+        except ValueError as error:
+            print(error)
+            self._show_click_status(error.args[0])
+        self._return_keyboard_to_canvas()
+        # The box shows the width the view took, or kept.
+        self._hud_timer.start()
+
+    def _return_keyboard_to_canvas(self):
+        """Give the keyboard back to the network once the View Width box is done with it, so [ENTER] opens the command line."""
+        if self.view_width_box.spin_box.hasFocus():
+            self.canvas.native.setFocus()
 
     def _build_main_window(self):
         """Set up the main window around the canvas: its title, the sidebar and the sidebar's toggle."""
@@ -1146,16 +1211,18 @@ class MainViewer:
         return vispy_points_at_reference_dpi(cfg.TEXT_SIZE, self._canvas_dpi())
 
     def _status_hud_position(self, line_index, size=None):
-        """Return one evenly-spaced position in the bottom-right HUD stack."""
+        """Return one position in the bottom-right HUD stack above the View Width box.
+
+        Line 0 is Hidden Nodes, line 1 the selected metadata property; each is
+        the bottom right of its text.
+        """
         if size is None:
             size = self.canvas.size
         cfg_hud = self.hud_layout
+        box_top = _slider_row_centre(size[1]) - VIEW_WIDTH_BOX_HEIGHT / 2.0
         return (
             size[0] - cfg_hud["status_x_offset"],
-            size[1] - (
-                cfg_hud["status_bottom_offset"]
-                + line_index * cfg_hud["status_line_spacing"]
-            ),
+            box_top - cfg_hud["status_box_gap"] - line_index * cfg_hud["status_line_spacing"],
         )
 
     def _apply_vispy_text_scaling(self):
@@ -1164,7 +1231,6 @@ class MainViewer:
         for attribute_name in (
             'console_text',
             'background_job_status_text',
-            'zoom_text',
             'hidden_text',
         ):
             visual = getattr(self, attribute_name, None)
@@ -1924,14 +1990,22 @@ class MainViewer:
         self.slider_label.setText(formatted)
 
     def position_slider_overlay(self):
+        """Lay out the slider row: the View Width box at the right, centred on
+        the row, and the threshold slider in the room left of it."""
         if hasattr(self, 'slider_overlay') and hasattr(self, 'canvas'):
             canvas_w, canvas_h = self.canvas.size
-            effective_w = canvas_w - _sidebar_room(self)
-            overlay_w = max(100, effective_w - 220)
-            overlay_h = 45
-            overlay_x = 20
-            overlay_y = canvas_h - overlay_h - 15
-            self.slider_overlay.setGeometry(overlay_x, overlay_y, overlay_w, overlay_h)
+            right = canvas_w - _sidebar_room(self) - self.hud_layout["status_x_offset"]
+            box = getattr(self, 'view_width_box', None)
+            box_room = 0
+            if box is not None:
+                box.ensurePolished()  # Measured in the stylesheet's font.
+                size = box.sizeHint()
+                top = _slider_row_centre(canvas_h) - size.height() / 2.0
+                box.setGeometry(round(right - size.width()), round(top), size.width(), size.height())
+                box_room = size.width() + SLIDER_BOX_GAP
+            overlay_w = max(100, round(right - box_room - SLIDER_ROW_LEFT))
+            overlay_y = canvas_h - SLIDER_ROW_HEIGHT - SLIDER_ROW_BOTTOM
+            self.slider_overlay.setGeometry(SLIDER_ROW_LEFT, overlay_y, overlay_w, SLIDER_ROW_HEIGHT)
 
     def on_slider_value_changed(self, value):
         self.current_slider_threshold = self.min_threshold + (value / 1000.0) * (self.max_threshold - self.min_threshold)
@@ -2280,19 +2354,9 @@ class MainViewer:
             parent=self.canvas.scene,
         )
         self.background_job_status_text.visible = False
-        
-        self.zoom_text = scene.visuals.Text(
-            text="", 
-            bold=False, 
-            face=self.vispy_ui_face,
-            font_size=hud_font_size,
-            color=cfg.TEXT_COLOR,
-            pos=self._status_hud_position(1),
-            anchor_y=cfg_hud["status_anchor_y"],
-            anchor_x=cfg_hud["status_anchor_x"],
-            parent=self.canvas.scene
-        )
-        
+
+        # The view's width shows in the View Width box, by the threshold slider
+        # (_build_slider_overlay); Hidden Nodes sits above it.
         self.hidden_text = scene.visuals.Text(
             text="", 
             bold=False, 
@@ -2676,12 +2740,11 @@ class MainViewer:
         effective_canvas_w = self.canvas.size[0] - _sidebar_room(self)
         effective_size = (effective_canvas_w, self.canvas.size[1])
         
-        # 1. Update Zoom Indicator (Visible World Width)
-        if hasattr(self, 'zoom_text'):
-            visible_width = self.view.camera.rect.width
-            self.zoom_text.text = translate("Viewer", "View Width: {width}").format(width=f"{visible_width:.1f}")
-            self.zoom_text.color = cfg.TEXT_COLOR
-            self.zoom_text.pos = self._status_hud_position(1, effective_size)
+        # 1. The View Width box: the visible world width, and the limits zooms keep to
+        box = getattr(self, 'view_width_box', None)
+        if box is not None:
+            from commands.zoom import view_width_limits
+            box.spin_box.show_width(self.view.camera.rect.width, *view_width_limits(self))
 
         # 2. Update Hidden Nodes Indicator
         if hasattr(self, 'hidden_text') and hasattr(self, 'visible_mask'):

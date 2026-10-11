@@ -1,9 +1,10 @@
 """The zoom command (commands/zoom.py): the view width it accepts and the camera
 rectangle it sets, and what it leaves alone when it refuses a width. The
-Viewer's view width keeps to limits, by the command and by the wheel or a
-pinch alike: at least 0.5, and at most the nearest 100 that shows every node,
-hidden ones too, as the Viewer opens on them; that widest view follows the
-nodes as they move."""
+Viewer's view width keeps to limits, by the command, the View Width box, the
+wheel and a pinch alike: at least 0.5, and at most the nearest 100 that shows
+every node, hidden ones too, as the Viewer opens on them; that widest view
+follows the nodes as they move. The wheel zooms smoothly
+(desktop/Viewer_Zoom.py): VisPy's amount a notch, played out over a few frames."""
 
 import io
 import os
@@ -230,6 +231,179 @@ class ViewWidthLimitTests(unittest.TestCase):
                     failed.assert_not_called()
                     self.assertEqual(viewer.view.camera.rect.width, float(width))
 
+    def test_the_view_width_box_zooms_through_the_commands_checks(self):
+        # set_view_width is what the zoom command and the View Width box share:
+        # it zooms and returns the width, or raises the command's error and
+        # leaves the view, without reporting anything itself.
+        viewer = network_viewer()
+        with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()) as printed:
+            self.assertEqual(zoom_command.set_view_width(viewer, 500.0), 500.0)
+            self.assertEqual(viewer.view.camera.rect.width, 500.0)
+            viewer._hud_timer.start.assert_called_once_with()
+            for width in (1101.0, 0.49, float("nan")):
+                with self.subTest(width=width), self.assertRaises(ValueError) as caught:
+                    zoom_command.set_view_width(viewer, width)
+                self.assertIsInstance(caught.exception.args[0], zoom_command.Message)
+                self.assertEqual(viewer.view.camera.rect.width, 500.0)
+        succeeded.assert_not_called()
+        failed.assert_not_called()
+        self.assertEqual(printed.getvalue(), "")
+
+
+class FakeClock:
+    """A clock a test moves on itself."""
+
+    def __init__(self):
+        self.now = 100.0
+
+    def __call__(self):
+        return self.now
+
+
+class FakeTimer:
+    """A QTimer's start, stop and timeout, run frame by frame by the test."""
+
+    def __init__(self):
+        self.active = False
+        self.timeout = SimpleNamespace(connect=self._connect)
+        self._slot = None
+
+    def _connect(self, slot):
+        self._slot = slot
+
+    def isActive(self):
+        return self.active
+
+    def start(self):
+        self.active = True
+
+    def stop(self):
+        self.active = False
+
+    def fire(self):
+        self._slot()
+
+
+def run_frames(timer, clock, camera, frame_s=0.015, limit=200):
+    """Fire the timer every frame_s until it stops; the view's width after each frame."""
+    widths = []
+    while timer.active and len(widths) < limit:
+        clock.now += frame_s
+        timer.fire()
+        widths.append(camera.rect.width)
+    return widths
+
+
+class ScaledCamera:
+    """A camera whose zoom scales its rectangle about center, as PanZoomCamera's does.
+
+    limit, if set, is the widest it goes: zoom cuts the factor there and
+    returns the factor applied, as the Viewer's limited zoom does.
+    """
+
+    def __init__(self, width=400.0, limit=None):
+        self.rect = SimpleNamespace(pos=(0.0, 0.0), width=width, height=width)
+        self.limit = limit
+        self.centers = []
+
+    def zoom(self, factor, center):
+        if self.limit is not None:
+            factor = min(factor, self.limit / self.rect.width)
+        left, bottom = self.rect.pos
+        width = self.rect.width * factor
+        self.rect = SimpleNamespace(pos=(center[0] - (center[0] - left) * factor,
+                                         center[1] - (center[1] - bottom) * factor),
+                                    width=width, height=width)
+        self.centers.append(center)
+        return factor
+
+
+class SmoothWheelZoomTests(unittest.TestCase):
+    """desktop.Viewer_Zoom: a wheel notch's zoom, played out over a few frames."""
+
+    def make(self, **camera):
+        from desktop.Viewer_Zoom import SmoothWheelZoom
+
+        self.camera, self.clock, self.timer = ScaledCamera(**camera), FakeClock(), FakeTimer()
+        self.steps = []
+        return SmoothWheelZoom(self.camera, self.camera.zoom, lambda: self.steps.append(True),
+                               clock=self.clock, timer=self.timer)
+
+    def test_a_notch_eases_out_to_its_whole_zoom(self):
+        from desktop.Viewer_Zoom import WHEEL_ZOOM_TAU_S
+
+        zoom = self.make()
+        zoom.add(1.25, (40.0, 40.0))
+        self.assertTrue(self.timer.active)
+        self.assertEqual(self.camera.rect.width, 400.0)
+        widths = run_frames(self.timer, self.clock, self.camera)
+        self.assertFalse(self.timer.active)
+        self.assertAlmostEqual(widths[-1], 500.0, places=9)
+        # Each frame zooms less than the one before, and most of it comes early;
+        # the last also takes the little left, under 0.15% of the view.
+        changes = np.diff([400.0] + widths)
+        self.assertTrue(np.all(changes > 0) and np.all(np.diff(changes[:-1]) < 0), changes)
+        self.assertLess(changes[-1], 0.0015 * widths[-1])
+        frames_to_most = next(index for index, width in enumerate(widths) if width >= 400.0 + 0.63 * 100.0)
+        self.assertAlmostEqual((frames_to_most + 1) * 0.015, WHEEL_ZOOM_TAU_S, delta=0.03)
+        # Done within half a second, the HUD told every frame, about the cursor every frame.
+        self.assertLessEqual(len(widths) * 0.015, 0.5)
+        self.assertEqual(len(self.steps), len(widths))
+        self.assertEqual(set(self.camera.centers), {(40.0, 40.0)})
+
+    def test_notches_add_up_and_a_notch_back_takes_one_away(self):
+        zoom = self.make()
+        zoom.add(1.25, (0.0, 0.0))
+        self.clock.now += 0.015
+        self.timer.fire()
+        zoom.add(1.25, (0.0, 0.0))
+        zoom.add(1.25, (0.0, 0.0))
+        zoom.add(0.8, (0.0, 0.0))
+        self.assertAlmostEqual(run_frames(self.timer, self.clock, self.camera)[-1], 400.0 * 1.25 ** 2, places=9)
+
+    def test_a_slow_frame_catches_up(self):
+        zoom = self.make()
+        zoom.add(2.0, (0.0, 0.0))
+        self.clock.now += 1.0
+        self.timer.fire()
+        self.assertAlmostEqual(self.camera.rect.width, 800.0, places=6)
+        self.assertFalse(self.timer.active)
+
+    def test_it_stops_at_a_limit(self):
+        zoom = self.make(limit=450.0)
+        zoom.add(1.25, (0.0, 0.0))
+        widths = run_frames(self.timer, self.clock, self.camera)
+        self.assertAlmostEqual(widths[-1], 450.0, places=9)
+        self.assertFalse(self.timer.active)
+        self.assertLess(len(widths), 20)
+
+    def test_a_view_moved_by_anything_else_ends_it_there(self):
+        zoom = self.make()
+        zoom.add(1.25, (0.0, 0.0))
+        self.clock.now += 0.015
+        self.timer.fire()
+        # As a pan, the zoom command, the View Width box or a print would.
+        self.camera.rect = SimpleNamespace(pos=(7.0, 7.0), width=300.0, height=300.0)
+        self.clock.now += 0.015
+        self.timer.fire()
+        self.assertFalse(self.timer.active)
+        self.assertEqual(self.camera.rect.width, 300.0)
+        # A notch after that zooms from the new view, without the old notch's rest.
+        zoom.add(1.25, (0.0, 0.0))
+        self.assertAlmostEqual(run_frames(self.timer, self.clock, self.camera)[-1], 375.0, places=9)
+
+    def test_nothing_to_zoom_starts_nothing(self):
+        zoom = self.make()
+        for factor in (1.0, 0.0, -2.0, float("nan"), float("inf")):
+            zoom.add(factor, (0.0, 0.0))
+        self.assertFalse(self.timer.active)
+        zoom.add(1.25, (0.0, 0.0))
+        zoom.stop()
+        self.assertFalse(self.timer.active)
+        self.clock.now += 0.015
+        self.timer.fire()
+        self.assertEqual(self.camera.rect.width, 400.0)
+
 
 class ViewerWheelZoomTests(unittest.TestCase):
     """The Viewer's camera: a wheel or pinch zoom goes through camera.zoom, which keeps to the limits."""
@@ -243,6 +417,72 @@ class ViewerWheelZoomTests(unittest.TestCase):
         for event in ("'mouse_wheel'", "'gesture_zoom'"):
             branch = source.split(event, 1)[1].split("elif", 1)[0]
             self.assertIn("self.zoom(", branch, event)
+        # The Viewer's smooth wheel zooms by VisPy's amount a notch, about the same point.
+        wheel = source.split("'mouse_wheel'", 1)[1].split("elif", 1)[0]
+        self.assertIn("center = self._scene_transform.imap(event.pos)", wheel)
+        self.assertIn("(1 + self.zoom_factor)**(-event.delta[1] * 30)", wheel)
+
+    def test_a_wheel_notch_zooms_by_vispys_amount_over_a_few_frames(self):
+        from vispy.scene.cameras import PanZoomCamera
+
+        import EMAPSSN_Viewer
+        from desktop.Viewer_Zoom import SmoothWheelZoom
+
+        camera = PanZoomCamera(aspect=1)
+        viewer = network_viewer(camera=camera)
+        camera.rect = (0.0, 0.0, 400.0, 400.0)
+        camera._scene_transform = SimpleNamespace(imap=lambda pos: np.array([pos[0], pos[1], 0.0, 1.0]))
+        EMAPSSN_Viewer.MainViewer._limit_camera_zoom(viewer)
+        clock, timer = FakeClock(), FakeTimer()
+        viewer._wheel_zoom = SmoothWheelZoom(camera, camera.zoom, clock=clock, timer=timer)
+        viewer._original_camera_mouse_event = mock.Mock()
+        wheel = SimpleNamespace(type="mouse_wheel", handled=False, pos=(100.0, 300.0), delta=(0.0, -1.0),
+                                button=None, buttons=[])
+
+        EMAPSSN_Viewer.MainViewer._camera_mouse_event(viewer, wheel)
+        self.assertTrue(wheel.handled)
+        viewer._original_camera_mouse_event.assert_not_called()
+        self.assertEqual(camera.rect.width, 400.0)  # Nothing yet: it plays out over the frames.
+        widths = run_frames(timer, clock, camera)
+        notch = (1 + camera.zoom_factor) ** 30
+        self.assertAlmostEqual(widths[-1], 400.0 * notch, places=6)
+        self.assertGreaterEqual(len(widths), 5)
+        # The point under the cursor stays where it is.
+        left, bottom = camera.rect.left, camera.rect.bottom
+        self.assertAlmostEqual((100.0 - left) / camera.rect.width, 100.0 / 400.0)
+        self.assertAlmostEqual((300.0 - bottom) / camera.rect.height, 300.0 / 400.0)
+        # A notch past the widest view stops there, in fewer frames than a whole notch takes.
+        camera.rect = (0.0, 0.0, 1000.0, 1000.0)
+        EMAPSSN_Viewer.MainViewer._camera_mouse_event(viewer, SimpleNamespace(**{**vars(wheel), "handled": False}))
+        at_limit = run_frames(timer, clock, camera)
+        self.assertAlmostEqual(at_limit[-1], 1100.0)
+        self.assertLess(len(at_limit), len(widths) - 2)
+        # The right button rotates dragged nodes with the wheel; the camera never sees it.
+        right = SimpleNamespace(type="mouse_wheel", handled=False, pos=(0.0, 0.0), delta=(0.0, 1.0),
+                                button=None, buttons=[2])
+        EMAPSSN_Viewer.MainViewer._camera_mouse_event(viewer, right)
+        self.assertFalse(timer.active)
+        # Other events still go to the camera.
+        drag = SimpleNamespace(type="mouse_move", handled=False, button=1, buttons=[1])
+        EMAPSSN_Viewer.MainViewer._camera_mouse_event(viewer, drag)
+        viewer._original_camera_mouse_event.assert_called_once_with(drag)
+
+    def test_the_viewer_zooms_its_wheel_smoothly(self):
+        import ast
+
+        import EMAPSSN_Viewer
+
+        with open(EMAPSSN_Viewer.__file__, encoding="utf-8") as source:
+            tree = ast.parse(source.read())
+        init = next(node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+                    and node.name == "MainViewer").body
+        init = next(node for node in init if isinstance(node, ast.FunctionDef) and node.name == "__init__")
+        assigned = [ast.unparse(node) for node in ast.walk(init) if isinstance(node, ast.Assign)]
+        self.assertIn("self.view.camera.viewbox_mouse_event = self._camera_mouse_event", assigned)
+        # Made after the zoom is limited, so it zooms through the limits.
+        lines = {ast.unparse(node): node.lineno for node in ast.walk(init) if isinstance(node, (ast.Assign, ast.Expr))}
+        smooth = next(line for text, line in lines.items() if text.startswith("self._wheel_zoom = SmoothWheelZoom("))
+        self.assertLess(lines["self._limit_camera_zoom()"], smooth)
 
     def test_the_viewer_opens_on_every_node_and_limits_its_cameras_zoom(self):
         import ast
@@ -272,6 +512,8 @@ class ViewerWheelZoomTests(unittest.TestCase):
         for _ in range(20):
             camera.zoom(1.5, (450.0, 150.0))
         self.assertAlmostEqual(camera.rect.width, 1100.0)
+        # It says what it applied, which the smooth wheel stops on: here, nothing.
+        self.assertEqual(camera.zoom(1.5, (450.0, 150.0)), 1.0)
         camera.zoom(0.5, (450.0, 150.0))
         self.assertAlmostEqual(camera.rect.width, 550.0)
         for _ in range(40):

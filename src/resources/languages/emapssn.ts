@@ -6058,11 +6058,11 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Toggle sidebar panel</source>
+        <source>View Width: {width}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>View Width: {width}</source>
+        <source>Toggle sidebar panel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

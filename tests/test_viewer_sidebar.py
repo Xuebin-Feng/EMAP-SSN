@@ -180,13 +180,53 @@ class SliderOverlayTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme_for_class(cls, cls.app)
 
-    def test_the_controls_button_starts_the_threshold_slider(self):
+    def make_viewer(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.canvas = SimpleNamespace(native=QWidget(), size=CANVAS_SIZE)
         self.addCleanup(viewer.canvas.native.deleteLater)
+        viewer.hud_layout = {"status_x_offset": 10.0, "status_box_gap": 8.0, "status_line_spacing": 32.0}
+        viewer._hud_timer = mock.Mock()
         viewer.current_slider_threshold = 3.74
         with mock.patch.object(MainViewer, "on_slider_value_changed"):
             viewer._build_slider_overlay()
+        return viewer
+
+    def test_the_view_width_box_ends_the_slider_row(self):
+        viewer = self.make_viewer()
+        for room in (0, 160):
+            with self.subTest(sidebar=room), mock.patch.object(EMAPSSN_Viewer, "_sidebar_room", return_value=room):
+                viewer.position_slider_overlay()
+                box, row = viewer.view_width_box.geometry(), viewer.slider_overlay.geometry()
+                # At the right, 10 px in from the sidebar's room, as the status texts above it.
+                self.assertEqual(box.x() + box.width(), CANVAS_SIZE[0] - room - 10)
+                # Level with the slider: the same middle, to the pixel.
+                self.assertAlmostEqual(box.y() + box.height() / 2, row.y() + row.height() / 2, delta=0.5)
+                # The slider ends a clear gap before it.
+                self.assertGreaterEqual(box.x() - (row.x() + row.width()), 16)
+                # Hidden Nodes ends above the box, clear of it.
+                hidden_bottom = viewer._status_hud_position(0, (CANVAS_SIZE[0] - room, CANVAS_SIZE[1]))[1]
+                self.assertLessEqual(hidden_bottom, box.y() - 4)
+        self.assertEqual(viewer.view_width_box.before.text(), "View Width:")
+        self.assertFalse(viewer.view_width_box.after.isVisibleTo(viewer.view_width_box))
+
+    def test_the_view_width_box_zooms_as_zoom_does(self):
+        viewer = self.make_viewer()
+        viewer.canvas.native.setFocus = mock.Mock()
+        spin_box = viewer.view_width_box.spin_box
+        spin_box.show_width(242.0, 0.5, 1100.0)
+        with mock.patch("commands.zoom.set_view_width") as set_view_width:
+            spin_box.setValue(500.0)
+        set_view_width.assert_called_once_with(viewer, 500.0)
+        viewer._hud_timer.start.assert_called()
+        # A width zoom refuses shows its error on the console line.
+        viewer._show_click_status = mock.Mock()
+        error = ValueError(EMAPSSN_Viewer.Message("Error: Zoom width is too large for the current view."))
+        with mock.patch("commands.zoom.set_view_width", side_effect=error), mock.patch("builtins.print"):
+            spin_box.setValue(600.0)
+        viewer._show_click_status.assert_called_once_with(error.args[0])
+
+    def test_the_controls_button_starts_the_threshold_slider(self):
+        viewer = self.make_viewer()
         layout = viewer.slider_overlay.layout()
         widgets = [layout.itemAt(index).widget() for index in range(layout.count())]
         self.assertEqual([widget for widget in widgets if widget is not None],

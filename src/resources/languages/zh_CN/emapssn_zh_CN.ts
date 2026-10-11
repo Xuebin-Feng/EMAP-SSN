@@ -2677,7 +2677,7 @@ Command-line usage:
         <location filename="../../../commands/subcluster.py" line="-82"/>
         <location filename="../../../commands/undo.py" line="+48"/>
         <location line="+16"/>
-        <location filename="../../../commands/zoom.py" line="+153"/>
+        <location filename="../../../commands/zoom.py" line="+188"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
@@ -3735,7 +3735,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/zoom.py" line="-37"/>
+        <location filename="../../../commands/zoom.py" line="-71"/>
         <source>Error: Zoom width must be a valid number.</source>
         <translation type="unfinished">错误：缩放宽度必须是有效的数字。</translation>
     </message>
@@ -3760,17 +3760,17 @@ Command-line usage:
         <translation type="unfinished">错误：缩放宽度过小，在当前视图中心无法精确绘制。</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+18"/>
         <source>Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.</source>
         <translation type="unfinished">错误：缩放宽度必须介于 {narrowest} 和能显示所有节点的最大视图宽度 {widest} 之间。</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+16"/>
         <source>Error: Zoom could not be applied: {error}</source>
         <translation type="unfinished">错误：无法应用缩放：{error}</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+27"/>
         <source>Zoom snapped to View Width: {width}</source>
         <translation type="unfinished">缩放已对齐到视图宽度：{width}</translation>
     </message>
@@ -3887,12 +3887,12 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1110"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1175"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+682"/>
+        <location line="+683"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -3912,7 +3912,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+703"/>
+        <location line="+701"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -3953,7 +3953,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+336"/>
+        <location line="+335"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -8133,7 +8133,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2256"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2254"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8142,7 +8142,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-84"/>
+        <location line="-120"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -8152,12 +8152,12 @@ Fedora / RHEL：
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
     <message>
-        <location line="+1672"/>
+        <location line="+37"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+1676"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -8237,7 +8237,7 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+126"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+130"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>

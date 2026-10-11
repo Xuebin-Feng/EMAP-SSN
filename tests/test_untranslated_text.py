@@ -737,7 +737,7 @@ def run(viewer, args, error):
     Command_Engine.show_status(viewer, message)
     Command_Engine.show_status(viewer, str(error))
     Command_Engine.print_help(viewer, "; ".join(args))
-    viewer.zoom_text.text = f"View Width: {args[0]}"
+    viewer.hidden_text.text = f"Hidden Nodes: {args[0]}"
     Command_Engine.report_selection_error(viewer, args[0], error, "Hide")
     Command_Engine.print_help(viewer, msg="Usage: hide <expression>")
     Command_Engine.show_status(viewer, Message("Running {name}.", name=args[0]))
@@ -802,8 +802,19 @@ class ViewerCanvasTextTests(WindowTestCase):
                 mock.patch.object(EMAPSSN_Viewer.scene.visuals, "Rectangle", Visual):
             viewer.create_hud()
         viewer._update_hud_elements()
-        self.assert_translated(viewer.zoom_text.text, "1234.5")
         self.assert_translated(viewer.hidden_text.text, "2")
+        # The view's width is a spin box between the text either side of
+        # {width} in "View Width: {width}", in the slider row.
+        viewer.canvas = SimpleNamespace(native=QWidget(), size=(1200, 800))
+        self.addCleanup(viewer.canvas.native.deleteLater)
+        viewer.current_slider_threshold = 3.74
+        viewer._hud_timer = mock.Mock()
+        viewer.hud_layout = collections.defaultdict(float, {"status_x_offset": 10.0})
+        with mock.patch.object(EMAPSSN_Viewer.MainViewer, "on_slider_value_changed"):
+            viewer._build_slider_overlay()
+        box = viewer.view_width_box
+        box.spin_box.show_width(1234.5, 0.5, 1300.0)
+        self.assert_translated(" ".join([box.before.text(), box.spin_box.text(), box.after.text()]), "1234.5")
 
     def test_the_selected_nodes_cluster_and_groups(self):
         from types import SimpleNamespace

@@ -382,8 +382,8 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
             "font_size_px": 16.0,
             "console_text_anchor_x": "left",
             "status_x_offset": 10.0,
-            "status_bottom_offset": 30.0,
-            "status_line_spacing": 25.0,
+            "status_box_gap": 8.0,
+            "status_line_spacing": 32.0,
             "status_anchor_x": "right",
             "status_anchor_y": "bottom",
         })
