@@ -23,6 +23,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import platform
 import re
 import shlex
 import subprocess
@@ -61,6 +62,15 @@ STATE_FILENAME = "ssn_backend.json"
 # profiles into one, so schema-5 state is not comparable and must be rebuilt.
 STATE_SCHEMA = 6
 SETUP_REQUIRED_EXIT = 10
+# The oldest hosts the pinned binaries run on: Qt 6.11 needs Windows 10 version
+# 1809 and glibc 2.34, and the PyTorch 2.12.0 macOS wheel needs macOS 14 on Apple
+# Silicon. Below these floors, or on another architecture, the base install
+# fails late with a generic uv resolution error, so the installer says why first.
+# Setting UNSUPPORTED_HOST_OVERRIDE to 1 skips the check, for experiments.
+WINDOWS_MIN_BUILD = 17763
+MACOS_MIN_VERSION = (14, 0)
+GLIBC_MIN_VERSION = (2, 34)
+UNSUPPORTED_HOST_OVERRIDE = "SSN_ALLOW_UNSUPPORTED_HOST"
 ROCM_BACKEND = "rocm"
 ACCELERATOR_BACKENDS = {
     "cuda126", "cuda132", "xpu", ROCM_BACKEND, "mps",
@@ -1104,6 +1114,101 @@ def environment_is_ready(
     return True
 
 
+def _version_numbers(text: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in re.findall(r"\d+", text)[:3])
+
+
+def host_facts() -> dict[str, Any]:
+    """The interpreter's platform facts that the supported-host floors depend on."""
+    facts: dict[str, Any] = {
+        "platform": sys.platform,
+        "machine": platform.machine().lower(),
+        "is_64bit": sys.maxsize > 2**32,
+    }
+    if sys.platform == "win32":
+        facts["windows_build"] = sys.getwindowsversion().build
+    elif sys.platform == "darwin":
+        facts["macos_version"] = platform.mac_ver()[0]
+    elif sys.platform.startswith("linux"):
+        try:
+            facts["glibc_version"] = os.confstr("CS_GNU_LIBC_VERSION")
+        except (AttributeError, OSError, ValueError):
+            facts["glibc_version"] = None
+    return facts
+
+
+def unsupported_host_reason(facts: dict[str, Any]) -> str | None:
+    """Why the pinned environment cannot be installed on this host, or None.
+
+    Only a known-bad fact refuses the host: an unreadable version is let through
+    to the install, which is no worse than before this check existed.
+    """
+    system = str(facts.get("platform") or "")
+    machine = str(facts.get("machine") or "")
+    if facts.get("is_64bit") is False:
+        return "EMAP-SSN needs a 64-bit Python; the pinned packages publish no 32-bit builds."
+    if system == "win32":
+        if machine not in {"amd64", "x86_64"}:
+            return (
+                f"Windows on {machine or 'this processor'} is not supported; "
+                "EMAP-SSN needs 64-bit x86 (x64) Windows."
+            )
+        build = facts.get("windows_build")
+        if isinstance(build, int) and build < WINDOWS_MIN_BUILD:
+            return (
+                f"EMAP-SSN needs Windows 10 version 1809 (build {WINDOWS_MIN_BUILD}) or "
+                f"newer; this is build {build}."
+            )
+        return None
+    if system == "darwin":
+        if machine != "arm64":
+            return "Intel Macs are not supported; EMAP-SSN needs a Mac with Apple Silicon."
+        version = _version_numbers(str(facts.get("macos_version") or ""))
+        # 10.16 is what a Python built against an old SDK reports on any newer macOS.
+        if version and version[:2] != (10, 16) and version < MACOS_MIN_VERSION:
+            return f"EMAP-SSN needs macOS 14 or newer; this is macOS {facts['macos_version']}."
+        return None
+    if system.startswith("linux"):
+        if machine not in {"x86_64", "amd64"}:
+            return (
+                f"Linux on {machine or 'this processor'} is not supported; "
+                "EMAP-SSN needs x86_64 Linux."
+            )
+        glibc = str(facts.get("glibc_version") or "")
+        version = _version_numbers(glibc) if glibc.startswith("glibc") else ()
+        if version and version < GLIBC_MIN_VERSION:
+            return (
+                "EMAP-SSN needs glibc 2.34 or newer (for example Ubuntu 22.04 or "
+                f"Debian 12); this system has {glibc}."
+            )
+        return None
+    return (
+        f"{system or 'This operating system'} is not supported; EMAP-SSN runs on "
+        "x64 Windows, x86_64 Linux and Apple Silicon macOS."
+    )
+
+
+def _refuse_unsupported_host(*, quiet: bool) -> bool:
+    """True when this host is below a supported floor and the override is unset."""
+    reason = unsupported_host_reason(host_facts())
+    if not reason:
+        return False
+    if os.environ.get(UNSUPPORTED_HOST_OVERRIDE) == "1":
+        print(
+            f"Warning: {reason} Continuing because {UNSUPPORTED_HOST_OVERRIDE}=1.",
+            file=sys.stderr,
+        )
+        return False
+    if not quiet:
+        print(
+            f"Unsupported system: {reason}\n"
+            "See the Compatibility section of README.md for the supported systems. "
+            f"To try anyway, set {UNSUPPORTED_HOST_OVERRIDE}=1.",
+            file=sys.stderr,
+        )
+    return True
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--venv", type=Path, default=Path(".venv"))
@@ -1117,6 +1222,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--refresh-backend", action="store_true", help="retry the full accelerator candidate ladder")
     args = parser.parse_args(argv)
     project_root = Path(__file__).resolve().parents[1]
+    # The readiness check only reports that setup is needed; the setup run that
+    # every launcher starts next prints the reason, in a terminal that stays open.
+    if _refuse_unsupported_host(quiet=args.check_only):
+        return SETUP_REQUIRED_EXIT if args.check_only else 1
     try:
         if args.check_only:
             ready = environment_is_ready(

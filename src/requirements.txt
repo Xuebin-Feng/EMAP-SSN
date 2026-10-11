@@ -26,7 +26,7 @@ h5py==3.16.0
 # numpy<2.0.0 which conflicts with scipy's numpy>=2.0.0 requirement.
 graspologic-native==1.3.1
 logomaker==0.8.7
-markdown>=3.10.2
+markdown==3.11
 markov-clustering==0.0.6.dev0
 matplotlib==3.11.2
 # Official Model Context Protocol SDK used only by EMAPSSN_MCP_Server.py.

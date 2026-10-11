@@ -13,7 +13,9 @@ that the validator programs run in a real interpreter against a fake torch.
 from contextlib import redirect_stderr, redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 import tempfile
@@ -1476,6 +1478,109 @@ class LegacyExcelReaderDependencyTests(unittest.TestCase):
 
         # Raises ImportError when xlrd is missing or older than pandas accepts.
         self.assertIsNotNone(import_optional_dependency("xlrd"))
+
+
+class PinnedRequirementTests(unittest.TestCase):
+    """Every requirement the two files list is pinned to the version a release tested."""
+
+    FILES = ("requirements.txt", "esm_runtime_requirements.txt")
+    EXACT_PIN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*==[0-9][0-9A-Za-z.+!-]*$")
+
+    def _pins(self, name):
+        return {
+            Install_Dependencies._requirement_name(line): line.split("==", 1)[1]
+            for line in Install_Dependencies._requirement_lines(SRC / name)
+        }
+
+    def test_every_requirement_line_pins_an_exact_version(self):
+        for name in self.FILES:
+            for line in Install_Dependencies._requirement_lines(SRC / name):
+                with self.subTest(file=name, line=line):
+                    self.assertRegex(line, self.EXACT_PIN)
+
+    def test_a_package_in_both_files_has_the_same_pin(self):
+        base, runtime = (self._pins(name) for name in self.FILES)
+        shared = base.keys() & runtime.keys()
+        self.assertTrue(shared)
+        for package in sorted(shared):
+            with self.subTest(package=package):
+                self.assertEqual(base[package], runtime[package])
+
+
+class SupportedHostTests(unittest.TestCase):
+    """Hosts below the README's floors stop with a reason, not a uv resolution error."""
+
+    SUPPORTED = {
+        "Windows 11 x64": {"platform": "win32", "machine": "amd64", "is_64bit": True, "windows_build": 26300},
+        "Windows 10 1809": {"platform": "win32", "machine": "amd64", "is_64bit": True, "windows_build": 17763},
+        "Ubuntu 22.04": {"platform": "linux", "machine": "x86_64", "is_64bit": True, "glibc_version": "glibc 2.35"},
+        "Debian 13": {"platform": "linux", "machine": "x86_64", "is_64bit": True, "glibc_version": "glibc 2.41"},
+        "Linux, libc unknown": {"platform": "linux", "machine": "x86_64", "is_64bit": True, "glibc_version": None},
+        "macOS 14 Apple Silicon": {"platform": "darwin", "machine": "arm64", "is_64bit": True, "macos_version": "14.0"},
+        # An old-SDK Python reports 10.16 on any newer macOS; that is not a refusal.
+        "macOS compatibility version": {"platform": "darwin", "machine": "arm64", "is_64bit": True, "macos_version": "10.16"},
+    }
+    UNSUPPORTED = {
+        "Windows on ARM": ({"platform": "win32", "machine": "arm64", "is_64bit": True, "windows_build": 26100}, "x64"),
+        "Windows 10 1803": ({"platform": "win32", "machine": "amd64", "is_64bit": True, "windows_build": 17134}, "1809"),
+        "32-bit Python": ({"platform": "win32", "machine": "amd64", "is_64bit": False, "windows_build": 26300}, "64-bit"),
+        "Intel Mac": ({"platform": "darwin", "machine": "x86_64", "is_64bit": True, "macos_version": "15.1"}, "Apple Silicon"),
+        "macOS 13": ({"platform": "darwin", "machine": "arm64", "is_64bit": True, "macos_version": "13.6.1"}, "macOS 14"),
+        "Linux ARM64": ({"platform": "linux", "machine": "aarch64", "is_64bit": True, "glibc_version": "glibc 2.39"}, "x86_64"),
+        "glibc 2.31": ({"platform": "linux", "machine": "x86_64", "is_64bit": True, "glibc_version": "glibc 2.31"}, "2.34"),
+        "FreeBSD": ({"platform": "freebsd14", "machine": "amd64", "is_64bit": True}, "not supported"),
+    }
+
+    def test_supported_hosts_pass(self):
+        for label, facts in self.SUPPORTED.items():
+            with self.subTest(label):
+                self.assertIsNone(Install_Dependencies.unsupported_host_reason(facts))
+
+    def test_unsupported_hosts_get_a_reason(self):
+        for label, (facts, fragment) in self.UNSUPPORTED.items():
+            with self.subTest(label):
+                reason = Install_Dependencies.unsupported_host_reason(facts)
+                self.assertIsNotNone(reason)
+                self.assertIn(fragment, reason)
+
+    def test_this_test_host_is_supported(self):
+        facts = Install_Dependencies.host_facts()
+        self.assertIsNone(Install_Dependencies.unsupported_host_reason(facts), facts)
+
+    def _main(self, argv, *, override=None):
+        facts = self.UNSUPPORTED["macOS 13"][0]
+        name = Install_Dependencies.UNSUPPORTED_HOST_OVERRIDE
+        environment = {key: value for key, value in os.environ.items() if key != name}
+        if override:
+            environment[name] = override
+        stderr = io.StringIO()
+        with mock.patch.object(Install_Dependencies, "host_facts", return_value=facts), \
+                mock.patch.dict(os.environ, environment, clear=True), \
+                mock.patch.object(Install_Dependencies, "environment_is_ready", return_value=True) as ready, \
+                mock.patch.object(Install_Dependencies, "install", return_value=0) as install, \
+                redirect_stderr(stderr):
+            code = Install_Dependencies.main(argv)
+        return code, stderr.getvalue(), ready, install
+
+    def test_setup_stops_and_says_why(self):
+        code, stderr, ready, install = self._main(["--venv", "unused"])
+        self.assertEqual(code, 1)
+        self.assertIn("Unsupported system: EMAP-SSN needs macOS 14 or newer", stderr)
+        self.assertIn(Install_Dependencies.UNSUPPORTED_HOST_OVERRIDE, stderr)
+        install.assert_not_called()
+
+    def test_readiness_check_quietly_asks_for_setup(self):
+        # Every launcher answers "setup needed" by running setup, which prints the reason.
+        code, stderr, ready, install = self._main(["--check-only", "--venv", "unused"])
+        self.assertEqual(code, Install_Dependencies.SETUP_REQUIRED_EXIT)
+        self.assertEqual(stderr, "")
+        ready.assert_not_called()
+
+    def test_override_lets_an_unsupported_host_try(self):
+        code, stderr, ready, install = self._main(["--venv", "unused"], override="1")
+        self.assertEqual(code, 0)
+        self.assertIn("Warning:", stderr)
+        install.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -26,26 +26,34 @@
 # `uv pip check` reports both as missing on every Linux x86_64 install, so
 # Install_Dependencies.ESM_OMITTED_REQUIREMENTS lists them as sanctioned
 # deviations. Keep that set and these two omissions in sync.
-ipython
-einops
-biotite>=1.0.0
-rdkit
-msgpack-numpy
-biopython
-scikit-learn
-brotli
-attrs
-pandas
-cloudpathlib
-httpx
-tenacity
-zstd
-ipywidgets
-py3dmol
-pydssp
-boto3
-huggingface_hub
-safetensors
-pygtrie
-dna_features_viewer
-accelerate
+#
+# Every line is pinned to the version a fresh install resolved and the full
+# test suites passed with (2026-10-11), so a new install gets the tested
+# versions of these packages and none of them can change its version, or its
+# licence, unnoticed. Their own dependencies still resolve freely. Names that
+# also appear in requirements.txt carry the same pin there. Moving a pin is a
+# deliberate change: test it, and re-check the licences in
+# THIRD_PARTY_LICENSES.md.
+ipython==9.17.1
+einops==0.8.2
+biotite==1.7.1
+rdkit==2026.9.1
+msgpack-numpy==0.4.8
+biopython==1.88
+scikit-learn==1.9.1
+brotli==1.2.0
+attrs==26.1.0
+pandas==3.0.6
+cloudpathlib==0.26.0
+httpx==0.28.1
+tenacity==9.2.1
+zstd==1.5.7.2
+ipywidgets==8.1.9
+py3dmol==2.5.5
+pydssp==0.9.1
+boto3==1.43.111
+huggingface_hub==1.33.0
+safetensors==0.8.0
+pygtrie==2.6.2
+dna_features_viewer==3.1.5
+accelerate==1.15.0

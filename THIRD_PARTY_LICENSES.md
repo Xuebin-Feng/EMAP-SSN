@@ -307,6 +307,9 @@ RDKit, ipython, and ipywidgets (BSD-3-Clause); msgpack-numpy and zstd (BSD);
 boto3, pygtrie, tenacity, huggingface-hub, safetensors, and accelerate
 (Apache-2.0); pydssp, py3dmol, dna-features-viewer, einops, cloudpathlib, brotli,
 and attrs (MIT); plus biopython, scikit-learn, pandas, and httpx, listed above.
+Every package named in `src/esm_runtime_requirements.txt` and
+`src/requirements.txt` is pinned to an exact version, so these licenses hold for
+the versions a release installs; their own dependencies are not locked.
 The ESMFold2-only NVIDIA `cuequivariance` kernel packages that `esm` declares for
 Linux x86_64 are deliberately not installed.
 
@@ -412,8 +415,9 @@ re-verify the recorded SHA-256 values with the banner removed, and remake
 `package-lock.json` as its header describes. When a ported function changes or
 another is ported, update "Derived code". Regenerate both
 `fonts.css` copies together. When `ESM_VERSION` changes, re-derive
-`src/esm_runtime_requirements.txt` from the new release's metadata and re-check
-those licenses. When a model mapping changes, re-check the license declared on
+`src/esm_runtime_requirements.txt` from the new release's metadata. Whenever a
+pin in either requirements file moves, re-check that package's license here.
+When a model mapping changes, re-check the license declared on
 the new model card. When the benchmark's sequence sets are remade, follow the
 recipe in `src/resources/benchmark/README.md`, and record the new UniProt
 release there and above.
