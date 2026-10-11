@@ -140,22 +140,45 @@ def finish_script(viewer, result):
         Command_Engine.print_help(viewer, msg)
 
 
+def stop_scripts(viewer):
+    """`run stop`: end the Python command scripts the Viewer is running, and every process they started.
+
+    Their commands are not run. With none running, it is a valid no-op that says so.
+    """
+    from Viewer_Worker_Tracking import stop_command_scripts
+    count = stop_command_scripts()
+    if count:
+        msg = Message("Stopped %n Python script(s).", n=count)
+    else:
+        msg = Message("No Python script is running.")
+    if hasattr(viewer, 'console_text'):
+        Command_Engine.show_status(viewer, msg)
+    print(msg)
+    Command_Engine.command_succeeded(viewer, msg)
+
+
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         # The console line shows the first line; the terminal shows it all, in English.
         msg = JoinedMessage([
-            Message("Usage: {syntax}", syntax="run"),
+            Message("Usage: {syntax}", syntax="run [stop]"),
             "Description: Opens a file explorer to select a command script file (.txt or .py) and executes the commands in sequence.\n"
             "  - For .txt files: Executes each line as a command.\n"
             "  - For .py files: Executes the Python script in a subprocess, in the script's own folder and in the background, "
             "and then runs the commands outputted to stdout. One script runs at a time.\n"
+            "  - run stop: Stops the Python scripts the Viewer is running, and every process they started; "
+            "their commands are not run. Closing the Viewer stops them too.\n"
             "  - The first command that fails stops the run; the commands after it are not run.\n"
             f"  - A script may hold at most {MAX_SCRIPT_COMMANDS} commands; a longer one is refused before any command runs.\n"
-            "Example:\n"
-            "  run",
+            "Examples:\n"
+            "  run\n"
+            "  run stop",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        return
+    if args and args[0].lower() == 'stop':
+        stop_scripts(viewer)
         return
 
     # Open the file explorer to select a file

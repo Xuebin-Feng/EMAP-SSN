@@ -22,6 +22,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+import psutil
 from tests.viewer_fixtures import PortalFixture, Viewer
 from PySide6 import QtWidgets
 import Command_Engine as ce
@@ -50,6 +51,16 @@ while not os.path.exists('go.txt') and time.monotonic() < deadline:
     time.sleep(.01)
 print('select "one"')
 '''
+
+# A script that starts a process of its own, writes both process ids beside
+# itself, and then waits: what `run stop` and closing the Viewer must end.
+TREE_SCRIPT = """import os, subprocess, sys, time
+child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])
+with open('pids.part', 'w') as handle:
+    handle.write(f'{os.getpid()} {child.pid}')
+os.replace('pids.part', 'pids.txt')
+time.sleep(120)
+"""
 
 # A command file as Windows editors save it. 'α' is not in cp1252, so only the
 # Unicode encodings can hold all of it.
@@ -166,7 +177,7 @@ class ScriptStdinTests(RunPaths, unittest.TestCase):
     def test_a_script_calling_input_fails_instead_of_waiting(self):
         self.script.write_text('answer = input()\nprint(\'select "\' + answer + \'"\')\n', encoding='utf-8')
         for path in (self.typed, self.requested):
-            with self.subTest(path=path.__name__), mock.patch('subprocess.run', wraps=subprocess.run) as run:
+            with self.subTest(path=path.__name__), mock.patch('subprocess.Popen', wraps=subprocess.Popen) as run:
                 commands, diagnostics = path()
             self.assertEqual(commands, [], diagnostics)
             self.assertIs(run.call_args.kwargs['stdin'], subprocess.DEVNULL)
@@ -187,7 +198,7 @@ class ScriptFolderTests(RunPaths, unittest.TestCase):
             "print('select \"' + os.path.realpath(os.getcwd()) + '\"')\n"
             "open('written_beside_the_script.txt', 'w').close()\n", encoding='utf-8')
         for path in (self.typed, self.requested):
-            with self.subTest(path=path.__name__), mock.patch('subprocess.run', wraps=subprocess.run) as run:
+            with self.subTest(path=path.__name__), mock.patch('subprocess.Popen', wraps=subprocess.Popen) as run:
                 commands, diagnostics = path()
             self.assertEqual(commands, [f'select "{os.path.realpath(folder)}"'], diagnostics)
             self.assertEqual(os.path.realpath(run.call_args.kwargs['cwd']), os.path.realpath(folder))
@@ -410,17 +421,17 @@ class BackgroundScriptTests(RunPaths, unittest.TestCase):
         self.viewer.process_command('run', record_history=False)
 
     def watch_script_end(self):
-        """Patch subprocess.run to set the returned event when the script's process has ended."""
+        """Patch subprocess.Popen to set the returned event when the script's process has ended."""
         ended = threading.Event()
-        real = subprocess.run
 
-        def run(*args, **options):
-            try:
-                return real(*args, **options)
-            finally:
-                ended.set()
+        class Watched(subprocess.Popen):
+            def communicate(self, *args, **options):
+                try:
+                    return super().communicate(*args, **options)
+                finally:
+                    ended.set()
 
-        patcher = mock.patch('subprocess.run', side_effect=run)
+        patcher = mock.patch('subprocess.Popen', Watched)
         patcher.start()
         self.addCleanup(patcher.stop)
         return ended
@@ -474,7 +485,7 @@ class BackgroundScriptTests(RunPaths, unittest.TestCase):
         first = self.viewer.command_script_run
 
         with mock.patch.object(ce, 'command_failed', wraps=ce.command_failed) as failed, \
-                mock.patch('subprocess.run') as run:
+                mock.patch('subprocess.Popen') as run:
             self.type_run()
 
         run.assert_not_called()
@@ -487,7 +498,7 @@ class BackgroundScriptTests(RunPaths, unittest.TestCase):
 
         # Its commands ran once, and a run is accepted again.
         self.assertEqual(self.commands(), ['run', 'run', 'select "one"'])
-        with mock.patch('subprocess.run', wraps=subprocess.run) as run:
+        with mock.patch('subprocess.Popen', wraps=subprocess.Popen) as run:
             self.type_run()
             self.wait_for_script()
         run.assert_called_once()
@@ -507,7 +518,7 @@ class BackgroundScriptTests(RunPaths, unittest.TestCase):
         self.assertEqual(self.viewer.selected_indices, [])
 
     def test_a_script_that_cannot_start_reports_it(self):
-        with mock.patch('subprocess.run', side_effect=OSError('no interpreter')), \
+        with mock.patch('subprocess.Popen', side_effect=OSError('no interpreter')), \
                 mock.patch.object(ce, 'command_failed', wraps=ce.command_failed) as failed:
             self.type_run()
             self.wait_for_script()
@@ -568,6 +579,99 @@ class BackgroundScriptTests(RunPaths, unittest.TestCase):
 
         finished.assert_not_called()
         self.assertIsNotNone(run)
+
+
+class StopScriptTests(RunPaths, unittest.TestCase):
+    """`run stop`, and closing the Viewer, end a typed Python script and every
+    process it started; none of its commands run."""
+
+    def setUp(self):
+        super().setUp()
+        self.printed = io.StringIO()
+        stack = ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(redirect_stdout(self.printed))
+        self.dispatched = stack.enter_context(
+            mock.patch.object(ce, '_dispatch_user_command', wraps=ce._dispatch_user_command))
+        stack.enter_context(self.choose_script())
+
+    def commands(self):
+        return [call.args[1] for call in self.dispatched.call_args_list]
+
+    def start_tree_script(self):
+        """Type run on TREE_SCRIPT; return the script's and its own process, once both run."""
+        self.script.write_text(TREE_SCRIPT, encoding='utf-8')
+        pids = self.script.parent / 'pids.txt'
+        self.viewer.process_command('run', record_history=False)
+        deadline = time.monotonic() + 30
+        while not pids.exists():
+            if time.monotonic() >= deadline:
+                self.fail('The script did not start its process within 30 s')
+            time.sleep(.01)
+        processes = [psutil.Process(int(pid)) for pid in pids.read_text().split()]
+        for process in processes:
+            self.addCleanup(self.kill_quietly, process)
+        # The script's folder cannot be removed while the script still runs in it.
+        self.addCleanup(self.wait_for_script)
+        return processes
+
+    @staticmethod
+    def kill_quietly(process):
+        try:
+            process.kill()
+        except psutil.Error:
+            pass
+
+    def assert_ended(self, processes):
+        _gone, alive = psutil.wait_procs(processes, timeout=10)
+        self.assertEqual(alive, [])
+
+    def test_run_stop_ends_the_script_and_the_process_it_started(self):
+        processes = self.start_tree_script()
+
+        self.viewer.process_command('run stop', record_history=False)
+
+        self.assertEqual(self.viewer.console_text.text, 'Stopped 1 Python script.')
+        self.assert_ended(processes)
+        self.wait_for_script()
+        self.assertEqual(self.commands(), ['run', 'run stop'])
+        # The stopped script is not reported as a failure once it has ended.
+        self.assertEqual(self.viewer.console_text.text, 'Stopped 1 Python script.')
+        self.assertNotIn('Python script failed', self.printed.getvalue())
+        # A new script may start.
+        self.assertIsNone(self.viewer.command_script_run)
+
+    def test_run_stop_with_no_script_running_says_so(self):
+        with mock.patch.object(ce, 'command_succeeded', wraps=ce.command_succeeded) as succeeded:
+            self.viewer.process_command('run stop', record_history=False)
+
+        self.assertEqual(str(succeeded.call_args.args[1]), 'No Python script is running.')
+        self.assertEqual(self.viewer.console_text.text, 'No Python script is running.')
+
+    def test_closing_the_viewer_ends_the_script_and_the_process_it_started(self):
+        from vispy.util.event import EmitterGroup, Event
+        self.viewer.canvas = SimpleNamespace(native=None, events=EmitterGroup(source=None, close=Event))
+        processes = self.start_tree_script()
+
+        self.viewer.canvas.events.close()
+
+        self.assert_ended(processes)
+        self.wait_for_script()
+        self.assertEqual(self.commands(), ['run'])
+
+    def test_quitting_the_application_stops_every_script(self):
+        import Viewer_Worker_Tracking as tracking
+        application = SimpleNamespace(aboutToQuit=mock.Mock())
+        self.script.write_text("print('select \"one\"')\n", encoding='utf-8')
+        results = queue.Queue()
+        with mock.patch.object(tracking, '_quit_hooked', False), \
+                mock.patch.object(tracking.QtCore, 'QCoreApplication',
+                                  SimpleNamespace(instance=lambda: application)):
+            tracking.start_command_script(str(self.script), SimpleNamespace(emit=results.put))
+            tracking.start_command_script(str(self.script), SimpleNamespace(emit=results.put))
+        application.aboutToQuit.connect.assert_called_once_with(tracking.stop_command_scripts)
+        for _ in range(2):
+            self.assertEqual(results.get(timeout=30).returncode, 0)
 
 
 class CommandFileEncodingTests(RunPaths, unittest.TestCase):

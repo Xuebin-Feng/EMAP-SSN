@@ -519,6 +519,23 @@ class WorkerTrackingTests(PortalFixture, unittest.TestCase):
         self.assert_worker_failed(
             request_id, 'Worker did not report startup within 60 seconds; inspect its terminal before retrying')
 
+    def test_a_stopped_script_is_cancelled_and_prepares_no_commands(self):
+        import Viewer_Worker_Tracking
+        from Viewer_Worker_Tracking import ScriptTracker
+        script = Path(self.directory.name) / 'waiting.py'
+        script.write_text('import time\nprint(\'select "one"\')\ntime.sleep(120)\n')
+        request_id, context = self.tracked_command('stopped script')
+        tracker = ScriptTracker(context, str(script))
+
+        self.assertEqual(Viewer_Worker_Tracking.stop_command_scripts(), 1)
+
+        result = self.finish(request_id)
+        job = result['commands'][0]['jobs'][0]
+        self.assertEqual((job['status'], job['message']), ('cancelled', 'Python command script stopped'))
+        self.assertEqual(self.portal.get(request_id)['total_commands'], 1)  # no child commands
+        self.assertEqual(self.viewer.selected_indices, [])
+        self.assertTrue(tracker._script.stopped)
+
     def test_script_that_exits_with_an_error_prepares_no_commands(self):
         from Viewer_Worker_Tracking import ScriptTracker
         script = Path(self.directory.name) / 'failing.py'

@@ -75,29 +75,118 @@ class WorkerTracker(QtCore.QObject):
             self.fail('Worker did not report startup within 60 seconds; inspect its terminal before retrying')
 
 
+# The Python command scripts this process runs, until each ends.
+_running_scripts = set()
+_running_lock = threading.Lock()
+_quit_hooked = False
+
+
+def _end_process_tree(pid, timeout=2.0):
+    """End the process pid and every process it started.
+
+    The tree is read while its root still runs: on Windows a venv's python.exe
+    runs the real interpreter as its child, and a process whose parent has
+    gone can no longer be found from the root.
+    """
+    try:
+        root = psutil.Process(pid)
+        targets = [root, *root.children(recursive=True)]
+    except psutil.Error:
+        return
+    for target in targets:
+        try:
+            target.terminate()
+        except psutil.Error:
+            pass
+    _, alive = psutil.wait_procs(targets, timeout=timeout)
+    for target in alive:
+        try:
+            target.kill()
+        except psutil.Error:
+            pass
+    psutil.wait_procs(alive, timeout=timeout)
+
+
+class CommandScript:
+    """A Python command script running on a daemon thread, which stop() ends.
+
+    When it ends, finished.emit gets the script's CompletedProcess, or the
+    exception that kept it from running. A script stopped by stop() has
+    stopped set, and its result means nothing.
+    """
+
+    def __init__(self, path, finished):
+        self.stopped = False
+        self._process = None
+        self._done = False
+        self._lock = threading.Lock()
+        with _running_lock:
+            _running_scripts.add(self)
+        threading.Thread(
+            target=self._work, args=(os.path.abspath(path), finished),
+            name='Viewer-command-script', daemon=True,
+        ).start()
+
+    def _work(self, path, finished):
+        # Decoded as UTF-8, so the child must print UTF-8, not the Windows ANSI code page.
+        environment = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
+        try:
+            with self._lock:
+                if self.stopped:
+                    raise RuntimeError('The Python script was stopped before it started.')
+                # No stdin: a script calling input() would otherwise wait on the Viewer's own.
+                self._process = subprocess.Popen(
+                    [sys.executable, path], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, text=True, encoding='utf-8', errors='replace',
+                    env=environment, cwd=os.path.dirname(path))
+            stdout, stderr = self._process.communicate()
+            result = subprocess.CompletedProcess(self._process.args, self._process.returncode, stdout, stderr)
+        except Exception as error:
+            result = error
+        finally:
+            with self._lock:
+                self._done = True
+            with _running_lock:
+                _running_scripts.discard(self)
+        try:
+            finished.emit(result)
+        except RuntimeError:
+            pass  # The receiving Qt object is already deleted; nothing is left to hand the result to.
+
+    def stop(self):
+        """End the script and every process it started; return whether it was still running."""
+        with self._lock:
+            if self.stopped or self._done:
+                return False
+            self.stopped = True
+            process = self._process
+        if process is not None:
+            _end_process_tree(process.pid)
+        return True
+
+
+def stop_command_scripts():
+    """End every Python command script this process runs; return how many were running."""
+    with _running_lock:
+        scripts = list(_running_scripts)
+    return sum(script.stop() for script in scripts)
+
+
 def start_command_script(path, finished):
     """Run the Python command script at path on a daemon thread, and emit finished with its result.
 
     The result is the script's CompletedProcess, or the exception that kept it
     from running. The script runs in its own folder, so a relative path in it
     names a file beside the script wherever the Viewer was started; path is made
-    absolute first, as the folder change would otherwise move it.
+    absolute first, as the folder change would otherwise move it. The returned
+    CommandScript stops it; so do `run stop` and the application quitting.
     """
-    path = os.path.abspath(path)
-    # Decoded as UTF-8, so the child must print UTF-8, not the Windows ANSI code page.
-    environment = {**os.environ, 'PYTHONIOENCODING': 'utf-8'}
-    def work():
-        try:
-            # No stdin: a script calling input() would otherwise wait on the Viewer's own.
-            result = subprocess.run([sys.executable, path], stdin=subprocess.DEVNULL, capture_output=True,
-                text=True, encoding='utf-8', errors='replace', env=environment, cwd=os.path.dirname(path))
-        except Exception as error:
-            result = error
-        try:
-            finished.emit(result)
-        except RuntimeError:
-            pass  # The receiving Qt object is already deleted; nothing is left to hand the result to.
-    threading.Thread(target=work, name='Viewer-command-script', daemon=True).start()
+    global _quit_hooked
+    application = QtCore.QCoreApplication.instance()
+    if application is not None and not _quit_hooked:
+        application.aboutToQuit.connect(stop_command_scripts)
+        _quit_hooked = True
+    return CommandScript(path, finished)
 
 
 class ScriptTracker(QtCore.QObject):
@@ -110,9 +199,12 @@ class ScriptTracker(QtCore.QObject):
         context.add_job(self.job_id, status_detail='Executing selected Python command script')
         self.finished.connect(self._finish, QtCore.Qt.ConnectionType.QueuedConnection)
         context.job_event(self.job_id, 'running')
-        start_command_script(path, self.finished)
+        self._script = start_command_script(path, self.finished)
 
     def _finish(self, result):
+        if self._script.stopped:
+            self.context.job_event(self.job_id, 'cancelled', 'Python command script stopped')
+            return
         if isinstance(result, Exception):
             self.context.job_event(self.job_id, 'failed', str(result))
             return
@@ -143,7 +235,8 @@ class TypedScriptRun(QtCore.QObject):
 
     Nothing here keeps the Viewer alive, and nothing touches a Viewer that has
     closed: a run abandoned when the window closes or the application quits
-    drops its result, and the thread is a daemon.
+    stops its script and drops its result, and the thread is a daemon. A
+    script `run stop` ends leaves nothing to report either.
     """
     finished = QtCore.Signal(object)
 
@@ -161,17 +254,18 @@ class TypedScriptRun(QtCore.QObject):
         if close is not None:
             close.connect(self.abandon)
         viewer.command_script_run = self
-        start_command_script(path, self.finished)
+        self._script = start_command_script(path, self.finished)
 
     def abandon(self, event=None):
-        """Drop the script's result: the Viewer is closing."""
+        """Stop the script and drop its result: the Viewer is closing."""
         self._abandoned = True
+        self._script.stop()
 
     def _finish(self, result):
         viewer = self._viewer()
         if viewer is None:
             return
-        if self._abandoned:
+        if self._abandoned or self._script.stopped:
             self._release(viewer)
             return
         if getattr(viewer, '_command_dispatch_active', False):
