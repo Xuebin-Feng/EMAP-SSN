@@ -19,8 +19,19 @@ import warnings
 import weakref
 
 from PySide6 import QtCore, QtNetwork
-from PySide6.QtCore import QEvent, QRect, QSize, Qt, QTimer
-from PySide6.QtGui import QFont, QFontMetrics, QPalette
+from PySide6.QtCore import QEvent, QRect, QRectF, QSize, Qt, QTimer
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetrics,
+    QFontMetricsF,
+    QPainter,
+    QPalette,
+    QPen,
+    QTextCursor,
+    QTextLength,
+    QTextTable,
+)
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QApplication,
@@ -35,16 +46,23 @@ from PySide6.QtWidgets import (
     QStyleOptionButton,
     QTabWidget,
     QTextEdit,
+    QWidget,
 )
 
 from desktop.Studio_Theme import (
+    DEFAULT_THEME_COLOR,
     SWITCH_LABEL_GAP,
     SWITCH_STYLESHEET,
     SWITCH_WIDTH,
+    THEME_COLORS,
+    TOKENS,
     IconLabel,
+    SwitchFocusRing,
     apply_studio_theme,
     paint_switch,
     switch_label,
+    theme_color,
+    theme_tokens,
 )
 from utilities.App_Settings import AppSettingsError, read_app_settings, save_app_setting
 
@@ -691,36 +709,6 @@ def vispy_language_face(
     return font.vispy_face
 
 
-def matplotlib_language_families(
-    language: str | None, font_dir: str | Path = DESKTOP_FONT_DIR
-) -> list[str] | None:
-    """Register language's bundled font with matplotlib; return the families for its text.
-
-    A figure draws text in these families, matplotlib's own sans-serif
-    first, so the bundled font supplies only the characters it lacks.
-    Passing them to each text, rather than changing matplotlib's settings,
-    leaves every other figure as it was. None means matplotlib's own fonts
-    draw the language. A missing font file leaves them, with a warning.
-    """
-    font = LANGUAGE_FONTS.get(language)
-    if font is None:
-        return None
-    paths = [Path(font_dir).resolve() / relative_path for relative_path in font.files]
-    if not all(path.is_file() for path in paths):
-        _warn_once(
-            f"Bundled {font.family} faces are incomplete in {Path(font_dir).resolve()}; "
-            "figures keep matplotlib's fonts."
-        )
-        return None
-    from matplotlib import font_manager
-
-    registered = {Path(entry.fname).resolve() for entry in font_manager.fontManager.ttflist}
-    for path in paths:
-        if path not in registered:
-            font_manager.fontManager.addfont(str(path))
-    return ["sans-serif", font.family]
-
-
 def language_web_font_css(language: str | None, url_prefix: str) -> str:
     """@font-face rules that let a browser view draw language in its bundled font, or "".
 
@@ -1222,6 +1210,136 @@ class WrappedPlaceholderTextEdit(QTextEdit):
         self._placeholder.setVisible(bool(self._placeholder.text()) and self.document().isEmpty())
 
 
+class StatisticsReport(WrappedPlaceholderTextEdit):
+    """The statistics report: its text, with the threshold table drawn as a histogram.
+
+    The table's count column is cumulative: the edges at or above each
+    threshold. A row's bucket is the edges from its threshold up to the next
+    one's (its count less the next row's; the last row's, its count): the
+    distribution of the edges' scores, binned at the table's steps.
+    Behind each data row's first cell (the threshold) lies a bar as long as
+    its bucket's share of the largest bucket, from the cell's left edge, in
+    the theme's histogram colour. The text stays text, to select and copy. The columns after the first keep the width of their
+    widest text (CAP_CHARACTERS more), so a wide report gives the room to
+    the first column and its bars; a report too narrow for that lays the
+    table out as Qt does.
+    """
+
+    BAR_COLUMN = 0
+    COUNT_COLUMN = 1
+    CAP_CHARACTERS = 4      # room after a capped column's widest text
+    CELL_GAP = 12           # statistics_report_html's padding before every column but the first
+    BAR_GAP = 2             # between one row's bar and the next
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.document().setUndoRedoEnabled(False)
+        self._counts = None
+        self._fitting = False
+        self.document().contentsChanged.connect(self._contents_changed)
+
+    def _contents_changed(self):
+        if not self._fitting:
+            self._counts = None
+            QTimer.singleShot(0, self._fit_columns)
+
+    def _tables(self):
+        return [frame for frame in self.document().rootFrame().childFrames()
+                if isinstance(frame, QTextTable)]
+
+    @staticmethod
+    def _cell_text(table, row, column):
+        cell = table.cellAt(row, column)
+        cursor = cell.firstCursorPosition()
+        cursor.setPosition(cell.lastCursorPosition().position(), QTextCursor.MoveMode.KeepAnchor)
+        return cursor.selectedText().strip()
+
+    def bar_values(self):
+        """(table, row, bucket) of every data row whose count column holds a number."""
+        if self._counts is None:
+            self._counts = []
+            for table in self._tables():
+                if table.columns() <= max(self.BAR_COLUMN, self.COUNT_COLUMN):
+                    continue
+                counts = []
+                for row in range(1, table.rows()):
+                    try:
+                        counts.append((row, float(
+                            self._cell_text(table, row, self.COUNT_COLUMN).replace(",", "")
+                        )))
+                    except ValueError:
+                        continue
+                for index, (row, count) in enumerate(counts):
+                    above = counts[index + 1][1] if index + 1 < len(counts) else 0.0
+                    self._counts.append((table, row, max(0.0, count - above)))
+        return self._counts
+
+    def _fit_columns(self):
+        """Cap the columns after the first, while the report has room for them."""
+        font = self.document().defaultFont()
+        heading_font = QFont(font)
+        heading_font.setBold(True)  # the headings are semibold
+        metrics, heading = QFontMetricsF(font), QFontMetricsF(heading_font)
+        margin = self.document().documentMargin()
+        available = self.viewport().width() - 2 * margin
+        self._fitting = True
+        try:
+            for table in self._tables():
+                widths = []
+                for column in range(table.columns()):
+                    texts = [self._cell_text(table, row, column) for row in range(1, table.rows())]
+                    width = max([heading.horizontalAdvance(self._cell_text(table, 0, column))]
+                                + [metrics.horizontalAdvance(text) for text in texts])
+                    widths.append(math.ceil(width) + (self.CELL_GAP if column else 0))
+                capped = [width + round(self.CAP_CHARACTERS * metrics.horizontalAdvance("0"))
+                          for width in widths[1:]]
+                constraints = []
+                if widths and available >= widths[0] + sum(capped):
+                    constraints = [QTextLength(QTextLength.Type.VariableLength, 0)] + [
+                        QTextLength(QTextLength.Type.FixedLength, width) for width in capped
+                    ]
+                table_format = table.format()
+                if table_format.columnWidthConstraints() != constraints:
+                    table_format.setColumnWidthConstraints(constraints)
+                    table.setFormat(table_format)
+        finally:
+            self._fitting = False
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._fit_columns()
+
+    def bar_rects(self):
+        """Each bar, in document coordinates."""
+        values = self.bar_values()
+        largest = max((bucket for _, _, bucket in values), default=0)
+        if largest <= 0:
+            return []
+        layout = self.document().documentLayout()
+        rects = []
+        for table, row, bucket in values:
+            block = table.cellAt(row, self.BAR_COLUMN).firstCursorPosition().block()
+            cell = layout.blockBoundingRect(block)
+            if bucket > 0:
+                rects.append(QRectF(cell.left(), cell.top() + self.BAR_GAP / 2,
+                                    cell.width() * bucket / largest, cell.height() - self.BAR_GAP))
+        return rects
+
+    def paintEvent(self, event):
+        rects = self.bar_rects()
+        if rects:
+            painter = QPainter(self.viewport())
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.translate(-self.horizontalScrollBar().value(), -self.verticalScrollBar().value())
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(TOKENS["histogram"]))
+            for rect in rects:
+                painter.drawRoundedRect(rect, 3, 3)
+            painter.end()
+        # The document draws its text over the bars.
+        super().paintEvent(event)
+
+
 # =====================================================================
 # 5. Combo Boxes Storing Values Apart from Their Labels
 # =====================================================================
@@ -1367,6 +1485,7 @@ class ToggleSwitch(QPushButton):
         self.setFixedSize(max(text_button_width(self._texts, bold), drawn), TOGGLE_SWITCH_HEIGHT)
         self.toggled.connect(self._show_state)
         self._show_state(False)
+        self._focus_ring = SwitchFocusRing(self)
 
     def state_texts(self):
         """The texts it reads off and on, whichever shows now."""
@@ -1756,17 +1875,311 @@ def choose_language(window, setting):
     return window.switch_language(resolve_language(setting))
 
 
-def language_selector_row(selector):
-    """A row that ends in the Language dropdown, after a globe."""
+def language_selector_row(selector, theme_switch=None, leading=None):
+    """A row that ends in the Language dropdown, after a globe, and then theme_switch if given.
+
+    leading, if given, starts the row and takes all the room the rest leaves.
+    """
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
-    row.addStretch()
+    if leading is None:
+        row.addStretch()
+    else:
+        row.addWidget(leading, 1)
     globe = IconLabel("globe")
     globe.setObjectName("languageGlobe")
     globe.setBuddy(selector)
     row.addWidget(globe)
     row.addWidget(selector)
+    if theme_switch is not None:
+        row.addSpacing(8)
+        row.addWidget(theme_switch)
     return row
+
+
+# =====================================================================
+# 9. The Theme Colour Option
+# =====================================================================
+
+# Each window keeps its theme colour in app_settings.json under its own
+# setting. The Viewer has none: it takes Config's when it starts, and its
+# Agent and Meta Data pages take the Viewer's.
+CONFIG_THEME_SETTING = "CONFIG_THEME_COLOR"
+VR_CONFIG_THEME_SETTING = "VR_CONFIG_THEME_COLOR"
+TOOLS_THEME_SETTING = "TOOLS_THEME_COLOR"
+
+
+def theme_color_name(color):
+    """A theme colour's name in the window's language."""
+    names = {
+        "purple": QtCore.QCoreApplication.translate("ThemeColorSwitch", "Purple"),
+        "blue": QtCore.QCoreApplication.translate("ThemeColorSwitch", "Blue"),
+        "teal": QtCore.QCoreApplication.translate("ThemeColorSwitch", "Teal"),
+        "green": QtCore.QCoreApplication.translate("ThemeColorSwitch", "Green"),
+        "orange": QtCore.QCoreApplication.translate("ThemeColorSwitch", "Orange"),
+        "red": QtCore.QCoreApplication.translate("ThemeColorSwitch", "Red"),
+        "pink": QtCore.QCoreApplication.translate("ThemeColorSwitch", "Pink"),
+        "black": QtCore.QCoreApplication.translate("ThemeColorSwitch", "Black"),
+    }
+    return names.get(color, color)
+
+
+def configured_theme_color(setting, settings=None):
+    """The theme colour saved under setting, else DEFAULT_THEME_COLOR.
+
+    settings stands in for app_settings.json. A file that can't be read, or
+    a colour the program doesn't have, counts as no setting, with a warning.
+    """
+    if settings is None:
+        try:
+            settings = read_app_settings()
+        except AppSettingsError as error:
+            _warn_once(f"{error} The windows take the default theme colour.")
+            settings = {}
+    value = settings.get(setting)
+    if value is None or value in THEME_COLORS:
+        return value or DEFAULT_THEME_COLOR
+    _warn_once(f"There is no theme colour named {value!r}; the window takes the default.")
+    return DEFAULT_THEME_COLOR
+
+
+def theme_swatch(color):
+    """The colour of a theme colour's circle: its primary button's."""
+    return QColor(theme_tokens(color)["primary"])
+
+
+def _paint_swatch(painter, rect, color):
+    painter.setPen(QPen(QColor(0, 0, 0, 28), 1.0))
+    painter.setBrush(theme_swatch(color))
+    painter.drawEllipse(rect)
+
+
+def _paint_ring(painter, rect, color, gap=3.0):
+    pen = QPen(QColor(color))
+    pen.setWidthF(2.0)
+    painter.setPen(pen)
+    painter.setBrush(Qt.BrushStyle.NoBrush)
+    painter.drawEllipse(rect.adjusted(-gap - 0.5, -gap - 0.5, gap + 0.5, gap + 0.5))
+
+
+class ThemeColorPalette(QWidget):
+    """Every theme colour as a circle in a row, on a card that pops up.
+
+    The colour shown now is ringed in itself, and the one under the mouse, or
+    picked with the arrow keys, in grey, with its name below the row. A click,
+    Enter or Space emits chosen with that colour and closes the palette; Esc,
+    or a click outside it, closes it without a choice.
+    """
+
+    chosen = QtCore.Signal(str)
+
+    SWATCH = 20     # a circle's diameter
+    GAP = 8         # between circles
+    PAD = 10        # inside the card
+    NAME_GAP = 6    # between the circles and the name
+    RADIUS = 10     # the card's corners
+    # Where the window system composes translucent windows, the card has round
+    # corners and paints its own shadow in this margin; elsewhere it fills the window.
+    SHADOW = 8
+
+    def __init__(self, current, parent=None):
+        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint
+                         | Qt.WindowType.NoDropShadowWindowHint)
+        self._translucent = (sys.platform in ("win32", "darwin")
+                             or QApplication.platformName() in ("wayland", "offscreen"))
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, self._translucent)
+        self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.setAccessibleName(QtCore.QCoreApplication.translate("ThemeColorSwitch", "Theme Color"))
+        self.colors = list(THEME_COLORS)
+        self.current = current
+        self.hovered = self.colors.index(current) if current in self.colors else 0
+        metrics = self.fontMetrics()
+        row = len(self.colors) * self.SWATCH + (len(self.colors) - 1) * self.GAP
+        names = max(metrics.horizontalAdvance(theme_color_name(color)) for color in self.colors)
+        margin = self.SHADOW if self._translucent else 0
+        self._card_size = QSize(2 * self.PAD + max(row, names),
+                                2 * self.PAD + self.SWATCH + self.NAME_GAP + metrics.height())
+        self.setFixedSize(self._card_size.width() + 2 * margin, self._card_size.height() + 2 * margin)
+
+    def card_rect(self):
+        """Where the card is, inside the shadow's margin when there is one."""
+        margin = self.SHADOW if self._translucent else 0
+        # The shadow falls a little below the card, so the card sits a little higher.
+        top = margin - 2 if self._translucent else 0
+        return QRectF(margin, top, self._card_size.width(), self._card_size.height())
+
+    def swatch_rect(self, index):
+        card = self.card_rect()
+        row = len(self.colors) * self.SWATCH + (len(self.colors) - 1) * self.GAP
+        left = card.x() + (card.width() - row) / 2
+        return QRectF(left + index * (self.SWATCH + self.GAP), card.y() + self.PAD,
+                      self.SWATCH, self.SWATCH)
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        card = self.card_rect()
+        radius = self.RADIUS if self._translucent else 0
+        if self._translucent:
+            painter.setPen(Qt.PenStyle.NoPen)
+            for grow, alpha in ((7.0, 4), (5.0, 6), (3.0, 9), (1.5, 12)):
+                painter.setBrush(QColor(9, 9, 11, alpha))
+                painter.drawRoundedRect(card.adjusted(-grow, -grow + 2, grow, grow + 2),
+                                        radius + grow, radius + grow)
+        painter.setPen(QPen(QColor(TOKENS["border"]), 1.0))
+        painter.setBrush(QColor(TOKENS["surface"]))
+        painter.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+        for index, color in enumerate(self.colors):
+            rect = self.swatch_rect(index)
+            if color == self.current:
+                _paint_ring(painter, rect, theme_swatch(color))
+            elif index == self.hovered:
+                _paint_ring(painter, rect, TOKENS["field_border_hover"])
+            _paint_swatch(painter, rect, color)
+        painter.setPen(QColor(TOKENS["text_muted"]))
+        name = QRectF(card.x(), card.y() + self.PAD + self.SWATCH + self.NAME_GAP,
+                      card.width(), self.fontMetrics().height())
+        painter.drawText(name, Qt.AlignmentFlag.AlignCenter, theme_color_name(self.colors[self.hovered]))
+        painter.end()
+
+    def index_at(self, position):
+        """The colour whose circle (with its ring) holds position, or None."""
+        for index in range(len(self.colors)):
+            if self.swatch_rect(index).adjusted(-4, -4, 4, 4).contains(position):
+                return index
+        return None
+
+    def mouseMoveEvent(self, event):
+        index = self.index_at(event.position())
+        if index is not None and index != self.hovered:
+            self.hovered = index
+            self.update()
+
+    def mouseReleaseEvent(self, event):
+        index = self.index_at(event.position())
+        if index is not None:
+            self._choose(index)
+
+    def keyPressEvent(self, event):
+        key = event.key()
+        if key in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+            self.hovered = (self.hovered + (1 if key == Qt.Key.Key_Right else -1)) % len(self.colors)
+            self.update()
+        elif key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self._choose(self.hovered)
+        else:
+            super().keyPressEvent(event)
+
+    def _choose(self, index):
+        self.close()
+        self.chosen.emit(self.colors[index])
+
+
+class ThemeColorButton(QPushButton):
+    """A window's theme colour switch: a circle in the colour; a click opens the palette.
+
+    setting names the window's setting (CONFIG_THEME_SETTING and so on); the
+    circle starts at the colour saved there, or at color. Picking a colour in
+    the palette emits color_chosen with it, for choose_theme_color to save.
+    """
+
+    color_chosen = QtCore.Signal(str)
+    SIZE = 28       # as tall as a field
+    INSET = 5       # from the button's edge to the circle
+
+    def __init__(self, setting, parent=None, *, color=None):
+        super().__init__(parent)
+        self.setObjectName("themeColorButton")
+        self.theme_setting = setting
+        self._color = configured_theme_color(setting) if color is None else color
+        self.palette_popup = None
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        # It paints itself; the stylesheet only clears the button's frame.
+        self.setStyleSheet("QPushButton { background: transparent; border: none; padding: 0px; }")
+        text = QtCore.QCoreApplication.translate("ThemeColorSwitch", "Theme color: {color}").format(
+            color=theme_color_name(self._color)
+        )
+        self.setToolTip(text)
+        self.setAccessibleName(text)
+        self.clicked.connect(self.open_palette)
+
+    def color(self):
+        """The colour the circle shows."""
+        return self._color
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        if not self.isEnabled():
+            painter.setOpacity(0.45)
+        circle = QRectF(self.rect()).adjusted(self.INSET, self.INSET, -self.INSET, -self.INSET)
+        if self.hasFocus():
+            _paint_ring(painter, circle, TOKENS["accent"], gap=2.0)
+        elif self.underMouse() and self.isEnabled():
+            _paint_ring(painter, circle, TOKENS["field_border_hover"], gap=2.0)
+        _paint_swatch(painter, circle, self._color)
+        painter.end()
+
+    def open_palette(self):
+        """Show the palette above the circle, its right edge at the circle's; returns it."""
+        popup = ThemeColorPalette(self._color, self)
+        popup.chosen.connect(self.color_chosen)
+        card = popup.card_rect()
+        corner = self.mapToGlobal(QtCore.QPoint(self.width(), 0))
+        x = corner.x() - round(card.right())
+        y = corner.y() - 4 - round(card.bottom())
+        screen = self.screen().availableGeometry()
+        if y + card.top() < screen.top():
+            # No room above, as at the top of a screen: below the circle instead.
+            y = corner.y() + self.height() + 4 - round(card.top())
+        popup.move(max(screen.left(), min(x, screen.right() - popup.width())), y)
+        popup.show()
+        popup.setFocus()
+        self.palette_popup = popup
+        return popup
+
+
+def choose_theme_color(window, color):
+    """Save color as window's theme colour, then redraw window in it.
+
+    window has a theme_switch (a ThemeColorButton) and a
+    switch_theme_color(color) method. If the colour can't be saved, a message
+    says why and nothing changes. Returns the window that shows the colour.
+    """
+    try:
+        save_app_setting(window.theme_switch.theme_setting, color)
+    except (AppSettingsError, OSError) as error:
+        QMessageBox.critical(
+            window,
+            QtCore.QCoreApplication.translate("ThemeColorSwitch", "Theme Color Not Saved"),
+            QtCore.QCoreApplication.translate(
+                "ThemeColorSwitch", "The theme color could not be saved, so it stays as it was.\n\n{error}"
+            ).format(error=error),
+        )
+        return window
+    return window.switch_theme_color(color)
+
+
+def redraw_in_theme_color(window, color, build):
+    """Replace window with a copy in the theme colour named color, as redraw_in_language does.
+
+    The application takes the colour first, and gets the previous one back
+    if build() fails. The language stays as installed.
+    """
+    app = QApplication.instance()
+    previous = theme_color()
+    installed = _installed_translations
+    apply_studio_theme(app, color)
+    try:
+        if installed is None:
+            return redraw_in_language(window, None, build)
+        return redraw_in_language(window, installed.language, build,
+                                  installed.catalog_dir, installed.extra_catalogs)
+    except BaseException:
+        apply_studio_theme(app, previous)
+        raise
 
 
 _SIZE_STATES = Qt.WindowState.WindowMaximized | Qt.WindowState.WindowFullScreen
@@ -1909,13 +2322,13 @@ __all__ = [
     "qt_monospace_font",
     "register_vispy_application_fonts",
     "vispy_language_face",
-    "matplotlib_language_families",
     "language_web_font_css",
     "ResponsiveFieldLayout",
     "ResponsiveFlowLayout",
     "ResponsiveColumnsLayout",
     "ResponsiveSelectorLayout",
     "WrappedPlaceholderTextEdit",
+    "StatisticsReport",
     "add_combo_options",
     "combo_value",
     "select_combo_value",
@@ -1950,6 +2363,16 @@ __all__ = [
     "configured_language",
     "resolve_language",
     "LanguageSelector",
+    "CONFIG_THEME_SETTING",
+    "VR_CONFIG_THEME_SETTING",
+    "TOOLS_THEME_SETTING",
+    "ThemeColorButton",
+    "ThemeColorPalette",
+    "theme_swatch",
+    "choose_theme_color",
+    "configured_theme_color",
+    "redraw_in_theme_color",
+    "theme_color_name",
     "choose_language",
     "language_selector_row",
     "capture_view",

@@ -435,11 +435,76 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Score Histogram</source>
+        <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Close</source>
+        <source>Global</source>
+        <comment>alignment score</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Local</source>
+        <comment>alignment score</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment Length</source>
+        <comment>normalization</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Shorter Sequence</source>
+        <comment>normalization</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Longer Sequence</source>
+        <comment>normalization</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Average Sequence</source>
+        <comment>normalization</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metric: {score} Alignment Score with {normalization} Normalization</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network Model: {model}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fasta Node Subset: {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Total Nodes Processed: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stored Edges: {stored} (Max possible: {possible})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Max: {maximum:.4f} | Min: {minimum:.4f} | Avg: {mean:.4f}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Threshold</source>
+        <comment>statistics column</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Count</source>
+        <comment>statistics column</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Percentage</source>
+        <comment>statistics column</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -963,10 +1028,6 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Histogram</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Target Folder: None</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1025,100 +1086,11 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Metric: Log10(E-Value)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Global</source>
-        <comment>alignment score</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Local</source>
-        <comment>alignment score</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Alignment Length</source>
-        <comment>normalization</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Shorter Sequence</source>
-        <comment>normalization</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Longer Sequence</source>
-        <comment>normalization</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Average Sequence</source>
-        <comment>normalization</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Metric: {score} Alignment Score with {normalization} Normalization</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Network Model: {model}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Fasta Node Subset: {name}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Total Nodes Processed: {count}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Stored Edges: {stored} (Max possible: {possible})</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Max: {maximum:.4f} | Min: {minimum:.4f} | Avg: {mean:.4f}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Threshold</source>
-        <comment>statistics column</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Count</source>
-        <comment>statistics column</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Percentage</source>
-        <comment>statistics column</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Network statistics computed successfully.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error during network statistics calculation: {error}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Computing score distribution... This may take a moment.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Displaying score histogram...</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Histogram displayed successfully.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error during histogram generation: {error}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2994,18 +2966,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Threshold {threshold}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>E-Value</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Score Distribution ({mode})</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>the JSON root must be an object</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4523,6 +4483,59 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
 </context>
 <context>
+    <name>ThemeColorSwitch</name>
+    <message>
+        <source>Purple</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Blue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Teal</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Green</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Orange</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Red</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pink</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Black</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Theme Color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Theme color: {color}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Theme Color Not Saved</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The theme color could not be saved, so it stays as it was.
+
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>ToggleSwitch</name>
     <message>
         <source>ON</source>
@@ -5591,11 +5604,11 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Exit</source>
+        <source>Script Description</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Script Description</source>
+        <source>Exit</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -27,10 +27,12 @@
          language (src/web_ui/Page_Texts.py). -->
     <script src="/page_text.js"></script>
     <style>
-        /* The Studio look of the desktop windows (src/desktop/Studio_Theme.py
-           TOKENS): zinc neutrals, hairline borders, 8 px controls, 12 px
-           cards, a near-black primary button and one indigo accent for focus
-           and selection. */
+        /* The Studio look of the desktop windows (src/desktop/Studio_Theme.py):
+           tinted greys, hairline borders, 8 px controls, 12 px cards, and one
+           theme colour for the primary button, focus and selection. The
+           colours that take the theme colour (Studio_Theme's
+           WEB_PAGE_PROPERTIES) hold Purple's here; the Viewer's web server
+           adds the Viewer's theme colour after them. */
         :root {
             color-scheme: light;
             --bg-main: #fafafa;
@@ -45,12 +47,12 @@
             --text-secondary: #52525b;
             --text-subtle: #71717a;
             --text-disabled: #a1a1aa;
-            --primary: #18181b;
-            --primary-hover: #27272a;
-            --primary-pressed: #3f3f46;
-            --primary-text: #fafafa;
+            --primary: #5b5bd6;
+            --primary-hover: #4e4bc5;
+            --primary-pressed: #423bb4;
+            --primary-text: #ffffff;
             --accent: #5b5bd6;
-            --accent-soft: #ebebfb;
+            --accent-soft: #e9ecfc;
             --selection: rgba(91, 91, 214, 0.1);
             --success: #15803d;
             --success-soft: #f0fdf4;
@@ -61,9 +63,9 @@
             --number-badge-bg: #f0fdf4;
             --number-badge-border: #bbf7d0;
             --number-badge-text: #15803d;
-            --text-badge-bg: #ebebfb;
-            --text-badge-border: #c9c9f4;
-            --text-badge-text: #4b4bc4;
+            --text-badge-bg: #e9ecfc;
+            --text-badge-border: #c4cbf5;
+            --text-badge-text: #4e4ac4;
             --highlight-bg: rgba(245, 158, 11, 0.15);
             --highlight-ring: #f59e0b;
             --overlay: rgba(9, 9, 11, 0.45);
@@ -94,13 +96,13 @@
             --text-secondary: #a1a1aa;
             --text-subtle: #8e8e96;
             --text-disabled: #52525b;
-            --primary: #fafafa;
-            --primary-hover: #e4e4e7;
-            --primary-pressed: #d4d4d8;
+            --primary: #8289ff;
+            --primary-hover: #98a1ff;
+            --primary-pressed: #aeb7ff;
             --primary-text: #18181b;
-            --accent: #8b8bf0;
-            --accent-soft: #26264d;
-            --selection: rgba(139, 139, 240, 0.16);
+            --accent: #8289ff;
+            --accent-soft: #24264d;
+            --selection: rgba(130, 137, 255, 0.16);
             --success: #4ade80;
             --success-soft: rgba(34, 197, 94, 0.12);
             --warning: #fbbf24;
@@ -110,9 +112,9 @@
             --number-badge-bg: rgba(34, 197, 94, 0.12);
             --number-badge-border: rgba(74, 222, 128, 0.35);
             --number-badge-text: #4ade80;
-            --text-badge-bg: #26264d;
-            --text-badge-border: rgba(139, 139, 240, 0.4);
-            --text-badge-text: #a5a5f5;
+            --text-badge-bg: #24264d;
+            --text-badge-border: rgba(130, 137, 255, 0.4);
+            --text-badge-text: #a7b0ff;
             --highlight-bg: rgba(245, 158, 11, 0.18);
             --highlight-ring: #fbbf24;
             --overlay: rgba(0, 0, 0, 0.6);

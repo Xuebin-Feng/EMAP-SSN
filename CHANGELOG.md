@@ -8,6 +8,23 @@ still change before version 1.0.0.
 
 ### Added
 
+- **Theme colours.** Config, VR Config and Tools each take a theme colour of their own:
+  Purple (the default), Blue, Teal, Green, Orange, Red, Pink, or Black, which has no
+  colour: near-black buttons and switches, with grey sliders, selections and focus rings.
+  A circle after the Language dropdown shows the window's colour; a click opens a palette
+  of the eight, each named on hover, and a choice saves it for that window in
+  `app_settings.json` and redraws the window in it at once, keeping everything it shows.
+  Only the accents take the colour: the main button (such as **Save & Run**), switches
+  that are on, focus rings, slider fills and selections, and a light tint of it fills
+  the tab bar, the tips card and secondary buttons such as **Compute Network
+  Statistics**. Each shade has a fixed depth, so no colour changes the contrast.
+  Borders, icons, greyed-out fields, tooltips and status colours look the same in every
+  theme colour. The one exception is Tools' Script Description: its text, borders and
+  code backgrounds take a tint of the colour, and its collapsible sections' titles the
+  colour itself, while its icons stay grey. The Viewer takes Config's colour when it
+  starts, and its Agent and Meta Data pages take the Viewer's, in light and dark mode;
+  the Fold View page keeps Mol*'s own look.
+
 - **MCP planning knowledge.** `emapssn_pipeline(action="list_tools")` describes each
   pipeline tool's stage, inputs (with the directory a relative name resolves in),
   output file names, what happens to an existing output, requirements and typical next
@@ -92,7 +109,8 @@ still change before version 1.0.0.
   `app_settings.json` in the project folder and applies to every window. Config, VR
   Config and Tools redraw in the chosen language at once, at the same size, position
   and tabs, keeping their splitter and scroll positions and every value entered, saved
-  or not. The Viewer and any dialog take the language when they next open. Simplified
+  or not; a Network Statistics Report already computed shows again in the new language.
+  The Viewer and any dialog take the language when they next open. Simplified
   Chinese brings a font of its own, Noto Sans SC cut down to GB2312's 7,445 characters
   plus Latin and punctuation (4.4 MiB for Regular and Bold), which loads only while
   that language shows.
@@ -126,9 +144,8 @@ still change before version 1.0.0.
   `%n file(s)`, so English shows "1 file" and "2 files", and a translation gives each
   plural form its language has. Some Config messages now read as correct English, such
   as "Created profile:" for one new profile, and "The network lacks 3 sequences." The
-  score histogram draws its title and legend in the window's language, Simplified
-  Chinese with the bundled font. The update command also refuses calls whose text or
-  count Qt's `lupdate` would miss: arguments passed by name, and a counted `tr()`.
+  update command also refuses calls whose text or count Qt's `lupdate` would miss:
+  arguments passed by name, and a counted `tr()`.
 - **The Tools window is ready to translate.** Its labels, tips, dropdown choices, card
   and tab titles, help-panel notes, messages, the external model license dialog and the
   names a screen reader speaks all come from the catalog. Names stay as written: file
@@ -255,6 +272,18 @@ still change before version 1.0.0.
 
 ### Changed
 
+- The Network Statistics Report of Config and VR Config draws its threshold table as a
+  histogram of the edges' scores, on its side: behind each threshold, a bar in the
+  theme colour's tint for the edges from that threshold up to the next. Count and
+  Percentage keep to the width of their figures in a wide report, so the threshold
+  column and its bars take the rest; the report's text can still be selected and
+  copied.
+- The Inputs & Outputs tab of Config and VR Config keeps its rows side by side in
+  narrower windows: they need 771 px instead of 1,046 px, so they stay side by side down
+  to the smallest window when the statistics report is collapsed, and down to about
+  1,110 px wide with the report open. When the room runs short, the first column
+  (Alignment Score Mode, Alignment Reference ID, Similarity Threshold) narrows before the
+  others, and the number fields keep room for their usual values.
 - Faster commands on large networks. After every command the Viewer rebuilt the metadata
   table for the web page even when no page was open: 2.7 s per command at 500,000 nodes
   with 4 columns, 10.3 s with 30, paid on every line of a `run` script. It now skips that
@@ -535,10 +564,11 @@ still change before version 1.0.0.
   no longer point the agent at an unsaved server. Edits to a card take effect once
   saved, and the page says so when the model being switched on has unsaved edits.
 - The Configuration, Tools and VR Configuration windows, the Viewer's sidebar and slider,
-  and its Agent, Meta Data and Fold View pages share a new look: zinc greys, hairline
+  and its Agent, Meta Data and Fold View pages share a new look: light greys, hairline
   borders, rounded controls on rounded cards, tabs as a segmented control, switches for
-  the ON/OFF toggles, one dark main button per window (such as **Save & Run**), and one
-  indigo accent for focus and sliders. The Agent page keeps its dark mode. Line icons
+  the ON/OFF toggles, and one main button per window (such as **Save & Run**), in the
+  window's theme colour with its focus rings and sliders (see Theme colours). Other
+  buttons, **Exit** included, are outlined. The Agent page keeps its dark mode. Line icons
   from the open-source [Lucide](https://lucide.dev) set (ISC licence, bundled in
   `src/resources/icons/`) replace the emoji the windows used as icons, so they look the
   same on every system: the folder buttons, the language globe, the Tools card titles and
@@ -546,9 +576,17 @@ still change before version 1.0.0.
   pages (`src/tools/tool_descriptions/*.md`) no longer contain emoji; the Tools help pane
   draws the icons. Sliders no longer show tick marks. The tool scripts' printed ✅, ❌
   and ⚠️ markers are unchanged.
+- Tools' **Exit** button fills the row under the Script Description, up to the
+  Language dropdown, so the tips card reaches the bottom of the window.
 
 ### Fixed
 
+- A switch with keyboard focus, such as Low Resource Mode, showed only part of its focus
+  ring when it sat at the start of a field column; the ring is whole now.
+- A dropdown with few entries, such as Alignment Score Mode, showed one and a half of
+  them above a scroll arrow. Fusion's popup put the current entry over the field and
+  sized itself without the list's padding. Every dropdown now opens a list below its
+  field with every entry in view, up to ten.
 - **Viewer command audit.**
   - **`label`:** it kept dropping fully conserved residues at exact thresholds: with `id` weighting, a residue in every member could fail `cmin 100%`, and 999 of 1000 failed `cmin 99.9%`. Hex Color now matches the viewer's palette, and thresholds outside 0–100% are refused. `--help` and typos such as `gmax=0.4` no longer become report filenames. With nothing to analyse, it fails before writing an empty workbook. The ambiguity codes X, B, Z and J are no longer reported as conserved residues; they still count as occupied positions.
   - **`query`:** grouped targets such as `(AC)<=30%` are exact at the boundary, and multi-word metadata values such as `{Organism=Escherichia coli}` work in `query` and `logo`.
@@ -991,6 +1029,8 @@ still change before version 1.0.0.
 
 ### Removed
 
+- The **Histogram** button of Config and VR Config, and the score histogram window it
+  opened: the Network Statistics Report's table now draws the same distribution.
 - The Viewer's `GET /api/mcp/v1/nodes` inspection route, which returned a page of
   live node data. No client used it: the MCP server reads node pages from captured
   snapshots through `query_nodes` on `POST /api/mcp/v1/data`.

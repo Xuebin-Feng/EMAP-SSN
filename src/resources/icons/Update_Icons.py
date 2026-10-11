@@ -5,6 +5,7 @@
 """Bundle the Lucide icons EMAP-SSN uses, from a downloaded lucide-static package.
 
     python src/resources/icons/Update_Icons.py <package>   copy the icons and colour the stylesheet's
+    python src/resources/icons/Update_Icons.py --colours   only rewrite the stylesheet's coloured copies
     python src/resources/icons/Update_Icons.py --check     change nothing; fail if anything is stale
 
 <package> is the folder an npm tarball of lucide-static unpacks to (it holds
@@ -16,7 +17,9 @@ package's LICENSE, and refuses an SVG holding anything but plain shapes (no
 scripts, links, styles or text). It then writes the stylesheet's coloured
 copies into qss/: Qt draws an SVG's currentColor as black, so each
 (icon, token) pair in desktop.Studio_Theme.QSS_ICON_VARIANTS becomes a copy
-with that token's colour written in. A file that left the list is removed.
+with that token's colour written in, for every theme colour (THEME_COLORS).
+A file that left the list is removed. --colours does only this, from the
+bundled icons, as after a change to the theme colours.
 
 --check exits with 1 if an icon in ICONS is missing from lucide/, if lucide/
 holds an icon not in ICONS, or if a coloured copy no longer matches its icon
@@ -69,11 +72,34 @@ def _check_plain_svg(path):
 
 
 def _variants():
-    from desktop.Studio_Theme import QSS_ICON_VARIANTS, TOKENS, coloured_svg, qss_icon_path
+    """(path, text) of every coloured copy, once each; theme colours may share one."""
+    from desktop.Studio_Theme import (
+        QSS_ICON_VARIANTS, THEME_COLORS, coloured_svg, qss_icon_path, theme_tokens,
+    )
 
-    for name, token in QSS_ICON_VARIANTS:
-        original = (ICONS_DIR / "lucide" / f"{name}.svg").read_text(encoding="utf-8")
-        yield qss_icon_path(name, token), coloured_svg(original, TOKENS[token])
+    made = {}
+    for color in THEME_COLORS:
+        tokens = theme_tokens(color)
+        for name, token in QSS_ICON_VARIANTS:
+            path = qss_icon_path(name, token, tokens)
+            if path not in made:
+                original = (ICONS_DIR / "lucide" / f"{name}.svg").read_text(encoding="utf-8")
+                made[path] = coloured_svg(original, tokens[token])
+    return made.items()
+
+
+def write_colours():
+    """Write the coloured copies into qss/ and remove any that left the list; returns how many."""
+    qss = ICONS_DIR / "qss"
+    qss.mkdir(exist_ok=True)
+    written = set()
+    for path, text in _variants():
+        path.write_bytes(text.encode("utf-8"))
+        written.add(path.name)
+    for stale in qss.glob("*.svg"):
+        if stale.name not in written:
+            stale.unlink()
+    return len(written)
 
 
 def update(package):
@@ -94,16 +120,8 @@ def update(package):
     for stale in target.glob("*.svg"):
         if stale.stem not in ICONS:
             stale.unlink()
-    qss = ICONS_DIR / "qss"
-    qss.mkdir(exist_ok=True)
-    written = set()
-    for path, text in _variants():
-        path.write_bytes(text.encode("utf-8"))
-        written.add(path.name)
-    for stale in qss.glob("*.svg"):
-        if stale.name not in written:
-            stale.unlink()
-    print(f"Bundled {len(ICONS)} Lucide {LUCIDE_VERSION} icons and {len(written)} coloured copies.")
+    written = write_colours()
+    print(f"Bundled {len(ICONS)} Lucide {LUCIDE_VERSION} icons and {written} coloured copies.")
 
 
 def check():
@@ -134,8 +152,13 @@ def check():
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("package", nargs="?", help="an unpacked lucide-static package")
+    parser.add_argument("--colours", action="store_true",
+                        help="only rewrite the coloured copies, from the bundled icons")
     parser.add_argument("--check", action="store_true", help="change nothing; fail if stale")
     args = parser.parse_args(argv)
+    if args.colours:
+        print(f"Wrote {write_colours()} coloured copies.")
+        return 0
     if args.check:
         problems = check()
         for problem in problems:

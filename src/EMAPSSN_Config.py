@@ -561,43 +561,6 @@ def _load_consistency_msa_headers(msa_path):
     return headers
 
 
-def build_score_histogram_figure(
-    scores,
-    threshold,
-    *,
-    is_evalue,
-    norm_mode,
-    font_families=None,
-):
-    """Build a score histogram without starting or owning a GUI event loop.
-
-    Its text shows in the window's language; font_families, when given,
-    draws it (see Desktop_App.matplotlib_language_families).
-    """
-    from matplotlib.figure import Figure
-
-    font = {} if font_families is None else {"family": font_families}
-    figure = Figure(figsize=(10, 6))
-    axes = figure.add_subplot(111)
-    axes.hist(
-        scores,
-        bins=100,
-        color="#4488ff",
-        edgecolor="black",
-        alpha=0.7,
-    )
-    axes.axvline(
-        threshold,
-        color="red",
-        linestyle="dashed",
-        label=Message("Threshold {threshold}", threshold=threshold).display(),
-    )
-    mode_label = Message("E-Value").display() if is_evalue else norm_mode
-    axes.set_title(Message("Score Distribution ({mode})", mode=mode_label).display(), **font)
-    axes.legend(prop=font or None)
-    figure.tight_layout()
-    return figure
-
 # =============================================================================
 # GUI APPLICATION
 # =============================================================================
@@ -613,34 +576,38 @@ if __name__ == "__main__":
     os.environ["QT_MAC_WANTS_LIGHT_THEME"] = "1"
     from PySide6.QtWidgets import (
         QStackedWidget,
-        QApplication, QDialog, QMainWindow, QWidget, QVBoxLayout,
+        QApplication, QMainWindow, QWidget, QVBoxLayout,
         QHBoxLayout, QGridLayout, QTabWidget, QFormLayout, QLineEdit,
         QComboBox, QPushButton, QMessageBox,
         QLabel, QSplitter, QSlider, QSpinBox, QDoubleSpinBox,
-        QStyle, QStyleOptionSlider, QFileDialog, QColorDialog, QSizePolicy,
-        QFrame, QScrollArea,
+        QStyle, QStyleOptionSlider, QStyleOptionSpinBox, QFileDialog, QColorDialog,
+        QSizePolicy, QFrame, QScrollArea,
     )
     from desktop.Desktop_App import (
         ResponsiveFieldLayout,
         ResponsiveFlowLayout,
         ResponsiveSelectorLayout,
         SingleInstanceController,
+        StatisticsReport,
         ToggleSwitch,
-        WrappedPlaceholderTextEdit,
         add_combo_options,
         combo_value,
         configure_qt_application_fonts,
+        configured_theme_color,
         fit_buttons_to_text,
         apply_studio_theme,
         choose_language,
+        choose_theme_color,
         install_translations,
         installed_language,
         language_selector_row,
         LanguageSelector,
         mark_name_item,
-        matplotlib_language_families,
         qt_monospace_font,
         redraw_in_language,
+        redraw_in_theme_color,
+        CONFIG_THEME_SETTING,
+        ThemeColorButton,
         select_combo_value,
         show_window_in_front,
         startup_language,
@@ -656,16 +623,13 @@ if __name__ == "__main__":
         prepare_tab_widget,
         set_role,
         status_color,
+        theme_color,
     )
-    from PySide6.QtCore import Qt, QUrl, QThread, Signal
+    from PySide6.QtCore import Qt, QSize, QUrl, QThread, Signal
     from PySide6.QtGui import (
         QColor,
         QDesktopServices,
         QIcon,
-    )
-    from matplotlib.backends.backend_qtagg import (
-        FigureCanvasQTAgg,
-        NavigationToolbar2QT,
     )
 
     def statistics_report_html(summary, headings, rows):
@@ -702,36 +666,52 @@ if __name__ == "__main__":
             f"<tr>{head}</tr>{body}</table>"
         )
 
+    def statistics_report_text(report):
+        """The statistics report's summary lines and column headings, in the window's language.
+
+        report is what run_statistics found, in no language (ConfigGUI.show_statistics),
+        so a window redrawn in another language shows the same report in it.
+        """
+        if report["blast"]:
+            metric = translate("Config", "Metric: Log10(E-Value)")
+        else:
+            score_mode, norm_mode = report["score_mode"], report["normalization"]
+            score_names = {
+                "global": translate("Config", "Global", "alignment score"),
+                "local": translate("Config", "Local", "alignment score"),
+            }
+            norm_names = {
+                "alignment_length": translate("Config", "Alignment Length", "normalization"),
+                "shorter_sequence": translate("Config", "Shorter Sequence", "normalization"),
+                "longer_sequence": translate("Config", "Longer Sequence", "normalization"),
+                "average_sequence": translate("Config", "Average Sequence", "normalization"),
+            }
+            metric = translate(
+                "Config", "Metric: {score} Alignment Score with {normalization} Normalization"
+            ).format(
+                score=score_names.get(score_mode, score_mode.title()),
+                normalization=norm_names.get(norm_mode, norm_mode.replace('_', ' ').title()),
+            )
+        summary = [
+            translate("Config", "Network Model: {model}").format(model=report["model"]),
+            translate("Config", "Fasta Node Subset: {name}").format(name=report["fasta"]),
+            translate("Config", "Total Nodes Processed: {count}").format(count=report["nodes"]),
+            metric,
+            translate("Config", "Stored Edges: {stored} (Max possible: {possible})").format(
+                stored=report["stored_edges"], possible=report["possible_edges"]
+            ),
+            translate("Config", "Max: {maximum:.4f} | Min: {minimum:.4f} | Avg: {mean:.4f}").format(
+                maximum=report["maximum"], minimum=report["minimum"], mean=report["mean"]
+            ),
+        ]
+        headings = (
+            translate("Config", "Threshold", "statistics column"),
+            translate("Config", "Count", "statistics column"),
+            translate("Config", "Percentage", "statistics column"),
+        )
+        return summary, headings
+
     # --- Custom Widget Classes ---
-    class ScoreHistogramDialog(QDialog):
-        """Qt-owned modal container for a Matplotlib score histogram."""
-
-        def __init__(self, figure, parent=None):
-            super().__init__(parent)
-            self.setWindowTitle(translate("Config", "Score Histogram"))
-            self.resize(1000, 650)
-
-            self.figure = figure
-            self.canvas = FigureCanvasQTAgg(figure)
-            self.toolbar = NavigationToolbar2QT(self.canvas, self)
-
-            close_button = QPushButton(translate("Config", "Close"))
-            close_button.clicked.connect(self.accept)
-
-            button_layout = QHBoxLayout()
-            button_layout.addStretch(1)
-            button_layout.addWidget(close_button)
-
-            layout = QVBoxLayout(self)
-            layout.addWidget(self.toolbar)
-            layout.addWidget(self.canvas, 1)
-            layout.addLayout(button_layout)
-
-        def release_figure(self):
-            """Release Matplotlib resources after the modal dialog closes."""
-            self.figure.clear()
-            self.canvas.deleteLater()
-
     class SpacedTipLabel(QLabel):
         """Help-panel label with proportional multiline spacing."""
 
@@ -766,11 +746,37 @@ if __name__ == "__main__":
                 self.refresh_callback()
             super().showPopup()
             
+    def spin_box_minimum_size(spinbox, hint):
+        """``hint``, made as wide as ``spinbox`` needs for its minimum_text.
+
+        Qt makes a spin box wide enough for the longest value in its range, plus
+        a space and room for the cursor. A box whose range is far wider than the
+        values it usually holds names a usual one in minimum_text, which is
+        measured the same way. A longer value is cut off only while the box is
+        at that minimum width.
+        """
+        if spinbox.minimum_text is None:
+            return hint
+        option = QStyleOptionSpinBox()
+        spinbox.initStyleOption(option)
+        text = spinbox.prefix() + spinbox.minimum_text + spinbox.suffix() + " "
+        content = QSize(spinbox.fontMetrics().horizontalAdvance(text) + 2, hint.height())
+        width = spinbox.style().sizeFromContents(
+            QStyle.ContentsType.CT_SpinBox, option, content, spinbox
+        ).width()
+        return QSize(width, hint.height())
+
     class NoScrollSpinBox(QSpinBox):
+        # The text its minimum width shows; None shows its whole range.
+        minimum_text = None
+
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             self.setMinimumHeight(28)
+
+        def minimumSizeHint(self):
+            return spin_box_minimum_size(self, super().minimumSizeHint())
             
         def wheelEvent(self, event):
             if not self.hasFocus():
@@ -779,10 +785,16 @@ if __name__ == "__main__":
                 super().wheelEvent(event)
                 
     class NoScrollDoubleSpinBox(QDoubleSpinBox):
+        # The text its minimum width shows; None shows its whole range.
+        minimum_text = None
+
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             self.setMinimumHeight(28)
+
+        def minimumSizeHint(self):
+            return spin_box_minimum_size(self, super().minimumSizeHint())
             
         def wheelEvent(self, event):
             if not self.hasFocus():
@@ -947,7 +959,7 @@ if __name__ == "__main__":
             btn_save = QPushButton(translate("Config", "Save"))
             btn_save.clicked.connect(self.save_only)
             
-            btn_exit = set_role(QPushButton(translate("Config", "Exit")), "ghost")
+            btn_exit = QPushButton(translate("Config", "Exit"))
             btn_exit.clicked.connect(self.close)
             
             btn_layout.addWidget(self.btn_save_run, 1)
@@ -973,7 +985,7 @@ if __name__ == "__main__":
             self.right_layout.setContentsMargins(0, 0, 0, 0)
             self.right_layout.setSpacing(TOKENS["card_gap"])
             self.stat_label = set_role(QLabel(translate("Config", "Network Statistics Report")), "title")
-            self.stat_display = WrappedPlaceholderTextEdit()
+            self.stat_display = StatisticsReport()
             self.stat_display.setReadOnly(True)
             self.stat_display.setPlaceholderText(translate(
                 "Config", "Select Fasta subset and HDF5 Network file, then click compute."
@@ -984,7 +996,9 @@ if __name__ == "__main__":
             self.right_layout.addWidget(self.stat_display)
             self.language_selector = LanguageSelector()
             self.language_selector.language_chosen.connect(lambda setting: choose_language(self, setting))
-            self.right_layout.addLayout(language_selector_row(self.language_selector))
+            self.theme_switch = ThemeColorButton(CONFIG_THEME_SETTING, color=theme_color())
+            self.theme_switch.color_chosen.connect(lambda color: choose_theme_color(self, color))
+            self.right_layout.addLayout(language_selector_row(self.language_selector, self.theme_switch))
             
             self.main_split.addWidget(self.right_panel)
             self.main_split.setStretchFactor(0, 6) 
@@ -1014,6 +1028,7 @@ if __name__ == "__main__":
             self._cache_launch_allowed = False
             self._last_duplicate_signature = None
             self._scoring_hidden_by_blast = None
+            self._statistics = None  # what the statistics report shows (show_statistics)
             self.current_cache_folder = None
             self._label_column = []
 
@@ -1124,7 +1139,8 @@ if __name__ == "__main__":
             for combo in self.findChildren(QComboBox):
                 if isinstance(combo, LanguageSelector):
                     continue  # It fits its entries, beside the row's stretch.
-                combo.setMinimumContentsLength(12)
+                # Twelve characters, unless the combo was given its own length.
+                combo.setMinimumContentsLength(combo.minimumContentsLength() or 12)
                 combo.setSizeAdjustPolicy(
                     QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
                 )
@@ -1135,8 +1151,10 @@ if __name__ == "__main__":
                 # A field sharing its cell with a button leaves room for it.
                 # The button fits its text, so a long one can take it all.
                 shared_width = int(editor.property("sharedCellWidth") or 0)
+                # Twelve characters, unless the field asks for fewer.
+                characters = int(editor.property("minimumCharacters") or 12)
                 editor.setMinimumWidth(max(
-                    0, editor.fontMetrics().horizontalAdvance("M" * 12) - shared_width
+                    0, editor.fontMetrics().horizontalAdvance("M" * characters) - shared_width
                 ))
             for slider in self.findChildren(QSlider):
                 slider.setMinimumWidth(slider.fontMetrics().horizontalAdvance("M" * 8))
@@ -1546,6 +1564,27 @@ if __name__ == "__main__":
             carried = self.language_carry_over()
             return redraw_in_language(self, language, lambda: type(self)(carried=carried), **options)
 
+        def switch_theme_color(self, color):
+            """Redraw this window in the theme colour named color, keeping all it shows.
+
+            The new window carries over what a language redraw does, at this
+            one's place and view. Returns the window that shows the colour.
+            """
+            if color == theme_color():
+                return self
+            carried = self.language_carry_over()
+            return redraw_in_theme_color(self, color, lambda: type(self)(carried=carried))
+
+        def show_statistics(self, report):
+            """Show report, what run_statistics found, in the statistics panel, in the window's language.
+
+            The window keeps the report, so a redraw in another language
+            (language_carry_over) shows it again, in that language.
+            """
+            self._statistics = report
+            summary, headings = statistics_report_text(report)
+            self.stat_display.setHtml(statistics_report_html(summary, headings, report["rows"]))
+
         def language_carry_over(self):
             """What a redraw in another language keeps beyond the view."""
             hidden = self._scoring_hidden_by_blast
@@ -1567,7 +1606,8 @@ if __name__ == "__main__":
                     "data": self.cb_cache_file.currentData(),
                     "name": self.line_new_cache.text(),
                 },
-                "statistics": self.stat_display.toHtml() if self.stat_display.toPlainText() else "",
+                # Its figures, not its text, so it comes back in the new language.
+                "statistics": self._statistics,
             }
 
         def _carried_widget_value(self, key, widget):
@@ -1612,7 +1652,7 @@ if __name__ == "__main__":
             self._carried_cache_choice = carried["cache_choice"]
             self.update_live_validators()
             if carried["statistics"]:
-                self.stat_display.setHtml(carried["statistics"])
+                self.show_statistics(carried["statistics"])
 
         def _apply_carried_cache_choice(self):
             choice, self._carried_cache_choice = self._carried_cache_choice, None
@@ -2401,6 +2441,10 @@ if __name__ == "__main__":
             select_combo_value(self.cb_score_mode, str(globals().get("ALIGNMENT_SCORE", "global")))
             
             self.cb_norm_mode = NoScrollComboBox()
+            # Its modes have long names; at its narrowest it keeps about six
+            # characters. Set before anything measures it: a combo box keeps
+            # the minimum width it first works out.
+            self.cb_norm_mode.setMinimumContentsLength(6)
             score_label = QLabel(translate("Config", "Alignment Score Mode:"))
             norm_label = QLabel(translate("Config", "Normalization Mode:"))
             mode_container = self._make_field_group(
@@ -2423,6 +2467,8 @@ if __name__ == "__main__":
             
             ref_val = globals().get("ALIGNMENT_REFERENCE", "")
             self.line_ref = QLineEdit("" if ref_val in [None, "None"] else str(ref_val))
+            # The first column narrows before the others (aligned_column_widths).
+            self.line_ref.setProperty("minimumCharacters", 8)
 
             ref_container = QWidget()
             ref_container.setObjectName("alignment_reference_wrapper")
@@ -2436,14 +2482,16 @@ if __name__ == "__main__":
                 offset_value = 0
             self.spin_alignment_offset.setValue(offset_value)
             self.spin_alignment_offset.setAccelerated(True)
-            # A minimum rather than a fixed width, so it spans the row once the fields stack.
-            self.spin_alignment_offset.setMinimumWidth(100)
+            # Room for a sign and a few digits, not the whole range. A minimum
+            # rather than a fixed width, so it spans the row once the fields stack.
+            self.spin_alignment_offset.minimum_text = "-000"
 
             self.spin_min_occ = NoScrollDoubleSpinBox()
             self.spin_min_occ.setDecimals(2)
             self.spin_min_occ.setRange(0.0, 100.0)
             self.spin_min_occ.setSingleStep(1.0)
             self.spin_min_occ.setValue(float(globals().get("FILTER_MIN_OCCUPANCY") or 10.0))
+            self.spin_min_occ.minimum_text = "10.00"
 
             lbl_min_occ = QLabel(translate("Config", "Min Occupancy %:"))
 
@@ -2512,6 +2560,9 @@ if __name__ == "__main__":
             self.spin_thresh.setSingleStep(0.1)
             self.spin_thresh.setSpecialValueText(" ")
             self.spin_thresh.setOptionalValue(globals().get("SIMILARITY_THRESHOLD"))
+            # The first column narrows before the others (aligned_column_widths);
+            # at its narrowest this shows a threshold to three decimals.
+            self.spin_thresh.minimum_text = "0.000"
 
             self.spin_top = OptionalNoScrollDoubleSpinBox(-0.01, 1.0)
             self.spin_top.setDecimals(2)
@@ -2519,6 +2570,7 @@ if __name__ == "__main__":
             self.spin_top.setSingleStep(0.1)
             self.spin_top.setSpecialValueText(" ")
             self.spin_top.setOptionalValue(globals().get("TOP_EDGE_PERCENT"))
+            self.spin_top.minimum_text = "10.00"
 
 
             for spinbox in (
@@ -2593,13 +2645,16 @@ if __name__ == "__main__":
                 first_min = max(row._column_minima()[0] for row in aligned_rows)
                 middle_min = max(row._column_minima()[1] for row in aligned_rows[1:])
                 last = max(row._column_minima()[2] for row in aligned_rows[1:])
-                # Give the reference half the usable width, and the remaining
-                # space to occupancy after reserving the fixed final column.
-                half_min = max(first_min, middle_min + gap + last,
-                               aligned_rows[0]._column_minima()[1])
+                # The right part holds occupancy and the fixed final column,
+                # or the normalization mode spanning both.
+                right_min = max(middle_min + gap + last,
+                                aligned_rows[0]._column_minima()[1])
                 if width is None:
-                    return 2 * half_min + gap
-                first = (width - gap) // 2
+                    return first_min + gap + right_min
+                # Give the reference half the usable width while both halves
+                # fit. Narrower, the first column gives way, down to its own
+                # minimum, and the right part keeps its minimum.
+                first = max(first_min, min((width - gap) // 2, width - gap - right_min))
                 remainder = width - gap - first
                 return ([first, remainder] if spanning else
                         [first, remainder - gap - last, last])
@@ -2623,20 +2678,16 @@ if __name__ == "__main__":
             self.line_top = self.spin_top
             self.line_min_occ = self.spin_min_occ
             
-            # Horizontal layout for both statistics and histogram buttons
+            # The statistics button spans the field column under the edge filters.
             btn_container = QWidget()
-            btn_lay = ResponsiveFlowLayout(btn_container)
+            btn_lay = QHBoxLayout(btn_container)
             btn_lay.setContentsMargins(0, 0, 0, 0)
-            
+
             self.btn_stats = QPushButton(translate("Config", "Compute Network Statistics"))
             set_role(self.btn_stats, "muted")
             self.btn_stats.clicked.connect(self.run_statistics)
 
-            self.btn_hist = QPushButton(translate("Config", "Histogram"))
-            self.btn_hist.clicked.connect(self.run_histogram)
-            
-            btn_lay.addWidget(self.btn_stats, 3)
-            btn_lay.addWidget(self.btn_hist, 1)
+            btn_lay.addWidget(self.btn_stats, 1)
             layout.addRow("", btn_container)
 
             self.cache_file_separator = self._add_padded_separator(
@@ -2764,9 +2815,7 @@ if __name__ == "__main__":
             has_hdf5 = bool(self.cb_hdf5.currentText().strip())
             self._update_reference_controls()
             self.btn_stats.setEnabled(has_fasta and has_hdf5)
-            if hasattr(self, 'btn_hist'):
-                self.btn_hist.setEnabled(has_fasta and has_hdf5)
-            
+
             is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
             for stack in getattr(self, "_input_mode_stacks", ()):
                 stack.setCurrentIndex(int(is_umap))
@@ -2964,212 +3013,30 @@ if __name__ == "__main__":
                 indices = np.searchsorted(sorted_scores, thresholds, side='left')
                 counts = stored_edges - indices
                 
-                model_name = metadata.model_name
-                
-                if is_blast:
-                    metric = translate("Config", "Metric: Log10(E-Value)")
-                else:
-                    score_names = {
-                        "global": translate("Config", "Global", "alignment score"),
-                        "local": translate("Config", "Local", "alignment score"),
-                    }
-                    norm_names = {
-                        "alignment_length": translate("Config", "Alignment Length", "normalization"),
-                        "shorter_sequence": translate("Config", "Shorter Sequence", "normalization"),
-                        "longer_sequence": translate("Config", "Longer Sequence", "normalization"),
-                        "average_sequence": translate("Config", "Average Sequence", "normalization"),
-                    }
-                    metric = translate(
-                        "Config", "Metric: {score} Alignment Score with {normalization} Normalization"
-                    ).format(
-                        score=score_names.get(score_mode, score_mode.title()),
-                        normalization=norm_names.get(norm_mode, norm_mode.replace('_', ' ').title()),
-                    )
-
-                summary = [
-                    translate("Config", "Network Model: {model}").format(model=model_name),
-                    translate("Config", "Fasta Node Subset: {name}").format(name=os.path.basename(fasta_path)),
-                    translate("Config", "Total Nodes Processed: {count}").format(count=total_nodes),
-                    metric,
-                    translate("Config", "Stored Edges: {stored} (Max possible: {possible})").format(
-                        stored=stored_edges, possible=int(theoretical_max_edges)
-                    ),
-                    translate("Config", "Max: {maximum:.4f} | Min: {minimum:.4f} | Avg: {mean:.4f}").format(
-                        maximum=max_score, minimum=min_score, mean=avg_score
-                    ),
-                ]
-                headings = (
-                    translate("Config", "Threshold", "statistics column"),
-                    translate("Config", "Count", "statistics column"),
-                    translate("Config", "Percentage", "statistics column"),
-                )
                 rows = []
                 for thresh, count in zip(thresholds, counts):
                     pct = (count / theoretical_max_edges) * 100.0 if theoretical_max_edges > 0 else 0
                     value = f"{int(thresh)}" if is_blast else f"{thresh:.1f}"
                     rows.append((value, f"{count}", f"{pct:.2f}%"))
-                self.stat_display.setHtml(statistics_report_html(summary, headings, rows))
+                self.show_statistics({
+                    "model": metadata.model_name,
+                    "fasta": os.path.basename(fasta_path),
+                    "nodes": int(total_nodes),
+                    "blast": is_blast,
+                    "score_mode": score_mode,
+                    "normalization": norm_mode,
+                    "stored_edges": int(stored_edges),
+                    "possible_edges": int(theoretical_max_edges),
+                    "maximum": float(max_score),
+                    "minimum": float(min_score),
+                    "mean": float(avg_score),
+                    "rows": rows,
+                })
                 self.tip_panel.setText(translate("Config", "Network statistics computed successfully."))
 
             except Exception as e:
                 self.tip_panel.setText(translate(
                     "Config", "Error during network statistics calculation: {error}"
-                ).format(error=display_text(e)))
-
-        def run_histogram(self):
-            import h5py
-            import numpy as np
-            import math
-            
-            fasta_path = os.path.join(
-                self._resolved_directory_input("FASTA_DIR"),
-                self.cb_fasta.currentText(),
-            )
-            hdf5_path = os.path.join(
-                self._resolved_directory_input("HDF5_DIR"),
-                self.cb_hdf5.currentText(),
-            )
-            
-            self.tip_panel.setText(translate("Config", "Computing score distribution... This may take a moment."))
-            QApplication.processEvents()
-            
-            try:
-                score_mode = combo_value(self.cb_score_mode)
-                norm_mode = combo_value(self.cb_norm_mode)
-                
-                with h5py.File(hdf5_path, "r") as hf:
-                    metadata = cache_manifest.validate_network_schema(hf)
-                    is_blast = metadata.network_type == "blast"
-                    from Bio import SeqIO
-                    kept_mask = None
-                    if fasta_path and os.path.exists(fasta_path):
-                        fasta_ids = set()
-                        fasta_headers = set()
-                        for rec in SeqIO.parse(fasta_path, "fasta"):
-                            fasta_ids.add(rec.id)
-                            fasta_headers.add(rec.description)
-                            
-                        raw_headers = hf['headers'][:]
-                        headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
-                        
-                        net_headers_set = set(headers)
-                        net_id_set = {h.split()[0] for h in headers}
-                        missing_nodes = [hid for hid in fasta_ids if hid not in net_id_set and hid not in net_headers_set]
-                        if missing_nodes:
-                            raise ValueError(translate(
-                                "Config",
-                                "FASTA file is NOT a strict subset of the network file. "
-                                "The network lacks %n sequence(s).",
-                                None, len(missing_nodes),
-                            ))
-                        
-                        valid_indices = []
-                        for i, h in enumerate(headers):
-                            rec_id = h.split()[0]
-                            if h in fasta_headers or rec_id in fasta_ids:
-                                valid_indices.append(i)
-                                
-                        if len(valid_indices) < len(headers):
-                            kept_mask = np.zeros(len(headers), dtype=bool)
-                            kept_mask[valid_indices] = True
-                    
-                    # The indices keep the file's 16- or 32-bit type; they only
-                    # index masks and sequence lengths.
-                    sources = hf['i'][:]
-                    targets = hf['j'][:]
-                    if is_blast:
-                        raw_scores = hf['score'][:]
-                    else:
-                        if score_mode == "local":
-                            raw_scores = hf['l_score'][:].astype(np.float32, copy=False)
-                            length_name = 'l_len'
-                        else:
-                            raw_scores = hf['g_score'][:].astype(np.float32, copy=False)
-                            length_name = 'g_len'
-                        # Only alignment-length normalization divides by the
-                        # alignment-length column, so other modes never read it.
-                        align_lens = None
-                        if norm_mode not in ("shorter_sequence", "longer_sequence", "average_sequence"):
-                            align_lens = hf[length_name][:].astype(np.float32)
-                            
-                        if 'seq_lens' in hf:
-                            seq_lens = hf['seq_lens'][:]
-                        else:
-                            seq_lens = np.ones(int(max(sources.max(), targets.max())) + 1)
-                        
-                    if kept_mask is not None:
-                        valid_edges_mask = kept_mask[sources] & kept_mask[targets]
-                        raw_scores = raw_scores[valid_edges_mask]
-                        sources = sources[valid_edges_mask]
-                        targets = targets[valid_edges_mask]
-                        if not is_blast and align_lens is not None:
-                            align_lens = align_lens[valid_edges_mask]
-                            
-                    if is_blast:
-                        scores = raw_scores.astype(np.float32)
-                    else:
-                        epsilon = 1e-6
-                        if norm_mode == "alignment_length":
-                            denom = align_lens
-                        else:
-                            len_src = seq_lens[sources].astype(np.float32)
-                            len_dst = seq_lens[targets].astype(np.float32)
-                            if norm_mode == "shorter_sequence": denom = np.minimum(len_src, len_dst)
-                            elif norm_mode == "longer_sequence": denom = np.maximum(len_src, len_dst)
-                            elif norm_mode == "average_sequence": denom = (len_src + len_dst) / 2.0
-                            else: denom = align_lens
-                            
-                        denom = np.maximum(denom, epsilon)
-                        scores = (raw_scores / denom).astype(np.float32)
-                
-                if len(scores) == 0:
-                    self.tip_panel.setText(translate(
-                        "Config", "Warning: No valid edges were found in the selected FASTA subset."
-                    ))
-                    return
-                
-                # Determine threshold based on top edge % override
-                is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
-                top_percent = self.spin_top.optionalValue()
-                    
-                if top_percent is not None and not is_umap:
-                    total_active_nodes = np.sum(kept_mask) if kept_mask is not None else len(headers)
-                    theoretical_max_edges = (total_active_nodes * (total_active_nodes - 1)) / 2.0
-                    k = int(theoretical_max_edges * (top_percent / 100.0))
-                    if len(scores) == 0:
-                        threshold = 0.0
-                    else:
-                        k = max(1, min(k, len(scores)))
-                        sorted_all = np.sort(scores)[::-1]
-                        threshold = sorted_all[k - 1]
-                else:
-                    threshold = self.spin_thresh.optionalValue()
-                    if threshold is None:
-                        threshold = 0.0
-                
-                self.tip_panel.setText(translate("Config", "Displaying score histogram..."))
-                QApplication.processEvents()
-                
-                print("Displaying Score Histogram... (Close histogram to continue)")
-                figure = build_score_histogram_figure(
-                    scores,
-                    threshold,
-                    is_evalue=is_blast,
-                    norm_mode=self.cb_norm_mode.currentText(),  # as the dropdown shows it
-                    font_families=matplotlib_language_families(installed_language()),
-                )
-                dialog = ScoreHistogramDialog(figure, self)
-                try:
-                    dialog.exec()
-                finally:
-                    dialog.release_figure()
-                    dialog.deleteLater()
-                
-                self.tip_panel.setText(translate("Config", "Histogram displayed successfully."))
-
-            except Exception as e:
-                self.tip_panel.setText(translate(
-                    "Config", "Error during histogram generation: {error}"
                 ).format(error=display_text(e)))
 
         def create_visuals_tab(self):
@@ -4331,7 +4198,7 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
         
     try:
-        apply_studio_theme(app)
+        apply_studio_theme(app, configured_theme_color(CONFIG_THEME_SETTING))
     except Exception as e:
         print(f"Warning: Could not apply the window theme: {e}")
         app.setStyle("Fusion")

@@ -402,22 +402,49 @@ class HelpPanelPageTests(unittest.TestCase):
 
     def test_the_page_is_a_card_in_the_window_themes_colours(self):
         import EMAPSSN_Tools
-        from desktop.Studio_Theme import TOKENS
+        from desktop.Studio_Theme import TOKENS, tinted_tokens
 
         shown = EMAPSSN_Tools.ResponsiveTextBrowser.page_html("<h3>Input</h3>", None)
+        tinted = tinted_tokens()
         # The help sits on a card that scrolls inside its border, as the tabs' card does.
         self.assertRegex(shown, r'<div class="help-card"><main class="help-page">\s*<h3>Input</h3>')
         card = re.search(r"\.help-card \{(.*?)\}", shown, re.S).group(1)
-        for rule in (f"background: {TOKENS['surface']};", f"border: 1px solid {TOKENS['border']};",
-                     f"border-radius: {TOKENS['radius_card']}px;", "overflow: auto;"):
+        for rule in (f"background: {tinted['surface']};", f"border: 1px solid {tinted['border']};",
+                     f"border-radius: {tinted['radius_card']}px;", "overflow: auto;"):
             self.assertIn(rule, card)
-        # A heading's icon takes the colour CSS gives it (its SVG strokes in currentColor).
+        # A heading's icon takes the colour CSS gives it (its SVG strokes in
+        # currentColor): the window's grey, untinted, as is a summary's marker.
         icon = re.search(r"\.heading-icon \{(.*?)\}", shown, re.S).group(1)
         self.assertIn(f"color: {TOKENS['text_subtle']};", icon)
+        marker = re.search(r"summary::marker \{(.*?)\}", shown, re.S).group(1)
+        self.assertIn(f"color: {TOKENS['text_subtle']};", marker)
         self.assertNotIn("__", shown, "every placeholder is filled")
         colours = set(re.findall(r"#[0-9a-fA-F]{3,8}\b", shown))
         self.assertTrue(colours)
-        self.assertLessEqual(colours, {value for value in TOKENS.values() if isinstance(value, str)})
+        self.assertLessEqual(colours, {value for value in (*tinted.values(), TOKENS["text_subtle"])
+                                       if isinstance(value, str)})
+
+    def test_the_pages_greys_take_the_theme_colour_but_its_icons_do_not(self):
+        import EMAPSSN_Tools
+        from desktop.Studio_Theme import (
+            THEME_COLORS, TINTED_SHADES, TOKENS, oklch_hex, set_theme_color, theme_color, tinted_tokens,
+        )
+
+        self.addCleanup(set_theme_color, theme_color())
+        for color, hue in THEME_COLORS.items():
+            with self.subTest(color=color):
+                set_theme_color(color)
+                shown = EMAPSSN_Tools.ResponsiveTextBrowser.page_html("<h3>Input</h3>", None)
+                tinted = tinted_tokens()
+                for name, shade in TINTED_SHADES.items():
+                    # Black has no hue: its greys stay the window's.
+                    self.assertEqual(tinted[name], TOKENS[name] if hue is None else oklch_hex(*shade, hue))
+                body = re.search(r"^\s*body \{(.*?)\}", shown, re.S | re.M).group(1)
+                self.assertIn(f"color: {tinted['text_soft']};", body)
+                summary = re.search(r"^\s*summary \{(.*?)\}", shown, re.S | re.M).group(1)
+                self.assertIn(f"color: {TOKENS['accent']};", summary)
+                icon = re.search(r"\.heading-icon \{(.*?)\}", shown, re.S).group(1)
+                self.assertIn(f"color: {TOKENS['text_subtle']};", icon)
 
     def test_the_panel_shows_its_page_in_the_windows_language(self):
         import EMAPSSN_Tools

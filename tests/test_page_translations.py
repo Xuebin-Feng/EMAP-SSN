@@ -49,6 +49,7 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication
 
 from desktop.Desktop_App import install_translations, language_web_font_css
+from desktop.Studio_Theme import web_theme_css
 from utilities.Localization import Message, display_text, pseudo_translate
 from web_ui import Page_Texts
 from web_ui.Page_Texts import (
@@ -59,7 +60,13 @@ from web_ui.Page_Texts import (
     translated_file,
     translated_source,
 )
-from web_ui.Web_Server import MIME_TYPES, WebServerHandler, content_security_policy, page_in_viewer_language
+from web_ui.Web_Server import (
+    MIME_TYPES,
+    WebServerHandler,
+    content_security_policy,
+    page_in_theme_color,
+    page_in_viewer_language,
+)
 from tests.agent_fixtures import image_bytes
 from tests.translation_fixtures import pseudo_language, unmarked_page_texts
 
@@ -317,7 +324,8 @@ class ServedPageTests(unittest.TestCase):
         server = start_server(self, PageHandler)
         english = {path: request(server, "GET", path)[1] for path in PageHandler.files}
         for path, file in PageHandler.files.items():
-            self.assertEqual(english[path], file.read_bytes(), path)
+            # In the theme colour, which tests/test_web_page_theme.py checks.
+            self.assertEqual(english[path], page_in_theme_color(str(file), file.read_bytes()), path)
         pseudo_language(self, self.app)
         for path, file in PageHandler.files.items():
             response, body = request(server, "GET", path)
@@ -343,7 +351,8 @@ class ServedPageTests(unittest.TestCase):
             with self.subTest(path=path):
                 body = request(server, "GET", path)[1].decode("utf-8")
                 self.assertIn('<html lang="zh-CN">', body)
-                self.assertIn(f"<style>\n{fonts}\n</style>\n</head>", body)
+                # At the end of the head, before only the theme colour's styles.
+                self.assertIn(f"<style>\n{fonts}\n</style>\n<style>\n{web_theme_css()}\n</style>\n</head>", body)
 
     def test_a_page_that_cannot_be_translated_comes_in_english(self):
         page = SRC / "web_ui" / "agent.html"
@@ -736,6 +745,7 @@ class MetadataPageTests(WebPageTestCase):
             page: getComputedStyle(document.body).backgroundColor,
             table: getComputedStyle(document.getElementById('spreadsheet-table')).backgroundColor,
         })"""
+        # Purple's colours, the default theme colour's: its accents on the greys every colour shares.
         light = {"theme": "light", "icon": "#i-moon", "page": "rgb(250, 250, 250)", "table": "rgb(255, 255, 255)"}
         dark = {"theme": "dark", "icon": "#i-sun", "page": "rgb(9, 9, 11)", "table": "rgb(24, 24, 27)"}
         self.open(self.TABLE)

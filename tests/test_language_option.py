@@ -62,6 +62,14 @@ from tests.translation_fixtures import visible_texts
 # Simplified Chinese's bundled font, as its language.json names it.
 CHINESE_FAMILY = Desktop_App.LANGUAGE_FONTS["zh_CN"].family
 
+# A statistics report as run_statistics hands it to ConfigGUI.show_statistics: in no language.
+STATISTICS = {
+    "model": "E1_RA", "fasta": "subset.fasta", "nodes": 4, "blast": False,
+    "score_mode": "global", "normalization": "alignment_length",
+    "stored_edges": 6, "possible_edges": 6, "maximum": 0.9, "minimum": 0.4, "mean": 0.6,
+    "rows": [("0.4", "6", "100.00%"), ("0.5", "3", "50.00%")],
+}
+
 GERMAN = """<?xml version="1.0" encoding="utf-8"?>
 <!DOCTYPE TS>
 <TS version="2.1" language="de" sourcelanguage="en">
@@ -346,7 +354,7 @@ class ConfigLanguageTests(LanguageTestCase):
         window.inputs["MAX_STEPS"].setText("4321")
         window.inputs["ALIGNMENT_REFERENCE"].setText("REF_7")
         window.inputs["SIMILARITY_THRESHOLD"].setOptionalValue(0.42)
-        window.stat_display.setPlainText("Statistics computed before the switch.")
+        window.show_statistics(STATISTICS)
         window.tabs.setCurrentIndex(2)
         flush(self.app)
         scroll_bar = window.tabs.currentWidget().verticalScrollBar()
@@ -389,7 +397,12 @@ class ConfigLanguageTests(LanguageTestCase):
         self.assertEqual(after["cache_hashes"], before["cache_hashes"])
         self.assertFalse(replacement.profile_content_widgets["visual_effects"].isEnabled(), "(default) is read-only")
         self.assertTrue(replacement.profile_name_inputs["simulation_physics"].isVisible())
-        self.assertIn("Statistics computed before the switch.", replacement.stat_display.toPlainText())
+        # The statistics report comes back, from its figures, in the new language.
+        self.assertEqual(after["statistics"], STATISTICS)
+        report = replacement.stat_display.document()
+        self.assertTrue(is_pseudo_translated(report.firstBlock().text()), report.firstBlock().text())
+        self.assertIn("E1_RA", report.firstBlock().text())
+        self.assertIn("50.00%", report.toPlainText())
         self.assertTrue(is_pseudo_translated(replacement.language_selector.itemText(0)))
         with mock.patch.object(Desktop_App, "show_window_in_front") as shown:
             controller.callback()
@@ -407,6 +420,7 @@ class ConfigLanguageTests(LanguageTestCase):
         self.assertEqual(view(back), before_view)
         self.assertEqual(back.language_carry_over()["values"], before["values"])
         self.assertEqual(back.language_selector.itemText(0), "System default (English)")
+        self.assertEqual(back.stat_display.document().firstBlock().text(), "Network Model: E1_RA")
 
     def test_the_scoring_a_blast_network_hides_comes_back_after_a_redraw(self):
         window = self.open_window()
@@ -550,10 +564,10 @@ class ToolsLanguageTests(LanguageTestCase):
         window.single_instance = Controller()
         window.resize(1300, 820)
         window.move(30, 50)
-        # The help panel is wide enough for the language dropdown in both
-        # languages: the dropdown shows its whole entry, so it sets the panel's
-        # narrowest width, and the pseudo-language's entries are the longer.
-        window.splitter.setSizes([850, 450])
+        # The help panel is wide enough for its bottom row in both languages:
+        # Exit and the language dropdown show their whole text, so they set the
+        # panel's narrowest width, and the pseudo-language's texts are the longer.
+        window.splitter.setSizes([650, 620])
         window.tabs.setCurrentIndex(1)
         edited = 0
         for data in window.script_data.values():

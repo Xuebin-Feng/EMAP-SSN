@@ -183,7 +183,9 @@ class PagePolicyOverHTTPTests(unittest.TestCase):
             with self.subTest(page=page):
                 response, body = self.get(f'/{page}')
                 self.assertEqual(response.status, 200)
-                self.assertEqual(body, (PAGES / page).read_bytes())
+                # The Agent and Meta Data pages come in the theme colour
+                # (tests/test_web_page_theme.py).
+                self.assertEqual(body, Web_Server.page_in_theme_color(str(PAGES / page), (PAGES / page).read_bytes()))
                 self.assertEqual(response.getheader('Content-Type'), 'text/html; charset=utf-8')
                 self.assertEqual(
                     response.msg.get_all('Content-Security-Policy'),

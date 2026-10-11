@@ -8,7 +8,7 @@ shadcn/ui: 24 px grid, 2 px round strokes, coloured through `currentColor`.
 |---|---|
 | `lucide/` | The icons the program uses, copied unchanged from the package, with Lucide's `LICENSE` (ISC; icons derived from Feather are also MIT). |
 | `qss/` | Copies of the stylesheet's arrows with a theme colour written in, named `<icon>-<colour>.svg`. Qt draws `currentColor` as black, so the stylesheet can't colour an icon itself. |
-| `Update_Icons.py` | Copies the icons listed in its `ICONS` from a lucide-static package and writes the coloured copies; `--check` reports anything stale. |
+| `Update_Icons.py` | Copies the icons listed in its `ICONS` from a lucide-static package and writes the coloured copies; `--colours` rewrites only the coloured copies, as after a change to the theme colours; `--check` reports anything stale. |
 
 ## Source
 

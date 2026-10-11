@@ -30,6 +30,7 @@ from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore, QtWidgets
 
 from desktop.Desktop_App import installed_language, language_web_font_css, translate
+from desktop.Studio_Theme import web_theme_css
 from desktop.Viewer_Inspection import (
     ViewerInspectionError,
     ViewerInspectionService,
@@ -297,6 +298,25 @@ def page_in_viewer_language(filepath, body):
         return body
 
 
+# The pages that take the Viewer's theme colour. The Fold View page is Mol*'s
+# own interface and keeps its look.
+THEMED_PAGES = {os.path.normcase(os.path.join(BASE_DIR, name)) for name in ("agent.html", "meta.html")}
+HEAD_END = re.compile(rb"</head\s*>", re.IGNORECASE)
+
+
+def page_in_theme_color(filepath, body):
+    """body, the bytes of a file to serve, in the Viewer's theme colour.
+
+    The Agent and Meta Data pages end their head with the theme colour's
+    custom properties (desktop/Studio_Theme.py web_theme_css), after the
+    page's own, which are Purple's; any other file comes as it is.
+    """
+    if os.path.normcase(os.path.abspath(filepath)) not in THEMED_PAGES:
+        return body
+    styles = f"<style>\n{web_theme_css()}\n</style>\n".encode("utf-8")
+    return HEAD_END.sub(lambda match: styles + match.group(0), body, count=1)
+
+
 def event_client_from_path(path):
     """Return a bounded client label from an SSE request URL, if present."""
     values = parse_qs(urlsplit(path).query).get("client", [])
@@ -510,7 +530,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             self.send_error(404, f"File {filepath} Not Found")
             return
         with open(filepath, "rb") as f:
-            body = page_in_viewer_language(filepath, f.read())
+            body = page_in_theme_color(filepath, page_in_viewer_language(filepath, f.read()))
         self.send_response(200)
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")

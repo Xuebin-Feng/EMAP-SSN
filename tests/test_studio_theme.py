@@ -16,7 +16,7 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtCore import QSize  # noqa: E402
+from PySide6.QtCore import QEvent, QSize  # noqa: E402
 from PySide6.QtGui import QColor, QIcon, QPalette  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QWidget  # noqa: E402
 
@@ -125,6 +125,53 @@ class StudioThemeTests(unittest.TestCase):
         self.assertEqual(plain.name(), "#ffffff")
         self.assertLess(shaded.lightness(), plain.lightness())
 
+
+    def test_a_focused_switch_shows_its_whole_ring_past_its_own_edges(self):
+        from desktop.Desktop_App import ToggleSwitch
+
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        host.setAutoFillBackground(True)
+        palette = host.palette()
+        palette.setColor(QPalette.ColorRole.Window, QColor("#ffffff"))
+        host.setPalette(palette)
+        # A wrapper that hugs the switch, as a layout row's cell does.
+        wrapper = QWidget(host)
+        switch = ToggleSwitch(parent=wrapper)
+        wrapper.setGeometry(20, 20, switch.width(), switch.height())
+        other = QPushButton("Other", host)
+        other.move(90, 20)
+        host.resize(200, 70)
+        host.show()
+        host.activateWindow()
+        other.setFocus()
+        flush(self.app)
+
+        def left_of_track():
+            # The ring's left side, a pixel and a half outside the switch.
+            image = host.grab().toImage()
+            return image.pixelColor(20 - 2, 20 + switch.height() // 2)
+
+        self.assertEqual(left_of_track().name(), "#ffffff")
+        switch.setFocus()
+        flush(self.app)
+        self.assertTrue(switch.hasFocus())
+        ring = left_of_track()
+        accent = QColor(TOKENS["accent"])
+        self.assertLess(abs(ring.red() - accent.red()) + abs(ring.green() - accent.green())
+                        + abs(ring.blue() - accent.blue()), 60, ring.name())
+
+    def test_a_switch_ring_left_without_its_attributes_raises_nothing(self):
+        from desktop.Desktop_App import ToggleSwitch
+
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        switch = ToggleSwitch(parent=host)
+        ring = switch._focus_ring
+        # As Python's garbage collector leaves it while a closing window's widgets still have events.
+        ring.__dict__.clear()
+        self.assertFalse(ring.eventFilter(host, QEvent(QEvent.Type.Paint)))
+        self.assertFalse(ring.eventFilter(switch, QEvent(QEvent.Type.FocusIn)))
 
     def test_closing_a_shaded_window_raises_nothing(self):
         from PySide6.QtTest import QTest

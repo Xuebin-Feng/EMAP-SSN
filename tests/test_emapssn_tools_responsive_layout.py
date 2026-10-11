@@ -11,7 +11,7 @@ from unittest.mock import patch
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPoint, Qt
 from PySide6.QtWidgets import QApplication, QComboBox, QLineEdit, QTextBrowser, QWidget
 from EMAPSSN_Tools import ToolsGUI, ResponsiveFieldLayout, configure_qt_application_fonts
 from tests.tools_gui_fixtures import isolated_tools_project
@@ -134,6 +134,41 @@ class ResponsiveToolsTests(unittest.TestCase):
         self.window.tabs.setCurrentIndex(tab_index)
         self.flush()
         self.assertEqual(self.window._collect_tool_settings(path), before)
+
+    def test_exit_fills_the_row_under_the_help_and_the_tip_panel_reaches_the_bottom(self):
+        window = self.window
+
+        def box(widget):
+            return widget.rect().translated(widget.mapTo(window, QPoint(0, 0)))
+
+        # The help panel at its narrowest, then wider.
+        for help_width in (None, 560):
+            self.resize_panel(1000)
+            if help_width:
+                left_width, right_width = window.splitter.sizes()
+                window.splitter.setSizes([left_width + right_width - help_width, help_width])
+                self.flush()
+            exit_button, language, help_card = (
+                box(widget) for widget in (window.btn_exit, window.language_selector, window.script_desc_text)
+            )
+            tip, left = box(window.tip_panel), box(window.left_widget)
+            globe = box(window.findChild(QWidget, "languageGlobe"))
+            with self.subTest(help_width=help_width):
+                self.assertTrue(window.right_widget.isAncestorOf(window.btn_exit))
+                self.assertEqual(exit_button.left(), help_card.left())
+                self.assertGreater(exit_button.top(), help_card.bottom())
+                # Exit takes all the room up to the globe before the dropdown.
+                self.assertLess(exit_button.right(), globe.left())
+                self.assertLessEqual(globe.left() - exit_button.right(), 12)
+                if help_width:
+                    self.assertGreater(exit_button.width(), window.btn_exit.minimumSizeHint().width() + 100)
+                self.assertAlmostEqual(exit_button.center().y(), language.center().y(), delta=1)
+                # Nothing below the tip panel: it ends where the left side does, level with the row.
+                self.assertEqual(tip.bottom(), left.bottom())
+                self.assertGreaterEqual(tip.bottom(), exit_button.bottom())
+        window.btn_exit.click()
+        self.flush()
+        self.assertFalse(window.isVisible())
 
 
 if __name__ == "__main__":

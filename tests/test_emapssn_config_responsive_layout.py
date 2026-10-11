@@ -366,8 +366,81 @@ class ResponsiveConfigTests(unittest.TestCase):
                     self.assertEqual(right(offset), right(self.window.line_ref))
                     self.assertEqual(right(offset), right(self.window.spin_min_occ))
                 else:
-                    # 100 px, unless the theme's padding makes the field need more.
-                    self.assertEqual(offset.width(), max(100, offset.minimumSizeHint().width()))
+                    # Its minimum, which has room for a sign and a few digits.
+                    self.assertEqual(offset.width(), offset.minimumSizeHint().width())
+
+    def test_the_first_column_narrows_before_the_rest_of_the_row(self):
+        """The aligned rows split into halves while both halves fit. Narrower, the
+        first column gives way, down to its own minimum, while the rest of the row
+        keeps its minimum. The fields stay side by side down to 771 px, which the
+        narrowest window has room for once the report is collapsed."""
+        from PySide6.QtCore import QPoint
+        rows = [self.window.findChild(self.namespace["QWidget"], name) for name in
+                ("alignmentModeRow", "alignmentReferenceRow", "filterRow")]
+        need = rows[0].layout()._wide_width()
+        self.assertLessEqual(need, 771)
+        self.assertEqual({row.layout()._wide_width() for row in rows}, {need})
+        gap = self.namespace["CONFIG_FIELD_HORIZONTAL_SPACING"]
+        first_min = max(row.layout()._column_minima()[0] for row in rows)
+        self.resize_panel(1300)
+        margin = self.window.tabs.currentWidget().width() - rows[0].width()
+
+        def columns(row_width):
+            """The first column's width and the rest of the row's."""
+            self.resize_panel(row_width + margin)
+            self.assertEqual(rows[0].width(), row_width)
+            self.assertFalse(any(row.property("stacked") for row in rows), row_width)
+            second = self.window.labels["NORM_MODE"].mapTo(rows[0], QPoint()).x()
+            return second - gap, row_width - second
+
+        first, rest = columns(1300 - margin)
+        self.assertLessEqual(abs(first - rest), 1)
+        rest_min = need - gap - first_min
+        # Halves still, at the narrowest width where both halves fit.
+        self.assertEqual(columns(2 * rest_min + gap), (rest_min, rest_min))
+        self.assertEqual(columns(need + 40), (first_min + 40, rest_min))
+        self.assertEqual(columns(need), (first_min, rest_min))
+        self.resize_panel(need - 1 + margin)
+        self.assertTrue(all(row.property("stacked") for row in rows))
+
+        # The narrowest window, with the report collapsed, keeps them side by side.
+        self.window.resize(0, 850)
+        self.window.main_split.setSizes([sum(self.window.main_split.sizes()), 0])
+        self.flush()
+        self.assertEqual(self.window.width(), self.window.minimumWidth())
+        self.assertFalse(any(row.property("stacked") for row in rows))
+        self.assert_geometry(self.window.tabs.currentWidget().widget())
+
+    def test_narrowed_fields_keep_room_for_their_usual_values(self):
+        """Each field narrowed for the full layout is at least as wide as Qt makes
+        a box for a usual value: occupancy and Top Edge % 10.00, an offset of
+        -999, a threshold to three decimals, and six characters of a
+        normalization mode."""
+        from PySide6.QtWidgets import QComboBox, QDoubleSpinBox, QSpinBox
+        window = self.window
+        parent = window.spin_alignment_offset.parentWidget()
+
+        def spin_box(low, high, decimals=None):
+            box = QSpinBox(parent) if decimals is None else QDoubleSpinBox(parent)
+            if decimals is not None:
+                box.setDecimals(decimals)
+            box.setRange(low, high)
+            return box
+
+        combo = QComboBox(parent)
+        combo.addItem(window.cb_norm_mode.itemText(0)[:6])
+        usual = {
+            "FILTER_MIN_OCCUPANCY": spin_box(0, 10, 2),
+            "TOP_EDGE_PERCENT": spin_box(0, 10, 2),
+            "ALIGNMENT_OFFSET": spin_box(-999, 0),
+            "SIMILARITY_THRESHOLD": spin_box(0, 1, 3),
+            "NORM_MODE": combo,
+        }
+        for key, reference in usual.items():
+            with self.subTest(field=key):
+                self.assertGreaterEqual(window.inputs[key].minimumSizeHint().width(),
+                                        reference.minimumSizeHint().width())
+            reference.deleteLater()
 
     def test_alignment_offset_ignores_hover_wheel_but_accepts_keyboard(self):
         from PySide6.QtCore import QPoint, QPointF, Qt

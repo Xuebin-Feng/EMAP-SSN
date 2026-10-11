@@ -150,12 +150,14 @@ from utilities.Sequence_Utils import (
 from utilities.Localization import Message, display_text
 from desktop.Desktop_App import (
     APPLICATION_VERSION,
+    CONFIG_THEME_SETTING,
     UI_QSS_FONT_STACK,
     VIEWER_DESKTOP_FILE_NAME,
     VIEWER_DISPLAY_NAME,
     VISPY_FALLBACK_FACE,
     configure_linux_qt_desktop_identity,
     configure_qt_application_fonts,
+    configured_theme_color,
     apply_studio_theme,
     fit_buttons_to_text,
     install_translations,
@@ -969,10 +971,11 @@ class MainViewer:
         # is shown so cached hidden nodes cannot leave stale edges on screen.
         self.update_edges()
 
-        # The shared window theme, on the QApplication managed by Vispy
+        # The shared window theme, on the QApplication managed by Vispy, in
+        # Config's theme colour as it is now; the Agent and Meta Data pages take it too.
         if qapp:
             try:
-                apply_studio_theme(qapp)
+                apply_studio_theme(qapp, configured_theme_color(CONFIG_THEME_SETTING))
             except Exception as e:
                 print(f"Warning: Could not apply the window theme: {e}")
             

@@ -28,10 +28,13 @@
     <script src="/page_text.js"></script>
     <script src="/agent_resource/marked.umd.js"></script>
     <style>
-        /* The Studio look of the desktop windows (src/desktop/Studio_Theme.py
-           TOKENS): zinc neutrals, hairline borders, 8 px controls, 12 px
-           cards, a near-black primary button and one indigo accent for focus.
-           Every colour is a custom property, set for each theme. */
+        /* The Studio look of the desktop windows (src/desktop/Studio_Theme.py):
+           tinted greys, hairline borders, 8 px controls, 12 px cards, and one
+           theme colour for the primary button, switches and focus. Every
+           colour is a custom property, set for light and dark. Those that
+           take the theme colour (Studio_Theme's WEB_PAGE_PROPERTIES) hold
+           Purple's here; the Viewer's web server adds the Viewer's theme
+           colour after them. */
         :root {
             color-scheme: light;
             --bg-main: #fafafa;
@@ -49,14 +52,14 @@
             --input-bg: #ffffff;
             --input-text: #09090b;
             --input-disabled-bg: #fafafa;
-            --primary: #18181b;
-            --primary-hover: #27272a;
-            --primary-pressed: #3f3f46;
-            --primary-text: #fafafa;
+            --primary: #5b5bd6;
+            --primary-hover: #4e4bc5;
+            --primary-pressed: #423bb4;
+            --primary-text: #ffffff;
             --primary-disabled: #9b9ba0;
             --primary-disabled-text: #fafafa;
             --accent: #5b5bd6;
-            --accent-soft: #ebebfb;
+            --accent-soft: #e9ecfc;
             --success: #15803d;
             --success-soft: #f0fdf4;
             --success-fill: #15803d;
@@ -77,8 +80,8 @@
             --code-inline-text: #18181b;
             --switch-off: #d4d4d8;
             --switch-off-hover: #a1a1aa;
-            --switch-on: #18181b;
-            --switch-on-hover: #27272a;
+            --switch-on: #5b5bd6;
+            --switch-on-hover: #4e4bc5;
             --switch-thumb: #ffffff;
             --switch-thumb-on: #ffffff;
             --switch-thumb-shadow: rgba(9, 9, 11, 0.18);
@@ -110,14 +113,14 @@
             --input-bg: #09090b;
             --input-text: #fafafa;
             --input-disabled-bg: #18181b;
-            --primary: #fafafa;
-            --primary-hover: #e4e4e7;
-            --primary-pressed: #d4d4d8;
+            --primary: #8289ff;
+            --primary-hover: #98a1ff;
+            --primary-pressed: #aeb7ff;
             --primary-text: #18181b;
             --primary-disabled: #3f3f46;
             --primary-disabled-text: #a1a1aa;
-            --accent: #8b8bf0;
-            --accent-soft: #26264d;
+            --accent: #8289ff;
+            --accent-soft: #24264d;
             --success: #4ade80;
             --success-soft: rgba(34, 197, 94, 0.12);
             --success-fill: #4ade80;
@@ -138,10 +141,10 @@
             --code-inline-text: #fafafa;
             --switch-off: #3f3f46;
             --switch-off-hover: #52525b;
-            --switch-on: #fafafa;
-            --switch-on-hover: #e4e4e7;
+            --switch-on: #8289ff;
+            --switch-on-hover: #98a1ff;
             --switch-thumb: #fafafa;
-            --switch-thumb-on: #18181b;
+            --switch-thumb-on: #fafafa;
             --switch-thumb-shadow: rgba(0, 0, 0, 0.4);
             --scroll: #3f3f46;
             --scroll-hover: #52525b;

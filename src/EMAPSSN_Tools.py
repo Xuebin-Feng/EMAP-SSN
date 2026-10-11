@@ -518,14 +518,19 @@ from desktop.Desktop_App import (
     combo_value,
     configure_qt_application_fonts,
     choose_language,
+    choose_theme_color,
+    configured_theme_color,
     install_translations,
     installed_language,
     language_selector_row,
     language_web_font_css,
     LanguageSelector,
     redraw_in_language,
+    redraw_in_theme_color,
     select_combo_value,
     startup_language,
+    ThemeColorButton,
+    TOOLS_THEME_SETTING,
 )
 from desktop.Studio_Theme import (
     TOKENS,
@@ -536,6 +541,8 @@ from desktop.Studio_Theme import (
     icon_svg,
     prepare_tab_widget,
     set_role,
+    theme_color,
+    tinted_tokens,
 )
 
 
@@ -737,7 +744,8 @@ class ResponsiveTextBrowser(QWebEngineView):
         """
         # The page is a card, as the settings beside it are (desktop.Studio_Theme):
         # the card scrolls inside its border, the window's colour around its
-        # corners, and every colour is one of the theme's tokens.
+        # corners, and every colour is one of the theme's tokens, its greys
+        # tinted in the theme colour (tinted_tokens) but for its icons' (ICON).
         page_style = """
         html, body {
             margin: 0;
@@ -810,7 +818,7 @@ class ResponsiveTextBrowser(QWebEngineView):
             height: 0.95em;
             margin-right: 0.4em;
             vertical-align: -0.12em;
-            color: __TEXT_SUBTLE__;
+            color: __ICON__;
         }
         .heading-icon svg {
             display: block;
@@ -898,6 +906,9 @@ class ResponsiveTextBrowser(QWebEngineView):
             color: __ACCENT__;
             outline: none;
         }
+        summary::marker {
+            color: __ICON__;
+        }
         details[open] {
             background-color: __SURFACE__;
         }
@@ -910,7 +921,8 @@ class ResponsiveTextBrowser(QWebEngineView):
         for name, value in (
             ("UI_FONT_STACK", WEB_UI_FONT_STACK),
             ("MONOSPACE_FONT_STACK", WEB_MONOSPACE_FONT_STACK),
-            *((token.upper(), value) for token, value in TOKENS.items()),
+            ("ICON", TOKENS["text_subtle"]),
+            *((token.upper(), value) for token, value in tinted_tokens().items()),
         ):
             page_style = page_style.replace(f"__{name}__", str(value))
 
@@ -2382,7 +2394,7 @@ class ToolsGUI(QMainWindow):
         self.tabs = prepare_tab_widget(QTabWidget())
         self.left_top_layout.addWidget(self.tabs)
         
-        # Left Bottom: Tip Panel & Action Buttons
+        # Left Bottom: the Tip Panel, down to the window's bottom
         self.left_bottom_widget = QWidget()
         self.left_bottom_layout = QVBoxLayout(self.left_bottom_widget)
         self.left_bottom_layout.setContentsMargins(0, 0, 0, 0)
@@ -2393,13 +2405,6 @@ class ToolsGUI(QMainWindow):
         self.tip_panel.setMinimumHeight(20)
         add_hint_icon(self.tip_panel)
         self.left_bottom_layout.addWidget(self.tip_panel, 1)
-
-        btn_layout = QHBoxLayout()
-        btn_exit = set_role(QPushButton(translate("Tools", "Exit")), "ghost")
-        btn_exit.clicked.connect(self.close)
-        btn_layout.addStretch()
-        btn_layout.addWidget(btn_exit)
-        self.left_bottom_layout.addLayout(btn_layout)
 
         self.left_split.addWidget(self.left_top_widget)
         self.left_split.addWidget(self.left_bottom_widget)
@@ -2436,7 +2441,15 @@ class ToolsGUI(QMainWindow):
         self.right_panel.addWidget(self.script_desc_text, 1)
         self.language_selector = LanguageSelector()
         self.language_selector.language_chosen.connect(lambda setting: choose_language(self, setting))
-        self.right_panel.addLayout(language_selector_row(self.language_selector))
+        self.theme_switch = ThemeColorButton(TOOLS_THEME_SETTING, color=theme_color())
+        self.theme_switch.color_chosen.connect(lambda color: choose_theme_color(self, color))
+        # Exit fills the row under the help card up to the Language dropdown, so
+        # the tip panel reaches the window's bottom.
+        self.btn_exit = QPushButton(translate("Tools", "Exit"))
+        self.btn_exit.clicked.connect(self.close)
+        self.right_panel.addLayout(
+            language_selector_row(self.language_selector, self.theme_switch, leading=self.btn_exit)
+        )
 
         self.script_data = {} 
         self.tab_paths = [] 
@@ -4237,6 +4250,17 @@ class ToolsGUI(QMainWindow):
         carried = self.language_carry_over()
         return redraw_in_language(self, language, lambda: type(self)(carried=carried), **options)
 
+    def switch_theme_color(self, color):
+        """Redraw this window in the theme colour named color, keeping all it shows.
+
+        The new window starts as a language redraw does, at this one's place
+        and view. Returns the window that shows the colour.
+        """
+        if color == theme_color():
+            return self
+        carried = self.language_carry_over()
+        return redraw_in_theme_color(self, color, lambda: type(self)(carried=carried))
+
     def language_carry_over(self):
         """What a redraw in another language keeps beyond the view."""
         document = {"DIRECTORIES": self._current_directory_settings()}
@@ -4735,7 +4759,7 @@ if __name__ == "__main__":
         app.setWindowIcon(QIcon(icon_path))
         
     try:
-        apply_studio_theme(app)
+        apply_studio_theme(app, configured_theme_color(TOOLS_THEME_SETTING))
     except Exception as e:
         print(f"Warning: Could not apply the window theme: {e}")
         app.setStyle("Fusion")

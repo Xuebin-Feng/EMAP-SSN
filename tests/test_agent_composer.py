@@ -334,10 +334,11 @@ class ComposerTests(unittest.TestCase):
         light = json.loads(self.js(state))
         self.js("document.getElementById('theme-toggle-btn').click()")
         dark = json.loads(self.js(state))
+        # Purple's colours, the default theme colour's: its accents on the greys every colour shares.
         self.assertEqual(light, {'theme': 'light', 'label': 'Dark Mode', 'icon': '#i-moon',
-                                 'page': 'rgb(250, 250, 250)', 'card': 'rgb(255, 255, 255)', 'primary': '#18181b'})
+                                 'page': 'rgb(250, 250, 250)', 'card': 'rgb(255, 255, 255)', 'primary': '#5b5bd6'})
         self.assertEqual(dark, {'theme': 'dark', 'label': 'Light Mode', 'icon': '#i-sun',
-                                'page': 'rgb(9, 9, 11)', 'card': 'rgb(24, 24, 27)', 'primary': '#fafafa'})
+                                'page': 'rgb(9, 9, 11)', 'card': 'rgb(24, 24, 27)', 'primary': '#8289ff'})
         self.js("document.getElementById('theme-toggle-btn').click()")
         self.assertEqual(json.loads(self.js(state))['theme'], 'light')
 

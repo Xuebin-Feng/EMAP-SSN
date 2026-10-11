@@ -5,12 +5,25 @@
 """Studio: the shared look of the EMAP-SSN desktop windows.
 
 Config, VR Config, Tools and the Viewer share one look, after shadcn/ui,
-Linear and Vercel: zinc greys, hairline borders, 8 px controls on 12 px cards,
-a near-black primary button and one indigo accent for focus and slider fills.
+Linear and Vercel: zinc greys, hairline borders, 8 px controls on 12 px
+cards, and one theme colour for the primary button, switches that are on,
+focus rings, slider fills and selection.
 
-* TOKENS names every colour and radius. studio_stylesheet() turns them into
-  the application stylesheet, and studio_palette() into the palette, so the
-  parts Qt draws natively (popups, selection, disabled text) match.
+* The theme colour is a colour family (THEME_COLORS), not a shade, and only
+  the accents take it (ACCENT_SHADES): the primary button, switches that are
+  on, focus rings, slider fills and selection, and a light tint of it on the
+  tab bar, the hint card and muted buttons. Each has a fixed OKLCH lightness
+  and chroma, and the family gives the hue, so no family changes the contrast.
+  Everything else, from borders and icons to greyed-out fields, keeps the same
+  greys in every colour (NEUTRAL_SHADES). Black has no colour at all
+  (BLACK_ACCENTS). Each window keeps its own colour (Desktop_App's theme
+  colour option); the Viewer takes Config's when it starts. Tools' help pane
+  alone tints its greys in the colour too (tinted_tokens), all but its icons.
+* TOKENS names every colour and radius of the theme colour set in place
+  (set_theme_color). studio_stylesheet() turns them into the application
+  stylesheet, and studio_palette() into the palette, so the parts Qt draws
+  natively (popups, selection, disabled text) match. web_theme_css() gives
+  the Viewer's Agent and Meta Data pages the same family, light and dark.
 * A widget opts into a variant through its "role" property (set_role). The
   stylesheet styles QPushButton[role="primary"] and so on, so no window sets
   colours on its widgets. The roles are listed in ROLES.
@@ -27,12 +40,13 @@ a near-black primary button and one indigo accent for focus and slider fills.
 
 from __future__ import annotations
 
+import math
 import os
 from functools import lru_cache
 from pathlib import Path
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QIcon, QIconEngine, QPainter, QPalette, QPen, QPixmap
+from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QPointF, QRectF, QSize, Qt
+from PySide6.QtGui import QColor, QFontMetrics, QIcon, QIconEngine, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 import shiboken6
 from PySide6.QtWidgets import QLabel, QPushButton
@@ -41,63 +55,281 @@ ICONS_DIR = Path(__file__).resolve().parents[1] / "resources" / "icons"
 LUCIDE_DIR = ICONS_DIR / "lucide"
 QSS_ICON_DIR = ICONS_DIR / "qss"
 
-# Tailwind's zinc scale, the neutral of shadcn/ui.
-ZINC = {
-    50: "#fafafa", 100: "#f4f4f5", 200: "#e4e4e7", 300: "#d4d4d8", 400: "#a1a1aa",
-    500: "#71717a", 600: "#52525b", 700: "#3f3f46", 800: "#27272a", 900: "#18181b",
-    950: "#09090b",
+# =====================================================================
+# Theme Colours
+# =====================================================================
+
+# The colour families a window can take, by name, with their OKLCH hue, in the
+# order the palette shows them. Purple keeps the windows' first accent,
+# #5b5bd6, exactly. Black, with no hue, has no colour at all (BLACK_ACCENTS):
+# a near-black primary button and switches, and grey sliders, selections and
+# focus rings.
+THEME_COLORS = {
+    "purple": 278.3,
+    "blue": 245.0,
+    "teal": 190.0,
+    "green": 150.0,
+    "orange": 48.0,
+    "red": 22.0,
+    "pink": 350.0,
+    "black": None,
+}
+DEFAULT_THEME_COLOR = "purple"
+
+# The chroma of the theme colour itself. A hue that can't reach it at a
+# shade's lightness in sRGB (teal, at the accent's) takes the most it can.
+ACCENT_CHROMA = 0.1841
+
+# The colours that are the same in every theme colour, by set: "light" for the
+# windows, "light_page" for what the web pages add to them, "dark_page" for the
+# pages' dark mode. The greys are Tailwind's zinc, the neutral of shadcn/ui.
+NEUTRAL_SHADES = {
+    "light": {
+        # Surfaces
+        "window": "#fafafa",
+        "surface": "#ffffff",           # cards: the tab pane, reports
+        "surface_muted": "#f4f4f5",     # hover fills
+        "border": "#e4e4e7",            # card hairlines and separators
+        # Text (contrast on white)
+        "text": "#09090b",
+        "text_soft": "#3f3f46",         # report body, switch labels
+        "text_muted": "#52525b",        # inactive tabs, hints, ghost buttons (7.7:1)
+        "text_subtle": "#71717a",       # icons, placeholders, secondary status (4.8:1)
+        "text_disabled": "#a1a1aa",
+        # Fields
+        "field": "#ffffff",
+        "field_border": "#dcdce0",      # a touch stronger than a card's hairline
+        "field_border_hover": "#d4d4d8",
+        "field_disabled": "#fafafa",
+        "primary_disabled": "#9b9ba0",  # a primary button greyed out
+        # Switches that are off
+        "switch_off": "#d4d4d8",
+        "switch_off_hover": "#a1a1aa",
+        # Tooltips
+        "tooltip": "#18181b",
+        "tooltip_text": "#fafafa",
+        # Status texts
+        "success": "#15803d",           # 5.0:1 on white
+        "warning": "#b45309",           # 5.0:1 on white
+        "danger": "#dc2626",            # 4.8:1 on white
+        # Scroll bars
+        "scroll": "#d4d4d8",
+    },
+    "light_page": {
+        "inset": "#fafafa", "primary_disabled_text": "#fafafa", "code_text": "#18181b",
+        "switch_thumb": "#ffffff", "scroll_hover": "#a1a1aa",
+    },
+    "dark_page": {
+        "window": "#09090b", "surface": "#18181b", "surface_muted": "#27272a",
+        "inset": "#111113", "border": "#27272a",
+        "text": "#fafafa", "text_soft": "#d4d4d8", "text_muted": "#a1a1aa",
+        "text_subtle": "#8e8e96", "text_disabled": "#52525b",
+        "field_border": "#3f3f46", "field_border_hover": "#52525b",
+        "primary_disabled": "#3f3f46", "primary_disabled_text": "#a1a1aa",
+        "code_text": "#e4e4e7",
+        "switch_off": "#3f3f46", "switch_off_hover": "#52525b", "switch_thumb": "#fafafa",
+        "scroll": "#3f3f46", "scroll_hover": "#52525b",
+    },
 }
 
-TOKENS = {
-    # Surfaces
-    "window": ZINC[50],
-    "surface": "#ffffff",        # cards: the tab pane, reports
-    "surface_muted": ZINC[100],  # muted buttons, hover fills, the hint card
-    "track": "#efeff1",          # the segmented tab bar's track
-    "border": ZINC[200],         # card hairlines and separators
-    # Text (contrast on white)
-    "text": ZINC[950],
-    "text_soft": ZINC[700],      # report body, switch labels
-    "text_muted": ZINC[600],     # inactive tabs, hints, ghost buttons (7.7:1)
-    "text_subtle": ZINC[500],    # icons, placeholders, secondary status (4.8:1)
-    "text_disabled": ZINC[400],
-    # Fields
-    "field": "#ffffff",
-    "field_border": "#dcdce0",   # a touch stronger than a card's hairline
-    "field_border_hover": ZINC[300],
-    "field_disabled": ZINC[50],
-    # The primary button: near-black, as shadcn/ui's default button
-    "primary": ZINC[900],
-    "primary_hover": ZINC[800],
-    "primary_pressed": ZINC[700],
-    "primary_text": ZINC[50],
-    "primary_disabled": "#9b9ba0",
-    # The one accent: focus rings, slider fills, selection
-    "accent": "#5b5bd6",         # 5.4:1 on white
-    "accent_soft": "#ebebfb",
-    # Switches
-    "switch_off": ZINC[300],
-    "switch_off_hover": ZINC[400],
-    "switch_on": ZINC[900],
-    "switch_on_hover": ZINC[800],
-    # Status texts
-    "success": "#15803d",        # 5.0:1 on white
-    "warning": "#b45309",        # 5.0:1 on white
-    "danger": "#dc2626",         # 4.8:1 on white
-    # Scroll bars
-    "scroll": ZINC[300],
-    # Geometry
+# The accents, which take the theme colour: (OKLCH lightness, chroma) in its
+# hue, or a fixed colour; by set, as NEUTRAL_SHADES.
+ACCENT_SHADES = {
+    "light": {
+        # The primary button: the theme colour, with white text
+        "primary": (0.540, ACCENT_CHROMA),
+        "primary_hover": (0.490, ACCENT_CHROMA),
+        "primary_pressed": (0.440, ACCENT_CHROMA),
+        "primary_text": "#ffffff",
+        "primary_focus": (0.340, ACCENT_CHROMA),  # a focused primary button's ring
+        # Focus rings, slider fills, selection
+        "accent": (0.540, ACCENT_CHROMA),
+        "accent_soft": (0.945, 0.022),
+        # Switches that are on
+        "switch_on": (0.540, ACCENT_CHROMA),
+        "switch_on_hover": (0.490, ACCENT_CHROMA),
+        # Light tints: the segmented tab bar's track, and the hint card and muted
+        # buttons (tint), darker under the mouse (tint_hover)
+        "track": (0.953, 0.016),
+        "tint": (0.967, 0.012),
+        "tint_hover": (0.920, 0.020),
+        # The statistics report's histogram bars, behind its text
+        "histogram": (0.925, 0.040),
+    },
+    "light_page": {
+        "badge_text": (0.487, ACCENT_CHROMA),
+        "badge_border": (0.850, 0.060),
+        "switch_thumb_on": "#ffffff",
+    },
+    "dark_page": {
+        "primary": (0.680, ACCENT_CHROMA),
+        "primary_hover": (0.740, ACCENT_CHROMA),
+        "primary_pressed": (0.800, ACCENT_CHROMA),
+        "primary_text": "#18181b",
+        "accent": (0.680, ACCENT_CHROMA),
+        "accent_soft": (0.290, 0.070),
+        "badge_text": (0.780, 0.120),
+        "switch_on": (0.680, ACCENT_CHROMA),
+        "switch_on_hover": (0.740, ACCENT_CHROMA),
+        "switch_thumb_on": "#fafafa",
+    },
+}
+
+# Black's accents, all zinc: the near-black buttons and switches of the look
+# before the theme colours, with grey in place of its indigo.
+BLACK_ACCENTS = {
+    "light": {
+        "primary": "#18181b", "primary_hover": "#27272a", "primary_pressed": "#3f3f46",
+        "primary_text": "#fafafa", "primary_focus": "#71717a",
+        "accent": "#52525b", "accent_soft": "#e4e4e7",
+        "switch_on": "#18181b", "switch_on_hover": "#27272a",
+        "track": "#efeff1", "tint": "#f4f4f5", "tint_hover": "#e4e4e7", "histogram": "#e4e4e7",
+    },
+    "light_page": {"badge_text": "#3f3f46", "badge_border": "#d4d4d8", "switch_thumb_on": "#ffffff"},
+    "dark_page": {
+        "primary": "#fafafa", "primary_hover": "#e4e4e7", "primary_pressed": "#d4d4d8",
+        "primary_text": "#18181b", "accent": "#a1a1aa", "accent_soft": "#3f3f46",
+        "badge_text": "#d4d4d8", "switch_on": "#fafafa", "switch_on_hover": "#e4e4e7",
+        "switch_thumb_on": "#18181b",
+    },
+}
+
+# The greys of Tools' help pane (tinted_tokens): (OKLCH lightness, chroma) in
+# the theme colour's hue, at the lightness of the zinc grey each replaces.
+TINTED_SHADES = {
+    "surface_muted": (0.967, 0.012),
+    "border": (0.920, 0.020),
+    "text": (0.141, 0.025),
+    "text_soft": (0.370, 0.040),
+    "text_muted": (0.442, 0.045),
+    "text_subtle": (0.552, 0.045),
+    "text_disabled": (0.712, 0.035),
+    "scroll": (0.871, 0.028),
+}
+
+GEOMETRY = {
     "radius": 8,                 # controls
     "radius_card": 12,           # cards
     "card_gap": 8,               # between a tab bar and its card, and between cards
 }
 
+
+def _oklch_to_linear_srgb(lightness, chroma, hue):
+    a = chroma * math.cos(math.radians(hue))
+    b = chroma * math.sin(math.radians(hue))
+    l = (lightness + 0.3963377774 * a + 0.2158037573 * b) ** 3
+    m = (lightness - 0.1055613458 * a - 0.0638541728 * b) ** 3
+    s = (lightness - 0.0894841775 * a - 1.2914855480 * b) ** 3
+    return (
+        4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s,
+        -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s,
+        -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s,
+    )
+
+
+def _in_srgb(channels):
+    return all(-1e-6 <= channel <= 1 + 1e-6 for channel in channels)
+
+
+def _encode_srgb(channel):
+    channel = min(1.0, max(0.0, channel))
+    return 12.92 * channel if channel <= 0.0031308 else 1.055 * channel ** (1 / 2.4) - 0.055
+
+
+def oklch_hex(lightness, chroma, hue):
+    """The #rrggbb of an OKLCH colour (Björn Ottosson's Oklab, in polar form).
+
+    Where sRGB can't show that chroma at that lightness and hue, the chroma
+    drops to the most it can show, so the lightness, and the contrast with
+    it, stays as asked.
+    """
+    channels = _oklch_to_linear_srgb(lightness, chroma, hue)
+    if not _in_srgb(channels):
+        low, high = 0.0, chroma
+        for _ in range(32):
+            middle = (low + high) / 2
+            if _in_srgb(_oklch_to_linear_srgb(lightness, middle, hue)):
+                low = middle
+            else:
+                high = middle
+        channels = _oklch_to_linear_srgb(lightness, low, hue)
+    return "#" + "".join(f"{round(_encode_srgb(channel) * 255):02x}" for channel in channels)
+
+
+def _drawn(kind, color):
+    """One set of colours ("light", "light_page" or "dark_page") in ``color``: the greys and its accents."""
+    if color not in THEME_COLORS:
+        raise ValueError(
+            f"There is no theme colour named {color!r}; the colours are {', '.join(THEME_COLORS)}."
+        )
+    hue = THEME_COLORS[color]
+    if hue is None:
+        accents = BLACK_ACCENTS[kind]
+    else:
+        accents = {
+            name: shade if isinstance(shade, str) else oklch_hex(*shade, hue)
+            for name, shade in ACCENT_SHADES[kind].items()
+        }
+    return {**NEUTRAL_SHADES[kind], **accents}
+
+
+@lru_cache(maxsize=None)
+def _tokens(color):
+    return {**_drawn("light", color), **GEOMETRY}
+
+
+def theme_tokens(color=DEFAULT_THEME_COLOR):
+    """The windows' tokens (as TOKENS holds them) in the theme colour named ``color``."""
+    return dict(_tokens(color))
+
+
+def page_tokens(color=DEFAULT_THEME_COLOR, *, dark=False):
+    """The web pages' colours in ``color``: the windows' and a few more, or the dark mode's."""
+    if dark:
+        return _drawn("dark_page", color)
+    return {**_drawn("light", color), **_drawn("light_page", color)}
+
+
+TOKENS = theme_tokens()
+_current_theme_color = DEFAULT_THEME_COLOR
+
+
+def theme_color():
+    """The name of the theme colour TOKENS holds."""
+    return _current_theme_color
+
+
+def set_theme_color(color):
+    """Put the theme colour named ``color`` (a THEME_COLORS name) in TOKENS.
+
+    TOKENS changes in place, so every module that imported it sees the new
+    colours. What was built before keeps its colours: apply_studio_theme
+    restyles the application, and a window redraws itself for the rest.
+    """
+    global _current_theme_color
+    tokens = theme_tokens(color)
+    TOKENS.clear()
+    TOKENS.update(tokens)
+    _current_theme_color = color
+
+
+def tinted_tokens(color=None):
+    """TOKENS in ``color`` (TOKENS' own by default), their greys tinted in its hue (TINTED_SHADES).
+
+    Tools' help pane takes these. Black has no hue, so its greys stay grey.
+    """
+    color = color or theme_color()
+    tokens = theme_tokens(color)
+    hue = THEME_COLORS[color]
+    if hue is not None:
+        tokens.update({name: oklch_hex(*shade, hue) for name, shade in TINTED_SHADES.items()})
+    return tokens
+
 # The variants a widget can ask for with set_role(widget, role).
 ROLES = {
     "QPushButton": {
-        "primary": "the window's main action, near-black (at most one per window)",
-        "muted": "a secondary action on a grey fill",
-        "ghost": "a text-only action, such as Exit",
+        "primary": "the window's main action, in the theme colour (at most one per window)",
+        "muted": "a secondary action on a light tint of the theme colour",
         "icon": "a square button showing only an icon",
         "compact": "a short text button beside a field, such as Pick or Clear",
     },
@@ -110,7 +342,8 @@ ROLES = {
     "QTextEdit": {"report": "a read-only report card"},
 }
 
-# Copies of Lucide icons coloured for the stylesheet: (icon, token).
+# Copies of Lucide icons coloured for the stylesheet: (icon, token), made for
+# every theme colour.
 QSS_ICON_VARIANTS = (
     ("chevron-down", "text_subtle"),
     ("chevron-up", "text_subtle"),
@@ -123,9 +356,12 @@ QSS_ICON_VARIANTS = (
 )
 
 
-def qss_icon_path(name, token):
-    """The pre-coloured copy of a Lucide icon that the stylesheet uses."""
-    return QSS_ICON_DIR / f"{name}-{TOKENS[token].lstrip('#')}.svg"
+def qss_icon_path(name, token, tokens=None):
+    """The pre-coloured copy of a Lucide icon that the stylesheet uses.
+
+    tokens gives the colours, TOKENS by default.
+    """
+    return QSS_ICON_DIR / f"{name}-{(TOKENS if tokens is None else tokens)[token].lstrip('#')}.svg"
 
 
 def coloured_svg(svg_text, color):
@@ -133,32 +369,33 @@ def coloured_svg(svg_text, color):
     return svg_text.replace("currentColor", color)
 
 
-def _qss_url(name, token):
+def _qss_url(name, token, tokens):
     # Quoted: the program may live in a folder whose name has spaces.
-    return f'url("{qss_icon_path(name, token).as_posix()}")'
+    return f'url("{qss_icon_path(name, token, tokens).as_posix()}")'
 
 
 # =====================================================================
 # Stylesheet & Palette
 # =====================================================================
 
-def studio_stylesheet(t=TOKENS):
-    """The application stylesheet built from the tokens."""
-    down = _qss_url("chevron-down", "text_subtle")
-    up = _qss_url("chevron-up", "text_subtle")
-    down_disabled = _qss_url("chevron-down", "text_disabled")
-    up_disabled = _qss_url("chevron-up", "text_disabled")
-    left = _qss_url("chevron-left", "text_subtle")
-    right = _qss_url("chevron-right", "text_subtle")
-    left_disabled = _qss_url("chevron-left", "text_disabled")
-    right_disabled = _qss_url("chevron-right", "text_disabled")
+def studio_stylesheet(t=None):
+    """The application stylesheet built from the tokens, TOKENS by default."""
+    t = TOKENS if t is None else t
+    down = _qss_url("chevron-down", "text_subtle", t)
+    up = _qss_url("chevron-up", "text_subtle", t)
+    down_disabled = _qss_url("chevron-down", "text_disabled", t)
+    up_disabled = _qss_url("chevron-up", "text_disabled", t)
+    left = _qss_url("chevron-left", "text_subtle", t)
+    right = _qss_url("chevron-right", "text_subtle", t)
+    left_disabled = _qss_url("chevron-left", "text_disabled", t)
+    right_disabled = _qss_url("chevron-right", "text_disabled", t)
     return f"""
 QMainWindow, QDialog {{ background: {t['window']}; }}
 QWidget {{ color: {t['text']}; }}
 QLabel {{ background: transparent; }}
 QLabel:disabled {{ color: {t['text_disabled']}; }}
 QToolTip {{
-    background: {t['primary']}; color: {t['primary_text']}; border: none;
+    background: {t['tooltip']}; color: {t['tooltip_text']}; border: none;
     padding: 5px 8px; border-radius: 6px;
 }}
 
@@ -176,7 +413,7 @@ QTabBar::tab:last {{ margin-right: 3px; }}
 QTabBar::tab:hover:!selected {{ color: {t['text']}; }}
 QTabBar::tab:selected {{
     background: {t['surface']}; color: {t['text']};
-    border: 1px solid {t['border']}; border-bottom-color: {ZINC[300]};
+    border: 1px solid {t['border']}; border-bottom-color: {t['field_border_hover']};
 }}
 /* The arrows a bar shows when its tabs don't fit. */
 QTabBar QToolButton {{
@@ -237,11 +474,23 @@ QComboBox::drop-down {{
 }}
 QComboBox::down-arrow {{ image: {down}; width: 12px; height: 12px; }}
 QComboBox::down-arrow:disabled {{ image: {down_disabled}; }}
+/* A combo opens its list below itself, every entry in view up to its
+   maxVisibleItems. Fusion's own popup, which puts the current entry over the
+   combo, sized itself without the list's padding and hid half a row behind a
+   scroll arrow. The list's window is square, so the list is too. */
+QComboBox {{ combobox-popup: 0; }}
 QComboBox QAbstractItemView {{
-    background: {t['surface']}; border: 1px solid {t['border']}; border-radius: {t['radius']}px;
+    background: {t['surface']}; border: 1px solid {t['border']}; border-radius: 0px;
     padding: 4px; outline: 0;
-    selection-background-color: {t['surface_muted']}; selection-color: {t['text']};
+    selection-background-color: {t['accent_soft']}; selection-color: {t['text']};
 }}
+QComboBox QAbstractItemView::item {{
+    min-height: 24px; padding: 0px 6px; border: none; border-radius: 6px;
+}}
+QComboBox QAbstractItemView::item:hover, QComboBox QAbstractItemView::item:selected {{
+    background: {t['accent_soft']}; color: {t['text']};
+}}
+QComboBox QAbstractItemView::item:disabled {{ color: {t['text_disabled']}; }}
 /* The edit field already stops at the arrow buttons. Fusion adds about 3 px to a
    spin box's height; a QSS height sizes the content box, so 20 px of content plus
    padding and border keep it at the 28 px of the other fields. */
@@ -295,21 +544,18 @@ QPushButton[role="primary"] {{
 }}
 QPushButton[role="primary"]:hover {{ background: {t['primary_hover']}; border-color: {t['primary_hover']}; }}
 QPushButton[role="primary"]:pressed {{ background: {t['primary_pressed']}; }}
-QPushButton[role="primary"]:focus {{ border: 2px solid {t['accent']}; padding: 2px 12px; }}
+QPushButton[role="primary"]:focus {{ border: 2px solid {t['primary_focus']}; padding: 2px 12px; }}
 QPushButton[role="primary"]:disabled {{
     background: {t['primary_disabled']}; border-color: {t['primary_disabled']}; color: {t['primary_text']};
 }}
 QPushButton[role="muted"] {{
-    background: {t['surface_muted']}; color: {t['text']}; border: 1px solid {t['surface_muted']};
+    background: {t['tint']}; color: {t['text']}; border: 1px solid {t['tint']};
 }}
-QPushButton[role="muted"]:hover {{ background: {t['border']}; border-color: {t['border']}; }}
+QPushButton[role="muted"]:hover {{ background: {t['tint_hover']}; border-color: {t['tint_hover']}; }}
 QPushButton[role="muted"]:focus {{ border: 2px solid {t['accent']}; padding: 2px 12px; }}
 QPushButton[role="muted"]:disabled {{
     background: {t['field_disabled']}; border-color: {t['border']}; color: {t['text_disabled']};
 }}
-QPushButton[role="ghost"] {{ background: transparent; border-color: transparent; color: {t['text_muted']}; }}
-QPushButton[role="ghost"]:hover {{ background: {t['surface_muted']}; color: {t['text']}; }}
-QPushButton[role="ghost"]:focus {{ border: 2px solid {t['accent']}; padding: 2px 12px; }}
 QPushButton[role="icon"] {{ padding: 3px; }}
 QPushButton[role="icon"]:focus {{ padding: 2px; }}
 QPushButton[role="compact"] {{ padding: 3px 9px; }}
@@ -318,8 +564,8 @@ QPushButton[role="compact"]:focus {{ padding: 2px 8px; }}
 /* Panels */
 QFrame[role="separator"] {{ background: {t['border']}; border: none; max-height: 1px; }}
 QLabel[role="hint"] {{
-    background: {t['surface_muted']}; color: {t['text_muted']};
-    border: 1px solid {t['surface_muted']}; border-radius: {t['radius_card']}px;
+    background: {t['tint']}; color: {t['text_muted']};
+    border: 1px solid {t['tint']}; border-radius: {t['radius_card']}px;
     padding: 11px 14px 11px {HINT_TEXT_INDENT}px;
 }}
 QLabel[role="title"] {{ font-weight: 600; font-size: 14px; padding: 0px 2px; }}
@@ -337,8 +583,9 @@ HINT_ICON_OFFSET = 15
 HINT_TEXT_INDENT = 40
 
 
-def studio_palette(t=TOKENS):
-    """The palette matching the tokens, for the parts Qt draws natively."""
+def studio_palette(t=None):
+    """The palette matching the tokens (TOKENS by default), for the parts Qt draws natively."""
+    t = TOKENS if t is None else t
     palette = QPalette()
     for role, value in (
         (QPalette.ColorRole.Window, t["window"]),
@@ -353,8 +600,8 @@ def studio_palette(t=TOKENS):
         (QPalette.ColorRole.Highlight, t["accent"]),
         (QPalette.ColorRole.HighlightedText, "#ffffff"),
         (QPalette.ColorRole.PlaceholderText, t["text_subtle"]),
-        (QPalette.ColorRole.ToolTipBase, t["primary"]),
-        (QPalette.ColorRole.ToolTipText, t["primary_text"]),
+        (QPalette.ColorRole.ToolTipBase, t["tooltip"]),
+        (QPalette.ColorRole.ToolTipText, t["tooltip_text"]),
     ):
         palette.setColor(role, QColor(value))
     disabled = QPalette.ColorGroup.Disabled
@@ -370,15 +617,118 @@ def studio_palette(t=TOKENS):
     return palette
 
 
-def apply_studio_theme(app):
+def apply_studio_theme(app, color=None):
     """Give a Qt application the Studio look: Fusion, the palette and the stylesheet.
 
-    Call it once, before the first window is built: the layouts measure their
-    controls with the stylesheet's padding.
+    color names the theme colour to set first (set_theme_color); None keeps
+    the one TOKENS holds. Call it before the first window is built: the
+    layouts measure their controls with the stylesheet's padding.
     """
+    if color is not None:
+        set_theme_color(color)
     app.setStyle("Fusion")
     app.setPalette(studio_palette())
     app.setStyleSheet(studio_stylesheet())
+
+
+# =====================================================================
+# The Web Pages' Colours
+# =====================================================================
+
+def _rgba(color, alpha):
+    red, green, blue = (int(color[index:index + 2], 16) for index in (1, 3, 5))
+    return f"rgba({red}, {green}, {blue}, {alpha})"
+
+
+def _chevron(color):
+    # The select boxes' arrow: Lucide's chevron-down, as a data URL.
+    stroke = color.replace("#", "%23")
+    return (
+        "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' "
+        f"fill='none' stroke='{stroke}' stroke-width='2' stroke-linecap='round' "
+        "stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\")"
+    )
+
+
+# The custom properties of the Agent and Meta Data pages that take the theme
+# colour: (property, light value, dark value), each value a page_tokens name or
+# a function of the tokens. The pages keep their own status colours, shadows
+# and geometry.
+WEB_PAGE_PROPERTIES = (
+    ("--bg-main", "window", "window"),
+    ("--bg-card", "surface", "surface"),
+    ("--bg-muted", "surface_muted", "surface_muted"),
+    ("--bg-inset", "inset", "inset"),
+    ("--bg-table-header", "inset", "inset"),
+    ("--border-color", "border", "border"),
+    ("--field-border", "field_border", "field_border"),
+    ("--field-border-hover", "field_border_hover", "field_border_hover"),
+    ("--text-primary", "text", "text"),
+    ("--text-soft", "text_soft", "text_soft"),
+    ("--text-secondary", "text_muted", "text_muted"),
+    ("--text-subtle", "text_subtle", "text_subtle"),
+    ("--text-disabled", "text_disabled", "text_disabled"),
+    ("--input-bg", "field", "window"),
+    ("--input-text", "text", "text"),
+    ("--input-disabled-bg", "field_disabled", "surface"),
+    ("--primary", "primary", "primary"),
+    ("--primary-hover", "primary_hover", "primary_hover"),
+    ("--primary-pressed", "primary_pressed", "primary_pressed"),
+    ("--primary-text", "primary_text", "primary_text"),
+    ("--primary-disabled", "primary_disabled", "primary_disabled"),
+    ("--primary-disabled-text", "primary_disabled_text", "primary_disabled_text"),
+    ("--accent", "accent", "accent"),
+    ("--accent-soft", "accent_soft", "accent_soft"),
+    ("--selection", lambda t: _rgba(t["accent"], 0.1), lambda t: _rgba(t["accent"], 0.16)),
+    ("--text-badge-bg", "accent_soft", "accent_soft"),
+    ("--text-badge-border", "badge_border", lambda t: _rgba(t["accent"], 0.4)),
+    ("--text-badge-text", "badge_text", "badge_text"),
+    ("--bg-bubble-user", "surface_muted", "surface_muted"),
+    ("--text-bubble-user", "text", "text"),
+    ("--text-bubble-agent", "text", "text"),
+    ("--code-bg", "inset", "inset"),
+    ("--code-border", "border", "border"),
+    ("--code-text", "code_text", "code_text"),
+    ("--code-inline-bg", "surface_muted", "surface_muted"),
+    ("--code-inline-text", "code_text", "text"),
+    ("--switch-off", "switch_off", "switch_off"),
+    ("--switch-off-hover", "switch_off_hover", "switch_off_hover"),
+    ("--switch-on", "switch_on", "switch_on"),
+    ("--switch-on-hover", "switch_on_hover", "switch_on_hover"),
+    ("--switch-thumb", "switch_thumb", "switch_thumb"),
+    ("--switch-thumb-on", "switch_thumb_on", "switch_thumb_on"),
+    ("--scroll", "scroll", "scroll"),
+    ("--scroll-hover", "scroll_hover", "scroll_hover"),
+    ("--select-chevron", lambda t: _chevron(t["text_subtle"]), lambda t: _chevron(t["text_muted"])),
+)
+
+
+def web_page_properties(color=None, *, dark=False):
+    """The theme colour's values of WEB_PAGE_PROPERTIES, light or dark, by property.
+
+    color names the theme colour, the one TOKENS holds by default.
+    """
+    tokens = page_tokens(theme_color() if color is None else color, dark=dark)
+    column = 2 if dark else 1
+    return {
+        entry[0]: entry[column](tokens) if callable(entry[column]) else tokens[entry[column]]
+        for entry in WEB_PAGE_PROPERTIES
+    }
+
+
+def web_theme_css(color=None):
+    """CSS giving the Agent and Meta Data pages the theme colour, light and dark.
+
+    The Viewer's web server adds it at the end of each page's head, after the
+    page's own values (which are Purple's), so it wins.
+    """
+    blocks = []
+    for selector, dark in ((":root", False), ('[data-theme="dark"]', True)):
+        lines = "\n".join(
+            f"    {name}: {value};" for name, value in web_page_properties(color, dark=dark).items()
+        )
+        blocks.append(f"{selector} {{\n{lines}\n}}")
+    return "\n".join(blocks)
 
 
 def set_role(widget, role):
@@ -535,10 +885,28 @@ def switch_label(texts):
     return common.strip() if any(ord(character) > 0x2E80 for character in common) else ""
 
 
+def _switch_label_font(button):
+    font = button.font()
+    font.setBold(False)
+    return font
+
+
+def switch_track_rect(button):
+    """Where a switch draws its track, in the button's coordinates: after its label, if any."""
+    label = switch_label(button.state_texts())
+    x = 0.0
+    if label:
+        x = QFontMetrics(_switch_label_font(button)).horizontalAdvance(label) + SWITCH_LABEL_GAP
+    y = (button.height() - SWITCH_HEIGHT) / 2.0
+    return QRectF(x + 0.5, y + 0.5, SWITCH_WIDTH - 1, SWITCH_HEIGHT - 1)
+
+
 def paint_switch(button):
     """Draw a checkable button as a switch: a track and a knob, after the texts' shared label.
 
     The button keeps its text (screen readers read it); only the drawing changes.
+    Its focus ring reaches past the button's edges, so SwitchFocusRing draws
+    it, on the button's parent.
     """
     painter = QPainter(button)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -546,31 +914,20 @@ def paint_switch(button):
         painter.setOpacity(0.45)
     rect = button.rect()
     label = switch_label(button.state_texts())
-    x = 0.0
     if label:
-        font = button.font()
-        font.setBold(False)
-        painter.setFont(font)
+        painter.setFont(_switch_label_font(button))
         painter.setPen(QColor(TOKENS["text_soft"]))
         width = painter.fontMetrics().horizontalAdvance(label)
         painter.drawText(QRectF(0, 0, width + 1, rect.height()),
                          Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, label)
-        x = width + SWITCH_LABEL_GAP
-    y = (rect.height() - SWITCH_HEIGHT) / 2.0
-    track = QRectF(x + 0.5, y + 0.5, SWITCH_WIDTH - 1, SWITCH_HEIGHT - 1)
+    track = switch_track_rect(button)
+    x, y = track.x() - 0.5, track.y() - 0.5
     on = button.isChecked()
     hover = button.underMouse() and button.isEnabled()
     if on:
         fill = TOKENS["switch_on_hover" if hover else "switch_on"]
     else:
         fill = TOKENS["switch_off_hover" if hover else "switch_off"]
-    if button.hasFocus():
-        ring = QPen(QColor(TOKENS["accent"]))
-        ring.setWidthF(2.0)
-        painter.setPen(ring)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-        radius = SWITCH_HEIGHT / 2 + 2.5
-        painter.drawRoundedRect(track.adjusted(-2.5, -2.5, 2.5, 2.5), radius, radius)
     painter.setPen(Qt.PenStyle.NoPen)
     painter.setBrush(QColor(fill))
     painter.drawRoundedRect(track, track.height() / 2, track.height() / 2)
@@ -581,6 +938,81 @@ def paint_switch(button):
     painter.setBrush(QColor("#ffffff"))
     painter.drawEllipse(knob)
     painter.end()
+
+
+class SwitchFocusRing(QObject):
+    """Draws a focused switch's ring, 2.5 px around its track, on an ancestor of the switch.
+
+    A label-less switch's track starts at the switch's left edge, where the
+    switch can't draw the ring's left side, nor can a parent that wraps it
+    tightly. So the nearest ancestor that holds the whole ring draws it: an
+    ancestor draws before its children, and neither the switch nor the
+    widgets between them have a background.
+    """
+
+    GAP = 2.5
+    PEN = 2.0
+
+    def __init__(self, switch):
+        super().__init__(switch)
+        self.switch = switch
+        self.host = None
+        switch.installEventFilter(self)
+
+    def _ring_in(self, widget):
+        """The ring's path, in widget's coordinates."""
+        offset = QPointF(self.switch.mapTo(widget, QPoint(0, 0)))
+        track = switch_track_rect(self.switch).translated(offset)
+        return track.adjusted(-self.GAP, -self.GAP, self.GAP, self.GAP)
+
+    def _find_host(self):
+        # The ring's pen, and a pixel for antialiasing, reach past its path.
+        reach = self.PEN / 2 + 1
+        widget = self.switch.parentWidget()
+        while widget is not None:
+            outer = self._ring_in(widget).adjusted(-reach, -reach, reach, reach)
+            if widget.isWindow() or QRectF(widget.rect()).contains(outer):
+                return widget
+            widget = widget.parentWidget()
+        return None
+
+    def _update_host(self):
+        host = self._find_host()
+        if host is not self.host:
+            if self.host is not None and shiboken6.isValid(self.host):
+                self.host.removeEventFilter(self)
+                self.host.update()
+            self.host = host
+            if host is not None:
+                host.installEventFilter(self)
+        if self.host is not None:
+            self.host.update()
+
+    def eventFilter(self, watched, event):
+        # While a window closes, the switch can go before its ancestors' last
+        # events, and Python's garbage collector can clear this filter's
+        # attributes before Qt stops calling it.
+        switch = getattr(self, "switch", None)
+        if switch is None or not shiboken6.isValid(switch):
+            return False
+        kind = event.type()
+        if watched is self.switch:
+            if kind in (QEvent.Type.FocusIn, QEvent.Type.FocusOut, QEvent.Type.Move,
+                        QEvent.Type.Resize, QEvent.Type.Show, QEvent.Type.Hide,
+                        QEvent.Type.ParentChange):
+                self._update_host()
+        elif (watched is self.host and kind == QEvent.Type.Paint
+              and self.switch.hasFocus() and self.switch.isVisible()):
+            painter = QPainter(self.host)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            ring = QPen(QColor(TOKENS["accent"]))
+            ring.setWidthF(self.PEN)
+            painter.setPen(ring)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            rect = self._ring_in(self.host)
+            painter.drawRoundedRect(rect, rect.height() / 2, rect.height() / 2)
+            painter.end()
+        return False
 
 
 # A switch draws itself, so its stylesheet only clears the button's frame. The
@@ -640,30 +1072,47 @@ class CardShadows(QObject):
 
 
 __all__ = [
+    "ACCENT_CHROMA",
+    "ACCENT_SHADES",
+    "BLACK_ACCENTS",
     "CardShadows",
+    "DEFAULT_THEME_COLOR",
     "HINT_TEXT_INDENT",
     "ICONS_DIR",
     "IconLabel",
+    "NEUTRAL_SHADES",
     "LUCIDE_DIR",
     "QSS_ICON_DIR",
     "QSS_ICON_VARIANTS",
     "ROLES",
     "SWITCH_STYLESHEET",
     "StudioIconEngine",
+    "SwitchFocusRing",
+    "THEME_COLORS",
+    "TINTED_SHADES",
     "TOKENS",
-    "ZINC",
+    "WEB_PAGE_PROPERTIES",
     "add_hint_icon",
     "apply_studio_theme",
     "coloured_svg",
     "icon_button",
     "icon_svg",
+    "oklch_hex",
+    "page_tokens",
     "paint_switch",
     "prepare_tab_widget",
     "qss_icon_path",
     "set_role",
+    "set_theme_color",
     "status_color",
     "studio_icon",
     "studio_palette",
     "studio_stylesheet",
     "switch_label",
+    "switch_track_rect",
+    "theme_color",
+    "theme_tokens",
+    "tinted_tokens",
+    "web_page_properties",
+    "web_theme_css",
 ]

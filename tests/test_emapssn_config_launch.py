@@ -13,8 +13,6 @@ import textwrap
 import unittest
 from unittest import mock
 
-import numpy as np
-
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -22,7 +20,6 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 import EMAPSSN_Config  # noqa: E402
-from EMAPSSN_Config import build_score_histogram_figure  # noqa: E402
 
 
 def _run_config_script(script, *args):
@@ -44,49 +41,6 @@ def _run_config_script(script, *args):
             text=True,
             timeout=90,
         )
-
-
-class ScoreHistogramFigureTests(unittest.TestCase):
-    def test_alignment_histogram_preserves_bins_threshold_and_title(self):
-        scores = np.linspace(0.0, 1.0, 201)
-
-        figure = build_score_histogram_figure(
-            scores,
-            0.625,
-            is_evalue=False,
-            norm_mode="shorter_sequence",
-        )
-        self.addCleanup(figure.clear)
-
-        axes = figure.axes[0]
-        self.assertEqual(len(axes.patches), 100)
-        self.assertEqual(axes.get_title(), "Score Distribution (shorter_sequence)")
-        self.assertEqual(list(axes.lines[0].get_xdata()), [0.625, 0.625])
-        self.assertEqual(axes.lines[0].get_label(), "Threshold 0.625")
-
-    def test_evalue_histogram_uses_evalue_title(self):
-        figure = build_score_histogram_figure(
-            np.asarray([1.0, 2.0, 3.0]),
-            2.0,
-            is_evalue=True,
-            norm_mode="ignored",
-        )
-        self.addCleanup(figure.clear)
-
-        self.assertEqual(figure.axes[0].get_title(), "Score Distribution (E-Value)")
-
-    def test_the_title_and_legend_take_the_font_families_given(self):
-        families = ["sans-serif", "Noto Sans SC"]
-        for given, expected in ((None, ["sans-serif"]), (families, families)):
-            with self.subTest(font_families=given):
-                figure = build_score_histogram_figure(
-                    np.asarray([1.0, 2.0, 3.0]), 2.0, is_evalue=True, norm_mode="ignored",
-                    font_families=given,
-                )
-                self.addCleanup(figure.clear)
-                axes = figure.axes[0]
-                self.assertEqual(axes.title.get_fontfamily(), expected)
-                self.assertEqual(axes.get_legend().get_texts()[0].get_fontfamily(), expected)
 
 
 class ViewerHandoffTests(unittest.TestCase):
@@ -207,39 +161,6 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                 assert "Stored Edges:" in report
                 assert "Network statistics computed successfully." in window.tip_panel.text()
 
-                class FakeHistogramDialog:
-                    def __init__(self, figure, _parent):
-                        self.figure = figure
-
-                    def exec(self):
-                        assert "Displaying score histogram..." in window.tip_panel.text()
-                        return 0
-
-                    def release_figure(self):
-                        self.figure.clear()
-
-                    def deleteLater(self):
-                        pass
-
-                def validate_histogram(_hf):
-                    assert "Computing score distribution" in window.tip_panel.text()
-                    return manifest
-
-                with mock.patch.object(
-                    cache_manifest, "validate_network_schema", side_effect=validate_histogram
-                ), mock.patch.dict(
-                    method_globals, {{"ScoreHistogramDialog": FakeHistogramDialog}}
-                ):
-                    window.run_histogram()
-
-                assert window.stat_display.toPlainText() == report
-                assert "Histogram displayed successfully." in window.tip_panel.text()
-
-                with mock.patch("h5py.File", side_effect=OSError("unreadable network")):
-                    window.run_histogram()
-                assert window.stat_display.toPlainText() == report
-                assert "Error during histogram generation: unreadable network" in window.tip_panel.text()
-
                 with mock.patch("h5py.File", side_effect=OSError("unreadable network")):
                     window.run_statistics()
                 assert window.stat_display.toPlainText() == report
@@ -313,19 +234,6 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                     indexed.add(name)
                     return self._file[name]
 
-            class FakeHistogramDialog:
-                def __init__(self, figure, _parent):
-                    self.figure = figure
-
-                def exec(self):
-                    return 0
-
-                def release_figure(self):
-                    self.figure.clear()
-
-                def deleteLater(self):
-                    pass
-
             with tempfile.TemporaryDirectory() as temp_dir:
                 work = pathlib.Path(temp_dir)
                 fasta_path = work / "subset.fasta"
@@ -348,7 +256,6 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                 window.cb_fasta.addItem(fasta_path.name)
                 window.cb_hdf5.clear()
                 window.cb_hdf5.addItem(network_path.name)
-                method_globals = window.run_histogram.__globals__
 
                 # global/alignment_length is the positive control for the recorder.
                 expected = {
@@ -360,15 +267,12 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                     window.cb_score_mode.setCurrentText(score)
                     window.cb_norm_mode.setCurrentText(normalization)
                     assert window.cb_norm_mode.currentText() == normalization, normalization
-                    for run in (window.run_statistics, window.run_histogram):
-                        indexed.clear()
-                        with mock.patch("h5py.File", RecordingFile), mock.patch.dict(
-                            method_globals, {"ScoreHistogramDialog": FakeHistogramDialog}
-                        ):
-                            run()
-                        context = (score, normalization, run.__name__)
-                        assert "successfully" in window.tip_panel.text(), (context, window.tip_panel.text())
-                        assert indexed & {"g_len", "l_len"} == lengths, (context, sorted(indexed))
+                    indexed.clear()
+                    with mock.patch("h5py.File", RecordingFile):
+                        window.run_statistics()
+                    context = (score, normalization)
+                    assert "successfully" in window.tip_panel.text(), (context, window.tip_panel.text())
+                    assert indexed & {"g_len", "l_len"} == lengths, (context, sorted(indexed))
 
             window.close()
             app.processEvents()
@@ -385,7 +289,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
         )
         self.assertIn("LENGTH_COLUMNS_OK", completed.stdout)
 
-    def test_dialog_and_save_run_lifecycle(self):
+    def test_save_and_run_lifecycle(self):
         script = textwrap.dedent(
             f"""
             import os
@@ -405,9 +309,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             sys.path.insert(0, str(root))
 
             from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
-            from PySide6.QtCore import QTimer, qInstallMessageHandler
-            from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
-            from EMAPSSN_Config import build_score_histogram_figure
+            from PySide6.QtWidgets import QApplication, QMessageBox
             from tests.config_gui_loader import load_config_namespace, open_config_window
             app = QApplication.instance() or QApplication([])
 
@@ -415,7 +317,6 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             namespace = load_config_namespace()
             home = tempfile.TemporaryDirectory()
             window = open_config_window(namespace["ConfigGUI"], home.name)
-            dialog_type = namespace["ScoreHistogramDialog"]
 
             def settle_cache_discovery():
                 # Background input hashing must finish first, or its late
@@ -497,35 +398,6 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                     critical.assert_called_once()
                     assert "exec failed" in critical.call_args.args[2]
 
-            messages = []
-            previous_handler = qInstallMessageHandler(
-                lambda mode, context, message: messages.append(message)
-            )
-            dialog_result = []
-
-            def open_histogram():
-                figure = build_score_histogram_figure(
-                    [0.1, 0.2, 0.3],
-                    0.2,
-                    is_evalue=False,
-                    norm_mode="alignment_length",
-                )
-                dialog = dialog_type(figure, window)
-                QTimer.singleShot(0, dialog.accept)
-                dialog_result.append(dialog.exec())
-                dialog.release_figure()
-                dialog.deleteLater()
-                app.quit()
-
-            try:
-                QTimer.singleShot(0, open_histogram)
-                app.exec()
-            finally:
-                qInstallMessageHandler(previous_handler)
-
-            assert dialog_result == [QDialog.DialogCode.Accepted]
-            assert not any("event loop is already running" in message.lower() for message in messages), messages
-
             window.close()
             app.processEvents()
             home.cleanup()
@@ -540,7 +412,6 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
             f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
         )
         self.assertIn("OFFSCREEN_CONFIG_OK", completed.stdout)
-        self.assertNotIn("event loop is already running", completed.stderr.lower())
 
 
 if __name__ == "__main__":
