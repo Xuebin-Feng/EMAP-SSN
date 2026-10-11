@@ -42,13 +42,14 @@ AMD_GFX_PATTERNS = (
     ("gfx1100", (r"rx\s*7900\s*(?:xtx|xt|gre)", r"w7900", r"w7800")),
     # The trailing \b keeps the laptop RX 7700S, a gfx1102 part, out of gfx1101.
     ("gfx1101", (r"rx\s*7800\s*xt", r"rx\s*7700(?:\s*xt)?\b", r"w7700", r"v710")),
-    # AMD's ROCm 7.14 list names only the RX 7600; the RX 7600 XT and the laptop
-    # RX 7700S are the same gfx1102 silicon (Navi 33), and the installer
-    # validates the backend before use. lspci names a PCI ID, not a product:
-    # the pci.ids in Ubuntu 24.04 (2024.03.31) call every 1002:7480 card
+    # AMD's ROCm 7.14 list names only the RX 7600; the RX 7600 XT, the laptop
+    # RX 7600S, RX 7600M XT and RX 7700S, and the Radeon PRO W7600 are the same
+    # gfx1102 silicon (Navi 33), and the installer validates the backend before
+    # use. lspci names a PCI ID, not a product: the pci.ids in Ubuntu 24.04
+    # (2024.03.31) call every 1002:7480 card
     # "Navi 33 [Radeon RX 7700S/7600/7600S/7600M XT/PRO W7600]", so there the
-    # RX 7700S pattern is the one that maps an RX 7600, 7600 XT or PRO W7600.
-    ("gfx1102", (r"rx\s*7600(?:\s*xt)?\b", r"rx\s*7700s\b")),
+    # RX 7700S and PRO W7600 patterns are what map an RX 7600 or 7600 XT.
+    ("gfx1102", (r"rx\s*7600(?:\s*xt|s|m\s*xt)?\b", r"rx\s*7700s\b", r"w7600")),
     ("gfx1030", (r"w6800", r"v620")),
     ("gfx1103", (r"radeon\s*780m",)),
     ("gfx1150", (r"radeon\s*(?:890m|880m)", r"ryzen\s*ai\s*9\s*hx\s*(?:375|370)")),
@@ -245,6 +246,27 @@ def amd_gfx_target(names: Iterable[str]) -> str | None:
     return None
 
 
+def _amd_name_looks_discrete(name: str) -> bool:
+    text = name.lower()
+    return bool(re.search(r"\b(?:rx|pro\s+w|v)\s*\d", text)) or "radeon ai pro" in text
+
+
+def _amd_device_target(name: str, processors: list[str]) -> str | None:
+    """Return one AMD display device's GFX target, or None when it is unknown.
+
+    The device's own name decides whenever the table knows it. Windows names
+    an APU's iGPU generically ("AMD Radeon(TM) Graphics"), so for a name the
+    table does not know, the CPU names identify the APU instead ("Ryzen AI 9
+    HX 370" is gfx1150). A name with a discrete model number never takes them:
+    the CPU name describes the iGPU, so an RX, PRO W or V card missing from
+    the table would take the iGPU's target and be classed integrated.
+    """
+    target = amd_gfx_target([name])
+    if target or _amd_name_looks_discrete(name):
+        return target
+    return amd_gfx_target(processors)
+
+
 def _device_kind(vendor: str, name: str, gfx_target: str | None, processors: list[str]) -> str:
     text = name.lower()
     if vendor == "NVIDIA":
@@ -252,7 +274,7 @@ def _device_kind(vendor: str, name: str, gfx_target: str | None, processors: lis
     if vendor == "AMD":
         if gfx_target in INTEGRATED_AMD_TARGETS or re.search(r"radeon\s+\d{3,4}m", text):
             return "integrated"
-        if re.search(r"\b(?:rx|pro\s+w|v)\s*\d", text) or "radeon ai pro" in text:
+        if _amd_name_looks_discrete(name):
             return "discrete"
     if vendor == "INTEL":
         # Numbered integrated Arc GPUs do not require a CPU-name probe. In
@@ -277,7 +299,7 @@ def _windows_inventory(processors: list[str]) -> list[dict[str, Any]]:
         pnp_id = str(row.get("PNPDeviceID") or "")
         pci_id = _pci_id(pnp_id)
         vendor = _vendor(name, pci_id)
-        gfx = amd_gfx_target([name, *processors]) if vendor == "AMD" else None
+        gfx = _amd_device_target(name, processors) if vendor == "AMD" else None
         devices.append(
             {
                 "id": pnp_id or pci_id or f"windows:{index}",
@@ -300,7 +322,7 @@ def _inventory_from_names(names: Iterable[str], processors: list[str], source: s
         name = str(name_value)
         pci_id = _pci_id(name)
         vendor = _vendor(name, pci_id)
-        gfx = amd_gfx_target([name, *processors]) if vendor == "AMD" else None
+        gfx = _amd_device_target(name, processors) if vendor == "AMD" else None
         devices.append({
             "id": f"{source}:{index}", "name": name, "vendor": vendor,
             "pci_id": pci_id, "driver_version": None, "driver": None,
@@ -322,7 +344,7 @@ def _linux_inventory(processors: list[str]) -> list[dict[str, Any]]:
             address, name = match.groups()
             pci_id = _pci_id(name)
             vendor = _vendor(name, pci_id)
-            gfx = amd_gfx_target([name, *processors]) if vendor == "AMD" else None
+            gfx = _amd_device_target(name, processors) if vendor == "AMD" else None
             current = {
                 "id": address,
                 # lspci -nn ends the name with "[vendor:device]", then "(rev xx)"

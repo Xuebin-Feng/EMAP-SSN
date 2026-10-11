@@ -388,6 +388,10 @@ class GPUDetectionTests(unittest.TestCase):
             "AMD Radeon RX 7600 XT": "gfx1102",
             # The laptop RX 7700S is that silicon too, not an RX 7700 (gfx1101).
             "AMD Radeon RX 7700S": "gfx1102",
+            # So are the laptop RX 7600S and RX 7600M XT and the PRO W7600.
+            "AMD Radeon RX 7600S": "gfx1102",
+            "AMD Radeon RX 7600M XT": "gfx1102",
+            "AMD Radeon PRO W7600": "gfx1102",
             "AMD Radeon PRO W6800": "gfx1030",
             "AMD Radeon 780M Graphics": "gfx1103",
             "AMD Radeon 890M Graphics": "gfx1150",
@@ -401,9 +405,9 @@ class GPUDetectionTests(unittest.TestCase):
                 self.assertEqual(report["gfx_target"], target)
 
     def test_windows_rx_7700s_beside_a_radeon_780m_keeps_its_own_target(self):
-        # A Framework Laptop 16. Every AMD device is matched against the CPU
-        # names too, and this one names the 780M (gfx1103), so a 7700S the table
-        # did not recognize would take the iGPU's target.
+        # A Framework Laptop 16. Its CPU name names the 780M (gfx1103); the
+        # 7700S's own name decides its target, and the CPU names stand in only
+        # for an AMD GPU with a generic name, such as an APU's iGPU.
         report = self._detect(
             controllers=["AMD Radeon RX 7700S", "AMD Radeon 780M Graphics"],
             processors=["AMD Ryzen 9 7940HS w/ Radeon 780M Graphics"],
@@ -415,6 +419,57 @@ class GPUDetectionTests(unittest.TestCase):
         self.assertEqual(devices["AMD Radeon 780M Graphics"], ("gfx1103", "integrated"))
         self.assertEqual(report["backend"], Install_Dependencies.ROCM_BACKEND)
         self.assertEqual(report["gfx_target"], "gfx1102")
+
+    def test_windows_amd_dgpu_beside_an_apu_never_takes_the_igpu_target(self):
+        # These CPU names name a 780M (gfx1103), which is how a generically
+        # named iGPU gets its target. A discrete card used to be matched
+        # against them too: one the table did not know took gfx1103, was
+        # classed integrated and became a ROCm candidate with the iGPU's
+        # kernels. It now keeps its own target, or none when the table does
+        # not know it.
+        laptop = "AMD Ryzen 9 7940HS w/ Radeon 780M Graphics"
+        desktop = "AMD Ryzen 7 8700G w/ Radeon 780M Graphics"
+        igpu = "AMD Radeon(TM) Graphics"
+        cases = [
+            ("AMD Radeon RX 7600S", laptop, "gfx1102"),
+            ("AMD Radeon RX 7600M XT", laptop, "gfx1102"),
+            ("AMD Radeon PRO W7600", desktop, "gfx1102"),
+            # Not in the table: an RDNA 2 card and a Navi 33 one AMD does not list.
+            ("AMD Radeon RX 6600", desktop, None),
+            ("AMD Radeon PRO W7500", desktop, None),
+        ]
+        for dgpu, cpu, target in cases:
+            rows = [{"Name": name, "DriverVersion": "32.0.21013.1000"} for name in (dgpu, igpu)]
+            with mock.patch.object(Detect_GPU, "_windows_cim", return_value=rows):
+                cim_devices = Detect_GPU._windows_inventory([cpu])
+            report = self._detect(controllers=[dgpu, igpu], processors=[cpu])
+            for source, devices in (("Win32_VideoController", cim_devices), ("names", report["devices"])):
+                with self.subTest(dgpu=dgpu, source=source):
+                    found = {device["name"]: (device["architecture"], device["kind"]) for device in devices}
+                    self.assertEqual(found, {dgpu: (target, "discrete"), igpu: ("gfx1103", "integrated")})
+            with self.subTest(dgpu=dgpu, source="candidates"):
+                # ROCm goes to the dGPU when it is known, else to the iGPU alone.
+                ids = {device["name"]: device["id"] for device in report["devices"]}
+                rocm = report["backend_candidates"][0]
+                self.assertEqual(rocm["backend"], Install_Dependencies.ROCM_BACKEND)
+                self.assertEqual(rocm["gfx_target"], target or "gfx1103")
+                self.assertEqual(rocm["device_ids"], [ids[dgpu] if target else ids[igpu]])
+
+    def test_windows_generic_apu_igpu_takes_its_target_from_the_cpu_name(self):
+        # Windows may call an APU's iGPU just "AMD Radeon(TM) Graphics"; only
+        # the CPU name tells which GPU it is.
+        cases = {
+            "AMD Ryzen AI 9 HX 370 w/ Radeon 890M": "gfx1150",
+            "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S": "gfx1151",
+            "AMD Ryzen AI 7 350 w/ Radeon 860M": "gfx1152",
+        }
+        for cpu, target in cases.items():
+            with self.subTest(cpu=cpu):
+                report = self._detect(controllers=["AMD Radeon(TM) Graphics"], processors=[cpu])
+                device = report["devices"][0]
+                self.assertEqual((device["architecture"], device["kind"]), (target, "integrated"))
+                self.assertEqual(report["backend"], Install_Dependencies.ROCM_BACKEND)
+                self.assertEqual(report["gfx_target"], target)
 
     def test_unknown_windows_amd_uses_intel_if_available_otherwise_cpu(self):
         mixed = self._detect(controllers=["AMD Radeon Graphics", "Intel Arc A770"])

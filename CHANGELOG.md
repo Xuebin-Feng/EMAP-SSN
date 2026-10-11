@@ -597,13 +597,15 @@ still change before version 1.0.0.
 - `subcluster` numbers subclusters by size, as `cluster` numbers clusters:
   `subcluster_N_1` is the largest, and equal sizes are ordered by their lowest member
   node. They used to be numbered in the order they were found.
-- On Windows 11 25H2 or newer, the AMD Radeon RX 7600 XT and the laptop RX 7700S now get
-  the ROCm backend, like the RX 7600, whose gfx1102 chip they share. AMD's ROCm 7.14
-  support list names only the RX 7600, so the 7600 XT ran on the CPU. The 7700S was
-  taken for an RX 7700, a gfx1101 GPU, so the wrong ROCm build was installed, failed
-  validation and left it on the CPU. On such a PC, the first launch after updating
-  installs ROCm and keeps it if it passes validation; other PCs are unaffected. For
-  Linux, see the Ubuntu 24.04 entry under Fixed.
+- On Windows 11 25H2 or newer, the AMD Radeon RX 7600 XT, the laptop RX 7600S, RX 7600M
+  XT and RX 7700S, and the Radeon PRO W7600 now get the ROCm backend, like the RX 7600,
+  whose gfx1102 chip they share. AMD's ROCm 7.14 support list names only the RX 7600, so
+  the others ran on the CPU or, beside some AMD processors, took the target of the
+  processor's graphics (see Fixed). The 7700S was taken for an RX 7700, a gfx1101 GPU,
+  so the wrong ROCm build was installed, failed validation and left it on the CPU. On
+  such a PC, the first launch after updating installs ROCm and keeps it if it passes
+  validation; other PCs are unaffected. For Linux, see the Ubuntu 24.04 entry under
+  Fixed.
 - Commands in an Agent reply no longer all run automatically. Commands that only change
   the view or the session's in-memory state still do. `save`, `select save`, `print`,
   `export`, `logo`, `label` (except `label reset`), `esmfold`, `run`, `alignment`, and
@@ -1083,6 +1085,19 @@ still change before version 1.0.0.
   lookup fail with `TypeError`, `ValueError` or `OverflowError`: the GUI's device
   options, embedding, alignment and layout generation. Such a file now counts as
   unvalidated, as an unreadable one already did, and every visible device is offered.
+- On Windows, an AMD graphics card that GPU detection did not recognize took the GFX
+  target of the processor's own graphics whenever the processor's name gave one: an RX
+  7600S beside a Ryzen 9 7940HS w/ Radeon 780M Graphics, or a Radeon PRO W7600 beside
+  a Ryzen 7 8700G, became gfx1103 integrated graphics. ROCm was then installed for the
+  card with the 780M's build, which has no kernels for it, and validation could pass
+  on the 780M instead. A GPU's own name now decides its target. The processor's name
+  is used only for a generically named GPU such as "AMD Radeon(TM) Graphics", which is
+  how Windows may name the processor's graphics. A card GPU detection does not
+  recognize is now a discrete GPU without a target and gets no ROCm, though the
+  processor's graphics still can; the RX 7600S, RX 7600M XT and PRO W7600 are now
+  recognized (see Changed). On such a PC, the first launch after updating installs the
+  ROCm build for a now-recognized card, and otherwise keeps the installed backend once
+  it validates.
 - The Viewer's instruction line (`[ENTER] Command | [LeftClick] Highlight | …`) is
   wider than the default 1200 × 800 window in English, so its end ran under the
   sidebar's toggle and past the window's edge. The actions now open on a card from a
