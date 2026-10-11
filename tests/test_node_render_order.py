@@ -742,6 +742,40 @@ class ClicksWhileTypingTests(unittest.TestCase):
                 self.assertEqual({key: state[key] for key in changes}, changes)
                 self.assertEqual(viewer.console_text.text, f"{self.COMMAND_LINE}  ·  {line}" if line else "")
 
+    def test_a_node_drag_tells_the_sheet_its_selection_once(self):
+        # A drag moves the selection without changing it: the Meta Data sheet
+        # hears of it on press, or in low resource mode on release, and not on
+        # each move or each turn of the wheel that rotates the dragged nodes.
+        mouse = self.mouse
+        press, release = mouse(50, 0, button=2), mouse(80, 0, button=2)
+        moves = [mouse(60, 0, buttons=[2]), mouse(70, 0, buttons=[2])]
+        rotate = SimpleNamespace(pos=np.array([70.0, 0.0]), delta=(0.0, 1.0), buttons=[2],
+                                 modifiers=[], handled=False)
+        for low_resource, ctrl in ((False, False), (True, False), (False, True), (True, True)):
+            viewer = self.make_viewer(typing=False)
+            del viewer.update_selection_visual  # The real one, which tells the web pages.
+            viewer.update_edges = mock.Mock()
+            viewer.selected_indices = [1]
+            sent = []
+            viewer.broadcast_event = lambda event, sent=sent: sent.append(event)
+            modifiers = ["Control"] if ctrl else []
+            with self.subTest(low_resource=low_resource, ctrl=ctrl),                     mock.patch.object(cfg, "NODE_SIZE", 10),                     mock.patch.object(cfg, "UMAP_MODE", False, create=True),                     mock.patch.object(cfg, "LOW_RESOURCE_MODE", low_resource),                     mock.patch("builtins.print"):
+                viewer.on_mouse_press(SimpleNamespace(**{**vars(press), "modifiers": modifiers}))
+                at_press = len(sent)
+                for move in moves:
+                    viewer.on_mouse_move(SimpleNamespace(**vars(move)))
+                viewer.on_mouse_wheel(SimpleNamespace(**vars(rotate)))
+                viewer.on_mouse_release(SimpleNamespace(**vars(release)))
+                selections = [event for event in sent if event["type"] == "selection_changed"]
+                if ctrl:
+                    # Ctrl takes the node out and starts no drag: the sheet hears at once.
+                    self.assertEqual(selections, [{"type": "selection_changed", "indices": []}])
+                    self.assertEqual(at_press, 1)
+                else:
+                    self.assertEqual(selections, [{"type": "selection_changed", "indices": [1]}])
+                    self.assertEqual(at_press, 0 if low_resource else 1)
+                    self.assertNotEqual(viewer.pos[1, 0], 50.0)  # The node did move.
+
     def test_the_next_key_shows_the_command_alone_and_enter_runs_it(self):
         viewer = self.make_viewer(typing=True)
         self.run_gesture(viewer, self.GESTURES["right-drag a box"])

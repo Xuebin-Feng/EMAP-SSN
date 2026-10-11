@@ -247,27 +247,24 @@ class DisplayScalingTests(unittest.TestCase):
         viewer.position_slider_overlay.assert_called_once_with()
         viewer.reposition_expand_btn.assert_called_once_with()
 
-    def test_bottom_right_status_stack_sits_above_the_view_width_box(self):
+    def test_bottom_right_status_stack_sits_evenly_above_the_view_width_box(self):
         from EMAPSSN_Viewer import SLIDER_ROW_BOTTOM, SLIDER_ROW_HEIGHT
-        from desktop.Viewer_Widgets import VIEW_WIDTH_BOX_HEIGHT
 
         viewer = MainViewer.__new__(MainViewer)
         viewer.hud_layout = {
             "status_x_offset": 10.0,
-            "status_box_gap": 8.0,
-            "status_line_spacing": 32.0,
+            "status_line_spacing": 38.0,
         }
         size = (1000.0, 800.0)
 
         hidden_pos = viewer._status_hud_position(0, size)
         property_pos = viewer._status_hud_position(1, size)
 
-        # The box is centred on the slider row; Hidden Nodes ends 8 px above it,
-        # and the metadata property a line and more above Hidden Nodes.
-        box_top = 800.0 - SLIDER_ROW_BOTTOM - SLIDER_ROW_HEIGHT / 2.0 - VIEW_WIDTH_BOX_HEIGHT / 2.0
-        self.assertEqual(hidden_pos, (990.0, box_top - 8.0))
-        self.assertEqual(property_pos, (990.0, box_top - 8.0 - 32.0))
-        self.assertGreaterEqual(hidden_pos[1] - property_pos[1], 30.0)
+        # The box is centred on the slider row; the middles of Hidden Nodes and
+        # of the metadata property are one and two steps above that.
+        row = 800.0 - SLIDER_ROW_BOTTOM - SLIDER_ROW_HEIGHT / 2.0
+        self.assertEqual(hidden_pos, (990.0, row - 38.0))
+        self.assertEqual(property_pos, (990.0, row - 76.0))
 
     def test_vispy_text_scaling_includes_background_job_status(self):
         viewer = MainViewer.__new__(MainViewer)
@@ -290,8 +287,8 @@ class DisplayScalingTests(unittest.TestCase):
         viewer = MainViewer.__new__(MainViewer)
         viewer.hud_layout = {
             "status_x_offset": 10.0,
-            "status_box_gap": 8.0,
-            "status_line_spacing": 32.0,
+            "status_line_spacing": 38.0,
+            "status_anchor_y": "center",
         }
         viewer.hud_displays = {}
         viewer.metadata = {"Length": {"values": [125]}}
@@ -310,13 +307,14 @@ class DisplayScalingTests(unittest.TestCase):
             display.pos_fn(size),
             viewer._status_hud_position(1, size),
         )
+        # Drawn as Hidden Nodes is, so its position is the middle of its line too.
+        self.assertEqual(display.anchor_y, "center")
 
     def test_zero_hidden_nodes_and_view_width_use_configured_text_color(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.hud_layout = {
             "status_x_offset": 10.0,
-            "status_box_gap": 8.0,
-            "status_line_spacing": 32.0,
+            "status_line_spacing": 38.0,
         }
         viewer.canvas = FakeCanvas(size=(1000, 800))
         viewer.view = mock.Mock()

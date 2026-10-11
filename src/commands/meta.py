@@ -233,7 +233,8 @@ def run(viewer, args):
                         name='meta_display',
                         pos_fn=lambda size: main_viewer._status_hud_position(1, size),
                         anchor_x='right',
-                        anchor_y='bottom'
+                        # As Hidden Nodes below it: the position is the bottom of the line.
+                        anchor_y=main_viewer.hud_layout["status_anchor_y"],
                     )
                 
                 def on_node_clicked(self, node_idx):

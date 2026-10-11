@@ -156,14 +156,25 @@ still change before version 1.0.0.
   now a spin box, level with the threshold slider. Type a width and press Enter, or use
   its arrows, Up/Down or the wheel over it, 1.25 times wider or narrower a step, and the
   view zooms about its centre as `zoom N` does, within the same limits; Esc puts the box
-  back. It follows the view's width as the view changes. Hidden Nodes sits just above
-  it, and a metadata value `meta` shows sits above that. `zoom` stays, for scripts, the
-  agent and MCP.
+  back. It follows the view's width as the view changes. Hidden Nodes and a metadata
+  value `meta` shows stack above it, the three evenly spaced. `zoom` stays, for
+  scripts, the agent and MCP.
 - **The mouse wheel zooms smoothly.** A notch zooms as far as before, about a fifth of
   the view, but over a few frames, most of it in the first tenth of a second, instead of
   in one jump. Quick notches add up, and a notch the other way takes one back. The point
   under the cursor stays put and the width limits still hold; a pan, `zoom`, the View
-  Width box or a print ends the zoom where it is.
+  Width box or a print ends the zoom where it is. Low resource mode zooms at once, as
+  before.
+- **Low resource mode skips the updates in between.** While the threshold slider is
+  dragged its number follows, and the edges are redrawn once, when it is let go; a click
+  on its track or a key still redraws them at once. The sidebar opens and closes at once,
+  without sliding. A right-button drag of nodes tells the Meta Data sheet its selection
+  once, on release, as a box selection already did. Without low resource mode the
+  slider's edges follow the drag and the sidebar slides, as before.
+- **Dragging nodes no longer resends the selection to the Meta Data sheet.** A drag moves
+  the selection without changing it, so the sheet hears of it once, when the drag
+  starts, instead of refiltering its rows at every mouse move and every turn of the wheel
+  that rotates the dragged nodes.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts

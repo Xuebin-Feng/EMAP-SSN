@@ -2144,7 +2144,7 @@ Command-line usage:
         <location line="+72"/>
         <location line="+16"/>
         <location filename="../../../commands/meta.py" line="+166"/>
-        <location line="+114"/>
+        <location line="+115"/>
         <location filename="../../../commands/print.py" line="-76"/>
         <location line="+51"/>
         <location line="+15"/>
@@ -2167,7 +2167,7 @@ Command-line usage:
         <location filename="../../../commands/group.py" line="+138"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
-        <location filename="../../../commands/meta.py" line="-132"/>
+        <location filename="../../../commands/meta.py" line="-133"/>
         <location filename="../../../commands/offset.py" line="+92"/>
         <location filename="../../../commands/print.py" line="-138"/>
         <location filename="../../../commands/query.py" line="-260"/>
@@ -3064,7 +3064,7 @@ Command-line usage:
         <translation type="unfinished">错误：当前元数据中找不到属性“{property}”。可用的属性：{available}。</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+55"/>
         <source>Metadata display enabled for property: &apos;{property}&apos;</source>
         <translation type="unfinished">已为属性“{property}”启用元数据显示</translation>
     </message>
@@ -3887,7 +3887,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1175"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1180"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -3912,7 +3912,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+701"/>
+        <location line="+720"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -3953,7 +3953,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+335"/>
+        <location line="+337"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -3973,7 +3973,7 @@ Command-line usage:
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+263"/>
+        <location line="+266"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -4015,7 +4015,7 @@ Command-line usage:
         <translation type="unfinished">大小写有歧义：{names}</translation>
     </message>
     <message>
-        <location filename="../../../commands/meta.py" line="-106"/>
+        <location filename="../../../commands/meta.py" line="-107"/>
         <location filename="../../../Metadata_Core.py" line="+2"/>
         <source>none</source>
         <translation type="unfinished">无</translation>
@@ -8101,7 +8101,7 @@ Fedora / RHEL：
         <translation type="unfinished">ESMFold 启动错误</translation>
     </message>
     <message>
-        <location filename="../../../commands/meta.py" line="+28"/>
+        <location filename="../../../commands/meta.py" line="+29"/>
         <location line="+4"/>
         <location line="+12"/>
         <source>N/A</source>
@@ -8133,7 +8133,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2254"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2278"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8142,7 +8142,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-120"/>
+        <location line="-121"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -8152,12 +8152,12 @@ Fedora / RHEL：
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="+38"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1676"/>
+        <location line="+1695"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

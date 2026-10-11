@@ -282,6 +282,8 @@ class ViewWidthBoxTests(unittest.TestCase):
                 layout = box.layout()
                 self.assertEqual([layout.itemAt(index).widget() for index in range(layout.count())],
                                  [box.before, box.spin_box, box.after])
+                # The text keeps clear of the box, not crowding it.
+                self.assertGreaterEqual(layout.spacing(), 10)
 
 
 class SidebarWidgetTests(unittest.TestCase):

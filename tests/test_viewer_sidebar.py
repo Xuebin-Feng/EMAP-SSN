@@ -103,6 +103,22 @@ class SidebarSlideTests(unittest.TestCase):
         self.assertTrue(viewer.right_panel.isHidden())
         self.assert_placed(viewer, 0)
 
+    def test_low_resource_mode_switches_the_sidebar_at_once(self):
+        import EMAPSSN_Config as cfg
+
+        viewer = self.make_viewer()
+        self.assertTrue(viewer._sidebar_can_slide())
+        with mock.patch.object(cfg, "LOW_RESOURCE_MODE", True):
+            self.assertFalse(viewer._sidebar_can_slide())
+            viewer.set_sidebar_visible(True)
+            self.assertIsNone(viewer._sidebar_slide_width)
+            self.assertFalse(viewer.right_panel.isHidden())
+            self.assert_placed(viewer, viewer._panel_w)
+            viewer.toggle_sidebar()
+            self.assertIsNone(viewer._sidebar_slide_width)
+            self.assertTrue(viewer.right_panel.isHidden())
+            self.assert_placed(viewer, 0)
+
     def test_opening_slides_the_sidebar_in_and_the_hud_follows(self):
         viewer = self.make_viewer()
         started = time.monotonic()
@@ -184,7 +200,7 @@ class SliderOverlayTests(unittest.TestCase):
         viewer = MainViewer.__new__(MainViewer)
         viewer.canvas = SimpleNamespace(native=QWidget(), size=CANVAS_SIZE)
         self.addCleanup(viewer.canvas.native.deleteLater)
-        viewer.hud_layout = {"status_x_offset": 10.0, "status_box_gap": 8.0, "status_line_spacing": 32.0}
+        viewer.hud_layout = {"status_x_offset": 10.0, "status_line_spacing": 38.0}
         viewer._hud_timer = mock.Mock()
         viewer.current_slider_threshold = 3.74
         with mock.patch.object(MainViewer, "on_slider_value_changed"):
@@ -203,9 +219,13 @@ class SliderOverlayTests(unittest.TestCase):
                 self.assertAlmostEqual(box.y() + box.height() / 2, row.y() + row.height() / 2, delta=0.5)
                 # The slider ends a clear gap before it.
                 self.assertGreaterEqual(box.x() - (row.x() + row.width()), 16)
-                # Hidden Nodes ends above the box, clear of it.
-                hidden_bottom = viewer._status_hud_position(0, (CANVAS_SIZE[0] - room, CANVAS_SIZE[1]))[1]
-                self.assertLessEqual(hidden_bottom, box.y() - 4)
+                # Hidden Nodes and the metadata property stack above it, the
+                # box's middle and theirs evenly spaced.
+                room_size = (CANVAS_SIZE[0] - room, CANVAS_SIZE[1])
+                hidden = viewer._status_hud_position(0, room_size)[1]
+                meta = viewer._status_hud_position(1, room_size)[1]
+                self.assertAlmostEqual((box.y() + box.height() / 2) - hidden, hidden - meta, delta=0.5)
+                self.assertGreaterEqual(hidden - meta, 30)
         self.assertEqual(viewer.view_width_box.before.text(), "View Width:")
         self.assertFalse(viewer.view_width_box.after.isVisibleTo(viewer.view_width_box))
 
@@ -224,6 +244,36 @@ class SliderOverlayTests(unittest.TestCase):
         with mock.patch("commands.zoom.set_view_width", side_effect=error), mock.patch("builtins.print"):
             spin_box.setValue(600.0)
         viewer._show_click_status.assert_called_once_with(error.args[0])
+
+    def test_low_resource_mode_redraws_the_edges_when_the_slider_is_let_go(self):
+        import EMAPSSN_Config as cfg
+
+        for low_resource in (False, True):
+            viewer = MainViewer.__new__(MainViewer)
+            viewer.canvas = SimpleNamespace(native=QWidget(), size=CANVAS_SIZE)
+            self.addCleanup(viewer.canvas.native.deleteLater)
+            viewer.hud_layout = {"status_x_offset": 10.0, "status_line_spacing": 38.0}
+            viewer._hud_timer = mock.Mock()
+            viewer.min_threshold, viewer.max_threshold = 0.0, 100.0
+            viewer.current_slider_threshold = 0.0
+            viewer.update_edges = mock.Mock()
+            viewer._build_slider_overlay()
+            slider = viewer.slider
+            with self.subTest(low_resource=low_resource), \
+                    mock.patch.object(cfg, "LOW_RESOURCE_MODE", low_resource):
+                # A drag: the number follows it; the edges follow it, or wait for the release.
+                slider.setSliderDown(True)
+                for value in (100, 200, 300):
+                    slider.setValue(value)
+                self.assertEqual(viewer.slider_label.text(), viewer.format_sig_figs(30.0))
+                self.assertEqual(viewer.update_edges.call_count, 0 if low_resource else 3)
+                slider.setSliderDown(False)
+                self.assertEqual(viewer.update_edges.call_count, 1 if low_resource else 3)
+                self.assertEqual(viewer.current_slider_threshold, 30.0)
+                # A click on the track or a key moves it at once either way.
+                viewer.update_edges.reset_mock()
+                slider.setValue(400)
+                viewer.update_edges.assert_called_once_with()
 
     def test_the_controls_button_starts_the_threshold_slider(self):
         viewer = self.make_viewer()

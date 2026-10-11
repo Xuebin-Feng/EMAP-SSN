@@ -376,6 +376,8 @@ class SidebarButton(QPushButton):
 VIEW_WIDTH_STEP = 1.25
 # The box's height, in px: the status texts above it go by it.
 VIEW_WIDTH_BOX_HEIGHT = 28
+# Between the box and the text either side of it, in px.
+VIEW_WIDTH_LABEL_GAP = 12
 # The widest width its field shows without scrolling; with no limit to keep
 # to (no nodes), also the widest it takes.
 VIEW_WIDTH_ROOM = 999999.9
@@ -463,7 +465,7 @@ class ViewWidthBox(QWidget):
         before, _field, after = template.partition("{width}")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(6)
+        layout.setSpacing(VIEW_WIDTH_LABEL_GAP)
         self.before = QLabel(before.strip())
         self.spin_box = ViewWidthSpinBox()
         self.after = QLabel(after.strip())

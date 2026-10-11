@@ -175,7 +175,7 @@ from desktop.Desktop_App import (
 from desktop.Studio_Theme import TOKENS, set_role, studio_icon
 from desktop.Viewer_Zoom import SmoothWheelZoom
 from desktop.Viewer_Widgets import (
-    ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, VIEW_WIDTH_BOX_HEIGHT, ViewWidthBox,
+    ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ViewWidthBox,
 )
 from desktop.Viewer_State import (
     prepare_network,
@@ -742,12 +742,14 @@ class MainViewer:
 
             # 4. Bottom-right status stack, above the View Width box (level with
             #    the threshold slider), from bottom to top: Hidden Nodes, then
-            #    the selected metadata property.
+            #    the selected metadata property. The box's row and the two lines
+            #    are evenly spaced, middle to middle, so each position is the
+            #    middle of its line. ("center" because VisPy's "top" and
+            #    "bottom" are flipped on this canvas, whose y grows downward.)
             "status_x_offset": 10.0,       # Distance from the right edge of the window, the box's too
-            "status_box_gap": 8.0,         # Between the View Width box and Hidden Nodes
-            "status_line_spacing": 32.0,   # Hidden Nodes to the metadata property, bottom to bottom
+            "status_line_spacing": 34.0,   # Middle to middle; leaves ~15 px between Hidden Nodes and the box
             "status_anchor_x": "right",
-            "status_anchor_y": "bottom"
+            "status_anchor_y": "center"
         }
         
         self.input_buffer = ""
@@ -1013,8 +1015,10 @@ class MainViewer:
             return
         camera = self.view.camera
         # VisPy's zoom a notch, about the point under the cursor, played out
-        # over a few frames (desktop.Viewer_Zoom) rather than in one.
-        if event.type == 'mouse_wheel' and not event.handled and camera.interactive:
+        # over a few frames (desktop.Viewer_Zoom) rather than in one; low
+        # resource mode zooms at once, sparing the frames between.
+        if (event.type == 'mouse_wheel' and not event.handled and camera.interactive
+                and not getattr(cfg, 'LOW_RESOURCE_MODE', False)):
             center = camera._scene_transform.imap(event.pos)
             self._wheel_zoom.add((1 + camera.zoom_factor) ** (-event.delta[1] * 30), center)
             event.handled = True
@@ -1051,7 +1055,8 @@ class MainViewer:
         self.slider.setValue(0)
         self.slider.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.slider.valueChanged.connect(self.on_slider_value_changed)
-        
+        self.slider.sliderReleased.connect(self._on_slider_released)
+
         overlay_layout.addWidget(self.slider_label)
         overlay_layout.addWidget(self.slider)
         
@@ -1213,16 +1218,16 @@ class MainViewer:
     def _status_hud_position(self, line_index, size=None):
         """Return one position in the bottom-right HUD stack above the View Width box.
 
-        Line 0 is Hidden Nodes, line 1 the selected metadata property; each is
-        the bottom right of its text.
+        Line 0 is Hidden Nodes, line 1 the selected metadata property. Each is
+        the right end and middle of its line, a status_line_spacing step above
+        the line, or the View Width box's row, below it.
         """
         if size is None:
             size = self.canvas.size
         cfg_hud = self.hud_layout
-        box_top = _slider_row_centre(size[1]) - VIEW_WIDTH_BOX_HEIGHT / 2.0
         return (
             size[0] - cfg_hud["status_x_offset"],
-            box_top - cfg_hud["status_box_gap"] - line_index * cfg_hud["status_line_spacing"],
+            _slider_row_centre(size[1]) - (line_index + 1) * cfg_hud["status_line_spacing"],
         )
 
     def _apply_vispy_text_scaling(self):
@@ -1962,16 +1967,21 @@ class MainViewer:
         self.selection_highlight.set_gl_state('translucent', depth_test=False)
         self.selection_highlight.visible = False
 
-    def update_selection_visual(self):
-        """Triggers a node update to draw selection edges and ensures the old highlight is hidden."""
+    def update_selection_visual(self, broadcast=True):
+        """Triggers a node update to draw selection edges and ensures the old highlight is hidden.
+
+        broadcast=False leaves the web pages, such as the Meta Data sheet, to
+        hear of the selection later, as a low-resource drag does on release.
+        """
         if hasattr(self, 'selection_highlight'):
             self.selection_highlight.visible = False
-            
+
         self.update_nodes()
         self.update_edges()
-        
+
         # Broadcast the selection change to SSE clients
-        self.broadcast_event({"type": "selection_changed", "indices": self.selected_indices})
+        if broadcast:
+            self.broadcast_event({"type": "selection_changed", "indices": self.selected_indices})
     
     def format_sig_figs(self, val):
         if val == 0:
@@ -2010,7 +2020,17 @@ class MainViewer:
     def on_slider_value_changed(self, value):
         self.current_slider_threshold = self.min_threshold + (value / 1000.0) * (self.max_threshold - self.min_threshold)
         self.update_slider_label_text(self.current_slider_threshold)
+        # In low resource mode a drag shows the threshold as it goes and
+        # redraws the edges once, when let go (_on_slider_released).
+        slider = getattr(self, 'slider', None)
+        if getattr(cfg, 'LOW_RESOURCE_MODE', False) and slider is not None and slider.isSliderDown():
+            return
         self.update_edges()
+
+    def _on_slider_released(self):
+        """Redraw the edges for the threshold a low-resource drag ended on."""
+        if getattr(cfg, 'LOW_RESOURCE_MODE', False):
+            self.update_edges()
 
     def update_edges(self):
         from Viewer_Visual_State import edge_stages, edges_follow_selection
@@ -2546,14 +2566,18 @@ class MainViewer:
                 else:
                     if nearest_idx not in self.selected_indices:
                         self.selected_indices = [nearest_idx]
-                        
-                self.update_selection_visual()
-                
-                if nearest_idx in self.selected_indices:
-                    if not getattr(cfg, 'UMAP_MODE', False):
-                        self.is_multi_dragging = True
-                        self._drag_edges_hidden = False
-                        self.drag_start_nodes_pos = self.pos[self.selected_indices, :2].copy()
+
+                starts_drag = nearest_idx in self.selected_indices and not getattr(cfg, 'UMAP_MODE', False)
+                # The web pages (the Meta Data sheet) hear of the selection once
+                # a drag: now, or in low resource mode on release (on_mouse_release).
+                unsent = starts_drag and getattr(cfg, 'LOW_RESOURCE_MODE', False)
+                self.update_selection_visual(broadcast=not unsent)
+
+                if starts_drag:
+                    self.is_multi_dragging = True
+                    self._drag_selection_unsent = unsent
+                    self._drag_edges_hidden = False
+                    self.drag_start_nodes_pos = self.pos[self.selected_indices, :2].copy()
             else:
                 # Clicked empty space: Store the current state, DO NOT clear yet
                 self._pre_drag_selection = set(self.selected_indices)
@@ -3014,10 +3038,12 @@ class MainViewer:
             animation.start()
 
     def _sidebar_can_slide(self):
-        """Whether the sidebar slides: only in a shown window, with a slide time."""
+        """Whether the sidebar slides: only in a shown window, with a slide time,
+        and not in low resource mode, which switches it at once."""
         window = getattr(self, 'main_window', None)
         return (
             SIDEBAR_SLIDE_MS > 0
+            and not getattr(cfg, 'LOW_RESOURCE_MODE', False)
             and not getattr(self, 'headless', False)
             and window is not None
             and window.isVisible()
@@ -3259,7 +3285,8 @@ class MainViewer:
                     self.update_edges()
                 self.update_nodes()
             else:
-                self.update_selection_visual()
+                # A drag moves the selection without changing it: the web pages heard of it on press.
+                self.update_selection_visual(broadcast=False)
             
             event.handled = True
             return
@@ -3286,7 +3313,8 @@ class MainViewer:
                     self.update_edges()
                 self.update_nodes()
             else:
-                self.update_selection_visual()
+                # A drag moves the selection without changing it: the web pages heard of it on press.
+                self.update_selection_visual(broadcast=False)
             
             event.handled = True
             return
@@ -3357,7 +3385,8 @@ class MainViewer:
         if getattr(self, 'is_multi_dragging', False):
             self.is_multi_dragging = False
             self._drag_edges_hidden = False
-            self.update_selection_visual()
+            self.update_selection_visual(broadcast=getattr(self, '_drag_selection_unsent', True))
+            self._drag_selection_unsent = False
             event.handled = True
             return
             

@@ -382,8 +382,7 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
             "font_size_px": 16.0,
             "console_text_anchor_x": "left",
             "status_x_offset": 10.0,
-            "status_box_gap": 8.0,
-            "status_line_spacing": 32.0,
+            "status_line_spacing": 38.0,
             "status_anchor_x": "right",
             "status_anchor_y": "bottom",
         })
@@ -583,6 +582,73 @@ class HudOrderTests(unittest.TestCase):
 
         self.assertEqual(sorted(calls), ["hud", "slider", "toggle"])
         self.assertLess(calls.index("toggle"), calls.index("hud"))
+
+
+# Draws each (y, text) with VisPy as the status stack does, on a hidden canvas
+# whose y grows downward as the Viewer's does, and prints where its ink is.
+_STATUS_RENDER_SCRIPT = """
+import sys
+import numpy as np
+from vispy import app, scene
+app.use_app("pyside6")
+anchor, size_px = sys.argv[1], float(sys.argv[2])
+for y, text in zip(sys.argv[3::2], sys.argv[4::2]):
+    canvas = scene.SceneCanvas(size=(400, 300), show=False, bgcolor="white")
+    scene.visuals.Text(text, pos=(390, float(y)), anchor_x="right", anchor_y=anchor,
+                       font_size=size_px * 72.0 / canvas.dpi, color="black", parent=canvas.scene)
+    image = canvas.render()
+    print("CONTEXT OK", flush=True)
+    rows = np.where(image[:, :, :3].min(axis=(1, 2)) < 128)[0] * 300.0 / image.shape[0]
+    print("INK", rows.min(), rows.max(), flush=True)
+    canvas.close()
+"""
+
+
+class StatusStackRenderTests(unittest.TestCase):
+    """The status stack as VisPy draws it: Hidden Nodes clear above the View
+    Width box, the metadata property clear above Hidden Nodes, and the three
+    evenly spaced."""
+
+    def test_the_status_lines_sit_evenly_above_the_box(self):
+        import subprocess
+
+        from EMAPSSN_Viewer import _slider_row_centre
+        from desktop.Viewer_Widgets import VIEW_WIDTH_BOX_HEIGHT
+
+        layout = shipped_hud_layout()
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.hud_layout = layout
+        hidden_y = viewer._status_hud_position(0, (400, 300))[1]
+        meta_y = viewer._status_hud_position(1, (400, 300))[1]
+        row = _slider_row_centre(300)
+        box_top = row - VIEW_WIDTH_BOX_HEIGHT / 2.0
+        environment = dict(os.environ)
+        # tests/__init__.py defaults Qt to offscreen, which has no OpenGL on
+        # Windows; a hidden canvas on the native platform renders.
+        environment.pop("QT_QPA_PLATFORM", None)
+        environment["PYTHONDONTWRITEBYTECODE"] = "1"
+        arguments = [layout["status_anchor_y"], str(layout["font_size_px"]),
+                     str(hidden_y), "Hidden Nodes: 0", str(meta_y), "Size: 512", str(meta_y), "Length: 512 (gy)"]
+        try:
+            result = subprocess.run([sys.executable, "-c", _STATUS_RENDER_SCRIPT, *arguments],
+                                    capture_output=True, text=True, encoding="utf-8", errors="replace",
+                                    env=environment, timeout=120)
+        except subprocess.TimeoutExpired:
+            self.skipTest("the GL render probe timed out")
+        if "CONTEXT OK" not in result.stdout:
+            self.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
+        inks = [tuple(map(float, line.split()[1:])) for line in result.stdout.splitlines()
+                if line.startswith("INK")]
+        self.assertEqual(len(inks), 3, result.stdout + result.stderr[-2000:])
+        (hidden_top, hidden_bottom), (size_top, size_bottom), (_meta_top, meta_bottom) = inks
+        # Hidden Nodes ends above the box, with room between, but not far off.
+        self.assertGreaterEqual(box_top - hidden_bottom, 10, inks)
+        self.assertLessEqual(box_top - hidden_bottom, 22, inks)
+        # The metadata property, descenders and all, ends clear above it.
+        self.assertGreaterEqual(hidden_top - meta_bottom, 6, inks)
+        # The box's middle and the two lines' (without descenders) are evenly spaced.
+        hidden_middle, size_middle = (hidden_top + hidden_bottom) / 2, (size_top + size_bottom) / 2
+        self.assertAlmostEqual(row - hidden_middle, hidden_middle - size_middle, delta=2.0, msg=inks)
 
 
 if __name__ == "__main__":

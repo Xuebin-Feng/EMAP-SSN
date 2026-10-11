@@ -1040,6 +1040,7 @@ class ViewerCanvasTextTests(WindowTestCase):
             metadata={"9": {"type": "number", "values": [None, 5.0]}}, hud_displays={}, selected_node_idx=0,
             canvas=SimpleNamespace(size=(1200, 800), scene=None), vispy_ui_face="Noto Sans",
             _hud_font_size_points=lambda: 10, _status_hud_position=lambda index, size: (0, 0),
+            hud_layout={"status_anchor_y": "center"},
         )
         with mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True), \
                 mock.patch.object(EMAPSSN_Viewer.scene.visuals, "Text", Visual), \
