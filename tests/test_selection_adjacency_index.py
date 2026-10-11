@@ -1,5 +1,4 @@
-"""MainViewer's neighbour lookup for the selection (adjacency index) and when
-update_edges re-uploads edge geometry."""
+"""MainViewer's neighbour lookup for the selection (adjacency index)."""
 import os
 import sys
 import unittest
@@ -13,11 +12,8 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
-import EMAPSSN_Config as cfg
 import EMAPSSN_Viewer
 from EMAPSSN_Viewer import MainViewer
-from EMAPSSN_Viewer import _contiguous_line_positions  # noqa: E402
-from EMAPSSN_Viewer import _edge_segment_positions  # noqa: E402
 
 
 def scan_every_edge_for_neighbors(edges, selected, node_count):
@@ -31,17 +27,6 @@ def scan_every_edge_for_neighbors(edges, selected, node_count):
     connected = np.unique(edges[touches_selection].reshape(-1))
     connected = connected[~np.isin(connected, selected)]
     return connected.astype(np.int32, copy=False)
-
-
-class FakeLine:
-    def __init__(self):
-        self.visible = True
-        self.upload_count = 0
-        self.last_pos = None
-
-    def set_data(self, pos=None, **kwargs):
-        self.upload_count += 1
-        self.last_pos = pos
 
 
 class AdjacencyIndexTests(unittest.TestCase):
@@ -140,106 +125,6 @@ class AdjacencyIndexTests(unittest.TestCase):
                 [3],
             )
             self.assertEqual(builder.call_count, 2)
-
-
-class EdgeGeometryUploadTests(unittest.TestCase):
-    def make_viewer(self):
-        # update_edges draws only the edges touching the selection in UMAP mode,
-        # and drops them while multi-dragging in low-resource mode; these tests
-        # expect neither filter, whatever the configuration was left at.
-        for name in ("UMAP_MODE", "LOW_RESOURCE_MODE"):
-            patcher = mock.patch.object(cfg, name, False)
-            patcher.start()
-            self.addCleanup(patcher.stop)
-        viewer = MainViewer.__new__(MainViewer)
-        viewer.n_nodes = 4
-        viewer.edges = np.array([[0, 1], [1, 2], [2, 3]], dtype=np.int32)
-        viewer.edge_scores = np.array([0.9, 0.9, 0.1], dtype=np.float32)
-        viewer.pos = np.array(
-            [[0.0, 0.0], [1.0, 0.0], [2.0, 0.0], [3.0, 0.0]], dtype=np.float32
-        )
-        viewer.visible_mask = np.ones(4, dtype=bool)
-        viewer.current_slider_threshold = 0.5
-        viewer.selected_indices = []
-        viewer.line_visual = FakeLine()
-        viewer._uploaded_active_edges = None
-        viewer._uploaded_edge_positions = None
-        return viewer
-
-    def test_repeated_updates_upload_edge_geometry_once(self):
-        viewer = self.make_viewer()
-        viewer.update_edges()
-        self.assertEqual(viewer.line_visual.upload_count, 1)
-
-        # A selection change alters neither the drawn segments nor the node
-        # positions, so the vertex buffer must not be resent.
-        for selection in ([0], [0, 2], [1], []):
-            viewer.selected_indices = selection
-            viewer.update_edges()
-        self.assertEqual(viewer.line_visual.upload_count, 1)
-
-    def test_moving_nodes_uploads_edge_geometry(self):
-        viewer = self.make_viewer()
-        viewer.update_edges()
-        viewer.pos[1, 1] = 5.0
-        viewer.update_edges()
-        self.assertEqual(viewer.line_visual.upload_count, 2)
-        np.testing.assert_allclose(viewer.line_visual.last_pos[1], [1.0, 5.0])
-
-    def test_threshold_change_uploads_edge_geometry(self):
-        viewer = self.make_viewer()
-        viewer.update_edges()
-        self.assertEqual(len(viewer.line_visual.last_pos), 4)
-
-        viewer.current_slider_threshold = 0.0
-        viewer.update_edges()
-        self.assertEqual(viewer.line_visual.upload_count, 2)
-        self.assertEqual(len(viewer.line_visual.last_pos), 6)
-
-    def test_hiding_nodes_uploads_edge_geometry(self):
-        viewer = self.make_viewer()
-        viewer.update_edges()
-        viewer.visible_mask[0] = False
-        viewer.update_edges()
-        self.assertEqual(viewer.line_visual.upload_count, 2)
-        self.assertEqual(len(viewer.line_visual.last_pos), 2)
-
-    def test_selection_filtered_mode_still_uploads_on_selection_change(self):
-        viewer = self.make_viewer()
-        viewer.selected_indices = [0]
-        with mock.patch.object(cfg, "UMAP_MODE", True):
-            viewer.update_edges()
-            first = viewer.line_visual.upload_count
-            viewer.selected_indices = [2]
-            viewer.update_edges()
-        self.assertGreater(viewer.line_visual.upload_count, first)
-
-    def test_line_positions_are_finite_contiguous_float32(self):
-        source = np.array([[1.0, 2.0], [3.0, 4.0]], dtype=np.float64)[:, ::-1]
-        result = _contiguous_line_positions(source)
-
-        self.assertEqual(result.dtype, np.float32)
-        self.assertTrue(result.flags.c_contiguous)
-        np.testing.assert_array_equal(result, [[2.0, 1.0], [4.0, 3.0]])
-
-        with self.assertRaisesRegex(ValueError, "NaN or infinite"):
-            _contiguous_line_positions([[0.0, float("nan")]])
-
-    def test_edge_segments_match_per_edge_endpoint_order(self):
-        rng = np.random.default_rng(7)
-        for columns in (2, 3):
-            positions = rng.normal(size=(50, columns)).astype(np.float32)
-            edges = rng.integers(0, 50, size=(200, 2)).astype(np.int32)
-            reference = []
-            for source, target in edges:  # The former draw_network loop.
-                reference.append(positions[source])
-                reference.append(positions[target])
-            result = _edge_segment_positions(positions, edges)
-            self.assertEqual(result.dtype, np.float32)
-            self.assertTrue(result.flags.c_contiguous)
-            np.testing.assert_array_equal(result, np.asarray(reference))
-        empty = _edge_segment_positions(positions, np.empty((0, 2), dtype=np.int32))
-        self.assertEqual(empty.shape, (0, 3))
 
 
 if __name__ == "__main__":

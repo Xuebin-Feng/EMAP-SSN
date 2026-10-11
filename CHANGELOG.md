@@ -348,6 +348,20 @@ still change before version 1.0.0.
   4.18 million displayed edges, headless readiness fell from 14.0 s to 9.6 s on the
   test machine, and edge drawing from 5.9 s to 0.15 s. Layout generation shares the
   faster network preparation; cutoffs are unchanged.
+- **Smooth threshold slider and node dragging in the Viewer.** The edges are sorted by
+  score once when the Viewer opens, so the edges at or above a threshold are always the
+  first ones in that order: moving the slider only changes how many are drawn, and
+  nothing is filtered or sent to the graphics card again. The edge buffer holds node
+  numbers, and the graphics card looks each node's position up in a small texture, so
+  dragging nodes sends only the node positions (16 bytes a node) instead of every drawn
+  edge. On a synthetic network shaped like an SSN, a slider step took 52 ms instead of
+  2.2 s at 44,000 nodes and 48.7 million edges (9 ms instead of 203 ms at 13,000 nodes
+  and 5 million edges), and a drag step 54 ms instead of 1.16 s (10 ms instead of
+  104 ms), about as long as a plain redraw. Hiding or showing nodes rebuilds the edge
+  buffer once. The picture is the same pixel for pixel. Sorting adds 2–3 s to opening a
+  48.7-million-edge network (0.25 s at 5 million); the edges take half the graphics
+  memory and about half the RAM they did. `SSN_EDGE_POSITION_TEXTURE=0` draws edges
+  the old way, for a graphics driver that cannot read textures in a vertex shader.
 - Less memory while the Viewer, the VR viewer and layout generation read a network.
   Only the columns the settings use are read: the alignment-length column only for
   `alignment_length` normalization. Scores are also normalized without a second

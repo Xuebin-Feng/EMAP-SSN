@@ -59,6 +59,7 @@ modules = [
     "test_prepare_network",
     "test_viewer_command_portal",
     "test_viewer_connection_output",
+    "test_viewer_edges",
     "test_viewer_inspection",
     "test_viewer_inspection_http",
     "test_viewer_portal_adapters",

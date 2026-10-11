@@ -179,6 +179,7 @@ from desktop.Viewer_State import (
     resolve_selected_cache,
 )
 from desktop.Viewer_Inspection import ViewerInspectionService
+from desktop.Viewer_Edges import ViewerEdges
 from web_ui.Browser_Page import open_browser_page
 
 
@@ -325,34 +326,6 @@ def _apply_safe_rectangle_geometry(rectangle, center, width, height, radius):
     rectangle.radius = radius
 
     return width, height, radius
-
-
-def _contiguous_line_positions(positions):
-    """Normalize VisPy line vertices before uploading them to the GPU."""
-    result = np.ascontiguousarray(positions, dtype=np.float32)
-    if result.ndim != 2 or result.shape[1] not in (2, 3):
-        raise ValueError(
-            "Line positions must have shape (N, 2) or (N, 3); "
-            f"received {result.shape}."
-        )
-    if not np.isfinite(result).all():
-        raise ValueError("Line positions contain NaN or infinite values.")
-    return result
-
-
-def _edge_segment_positions(positions, edges):
-    """Return one Line upload holding both endpoints of every edge.
-
-    Rows ``2k`` and ``2k + 1`` are the source and target of edge ``k``, the
-    vertex order of VisPy's ``connect='segments'``. One fancy-indexing gather
-    replaces a per-edge Python loop, which took seconds on multi-million-edge
-    networks during startup.
-    """
-    positions = np.asarray(positions)
-    pairs = np.asarray(edges, dtype=np.intp).reshape(-1, 2)
-    return _contiguous_line_positions(
-        positions[pairs].reshape(-1, positions.shape[1])
-    )
 
 
 def _build_adjacency_index(edges, node_count):
@@ -1857,19 +1830,13 @@ class MainViewer:
             edge_rgba = list(mcolors.to_rgba(getattr(cfg, 'EDGE_COLOR', '#000000')))
             edge_rgba[3] = cfg.EDGE_ALPHA # Apply transparency
 
-            edge_positions = _edge_segment_positions(self.pos, self.edges)
-            self.line_visual = scene.visuals.Line(
-                pos=edge_positions, connect='segments',
-                color=tuple(edge_rgba), width=cfg.EDGE_WIDTH,
-                parent=self.view.scene, name='network_edges',
+            # Sorts the edges by score once; update_edges draws them.
+            self.edge_layer = ViewerEdges(
+                self.view.scene, self.edges, getattr(self, 'edge_scores', None),
+                self.pos, color=tuple(edge_rgba), width=cfg.EDGE_WIDTH,
             )
-            self.line_visual.set_gl_state('translucent', depth_test=False)
-            if getattr(cfg, 'UMAP_MODE', False):
-                self.line_visual.visible = False
         else:
-            self.line_visual = None
-        self._uploaded_active_edges = None
-        self._uploaded_edge_positions = None
+            self.edge_layer = None
 
         # Left-click rings are interleaved into this marker visual immediately
         # before their nodes so their layer relationship remains exact.
@@ -1944,27 +1911,25 @@ class MainViewer:
         self.update_edges()
 
     def update_edges(self):
-        from Viewer_Visual_State import edge_stages
-        if getattr(self, 'line_visual', None) is None:
+        from Viewer_Visual_State import edge_stages, edges_follow_selection
+        edge_layer = getattr(self, 'edge_layer', None)
+        if edge_layer is None:
             return
-        active_edges, _ = edge_stages(self, cfg, cache=True)
-        self._cached_active_edges = active_edges
-        if len(active_edges):
-            self.line_visual.visible = True
-            # The edge vertex buffer is by far the largest upload in the
-            # viewer, and VisPy re-sends it whole on every set_data. Selection
-            # changes touch neither the drawn segments nor the node positions,
-            # so upload only when one of those two actually differs.
-            drawn_positions = self.pos.tobytes()
-            if (
-                active_edges is not getattr(self, '_uploaded_active_edges', None)
-                or drawn_positions != getattr(self, '_uploaded_edge_positions', None)
-            ):
-                self._uploaded_active_edges = active_edges
-                self._uploaded_edge_positions = drawn_positions
-                self.line_visual.set_data(pos=_contiguous_line_positions(self.pos[active_edges].reshape(-1, 2)))
+        # The edge layer re-sends only what changed: the node positions (a
+        # small texture), the visible edges, or the selection's edge list. A
+        # threshold change only changes how many score-sorted edges it draws.
+        if edges_follow_selection(self, cfg):
+            active_edges, _ = edge_stages(self, cfg, cache=True)
+            drawn = edge_layer.show_edges(self.pos, active_edges)
         else:
-            self.line_visual.visible = False
+            threshold = getattr(
+                self, 'current_slider_threshold',
+                getattr(cfg, 'SIMILARITY_THRESHOLD', 0.0),
+            )
+            drawn = edge_layer.show_threshold(
+                self.pos, getattr(self, 'visible_mask', None), threshold,
+            )
+        edge_layer.visible = drawn > 0
 
     def promote_nodes(self, indices):
         """Move one node group to the top of the persistent render order."""

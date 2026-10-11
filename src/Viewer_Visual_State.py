@@ -11,6 +11,22 @@ import numpy as np
 from utilities.Localization import JoinedMessage, Message
 
 
+def edges_follow_selection(viewer, configuration):
+    """Whether edge_stages filters the edges it keeps by the selection.
+
+    UMAP mode keeps only the selected nodes' edges, and a low-resource drag
+    leaves the dragged nodes' edges out. Otherwise the threshold and hidden
+    nodes alone decide, and the Viewer draws a prefix of its score-sorted edges.
+    """
+    if getattr(configuration, 'UMAP_MODE', False):
+        return True
+    return bool(
+        getattr(configuration, 'LOW_RESOURCE_MODE', False)
+        and getattr(viewer, 'is_multi_dragging', False)
+        and len(getattr(viewer, 'selected_indices', ()))
+    )
+
+
 def edge_stages(viewer, configuration, cache=False):
     edges = np.asarray(getattr(viewer, 'edges', ()), dtype=np.int32).reshape(-1, 2)
     threshold = getattr(viewer, 'current_slider_threshold', getattr(configuration, 'SIMILARITY_THRESHOLD', 0.0))
@@ -43,7 +59,7 @@ def visual_overview(viewer, configuration):
     rect = getattr(camera, 'rect', None)
     counts['camera_rectangle'] = list(map(float, (rect.left, rect.bottom, rect.width, rect.height))) if rect is not None else None
     counts['canvas_dimensions'] = list(getattr(getattr(viewer, 'canvas', None), 'size', ()))
-    counts['rendered_edge_count'] = counts['rendered_edge_count'] if getattr(viewer, 'line_visual', None) is not None else 0
+    counts['rendered_edge_count'] = counts['rendered_edge_count'] if getattr(viewer, 'edge_layer', None) is not None else 0
     return counts
 
 

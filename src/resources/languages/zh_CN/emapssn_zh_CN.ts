@@ -3849,7 +3849,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1130"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1103"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -3874,7 +3874,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+709"/>
+        <location line="+701"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -4269,7 +4269,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">此查看器中没有该命令请求，或它已被清除</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Visual_State.py" line="+59"/>
+        <location filename="../../../Viewer_Visual_State.py" line="+75"/>
         <source>Viewer canvas is unavailable</source>
         <translation type="unfinished">查看器画布不可用</translation>
     </message>
@@ -8048,7 +8048,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2238"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2230"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8067,7 +8067,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
     <message>
-        <location line="+1649"/>
+        <location line="+1641"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
