@@ -2439,6 +2439,18 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved {format}: {file}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>It replaced an existing file of that name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: {syntax} needs a view width, as in {example}.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2468,18 +2480,6 @@ Command-line usage:
     </message>
     <message>
         <source>Error: No visible nodes to export.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Saved {format}: {file}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>It replaced an existing file of that name.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

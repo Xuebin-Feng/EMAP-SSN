@@ -1874,6 +1874,7 @@ Command-line usage:
         <location line="+447"/>
         <location filename="../../../commands/logo.py" line="+691"/>
         <location line="+59"/>
+        <location filename="../../../commands/print.py" line="+1060"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
@@ -1881,6 +1882,7 @@ Command-line usage:
         <location line="+2"/>
         <location filename="../../../commands/label.py" line="+140"/>
         <location filename="../../../commands/logo.py" line="+685"/>
+        <location filename="../../../commands/print.py" line="+208"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
@@ -2143,8 +2145,10 @@ Command-line usage:
         <location line="+16"/>
         <location filename="../../../commands/meta.py" line="+166"/>
         <location line="+114"/>
-        <location filename="../../../commands/print.py" line="+973"/>
+        <location filename="../../../commands/print.py" line="-76"/>
         <location line="+51"/>
+        <location line="+15"/>
+        <location line="+10"/>
         <location filename="../../../commands/query.py" line="+583"/>
         <location filename="../../../commands/reset.py" line="+114"/>
         <location filename="../../../commands/select.py" line="-194"/>
@@ -2165,7 +2169,7 @@ Command-line usage:
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-132"/>
         <location filename="../../../commands/offset.py" line="+92"/>
-        <location filename="../../../commands/print.py" line="-113"/>
+        <location filename="../../../commands/print.py" line="-138"/>
         <location filename="../../../commands/query.py" line="-260"/>
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
@@ -2859,6 +2863,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+5"/>
+        <location filename="../../../commands/print.py" line="+129"/>
         <source>The background job scheduler is unavailable.</source>
         <translation type="unfinished">后台任务调度器不可用。</translation>
     </message>
@@ -2908,7 +2913,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+66"/>
-        <location filename="../../../commands/print.py" line="+64"/>
+        <location filename="../../../commands/print.py" line="-65"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
     </message>
@@ -3119,7 +3124,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../../commands/print.py" line="-243"/>
+        <location filename="../../../commands/print.py" line="-385"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -3129,12 +3134,12 @@ Command-line usage:
         <translation type="unfinished">截取过程中网络显示发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
     <message>
-        <location line="+147"/>
+        <location line="+201"/>
         <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at least {n}, or zoom out. The limit is {setting} in {file}.</source>
         <translation type="unfinished">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过 {limit} 百万像素的上限。请使用 {syntax}，并让 N 至少为 {n}，或缩小视图。此上限由 {file} 中的 {setting} 设定。</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+138"/>
         <source>Error: {syntax} needs a view width, as in {example}.</source>
         <translation type="unfinished">错误：{syntax} 需要一个视图宽度，例如 {example}。</translation>
     </message>
@@ -3173,19 +3178,19 @@ Command-line usage:
         <translation type="obsolete">错误：使用 &apos;SVG&apos; 时最多只能有 2 个关键字（例如 &apos;print [filename] svg&apos;）。</translation>
     </message>
     <message>
-        <location line="+56"/>
-        <location line="+11"/>
-        <location line="+116"/>
+        <location line="+72"/>
+        <location line="+12"/>
+        <location line="+121"/>
         <source>Error: No visible nodes to export.</source>
         <translation type="unfinished">错误：没有可导出的可见节点。</translation>
     </message>
     <message>
-        <location line="+37"/>
+        <location line="-326"/>
         <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
         <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是视图宽度，N 越小，视图放得越大，图像也越大。</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+8"/>
         <source>Saved {format}: {file}</source>
         <translation type="unfinished">已保存 {format}：{file}</translation>
     </message>
@@ -3195,12 +3200,13 @@ Command-line usage:
         <translation type="unfinished">已替换同名的现有文件。</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+329"/>
+        <location line="+35"/>
         <source>Failed to save {format}: {error}</source>
         <translation type="unfinished">保存 {format} 失败：{error}</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-30"/>
         <source>Error saving {format}. Check console.</source>
         <translation type="unfinished">保存 {format} 出错。请查看控制台。</translation>
     </message>
@@ -3881,7 +3887,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1106"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1110"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -8136,7 +8142,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-83"/>
+        <location line="-84"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -8146,7 +8152,7 @@ Fedora / RHEL：
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
     <message>
-        <location line="+1671"/>
+        <location line="+1672"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>

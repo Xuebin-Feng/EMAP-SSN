@@ -5,7 +5,8 @@ screen, configured colours, a failure with nothing written when every node is
 hidden), plus what the command checks before it writes (options, visible nodes),
 when it makes the save folder, and its automatic names; the `zoom N` scale of
 full and svg, and the hover colour and click halo a PNG leaves out; the file
-name as one word, an .svg name selecting SVG, and the report of a file replaced."""
+name as one word, an .svg name selecting SVG, and the report of a file replaced;
+the background job that finishes and writes the file, in the viewer's queue."""
 
 import contextlib
 import datetime
@@ -16,6 +17,8 @@ import re
 import shutil
 import sys
 import tempfile
+import threading
+import time
 import types
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -74,10 +77,60 @@ def load_print_command():
 print_command = load_print_command()
 
 
+class InlineScheduler:
+    """The viewer's background job queue, run at once: each job's worker runs
+    inside enqueue, on the calling thread, and its report is kept."""
+
+    def __init__(self):
+        self.jobs = []
+        self.reports = []
+        self.errors = []
+
+    def is_output_path_reserved(self, path):
+        return False
+
+    def enqueue(self, command_name, description, payload, worker, output_path, allow_overwrite=False):
+        if not allow_overwrite and os.path.exists(output_path):
+            raise FileExistsError(f"Output file already exists: {output_path}")
+        self.jobs.append(SimpleNamespace(
+            command_name=command_name, description=description, payload=payload,
+            output_path=output_path, allow_overwrite=allow_overwrite,
+        ))
+        try:
+            self.reports.append(dict(worker(payload)))
+        except Exception as error:
+            self.errors.append(error)
+        return len(self.jobs)
+
+    @property
+    def report(self):
+        """The text of the last job's report."""
+        return str(self.reports[-1]["message"])
+
+
+def raw_renders(tile, is_transparent):
+    """What _render_tile returns for a float RGBA tile: its 8-bit render, or
+    for a transparent capture its renders on black and on white."""
+    if not is_transparent:
+        return (np.round(tile * 255).astype(np.uint8),)
+    rgb, alpha = tile[..., :3], tile[..., 3:]
+    on_black = np.zeros(tile.shape[:2] + (4,), dtype=np.uint8)
+    on_black[..., :3] = np.round(rgb * alpha * 255)
+    on_black[..., 3] = 255
+    on_white = np.round((rgb * alpha + 1.0 - alpha) * 255).astype(np.uint8)
+    return on_black, on_white
+
+
+def white_renders(viewer, is_transparent, shape=(100, 100)):
+    """A blank tile's renders, as _render_tile returns them."""
+    return raw_renders(np.ones(shape + (4,), dtype=np.float32), is_transparent)
+
+
 class PrintMetadataHUDTests(unittest.TestCase):
     def test_metadata_hud_is_hidden_during_capture_then_restored(self):
         metadata_visual = SimpleNamespace(visible=True)
         viewer = SimpleNamespace(
+            background_job_scheduler=InlineScheduler(),
             canvas=SimpleNamespace(
                 bgcolor="white",
                 update=mock.Mock(),
@@ -104,14 +157,13 @@ class PrintMetadataHUDTests(unittest.TestCase):
         ), mock.patch.object(
             print_command, "_capture_tile", side_effect=capture_while_hud_is_hidden
         ), mock.patch.object(
-            print_command.mpimg, "imsave"
-        ), mock.patch.object(
-            print_command, "open_in_file_manager"
-        ), mock.patch.object(
+            print_command, "_write_png"
+        ) as write_png, mock.patch.object(
             print_command.app, "process_events"
-        ):
+        ), redirect_stdout(io.StringIO()):
             print_command.run(viewer, ["metadata_hud"])
 
+        write_png.assert_called_once()
         self.assertTrue(metadata_visual.visible)
 
 
@@ -119,6 +171,7 @@ class PrintMarginTrimTests(unittest.TestCase):
     @staticmethod
     def make_viewer(background="white"):
         return SimpleNamespace(
+            background_job_scheduler=InlineScheduler(),
             canvas=SimpleNamespace(
                 bgcolor=background,
                 update=mock.Mock(),
@@ -220,10 +273,8 @@ class PrintMarginTrimTests(unittest.TestCase):
                 ), mock.patch.object(
                     print_command, "_capture_tile", return_value=captured
                 ) as capture, mock.patch.object(
-                    print_command.mpimg, "imsave"
+                    print_command, "_write_png"
                 ) as save, mock.patch.object(
-                    print_command, "open_in_file_manager"
-                ), mock.patch.object(
                     print_command.app, "process_events"
                 ), redirect_stdout(output):
                     print_command.run(viewer, arguments)
@@ -246,7 +297,7 @@ class PrintMarginTrimTests(unittest.TestCase):
                 viewer.visible_mask = np.array([True, True])
                 viewer.pos = np.array([[0.0, 0.0, 0.0], [150.0, 150.0, 0.0]])
                 rng = np.random.default_rng(4)
-                tiles = []
+                renders = []
                 for index in range(10):
                     tile = np.zeros((100, 100, 4), dtype=np.float32)
                     if not is_transparent:
@@ -257,11 +308,13 @@ class PrintMarginTrimTests(unittest.TestCase):
                         spots = np.zeros((100, 100), dtype=bool)
                         spots[40:60, 40:60] = rng.random((20, 20)) < 0.2
                         tile[spots] = rng.random((int(spots.sum()), 4)).astype(np.float32) * 0.5
-                    tiles.append(tile)
-                # The float picture the stitching used to hold, cropped and trimmed.
+                    renders.append(raw_renders(tile, is_transparent))
+                # The float picture the stitching used to hold, from the float
+                # tiles the renders made, cropped and trimmed.
                 mosaic = np.zeros((210, 210, 4), dtype=np.float32)
-                for index, tile in enumerate(tiles[1:]):
+                for index, tile_renders in enumerate(renders[1:]):
                     row, col = divmod(index, 3)
+                    tile = print_command._tile_rgba(tile_renders)
                     mosaic[row * 70:(row + 1) * 70, col * 70:(col + 1) * 70] = tile[15:85, 15:85]
                 expected = print_command._trim_png_margins(mosaic[:165, :165], is_transparent, "white")
 
@@ -269,12 +322,10 @@ class PrintMarginTrimTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
                     print_command, "PRINT_DIRECTORY", temp_dir
                 ), mock.patch.object(
-                    print_command, "_capture_tile", side_effect=tiles
+                    print_command, "_render_tile", side_effect=renders
                 ), mock.patch.object(
-                    print_command.mpimg, "imsave"
+                    print_command, "_write_png"
                 ) as save, mock.patch.object(
-                    print_command, "open_in_file_manager"
-                ), mock.patch.object(
                     print_command.app, "process_events"
                 ), redirect_stdout(output):
                     print_command.run(viewer, ["stitched", "full"] + (["transparent"] if is_transparent else []))
@@ -291,22 +342,23 @@ class PrintMarginTrimTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
             print_command, "PRINT_DIRECTORY", temp_dir
         ), mock.patch.object(
-            print_command, "_export_svg"
-        ) as export_svg, mock.patch.object(
+            print_command, "_svg_snapshot"
+        ), mock.patch.object(
+            print_command, "_write_svg"
+        ) as write_svg, mock.patch.object(
             print_command, "_trim_png_margins"
         ) as trim, mock.patch.object(
-            print_command, "open_in_file_manager"
-        ), mock.patch.object(
             print_command.app, "process_events"
-        ):
+        ), redirect_stdout(io.StringIO()):
             print_command.run(viewer, ["vector", "svg"])
 
-        export_svg.assert_called_once()
+        write_svg.assert_called_once()
         trim.assert_not_called()
 
 
 class PrintPngMosaicTests(unittest.TestCase):
-    """The full capture holds its picture as the 8-bit RGBA imsave writes."""
+    """The full capture keeps its tiles' renders and finishes them in place
+    into the 8-bit RGBA imsave writes for the float picture."""
 
     def test_eight_bit_pixels_are_those_matplotlib_writes_for_the_float_image(self):
         from matplotlib.colorizer import Colorizer
@@ -325,42 +377,62 @@ class PrintPngMosaicTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, r"must be in the \[0,1\] range"):
             print_command._png_bytes(np.full((2, 2, 4), 1.5, dtype=np.float32))
 
-    def test_the_trim_finds_the_margins_of_the_float_picture(self):
+    def test_a_renders_png_bytes_are_the_render_itself(self):
+        # So a plain capture's renders are kept as the PNG's pixels unchanged.
+        values = np.arange(256, dtype=np.uint8)
+        render = np.stack([values, values[::-1], values, values[::-1]], axis=-1).reshape(16, 16, 4)
+        np.testing.assert_array_equal(
+            print_command._png_bytes(print_command._tile_rgba((render,))), render
+        )
+
+    @staticmethod
+    def random_renders(rng, shape, is_transparent, background_rgb):
+        """A tile's renders: background with a few random marks."""
+        tile = np.zeros(shape + (4,), dtype=np.float32)
+        if not is_transparent:
+            tile[..., :3] = background_rgb
+            tile[..., 3] = 1.0
+        spots = rng.random(shape) < 0.02
+        tile[spots] = rng.random((int(spots.sum()), 4)).astype(np.float32)
+        renders = raw_renders(tile, is_transparent)
+        # Renders on black and white that disagree, as anti-aliasing can make them.
+        if is_transparent:
+            noise = rng.random(shape) < 0.01
+            renders[1][noise] = rng.integers(0, 256, (int(noise.sum()), 3))
+        return renders
+
+    def test_the_picture_and_its_trim_are_those_of_the_float_picture(self):
         rng = np.random.default_rng(12)
         for case in range(60):
             is_transparent = bool(case % 2)
-            background = "white" if case % 3 else (0.2, 0.4, 0.6, 1.0)
+            background = "white" if case % 3 else SimpleNamespace(rgba=(0.2, 0.4, 0.6, 1.0))
+            background_rgb = print_command._background_rgb(background)
             tile_h, tile_w = int(rng.integers(5, 30)), int(rng.integers(5, 30))
             rows, cols = int(rng.integers(1, 4)), int(rng.integers(1, 4))
-            crop_h = int(rng.integers(1, rows * tile_h + 5))
-            crop_w = int(rng.integers(1, cols * tile_w + 5))
-            with self.subTest(case=case):
-                mosaic = print_command._PngMosaic(
-                    rows * tile_h, cols * tile_w, crop_h, crop_w, is_transparent, background
-                )
+            crop_h = int(rng.integers(1, rows * tile_h + 1))
+            crop_w = int(rng.integers(1, cols * tile_w + 1))
+            # Bands of a few rows, one row, or the whole picture at once.
+            band_pixels = int(rng.choice([1, 37, 1 << 22]))
+            with self.subTest(case=case), mock.patch.object(
+                print_command, "FINISH_BAND_PIXELS", band_pixels
+            ):
+                mosaic = print_command._RawMosaic(crop_h, crop_w, is_transparent)
                 picture = np.zeros((rows * tile_h, cols * tile_w, 4), dtype=np.float32)
                 for row in range(rows):
                     for col in range(cols):
-                        tile = np.zeros((tile_h, tile_w, 4), dtype=np.float32)
-                        if not is_transparent:
-                            tile[..., :3] = print_command._background_rgb(
-                                SimpleNamespace(rgba=background) if isinstance(background, tuple) else background
-                            )
-                            tile[..., 3] = 1.0
-                        spots = rng.random((tile_h, tile_w)) < 0.01
-                        tile[spots] = rng.random((int(spots.sum()), 4)).astype(np.float32)
-                        mosaic.paste(tile, row * tile_h, col * tile_w)
-                        picture[row * tile_h:(row + 1) * tile_h, col * tile_w:(col + 1) * tile_w] = tile
+                        renders = self.random_renders(rng, (tile_h, tile_w), is_transparent, background_rgb)
+                        mosaic.paste(renders, row * tile_h, col * tile_w)
+                        picture[row * tile_h:(row + 1) * tile_h, col * tile_w:(col + 1) * tile_w] = (
+                            print_command._tile_rgba(renders)
+                        )
                 padding = int(rng.integers(0, 25))
                 expected = print_command._trim_png_margins(
-                    picture[:crop_h, :crop_w], is_transparent,
-                    SimpleNamespace(rgba=background) if isinstance(background, tuple) else background,
-                    padding_px=padding,
+                    picture[:crop_h, :crop_w], is_transparent, background, padding_px=padding,
                 )
 
-                self.assertEqual(mosaic.cropped_size(), picture[:crop_h, :crop_w].shape[:2])
+                self.assertEqual(mosaic.shape, (crop_h, crop_w))
                 np.testing.assert_array_equal(
-                    mosaic.trimmed(padding), (expected * 255).astype(np.uint8)
+                    mosaic.finish(background, padding), print_command._png_bytes(expected)
                 )
 
     def test_content_cut_off_by_the_crop_does_not_widen_the_trim(self):
@@ -368,13 +440,66 @@ class PrintPngMosaicTests(unittest.TestCase):
         tile = np.zeros((20, 30, 4), dtype=np.float32)
         tile[2, 3, 3] = 1.0
         tile[10:12, 25, 3] = 1.0
-        mosaic = print_command._PngMosaic(20, 30, 20, 20, True, "white")
-        mosaic.paste(tile, 0, 0)
+        mosaic = print_command._RawMosaic(20, 20, True)
+        mosaic.paste(raw_renders(tile, True), 0, 0)
 
-        self.assertEqual(mosaic.trimmed(padding_px=0).shape, (1, 1, 4))
+        self.assertEqual(mosaic.finish("white", padding_px=0).shape, (1, 1, 4))
+
+    def test_a_tile_past_the_edge_is_cut_and_one_outside_is_left_out(self):
+        mosaic = print_command._RawMosaic(5, 7, False)
+        tile = np.full((4, 4, 4), 9, dtype=np.uint8)
+        mosaic.paste((tile,), 3, 5)
+        mosaic.paste((tile,), 5, 0)
+        mosaic.paste((tile,), 0, 7)
+        expected = np.zeros((5, 7, 4), dtype=np.uint8)
+        expected[3:, 5:] = 9
+        np.testing.assert_array_equal(mosaic.image, expected)
+
+    def test_a_render_without_alpha_is_opaque(self):
+        mosaic = print_command._RawMosaic(2, 2, False)
+        mosaic.paste((np.full((2, 2, 3), 7, dtype=np.uint8),), 0, 0)
+        np.testing.assert_array_equal(mosaic.image[..., :3], 7)
+        np.testing.assert_array_equal(mosaic.image[..., 3], 255)
+
+    def test_the_finished_picture_is_the_mosaics_own_memory_in_c_order(self):
+        # imsave writes a C-ordered array as it is; a cut-out would be copied.
+        for is_transparent in (False, True):
+            with self.subTest(is_transparent=is_transparent):
+                tile = np.zeros((40, 50, 4), dtype=np.float32)
+                if not is_transparent:
+                    tile[...] = 1.0
+                tile[25:28, 30:33] = (0.5, 0.25, 0.75, 1.0)
+                mosaic = print_command._RawMosaic(40, 50, is_transparent)
+                mosaic.paste(raw_renders(tile, is_transparent), 0, 0)
+                memory = mosaic.image
+
+                picture = mosaic.finish("white", padding_px=2)
+
+                self.assertEqual(picture.shape, (7, 7, 4))
+                self.assertTrue(picture.flags.c_contiguous)
+                self.assertTrue(np.shares_memory(picture, memory))
+                self.assertIsNone(mosaic.on_white)
+
+    def test_compacting_keeps_every_box_of_the_picture(self):
+        rng = np.random.default_rng(8)
+        for case in range(40):
+            height, width = int(rng.integers(1, 12)), int(rng.integers(1, 12))
+            top, bottom = sorted(int(value) for value in rng.integers(0, height + 1, 2))
+            left, right = sorted(int(value) for value in rng.integers(0, width + 1, 2))
+            bottom, right = max(bottom, top + 1), max(right, left + 1)
+            if bottom > height or right > width:
+                continue
+            with self.subTest(case=case):
+                image = rng.integers(0, 256, (height, width, 4)).astype(np.uint8)
+                expected = image[top:bottom, left:right].copy()
+                compact = print_command._compact(image, (top, bottom, left, right))
+                self.assertTrue(compact.flags.c_contiguous)
+                self.assertTrue(np.shares_memory(compact, image))
+                np.testing.assert_array_equal(compact, expected)
+
 
 class PrintPngEncodingTests(unittest.TestCase):
-    """The PNG is encoded off the calling thread while the window paints."""
+    """The PNG goes into a partial file that replaces the target when it is complete."""
 
     def test_the_file_is_the_one_imsave_writes(self):
         rng = np.random.default_rng(3)
@@ -385,38 +510,37 @@ class PrintPngEncodingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             for index, image in enumerate(images):
                 with self.subTest(dtype=str(image.dtype)):
-                    threaded = os.path.join(directory, f"threaded{index}.png")
+                    written = os.path.join(directory, f"written{index}.png")
                     direct = os.path.join(directory, f"direct{index}.png")
-                    print_command._save_png(threaded, image)
+                    print_command._write_png(written, image)
                     print_command.mpimg.imsave(direct, image)
-                    with open(threaded, "rb") as a, open(direct, "rb") as b:
+                    with open(written, "rb") as a, open(direct, "rb") as b:
                         self.assertEqual(a.read(), b.read())
+            self.assertEqual(
+                sorted(os.listdir(directory)),
+                ["direct0.png", "direct1.png", "written0.png", "written1.png"],
+            )
 
-    def test_the_window_keeps_painting_while_a_thread_encodes(self):
-        import threading
-
-        pumped = threading.Event()
-        encoders = []
-
-        def slow_encode(path, image):
-            encoders.append(threading.current_thread())
-            # Done only once the calling thread has let Qt run.
-            self.assertTrue(pumped.wait(5))
-
-        with mock.patch.object(print_command.mpimg, "imsave", side_effect=slow_encode), \
-                mock.patch.object(print_command, "_process_events_without_input", side_effect=pumped.set) as pump:
-            print_command._save_png("picture.png", np.zeros((2, 2, 4), dtype=np.uint8))
-
-        self.assertEqual(len(encoders), 1)
-        self.assertIsNot(encoders[0], threading.current_thread())
-        self.assertGreaterEqual(pump.call_count, 1)
-
-    def test_an_encoder_error_reaches_the_caller(self):
+    def test_a_failure_keeps_the_earlier_file_and_leaves_nothing_behind(self):
         error = OSError("disk full")
-        with mock.patch.object(print_command.mpimg, "imsave", side_effect=error), \
-                self.assertRaises(OSError) as raised:
-            print_command._save_png("picture.png", np.zeros((2, 2, 4), dtype=np.uint8))
-        self.assertIs(raised.exception, error)
+
+        def broken_encode(path, image):
+            with open(path, "wb") as handle:
+                handle.write(b"half a picture")
+            raise error
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "picture.png")
+            with open(path, "wb") as handle:
+                handle.write(b"earlier picture")
+            with mock.patch.object(print_command.mpimg, "imsave", side_effect=broken_encode), \
+                    self.assertRaises(OSError) as raised:
+                print_command._write_png(path, np.zeros((2, 2, 4), dtype=np.uint8))
+
+            self.assertIs(raised.exception, error)
+            self.assertEqual(os.listdir(directory), ["picture.png"])
+            with open(path, "rb") as handle:
+                self.assertEqual(handle.read(), b"earlier picture")
 
 
 class PrintOutputNameTests(unittest.TestCase):
@@ -429,12 +553,12 @@ class PrintOutputNameTests(unittest.TestCase):
         ), mock.patch.object(
             print_command, "_capture_tile", return_value=np.ones((4, 4, 4), dtype=np.float32)
         ) as capture, mock.patch.object(
-            print_command, "_export_svg"
+            print_command, "_svg_snapshot"
         ) as export_svg, mock.patch.object(
-            print_command.mpimg, "imsave"
-        ) as save, mock.patch.object(
-            print_command, "open_in_file_manager"
+            print_command, "_write_svg"
         ), mock.patch.object(
+            print_command, "_write_png"
+        ) as save, mock.patch.object(
             print_command.app, "process_events"
         ), redirect_stdout(io.StringIO()):
             print_command.run(viewer, arguments)
@@ -518,7 +642,7 @@ def export_svg(viewer, **configuration):
         path = os.path.join(directory, "network.svg")
         with mock.patch.multiple(print_command.cfg, create=True, **settings), \
                 redirect_stdout(io.StringIO()):
-            print_command._export_svg(viewer, path)
+            print_command._write_svg(print_command._svg_snapshot(viewer), path)
         with open(path, encoding="utf-8") as handle:
             return handle.read()
 
@@ -610,7 +734,7 @@ class PrintSvgStreamingTests(unittest.TestCase):
                     mock.patch.object(print_command, "_svg_node_chunks", broken_nodes), \
                     redirect_stdout(io.StringIO()), \
                     self.assertRaisesRegex(RuntimeError, "disk full"):
-                print_command._export_svg(viewer, path)
+                print_command._write_svg(print_command._svg_snapshot(viewer), path)
 
             self.assertEqual(os.listdir(directory), ["network.svg"])
             with open(path, encoding="utf-8") as handle:
@@ -632,38 +756,36 @@ class PrintSvgOutcomeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as save_dir, mock.patch.object(
             print_command, "PRINT_DIRECTORY", save_dir
         ), mock.patch.object(
-            print_command, "open_in_file_manager"
-        ) as open_folder, mock.patch.object(
             print_command.app, "process_events"
         ), redirect_stdout(io.StringIO()):
             print_command.run(viewer, ["network", "svg"])
             written = os.listdir(save_dir)
-        return viewer, engine, open_folder, written, save_dir
+        return viewer, engine, viewer.background_job_scheduler, written, save_dir
 
     def test_svg_with_every_node_hidden_fails_and_writes_nothing(self):
-        viewer, engine, open_folder, written, _ = self.run_svg_print([False] * 4)
+        viewer, engine, scheduler, written, _ = self.run_svg_print([False] * 4)
 
         self.assertEqual(written, [])
         engine.command_failed.assert_called_once()
         self.assertEqual(str(engine.command_failed.call_args.args[1]), "Error: No visible nodes to export.")
         engine.command_succeeded.assert_not_called()
-        engine.command_artifact.assert_not_called()
-        open_folder.assert_not_called()
+        self.assertEqual(scheduler.jobs, [])
         self.assertEqual(viewer.console_text.text, "Error: No visible nodes to export.")
         self.assertTrue(viewer.zoom_text.visible)
 
     def test_svg_with_visible_nodes_reports_the_written_file(self):
-        viewer, engine, open_folder, written, save_dir = self.run_svg_print([True] * 4)
+        viewer, engine, scheduler, written, save_dir = self.run_svg_print([True] * 4)
 
         self.assertEqual(written, ["network.svg"])
-        engine.command_artifact.assert_called_once_with(
-            viewer, os.path.join(save_dir, "network.svg")
-        )
         engine.command_failed.assert_not_called()
         engine.command_succeeded.assert_called_once()
-        open_folder.assert_called_once_with(save_dir)
+        # The job is print's, for the file, and its report opens the save folder.
+        [job] = scheduler.jobs
+        self.assertEqual(job.command_name, "print")
+        self.assertEqual(job.output_path, os.path.join(save_dir, "network.svg"))
+        self.assertEqual(scheduler.reports[0]["reveal_directory"], save_dir)
         # The format is named without the extension's dot ("Saved .SVG" before).
-        self.assertEqual(viewer.console_text.text, "Saved SVG: network.svg")
+        self.assertEqual(scheduler.report, "Saved SVG: network.svg")
 
 
 def node_fills(svg, tag="circle"):
@@ -1010,12 +1132,10 @@ class PrintCommandChecksTests(unittest.TestCase):
         with mock.patch.object(
             print_command, "PRINT_DIRECTORY", save_dir
         ), mock.patch.object(
-            print_command, "_capture_tile", return_value=np.ones((100, 100, 4), dtype=np.float32)
+            print_command, "_render_tile", side_effect=white_renders
         ) as capture, mock.patch.object(
-            print_command.mpimg, "imsave"
+            print_command, "_write_png"
         ) as save, mock.patch.object(
-            print_command, "open_in_file_manager"
-        ), mock.patch.object(
             print_command.app, "process_events"
         ), redirect_stdout(io.StringIO()) as output:
             print_command.run(viewer, arguments)
@@ -1076,8 +1196,6 @@ class PrintCommandChecksTests(unittest.TestCase):
             save_dir = os.path.join(root, "Saved_Images")
             with mock.patch.object(
                 print_command, "PRINT_DIRECTORY", save_dir
-            ), mock.patch.object(
-                print_command, "open_in_file_manager"
             ), mock.patch.multiple(
                 print_command.cfg, create=True, EDGE_COLOR="#000000",
                 NODE_BOUNDARY_COLOR="#000000", EDGE_ALPHA=0.2, EDGE_WIDTH=0.5,
@@ -1138,8 +1256,6 @@ class PrintAutomaticNameTests(unittest.TestCase):
         ), mock.patch.object(
             print_command, "_capture_tile", return_value=np.ones((4, 4, 4), dtype=np.float32)
         ), mock.patch.object(
-            print_command, "open_in_file_manager"
-        ), mock.patch.object(
             print_command.app, "process_events"
         ), mock.patch.multiple(
             print_command.cfg, create=True, EDGE_COLOR="#000000",
@@ -1166,6 +1282,17 @@ class PrintAutomaticNameTests(unittest.TestCase):
                 "set_2.png",
             )
 
+    def test_a_name_a_queued_job_holds_is_taken_too(self):
+        # A print still in the queue has no file yet, but its name is reserved.
+        with tempfile.TemporaryDirectory() as directory:
+            reserved = {os.path.join(directory, name) for name in ("set_1.png", "set_1_2.png")}
+            scheduler = SimpleNamespace(is_output_path_reserved=lambda path: path in reserved)
+            open(os.path.join(directory, "set_1_3.png"), "w").close()
+            self.assertEqual(
+                print_command._available_automatic_filename(directory, "set_1.png", scheduler),
+                "set_1_4.png",
+            )
+
     def test_prints_in_the_same_second_are_saved_side_by_side(self):
         with tempfile.TemporaryDirectory() as save_dir:
             for _ in range(3):
@@ -1178,9 +1305,10 @@ class PrintAutomaticNameTests(unittest.TestCase):
                     "test_sequences_20260102_030405_3.png",
                 ],
             )
-            # The console line names the file that was written.
+            # The job's report names the file that was written.
             self.assertEqual(
-                viewer.console_text.text, "Saved PNG: test_sequences_20260102_030405_3.png"
+                viewer.background_job_scheduler.report,
+                "Saved PNG: test_sequences_20260102_030405_3.png",
             )
 
     def test_automatic_svg_names_are_numbered_too(self):
@@ -1210,8 +1338,8 @@ class PrintAutomaticNameTests(unittest.TestCase):
                 with tempfile.TemporaryDirectory() as save_dir:
                     first = self.print_in_this_second(save_dir, arguments, svg_viewer=svg_viewer)
                     second = self.print_in_this_second(save_dir, arguments, svg_viewer=svg_viewer)
-                self.assertEqual(first.console_text.text, written)
-                self.assertEqual(second.console_text.text, f"{written} {replaced}")
+                self.assertEqual(first.background_job_scheduler.report, written)
+                self.assertEqual(second.background_job_scheduler.report, f"{written} {replaced}")
 
 
 # A rendered tile, rows by columns: the 800 x 600 canvas of zoom_viewer().
@@ -1249,9 +1377,9 @@ class PrintZoomTests(unittest.TestCase):
             reporter.reset_mock()
         tile_rects = []
 
-        def capture(captured_viewer, _is_transparent):
+        def capture(captured_viewer, is_transparent):
             tile_rects.append(captured_viewer.view.camera.rect)
-            return np.ones(TILE_SHAPE + (4,), dtype=np.float32)
+            return white_renders(captured_viewer, is_transparent, TILE_SHAPE)
 
         root = tempfile.TemporaryDirectory()
         self.addCleanup(root.cleanup)
@@ -1259,14 +1387,14 @@ class PrintZoomTests(unittest.TestCase):
         with mock.patch.object(
             print_command, "PRINT_DIRECTORY", save_dir
         ), mock.patch.object(
-            print_command, "_capture_tile", side_effect=capture
+            print_command, "_render_tile", side_effect=capture
         ) as capture_tile, mock.patch.object(
-            print_command, "_export_svg", return_value=True
+            print_command, "_svg_snapshot"
         ) as export_svg, mock.patch.object(
-            print_command.mpimg, "imsave"
-        ) as save, mock.patch.object(
-            print_command, "open_in_file_manager"
-        ), redirect_stdout(io.StringIO()):
+            print_command, "_write_svg"
+        ), mock.patch.object(
+            print_command, "_write_png"
+        ) as save, redirect_stdout(io.StringIO()) as output:
             print_command.run(viewer, arguments)
         # The live camera is the one it was before, untouched.
         self.assertIs(viewer.view.camera.rect, live_rect)
@@ -1276,6 +1404,7 @@ class PrintZoomTests(unittest.TestCase):
         return SimpleNamespace(
             viewer=viewer, engine=engine, capture=capture_tile, export_svg=export_svg,
             save=save, save_dir=save_dir, tile_rects=tile_rects,
+            scheduler=viewer.background_job_scheduler, output=output.getvalue(),
         )
 
     def failure(self, result):
@@ -1328,7 +1457,7 @@ class PrintZoomTests(unittest.TestCase):
                 result.engine.command_failed.assert_not_called()
                 result.export_svg.assert_called_once()
                 self.assertEqual(result.export_svg.call_args.kwargs["view_width"], 500.0)
-                saved = os.path.basename(result.export_svg.call_args.args[1])
+                saved = os.path.basename(result.scheduler.jobs[0].output_path)
                 if name is None:
                     self.assertTrue(saved.startswith("test_sequences_"), saved)
                 else:
@@ -1451,14 +1580,13 @@ class PrintZoomTests(unittest.TestCase):
         result.save.assert_called_once()
         self.assertEqual(result.save.call_args.args[1].shape, (96, 176, 4))
         result.engine.command_failed.assert_not_called()
-        report = str(result.engine.command_succeeded.call_args.args[1])
         warning = (
             "Warning: the image is only 176×96 px. N in zoom N is the view width, "
             "so a smaller N zooms in and gives a larger image."
         )
-        self.assertTrue(report.endswith(warning), report)
-        self.assertTrue(report.startswith("Successfully saved full stitched snapshot: "))
-        self.assertEqual(result.viewer.console_text.text, f"Saved PNG: fig1.png {warning}")
+        self.assertIn("Successfully saved full stitched snapshot: ", result.output)
+        self.assertTrue(result.output.rstrip().endswith(warning), result.output)
+        self.assertEqual(result.scheduler.report, f"Saved PNG: fig1.png {warning}")
 
     # --- size limit ------------------------------------------------------
 
@@ -1520,12 +1648,18 @@ class PrintZoomTests(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 result = self.run_print(arguments)
                 result.engine.command_failed.assert_not_called()
-                report = str(result.engine.command_succeeded.call_args.args[1])
-                self.assertNotIn("Warning", report)
-                self.assertEqual(result.viewer.console_text.text, "Saved PNG: fig1.png")
+                self.assertNotIn("Warning", result.output)
+                self.assertEqual(result.scheduler.report, "Saved PNG: fig1.png")
         # An SVG has no pixel size, so it never warns.
         result = self.run_print(["fig1", "svg", "zoom", "50000"])
-        self.assertNotIn("Warning", str(result.engine.command_succeeded.call_args.args[1]))
+        self.assertNotIn("Warning", result.output)
+        self.assertEqual(result.scheduler.report, "Saved SVG: fig1.svg")
+
+    def test_the_limit_is_a_thousand_megapixels(self):
+        self.assertEqual(print_command.MAX_FULL_IMAGE_MEGAPIXELS, 1000)
+        # 31,622 px square is just under a gigapixel; 31,623 just over.
+        self.assertIsNone(print_command.full_image_size_refusal(31622, 31622, 50.0))
+        self.assertIsNotNone(print_command.full_image_size_refusal(31623, 31623, 50.0))
 
 
 class PrintSvgZoomTests(unittest.TestCase):
@@ -1543,8 +1677,6 @@ class PrintSvgZoomTests(unittest.TestCase):
         viewer.canvas.update = mock.Mock()
         with tempfile.TemporaryDirectory() as save_dir, mock.patch.object(
             print_command, "PRINT_DIRECTORY", save_dir
-        ), mock.patch.object(
-            print_command, "open_in_file_manager"
         ), mock.patch.multiple(
             print_command.cfg, create=True, EDGE_COLOR="#000000",
             NODE_BOUNDARY_COLOR="#000000", EDGE_ALPHA=0.2, EDGE_WIDTH=1.5,
@@ -1603,28 +1735,29 @@ class PrintFileNameTests(unittest.TestCase):
         with mock.patch.object(
             print_command, "PRINT_DIRECTORY", save_dir
         ), mock.patch.object(
-            print_command, "_capture_tile",
-            return_value=np.ones(TILE_SHAPE + (4,), dtype=np.float32),
+            print_command, "_render_tile",
+            side_effect=lambda viewer, is_transparent: white_renders(viewer, is_transparent, TILE_SHAPE),
         ) as capture, mock.patch.object(
-            print_command, "_export_svg", return_value=True
+            print_command, "_svg_snapshot"
         ) as export_svg, mock.patch.object(
-            print_command.mpimg, "imsave"
-        ) as save, mock.patch.object(
-            print_command, "open_in_file_manager"
-        ), redirect_stdout(io.StringIO()) as output:
+            print_command, "_write_svg"
+        ) as write_svg, mock.patch.object(
+            print_command, "_write_png"
+        ) as save, redirect_stdout(io.StringIO()) as output:
             print_command.run(viewer, arguments)
         return SimpleNamespace(
             viewer=viewer, engine=engine, capture=capture, export_svg=export_svg,
-            save=save, save_dir=save_dir, output=output.getvalue(),
+            write_svg=write_svg, save=save, save_dir=save_dir, output=output.getvalue(),
+            scheduler=viewer.background_job_scheduler,
         )
 
     def written(self, result):
         """The base name of the one file the run wrote, as a PNG or an SVG."""
         if result.export_svg.called:
             result.save.assert_not_called()
-            result.export_svg.assert_called_once()
-            return os.path.basename(result.export_svg.call_args.args[1])
-        result.export_svg.assert_not_called()
+            result.write_svg.assert_called_once()
+            return os.path.basename(result.write_svg.call_args.args[1])
+        result.write_svg.assert_not_called()
         result.save.assert_called_once()
         return os.path.basename(result.save.call_args.args[0])
 
@@ -1707,12 +1840,8 @@ class PrintFileNameTests(unittest.TestCase):
                 result.capture.assert_not_called()
                 self.assertEqual(self.written(result), name)
                 self.assertIsNone(result.export_svg.call_args.kwargs["view_width"])
-                self.assertEqual(result.viewer.console_text.text, f"Saved SVG: {name}")
-                self.assertTrue(
-                    str(result.engine.command_succeeded.call_args.args[1]).startswith(
-                        "Successfully saved SVG snapshot: "
-                    )
-                )
+                self.assertEqual(result.scheduler.report, f"Saved SVG: {name}")
+                self.assertIn("Successfully saved SVG snapshot: ", result.output)
 
     def test_an_svg_name_takes_zoom_n_like_the_modifier(self):
         for arguments in (["foo.svg", "zoom", "500"], ["zoom", "500", "foo.svg"]):
@@ -1801,11 +1930,9 @@ class PrintFileNameTests(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 result = self.run_print(arguments, existing=(existing,))
                 result.engine.command_failed.assert_not_called()
-                self.assertEqual(result.viewer.console_text.text, f"{shown} {self.REPLACED}")
-                report = str(result.engine.command_succeeded.call_args.args[1])
-                self.assertTrue(report.startswith("Successfully saved "), report)
-                self.assertTrue(report.endswith(f" {self.REPLACED}"), report)
-                self.assertIn(self.REPLACED, result.output)
+                self.assertEqual(result.scheduler.report, f"{shown} {self.REPLACED}")
+                self.assertIn("Successfully saved ", result.output)
+                self.assertTrue(result.output.rstrip().endswith(self.REPLACED), result.output)
 
     def test_a_new_name_is_not_reported_as_replacing_anything(self):
         # Another file in the folder, or a file of the other format, is no replacement.
@@ -1818,8 +1945,7 @@ class PrintFileNameTests(unittest.TestCase):
             with self.subTest(arguments=arguments, existing=existing):
                 result = self.run_print(arguments, existing=existing)
                 result.engine.command_failed.assert_not_called()
-                self.assertNotIn(self.REPLACED, result.viewer.console_text.text)
-                self.assertNotIn(self.REPLACED, str(result.engine.command_succeeded.call_args.args[1]))
+                self.assertNotIn(self.REPLACED, result.scheduler.report)
                 self.assertNotIn(self.REPLACED, result.output)
 
     def test_the_replacement_note_and_the_size_warning_both_ride_along(self):
@@ -1830,14 +1956,14 @@ class PrintFileNameTests(unittest.TestCase):
             "so a smaller N zooms in and gives a larger image."
         )
         self.assertEqual(
-            result.viewer.console_text.text, f"Saved PNG: mine.png {self.REPLACED} {warning}"
+            result.scheduler.report, f"Saved PNG: mine.png {self.REPLACED} {warning}"
         )
-        report = str(result.engine.command_succeeded.call_args.args[1])
-        self.assertTrue(report.endswith(f"{self.REPLACED} {warning}"), report)
+        self.assertTrue(result.output.rstrip().endswith(f"{self.REPLACED}\n{warning}"), result.output)
 
     def test_a_refusal_never_reports_a_replacement(self):
         result = self.run_print(["mine", "ful"], existing=("mine.png",))
         result.engine.command_succeeded.assert_not_called()
+        self.assertEqual(result.scheduler.jobs, [])
         self.assertNotIn(self.REPLACED, result.viewer.console_text.text)
 
     def test_the_help_describes_the_one_word_name_the_extension_and_the_replacement(self):
@@ -1849,6 +1975,263 @@ class PrintFileNameTests(unittest.TestCase):
         self.assertIn("a name ending in .png cannot be combined with svg", text)
         self.assertIn("A file of the same name is replaced, and the report says so", text)
         self.assertIn("print my_network.svg", text)
+
+
+class StatusStub:
+    """The viewer a real scheduler reports to: keeps its status lines."""
+
+    def __init__(self):
+        self.statuses = []
+
+    def set_background_job_status(self, message):
+        self.statuses.append(str(message))
+
+
+def wait_for(predicate, timeout=10.0):
+    """Let Qt deliver the scheduler's queued signals until predicate holds."""
+    from PySide6 import QtCore
+
+    deadline = time.monotonic() + timeout
+    application = QtCore.QCoreApplication.instance()
+    while time.monotonic() < deadline:
+        application.processEvents()
+        if predicate():
+            return True
+        time.sleep(0.005)
+    application.processEvents()
+    return predicate()
+
+
+class PrintBackgroundJobTests(unittest.TestCase):
+    """print in the viewer's real background job queue: the command returns
+    once the picture is taken, and the queue's thread finishes and writes
+    the file from what print copied, then reports it."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6 import QtCore
+
+        # Reuse an application another test module created and leave it alive;
+        # only an application created here is shut down in tearDownClass.
+        cls._owns_application = QtCore.QCoreApplication.instance() is None
+        cls.application = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+
+    @classmethod
+    def tearDownClass(cls):
+        from PySide6 import QtCore
+
+        application = cls.application
+        cls.application = None
+        if cls._owns_application:
+            application.quit()
+            application.deleteLater()
+            application.processEvents()
+            QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+        del application
+        import gc
+        gc.collect()
+
+    def setUp(self):
+        from Background_Job_Scheduler import BackgroundJobScheduler
+
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.save_dir = os.path.join(root.name, "Saved_Images")
+        engine = print_command.Command_Engine
+        for reporter in (engine.command_artifact, engine.command_succeeded, engine.command_failed):
+            reporter.reset_mock()
+        self.engine = engine
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(mock.patch.object(print_command, "PRINT_DIRECTORY", self.save_dir))
+        self.open_folder = stack.enter_context(mock.patch("Background_Job_Scheduler.open_in_file_manager"))
+        stack.enter_context(mock.patch.multiple(
+            print_command.cfg, create=True, EDGE_COLOR="#000000",
+            NODE_BOUNDARY_COLOR="#000000", EDGE_ALPHA=0.2, EDGE_WIDTH=0.5, UMAP_MODE=False,
+        ))
+        stack.enter_context(redirect_stdout(io.StringIO()))
+        self.status = StatusStub()
+        self.scheduler = BackgroundJobScheduler(self.status)
+        # First of the cleanups: no job runs once the patches and folder go.
+        self.addCleanup(self.stop_scheduler)
+
+    def stop_scheduler(self, release=None):
+        """Discard the queued jobs, let a blocked one end, and wait for the queue to empty."""
+        self.scheduler.shutdown()
+        if release is not None:
+            release.set()
+        self.assertTrue(wait_for(lambda: self.scheduler.queue_depth == 0))
+
+    def viewer(self, svg=False):
+        if svg:
+            viewer = square_network()
+            for name, value in vars(PrintMarginTrimTests.make_viewer()).items():
+                if name not in ("canvas", "view"):
+                    setattr(viewer, name, value)
+            viewer.canvas.update = mock.Mock()
+        else:
+            viewer = zoom_viewer()
+        viewer.background_job_scheduler = self.scheduler
+        return viewer
+
+    def block_the_queue(self):
+        """Put a job in front that runs until the returned event is set."""
+        started, release = threading.Event(), threading.Event()
+
+        def blocker(_payload):
+            started.set()
+            release.wait(10)
+            return {"message": "blocker done"}
+
+        self.scheduler.enqueue(
+            command_name="blocker", description="blocker", payload=None, worker=blocker,
+            output_path=os.path.join(self.save_dir, "blocker.txt"),
+        )
+        self.assertTrue(started.wait(10))
+        self.addCleanup(self.stop_scheduler, release)
+        return release
+
+    def finished(self, count=1):
+        """Wait until count jobs have reported, and return the status lines."""
+        done = lambda: sum(
+            "completed" in line or "failed" in line for line in self.status.statuses
+        ) >= count
+        self.assertTrue(wait_for(done), self.status.statuses)
+        return self.status.statuses
+
+    def test_print_returns_while_the_queue_thread_encodes_the_png(self):
+        viewer = self.viewer()
+        threads, release = [], threading.Event()
+
+        def encode(path, image):
+            threads.append(threading.current_thread().name)
+            self.assertTrue(release.wait(10))
+            original_imsave(path, image)
+
+        original_imsave = print_command.mpimg.imsave
+        path = os.path.join(self.save_dir, "queued.png")
+        with mock.patch.object(print_command, "_render_tile", side_effect=lambda v, t: white_renders(v, t, TILE_SHAPE)), \
+                mock.patch.object(print_command.mpimg, "imsave", side_effect=encode):
+            print_command.run(viewer, ["queued", "full"])
+            # The command is done; the job waits in the encoder.
+            self.engine.command_failed.assert_not_called()
+            self.assertEqual(
+                str(self.engine.command_succeeded.call_args.args[1]),
+                f"Queued print for {path}; waiting for the background job.",
+            )
+            self.assertTrue(wait_for(lambda: threads))
+            self.assertFalse(os.path.exists(path))
+            self.assertTrue(self.scheduler.is_output_path_reserved(path))
+            release.set()
+            statuses = self.finished()
+
+        self.assertEqual(threads, ["SSN-Background-Jobs"])
+        self.assertEqual(os.listdir(self.save_dir), ["queued.png"])
+        self.assertRegex(statuses[-1], r"^Background job #1 completed in [\d.]+s: Saved PNG: queued\.png$")
+        self.open_folder.assert_called_once_with(self.save_dir)
+        self.assertFalse(self.scheduler.is_output_path_reserved(path))
+
+    def test_the_file_shows_the_network_as_it_was_when_print_ran(self):
+        expected = export_svg(square_network())
+        release = self.block_the_queue()
+        viewer = self.viewer(svg=True)
+
+        print_command.run(viewer, ["net", "svg"])
+        # While the job waits behind another, the network changes in place
+        # and in whole: nodes move, recolour, hide; edges and threshold change.
+        viewer.pos[:] += 1000.0
+        viewer.current_colors[:] = 0.0
+        viewer.current_sizes[:] = 3.0
+        viewer.visible_mask[1] = False
+        viewer.edges = np.array([[0, 2]], dtype=np.int32)
+        viewer.current_slider_threshold = 0.0
+        viewer.canvas.bgcolor = SimpleNamespace(rgba=(0.0, 0.0, 0.0, 1.0))
+        release.set()
+        self.finished(count=2)
+
+        with open(os.path.join(self.save_dir, "net.svg"), encoding="utf-8") as handle:
+            self.assertEqual(handle.read(), expected)
+
+    def test_a_name_a_queued_print_holds_is_refused(self):
+        self.block_the_queue()
+        viewer = self.viewer()
+        path = os.path.join(self.save_dir, "same.png")
+        with mock.patch.object(print_command, "_capture_tile", return_value=np.ones((4, 4, 4), dtype=np.float32)):
+            print_command.run(viewer, ["same"])
+            print_command.run(viewer, ["same"])
+
+        self.engine.command_succeeded.assert_called_once()
+        self.assertEqual(
+            str(self.engine.command_failed.call_args.args[1]),
+            f"Error: Output file is already reserved by a background job: {path}",
+        )
+        self.assertEqual(self.scheduler.queue_depth, 2)
+
+    def test_timestamped_names_skip_the_ones_queued_prints_hold(self):
+        release = self.block_the_queue()
+        viewer = self.viewer()
+        clock = SimpleNamespace(datetime=PrintAutomaticNameTests.FixedClock)
+        with mock.patch.object(print_command, "datetime", clock), \
+                mock.patch.object(print_command, "_capture_tile", return_value=np.ones((4, 4, 4), dtype=np.float32)):
+            print_command.run(viewer, [])
+            print_command.run(viewer, [])
+            release.set()
+            self.finished(count=3)
+
+        self.assertEqual(
+            sorted(os.listdir(self.save_dir)),
+            ["test_sequences_20260102_030405.png", "test_sequences_20260102_030405_2.png"],
+        )
+
+    def test_a_timestamped_name_taken_while_queued_is_not_written_over(self):
+        # Another program saves a file of that name while the print waits.
+        release = self.block_the_queue()
+        viewer = self.viewer()
+        clock = SimpleNamespace(datetime=PrintAutomaticNameTests.FixedClock)
+        path = os.path.join(self.save_dir, "test_sequences_20260102_030405.png")
+        with mock.patch.object(print_command, "datetime", clock), \
+                mock.patch.object(print_command, "_capture_tile", return_value=np.ones((4, 4, 4), dtype=np.float32)), \
+                redirect_stderr(io.StringIO()):
+            print_command.run(viewer, [])
+            os.makedirs(self.save_dir)
+            with open(path, "w") as handle:
+                handle.write("someone else's")
+            release.set()
+            statuses = self.finished(count=2)
+
+        self.assertIn("Output file already exists", statuses[-1])
+        with open(path) as handle:
+            self.assertEqual(handle.read(), "someone else's")
+        self.assertEqual(os.listdir(self.save_dir), ["test_sequences_20260102_030405.png"])
+
+    def test_a_failed_job_is_reported_and_leaves_no_file(self):
+        viewer = self.viewer()
+        with mock.patch.object(print_command, "_capture_tile", return_value=np.ones((4, 4, 4), dtype=np.float32)), \
+                mock.patch.object(print_command.mpimg, "imsave", side_effect=OSError("disk full")), \
+                redirect_stderr(io.StringIO()):
+            print_command.run(viewer, ["broken"])
+            statuses = self.finished()
+
+        self.engine.command_succeeded.assert_called_once()
+        self.assertRegex(statuses[-1], r"^Background job #1 failed after [\d.]+s \(print\): disk full$")
+        self.assertEqual(os.listdir(self.save_dir), [])
+        self.open_folder.assert_not_called()
+
+    def test_without_a_scheduler_nothing_is_drawn_or_written(self):
+        viewer = self.viewer()
+        del viewer.background_job_scheduler
+        with mock.patch.object(print_command, "_render_tile") as render:
+            for arguments in (["picture"], ["picture", "full"], ["picture", "svg"]):
+                with self.subTest(arguments=arguments):
+                    self.engine.command_failed.reset_mock()
+                    print_command.run(viewer, arguments)
+                    self.assertEqual(
+                        str(self.engine.command_failed.call_args.args[1]),
+                        "Error: The background job scheduler is unavailable.",
+                    )
+        render.assert_not_called()
+        self.engine.command_succeeded.assert_not_called()
+        self.assertFalse(os.path.exists(self.save_dir))
 
 
 class FakeMarkers:
@@ -1923,26 +2306,25 @@ class PrintTransientMarksTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def run_print(self, viewer, arguments, capture_error=None, interrupt=False):
+    def run_print(self, viewer, arguments, capture_error=None, interrupt=False, write_png=None):
         engine = print_command.Command_Engine
         for reporter in (engine.command_artifact, engine.command_succeeded, engine.command_failed):
             reporter.reset_mock()
         during = []
 
-        def capture(captured_viewer, _is_transparent):
+        def capture(captured_viewer, is_transparent):
             hidden = getattr(captured_viewer, "transient_marks_hidden", False)
             during.append((drawn(captured_viewer), hidden))
             if capture_error is not None:
                 raise capture_error
-            return np.ones(TILE_SHAPE + (4,), dtype=np.float32)
+            return white_renders(captured_viewer, is_transparent, TILE_SHAPE)
 
         save_dir = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, save_dir, True)
         patches = [
             mock.patch.object(print_command, "PRINT_DIRECTORY", save_dir),
-            mock.patch.object(print_command, "_capture_tile", side_effect=capture),
-            mock.patch.object(print_command.mpimg, "imsave"),
-            mock.patch.object(print_command, "open_in_file_manager"),
+            mock.patch.object(print_command, "_render_tile", side_effect=capture),
+            mock.patch.object(print_command, "_write_png", side_effect=write_png),
         ]
         if interrupt:
             patches.append(mock.patch.object(
@@ -2027,10 +2409,10 @@ class PrintTransientMarksTests(unittest.TestCase):
                     while_encoding.append(viewer.transient_marks_hidden)
                     self.assert_restored(viewer, before)
 
-                with mock.patch.object(print_command, "_save_png", side_effect=encode):
-                    engine, _during = self.run_print(viewer, arguments)
+                engine, _during = self.run_print(viewer, arguments, write_png=encode)
 
                 engine.command_succeeded.assert_called_once()
+                self.assertEqual(viewer.background_job_scheduler.errors, [])
                 self.assertEqual(while_encoding, [False])
 
     def test_the_marks_come_back_when_the_capture_fails(self):
@@ -2062,7 +2444,8 @@ class PrintTransientMarksTests(unittest.TestCase):
     def test_an_svg_and_a_refusal_leave_the_drawing_alone(self):
         viewer = marked_viewer()
         with mock.patch.object(viewer, "update_nodes", wraps=viewer.update_nodes) as update, \
-                mock.patch.object(print_command, "_export_svg", return_value=True):
+                mock.patch.object(print_command, "_svg_snapshot"), \
+                mock.patch.object(print_command, "_write_svg"):
             self.run_print(viewer, ["marks", "svg"])
             self.run_print(viewer, ["marks", "zoom", "500"])
         update.assert_not_called()

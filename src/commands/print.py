@@ -16,10 +16,10 @@
 import Command_Engine
 import os
 import math
-import threading
 import time
 import datetime
 import uuid
+from dataclasses import dataclass
 import numpy as np
 import matplotlib.image as mpimg
 from matplotlib import colors as mcolors
@@ -29,7 +29,6 @@ from vispy.scene.visuals import VisualNode
 from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
 from commands.zoom import view_for_width
-from desktop.Desktop_App import open_in_file_manager
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import edge_stages
@@ -43,10 +42,14 @@ PRINT_MODIFIER_SYNTAX = "transparent, full, svg, zoom N"
 # is still saved, with a warning that a smaller N gives a larger image.
 ZOOMED_IMAGE_MIN_SIDE_PX = 1000
 # print full refuses, before drawing any tile, a PNG of more megapixels than
-# this. 250 is about 15,800 x 15,800 px, more than an A0 poster at 300 dpi
-# (140). Making the image takes about 9 bytes of memory per pixel, so raise
-# the limit only as far as the computer's memory allows.
-MAX_FULL_IMAGE_MEGAPIXELS = 250
+# this. 1000 is about 31,600 x 31,600 px, seven times an A0 poster at 300 dpi
+# (140). Making the image takes about 4 bytes of memory per pixel, 7 with
+# transparent (_RawMosaic): 4 GB, or 7 GB, at the limit. Raise it only as far
+# as the computer's memory allows.
+MAX_FULL_IMAGE_MEGAPIXELS = 1000
+# _RawMosaic.finish converts this many pixels at a time, which bounds the
+# float arrays it works in.
+FINISH_BAND_PIXELS = 1 << 22
 PNG_TRIM_PADDING_PX = 20
 PNG_ALPHA_TOLERANCE = 1.0 / 255.0
 PNG_BACKGROUND_TOLERANCE = 2.0 / 255.0
@@ -87,8 +90,8 @@ def print_help():
       full        : Renders the network tile by tile off screen and stitches
                     the tiles into a massive, ultra-high-resolution PNG of
                     the entire network without OpenGL edge-clipping. The view
-                    on screen stays put; keyboard and mouse input waits until
-                    the capture ends, and resizing the window cancels it.
+                    on screen stays put; keyboard and mouse input waits while
+                    the tiles are drawn, and resizing the window cancels it.
       svg         : Reconstructs the visible network as a Scalable Vector Graphic 
                     for infinite zoom without pixelation (Not compatible with 
                     other modifiers). Node sizes and line widths follow the
@@ -100,13 +103,20 @@ def print_help():
                     view. N must be a positive width the view can draw;
                     the zoom command's 0.5 and whole-network limits don't
                     apply. A smaller N zooms in: a larger full PNG, and
-                    smaller nodes
-                    and lines relative to the network in an SVG. Node sizes
-                    stay in screen pixels. A full PNG whose longest side is
-                    under 1000 px is saved with a warning.
+                    smaller nodes and lines relative to the network in an
+                    SVG. Node sizes stay in screen pixels. A full PNG whose
+                    longest side is under 1000 px is saved with a warning.
+
+    Background job: print takes its picture at once, as the network is when
+    it runs: it draws the view, or every tile of a full PNG, and an SVG
+    copies the nodes and edges shown. The file is then finished and written
+    (a PNG trimmed and encoded, an SVG written out) by the background job
+    queue that label and logo use, so the Viewer can be used meanwhile and
+    later changes don't alter the file. The queue reports when it is saved
+    and opens its folder.
 
     Size limit: a full PNG of more than MAX_FULL_IMAGE_MEGAPIXELS megapixels
-    (250 as shipped) is refused before any tile is drawn, with the smallest
+    (1000 as shipped) is refused before any tile is drawn, with the smallest
     N that fits. The limit is set in src/commands/print.py.
 
     PNG captures leave out the hover colour of the node under the mouse and
@@ -151,20 +161,25 @@ def _canonical_shape(shape):
     return shape
 
 
-def _available_automatic_filename(directory, filename):
+def _available_automatic_filename(directory, filename, scheduler=None):
     """Add a numeric suffix when a generated timestamped name is taken.
 
     Two prints in the same second share a timestamp: the second one is saved
-    as name_2.png rather than over the first. A name typed by the user is not
-    passed here, and is overwritten as before.
+    as name_2.png rather than over the first, whether the first is written
+    or still waiting in the scheduler's queue. A name typed by the user is
+    not passed here, and is overwritten as before.
     """
     stem, suffix = os.path.splitext(filename)
     candidate = filename
     index = 2
-    while os.path.exists(os.path.join(directory, candidate)):
+    while True:
+        path = os.path.join(directory, candidate)
+        if not os.path.exists(path) and not (
+            scheduler is not None and scheduler.is_output_path_reserved(path)
+        ):
+            return candidate
         candidate = f"{stem}_{index}{suffix}"
         index += 1
-    return candidate
 
 
 def _scene_units_per_pixel(viewer, view_width=None):
@@ -402,32 +417,77 @@ def _svg_node_chunks(cx, cy, d, shapes, colors, boundary_stroke):
         yield '\n'.join(lines) + '\n'
 
 
-def _export_svg(viewer, filepath, view_width=None):
-    """Generates a structured, layered SVG vector file for Adobe Illustrator compatibility.
+@dataclass(frozen=True)
+class _SvgSnapshot:
+    """What an SVG of the view draws, copied from the viewer when print runs.
+
+    It belongs to the background job that writes the SVG: the viewer may
+    change while the job waits or writes, and the file shows the network as
+    it was. pos, colors, sizes and shapes are the visible nodes in drawing
+    order; all_positions holds every node's (x, y), which the edges index.
+    """
+    pos: np.ndarray
+    colors: np.ndarray
+    sizes: np.ndarray
+    shapes: list
+    all_positions: np.ndarray
+    edges: np.ndarray
+    unit: float
+    background: np.ndarray
+    edge_color: object
+    edge_alpha: float
+    edge_width: float
+    boundary_color: object
+    boundary_width: float
+
+
+def _svg_snapshot(viewer, view_width=None):
+    """Copy what an SVG of the view draws; None when no node is visible.
 
     Sizes set in screen pixels (node size and outline, edge width) are written
     in scene units at the current zoom, so the SVG keeps the proportions of
     the view on screen; with view_width, the N of `zoom N`, at the zoom of a
     view N scene units wide instead.
-
-    Returns False, writing nothing, when no node is visible.
     """
-    # 1. Filter visible elements
     vis = viewer.visible_mask
     if not np.any(vis):
-        return False
-
-    print("Generating layered, editable SVG for Illustrator...")
+        return None
 
     # Nodes go in the order the screen draws them, the later covering the
     # earlier, so those the color command or a selection raised stay on top.
+    # Indexing copies, so later changes to the viewer leave the snapshot alone.
     render_order = getattr(viewer, 'visible_node_render_order', None)
     visible = render_order() if callable(render_order) else vis
 
-    pos = viewer.pos[visible]
-    colors = viewer.current_colors[visible]
-    sizes = viewer.current_sizes[visible]
-    shapes = [_canonical_shape(shape) for shape in viewer.current_shapes[visible]]
+    # The edges on screen: the similarity threshold, visible endpoints and
+    # UMAP selection, in a new array.
+    active_edges, _ = edge_stages(viewer, cfg)
+    return _SvgSnapshot(
+        pos=viewer.pos[visible],
+        colors=viewer.current_colors[visible],
+        sizes=viewer.current_sizes[visible],
+        shapes=[_canonical_shape(shape) for shape in viewer.current_shapes[visible]],
+        all_positions=np.array(np.asarray(viewer.pos)[:, :2]),
+        edges=active_edges,
+        # Node sizes are screen pixels; the SVG is in scene units.
+        unit=_scene_units_per_pixel(viewer, view_width),
+        background=np.array(viewer.canvas.bgcolor.rgba),
+        edge_color=getattr(cfg, 'EDGE_COLOR', '#000000'),
+        edge_alpha=getattr(cfg, 'EDGE_ALPHA', 0.2),
+        edge_width=getattr(cfg, 'EDGE_WIDTH', 0.5),
+        boundary_color=getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000'),
+        boundary_width=getattr(cfg, 'NODE_BOUNDARY_WIDTH', 0.5),
+    )
+
+
+def _write_svg(snapshot, filepath):
+    """Write a snapshot as a structured, layered SVG for Adobe Illustrator compatibility."""
+    print("Generating layered, editable SVG for Illustrator...")
+
+    pos = snapshot.pos
+    colors = snapshot.colors
+    sizes = snapshot.sizes
+    shapes = snapshot.shapes
 
     # 2. Calculate bounding box
     min_x, min_y = np.min(pos[:, :2], axis=0)
@@ -436,8 +496,7 @@ def _export_svg(viewer, filepath, view_width=None):
     w_bounds = max_x - min_x
     h_bounds = max_y - min_y
 
-    # Node sizes are screen pixels; the SVG is in scene units.
-    unit = _scene_units_per_pixel(viewer, view_width)
+    unit = snapshot.unit
 
     # Add 5% padding so outer nodes aren't clipped by the viewport boundaries,
     # and at least what the largest node reaches past its centre: its radius,
@@ -462,7 +521,7 @@ def _export_svg(viewer, filepath, view_width=None):
     # 3. Write the SVG as it is made: the edges and then the nodes go out a
     # chunk at a time into a partial file, which replaces the target only once
     # it is complete, so a failure leaves any earlier file of that name alone.
-    bg_color = viewer.canvas.bgcolor.rgba
+    bg_color = snapshot.background
     bg_color_str = f"rgb({int(bg_color[0]*255)},{int(bg_color[1]*255)},{int(bg_color[2]*255)})"
     header = [
         '<?xml version="1.0" encoding="UTF-8" standalone="no"?>',
@@ -472,16 +531,13 @@ def _export_svg(viewer, filepath, view_width=None):
         f'  <rect width="{width:.3f}" height="{height:.3f}" fill="{bg_color_str}" fill-opacity="{bg_color[3]:.3f}" />',
     ]
 
-    # 5. Edges layer: the on-screen filter (similarity threshold, visible
-    # endpoints, UMAP selection edges) in the configured edge color and alpha.
-    active_edges, _ = edge_stages(viewer, cfg)
-
-    edge_alpha = getattr(cfg, 'EDGE_ALPHA', 0.2)
-    edge_width = getattr(cfg, 'EDGE_WIDTH', 0.5) * unit
-    edge_rgba = mcolors.to_rgba(getattr(cfg, 'EDGE_COLOR', '#000000'))
+    # 5. Edges layer: the edges on screen, in the configured edge color and alpha.
+    edge_alpha = snapshot.edge_alpha
+    edge_width = snapshot.edge_width * unit
+    edge_rgba = mcolors.to_rgba(snapshot.edge_color)
     edge_stroke = _svg_color_attrs((*edge_rgba[:3], edge_alpha), is_stroke=True)
-    boundary_rgba = mcolors.to_rgba(getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000'))
-    boundary_width = getattr(cfg, 'NODE_BOUNDARY_WIDTH', 0.5) * unit
+    boundary_rgba = mcolors.to_rgba(snapshot.boundary_color)
+    boundary_width = snapshot.boundary_width * unit
     boundary_stroke = _svg_color_attrs(boundary_rgba, is_stroke=True) + f' stroke-width="{boundary_width:.3f}"'
     edge_tail = f' {edge_stroke} stroke-width="{edge_width:.3f}" />'
 
@@ -501,7 +557,9 @@ def _export_svg(viewer, filepath, view_width=None):
         with open(partial_path, 'x', encoding='utf-8') as handle:
             handle.write('\n'.join(header) + '\n')
             handle.write('  <!-- Edges -->\n  <g id="edges" name="Edges">\n')
-            for text in _svg_edge_chunks(viewer.pos, active_edges, target_min_x, target_max_y, edge_tail):
+            for text in _svg_edge_chunks(
+                snapshot.all_positions, snapshot.edges, target_min_x, target_max_y, edge_tail,
+            ):
                 handle.write(text)
             handle.write('  </g>\n  <!-- Nodes -->\n  <g id="nodes" name="Nodes">\n')
             for text in _svg_node_chunks(node_x, node_y, diameters, shapes, colors, boundary_stroke):
@@ -515,38 +573,62 @@ def _export_svg(viewer, filepath, view_width=None):
             pass
         raise
     print(f"Successfully generated structured SVG at: {filepath}")
-    return True
+
+
+def _render_tile(viewer, is_transparent):
+    """Render the current camera view offscreen, as the 8-bit pixels render() returns.
+
+    Returns (rgba,), or for a transparent capture (on_black, on_white): the
+    view rendered on black and on white. canvas.render() draws into a
+    framebuffer object of its own, and the transparent pass hands its two
+    backgrounds to render() rather than setting canvas.bgcolor: nothing
+    reaches the window and no event runs.
+    """
+    canvas = viewer.canvas
+    if is_transparent:
+        return canvas.render(bgcolor='black'), canvas.render(bgcolor='white')
+    return (canvas.render(),)
+
+
+def _transparent_rgba(on_black, on_white):
+    """The float RGBA of a picture rendered on black and on white (8-bit, RGB used).
+
+    Where white shows through, alpha falls: it is one minus the difference
+    of the two, averaged over the channels, and the colour is the render on
+    black divided by it. Each pixel is worked out on its own.
+    """
+    img_black = on_black[..., :3].astype(np.float32) / 255.0
+    img_white = on_white[..., :3].astype(np.float32) / 255.0
+
+    alpha = 1.0 - img_white + img_black
+    alpha_channel = np.clip(np.mean(alpha, axis=2), 0.0, 1.0)
+
+    rgb_channels = np.zeros_like(img_black)
+    mask = alpha_channel > 1e-6
+    for i in range(3):
+        rgb_channels[..., i][mask] = np.clip(img_black[..., i][mask] / alpha_channel[mask], 0.0, 1.0)
+
+    final_tile = np.zeros((img_black.shape[0], img_black.shape[1], 4), dtype=np.float32)
+    final_tile[..., :3] = rgb_channels
+    final_tile[..., 3] = alpha_channel
+    return final_tile
+
+
+def _tile_rgba(renders):
+    """The float RGBA of a tile's renders, as _render_tile gave them."""
+    if len(renders) == 2:
+        return _transparent_rgba(*renders)
+    img = renders[0].astype(np.float32) / 255.0
+    if len(img.shape) == 3 and img.shape[2] == 3:
+        rgba = np.ones((img.shape[0], img.shape[1], 4), dtype=np.float32)
+        rgba[..., :3] = img
+        return rgba
+    return img
+
 
 def _capture_tile(viewer, is_transparent):
-    """Render the current camera view offscreen and return float RGBA.
-
-    canvas.render() draws into a framebuffer object of its own, and the
-    transparent pass hands its two backgrounds to render() rather than
-    setting canvas.bgcolor: nothing reaches the window and no event runs.
-    """
-    if is_transparent:
-        img_black = viewer.canvas.render(bgcolor='black')[..., :3].astype(np.float32) / 255.0
-        img_white = viewer.canvas.render(bgcolor='white')[..., :3].astype(np.float32) / 255.0
-        
-        alpha = 1.0 - img_white + img_black
-        alpha_channel = np.clip(np.mean(alpha, axis=2), 0.0, 1.0)
-        
-        rgb_channels = np.zeros_like(img_black)
-        mask = alpha_channel > 1e-6
-        for i in range(3):
-            rgb_channels[..., i][mask] = np.clip(img_black[..., i][mask] / alpha_channel[mask], 0.0, 1.0)
-        
-        final_tile = np.zeros((img_black.shape[0], img_black.shape[1], 4), dtype=np.float32)
-        final_tile[..., :3] = rgb_channels
-        final_tile[..., 3] = alpha_channel
-        return final_tile
-    else:
-        img = viewer.canvas.render().astype(np.float32) / 255.0
-        if len(img.shape) == 3 and img.shape[2] == 3:
-            rgba = np.ones((img.shape[0], img.shape[1], 4), dtype=np.float32)
-            rgba[..., :3] = img
-            return rgba
-        return img
+    """Render the current camera view offscreen and return float RGBA."""
+    return _tile_rgba(_render_tile(viewer, is_transparent))
 
 
 def _capture_overlays(viewer):
@@ -601,12 +683,13 @@ def _hide_transient_marks(viewer):
     return restore
 
 
-def _render_capture(viewer, is_transparent, overlays, rect=None):
+def _render_capture(viewer, is_transparent, overlays, rect=None, raw=False):
     """Capture one tile with the HUD hidden and the camera at rect, if given.
 
-    The live camera and HUD visibility are read here and put back before
-    returning, even on error, and no event is processed in between, so a
-    paint only ever sees the live view.
+    It is the float RGBA of _capture_tile, or with raw the renders of
+    _render_tile. The live camera and HUD visibility are read here and put
+    back before returning, even on error, and no event is processed in
+    between, so a paint only ever sees the live view.
     """
     camera = viewer.view.camera
     live_rect = camera.rect
@@ -616,7 +699,7 @@ def _render_capture(viewer, is_transparent, overlays, rect=None):
             overlay.visible = False
         if rect is not None:
             camera.rect = rect
-        return _capture_tile(viewer, is_transparent)
+        return (_render_tile if raw else _capture_tile)(viewer, is_transparent)
     finally:
         if rect is not None:
             camera.rect = live_rect
@@ -646,31 +729,25 @@ def _process_events_without_input():
         )
 
 
-def _save_png(filepath, image):
-    """Write image as a PNG, as imsave does, while the window keeps painting.
+def _write_png(filepath, image):
+    """Write image as the PNG imsave writes, into a partial file that replaces filepath when complete.
 
-    A full capture of tens of megapixels takes seconds to encode. The encoder
-    runs on a thread of its own (Pillow lets other threads run while it
-    compresses), and meanwhile the window paints and timers run, as between
-    capture tiles; keyboard and mouse input waits until the command ends. An
-    error in the encoder is raised here.
+    Encoding a full capture takes seconds to minutes; a failure on the way,
+    or the Viewer closing, leaves any earlier file of that name as it was and
+    no partial file behind.
     """
-    failure = []
-
-    def encode():
+    directory = os.path.dirname(filepath)
+    stem = os.path.splitext(os.path.basename(filepath))[0]
+    partial_path = os.path.join(directory, f".{stem}.{uuid.uuid4().hex}.partial.png")
+    try:
+        mpimg.imsave(partial_path, image)
+        os.replace(partial_path, filepath)
+    except BaseException:
         try:
-            mpimg.imsave(filepath, image)
-        except BaseException as error:
-            failure.append(error)
-
-    encoder = threading.Thread(target=encode, name="print-png-encoder")
-    encoder.start()
-    while encoder.is_alive():
-        encoder.join(CAPTURE_EVENT_INTERVAL_S)
-        if encoder.is_alive():
-            _process_events_without_input()
-    if failure:
-        raise failure[0]
+            os.remove(partial_path)
+        except OSError:
+            pass
+        raise
 
 
 class _CaptureInterrupted(RuntimeError):
@@ -823,45 +900,99 @@ def _png_bytes(image):
     return (image * 255).astype(np.uint8)
 
 
-class _PngMosaic:
-    """A full capture's picture, assembled tile by tile as 8-bit RGBA.
+def _compact(image, box):
+    """image[top:bottom, left:right] moved to the start of image's own memory, C-contiguous.
 
-    Each tile is converted as imsave converts a float image, so the PNG holds
-    the bytes the float mosaic gave, in a quarter of its memory. The rows and
-    columns with content inside the crop are noted as the tiles arrive, from
-    the float pixels, so the trim finds the margins _trim_png_margins finds
-    in the float picture.
+    imsave needs a C-contiguous array and would copy a cut-out, which at a
+    gigapixel is gigabytes. Each row moves up or left within the array,
+    never onto a row still to be moved; image is the trimmed picture's
+    memory afterwards.
+    """
+    top, bottom, left, right = box
+    height, width, channels = image.shape
+    if left == 0 and right == width:
+        return image[top:bottom]
+    flat = image.reshape(-1)
+    row = (right - left) * channels
+    stride = width * channels
+    for index in range(bottom - top):
+        start = (top + index) * stride + left * channels
+        flat[index * row:(index + 1) * row] = flat[start:start + row]
+    return flat[:(bottom - top) * row].reshape(bottom - top, right - left, channels)
+
+
+class _RawMosaic:
+    """A full capture's tiles, as rendered, finished into the PNG later.
+
+    Drawing needs the Viewer's OpenGL context, so print renders the tiles on
+    the GUI thread and pastes their 8-bit renders here, cut to the picture's
+    size; finish() makes the PNG of them in the background job, in place. A
+    plain capture keeps each render's RGBA, which is already the PNG's; a
+    transparent one keeps its render on black, in the RGBA array the PNG's
+    pixels then replace, and its render on white (RGB). That makes 4 bytes a
+    pixel, or 7 with transparent.
     """
 
-    def __init__(self, height, width, crop_height, crop_width, is_transparent, background_color):
+    def __init__(self, height, width, is_transparent):
         self.image = np.zeros((height, width, 4), dtype=np.uint8)
-        self.crop_height = min(crop_height, height)
-        self.crop_width = min(crop_width, width)
-        self.content_rows = np.zeros(self.crop_height, dtype=bool)
-        self.content_cols = np.zeros(self.crop_width, dtype=bool)
+        self.on_white = np.zeros((height, width, 3), dtype=np.uint8) if is_transparent else None
         self.is_transparent = is_transparent
-        self.background_rgb = None if is_transparent else _background_rgb(background_color)
 
-    def paste(self, tile, top, left):
-        """Put TILE, float RGBA, with its top left corner at (top, left)."""
-        height, width = tile.shape[:2]
-        self.image[top:top + height, left:left + width, :] = _png_bytes(tile)
-        inside = tile[:max(self.crop_height - top, 0), :max(self.crop_width - left, 0)]
-        content = _content_mask(inside, self.is_transparent, self.background_rgb)
-        self.content_rows[top:top + content.shape[0]] |= content.any(axis=1)
-        self.content_cols[left:left + content.shape[1]] |= content.any(axis=0)
+    @property
+    def shape(self):
+        """The picture's (height, width) before the trim."""
+        return self.image.shape[:2]
 
-    def cropped_size(self):
-        return self.crop_height, self.crop_width
+    def paste(self, renders, top, left):
+        """Put a tile's renders, as _render_tile gave them, with its top left corner at (top, left).
 
-    def trimmed(self, padding_px=PNG_TRIM_PADDING_PX):
-        """The cropped picture without its background-only margins."""
-        image = self.image[:self.crop_height, :self.crop_width]
-        box = _trim_box(self.content_rows, self.content_cols, padding_px)
+        What reaches past the picture's right or bottom edge is left out.
+        """
+        first = renders[0]
+        height = min(first.shape[0], self.image.shape[0] - top)
+        width = min(first.shape[1], self.image.shape[1] - left)
+        if height <= 0 or width <= 0:
+            return
+        target = self.image[top:top + height, left:left + width]
+        channels = min(first.shape[2], 4)
+        target[..., :channels] = first[:height, :width, :channels]
+        if channels < 4:
+            target[..., 3] = 255
+        if self.on_white is not None:
+            self.on_white[top:top + height, left:left + width] = renders[1][:height, :width, :3]
+
+    def finish(self, background_color, padding_px=PNG_TRIM_PADDING_PX):
+        """Turn the renders into the PNG's 8-bit RGBA and trim its margins, in place.
+
+        The pixels and the margins are those _tile_rgba, _png_bytes and
+        _trim_png_margins give for the whole float picture: each step works
+        pixel by pixel, or row and column by row and column, so taking a band
+        of rows at a time changes nothing. Returns the trimmed picture, a
+        C-contiguous array in this mosaic's memory, which imsave writes as it
+        is.
+        """
+        height, width = self.image.shape[:2]
+        background_rgb = None if self.is_transparent else _background_rgb(background_color)
+        content_rows = np.zeros(height, dtype=bool)
+        content_cols = np.zeros(width, dtype=bool)
+        band = max(1, FINISH_BAND_PIXELS // max(width, 1))
+        for top in range(0, height, band):
+            rows = slice(top, min(top + band, height))
+            if self.on_white is None:
+                # x / 255 * 255 in float32 truncates back to x for every byte,
+                # so the PNG's pixels are the render's own, left as they are.
+                picture = self.image[rows, :, :3].astype(np.float32) / 255.0
+            else:
+                picture = _transparent_rgba(self.image[rows], self.on_white[rows])
+                self.image[rows] = _png_bytes(picture)
+            content = _content_mask(picture, self.is_transparent, background_rgb)
+            content_rows[rows] = content.any(axis=1)
+            content_cols |= content.any(axis=0)
+        self.on_white = None
+        box = _trim_box(content_rows, content_cols, padding_px)
         if box is None:
-            return image
-        top, bottom, left, right = box
-        return image[top:bottom, left:right]
+            return self.image
+        return _compact(self.image, box)
 
 
 def _round_up(value):
@@ -897,6 +1028,94 @@ def _refuse(viewer, msg):
     Command_Engine.command_failed(viewer, msg)
     print(f"\n{msg}")
     Command_Engine.show_status(viewer, msg)
+
+
+@dataclass(frozen=True)
+class _PrintJob:
+    """One print's picture, as run() took it, and where its file goes.
+
+    picture is an _SvgSnapshot ('svg'), a full capture's _RawMosaic ('full')
+    or a view's float RGBA ('png'). Nothing in it refers to the live viewer,
+    so the background job can finish it while the viewer changes.
+    """
+    kind: str
+    picture: object
+    filepath: str
+    filename: str
+    save_dir: str
+    allow_overwrite: bool
+    is_transparent: bool = False
+    background: object = None
+    zoom_width: float = None
+
+
+def _ready_to_write(job):
+    """Make the save folder, and say whether a file of the name is there to replace.
+
+    A name the user gave replaces such a file; a timestamped one never does.
+    """
+    os.makedirs(job.save_dir, exist_ok=True)
+    replacing = os.path.exists(job.filepath)
+    if replacing and not job.allow_overwrite:
+        raise FileExistsError(Message("Output file already exists: {path}", path=job.filepath))
+    return replacing
+
+
+def _print_job(job):
+    """Finish one print's picture and write its file: the background job's worker.
+
+    It runs on the scheduler's thread: it trims and encodes a PNG, or writes
+    an SVG, from what run() took, and returns the report the scheduler shows.
+    """
+    size_warning = None
+    if job.kind == "svg":
+        image_format, description = "SVG", "SVG snapshot"
+        replaced = _ready_to_write(job)
+        _write_svg(job.picture, job.filepath)
+    else:
+        image_format, description = "PNG", "snapshot"
+        if job.is_transparent:
+            description = "transparent " + description
+        if job.kind == "full":
+            description = "full stitched " + description
+            original_height, original_width = job.picture.shape
+            image = job.picture.finish(job.background)
+        else:
+            original_height, original_width = job.picture.shape[:2]
+            image = _trim_png_margins(job.picture, job.is_transparent, job.background)
+        trimmed_height, trimmed_width = image.shape[:2]
+        if (trimmed_width, trimmed_height) != (original_width, original_height):
+            print(
+                "Trimmed empty PNG margins: "
+                f"{original_width}x{original_height} -> "
+                f"{trimmed_width}x{trimmed_height} px "
+                f"({PNG_TRIM_PADDING_PX} px border)."
+            )
+        replaced = _ready_to_write(job)
+        _write_png(job.filepath, image)
+        # A scale the user chose can make a small picture; it is saved all the same.
+        if job.zoom_width is not None and max(trimmed_width, trimmed_height) < ZOOMED_IMAGE_MIN_SIDE_PX:
+            size_warning = Message(
+                "Warning: the image is only {width}×{height} px. N in {syntax} is the view "
+                "width, so a smaller N zooms in and gives a larger image.",
+                width=trimmed_width, height=trimmed_height, syntax="zoom N",
+            )
+
+    # The terminal gets the full English report; the scheduler shows the short one.
+    print(f"\nSuccessfully saved {description}: {job.filepath}")
+    status = Message("Saved {format}: {file}", format=image_format, file=job.filename)
+    notes = []
+    if replaced:
+        notes.append(Message("It replaced an existing file of that name."))
+    if size_warning is not None:
+        notes.append(size_warning)
+    for note in notes:
+        print(note)
+    return {
+        "message": JoinedMessage([status, *notes]) if notes else status,
+        # The scheduler opens the save folder in the system file explorer.
+        "reveal_directory": job.save_dir,
+    }
 
 
 def run(viewer, args):
@@ -1032,27 +1251,43 @@ def run(viewer, args):
         
     if not filename.lower().endswith(ext):
         filename += ext
-    if automatic_filename:
-        filename = _available_automatic_filename(save_dir, filename)
-        
-    filepath = os.path.join(save_dir, filename)
-    # A name the user typed is written over a file that has it, and the report
-    # says so. Asked here, before anything is written.
-    replaced_existing = not automatic_filename and os.path.exists(filepath)
 
-    # 4. A capture leaves the live view alone: each render hides the HUD and
-    # moves the camera only between reading and restoring the live state,
-    # with no event processed in between (see _render_capture). A PNG also
-    # leaves out the hover colour and click halo, put back once it is done.
-    original_bgcolor = viewer.canvas.bgcolor
+    # The file is finished and written by the queue label and logo use.
+    scheduler = getattr(viewer, "background_job_scheduler", None)
+    if scheduler is None:
+        _refuse(viewer, Message(
+            "Error: {error}", error=Message("The background job scheduler is unavailable."),
+        ))
+        return
+    if automatic_filename:
+        filename = _available_automatic_filename(save_dir, filename, scheduler)
+    filepath = os.path.join(save_dir, filename)
+    # A name the user typed replaces a file of that name, but not one a
+    # queued job is still to write.
+    if not automatic_filename and scheduler.is_output_path_reserved(filepath):
+        _refuse(viewer, Message("Error: {error}", error=Message(
+            "Output file is already reserved by a background job: {path}", path=filepath,
+        )))
+        return
+
+    # 4. The picture is taken now, as the network is: drawing needs the
+    # Viewer's OpenGL context, which the GUI thread holds. A capture leaves
+    # the live view alone: each render hides the HUD and moves the camera
+    # only between reading and restoring the live state, with no event
+    # processed in between (see _render_capture). A PNG also leaves out the
+    # hover colour and click halo, put back once it is drawn.
+    background = viewer.canvas.bgcolor
+    if hasattr(background, 'rgba'):
+        background = tuple(float(value) for value in background.rgba)
     overlays = _capture_overlays(viewer)
     events = None
     restore_marks = None
-    size_warning = None
 
     try:
         if is_svg:
-            if not _export_svg(viewer, filepath, view_width=zoom_width):
+            kind = "svg"
+            picture = _svg_snapshot(viewer, view_width=zoom_width)
+            if picture is None:
                 msg = Message("Error: No visible nodes to export.")
                 Command_Engine.command_failed(viewer, msg)
                 print(f"\n{msg}")
@@ -1060,6 +1295,7 @@ def run(viewer, args):
                 return
 
         elif is_full:
+            kind = "full"
             print("\nCalculating seamless tile grid (bypassing OpenGL edge-clipping)...")
             
             vis = viewer.visible_mask
@@ -1084,8 +1320,8 @@ def run(viewer, args):
             events = _CaptureEvents(viewer, overlays)
             
             # 2. Get exact physical pixel resolution
-            dummy_tile = _render_capture(viewer, is_transparent, overlays)
-            tile_px_h, tile_px_w = dummy_tile.shape[:2]
+            dummy_tile = _render_capture(viewer, is_transparent, overlays, raw=True)
+            tile_px_h, tile_px_w = dummy_tile[0].shape[:2]
             
             # 3. Define the trash margin (Throw away outer 15% of pixels)
             margin_px = int(min(tile_px_w, tile_px_h) * 0.15)
@@ -1124,8 +1360,9 @@ def run(viewer, args):
             
             print(f"Network bounding box requires {n_cols}x{n_rows} safe tiles ({total_tiles} total renders).")
 
-            # 7. Initialize giant mosaic canvas, cropped in the end to the
-            # exact requested world bounds
+            # 7. Initialize giant mosaic canvas, cut to the exact requested
+            # world bounds (clamped to the tiles): the tiles' parts beyond
+            # them are never kept
             canvas_w = n_cols * keep_px_w
             canvas_h = n_rows * keep_px_h
             target_px_w = int((world_right - world_left) / upp_x)
@@ -1134,8 +1371,8 @@ def run(viewer, args):
             if refusal is not None:
                 _refuse(viewer, refusal)
                 return
-            mosaic = _PngMosaic(
-                canvas_h, canvas_w, target_px_h, target_px_w, is_transparent, original_bgcolor,
+            picture = _RawMosaic(
+                min(target_px_h, canvas_h), min(target_px_w, canvas_w), is_transparent,
             )
 
             # 8. Tiling Loop
@@ -1155,29 +1392,33 @@ def run(viewer, args):
                     cam_bottom = cam_top - tile_world_h
                     
                     # Render the tile from its own camera; the live one is back on return
-                    tile_img = _render_capture(
+                    renders = _render_capture(
                         viewer,
                         is_transparent,
                         overlays,
                         (cam_left, cam_bottom, tile_world_w, tile_world_h),
+                        raw=True,
                     )
-                    
+
                     # The Cookie Cutter: Snip off the unsafe clipped margins
-                    cropped_tile = tile_img[margin_px : tile_px_h - margin_px, margin_px : tile_px_w - margin_px]
-                    
+                    cropped = [
+                        render[margin_px : tile_px_h - margin_px, margin_px : tile_px_w - margin_px]
+                        for render in renders
+                    ]
+
                     # Paste the perfectly safe center block side-by-side
                     paste_x = c * keep_px_w
                     paste_y = r * keep_px_h
-                    mosaic.paste(cropped_tile, paste_y, paste_x)
+                    picture.paste(cropped, paste_y, paste_x)
 
                     # Let the window paint and timers run; input stays queued
                     events.pause_if_due()
 
-            # 9. Crop to exact requested world bounds (clamped to the mosaic)
-            print("Stitching complete. Cropping to exact bounds...")
+            print("Stitching complete. The PNG is finished in the background job.")
 
         else:
             # Standard single-shot render
+            kind = "png"
             visible_mask = getattr(viewer, 'visible_mask', None)
             if visible_mask is not None and not np.any(visible_mask):
                 msg = Message("Error: No visible nodes to export.")
@@ -1187,67 +1428,8 @@ def run(viewer, args):
                 return
 
             restore_marks = _hide_transient_marks(viewer)
-            final_img = _render_capture(viewer, is_transparent, overlays)
+            picture = _render_capture(viewer, is_transparent, overlays)
 
-        if not is_svg:
-            if is_full:
-                original_height, original_width = mosaic.cropped_size()
-                final_img = mosaic.trimmed()
-            else:
-                original_height, original_width = final_img.shape[:2]
-                final_img = _trim_png_margins(
-                    final_img,
-                    is_transparent,
-                    original_bgcolor,
-                )
-            trimmed_height, trimmed_width = final_img.shape[:2]
-            if (trimmed_width, trimmed_height) != (original_width, original_height):
-                print(
-                    "Trimmed empty PNG margins: "
-                    f"{original_width}x{original_height} -> "
-                    f"{trimmed_width}x{trimmed_height} px "
-                    f"({PNG_TRIM_PADDING_PX} px border)."
-                )
-            # The picture is taken: the live view gets its hover colour and
-            # click halo back while the PNG is encoded.
-            if restore_marks is not None:
-                restore_marks()
-                restore_marks = None
-            os.makedirs(save_dir, exist_ok=True)
-            _save_png(filepath, final_img)
-            # A scale the user chose can make a small picture; it is saved all the same.
-            if zoom_width is not None and max(trimmed_width, trimmed_height) < ZOOMED_IMAGE_MIN_SIDE_PX:
-                size_warning = Message(
-                    "Warning: the image is only {width}×{height} px. N in {syntax} is the view "
-                    "width, so a smaller N zooms in and gives a larger image.",
-                    width=trimmed_width, height=trimmed_height, syntax="zoom N",
-                )
-        
-        msg_type = "SVG snapshot" if is_svg else "snapshot"
-        if is_transparent and not is_svg: msg_type = "transparent " + msg_type
-        if is_full and not is_svg: msg_type = "full stitched " + msg_type
-            
-        # The terminal and MCP clients get the full English report; the console line a short one.
-        saved = f"Successfully saved {msg_type}: {filepath}"
-        Command_Engine.command_artifact(viewer, filepath)
-        print(f"\n{saved}")
-        status = Message("Saved {format}: {file}", format=image_format, file=filename)
-        notes = []
-        if replaced_existing:
-            notes.append(Message("It replaced an existing file of that name."))
-        if size_warning is not None:
-            notes.append(size_warning)
-        for note in notes:
-            print(note)
-        if notes:
-            saved = JoinedMessage([saved, *notes])
-            status = JoinedMessage([status, *notes])
-
-        Command_Engine.show_status(viewer, status)
-        
-        # Open the save folder in the system file explorer
-        open_in_file_manager(save_dir)
-        
     except Exception as e:
         interrupted = isinstance(e, _CaptureInterrupted)
         if not interrupted:
@@ -1263,9 +1445,31 @@ def run(viewer, args):
         return
 
     finally:
+        # The picture is taken, or not: the live view gets its hover colour
+        # and click halo back, before any job finishes the file.
         if events is not None:
             events.close()
         if restore_marks is not None:
             restore_marks()
         viewer.canvas.update()
-    Command_Engine.command_succeeded(viewer, saved)
+
+    # 5. The background job trims and encodes the PNG, or writes the SVG; the
+    # scheduler reports it, with the file, and opens the save folder.
+    job = _PrintJob(
+        kind=kind, picture=picture, filepath=filepath, filename=filename, save_dir=save_dir,
+        allow_overwrite=not automatic_filename, is_transparent=is_transparent,
+        background=background, zoom_width=zoom_width,
+    )
+    try:
+        scheduler.enqueue(
+            command_name="print",
+            description=f"print -> {filename}",
+            payload=job,
+            worker=_print_job,
+            output_path=filepath,
+            allow_overwrite=not automatic_filename,
+        )
+    except (FileExistsError, RuntimeError) as error:
+        _refuse(viewer, Message("Failed to save {format}: {error}", format=image_format, error=error))
+        return
+    Command_Engine.command_succeeded(viewer, f"Queued print for {filepath}; waiting for the background job.")

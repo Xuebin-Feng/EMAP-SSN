@@ -305,6 +305,19 @@ still change before version 1.0.0.
   grey in Black). At 0 it keeps the Text Color setting. The Text Color tip of Config
   and VR Config says so, and no longer mentions the line of instructions the Viewer
   dropped.
+- **`print` finishes its file in the background job queue.** The picture is still taken
+  when the command runs: the view, every tile of `print full`, or the nodes and edges
+  of an SVG. Trimming and encoding the PNG, or writing the SVG, now run in the queue
+  `label` and `logo` use, so the Viewer can be used meanwhile and later changes don't
+  alter the file; the queue reports the saved file and opens its folder. Drawing needs
+  the Viewer's OpenGL context, so keyboard and mouse input still waits while `full`
+  draws its tiles. A name a queued print is still to write is refused, and timestamped
+  names skip it. A PNG goes into a partial file that replaces the target when complete,
+  as an SVG already did. `print full` keeps its tiles' 8-bit renders and finishes them
+  in place, so it needs about 4 bytes of memory per pixel, 7 with `transparent`, where
+  it took about 9; the files are byte for byte the same. A 992-megapixel `print full`
+  returned to the Viewer after 6.4 s, and the job saved it 84 s later, with the process
+  at 4.1 GB.
 - The Network Statistics Report of Config and VR Config draws its threshold table as a
   histogram of the edges' scores, on its side: behind each threshold, a bar in the
   theme colour's tint for the edges from that threshold up to the next. Count and
@@ -668,11 +681,12 @@ still change before version 1.0.0.
   matrix from float32 scores and `subcluster mcl` from float64 ones; both use float32
   now. MCL works in float64 from its first pruning on, so only its first round's
   rounding changes, and a subcluster changes only where that tipped a node.
-- **`print full` refuses an image of more than 250 megapixels.** It works out the
+- **`print full` refuses an image of more than 1000 megapixels.** It works out the
   image's size before drawing any tile, and refuses a larger one, with or without
   `zoom N`, naming the smallest N that fits. It used to start anyway, and could run
   for hours or fail only when memory ran out. The limit is `MAX_FULL_IMAGE_MEGAPIXELS`
-  in `src/commands/print.py`; making the image takes about 9 bytes of memory per pixel.
+  in `src/commands/print.py`; making the image takes about 4 bytes of memory per pixel,
+  7 with `transparent`.
 - The Fold View no longer contacts a public server each time it opens. Mol* listed the
   public saved states at `webchem.ncbr.muni.cz` on every load, so opening the page sent
   a request there even when nothing was downloaded. That list is turned off, so the
