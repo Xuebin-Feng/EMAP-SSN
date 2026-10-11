@@ -98,6 +98,8 @@ class ThemeColorShadeTests(unittest.TestCase):
                 self.assertGreaterEqual(contrast(tokens["text_subtle"], "#ffffff"), 4.5)
                 self.assertGreaterEqual(contrast(tokens["text_muted"], tokens["surface_muted"]), 4.5)
                 self.assertGreaterEqual(contrast(tokens["text"], "#ffffff"), 15)
+                # The Viewer's hidden-node count, text on its white canvas.
+                self.assertGreaterEqual(contrast(tokens["accent_text"], "#ffffff"), 7)
                 dark = page_tokens(color, dark=True)
                 self.assertGreaterEqual(contrast(dark["primary"], dark["primary_text"]), 4.5)
                 self.assertGreaterEqual(contrast(dark["text_subtle"], dark["surface"]), 4.5)
@@ -123,7 +125,7 @@ class ThemeColorShadeTests(unittest.TestCase):
         self.assertEqual(set(ACCENT_SHADES["light"]), {
             "primary", "primary_hover", "primary_pressed", "primary_text", "primary_focus",
             "accent", "accent_soft", "switch_on", "switch_on_hover", "track", "tint", "tint_hover",
-            "histogram", "separator",
+            "histogram", "separator", "accent_text",
         })
         self.assertEqual(theme_tokens("teal")["text_subtle"], "#71717a")
         self.assertEqual(theme_tokens("teal")["field_border"], "#dcdce0")
@@ -138,7 +140,7 @@ class ThemeColorShadeTests(unittest.TestCase):
         expected = {"window": "#fafafa", "track": "#efeff1", "border": "#e4e4e7", "text_subtle": "#71717a",
                     "primary": "#18181b", "primary_text": "#fafafa", "accent": "#52525b",
                     "accent_soft": "#e4e4e7", "switch_on": "#18181b", "tooltip": "#18181b",
-                    "separator": "#d4d4d8"}
+                    "separator": "#d4d4d8", "accent_text": "#52525b"}
         self.assertEqual({token: black[token] for token in expected}, expected)
         self.assertEqual(web_page_properties("black", dark=True)["--primary"], "#fafafa")
         # Every colour Black uses, on the page too, is a grey: red, green and blue equal or nearly.
@@ -154,7 +156,7 @@ class ThemeColorShadeTests(unittest.TestCase):
         # Equal accents of two families differ, at the same OKLCH lightness.
         purple, teal = theme_tokens("purple"), theme_tokens("teal")
         for token in ("primary", "primary_focus", "accent", "accent_soft", "switch_on", "track", "tint",
-                      "separator"):
+                      "separator", "accent_text"):
             with self.subTest(token=token):
                 self.assertNotEqual(purple[token], teal[token])
                 self.assertAlmostEqual(oklab_lightness(purple[token]), oklab_lightness(teal[token]),

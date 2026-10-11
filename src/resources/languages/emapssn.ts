@@ -735,7 +735,7 @@ Adjust to ensure labels remain legible without obstructing structural network fe
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Color of viewer HUD text, slider values, and control labels. The top interaction instruction remains gray, and a nonzero Hidden Nodes count remains red.
+        <source>Color of viewer HUD text, slider values, and control labels. A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead.
 Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &apos;#333333&apos;).</source>
         <translation type="unfinished"></translation>
     </message>

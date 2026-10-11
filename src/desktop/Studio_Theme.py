@@ -12,8 +12,9 @@ focus rings, slider fills and selection.
 * The theme colour is a colour family (THEME_COLORS), not a shade, and only
   the accents take it (ACCENT_SHADES): the primary button, switches that are
   on, focus rings, slider fills and selection, a light shade of it on the
-  lines between a card's sections, and a light tint of it on the tab bar,
-  the hint card and muted buttons. Each has a fixed OKLCH lightness
+  lines between a card's sections, a light tint of it on the tab bar,
+  the hint card and muted buttons, and a dark shade of it on the Viewer's
+  count of hidden nodes. Each has a fixed OKLCH lightness
   and chroma, and the family gives the hue, so no family changes the contrast.
   Everything else, from borders and icons to greyed-out fields, keeps the same
   greys in every colour (NEUTRAL_SHADES). Black has no colour at all
@@ -159,6 +160,9 @@ ACCENT_SHADES = {
         # The 1 px lines between a card's sections (the "separator" role), as
         # light as a field's hovered border
         "separator": (0.870, 0.070),
+        # Text in the colour on white, as dark as the pressed primary button
+        # (7:1 or more): the Viewer's count of hidden nodes, when there are any
+        "accent_text": (0.440, ACCENT_CHROMA),
     },
     "light_page": {
         "badge_text": (0.487, ACCENT_CHROMA),
@@ -188,7 +192,7 @@ BLACK_ACCENTS = {
         "accent": "#52525b", "accent_soft": "#e4e4e7",
         "switch_on": "#18181b", "switch_on_hover": "#27272a",
         "track": "#efeff1", "tint": "#f4f4f5", "tint_hover": "#e4e4e7", "histogram": "#e4e4e7",
-        "separator": "#d4d4d8",
+        "separator": "#d4d4d8", "accent_text": "#52525b",
     },
     "light_page": {"badge_text": "#3f3f46", "badge_border": "#d4d4d8", "switch_thumb_on": "#ffffff"},
     "dark_page": {

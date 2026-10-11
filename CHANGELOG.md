@@ -292,6 +292,19 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **The mouse works in the Viewer while a command is typed.** With the command line
+  open, a click does what it does with the line closed: a right-click selects, drags
+  and draws a selection box, a left-click focuses a node, Shift- and Ctrl-click copy a
+  node's header and sequence, and hovering highlights. The command stays on the line,
+  with what the click did after it until the next key, and **[ENTER]** runs it as
+  typed. So a command's nodes can be selected after it is typed, and a header copied
+  with Shift-click can be pasted into it with Ctrl+V.
+- **The Viewer's hidden-node count takes the theme colour.** While nodes are hidden, the
+  Hidden Nodes count at the bottom right shows in a dark shade of the theme colour
+  instead of red, dark enough to read on the white canvas (7:1 contrast or more; dark
+  grey in Black). At 0 it keeps the Text Color setting. The Text Color tip of Config
+  and VR Config says so, and no longer mentions the line of instructions the Viewer
+  dropped.
 - The Network Statistics Report of Config and VR Config draws its threshold table as a
   histogram of the edges' scores, on its side: behind each threshold, a bar in the
   theme colour's tint for the edges from that threshold up to the next. Count and

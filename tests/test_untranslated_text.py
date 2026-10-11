@@ -822,6 +822,14 @@ class ViewerCanvasTextTests(WindowTestCase):
                 viewer.apply_left_click_focus(node)
             with self.subTest(node=node):
                 self.assert_translated(viewer.console_text.text, "101", "102", "7", "8", "3")
+        # While a command is typed, the click's message follows it on the line.
+        viewer.console_mode, viewer.input_buffer, viewer.cursor_pos = True, "9", 1
+        viewer.update_console_background = lambda: None
+        viewer.canvas = SimpleNamespace(update=lambda: None)
+        with contextlib.redirect_stdout(io.StringIO()):
+            viewer.apply_left_click_focus(0)
+        self.assertIn("9_", viewer.console_text.text)
+        self.assert_translated(viewer.console_text.text, "101", "7", "8", "3", "9_")
 
     def test_a_selection_errors_first_line_and_what_failed(self):
         # The console line shows the error's first line; the terminal gets every line, in English.

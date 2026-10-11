@@ -554,6 +554,8 @@ class ShippedCommandLineTests(unittest.TestCase):
 
         self.assertLess(lines("create_hud")[0], lines("apply_studio_theme")[0])
         self.assertTrue([line for line in lines("_color_command_box") if line > lines("apply_studio_theme")[0]])
+        # So does the hidden-node count, in case the session opens with nodes hidden.
+        self.assertTrue([line for line in lines("_color_hidden_count") if line > lines("apply_studio_theme")[0]])
 
     def test_the_hud_has_no_instruction_line(self):
         viewer = MainViewer.__new__(MainViewer)

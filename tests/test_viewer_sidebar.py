@@ -27,6 +27,7 @@ if str(SRC) not in sys.path:
 
 import EMAPSSN_Viewer  # noqa: E402
 from EMAPSSN_Viewer import SIDEBAR_SLIDE_MS, MainViewer, _sidebar_room  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from desktop.Viewer_Widgets import SIDEBAR_INSET, ControlsButton, SidebarButton, SidebarPanel  # noqa: E402
@@ -188,12 +189,21 @@ class SliderOverlayTests(unittest.TestCase):
             viewer._build_slider_overlay()
         layout = viewer.slider_overlay.layout()
         widgets = [layout.itemAt(index).widget() for index in range(layout.count())]
-        self.assertEqual(widgets, [viewer.controls_button, viewer.slider_label, viewer.slider])
+        self.assertEqual([widget for widget in widgets if widget is not None],
+                         [viewer.controls_button, viewer.slider_label, viewer.slider])
         button = viewer.controls_button
         self.assertIsInstance(button, ControlsButton)
         self.assertEqual(button.toolTip(), "Mouse and keyboard controls")
         self.assertTrue(button.text_source.startswith("[ENTER] Command | "))
         self.assertEqual(viewer.slider_label.text(), "3.74")
+        # The number starts well clear of the button, so the button doesn't
+        # read as a mark on it; the label's text starts at its left edge.
+        layout.activate()
+        gap = viewer.slider_label.x() - (button.x() + button.width())
+        self.assertGreaterEqual(gap, 24)
+        self.assertLessEqual(gap, 40)
+        self.assertEqual(viewer.slider_label.contentsMargins().left(), 0)
+        self.assertTrue(viewer.slider_label.alignment() & Qt.AlignmentFlag.AlignLeft)
 
 
 if __name__ == "__main__":

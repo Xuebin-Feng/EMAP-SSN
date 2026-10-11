@@ -1,7 +1,8 @@
 """Viewer node draw order (EMAPSSN_Viewer.MainViewer): persistent promotion
 order, the effective tiers (selected, connected, left-clicked), the submitted
 marker order and click rings, picking as the inverse of the submitted order,
-left-click focus, command promotions, order resets and box-selection timing."""
+left-click focus, command promotions, order resets, box-selection timing and
+clicks while a command is being typed."""
 
 import os
 import sys
@@ -613,6 +614,144 @@ class MouseSelectionTimingTests(unittest.TestCase):
 
         self.assertEqual(viewer.selected_indices, [0, 1])
         viewer.update_selection_visual.assert_called_once_with()
+
+
+class ClicksWhileTypingTests(unittest.TestCase):
+    """An open command line doesn't stop the mouse: every click does what it
+    does with the line closed, and its message follows the typed command."""
+
+    COMMAND_LINE = "Cmd: color_ red"
+
+    def make_viewer(self, typing):
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.console_mode = typing
+        viewer.input_buffer = "color red"
+        viewer.cursor_pos = 5
+        viewer.command_history = []
+        viewer.pos = np.array([[0.0, 0.0], [50.0, 0.0], [100.0, 0.0]])
+        viewer.visible_mask = np.ones(3, dtype=bool)
+        viewer.full_headers = ["A first", "B", "C"]
+        viewer.sequences_map = {"A": "MKV"}
+        viewer.cluster_labels = None
+        viewer.group_labels = None
+        viewer.selected_indices = []
+        viewer.selected_node_idx = None
+        viewer.hovered_node_idx = None
+        viewer.left_click_highlight_indices = None
+        viewer.is_multi_dragging = False
+        viewer.is_box_selecting = False
+        viewer.tooltip = SimpleNamespace(text="")
+        viewer.hud_displays = {}
+        viewer.console_text = SimpleNamespace(text="")
+        viewer.console_bg = SimpleNamespace(visible=typing)
+        viewer.selection_box = SimpleNamespace(set_data=mock.Mock(), visible=False)
+        transform = IdentityTransform()
+        viewer.canvas = SimpleNamespace(
+            scene=SimpleNamespace(node_transform=lambda _scene: transform),
+            update=mock.Mock(),
+        )
+        viewer.view = SimpleNamespace(scene=object())
+        viewer._hud_timer = mock.Mock()
+        for name in ("_save_state", "update_selection_visual", "update_nodes",
+                     "update_console_background", "broadcast_event", "process_command"):
+            setattr(viewer, name, mock.Mock())
+        return viewer
+
+    @staticmethod
+    def mouse(x, y, button=None, buttons=(), modifiers=()):
+        return SimpleNamespace(
+            pos=np.array([float(x), float(y)]), button=button,
+            buttons=list(buttons), modifiers=list(modifiers), handled=False,
+        )
+
+    # Each gesture is a list of (handler, event); the box ends with the release.
+    GESTURES = {
+        "right-click a node": [("on_mouse_press", mouse(50, 0, button=2))],
+        "right-drag a box": [
+            ("on_mouse_press", mouse(-30, -30, button=2)),
+            ("on_mouse_move", mouse(60, 10, buttons=[2])),
+            ("on_mouse_release", mouse(60, 10, button=2)),
+        ],
+        "right-click empty space": [
+            ("on_mouse_press", mouse(-30, -30, button=2)),
+            ("on_mouse_release", mouse(-30, -30, button=2)),
+        ],
+        "shift-click a node": [("on_mouse_press", mouse(0, 0, button=1, modifiers=["Shift"]))],
+        "ctrl-click a node": [("on_mouse_press", mouse(0, 0, button=1, modifiers=["Control"]))],
+        "left-click a node": [("on_mouse_press", mouse(100, 0, button=1))],
+        "hover a node": [("on_mouse_move", mouse(50, 0))],
+    }
+
+    def run_gesture(self, viewer, steps):
+        clipboard = mock.Mock()
+        native = SimpleNamespace(clipboard=lambda: clipboard)
+        with mock.patch("vispy.app.use_app", return_value=SimpleNamespace(native=native)), \
+                mock.patch.object(cfg, "NODE_SIZE", 10), \
+                mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                mock.patch.object(cfg, "LOW_RESOURCE_MODE", False), \
+                mock.patch("builtins.print"):
+            for handler, event in steps:
+                getattr(viewer, handler)(SimpleNamespace(**vars(event)))  # A fresh event each run.
+        return clipboard
+
+    @staticmethod
+    def state(viewer, clipboard):
+        return {
+            "selected": sorted(viewer.selected_indices),
+            "focused": viewer.selected_node_idx,
+            "hovered": viewer.hovered_node_idx,
+            "dragging": viewer.is_multi_dragging,
+            "boxing": viewer.is_box_selecting,
+            "snapshots": viewer._save_state.call_count,
+            "copied": clipboard.setText.call_args_list,
+        }
+
+    def test_every_gesture_works_while_typing(self):
+        for gesture, steps in self.GESTURES.items():
+            with self.subTest(gesture=gesture):
+                closed = self.make_viewer(typing=False)
+                closed_clipboard = self.run_gesture(closed, steps)
+                typing = self.make_viewer(typing=True)
+                typing_clipboard = self.run_gesture(typing, steps)
+
+                self.assertEqual(self.state(typing, typing_clipboard), self.state(closed, closed_clipboard))
+                self.assertEqual((typing.input_buffer, typing.cursor_pos), ("color red", 5))
+                if closed.console_text.text:
+                    self.assertEqual(typing.console_text.text, f"{self.COMMAND_LINE}  ·  {closed.console_text.text}")
+                    typing.update_console_background.assert_called()
+                else:
+                    self.assertEqual(typing.console_text.text, "")
+
+    def test_the_gestures_do_something(self):
+        # Without this, a gesture that did nothing either way would pass above.
+        expected = {
+            "right-click a node": ({"selected": [1], "dragging": True, "snapshots": 1}, ""),
+            "right-drag a box": ({"selected": [0, 1]}, "Selected 2 nodes."),
+            "right-click empty space": ({"selected": []}, "Selection cleared."),
+            "shift-click a node": ({"copied": [mock.call("A first")]}, "Copied: A first"),
+            "ctrl-click a node": ({"copied": [mock.call("MKV")]}, "Copied sequence of: A"),
+            "left-click a node": ({"focused": 2}, "Selected: C"),
+            "hover a node": ({"hovered": 1}, ""),
+        }
+        self.assertEqual(expected.keys(), self.GESTURES.keys())
+        for gesture, (changes, line) in expected.items():
+            with self.subTest(gesture=gesture):
+                viewer = self.make_viewer(typing=True)
+                clipboard = self.run_gesture(viewer, self.GESTURES[gesture])
+                state = self.state(viewer, clipboard)
+                self.assertEqual({key: state[key] for key in changes}, changes)
+                self.assertEqual(viewer.console_text.text, f"{self.COMMAND_LINE}  ·  {line}" if line else "")
+
+    def test_the_next_key_shows_the_command_alone_and_enter_runs_it(self):
+        viewer = self.make_viewer(typing=True)
+        self.run_gesture(viewer, self.GESTURES["right-drag a box"])
+
+        viewer.on_key_press(SimpleNamespace(key="s", text="s", modifiers=[], handled=False))
+        self.assertEqual(viewer.console_text.text, "Cmd: colors_ red")
+
+        viewer.on_key_press(SimpleNamespace(key="Enter", text="", modifiers=[], handled=False))
+        viewer.process_command.assert_called_once_with("colors red")
+        self.assertEqual(viewer.selected_indices, [0, 1])
 
 
 if __name__ == "__main__":

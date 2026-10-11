@@ -912,14 +912,13 @@ Adjust to ensure labels remain legible without obstructing structural network fe
 调整它可确保标签清晰可读，同时不遮挡网络的结构特征。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Color of viewer HUD text, slider values, and control labels. The top interaction instruction remains gray, and a nonzero Hidden Nodes count remains red.
 Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &apos;#333333&apos;).</source>
-        <translation type="unfinished">查看器 HUD 文字、滑块数值和控件标签的颜色。顶部的交互说明保持灰色，非零的隐藏节点计数保持红色。
+        <translation type="obsolete">查看器 HUD 文字、滑块数值和控件标签的颜色。顶部的交互说明保持灰色，非零的隐藏节点计数保持红色。
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Baseline fill color applied to all nodes when the network is first loaded.
 Serves as the default background color before custom cluster or metadata coloring is applied.</source>
         <translation type="unfinished">首次加载网络时应用于所有节点的基础填充色。
@@ -1489,7 +1488,14 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">百分比</translation>
     </message>
     <message>
-        <location line="+2325"/>
+        <location line="+1148"/>
+        <source>Color of viewer HUD text, slider values, and control labels. A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead.
+Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &apos;#333333&apos;).</source>
+        <translation type="unfinished">查看器 HUD 文字、滑块数值和控件标签的颜色。非零的隐藏节点计数改用主题色的深色调显示。
+可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
+    </message>
+    <message>
+        <location line="+1177"/>
         <source>Network statistics computed successfully.</source>
         <translation type="unfinished">网络统计计算完成。</translation>
     </message>
@@ -3875,12 +3881,12 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1103"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1106"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+661"/>
+        <location line="+682"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -3900,7 +3906,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+701"/>
+        <location line="+703"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -3941,7 +3947,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+333"/>
+        <location line="+336"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -8121,7 +8127,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2230"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2256"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8140,7 +8146,7 @@ Fedora / RHEL：
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
     <message>
-        <location line="+1641"/>
+        <location line="+1671"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>

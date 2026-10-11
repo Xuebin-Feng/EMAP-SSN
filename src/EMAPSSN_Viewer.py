@@ -149,7 +149,7 @@ from Background_Job_Scheduler import BackgroundJobScheduler
 from utilities.Sequence_Utils import (
     load_sanitized_fasta,
 )
-from utilities.Localization import Message, display_text
+from utilities.Localization import JoinedMessage, Message, display_text
 from desktop.Desktop_App import (
     APPLICATION_VERSION,
     CONFIG_THEME_SETTING,
@@ -244,6 +244,11 @@ def _wrap_console_text_for_display(text, max_width, measure_width):
 SIDEBAR_SLIDE_MS = 220
 # The command line's box: a light tint of the theme colour, a touch see-through over the network.
 COMMAND_BOX_OPACITY = 0.95
+# Between a command being typed and what a click did, on the command line.
+CLICK_STATUS_SEPARATOR = "  ·  "
+# Between the controls' info button and the threshold's value, in px: wide
+# enough that the button doesn't read as a mark on the number.
+SLIDER_INFO_GAP = 26
 
 
 def _sidebar_room(viewer):
@@ -926,6 +931,7 @@ class MainViewer:
                 apply_studio_theme(qapp, configured_theme_color(CONFIG_THEME_SETTING))
                 # The HUD was drawn before the theme colour was known.
                 self._color_command_box()
+                self._color_hidden_count()
             except Exception as e:
                 print(f"Warning: Could not apply the window theme: {e}")
             
@@ -1004,6 +1010,7 @@ class MainViewer:
             translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes"),
         )
         overlay_layout.addWidget(self.controls_button)
+        overlay_layout.addSpacing(SLIDER_INFO_GAP - overlay_layout.spacing())
 
         self.slider_label = QtWidgets.QLabel()
         self.slider_label.setObjectName("sliderLabel")
@@ -1096,11 +1103,32 @@ class MainViewer:
             QWidget#rightPanel QPushButton:focus { padding-left: 9px; }
         """)
 
-    def _update_console_text(self):
-        """Helper to render the command line with a visible cursor."""
+    def _command_line_message(self):
+        """The command being typed, with an underscore at the cursor."""
         buf = self.input_buffer
         c = self.cursor_pos
-        Command_Engine.show_status(self, Message("Cmd: {command}", command=f"{buf[:c]}_{buf[c:]}"))
+        return Message("Cmd: {command}", command=f"{buf[:c]}_{buf[c:]}")
+
+    def _update_console_text(self):
+        """Helper to render the command line with a visible cursor."""
+        Command_Engine.show_status(self, self._command_line_message())
+        self.update_console_background()
+        self.canvas.update()
+
+    def _show_click_status(self, message):
+        """Show what a click did on the console line.
+
+        While a command is being typed, message follows the command instead
+        of replacing it, so the command stays in view; the next key shows
+        the command alone again.
+        """
+        if not getattr(self, 'console_mode', False):
+            Command_Engine.show_status(self, message)
+            return
+        Command_Engine.show_status(
+            self,
+            JoinedMessage((self._command_line_message(), message), separator=CLICK_STATUS_SEPARATOR),
+        )
         self.update_console_background()
         self.canvas.update()
 
@@ -2411,8 +2439,10 @@ class MainViewer:
                 event.handled = True
 
     def on_mouse_press(self, event):
+        # Clicks work while a command is typed: the command waits in
+        # input_buffer, and a click's message follows it (_show_click_status).
         # ---> 1. RIGHT-CLICK LOGIC (Drag & Select) <---
-        if event.button == 2 and not self.console_mode:
+        if event.button == 2:
             self.tooltip.text = "" 
             self.selected_node_idx = None
             
@@ -2474,7 +2504,7 @@ class MainViewer:
             
         # ---> 2. SHIFT + LEFT-CLICK LOGIC (Copy to Clipboard) <---
         # Vispy Button 1 = Left Click
-        if event.button == 1 and 'Shift' in event.modifiers and not self.console_mode:
+        if event.button == 1 and 'Shift' in event.modifiers:
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
             
@@ -2497,10 +2527,10 @@ class MainViewer:
                     native_app = vispy_app.use_app().native
                     native_app.clipboard().setText(full_header)
                     
-                    Command_Engine.show_status(self, Message("Copied: {node}", node=full_header))
+                    self._show_click_status(Message("Copied: {node}", node=full_header))
                     print(f"Copied to clipboard: {full_header}")
                 except Exception as e:
-                    Command_Engine.show_status(self, Message("Copy Failed: {node}", node=full_header))
+                    self._show_click_status(Message("Copy Failed: {node}", node=full_header))
                     print(f"Clipboard Error: {e}")
 
                 self.update_console_background()
@@ -2510,7 +2540,7 @@ class MainViewer:
         
         # ---> 2.5 CONTROL + LEFT-CLICK LOGIC (Copy Sequence to Clipboard) <---
         # Vispy Button 1 = Left Click
-        if event.button == 1 and ('Control' in event.modifiers or 'Meta' in event.modifiers) and not self.console_mode:
+        if event.button == 1 and ('Control' in event.modifiers or 'Meta' in event.modifiers):
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
             
@@ -2554,13 +2584,13 @@ class MainViewer:
                         from vispy import app as vispy_app
                         native_app = vispy_app.use_app().native
                         native_app.clipboard().setText(sequence)
-                        Command_Engine.show_status(self, Message("Copied sequence of: {node}", node=rec_id))
+                        self._show_click_status(Message("Copied sequence of: {node}", node=rec_id))
                         print(f"Copied sequence to clipboard: {rec_id} ({len(sequence)} aa)")
                     except Exception as e:
-                        Command_Engine.show_status(self, Message("Copy Failed: {node}", node=rec_id))
+                        self._show_click_status(Message("Copy Failed: {node}", node=rec_id))
                         print(f"Clipboard Error: {e}")
                 else:
-                    Command_Engine.show_status(self, Message("Sequence not found for: {node}", node=rec_id))
+                    self._show_click_status(Message("Sequence not found for: {node}", node=rec_id))
                     print(f"Sequence not found in FASTA for: {rec_id}")
 
                 self.update_console_background()
@@ -2569,7 +2599,7 @@ class MainViewer:
             return
         
         # ---> 3. PLAIN LEFT-CLICK LOGIC (Show Highlight) <---
-        if event.button == 1 and 'Shift' not in event.modifiers and not self.console_mode:
+        if event.button == 1 and 'Shift' not in event.modifiers:
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
             
@@ -2616,7 +2646,7 @@ class MainViewer:
 
         print(f"Node Selected: {self.full_headers[node_idx]}")
         if getattr(self, 'console_text', None) is not None:
-            Command_Engine.show_status(self, Message("Selected: {node}", node=label))
+            self._show_click_status(Message("Selected: {node}", node=label))
 
         for display in getattr(self, 'hud_displays', {}).values():
             if getattr(display, 'on_node_clicked', None):
@@ -2634,6 +2664,13 @@ class MainViewer:
         self.update_nodes()
         self.broadcast_event({"type": "highlight_row", "index": None})
     
+    def _color_hidden_count(self):
+        """Colour the hidden-node count, and return it: the HUD's text colour
+        at 0, otherwise a dark shade of the theme colour, readable on white."""
+        hidden_count = int(np.sum(~self.visible_mask))
+        self.hidden_text.color = TOKENS["accent_text"] if hidden_count else cfg.TEXT_COLOR
+        return hidden_count
+
     def _update_hud_elements(self, event=None):
         """Updates the zoom indicator, hidden nodes count, and maintains the tooltip pixel gap."""
         effective_canvas_w = self.canvas.size[0] - _sidebar_room(self)
@@ -2648,12 +2685,8 @@ class MainViewer:
 
         # 2. Update Hidden Nodes Indicator
         if hasattr(self, 'hidden_text') and hasattr(self, 'visible_mask'):
-            hidden_count = int(np.sum(~self.visible_mask))
+            hidden_count = self._color_hidden_count()
             self.hidden_text.text = translate("Viewer", "Hidden Nodes: {count}").format(count=hidden_count)
-            if hidden_count > 0:
-                self.hidden_text.color = 'red'
-            else:
-                self.hidden_text.color = cfg.TEXT_COLOR
             self.hidden_text.pos = self._status_hud_position(0, effective_size)
 
         # 3. Update Tooltip Distance
@@ -3235,7 +3268,7 @@ class MainViewer:
             self._hud_timer.start()
 
         # ---> 4. HOVER EFFECT <---
-        if not self.console_mode and not event.buttons: 
+        if not event.buttons:
             nearest_idx = _topmost_nearest_visible_node_index(
                 self.pos,
                 self.visible_mask,
@@ -3311,9 +3344,9 @@ class MainViewer:
 
             # Output final count to console
             if len(self.selected_indices) > 0:
-                Command_Engine.show_status(self, Message("Selected %n node(s).", n=len(self.selected_indices)))
+                self._show_click_status(Message("Selected %n node(s).", n=len(self.selected_indices)))
             else:
-                Command_Engine.show_status(self, Message("Selection cleared."))
+                self._show_click_status(Message("Selection cleared."))
                 
             event.handled = True
             return

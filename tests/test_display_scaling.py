@@ -331,6 +331,21 @@ class DisplayScalingTests(unittest.TestCase):
         self.assertEqual(viewer.zoom_text.color, cfg.TEXT_COLOR)
         self.assertEqual(viewer.hidden_text.color, cfg.TEXT_COLOR)
 
+    def test_hidden_nodes_take_a_dark_shade_of_the_theme_colour(self):
+        from desktop.Studio_Theme import set_theme_color, theme_color, theme_tokens
+
+        self.addCleanup(set_theme_color, theme_color())
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.hidden_text = SimpleNamespace(color=None)
+        for color in ("purple", "teal", "black"):
+            set_theme_color(color)
+            for mask, expected in (([True, False, False], theme_tokens(color)["accent_text"]),
+                                   ([True, True, True], cfg.TEXT_COLOR)):
+                viewer.visible_mask = np.array(mask)
+                with self.subTest(color=color, hidden=mask.count(False)):
+                    self.assertEqual(viewer._color_hidden_count(), mask.count(False))
+                    self.assertEqual(viewer.hidden_text.color, expected)
+
     def test_display_diagnostics_print_only_when_signature_changes(self):
         viewer, handle, screen = self.make_viewer()
         viewer._print_display_diagnostics = MainViewer._print_display_diagnostics.__get__(
