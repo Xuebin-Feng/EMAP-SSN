@@ -192,7 +192,7 @@ class ToolsHelpPageTests(unittest.TestCase):
         self.assertNotIn("Translation of", german)
         self.assertIn("Embedding Multiple Sequence Alignment", self.shown_help(window, None))
         chinese = self.shown_help(window, "zh_CN")
-        self.assertIn("嵌入多序列比对", chinese, "the shipped Simplified Chinese page")
+        self.assertIn("Embedding 多序列比对", chinese, "the shipped Simplified Chinese page")
         for shown in (self.shown_help(window, None), chinese):
             self.assertNotIn("Deutsche Hilfe.", shown)
         # Once the English page changes, it shows until the translations catch up.

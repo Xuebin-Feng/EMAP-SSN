@@ -1,46 +1,46 @@
 <!-- Translation of Others.md, sha256 0a54fa1c059994699563c47a16b3a48efe48027edc65051a75e699700da7b26f -->
-# 双序列嵌入比对 (`Embedding_PWA.py`)
+# 双序列 embedding 比对 (`Embedding_PWA.py`)
 
-该脚本使用两条序列的残基级语言模型嵌入对它们进行比对。它计算动态规划比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列残基位置直接映射到目标序列的位置上，便于比较活性位点和其他特征。
+该脚本使用两条序列的残基级语言模型 embedding 对它们进行比对（alignment）。它计算动态规划（dynamic programming）比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列（reference sequence）残基（residue）位置直接映射到目标序列（target sequence）的位置上，便于比较活性位点和其他特征。
 
 ### 输入
 
-#### 嵌入数据库 `INPUT_EMBED`
-*   **格式**：元数据优先的 HDF5 嵌入数据库（`.h5`），包含已清理的序列标题、序列、模型元数据和残基级张量。只要有一条序列按序列标题选取，就需要它。
-*   **创建者**：`Generate_Embeddings.py`（嵌入生成工具）。
+#### Embedding 数据库 `INPUT_EMBED`
+*   **格式**：元数据优先的 HDF5 embedding 数据库（`.h5`），包含已清理的序列标题（FASTA header）、序列、模型元数据和残基级张量。只要有一条序列按序列标题选取，就需要它。
+*   **创建者**：`Generate_Embeddings.py`（embedding 生成工具）。
 
 ### 参数
 
 | 参数 | 说明 |
 | :--- | :--- |
-| 参考序列标题 **`REF_HEADER`** | 要在嵌入数据库中查找的参考序列标题。输入的文本会按“生成嵌入”的同一规范进行序列标题清理。 |
-| 目标序列标题 **`TAR_HEADER`** | 要在嵌入数据库中查找的目标序列标题。输入的文本会按“生成嵌入”的同一规范进行序列标题清理。 |
+| 参考序列标题 **`REF_HEADER`** | 要在 embedding 数据库中查找的参考序列标题。输入的文本会按“生成 embedding”的同一规范进行序列标题清理（sanitize）。 |
+| 目标序列标题 **`TAR_HEADER`** | 要在 embedding 数据库中查找的目标序列标题。输入的文本会按“生成 embedding”的同一规范进行序列标题清理。 |
 | 手动参考序列开关 **`MANUAL_REF_SEQ`** | 启用可选的手动参考序列输入框。开启时，即使清理后的序列标题与数据库中存储的序列标题相同，也使用手动输入的序列。默认关闭。 |
-| 手动参考序列 **`REF_SEQUENCE`** | 仅在 `MANUAL_REF_SEQ` 开启时使用，并在生成嵌入之前按规范方式清理；否则按序列标题加载参考序列。 |
+| 手动参考序列 **`REF_SEQUENCE`** | 仅在 `MANUAL_REF_SEQ` 开启时使用，并在生成 embedding 之前按规范方式清理；否则按序列标题加载参考序列。 |
 | 手动目标序列开关 **`MANUAL_TAR_SEQ`** | 启用可选的手动目标序列输入框。开启时，即使清理后的序列标题与数据库中存储的序列标题相同，也使用手动输入的序列。默认关闭。 |
-| 手动目标序列 **`TAR_SEQUENCE`** | 仅在 `MANUAL_TAR_SEQ` 开启时使用，并在生成嵌入之前按规范方式清理；否则按序列标题加载目标序列。 |
+| 手动目标序列 **`TAR_SEQUENCE`** | 仅在 `MANUAL_TAR_SEQ` 开启时使用，并在生成 embedding 之前按规范方式清理；否则按序列标题加载目标序列。 |
 | 高亮映射位置 **`HIGHLIGHT_POSITIONS`** | 以逗号分隔的参考序列残基位置列表（从 1 开始编号），这些位置会被映射到目标序列的比对中并高亮显示。 |
-| 嵌入模型 **`EMBEDDING_MODEL`** | 两条序列都为手动输入时使用的模型。可选模型从 `src/resources/pLM_models` 中发现；只要有一条序列来自嵌入集，就使用该嵌入集的模型。 |
+| Embedding 模型 **`EMBEDDING_MODEL`** | 两条序列都为手动输入时使用的模型。可选模型从 `src/resources/pLM_models` 中发现；只要有一条序列来自 embedding 集，就使用该 embedding 集的模型。 |
 | 比对模式 **`ALIGNMENT_MODE`** | 要运行的比对模式（'global' 全局或 'local' 局部）。 |
-| 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对的空位罚分值。 |
-| 全局空位罚分 **`GLOBAL_GAP_P`** | 全局比对的空位罚分值。 |
+| 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对（local alignment）的空位罚分（gap penalty）值。 |
+| 全局空位罚分 **`GLOBAL_GAP_P`** | 全局比对（global alignment）的空位罚分值。 |
 | 生成报告 **`GENERATE_REPORT`** | 切换是否编制并保存一份完整的 HTML 比对报告，展示残基高亮和得分。 |
 
 ### 输出
 
 #### 比对结果和可选的 HTML 报告
-*   **控制台输出**：总是打印比对模式和得分、输入长度、比对长度、一致性百分比、已比对的残基字符串、匹配标记，以及所请求的参考序列到目标序列的位置映射。
-*   **一致性百分比**：以 `identical/alignment length (percent)` 的形式打印，并附上定义：相同的标准氨基酸数除以比对长度；局部比对的比对长度包括内部空位，全局比对则为包括末端空位在内的全长。`|` 标记每个计入的残基对，`.` 标记其他已比对的残基对，空白表示空位；X、B、Z、J、U 和 O 从不计为相同。
+*   **控制台输出**：总是打印比对模式和得分、输入长度、比对长度、一致性百分比（percent identity）、已比对的残基字符串、匹配标记，以及所请求的参考序列到目标序列的位置映射。
+*   **一致性百分比**：以 `identical/alignment length (percent)` 的形式打印，并附上定义：相同的标准氨基酸数除以比对长度；局部比对的比对长度包括内部空位（gap），全局比对则为包括末端空位在内的全长。`|` 标记每个计入的残基对，`.` 标记其他已比对的残基对，空白表示空位；X、B、Z、J、U 和 O 从不计为相同。
 *   **可选文件**：启用 **生成报告**（`GENERATE_REPORT`）时，会在设置的报告目录中写入一个带时间戳的 `PWA_Report_*.html` 文档，内容为相同的比对和高亮映射。关闭此开关时不写入文件。
 
 <details markdown="1">
 <summary><b>算法详情</b></summary>
 
-1. **嵌入的提取或生成**：
-     直接从 HDF5 清单加载存储的序列文本和张量。输入的序列标题和手动序列会先按规范方式清理。如果只有一条序列是手动输入的，它的嵌入使用数据库的模型；如果两条都是手动输入的，则使用明确选定的嵌入模型。
+1. **Embedding 的提取或生成**：
+     直接从 HDF5 清单加载存储的序列文本和张量。输入的序列标题和手动序列会先按规范方式清理。如果只有一条序列是手动输入的，它的 embedding 使用数据库的模型；如果两条都是手动输入的，则使用明确选定的 embedding 模型。
 
-2. **Z 分数矩阵构建**：
-     计算归一化的残基级得分矩阵：
+2. **Z-score 矩阵构建**：
+     计算归一化（normalization）的残基级得分矩阵：
      $$\text{Score}(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$
 
 3. **回溯比对**：
@@ -64,23 +64,23 @@
 
 ---
 
-# 嵌入数据库搜索 (`Embedding_SSEARCH.py`)
+# Embedding 数据库搜索 (`Embedding_SSEARCH.py`)
 
-该脚本使用残基级语言模型嵌入，用一条查询序列搜索整个数据库。它对数据库中的所有序列并行运行双序列比对，按归一化的局部或全局相似性得分对匹配的蛋白质排序，其工作方式类似于 FASTA 软件包中的 ssearch。
+该脚本使用残基级语言模型 embedding，用一条查询序列（query sequence）搜索整个数据库。它对数据库中的所有序列并行运行双序列比对（pairwise alignment），按归一化的局部或全局相似性得分对匹配的蛋白质排序，其工作方式类似于 FASTA 软件包中的 ssearch。
 
 ### 输入
 
-#### 嵌入数据库 `INPUT_EMBED`
-*   **格式**：完整的元数据优先 HDF5 数据库（`.h5`），包含已清理的序列标题、序列和嵌入。
-*   **创建者**：`Generate_Embeddings.py` 或其他正在使用的嵌入写入程序。SSEARCH 不会自动生成缺失的数据库。
+#### Embedding 数据库 `INPUT_EMBED`
+*   **格式**：完整的元数据优先 HDF5 数据库（`.h5`），包含已清理的序列标题、序列和 embedding。
+*   **创建者**：`Generate_Embeddings.py` 或其他正在使用的 embedding 写入程序。SSEARCH 不会自动生成缺失的数据库。
 
 ### 参数
 
 | 参数 | 说明 |
 | :--- | :--- |
-| 查询序列标题 ID **`QUERY_HEADER`** | 存储在嵌入数据库中的序列标题。查找前会先清理。 |
-| 手动查询序列开关 **`MANUAL_QUERY_SEQ`** | 启用可选的手动查询序列输入框。开启时，查询序列与数据库中序列标题相同的记录保持独立，该记录仍可作为搜索命中出现。默认关闭。 |
-| 手动查询序列 **`QUERY_SEQUENCE`** | 仅在 `MANUAL_QUERY_SEQ` 开启时使用，随后在内存中清理，并用数据库模型的 pLM 插件生成嵌入。 |
+| 查询序列标题 ID **`QUERY_HEADER`** | 存储在 embedding 数据库中的序列标题。查找前会先清理。 |
+| 手动查询序列开关 **`MANUAL_QUERY_SEQ`** | 启用可选的手动查询序列输入框。开启时，查询序列与数据库中序列标题相同的记录保持独立，该记录仍可作为搜索命中（hit）出现。默认关闭。 |
+| 手动查询序列 **`QUERY_SEQUENCE`** | 仅在 `MANUAL_QUERY_SEQ` 开启时使用，随后在内存中清理，并用数据库模型的 pLM 插件生成 embedding。 |
 | 输出电子表格前缀 **`OUTPUT_NAME`** | 导出的搜索结果电子表格以及可选 FASTA 文件的名称前缀。 |
 | 最大数据库命中数 **`TOP_K`** | 输出报告中包含的得分最高的数据库命中的最大数量。 |
 | 归一化得分阈值 **`NORM_THRESHOLD`** | 用于排除归一化相似性低于该阈值的命中。设为 'None' 可停用。 |
@@ -95,9 +95,9 @@
 
 ### 输出
 
-#### 嵌入搜索结果
+#### Embedding 搜索结果
 *   **文本报告**：`Report_<name>.txt`，包含参数、一致性百分比的定义以及完整的命中排名表；控制台最多显示前 100 个命中。
-*   **Excel 工作簿**：`Report_<name>.xlsx`，包含一个兼容元数据查看器的 `Search Results` 工作表和一个 `Search Parameters` 工作表。第一个工作表遵循 `docs/metadata_template.xlsx`：第 1 行为属性名称，第 2 行为数据类型，A 列为与节点严格匹配所用的精确序列标题。
+*   **Excel 工作簿**：`Report_<name>.xlsx`，包含一个兼容元数据查看器的 `Search Results` 工作表和一个 `Search Parameters` 工作表。第一个工作表遵循 `docs/metadata_template.xlsx`：第 1 行为属性名称，第 2 行为数据类型，A 列为与节点（node）严格匹配所用的精确序列标题。
 *   **可选 FASTA**：启用 `GENERATE_FASTA` 时，`Hits_<name>.fasta` 包含查询序列，其后是按排名排列的命中序列。
 *   **元数据列**：`Node ID`、`Rank`、`Norm_Score`、`Raw_Score`、`Sequence_Length`、`Alignment_Length` 和 `Percent_Identity`。
 *   **一致性百分比**：报告的比对路径上相同的标准氨基酸数，表示为 `Alignment_Length` 的百分比（0–100）。局部比对计入内部空位；全局比对计入包括末端空位在内的全长。X、B、Z、J、U 和 O 从不计为相同。
@@ -106,10 +106,10 @@
 <summary><b>算法详情</b></summary>
 
 1. **查询设置**：
-     从 `/sequences` 读取存储的序列。手动开关明确选择来源：关闭时复用存储的序列标题和嵌入；开启时需要一条已清理的手动序列，并通过 `model_name` 记录的模型适配器为其生成嵌入。手动输入的序列标题即使与数据库记录重名，也不会替换或屏蔽该记录。
+     从 `/sequences` 读取存储的序列。手动开关明确选择来源：关闭时复用存储的序列标题和 embedding；开启时需要一条已清理的手动序列，并通过 `model_name` 记录的模型适配器为其生成 embedding。手动输入的序列标题即使与数据库记录重名，也不会替换或屏蔽该记录。
 
 2. **数据库比对队列**：
-     遍历 HDF5 文件中的所有数据库序列 $j$。目标少于 512 个时保持标量执行。对于更大的 CUDA 搜索，查询序列只归一化并上传一次，目标序列只读取一次，按长度分组，并以受显存限制的批次计算得分。
+     遍历 HDF5 文件中的所有数据库序列 $j$。目标少于 512 个时保持标量执行。对于更大的 CUDA 搜索，查询序列只归一化并上传一次，目标序列只读取一次，按长度分组，并以受显存限制的批次（batch）计算得分。
 
 3. **多线程动态规划**：
      把比对分配给多进程工作进程。每个工作进程：
@@ -126,7 +126,7 @@
 5. **一致性百分比**：
      同一次动态规划会统计所选路径上相同的标准氨基酸数 $N_{\text{id}}$；路径长度 $L_{\text{aln}}$ 在 **local** 比对中包括内部空位，在 **global** 比对中包括每一列（含末端空位）：
      $$\text{Identity} = 100 \times \frac{N_{\text{id}}}{L_{\text{aln}}}$$
-     由于该路径最大化的是嵌入相似性而非残基匹配，同一对序列的一致性可能与替换矩阵比对得到的不同。
+     由于该路径最大化的是 embedding 相似性而非残基匹配，同一对序列的一致性可能与替换矩阵（substitution matrix）比对得到的不同。
 
 6. **排序与过滤**：
      汇总结果，按 `NORM_THRESHOLD` 过滤，按 $S_{\text{norm}}$ 降序排序，并保留前 $K$ 个命中。
@@ -142,7 +142,7 @@
 ### 输入
 
 #### 内置序列集
-*   **序列**：860 条经审阅的 UniProtKB/Swiss-Prot 条目，属于金属 β-内酰胺酶超家族（InterPro IPR001279，版本 2026_03），另有 92 条留作注入阶段使用。`src/resources/benchmark/README.md` 说明了它们的来源和制作方法。
+*   **序列**：860 条经审阅的 UniProtKB/Swiss-Prot 条目，属于金属 β-内酰胺酶超家族（InterPro IPR001279，版本 2026_03），另有 92 条留作注入（injection）阶段使用。`src/resources/benchmark/README.md` 说明了它们的来源和制作方法。
 *   **模型**：ESM-2 8M（`esm2_t6_8m`）。首次运行会把它下载到 Hugging Face 缓存中，约 30 MB；下载不计时。
 
 ### 阶段
@@ -150,14 +150,14 @@
 | 阶段 | 计时内容 |
 | :--- | :--- |
 | 1. 清理序列 | 对主序列集运行 `Sanitize_Sequences.py`。 |
-| 2. 嵌入 | 使用 ESM-2 8M 运行 `Generate_Embeddings.py`。 |
-| 3. 全对全嵌入比对 | `Align_Similarity_Matrix.py`：369,370 个序列对。 |
-| 4. SSN 布局 | 对得分最高的 5% 的边进行力导向布局。 |
+| 2. Embedding | 使用 ESM-2 8M 运行 `Generate_Embeddings.py`。 |
+| 3. 全对全 embedding 比对 | `Align_Similarity_Matrix.py`：369,370 个序列对。 |
+| 4. SSN 布局 | 对得分最高的 5% 的边（edge）进行力导向布局。 |
 | 5. UMAP 布局 | 用 UMAP 对同一网络进行布局。 |
 | 6. 聚类 | Leiden、MCL 和 Jaccard 过滤，与查看器的 `cluster` 命令运行方式相同。 |
-| 7. 嵌入数据库搜索 | `Embedding_SSEARCH.py`：用一条查询序列检索主序列集。 |
+| 7. Embedding 数据库搜索 | `Embedding_SSEARCH.py`：用一条查询序列检索主序列集。 |
 | 8. 注入新序列 | 使用 92 条留出的序列运行 `Embedding_Injection.py` 和 `Network_Injection.py`。 |
-| 9. 嵌入 MSA | 对 100 条乙二醛酶 II 序列运行 `Embedding_MSA.py`。 |
+| 9. Embedding MSA | 对 100 条乙二醛酶 II 序列运行 `Embedding_MSA.py`。 |
 | 10. BLAST 全对全比对 | `Align_Substitution_Matrix.py`，使用 NCBI BLAST+。 |
 
 所有设备设置都保持为 **自动**，因此每个工具都会进行自己的硬件试验，报告会记录每个工具的选择。本机无法运行的阶段（例如未安装 NCBI BLAST+ 时的 BLAST）会被跳过并注明原因，依赖它的阶段也会被跳过。

@@ -796,43 +796,43 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <location line="+1"/>
         <source>Primary FASTA file containing sequences visualized as nodes in the SSN.
 Must match sequences present in the selected network edges and multiple alignments.</source>
-        <translation type="unfinished">主 FASTA 文件，其中的序列在 SSN 中显示为节点。
-必须与所选网络的边和多序列比对中的序列相匹配。</translation>
+        <translation type="unfinished">主 FASTA 文件，其中的序列在 SSN 中显示为节点（node）。
+必须与所选网络的边（edge）和多序列比对（MSA）中的序列相匹配。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Multiple sequence alignment file (.fasta, .h5, or _sparse.h5) for the sequence set.
 Used to calculate positional conservation, gaps, and occupancy thresholds during analysis.</source>
         <translation type="unfinished">该序列集的多序列比对文件（.fasta、.h5 或 _sparse.h5）。
-用于在分析中计算位点保守性、空位和占有率阈值。</translation>
+用于在分析中计算位点保守性（conservation）、空位（gap）和占有率（occupancy）阈值。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Network or similarity matrix file (.h5) containing pairwise sequence similarity scores and edge coordinates.
 Must contain alignment metrics for at least all sequences present in the active sequence set.</source>
         <translation type="unfinished">网络或相似性矩阵文件（.h5），包含序列两两之间的相似性得分和边的坐标。
-必须至少包含当前序列集中所有序列的比对指标。</translation>
+必须至少包含当前序列集中所有序列的比对（alignment）指标。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(For embedding SSNs) Specifies whether to use global (Needleman-Wunsch) or local (Smith-Waterman) scores.
 Local alignment is recommended for multi-domain proteins; global alignment is best for full-length comparisons.</source>
-        <translation type="unfinished">（用于嵌入 SSN）指定使用全局（Needleman-Wunsch）还是局部（Smith-Waterman）得分。
-多结构域蛋白建议使用局部比对；全长比较最适合使用全局比对。</translation>
+        <translation type="unfinished">（用于 embedding SSN）指定使用全局（Needleman-Wunsch）还是局部（Smith-Waterman）得分。
+多结构域蛋白建议使用局部比对（local alignment）；全长比较最适合使用全局比对（global alignment）。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>(For embedding SSNs) Normalization strategy for pairwise sequence alignment scores.
 Normalizes by alignment length, shorter sequence, longer sequence, or average sequence length to reduce length bias.</source>
-        <translation type="unfinished">（用于嵌入 SSN）双序列比对得分的归一化策略。
+        <translation type="unfinished">（用于 embedding SSN）双序列比对（pairwise alignment）得分的归一化（normalization）策略。
 按比对长度、较短序列、较长序列或平均序列长度归一化，以减少长度偏差。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Full header, leading identifier (e.g. WP_0123.1), substring, or wildcard (e.g. WP_01*) naming the reference sequence; an exact header or identifier takes priority.
 Used to anchor absolute relative residue numbering and mapping offsets across the entire network.</source>
-        <translation type="unfinished">指定参考序列的完整序列标题、开头的标识符（如 WP_0123.1）、子串或通配符（如 WP_01*）；完全匹配的序列标题或标识符优先。
-用于为整个网络锚定绝对与相对残基编号及映射偏移量。</translation>
+        <translation type="unfinished">指定参考序列（reference sequence）的完整序列标题（FASTA header）、开头的标识符（如 WP_0123.1）、子串或通配符（如 WP_01*）；完全匹配的序列标题或标识符优先。
+用于为整个网络锚定绝对与相对残基（residue）编号及映射偏移量。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -860,7 +860,7 @@ Maintains consistent network connectivity and density without manually tuning ra
         <source>Minimum percentage of non-gap characters required at an alignment column to retain it in residue analyses.
 Columns with occupancy below this percentage are excluded from logo and conservation calculations.</source>
         <translation type="unfinished">比对列在残基分析中被保留所需的最低非空位字符百分比。
-占有率低于此百分比的列不参与序列标识图和保守性计算。</translation>
+占有率低于此百分比的列不参与序列标识图（sequence logo）和保守性计算。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -908,7 +908,7 @@ Lower opacity reveals underlying node clustering and density in highly connected
         <location line="+1"/>
         <source>Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.
 Adjust to ensure labels remain legible without obstructing structural network features.</source>
-        <translation type="unfinished">查看器中绘制簇注释、节点标签和序列 ID 时使用的字号。
+        <translation type="unfinished">查看器中绘制簇（cluster）注释、节点标签和序列 ID 时使用的字号。
 调整它可确保标签清晰可读，同时不遮挡网络的结构特征。</translation>
     </message>
     <message>
@@ -1049,7 +1049,7 @@ Smoothes transient velocity spikes to ensure early termination triggers only on 
         <source>Progressively lowers the similarity threshold in stages for massive connected components.
 Helps resolve fine-grained sub-clusters and prevents gridlock in large, dense components.</source>
         <translation type="unfinished">对超大连通分量分阶段逐步降低相似性阈值。
-有助于分辨细粒度的子簇，并防止大型密集分量陷入僵局。</translation>
+有助于分辨细粒度的子簇（subcluster），并防止大型密集分量陷入僵局。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -2223,7 +2223,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/cluster.py" line="-170"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
-        <translation type="unfinished">错误：MCL 膨胀系数必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
+        <translation type="unfinished">错误：MCL inflation 必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
     <message>
         <location line="+11"/>
@@ -4668,12 +4668,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+1"/>
         <source>Embeddings (ESM-2 8M)</source>
-        <translation type="unfinished">嵌入（ESM-2 8M）</translation>
+        <translation type="unfinished">Embedding（ESM-2 8M）</translation>
     </message>
     <message>
         <location line="+2"/>
         <source>All-against-all embedding alignment</source>
-        <translation type="unfinished">全对全嵌入比对</translation>
+        <translation type="unfinished">全对全 embedding 比对</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -4693,7 +4693,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+2"/>
         <source>Embedding database search</source>
-        <translation type="unfinished">嵌入数据库搜索</translation>
+        <translation type="unfinished">Embedding 数据库搜索</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -4703,7 +4703,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+2"/>
         <source>Embedding MSA</source>
-        <translation type="unfinished">嵌入 MSA</translation>
+        <translation type="unfinished">Embedding MSA</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -4828,17 +4828,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+3"/>
         <source>all embeddings packed in RAM</source>
-        <translation type="unfinished">所有嵌入都装入内存</translation>
+        <translation type="unfinished">所有 embedding 都装入内存</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>embeddings read in tiles</source>
-        <translation type="unfinished">嵌入按分块读取</translation>
+        <translation type="unfinished">Embedding 按分块读取</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Device for the embeddings, by predicted job time</source>
-        <translation type="unfinished">嵌入所用设备，按预计任务时间选择</translation>
+        <translation type="unfinished">Embedding 所用设备，按预计任务时间选择</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -4904,7 +4904,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="-14"/>
         <source>Host cache: {choice} ({size} of embeddings, limit {limit}).</source>
-        <translation type="unfinished">主机缓存：{choice}（嵌入共 {size}，上限 {limit}）。</translation>
+        <translation type="unfinished">主机缓存：{choice}（embedding 共 {size}，上限 {limit}）。</translation>
     </message>
     <message>
         <source>({size} components)</source>
@@ -5024,7 +5024,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+3"/>
         <source>Embedding the new sequences</source>
-        <translation type="unfinished">嵌入新序列</translation>
+        <translation type="unfinished">为新序列计算 embedding</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -5056,7 +5056,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+1"/>
         <source>ESM-2 8M makes embeddings 320 values wide, so the alignment&apos;s matrix products are cheaper here than with larger models.</source>
-        <translation type="unfinished">ESM-2 8M 生成的嵌入宽度为 320，因此这里比对中的矩阵乘法比使用更大的模型时开销更小。</translation>
+        <translation type="unfinished">ESM-2 8M 生成的 embedding 宽度为 320，因此这里比对中的矩阵乘法比使用更大的模型时开销更小。</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -6009,12 +6009,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+106"/>
         <source>Sequence &amp;&amp; Embedding Preparation</source>
-        <translation type="unfinished">序列与嵌入准备</translation>
+        <translation type="unfinished">序列与 embedding 准备</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Embedding &amp;&amp; Network Tools</source>
-        <translation type="unfinished">嵌入与网络工具</translation>
+        <translation type="unfinished">Embedding 与网络工具</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6029,7 +6029,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+1"/>
         <source>Embedding MSA</source>
-        <translation type="unfinished">嵌入 MSA</translation>
+        <translation type="unfinished">Embedding MSA</translation>
     </message>
     <message>
         <source>🧬 Embedding Multiple Sequence Alignment</source>
@@ -6159,7 +6159,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+13"/>
         <source>No network is selected. Select a valid network to determine whether imputed pairs can be included in the final consensus.</source>
-        <translation type="unfinished">未选择网络。请选择一个有效的网络，以确定能否在最终一致树中纳入插补的序列对。</translation>
+        <translation type="unfinished">未选择网络。请选择一个有效的网络，以确定能否在最终一致树（consensus tree）中纳入插补（imputation）的序列对。</translation>
     </message>
     <message>
         <location line="+10"/>
@@ -6169,7 +6169,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     <message>
         <location line="+11"/>
         <source>Imputed pairs participate in every replicate tree and are also replaced by replicate-averaged cophenetic distances in the final matrix.</source>
-        <translation type="unfinished">插补的序列对参与每棵重复树，并在最终矩阵中替换为各重复树平均的共表型距离。</translation>
+        <translation type="unfinished">插补的序列对参与每棵重复树，并在最终矩阵中替换为各重复树平均的共表型距离（cophenetic distance）。</translation>
     </message>
     <message>
         <location line="+6"/>
@@ -6202,7 +6202,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
-展示平均嵌入余弦距离与网络得分之间的保序回归拟合。</translation>
+展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
         <location line="-936"/>
@@ -6305,8 +6305,8 @@ Fedora / RHEL：
         <location line="+265"/>
         <source>Sequence Set (.fasta): The raw FASTA sequence database to clean.
 Uppercases residues, trims terminal non-residues, masks invalid characters with &apos;X&apos;, and deduplicates headers.</source>
-        <translation type="unfinished">序列集（.fasta）：要清理的原始 FASTA 序列库。
-将残基转为大写，去除两端的非残基字符，用“X”屏蔽无效字符，并对重复的序列标题去重。</translation>
+        <translation type="unfinished">序列集（.fasta）：要清理（sanitize）的原始 FASTA 序列库。
+将残基（residue）转为大写，去除两端的非残基字符，用“X”屏蔽无效字符，并对重复的序列标题（FASTA header）去重。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6347,21 +6347,21 @@ Sequences longer than this threshold will be discarded during sanitization.</sou
         <location line="+3"/>
         <source>Sequence Set (.fasta): FASTA sequence database to embed.
 Records are sanitized in memory (uppercased, invalid residues masked, duplicates merged) before model inference.</source>
-        <translation type="unfinished">序列集（.fasta）：要计算嵌入的 FASTA 序列库。
+        <translation type="unfinished">序列集（.fasta）：要计算 embedding 的 FASTA 序列库。
 在模型推理前，记录会在内存中清理（转为大写、屏蔽无效残基、合并重复项）。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Model Name: Protein language model (pLM) architecture used to generate residue embeddings.
 Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key).</source>
-        <translation type="unfinished">模型名称：用于生成残基嵌入的蛋白质语言模型（pLM）架构。
+        <translation type="unfinished">模型名称：用于生成残基 embedding 的蛋白质语言模型（pLM）架构。
 支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 esmc_6b）。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Saving Mode: Floating-point precision for storing embedding tensors in HDF5.
 Float16 saves 50% disk space and RAM with minimal precision loss; float32 retains full precision.</source>
-        <translation type="unfinished">保存模式：在 HDF5 中存储嵌入张量时使用的浮点精度。
+        <translation type="unfinished">保存模式：在 HDF5 中存储 embedding 张量时使用的浮点精度。
 float16 可节省 50% 的磁盘空间和内存，精度损失极小；float32 保留完整精度。</translation>
     </message>
     <message>
@@ -6375,28 +6375,28 @@ Auto Benchmark profiles CPU and available local accelerators (CUDA, XPU, MPS) on
         <location line="+3"/>
         <source>Full Embedding Set (.h5): Pre-computed HDF5 database containing embeddings of full-length sequences.
 Contextual residue embeddings for cropped segments are sliced directly from these full-context tensors.</source>
-        <translation type="unfinished">完整嵌入集（.h5）：预先计算的 HDF5 数据库，包含全长序列的嵌入。
-裁剪片段的上下文残基嵌入直接从这些完整上下文张量中截取。</translation>
+        <translation type="unfinished">完整 embedding 集（.h5）：预先计算的 HDF5 数据库，包含全长序列的 embedding。
+裁剪（cropping）片段的上下文残基 embedding 直接从这些完整上下文张量中截取。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Cropped Sequence Set (.fasta): FASTA file containing partial/cropped sequence segments.
 Headers and sequences must match exact contiguous substrings within the full embedding database.</source>
         <translation type="unfinished">裁剪序列集（.fasta）：包含部分或裁剪序列片段的 FASTA 文件。
-其序列标题和序列必须与完整嵌入数据库中某段连续子串完全匹配。</translation>
+其序列标题和序列必须与完整 embedding 数据库中某段连续子串完全匹配。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Embedding Set (.h5): HDF5 database containing dense residue embeddings.
 Vectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores.</source>
-        <translation type="unfinished">嵌入集（.h5）：包含稠密残基嵌入的 HDF5 数据库。
-这些向量用于计算两两残基相似性矩阵和动态规划比对得分。</translation>
+        <translation type="unfinished">Embedding 集（.h5）：包含稠密残基 embedding 的 HDF5 数据库。
+这些向量用于计算两两残基相似性矩阵和动态规划（dynamic programming）比对得分。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.
 Skips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation.</source>
-        <translation type="unfinished">边预过滤：利用全局池化嵌入的余弦相似性预先过滤序列对。
+        <translation type="unfinished">边预过滤：利用全局池化 embedding 的余弦相似性预先过滤序列对。
 对差异很大的序列对跳过完整的残基级动态规划，以加快计算。</translation>
     </message>
     <message>
@@ -6404,7 +6404,7 @@ Skips full residue-level dynamic programming for highly dissimilar pairs to acce
         <source>Strength (%): Percentage of candidate sequence pairs with lowest cosine similarity to discard.
 Higher percentages speed up calculations by performing residue alignments on only the most promising pairs.</source>
         <translation type="unfinished">强度（%）：要丢弃的余弦相似性最低的候选序列对所占百分比。
-百分比越高，只对最有希望的序列对做残基比对，计算越快。</translation>
+百分比越高，只对最有希望的序列对做残基比对（alignment），计算越快。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6417,14 +6417,14 @@ Increasing workers speeds up alignment of large datasets across multiple CPU cor
         <location line="+1"/>
         <source>Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.
 More negative values penalize gap insertions and extensions, resulting in fewer gaps.</source>
-        <translation type="unfinished">局部比对空位罚分：Smith-Waterman 局部比对中使用的空位罚分。
-数值越负，对插入和延伸空位的惩罚越重，空位越少。</translation>
+        <translation type="unfinished">局部比对空位罚分：Smith-Waterman 局部比对（local alignment）中使用的空位罚分（gap penalty）。
+数值越负，对插入和延伸空位（gap）的惩罚越重，空位越少。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.
 Controls gap insertion penalties across end-to-end full-length alignments.</source>
-        <translation type="unfinished">全局比对空位罚分：Needleman-Wunsch 全局比对中使用的空位罚分。
+        <translation type="unfinished">全局比对空位罚分：Needleman-Wunsch 全局比对（global alignment）中使用的空位罚分。
 控制端到端全长比对中插入空位的罚分。</translation>
     </message>
     <message>
@@ -6445,14 +6445,14 @@ Auto benchmarks CPU and accelerators; dynamic programming alignment scoring alwa
         <location line="+1"/>
         <source>Execution Mode: &apos;auto&apos; benchmarks scalar and tiled plans where supported.
 &apos;scalar&apos; processes one pairwise score matrix at a time; &apos;tiled&apos; uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
-        <translation type="unfinished">执行模式：“自动”会在支持时对标量和分块方案进行基准测试。
-“标量”一次处理一个两两得分矩阵；“分块”在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的嵌入分块和填充后的微批次。</translation>
+        <translation type="unfinished">执行模式：“自动”会在支持时对标量和分块（tile）方案进行基准测试。
+“标量”一次处理一个两两得分矩阵；“分块”在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的 embedding 分块和填充后的微批次（microbatch）。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.
 AUTO ON selects a safe system-memory budget up to {cap:g} GiB. Turn AUTO OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
-        <translation type="unfinished">主机缓存（GiB）：用于保留打包嵌入、减少重复读取 HDF5 的最大内存。
+        <translation type="unfinished">主机缓存（GiB）：用于保留打包 embedding、减少重复读取 HDF5 的最大内存。
 “自动：开”会选择最多 {cap:g} GiB 的安全系统内存预算。切换为“自动：关”后，可用线性滑块或数值框选择 0 到 {cap:g} GiB；0 表示停用持久缓存。</translation>
     </message>
     <message>
@@ -6487,7 +6487,7 @@ Increasing threads accelerates all-vs-all search across multi-core systems.</sou
         <location line="+1"/>
         <source>Batch Size: Maximum number of parsed alignment edges buffered per chunk during HDF5 writing.
 Tuning this parameter controls RAM usage and optimizes disk write performance.</source>
-        <translation type="unfinished">批大小：写入 HDF5 时每个块中缓冲的已解析比对边的最大数量。
+        <translation type="unfinished">批大小：写入 HDF5 时每个块中缓冲的已解析比对边（edge）的最大数量。
 调整此参数可控制内存占用并优化磁盘写入性能。</translation>
     </message>
     <message>
@@ -6502,7 +6502,7 @@ If left blank, standard system PATH and default platform installation locations 
         <source>Use Sequence Filter: Toggle to restrict alignment to sequences in an explicit FASTA file.
 When OFF, aligns all sequences present in the intersection of the embedding and network databases.</source>
         <translation type="unfinished">使用序列过滤：切换是否只比对指定 FASTA 文件中的序列。
-关闭时，比对同时存在于嵌入数据库和网络数据库中的所有序列。</translation>
+关闭时，比对同时存在于 embedding 数据库和网络数据库中的所有序列。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6515,8 +6515,8 @@ Ignored and blanked out when Use Sequence Filter is disabled.</source>
         <location line="+1"/>
         <source>Embedding Set (.h5): HDF5 embedding database containing dense residue embeddings.
 Used to weight progressive profile-profile alignments along evolutionary guide tree nodes.</source>
-        <translation type="unfinished">嵌入集（.h5）：包含稠密残基嵌入的 HDF5 嵌入数据库。
-用于沿进化引导树节点为渐进式谱-谱比对加权。</translation>
+        <translation type="unfinished">Embedding 集（.h5）：包含稠密残基 embedding 的 HDF5 embedding 数据库。
+用于沿进化引导树（guide tree）节点为渐进式 profile-profile 比对加权。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6543,7 +6543,7 @@ Determines the hierarchical branching and progressive alignment order.</source>
         <location line="+1"/>
         <source>Normalization Mode: Formula used to normalize network scores by sequence or alignment length.
 Corrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST).</source>
-        <translation type="unfinished">归一化模式：按序列长度或比对长度对网络得分进行归一化的公式。
+        <translation type="unfinished">归一化模式：按序列长度或比对长度对网络得分进行归一化（normalization）的公式。
 在转换为距离矩阵前校正序列长度差异（BLAST 网络不可用）。</translation>
     </message>
     <message>
@@ -6572,20 +6572,20 @@ ON replaces all pairs with replicate-averaged cophenetic distances. Imputed pair
         <source>Normalized Noise Scale: Gaussian standard deviation expressed as a fraction of max distance (e.g. 0.02 = 2%).
 Applies additive noise across all observed and regression-imputed distances, clamped to valid bounds.</source>
         <translation type="unfinished">归一化噪声尺度：以最大距离的比例表示的高斯标准差（如 0.02 = 2%）。
-对所有观测距离和回归插补距离施加加性噪声，并限制在有效范围内。</translation>
+对所有观测距离和回归插补距离施加加性噪声（noise），并限制在有效范围内。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.
 More negative values penalize gap initiation, yielding fewer overall gap regions.</source>
-        <translation type="unfinished">空位开放罚分：在谱比对中开启新空位时使用的罚分。
+        <translation type="unfinished">空位开放罚分：在 profile 比对中开启新空位时使用的罚分。
 数值越负，对开启空位的惩罚越重，空位区域总体越少。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.
 More negative values shorten gap lengths.</source>
-        <translation type="unfinished">空位延伸罚分：在谱比对中延伸已有空位时使用的罚分。
+        <translation type="unfinished">空位延伸罚分：在 profile 比对中延伸已有空位时使用的罚分。
 数值越负，空位越短。</translation>
     </message>
     <message>
@@ -6593,13 +6593,13 @@ More negative values shorten gap lengths.</source>
         <source>CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.
 Increasing workers accelerates consensus tree generation on multi-core systems. Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences). Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores.</source>
         <translation type="unfinished">CPU 工作进程数：分配给并行计算引导树重复的 CPU 工作进程数。
-在多核系统上，增加进程数可加快一致树的生成。每个 UPGMA 工作进程每个序列对约占 16 字节（44,000 条序列约 16 GB）。邻接法的工作进程还会以线程方式共用除两个以外的所有逻辑 CPU，因此单个工作进程就已使用多个核心。</translation>
+在多核系统上，增加进程数可加快一致树的生成。每个 UPGMA 工作进程每个序列对约占 16 字节（44,000 条序列约 16 GB）。邻接法（Neighbor-Joining）的工作进程还会以线程方式共用除两个以外的所有逻辑 CPU，因此单个工作进程就已使用多个核心。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Device: Hardware used for sequential profile score-matrix construction.
 Auto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU.</source>
-        <translation type="unfinished">设备：依次构建谱得分矩阵时使用的硬件。
+        <translation type="unfinished">设备：依次构建 profile 得分矩阵时使用的硬件。
 “自动基准测试”会在三次有代表性的叶节点合并上比较 CPU 和可用的加速器；引导树计算和动态规划回溯仍在 CPU 上运行。</translation>
     </message>
     <message>
@@ -6620,7 +6620,7 @@ If OFF, converts only the selected FASTA alignment file.</source>
         <location line="+1"/>
         <source>Input MSA (.fasta): Standard FASTA multiple sequence alignment file to convert.
 Compresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing file size by up to 95%.</source>
-        <translation type="unfinished">输入 MSA（.fasta）：要转换的标准 FASTA 多序列比对文件。
+        <translation type="unfinished">输入 MSA（.fasta）：要转换的标准 FASTA 多序列比对（MSA）文件。
 把比对残基压缩为 SciPy CSR 稀疏矩阵（.h5），文件大小最多可减少 95%。</translation>
     </message>
     <message>
@@ -6628,17 +6628,17 @@ Compresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing fil
         <source>BLAST Results: Tab-delimited BLASTP or DIAMOND blastp output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.
 Run DIAMOND with -k 0 so no query&apos;s hits are truncated, and with --header verbose to record its version and command.</source>
         <translation type="unfinished">BLAST 结果：制表符分隔的 BLASTP 或 DIAMOND blastp 输出，可以是标准 outfmt 6、带元数据的 outfmt 7，或明确映射列的自定义格式。
-运行 DIAMOND 时请使用 -k 0，以免截断任何查询序列的命中，并使用 --header verbose 记录其版本和命令。</translation>
+运行 DIAMOND 时请使用 -k 0，以免截断任何查询序列（query sequence）的命中（hit），并使用 --header verbose 记录其版本和命令。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers.</source>
-        <translation type="unfinished">序列集（.fasta）：BLAST 搜索所用的原始 FASTA。完整的序列标题会被清理，但不改变序列也不去重，清理后的标题即为查看器中节点的序列标题。</translation>
+        <translation type="unfinished">序列集（.fasta）：BLAST 搜索所用的原始 FASTA。完整的序列标题会被清理，但不改变序列也不去重，清理后的标题即为查看器中节点（node）的序列标题。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.</source>
-        <translation type="unfinished">BLAST 列格式：标准 outfmt 6 要求正好 12 列。outfmt 7 从 # Query 读取完整的查询序列，并从 # Fields 读取目标序列和期望值所在的列。“自定义列”使用下面三项从 1 开始编号的列设置。</translation>
+        <translation type="unfinished">BLAST 列格式：标准 outfmt 6 要求正好 12 列。outfmt 7 从 # Query 读取完整的查询序列，并从 # Fields 读取目标序列（target sequence）和期望值（E-value）所在的列。“自定义列”使用下面三项从 1 开始编号的列设置。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6659,29 +6659,29 @@ Run DIAMOND with -k 0 so no query&apos;s hits are truncated, and with --header v
         <location line="+3"/>
         <source>Input Embedding Set (.h5): Master HDF5 embedding database to receive new sequences.
 Existing sequence embeddings are preserved and reused without recalculation.</source>
-        <translation type="unfinished">输入嵌入集（.h5）：接收新序列的主 HDF5 嵌入数据库。
-已有序列的嵌入会保留并直接复用，无需重新计算。</translation>
+        <translation type="unfinished">输入 embedding 集（.h5）：接收新序列的主 HDF5 embedding 数据库。
+已有序列的 embedding 会保留并直接复用，无需重新计算。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Input Sequence Set (.fasta): FASTA file containing existing sequences plus newly added targets.
 Embeddings are computed only for the newly introduced sequences to optimize compute time.</source>
         <translation type="unfinished">输入序列集（.fasta）：包含已有序列和新增目标序列的 FASTA 文件。
-只为新增的序列计算嵌入，以节省计算时间。</translation>
+只为新增的序列计算 embedding，以节省计算时间。</translation>
     </message>
     <message>
         <location line="+3"/>
         <source>Input Embedding Set (.h5): Master HDF5 embedding database from which subset embeddings are extracted.
 Extracts matching residue embedding datasets without re-running language model inference.</source>
-        <translation type="unfinished">输入嵌入集（.h5）：从中提取子集嵌入的主 HDF5 嵌入数据库。
-提取匹配的残基嵌入数据集，无需重新运行语言模型推理。</translation>
+        <translation type="unfinished">输入 embedding 集（.h5）：从中提取子集 embedding 的主 HDF5 embedding 数据库。
+提取（extraction）匹配的残基 embedding 数据集，无需重新运行语言模型推理。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Input Sequence Set (.fasta): FASTA file or text list defining the whitelist of sequence headers to extract.
 Only embeddings matching these headers are saved to the new HDF5 database.</source>
         <translation type="unfinished">输入序列集（.fasta）：定义要提取的序列标题白名单的 FASTA 文件或文本列表。
-只有与这些序列标题匹配的嵌入会保存到新的 HDF5 数据库中。</translation>
+只有与这些序列标题匹配的 embedding 会保存到新的 HDF5 数据库中。</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -6694,8 +6694,8 @@ Pre-computed alignment scores between existing sequence pairs are reused directl
         <location line="+1"/>
         <source>Input Embedding Set (.h5): Updated HDF5 embedding database containing all sequence embeddings.
 Newly introduced sequence pairs are aligned and injected into the updated network file.</source>
-        <translation type="unfinished">输入嵌入集（.h5）：包含所有序列嵌入的更新后的 HDF5 嵌入数据库。
-新增的序列对会被比对并注入更新后的网络文件。</translation>
+        <translation type="unfinished">输入 embedding 集（.h5）：包含所有序列 embedding 的更新后的 HDF5 embedding 数据库。
+新增的序列对会被比对并注入（injection）更新后的网络文件。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6721,12 +6721,12 @@ Tuning this parameter controls RAM usage and optimizes file write performance.</
         <source>Execution Mode: &apos;auto&apos; benchmarks scalar and tiled plans where supported.
 &apos;scalar&apos; processes one pairwise score matrix at a time; &apos;tiled&apos; uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator.</source>
         <translation type="unfinished">执行模式：“自动”会在支持时对标量和分块方案进行基准测试。
-“标量”一次处理一个两两得分矩阵；“分块”在 CUDA/ROCm 或 XPU 上使用加速器嵌入分块和填充后的微批次。选择 MPS 或 MPS 是唯一可用的加速器时，不显示分块模式。</translation>
+“标量”一次处理一个两两得分矩阵；“分块”在 CUDA/ROCm 或 XPU 上使用加速器 embedding 分块和填充后的微批次。选择 MPS 或 MPS 是唯一可用的加速器时，不显示分块模式。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. AUTO ON selects a safe budget up to {cap:g} GiB; turn it OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox.</source>
-        <translation type="unfinished">主机缓存（GiB）：在各注入批次之间保留打包嵌入所用内存的上限。“自动：开”会选择最多 {cap:g} GiB 的安全预算；关闭后可用线性滑块或数值框选择 0 到 {cap:g} GiB。</translation>
+        <translation type="unfinished">主机缓存（GiB）：在各注入批次之间保留打包 embedding 所用内存的上限。“自动：开”会选择最多 {cap:g} GiB 的安全预算；关闭后可用线性滑块或数值框选择 0 到 {cap:g} GiB。</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -6746,14 +6746,14 @@ Only edges connecting two whitelist sequences are extracted and re-indexed into 
         <location line="+3"/>
         <source>Embedding Set (.h5): HDF5 database containing pre-computed sequences and residue embeddings.
 Supplies stored sequences and models whenever a manual sequence switch is OFF.</source>
-        <translation type="unfinished">嵌入集（.h5）：包含预先计算的序列和残基嵌入的 HDF5 数据库。
+        <translation type="unfinished">Embedding 集（.h5）：包含预先计算的序列和残基 embedding 的 HDF5 数据库。
 手动输入序列的开关关闭时，由它提供已存储的序列和模型。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Reference Header: Header of the reference sequence in the embedding database.
 Typed text is sanitized before lookup; if left blank, the first database sequence is used.</source>
-        <translation type="unfinished">参考序列标题：嵌入数据库中参考序列的序列标题。
+        <translation type="unfinished">参考序列标题：embedding 数据库中参考序列（reference sequence）的序列标题。
 输入的文字会先清理再查找；留空时使用数据库中的第一条序列。</translation>
     </message>
     <message>
@@ -6761,20 +6761,20 @@ Typed text is sanitized before lookup; if left blank, the first database sequenc
         <source>Manual Ref Seq: Toggle to enter a raw reference sequence manually.
 When OFF, the reference sequence and embedding are loaded from the database by header.</source>
         <translation type="unfinished">手动输入参考序列：切换是否手动输入原始参考序列。
-关闭时，按序列标题从数据库加载参考序列及其嵌入。</translation>
+关闭时，按序列标题从数据库加载参考序列及其 embedding。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Ref Sequence (Optional): Raw amino acid sequence for the reference protein.
 Used only when Manual Ref Seq is ON; sanitized and embedded on the fly.</source>
         <translation type="unfinished">参考序列（可选）：参考蛋白的原始氨基酸序列。
-仅在“手动输入参考序列”开启时使用；会即时清理并计算嵌入。</translation>
+仅在“手动输入参考序列”开启时使用；会即时清理并计算 embedding。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Target Header: Header of the target sequence in the embedding database.
 Typed text is sanitized before lookup; if left blank, the second database sequence is used.</source>
-        <translation type="unfinished">目标序列标题：嵌入数据库中目标序列的序列标题。
+        <translation type="unfinished">目标序列标题：embedding 数据库中目标序列的序列标题。
 输入的文字会先清理再查找；留空时使用数据库中的第二条序列。</translation>
     </message>
     <message>
@@ -6782,14 +6782,14 @@ Typed text is sanitized before lookup; if left blank, the second database sequen
         <source>Manual Tar Seq: Toggle to enter a raw target sequence manually.
 When OFF, the target sequence and embedding are loaded from the database by header.</source>
         <translation type="unfinished">手动输入目标序列：切换是否手动输入原始目标序列。
-关闭时，按序列标题从数据库加载目标序列及其嵌入。</translation>
+关闭时，按序列标题从数据库加载目标序列及其 embedding。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Tar Sequence (Optional): Raw amino acid sequence for the target protein.
 Used only when Manual Tar Seq is ON; sanitized and embedded on the fly.</source>
         <translation type="unfinished">目标序列（可选）：目标蛋白的原始氨基酸序列。
-仅在“手动输入目标序列”开启时使用；会即时清理并计算嵌入。</translation>
+仅在“手动输入目标序列”开启时使用；会即时清理并计算 embedding。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6802,15 +6802,15 @@ Tracked through the alignment and highlighted directly on target sequence positi
         <location line="+1"/>
         <source>Embedding Model: Protein language model used when both sequences are entered manually.
 When either sequence is selected from an embedding database, that database&apos;s model is used instead.</source>
-        <translation type="unfinished">嵌入模型：两条序列都手动输入时使用的蛋白质语言模型。
-只要有一条序列选自嵌入数据库，就改用该数据库的模型。</translation>
+        <translation type="unfinished">Embedding 模型：两条序列都手动输入时使用的蛋白质语言模型（pLM）。
+只要有一条序列选自 embedding 数据库，就改用该数据库的模型。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.
 Calculates dynamic programming alignment based on residue embedding cosine similarities.</source>
         <translation type="unfinished">比对模式：选择全局（Needleman-Wunsch）或局部（Smith-Waterman）比对。
-基于残基嵌入的余弦相似性计算动态规划比对。</translation>
+基于残基 embedding 的余弦相似性计算动态规划比对。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6837,14 +6837,14 @@ Outputs a formatted report with highlighted residue mappings to the report direc
         <location line="+3"/>
         <source>Embedding Set (.h5): Master HDF5 database containing pre-computed sequence embeddings.
 Database sequences are scanned against the query sequence using parallelized dynamic programming.</source>
-        <translation type="unfinished">嵌入集（.h5）：包含预先计算的序列嵌入的主 HDF5 数据库。
+        <translation type="unfinished">Embedding 集（.h5）：包含预先计算的序列 embedding 的主 HDF5 数据库。
 用并行的动态规划将数据库序列与查询序列逐一比较。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Query Header: Header of a sequence in the embedding database used as the search query.
 Sanitized before lookup when Manual Query Seq is OFF.</source>
-        <translation type="unfinished">查询序列标题：嵌入数据库中用作搜索查询的序列的序列标题。
+        <translation type="unfinished">查询序列标题：embedding 数据库中用作搜索查询的序列的序列标题。
 “手动输入查询序列”关闭时，会先清理再查找。</translation>
     </message>
     <message>
@@ -6852,14 +6852,14 @@ Sanitized before lookup when Manual Query Seq is OFF.</source>
         <source>Manual Query Seq: Toggle to provide a custom query sequence manually.
 When OFF, the query sequence and embedding are loaded from the database by header.</source>
         <translation type="unfinished">手动输入查询序列：切换是否手动提供自定义查询序列。
-关闭时，按序列标题从数据库加载查询序列及其嵌入。</translation>
+关闭时，按序列标题从数据库加载查询序列及其 embedding。</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Query Sequence (Optional): Raw amino acid sequence for the query protein.
 Used only when Manual Query Seq is ON; embedded on the fly using the database model.</source>
         <translation type="unfinished">查询序列（可选）：查询蛋白的原始氨基酸序列。
-仅在“手动输入查询序列”开启时使用；会用数据库的模型即时计算嵌入。</translation>
+仅在“手动输入查询序列”开启时使用；会用数据库的模型即时计算 embedding。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6887,7 +6887,7 @@ Hits scoring below this cutoff are excluded from results. Set to &apos;None&apos
         <source>Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.
 Compares database sequence embeddings against the query using dynamic programming.</source>
         <translation type="unfinished">比对模式：选择全局（Needleman-Wunsch）或局部（Smith-Waterman）比对。
-用动态规划将数据库序列的嵌入与查询序列比较。</translation>
+用动态规划将数据库序列的 embedding 与查询序列比较。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6975,7 +6975,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+7"/>
         <source>Embedding Generation Settings:</source>
-        <translation type="unfinished">嵌入生成设置：</translation>
+        <translation type="unfinished">Embedding 生成设置：</translation>
     </message>
     <message>
         <location line="+16"/>
@@ -6999,12 +6999,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="-682"/>
         <source>Embedding Cropping Settings:</source>
-        <translation type="unfinished">嵌入裁剪设置：</translation>
+        <translation type="unfinished">Embedding 裁剪设置：</translation>
     </message>
     <message>
         <location line="+9"/>
         <source>Full Embedding Set (.h5):</source>
-        <translation type="unfinished">完整嵌入集（.h5）：</translation>
+        <translation type="unfinished">完整 embedding 集（.h5）：</translation>
     </message>
     <message>
         <location line="+9"/>
@@ -7023,7 +7023,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <location line="+267"/>
         <location line="+90"/>
         <source>Embedding Set (.h5):</source>
-        <translation type="unfinished">嵌入集（.h5）：</translation>
+        <translation type="unfinished">Embedding 集（.h5）：</translation>
     </message>
     <message>
         <location line="-563"/>
@@ -7249,14 +7249,14 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+11"/>
         <source>Embedding Injection Settings:</source>
-        <translation type="unfinished">嵌入注入设置：</translation>
+        <translation type="unfinished">Embedding 注入设置：</translation>
     </message>
     <message>
         <location line="+9"/>
         <location line="+25"/>
         <location line="+34"/>
         <source>Input Embedding Set (.h5):</source>
-        <translation type="unfinished">输入嵌入集（.h5）：</translation>
+        <translation type="unfinished">输入 embedding 集（.h5）：</translation>
     </message>
     <message>
         <location line="-50"/>
@@ -7268,7 +7268,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="-97"/>
         <source>Embedding Extraction Settings:</source>
-        <translation type="unfinished">嵌入提取设置：</translation>
+        <translation type="unfinished">Embedding 提取设置：</translation>
     </message>
     <message>
         <location line="+25"/>
@@ -7289,7 +7289,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+29"/>
         <source>Embedding Input:</source>
-        <translation type="unfinished">嵌入输入：</translation>
+        <translation type="unfinished">Embedding 输入：</translation>
     </message>
     <message>
         <location line="+14"/>
@@ -7334,7 +7334,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+7"/>
         <source>Embedding Model:</source>
-        <translation type="unfinished">嵌入模型：</translation>
+        <translation type="unfinished">Embedding 模型：</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -7449,7 +7449,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+1"/>
         <source>Directory containing pre-computed protein language model embedding databases (.h5).</source>
-        <translation type="unfinished">存放预先计算的蛋白质语言模型嵌入数据库（.h5）的目录。</translation>
+        <translation type="unfinished">存放预先计算的蛋白质语言模型 embedding 数据库（.h5）的目录。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7459,7 +7459,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+1"/>
         <source>Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved.</source>
-        <translation type="unfinished">保存生成的双序列比对 HTML 报告和 SSEARCH 结果文件的目录。</translation>
+        <translation type="unfinished">保存生成的双序列比对（pairwise alignment） HTML 报告和 SSEARCH 结果文件的目录。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7469,7 +7469,7 @@ The window shows the default values, and the file was left unchanged. Saving dir
     <message>
         <location line="+3"/>
         <source>Embedding Directory:</source>
-        <translation type="unfinished">嵌入目录：</translation>
+        <translation type="unfinished">Embedding 目录：</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7877,7 +7877,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     <message>
         <location line="-4460"/>
         <source>Embedding Multiple Sequence Alignment</source>
-        <translation type="unfinished">嵌入多序列比对</translation>
+        <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7887,12 +7887,12 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     <message>
         <location line="+1"/>
         <source>Embedding Injection</source>
-        <translation type="unfinished">嵌入注入</translation>
+        <translation type="unfinished">Embedding 注入</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Embedding Extraction</source>
-        <translation type="unfinished">嵌入提取</translation>
+        <translation type="unfinished">Embedding 提取</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7907,17 +7907,17 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     <message>
         <location line="+1"/>
         <source>Pairwise Embedding Alignment</source>
-        <translation type="unfinished">双序列嵌入比对</translation>
+        <translation type="unfinished">双序列 embedding 比对</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Embedding Database Search</source>
-        <translation type="unfinished">嵌入数据库搜索</translation>
+        <translation type="unfinished">Embedding 数据库搜索</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Dynamic Programming Embedding Alignment</source>
-        <translation type="unfinished">动态规划嵌入比对</translation>
+        <translation type="unfinished">动态规划 embedding 比对</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -7937,12 +7937,12 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     <message>
         <location line="+1"/>
         <source>Generate Embeddings</source>
-        <translation type="unfinished">生成嵌入</translation>
+        <translation type="unfinished">生成 embedding</translation>
     </message>
     <message>
         <location line="+1"/>
         <source>Embedding Cropping</source>
-        <translation type="unfinished">嵌入裁剪</translation>
+        <translation type="unfinished">Embedding 裁剪</translation>
     </message>
     <message>
         <location line="+2273"/>
