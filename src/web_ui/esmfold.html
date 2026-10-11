@@ -94,10 +94,12 @@
             }
         }
 
-        // Initialize Mol* viewer
+        // Initialize Mol* viewer. Without layoutShowRemoteState: false, Mol*
+        // lists the public states at webchem.ncbr.muni.cz on every load.
         molstar.Viewer.create('viewer', {
             layoutIsExpanded: false,
             layoutShowControls: true,
+            layoutShowRemoteState: false,
             layoutShowSequence: true
         }).then(v => {
             viewerInstance = v;

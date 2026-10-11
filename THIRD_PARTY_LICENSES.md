@@ -6,7 +6,7 @@ inventories third-party material that is either bundled in this repository or
 required at runtime, together with the licenses that govern it. Each such
 component remains under its own license.
 
-Last reviewed: 2026-10-10
+Last reviewed: 2026-10-11
 
 ---
 
@@ -22,10 +22,10 @@ body is otherwise unchanged.
 
 | Component | Version | License | Location | License text |
 |---|---|---|---|---|
-| [Mol*](https://github.com/molstar/molstar) | 5.10.1 | MIT | `src/resources/esmfold/molstar.js`, `molstar.css` | [`LICENSE.molstar`](src/resources/esmfold/LICENSE.molstar) |
+| [Mol*](https://github.com/molstar/molstar) | 5.10.1 | MIT; its bundle compiles in RxJS (Apache-2.0) and 77 MIT, ISC and 0BSD packages | `src/resources/esmfold/molstar.js`, `molstar.css` | [`LICENSE.molstar`](src/resources/esmfold/LICENSE.molstar); bundled packages: [`NOTICES.molstar-bundle`](src/resources/esmfold/NOTICES.molstar-bundle) |
 | [Tabulator](https://github.com/olifolkerd/tabulator) | 6.2.1 | MIT | `src/resources/meta/tabulator.min.js`, `tabulator.min.css` | [`LICENSE.tabulator`](src/resources/meta/LICENSE.tabulator) |
 | [marked](https://github.com/markedjs/marked) | 18.0.9 | MIT | `src/resources/agent/marked.umd.js` | [`LICENSE.marked`](src/resources/agent/LICENSE.marked) |
-| [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex) |
+| [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT; the fonts SIL OFL 1.1 (also MIT per the KaTeX repository) | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex); fonts: [`LICENSE.OFL`](src/resources/fonts/LICENSE.OFL) |
 | [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSans/` and `NotoSansMono/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
 | [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc) | 2.004-H2 (Google Fonts), cut down to GB2312 | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSansSC/` | [`LICENSE.Noto`](src/resources/fonts/LICENSE.Noto) |
 | [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (42 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
@@ -37,6 +37,22 @@ body is otherwise unchanged.
   banner, both files match the official jsDelivr npm artifacts byte-for-byte:
   `molstar.js` SHA-256 `5567eb19fa8e7a7b3b161d4b96807c4db244cecd2f3e7c87f99c052b8b5b5b30`;
   `molstar.css` SHA-256 `5b68ceb6d3642549b4e9b2c071e58e41b98a5350ae269180587b39da86925d55`.
+  - Bundled packages: `molstar.js` compiles in 78 npm packages, which
+    [`NOTICES.molstar-bundle`](src/resources/esmfold/NOTICES.molstar-bundle)
+    lists with their versions and copyright lines, followed by the text of each
+    licence. **RxJS** 7.8.2 is under the Apache License 2.0 (Copyright (c)
+    2015-2018 Google, Inc., Netflix, Inc., Microsoft Corp. and contributors;
+    RxJS ships no NOTICE file), and `molstar.js` carries no notice for it.
+    React, react-dom and scheduler (Copyright (c) Facebook, Inc. and its
+    affiliates) and immutable (Copyright (c) 2014-present, Lee Byron and other
+    contributors) are MIT; theirs are the only notices in the bundle's closing
+    "Bundled license information" comment. The other MIT packages are
+    mutative, io-ts, fp-ts, extend, is-plain-obj, escape-string-regexp, and
+    react-markdown with remark-gfm and the unified, remark, micromark, mdast,
+    hast, unist and vfile packages they use; `@ungap/structured-clone` is ISC
+    and tslib is 0BSD. The list comes from the source map published with the
+    bundle, at the versions in Mol* v5.10.1's `package-lock.json`, and each
+    package's npm tarball matched that lockfile's sha512.
 - Tabulator: Copyright (c) 2015-2024 Oli Folkerd. Vendored 2026-07-04 and moved
   unchanged to `src/resources/meta/` on 2026-07-07.
 - marked: Copyright (c) 2018+, MarkedJS; Copyright (c) 2011-2018, Christopher
@@ -55,7 +71,14 @@ body is otherwise unchanged.
   2026-08-06. Only the `woff2` fonts are bundled; `katex.min.css` lists `woff2`
   first in every `@font-face`, so browsers never request the `woff`/`ttf`
   fallbacks. The fonts live in `src/resources/fonts/` because the CSS resolves
-  them relative to its own location.
+  them relative to its own location. The 20 font files are licensed under the
+  SIL OFL 1.1: each one's name table reads "Copyright (c) 2009-2010, Design
+  Science, Inc. … Copyright (c) 2014-2018 Khan Academy …, with Reserved Font
+  Name" its family (`KaTeX_AMS`, `KaTeX_Main` and so on), and states the OFL.
+  The KaTeX repository, fonts included, is also distributed under its MIT
+  license. They are unmodified; the OFL text is in
+  [`LICENSE.OFL`](src/resources/fonts/LICENSE.OFL) and the copyright lines in
+  `src/resources/fonts/LICENSE.fonts`.
 - Noto: vendored 2026-08-09 as a compact offline desktop core. The monthly
   release contributes the Regular, Medium, SemiBold, and Bold hinted static
   TTFs for Noto Sans and Noto Sans Mono. These eight runtime files total
@@ -79,8 +102,8 @@ body is otherwise unchanged.
   `LICENSE.Noto`; the two `fonts.css` files are identical and must be regenerated
   together. The 4.68 MiB desktop core is not duplicated under `docs/`.
 
-  The KaTeX fonts are **not** duplicated into `docs/` — they are MIT rather than
-  OFL, and the documentation page does not use KaTeX.
+  The KaTeX fonts are **not** duplicated into `docs/`, because the
+  documentation pages do not use KaTeX.
 - Noto Sans SC: Copyright 2014-2021 Adobe, with Reserved Font Name 'Source'.
   Vendored 2026-10-08 from Google Fonts' variable `NotoSansSC[wght].ttf`
   (version 2.004-H2). Unlike the other bundled files, these are modified: the
@@ -118,6 +141,48 @@ are cut down from Google Fonts' variable font, the icon copies have a colour
 written in, and the sequence files are
 selected from a UniProt download.
 
+### Derived code
+
+Some of the project's own source is ported from third-party code. Such a port
+is distributed under this project's Apache-2.0 license, and the original's
+notice below applies to it as well.
+
+- **pyamg** (MIT): `_standard_aggregation` in `src/utilities/Spectral_Start.py`
+  is a Numba port of `standard_aggregation` from pyamg 5.3.0
+  (`pyamg/amg_core/smoothed_aggregation.h`), which groups the nodes for the
+  multigrid preconditioner of the layout's spectral start. It is restructured
+  but gives identical aggregates; `tests/test_spectral_start.py` freezes its
+  output on a graph that pyamg 5.3.0 was checked against when porting. pyamg is
+  not a dependency. The algorithm is from P. Vaněk, J. Mandel and M. Brezina,
+  "Algebraic multigrid by smoothed aggregation for second and fourth order
+  elliptic problems", *Computing* 56 (1996) 179–196,
+  [doi:10.1007/BF02238511](https://doi.org/10.1007/BF02238511). pyamg's
+  license:
+
+  ```text
+  The MIT License (MIT)
+
+  Copyright (c) 2008-2015 PyAMG Developers
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy
+  of this software and associated documentation files (the "Software"), to deal
+  in the Software without restriction, including without limitation the rights
+  to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+  copies of the Software, and to permit persons to whom the Software is
+  furnished to do so, subject to the following conditions:
+
+  The above copyright notice and this permission notice shall be included in all
+  copies or substantial portions of the Software.
+
+  THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+  IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+  FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+  SOFTWARE.
+  ```
+
 ## 2. Remotely loaded assets
 
 **None.** As of 2026-08-06 the user interface fetches no third-party assets at
@@ -136,6 +201,12 @@ They are served locally as follows:
 | `fonts.css`, `*.woff2` | `Web_Server.py` static route `/fonts/` |
 | KaTeX CSS/JS | `EMAPSSN_Tools.py`, via a `file://` baseUrl on `setHtml()` |
 | Fonts in `docs/list_of_commands.html` and `docs/quickstart.html` | relative path, pages are opened from disk |
+
+The Fold View's Mol* viewer contacts public servers only when the user asks it
+to download a structure, density map or saved state. Since 2026-10-11 it no
+longer lists Mol*'s public remote states, which Mol* otherwise fetches from
+`webchem.ncbr.muni.cz` every time it loads (`layoutShowRemoteState: false` in
+`src/web_ui/esmfold.html`).
 
 Remaining network use is by design rather than asset loading: model weights are
 downloaded from Hugging Face on first use and cached, the ESM C 6B embedding and
@@ -175,7 +246,7 @@ redistributes Qt binaries needs a separate LGPL compliance review.
 | transformers 5.17.0 | Apache-2.0 (Hugging Face, upstream) — installed from PyPI, not redistributed |
 | huggingface-hub, tokenizers (installed with Transformers; imported directly) | Apache-2.0 |
 | torch 2.12.0 | BSD-3-Clause — one build selected at installation: CPU, CUDA 12.6, CUDA 13.2, or Intel XPU from `download.pytorch.org`; ROCm 7.14 for Windows or Linux from AMD's multi-arch index; or Apple MPS from PyPI |
-| AMD ROCm 7.14 runtime wheels (`rocm`, `rocm-sdk-core`, and the per-GPU `rocm-sdk-device-*` and `amd-torch-device-*` packages) | AMD's packaging code is MIT: every source file of the `rocm` 7.14.1 meta-package carries `SPDX-License-Identifier: MIT` (Copyright Advanced Micro Devices, Inc.), although its package metadata declares no license. The runtime binaries in the other wheels remain under the terms AMD ships inside them and were not reviewed here. Downloaded dynamically from AMD's official index only when a supported AMD GPU is detected on Windows 11 25H2 or newer, or on Linux |
+| AMD ROCm 7.14 runtime wheels (`rocm`, `rocm-sdk-core`, and the per-GPU `rocm-sdk-device-*` and `amd-torch-device-*` packages) | AMD's packaging code is MIT: every source file of the `rocm` 7.14.1 meta-package carries `SPDX-License-Identifier: MIT` (Copyright Advanced Micro Devices, Inc.), although its package metadata declares no license. The runtime binaries in the other wheels remain under the terms AMD ships inside them and were not reviewed here. Downloaded dynamically from AMD's official index only when a supported AMD GPU is detected on Windows 11 25H2 or newer, or on Ubuntu 22.04, 24.04, 25.10 or 26.04 |
 | mcp 2.2.0 (official Model Context Protocol Python SDK) | MIT |
 | pydantic (installed with mcp; imported directly by the MCP server) | MIT |
 | sentencepiece 0.2.2 | Apache-2.0 |
@@ -336,7 +407,10 @@ Re-run this review whenever a dependency is added, a bundled asset is refreshed,
 or a new model backend is introduced. When refreshing a bundled asset, copy the
 upstream `LICENSE` file alongside it, record the version above, and re-apply the
 attribution banner where the project uses one (Mol* and Tabulator). For Mol*,
-re-verify the recorded SHA-256 values with the banner removed. Regenerate both
+re-verify the recorded SHA-256 values with the banner removed, and remake
+`NOTICES.molstar-bundle` from the new bundle's source map and Mol*'s
+`package-lock.json` as its header describes. When a ported function changes or
+another is ported, update "Derived code". Regenerate both
 `fonts.css` copies together. When `ESM_VERSION` changes, re-derive
 `src/esm_runtime_requirements.txt` from the new release's metadata and re-check
 those licenses. When a model mapping changes, re-check the license declared on

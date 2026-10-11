@@ -2,7 +2,8 @@ Bundled font provenance
 =======================
 
 Noto fonts
-  Copyright 2012 Google Inc. All Rights Reserved.
+  Copyright 2022 The Noto Project Authors
+  (https://github.com/notofonts/latin-greek-cyrillic)
   SIL Open Font License 1.1 - full text in LICENSE.Noto
 
   Desktop files: desktop/noto/NotoSans/ and desktop/noto/NotoSansMono/
@@ -77,9 +78,19 @@ Offline web-font source
   3075bd69d52719d6f573da7d02a83d881f50801311a13e91dc2931f1fb46d251  NotoSansMono-vietnamese.woff2
 
 KaTeX fonts
-  Copyright (c) 2013-2020 Khan Academy and other contributors
-  MIT License - full text in ../LICENSE.katex
-  Files: KaTeX_*.woff2
+  Copyright (c) 2009-2010, Design Science, Inc. (<www.mathjax.org>)
+  Copyright (c) 2014-2018 Khan Academy (<www.khanacademy.org>),
+  with Reserved Font Name KaTeX_AMS, KaTeX_Caligraphic, KaTeX_Fraktur,
+  KaTeX_Main, KaTeX_Math, KaTeX_SansSerif, KaTeX_Script, KaTeX_Size1,
+  KaTeX_Size2, KaTeX_Size3, KaTeX_Size4 and KaTeX_Typewriter.
+  SIL Open Font License 1.1 - full text in LICENSE.OFL
+  Files: KaTeX_*.woff2 (20 files, from KaTeX 0.16.8)
 
-  These are not covered by the OFL and remain unchanged. They live here because
-  katex.min.css resolves its font references relative to ./fonts/.
+  Each font's name table carries these copyright lines, with the Reserved Font
+  Name of its own family, and states that it is licensed under the SIL Open
+  Font License 1.1. The KaTeX repository, which includes the fonts, is
+  distributed under the MIT License (../LICENSE.katex); the fonts are
+  redistributed here under the OFL their files state, with both notices kept.
+  They remain unchanged, so they keep their Reserved Font Names; a modified
+  version would need a different name. They live here because katex.min.css
+  resolves its font references relative to ./fonts/.

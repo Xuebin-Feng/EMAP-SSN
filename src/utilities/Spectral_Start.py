@@ -140,6 +140,12 @@ def _absolute_row_sums(indptr, data, result):
         result[row] = total
 
 
+# Ported from standard_aggregation in pyamg 5.3.0 (pyamg/amg_core/
+# smoothed_aggregation.h), Copyright (c) 2008-2015 PyAMG Developers, under the
+# MIT License; its notice is in THIRD_PARTY_LICENSES.md under "Derived code".
+# The algorithm is from P. Vaněk, J. Mandel and M. Brezina, "Algebraic
+# multigrid by smoothed aggregation for second and fourth order elliptic
+# problems", Computing 56 (1996) 179-196, doi:10.1007/BF02238511.
 @njit(cache=True)
 def _standard_aggregation(indptr, indices):
     """Group a symmetric sparsity pattern's nodes into aggregates, serially.

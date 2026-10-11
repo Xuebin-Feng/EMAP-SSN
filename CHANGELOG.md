@@ -638,6 +638,19 @@ still change before version 1.0.0.
   `zoom N`, naming the smallest N that fits. It used to start anyway, and could run
   for hours or fail only when memory ran out. The limit is `MAX_FULL_IMAGE_MEGAPIXELS`
   in `src/commands/print.py`; making the image takes about 9 bytes of memory per pixel.
+- The Fold View no longer contacts a public server each time it opens. Mol* listed the
+  public saved states at `webchem.ncbr.muni.cz` on every load, so opening the page sent
+  a request there even when nothing was downloaded. That list is turned off, so the
+  Fold View's state panel no longer shows remote states. Downloading a structure, map
+  or saved state on request still contacts the server it comes from.
+- Third-party notices: the KaTeX fonts are listed under the SIL Open Font License 1.1,
+  which their files state, with its text in `src/resources/fonts/LICENSE.OFL`; they had
+  been listed as MIT only. `src/resources/esmfold/NOTICES.molstar-bundle` gives the
+  copyright notices of the 78 packages compiled into Mol*'s bundle, among them RxJS
+  (Apache-2.0). `THIRD_PARTY_LICENSES.md` credits pyamg (MIT) for the ported
+  aggregation of the layout's spectral start, the Noto licence files carry the fonts'
+  own copyright lines, and the AMD ROCm packages are listed for the Ubuntu releases
+  that get them.
 
 ### Fixed
 

@@ -255,9 +255,9 @@ PAGE_POLICY = {
 }
 # Mol* compiles code while it loads: its MP4 encoder is built with embind,
 # which calls new Function, and compiles WebAssembly (also allowed by
-# 'unsafe-eval') fetched from a data: URL. Mol* also contacts public servers:
-# it lists remote states on load and downloads structures, maps and saved
-# states on request.
+# 'unsafe-eval') fetched from a data: URL. Mol* also contacts public servers
+# when asked to download structures, maps or saved states. esmfold.html turns
+# off its list of remote states, which it would otherwise fetch on load.
 PAGE_POLICY_ADDITIONS = {
     "esmfold.html": {"script-src": "'unsafe-eval'", "connect-src": "https: data:"},
 }
