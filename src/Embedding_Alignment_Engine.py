@@ -19,14 +19,13 @@ from __future__ import annotations
 from collections import OrderedDict, defaultdict, deque
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
-import ctypes
 import os
-import sys
 import time
 from typing import Callable
 
 import h5py
 import numpy as np
+import psutil
 import torch
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 
@@ -366,36 +365,17 @@ def matched_benchmark_task_halves(
 
 
 def system_memory_bytes():
-    """Return ``(total, available)`` physical-memory bytes when detectable."""
-    if sys.platform == "win32":
-        class MemoryStatus(ctypes.Structure):
-            _fields_ = [
-                ("length", ctypes.c_ulong),
-                ("memory_load", ctypes.c_ulong),
-                ("total_physical", ctypes.c_ulonglong),
-                ("available_physical", ctypes.c_ulonglong),
-                ("total_page_file", ctypes.c_ulonglong),
-                ("available_page_file", ctypes.c_ulonglong),
-                ("total_virtual", ctypes.c_ulonglong),
-                ("available_virtual", ctypes.c_ulonglong),
-                ("available_extended_virtual", ctypes.c_ulonglong),
-            ]
+    """Return ``(total, available)`` physical-memory bytes, or ``(0, 0)``.
 
-        status = MemoryStatus()
-        status.length = ctypes.sizeof(status)
-        try:
-            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
-                return int(status.total_physical), int(status.available_physical)
-        except (AttributeError, OSError):
-            pass
-
+    psutil's available figure counts memory the OS can hand out without
+    swapping, such as reclaimable page cache: Linux's MemAvailable, macOS's
+    free plus inactive pages and Windows's available physical memory.
+    """
     try:
-        page_size = int(os.sysconf("SC_PAGE_SIZE"))
-        total = page_size * int(os.sysconf("SC_PHYS_PAGES"))
-        available = page_size * int(os.sysconf("SC_AVPHYS_PAGES"))
-        return total, available
-    except (AttributeError, OSError, ValueError):
+        memory = psutil.virtual_memory()
+    except (psutil.Error, OSError):
         return 0, 0
+    return int(memory.total), int(memory.available)
 
 
 def resolve_host_cache_bytes(setting):

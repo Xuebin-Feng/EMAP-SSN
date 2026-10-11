@@ -323,6 +323,47 @@ class EmbeddingAlignmentEngineTests(unittest.TestCase):
                 96 * alignment_engine.GIB,
             )
 
+    def test_system_memory_counts_reclaimable_memory_on_every_platform(self):
+        gib = alignment_engine.GIB
+        page = 4096
+
+        def mac_sysconf(name):
+            # macOS has no SC_AVPHYS_PAGES.
+            if name == "SC_AVPHYS_PAGES":
+                raise ValueError("unrecognized configuration name")
+            return {"SC_PAGE_SIZE": page, "SC_PHYS_PAGES": 64 * gib // page}[name]
+
+        def linux_sysconf(name):
+            # SC_AVPHYS_PAGES is free memory only: page cache isn't counted.
+            return {
+                "SC_PAGE_SIZE": page,
+                "SC_PHYS_PAGES": 64 * gib // page,
+                "SC_AVPHYS_PAGES": 4 * gib // page,
+            }[name]
+
+        memory = mock.Mock(total=64 * gib, available=40 * gib)
+        for platform, sysconf in (
+            ("darwin", mac_sysconf),
+            ("linux", linux_sysconf),
+            ("win32", None),
+        ):
+            with self.subTest(platform=platform), \
+                    mock.patch("psutil.virtual_memory", return_value=memory), \
+                    mock.patch.object(sys, "platform", platform), \
+                    mock.patch.object(os, "sysconf", sysconf, create=True):
+                self.assertEqual(alignment_engine.system_memory_bytes(), (64 * gib, 40 * gib))
+                # 40 GiB available less the 16 GiB (a quarter of 64) kept for the system.
+                self.assertEqual(alignment_engine.resolve_host_cache_bytes("auto"), 24 * gib)
+
+    def test_system_memory_is_zero_when_it_cannot_be_read(self):
+        import psutil
+
+        for error in (OSError("/proc is not mounted"), psutil.AccessDenied()):
+            with self.subTest(error=type(error).__name__), \
+                    mock.patch("psutil.virtual_memory", side_effect=error):
+                self.assertEqual(alignment_engine.system_memory_bytes(), (0, 0))
+                self.assertEqual(alignment_engine.resolve_host_cache_bytes("auto"), 0)
+
     def test_cuda_memory_plan_divides_matrix_pool_across_lane_slots(self):
         memory_info = (16 << 30, 16 << 30)
         one_lane = alignment_engine.cuda_memory_plan(

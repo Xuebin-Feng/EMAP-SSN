@@ -1154,6 +1154,13 @@ still change before version 1.0.0.
   Closing the Viewer now ends the script and every process it started, and quitting
   it does the same for scripts started through MCP or the Agent page; `run stop` ends
   them while the Viewer runs.
+- On a Mac, Host Cache (GiB) set to AUTO in Dynamic Programming Embedding Alignment and
+  Network Injection always came to 0, so embeddings were read again from the HDF5 file
+  instead of kept in RAM: the memory check asked for a figure macOS doesn't provide. On
+  Linux it counted only free memory, leaving out the page cache the system can reclaim,
+  so the budget came out smaller than it should. Both now read the available memory
+  through psutil, which gives the figure Windows already used. On Apple silicon the GPU
+  memory plan now also stays within that figure, as it was meant to.
 
 ### Removed
 
