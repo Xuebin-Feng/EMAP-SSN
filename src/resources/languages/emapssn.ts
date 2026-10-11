@@ -770,7 +770,7 @@ Setting a non-zero width helps distinguish overlapping nodes in dense clusters.<
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.
+        <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
 Significantly improves responsiveness and reduces rendering latency for large networks.</source>
         <translation type="unfinished"></translation>
     </message>

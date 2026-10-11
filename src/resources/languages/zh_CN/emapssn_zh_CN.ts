@@ -960,14 +960,13 @@ Setting a non-zero width helps distinguish overlapping nodes in dense clusters.<
 设为非零宽度有助于区分密集簇中的重叠节点。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.
 Significantly improves responsiveness and reduces rendering latency for large networks.</source>
-        <translation type="unfinished">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。
+        <translation type="obsolete">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Selects the compute device used for SSN layout generation (CPU, CUDA, XPU, MPS).
 Auto Benchmark measures representative workloads and may choose a different backend for each component-size class.</source>
         <translation type="unfinished">选择生成 SSN 布局时使用的计算设备（CPU、CUDA、XPU、MPS）。
@@ -1493,7 +1492,14 @@ Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &a
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+585"/>
+        <location line="+7"/>
+        <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
+Significantly improves responsiveness and reduces rendering latency for large networks.</source>
+        <translation type="unfinished">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。
+可显著提高大型网络的响应速度并降低绘制延迟。</translation>
+    </message>
+    <message>
+        <location line="+578"/>
         <source>global (Needleman-Wunsch)</source>
         <comment>alignment score mode</comment>
         <translation type="unfinished">全局（Needleman-Wunsch）</translation>
