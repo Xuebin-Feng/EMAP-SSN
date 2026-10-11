@@ -15,8 +15,14 @@ import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 import Metadata_Core  # noqa: E402
 from commands import export as export_command, logo, meta as meta_command  # noqa: E402
-from utilities.Output_Names import validate_output_basename  # noqa: E402
+from utilities import Output_Names  # noqa: E402
+from utilities.Output_Names import (  # noqa: E402
+    first_case_collision,
+    folder_ignores_case,
+    validate_output_basename,
+)
 from tests.command_fixtures import reported_outcomes  # noqa: E402
+from tests.folder_case_fixtures import ignores_case, make_case_sensitive  # noqa: E402
 
 
 class OutputBasenameTests(unittest.TestCase):
@@ -73,6 +79,70 @@ class OutputBasenameTests(unittest.TestCase):
         self.assertEqual(logo._normalize_logo_filename("motif.PNG"), "motif.PNG")
         with self.assertRaisesRegex(ValueError, "path separators"):
             logo._normalize_logo_filename(r"..\outside.svg")
+
+
+class CaseCollisionTests(unittest.TestCase):
+    def test_the_first_pair_differing_only_in_case_is_returned_in_order(self):
+        self.assertEqual(
+            first_case_collision(["beta.fasta", "Alpha.fasta", "ALPHA.fasta", "alpha.fasta"]),
+            ("Alpha.fasta", "ALPHA.fasta"),
+        )
+
+    def test_names_that_differ_beyond_case_do_not_collide(self):
+        self.assertIsNone(first_case_collision(["alpha.fasta", "beta.fasta", "alpha.fa"]))
+        self.assertIsNone(first_case_collision([]))
+
+
+class FolderCaseTests(unittest.TestCase):
+    """folder_ignores_case asks the file system, not the OS name."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = directory.name
+
+    def on_the_other_platform(self, folder_ignores_case):
+        """Pose as an OS whose default is the opposite of this folder's answer,
+        so a probe that falls back on the platform gets it wrong."""
+        os_name, platform = ("posix", "linux") if folder_ignores_case else ("nt", "win32")
+        return mock.patch.object(Output_Names.os, "name", os_name),             mock.patch.object(Output_Names.sys, "platform", platform)
+
+    def test_probe_answers_for_the_folder_not_the_os_and_leaves_nothing_behind(self):
+        expected = ignores_case(self.root)
+        probed = os.path.join(self.root, "probed")
+        os.mkdir(probed)
+
+        os_name, platform = self.on_the_other_platform(expected)
+        with os_name, platform:
+            self.assertIs(folder_ignores_case(probed), expected)
+        self.assertEqual(os.listdir(probed), [])
+
+    def test_a_case_sensitive_folder_is_told_apart(self):
+        # Windows' and macOS's usual folders ignore case; this one doesn't.
+        make_case_sensitive(self, self.root)
+        self.assertIs(folder_ignores_case(self.root), False)
+        self.assertEqual(os.listdir(self.root), [])
+
+    def test_a_folder_not_made_yet_is_answered_by_its_nearest_existing_folder(self):
+        expected = ignores_case(self.root)
+        existing = os.path.join(self.root, "existing")
+        os.mkdir(existing)
+
+        not_made = os.path.join(existing, "source_[test]", "Score0.5_GROUPS")
+        os_name, platform = self.on_the_other_platform(expected)
+        with os_name, platform:
+            self.assertIs(folder_ignores_case(not_made), expected)
+        self.assertEqual(os.listdir(existing), [])
+
+    def test_a_folder_that_cannot_be_probed_gets_its_platform_default(self):
+        for os_name, platform, expected in (
+            ("nt", "win32", True),
+            ("posix", "darwin", True),
+            ("posix", "linux", False),
+        ):
+            with self.subTest(platform=platform),                     mock.patch.object(Output_Names.tempfile, "mkstemp",
+                                      side_effect=PermissionError("read-only")),                     mock.patch.object(Output_Names.os, "name", os_name),                     mock.patch.object(Output_Names.sys, "platform", platform):
+                self.assertIs(folder_ignores_case(self.root), expected)
 
 
 class MetadataDownloadPathTests(unittest.TestCase):

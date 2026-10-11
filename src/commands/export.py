@@ -20,7 +20,11 @@ import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
 from desktop.Desktop_App import open_in_file_manager
 from utilities.Localization import Message
-from utilities.Output_Names import validate_output_basename
+from utilities.Output_Names import (
+    first_case_collision,
+    folder_ignores_case,
+    validate_output_basename,
+)
 from utilities.Sequence_Utils import write_fasta_atomic
 
 SEQUENCE_EXPORT_DIRECTORY = os.path.join(
@@ -332,21 +336,20 @@ def run(viewer, args):
         Command_Engine.command_succeeded(viewer, msg)
         return
 
-    # Names that differ only in letter case are one file on Windows, so one subset
-    # would overwrite the other. Refuse before any folder or file is created.
-    first_name_by_lower = {}
-    for file_name in (file_map if os.name == "nt" else ()):
-        first_name = first_name_by_lower.setdefault(file_name.lower(), file_name)
-        if first_name != file_name:
-            msg = Message(
-                "Error: Export refused: {first} and {second} differ only in letter case, "
-                "so Windows would write them to one file.",
-                first=first_name,
-                second=file_name,
-            )
-            Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_failed(viewer, msg)
-            return
+    # Names that differ only in letter case are one file where the folder ignores
+    # case, so one subset would overwrite the other. Refuse before any folder or
+    # file is created.
+    collision = first_case_collision(file_map)
+    if collision and folder_ignores_case(out_dir):
+        msg = Message(
+            "Error: Export refused: {first} and {second} differ only in letter case, "
+            "so this folder would write them to one file.",
+            first=collision[0],
+            second=collision[1],
+        )
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_failed(viewer, msg)
+        return
 
     os.makedirs(out_dir, exist_ok=True)
 

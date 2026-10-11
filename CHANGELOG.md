@@ -1154,6 +1154,15 @@ still change before version 1.0.0.
   Closing the Viewer now ends the script and every process it started, and quitting
   it does the same for scripts started through MCP or the Agent page; `run stop` ends
   them while the Viewer runs.
+- On a Mac, `export` wrote two groups whose names differ only in letter case, such as
+  "Alpha" and "alpha", to one file, so one subset silently replaced the other. A Mac's
+  usual APFS volume ignores letter case as Windows does, but the export refused such
+  names only on Windows. It now asks the destination folder, by making and removing one
+  empty file there, and refuses whenever the folder ignores case: on a Mac's usual
+  volume, and on Linux too for FAT- or NTFS-formatted drives and Windows shares. A
+  folder that keeps case apart, such as a case-sensitive APFS volume, gets both files.
+  The VR viewer's `export` never refused such names, so there one subset replaced the
+  other on Windows too; it now refuses them the same way.
 - On a Mac, Host Cache (GiB) set to AUTO in Dynamic Programming Embedding Alignment and
   Network Injection always came to 0, so embeddings were read again from the HDF5 file
   instead of kept in RAM: the memory check asked for a figure macOS doesn't provide. On

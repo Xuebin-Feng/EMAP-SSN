@@ -1963,7 +1963,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Export refused: {first} and {second} differ only in letter case, so Windows would write them to one file.</source>
+        <source>Error: Export refused: {first} and {second} differ only in letter case, so this folder would write them to one file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

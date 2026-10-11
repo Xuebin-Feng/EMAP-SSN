@@ -2153,7 +2153,7 @@ Command-line usage:
         <location filename="../../../commands/cluster.py" line="+304"/>
         <location filename="../../../commands/color.py" line="+95"/>
         <location filename="../../../commands/esmfold.py" line="-59"/>
-        <location filename="../../../commands/export.py" line="+103"/>
+        <location filename="../../../commands/export.py" line="+107"/>
         <location filename="../../../commands/group.py" line="+138"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
@@ -2514,9 +2514,13 @@ Command-line usage:
         <translation type="unfinished">未找到可导出的有效子集。</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+11"/>
+        <source>Error: Export refused: {first} and {second} differ only in letter case, so this folder would write them to one file.</source>
+        <translation type="unfinished">错误：拒绝导出：{first} 和 {second} 仅大小写不同，此文件夹会把它们写入同一个文件。</translation>
+    </message>
+    <message>
         <source>Error: Export refused: {first} and {second} differ only in letter case, so Windows would write them to one file.</source>
-        <translation type="unfinished">错误：拒绝导出：{first} 和 {second} 仅大小写不同，Windows 会把它们写入同一个文件。</translation>
+        <translation type="obsolete">错误：拒绝导出：{first} 和 {second} 仅大小写不同，Windows 会把它们写入同一个文件。</translation>
     </message>
     <message>
         <location line="+33"/>
@@ -4135,7 +4139,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">{model} [单独条款]</translation>
     </message>
     <message>
-        <location filename="../../../utilities/Output_Names.py" line="+31"/>
+        <location filename="../../../utilities/Output_Names.py" line="+37"/>
         <source>Filename cannot be empty.</source>
         <translation type="unfinished">文件名不能为空。</translation>
     </message>

@@ -21,6 +21,8 @@ if SRC_DIR not in sys.path:
 import EMAPSSN_Config as cfg
 from commands import export as export_command
 from tests.command_fixtures import one_node_viewer, reported_outcomes
+from tests.folder_case_fixtures import ignores_case, make_case_sensitive
+
 
 
 class ExportCommandTests(unittest.TestCase):
@@ -310,16 +312,75 @@ class ExportBranchTests(unittest.TestCase):
         self.assertEqual(viewer.console_text.text, "Error: No groups defined.")
         self.assertEqual(self.written(), [])
 
-    @unittest.skipUnless(os.name == "nt", "Only Windows refuses names that differ only in letter case.")
     def test_group_names_differing_only_in_case_are_refused_before_writing(self):
+        # Whatever this machine's temp folder does: a folder that ignores case.
+        viewer = self.groups_viewer([{"Alpha"}, {"alpha"}])
+        with mock.patch.object(export_command, "folder_ignores_case", return_value=True) as probe:
+            succeeded, failed = self.export(viewer, "groups")
+
+        failed.assert_called_once()
+        self.assertEqual(
+            failed.call_args.args[1],
+            "Error: Export refused: Alpha.fasta and alpha.fasta differ only in letter case, "
+            "so this folder would write them to one file.",
+        )
+        self.assertIn("Alpha.fasta", viewer.console_text.text)
+        succeeded.assert_not_called()
+        self.assertEqual(self.written(), [])
+        # The folder that would hold the files is the one asked about.
+        self.assertEqual(
+            os.path.relpath(probe.call_args.args[0], self.root).replace(os.sep, "/"),
+            "source_[test]/Score0.5_GROUPS",
+        )
+
+    def test_group_names_differing_only_in_case_are_both_written_where_case_matters(self):
+        viewer = self.groups_viewer([{"Alpha"}, {"alpha"}])
+        with mock.patch.object(export_command, "folder_ignores_case", return_value=False), \
+                mock.patch.object(export_command, "write_fasta_atomic") as write:
+            succeeded, failed = self.export(viewer, "groups")
+
+        failed.assert_not_called()
+        succeeded.assert_called_once()
+        self.assertEqual(
+            sorted(os.path.basename(call.args[0]) for call in write.call_args_list),
+            ["Alpha.fasta", "alpha.fasta"],
+        )
+
+    def test_case_twins_are_refused_in_a_real_folder_that_ignores_case(self):
+        # No stand-in for the probe. Windows' and macOS's usual folders ignore case.
+        if not ignores_case(self.root):
+            self.skipTest("This machine's temporary folder keeps letter case apart.")
         viewer = self.groups_viewer([{"Alpha"}, {"alpha"}])
         succeeded, failed = self.export(viewer, "groups")
 
         failed.assert_called_once()
-        self.assertIn("Alpha.fasta and alpha.fasta differ only in letter case", failed.call_args.args[1])
-        self.assertIn("Alpha.fasta", viewer.console_text.text)
         succeeded.assert_not_called()
         self.assertEqual(self.written(), [])
+
+    def test_case_twins_are_both_written_in_a_real_case_sensitive_folder(self):
+        # No stand-in for the probe: the export folder keeps letter case apart.
+        make_case_sensitive(self, self.root)
+        viewer = self.groups_viewer([{"Alpha"}, {"alpha"}])
+        succeeded, failed = self.export(viewer, "groups")
+
+        failed.assert_not_called()
+        succeeded.assert_called_once()
+        self.assertEqual(
+            self.written(),
+            ["source_[test]/Score0.5_GROUPS/Alpha.fasta", "source_[test]/Score0.5_GROUPS/alpha.fasta"],
+        )
+
+    def test_names_that_differ_beyond_case_never_probe_the_folder(self):
+        viewer = self.groups_viewer([{"alpha"}, {"beta"}])
+        with mock.patch.object(export_command, "folder_ignores_case") as probe:
+            succeeded, failed = self.export(viewer, "groups")
+
+        failed.assert_not_called()
+        probe.assert_not_called()
+        self.assertEqual(
+            self.written(),
+            ["source_[test]/Score0.5_GROUPS/alpha.fasta", "source_[test]/Score0.5_GROUPS/beta.fasta"],
+        )
 
     def test_a_file_that_fails_to_write_is_an_error_not_a_success(self):
         viewer = self.groups_viewer([{"alpha"}, {"beta"}])
@@ -357,6 +418,7 @@ class ExportBranchTests(unittest.TestCase):
         self.assertEqual(viewer.console_text.text, "Error: Failed to write 2 files; 0 files written.")
         succeeded.assert_not_called()
         export_command.open_in_file_manager.assert_not_called()
+
 
 
 if __name__ == "__main__":
