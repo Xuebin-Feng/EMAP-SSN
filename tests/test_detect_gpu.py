@@ -382,9 +382,12 @@ class GPUDetectionTests(unittest.TestCase):
             "AMD Radeon RX 9060 XT": "gfx1200",
             "AMD Radeon RX 7900 XTX": "gfx1100",
             "AMD Radeon RX 7800 XT": "gfx1101",
+            "AMD Radeon RX 7700 XT": "gfx1101",
             "AMD Radeon RX 7600": "gfx1102",
             # Same silicon as the RX 7600, though AMD's list names only that.
             "AMD Radeon RX 7600 XT": "gfx1102",
+            # The laptop RX 7700S is that silicon too, not an RX 7700 (gfx1101).
+            "AMD Radeon RX 7700S": "gfx1102",
             "AMD Radeon PRO W6800": "gfx1030",
             "AMD Radeon 780M Graphics": "gfx1103",
             "AMD Radeon 890M Graphics": "gfx1150",
@@ -396,6 +399,22 @@ class GPUDetectionTests(unittest.TestCase):
                 report = self._detect(controllers=[name])
                 self.assertEqual(report["backend"], Install_Dependencies.ROCM_BACKEND)
                 self.assertEqual(report["gfx_target"], target)
+
+    def test_windows_rx_7700s_beside_a_radeon_780m_keeps_its_own_target(self):
+        # A Framework Laptop 16. Every AMD device is matched against the CPU
+        # names too, and this one names the 780M (gfx1103), so a 7700S the table
+        # did not recognize would take the iGPU's target.
+        report = self._detect(
+            controllers=["AMD Radeon RX 7700S", "AMD Radeon 780M Graphics"],
+            processors=["AMD Ryzen 9 7940HS w/ Radeon 780M Graphics"],
+        )
+        devices = {
+            device["name"]: (device["architecture"], device["kind"]) for device in report["devices"]
+        }
+        self.assertEqual(devices["AMD Radeon RX 7700S"], ("gfx1102", "discrete"))
+        self.assertEqual(devices["AMD Radeon 780M Graphics"], ("gfx1103", "integrated"))
+        self.assertEqual(report["backend"], Install_Dependencies.ROCM_BACKEND)
+        self.assertEqual(report["gfx_target"], "gfx1102")
 
     def test_unknown_windows_amd_uses_intel_if_available_otherwise_cpu(self):
         mixed = self._detect(controllers=["AMD Radeon Graphics", "Intel Arc A770"])
@@ -514,6 +533,57 @@ class GPUDetectionTests(unittest.TestCase):
                 mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=[]):
             apple = Detect_GPU.detect_hardware()
         self.assertEqual(apple["backend"], "mps")
+
+    def _detect_linux_lspci(self, name: str, rocm_agents: set[str]) -> dict:
+        # Ubuntu 24.04 with an accessible /dev/kfd, one AMD GPU, and the ROCm
+        # runtime either reporting rocm_agents or not installed at all.
+        lspci = (
+            f"0000:03:00.0 VGA compatible controller [0300]: {name}\n"
+            "\tKernel driver in use: amdgpu\n"
+        )
+
+        def run(command, timeout=5):
+            if command == ["lspci", "-Dnnk"]:
+                return completed(lspci)
+            if command == ["rocm_agent_enumerator", "-name"] and rocm_agents:
+                # The runtime lists its CPU agent as gfx000.
+                return completed("".join(f"{agent}\n" for agent in ["gfx000", *sorted(rocm_agents)]))
+            return None
+
+        with mock.patch.object(Detect_GPU.platform, "system", return_value="Linux"), \
+                mock.patch.object(Detect_GPU.platform, "version", return_value="#1 SMP"), \
+                mock.patch.object(Detect_GPU.platform, "machine", return_value="x86_64"), \
+                mock.patch.object(Detect_GPU, "_controller_names", return_value=[]), \
+                mock.patch.object(
+                    Detect_GPU, "_read_os_release", return_value={"id": "ubuntu", "version_id": "24.04"}
+                ), \
+                mock.patch.object(Detect_GPU, "_run", side_effect=run), \
+                mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=[]), \
+                mock.patch.object(Detect_GPU.Path, "exists", return_value=True), \
+                mock.patch.object(Detect_GPU.os, "access", return_value=True):
+            return Detect_GPU.detect_hardware()
+
+    def test_linux_lspci_names_of_navi_33_map_to_gfx1102_with_or_without_rocm(self):
+        # lspci names a PCI ID, not a product. The pci.ids in Ubuntu 24.04
+        # (2024.03.31) start the 1002:7480 name with "RX 7700S", which the RX
+        # 7700 (gfx1101) pattern used to match, so these cards never got ROCm
+        # there. Newer pci.ids start it with "RX 7600". Navi 32 stays gfx1101.
+        names = {
+            "Navi 33 [Radeon RX 7700S/7600/7600S/7600M XT/PRO W7600] [1002:7480]": "gfx1102",
+            "Navi 33 [Radeon RX 7600/7600 XT/7600M XT/7600S/7700S / PRO W7600] [1002:7480]": "gfx1102",
+            "Navi 32 [Radeon RX 7700 XT / 7800 XT] [1002:747e]": "gfx1101",
+        }
+        for name, target in names.items():
+            for agents, eligibility in (({target}, "eligible"), (set(), "provisional")):
+                with self.subTest(name=name, rocm_agents=sorted(agents)):
+                    report = self._detect_linux_lspci(
+                        f"Advanced Micro Devices, Inc. [AMD/ATI] {name} (rev c0)", agents
+                    )
+                    self.assertEqual(report["devices"][0]["architecture"], target)
+                    self.assertEqual(report["devices"][0]["kind"], "discrete")
+                    self.assertEqual(report["backend"], "rocm")
+                    self.assertEqual(report["gfx_target"], target)
+                    self.assertEqual(report["backend_candidates"][0]["eligibility"], eligibility)
 
     def test_json_cli_contains_selection_reason(self):
         report = detected_report(reason="No accelerator")

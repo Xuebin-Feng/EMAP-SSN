@@ -584,11 +584,13 @@ still change before version 1.0.0.
 - `subcluster` numbers subclusters by size, as `cluster` numbers clusters:
   `subcluster_N_1` is the largest, and equal sizes are ordered by their lowest member
   node. They used to be numbered in the order they were found.
-- On Windows 11 25H2 or newer, the AMD Radeon RX 7600 XT now gets the ROCm backend, like
-  the RX 7600, whose gfx1102 chip it shares. AMD's ROCm 7.14 support list names only the
-  RX 7600, so the 7600 XT ran on the CPU; Linux already recognized it from the ROCm
-  runtime. On such a PC, the first launch after updating installs ROCm and keeps it if
-  it passes validation; other PCs are unaffected.
+- On Windows 11 25H2 or newer, the AMD Radeon RX 7600 XT and the laptop RX 7700S now get
+  the ROCm backend, like the RX 7600, whose gfx1102 chip they share. AMD's ROCm 7.14
+  support list names only the RX 7600, so the 7600 XT ran on the CPU. The 7700S was
+  taken for an RX 7700, a gfx1101 GPU, so the wrong ROCm build was installed, failed
+  validation and left it on the CPU. On such a PC, the first launch after updating
+  installs ROCm and keeps it if it passes validation; other PCs are unaffected. For
+  Linux, see the Ubuntu 24.04 entry under Fixed.
 - Commands in an Agent reply no longer all run automatically. Commands that only change
   the view or the session's in-memory state still do. `save`, `select save`, `print`,
   `export`, `logo`, `label` (except `label reset`), `esmfold`, `run`, `alignment`, and
@@ -1017,6 +1019,16 @@ still change before version 1.0.0.
   likewise ran on the default directories. Both now stop before opening any input,
   naming the file and the parse error's line and column, and leave the file unchanged. A
   missing `tools_settings.json` still means the defaults.
+- On Ubuntu 24.04, an AMD Radeon RX 7600, RX 7600 XT, Radeon PRO W7600 or laptop RX
+  7700S never got the ROCm backend. Ubuntu 24.04's PCI ID list gives all of them the
+  name "Radeon RX 7700S/7600/7600S/7600M XT/PRO W7600", which GPU detection read as an
+  RX 7700, a gfx1101 GPU. If the ROCm runtime was installed, ROCm was refused because
+  the runtime reported gfx1102; if not, the gfx1101 build was installed and failed
+  validation. Either way the card ran on the CPU. That name now maps to gfx1102. Where
+  `rocminfo` or `rocm_agent_enumerator` reports gfx1102, the first launch after updating
+  installs ROCm and keeps it if it passes validation. Without the ROCm runtime, a new
+  installation tries ROCm, but an existing one stays on the CPU until you run
+  `python src/Install_Dependencies.py --refresh-backend` in its environment.
 - On Linux, GPU detection gave a GPU the kernel driver of a device `lspci` lists
   after it, usually the GPU's own HDMI audio function, so the detection report
   showed `snd_hda_intel` as the driver of an NVIDIA or AMD card. An Intel Arc GPU
