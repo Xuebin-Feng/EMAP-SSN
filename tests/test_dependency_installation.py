@@ -794,6 +794,69 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(install_backend.call_args.args[2].backend, "cuda126")
 
+    def _install_with(self, report, install_backend):
+        success = mock.Mock(returncode=0, stdout="", stderr="")
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.object(Install_Dependencies, "venv_python", return_value=Path(sys.executable)), \
+                mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value=report), \
+                mock.patch.object(Install_Dependencies, "_run", return_value=success), \
+                mock.patch.object(Install_Dependencies, "install_backend", side_effect=install_backend), \
+                mock.patch.object(Install_Dependencies, "_installed_version", return_value=None), \
+                mock.patch.object(Install_Dependencies, "write_state"), \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            code = Install_Dependencies.install(project_root=ROOT, venv=Path(temp_dir), uv_executable="uv")
+        return code, stderr.getvalue()
+
+    def test_falling_back_to_cpu_says_why_and_how_to_retry(self):
+        def install_backend(_uv, _python, spec):
+            if spec.backend == "cpu":
+                return {"validated_devices": [{"spec": "cpu", "success": True}]}
+            Install_Dependencies._note_backend_failure("torch.cuda.is_available() is false")
+            return None
+
+        code, stderr = self._install_with(self._rocm_report(), install_backend)
+        self.assertEqual(code, 0)
+        self.assertIn("could not be used, so EMAP-SSN will run on the CPU.", stderr)
+        self.assertIn("torch.cuda.is_available() is false", stderr)
+        self.assertIn("--refresh-backend", stderr)
+
+    def test_a_backend_that_validates_prints_no_fallback_warning(self):
+        def install_backend(_uv, _python, _spec):
+            return {"validated_devices": [{"spec": "cuda:0", "success": True}]}
+
+        code, stderr = self._install_with(self._rocm_report(), install_backend)
+        self.assertEqual(code, 0)
+        self.assertNotIn("Warning:", stderr)
+
+    def test_detection_warnings_are_printed(self):
+        report = self._cpu_report()
+        report["warnings"] = ["NVIDIA GeForce RTX 5090 needs NVIDIA driver 580 or newer (installed: 576.88)."]
+
+        def install_backend(_uv, _python, _spec):
+            return {"validated_devices": [{"spec": "cpu", "success": True}]}
+
+        code, stderr = self._install_with(report, install_backend)
+        self.assertEqual(code, 0)
+        self.assertIn("Warning: NVIDIA GeForce RTX 5090 needs NVIDIA driver 580 or newer", stderr)
+
+    def test_a_failed_tensor_check_reports_each_devices_error(self):
+        failed = mock.Mock(
+            returncode=0,
+            stdout=json.dumps({
+                "backend": "cuda132", "profile": "cuda132", "package_error": None,
+                "devices": [{"spec": "cuda:0", "name": "NVIDIA GeForce RTX 5090", "success": False,
+                             "error": "CUDA error: no kernel image is available for execution on the device"}],
+            }),
+            stderr="",
+        )
+        spec = Install_Dependencies.backend_specs({"backend": "cuda132"})[0]
+        stderr = io.StringIO()
+        with mock.patch.object(Install_Dependencies, "_run", return_value=failed), redirect_stderr(stderr):
+            self.assertIsNone(Install_Dependencies.validate_backend(Path("python"), spec))
+        self.assertIn("no kernel image is available", stderr.getvalue())
+        self.assertIn("no kernel image is available", Install_Dependencies._LAST_BACKEND_FAILURE)
+
     def test_failed_accelerator_install_falls_back_to_cpu(self):
         report = self._rocm_report()
         success = mock.Mock(returncode=0, stdout="", stderr="")

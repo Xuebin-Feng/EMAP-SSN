@@ -384,6 +384,13 @@ experiments; such systems remain unsupported.
 | CUDA 13.2 | Every selected NVIDIA GPU must report compute capability 7.5 or newer and every driver must be version 580 or newer. | PyTorch 2.12 classifies CUDA 13.2 as experimental and publishes binaries for its listed Turing-and-newer architectures. Unlisted capability values remain provisional until runtime validation succeeds. |
 | CUDA 12.6 | Used when the CUDA 13.2 conditions are not met. The effective PyTorch binary floor is compute capability 5.0. | Covers the listed Maxwell, Pascal, Volta, Turing, Ampere, Ada, and Hopper capability generations. Devices below capability 5.0 fall back to CPU. |
 
+A GPU newer than Hopper (compute capability above 9.0, such as Blackwell) runs
+only on the CUDA 13.2 build. With an NVIDIA driver older than 580, setup leaves
+that GPU out, prints a warning to update the driver, and uses the CPU until then.
+Whenever a GPU build fails to install or validate, setup falls back the same way
+and prints which build failed, the error, and how to retry with
+`--refresh-backend`.
+
 CUDA 12.x minor compatibility requires at least NVIDIA driver 525.60.13 on
 Linux or 528.33 on Windows; a current vendor driver is recommended. See the
 [PyTorch 2.12 support matrix](https://github.com/pytorch/pytorch/blob/main/RELEASE.md),

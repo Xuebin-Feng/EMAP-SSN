@@ -511,6 +511,40 @@ def _validation_program(spec: BackendSpec) -> str:
     ).strip()
 
 
+# Why the most recent backend install or validation failed, for the summary the
+# installer prints when it falls back to another backend.
+_LAST_BACKEND_FAILURE: str | None = None
+
+
+def _note_backend_failure(reason: str | None) -> None:
+    global _LAST_BACKEND_FAILURE
+    _LAST_BACKEND_FAILURE = reason
+
+
+def _print_detection_warnings(report: dict[str, Any]) -> None:
+    for warning in report.get("warnings") or []:
+        print(f"Warning: {warning}", file=sys.stderr)
+
+
+def _print_fallback_warning(
+    failures: list[tuple[BackendSpec, str]], active: BackendSpec, python: Path
+) -> None:
+    """Say plainly that a GPU backend failed, why, and how to try it again."""
+    using = "the CPU" if active.backend == "cpu" else active.description
+    names = ", ".join(spec.description for spec, _reason in failures)
+    print(f"\nWarning: {names} could not be used, so EMAP-SSN will run on {using}.", file=sys.stderr)
+    for spec, reason in failures:
+        print(f"  {spec.description}: {reason}", file=sys.stderr)
+    print(
+        "  Common causes are an interrupted download, a GPU driver that is missing, "
+        "outdated or not loaded, and GPU memory already in use by another program. "
+        "After fixing the cause, run\n"
+        f"    \"{python}\" src/Install_Dependencies.py --refresh-backend\n"
+        "  from the project folder to try the GPU again.\n",
+        file=sys.stderr,
+    )
+
+
 def validate_backend(python: Path, spec: BackendSpec) -> dict[str, Any] | None:
     completed = _run([str(python), "-c", _validation_program(spec)], capture=True)
     detail = completed.stderr.strip()
@@ -519,7 +553,9 @@ def validate_backend(python: Path, spec: BackendSpec) -> dict[str, Any] | None:
     except json.JSONDecodeError:
         result = None
     if completed.returncode != 0 or not isinstance(result, dict):
-        print(f"PyTorch backend validation failed: {detail or completed.stdout.strip() or 'invalid validator output'}", file=sys.stderr)
+        reason = detail or completed.stdout.strip() or "invalid validator output"
+        print(f"PyTorch backend validation failed: {reason}", file=sys.stderr)
+        _note_backend_failure(reason.splitlines()[-1] if reason else reason)
         return None
     target = spec.gfx_target
     devices = [item for item in result.get("devices", []) if isinstance(item, dict)]
@@ -534,7 +570,15 @@ def validate_backend(python: Path, spec: BackendSpec) -> dict[str, Any] | None:
                 item["error"] = f"Device architecture {architecture} does not match selected target {target}."
     valid = [item for item in devices if item.get("success")]
     if result.get("package_error") or not valid:
-        print(f"PyTorch backend validation failed: {result.get('package_error') or 'no device passed a tensor operation'}", file=sys.stderr)
+        reason = result.get("package_error")
+        if not reason:
+            errors = "; ".join(
+                f"{item.get('name') or item.get('spec')}: {item.get('error')}"
+                for item in devices if item.get("error")
+            )
+            reason = "no device passed a tensor operation" + (f" ({errors})" if errors else "")
+        print(f"PyTorch backend validation failed: {reason}", file=sys.stderr)
+        _note_backend_failure(reason)
         return None
     result["validated_devices"] = valid
     return result
@@ -771,9 +815,11 @@ def validate_package_consistency(uv_executable: str, python: Path) -> bool:
 
 def install_backend(uv_executable: str, python: Path, spec: BackendSpec) -> dict[str, Any] | None:
     if not remove_backend_packages(uv_executable, python):
+        _note_backend_failure("the previous PyTorch build could not be removed")
         return None
     for command in backend_install_commands(uv_executable, python, spec):
         if _run(command).returncode != 0:
+            _note_backend_failure("the download or installation failed (see the uv output above)")
             return None
     return validate_backend(python, spec)
 
@@ -861,6 +907,7 @@ def install(
     if report.get("ignored_devices"):
         for item in report["ignored_devices"]:
             print(f"Ignoring {item.get('name')}: {item.get('reason')}")
+    _print_detection_warnings(report)
     if mismatches:
         _print_state_mismatches(mismatches)
 
@@ -924,9 +971,11 @@ def install(
                 file=sys.stderr,
             )
 
+    failures: list[tuple[BackendSpec, str]] = []
     if active is None:
         for spec in specs:
             print(f"Trying PyTorch backend: {spec.description}")
+            _note_backend_failure(None)
             validation = install_backend(uv_executable, python, spec)
             attempts.append({
                 "backend": spec.backend,
@@ -938,11 +987,14 @@ def install(
             if validation is not None:
                 active = spec
                 break
+            failures.append((spec, _LAST_BACKEND_FAILURE or "it could not be installed or validated"))
             print(f"{spec.description} could not be installed or validated; trying the next candidate.", file=sys.stderr)
 
     if active is None or validation is None:
         print("No PyTorch backend, including CPU, could be installed and validated.", file=sys.stderr)
         return 1
+    if failures:
+        _print_fallback_warning(failures, active, python)
 
     esm_fields = {
         "esm_version", "transformers_version", "esm_runtime_requirements_sha256",
@@ -1028,6 +1080,7 @@ def environment_is_ready(
         print(f"Detected: {report.get('reason', 'hardware profile resolved')}")
         for item in report.get("ignored_devices", []):
             print(f"Ignoring {item.get('name')}: {item.get('reason')}")
+        _print_detection_warnings(report)
         state = read_state(venv / STATE_FILENAME)
         mismatches = _state_mismatches(state, specs, fingerprint, requirements)
         active = _backend_from_state(state.get("active_backend")) if state else None

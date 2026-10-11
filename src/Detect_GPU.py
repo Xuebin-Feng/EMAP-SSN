@@ -31,6 +31,10 @@ from typing import Any, Iterable
 
 COMPATIBILITY_REVISION = 7
 CUDA_13_MIN_DRIVER = (580, 0)
+# PyTorch's CUDA 12.6 build carries kernels up to Hopper (compute capability
+# 9.0). A newer GPU (Blackwell is 10.x and 12.x) runs only on the CUDA 13.2
+# build, so with a driver older than 580 no build can use it.
+CUDA_12_6_MAX_CAPABILITY = (9, 0)
 WINDOWS_11_MIN_BUILD = 22000
 WINDOWS_11_25H2_MIN_BUILD = 26200
 
@@ -492,6 +496,21 @@ def _intel_os_supported(system: str, os_info: dict[str, Any], device_name: str) 
     return distro == "ubuntu" and version.startswith(supported_ubuntu)
 
 
+def _nvidia_driver_warning(device: dict[str, Any]) -> str | None:
+    """The update-the-driver message for an NVIDIA GPU no installable build can run."""
+    capability = _version_tuple(str(device.get("compute_capability") or ""))
+    driver = _version_tuple(str(device.get("driver_version") or ""))
+    if not (capability and driver):
+        return None
+    if capability > CUDA_12_6_MAX_CAPABILITY and driver < CUDA_13_MIN_DRIVER:
+        return (
+            f"{device.get('name') or 'This NVIDIA GPU'} needs NVIDIA driver 580 or newer "
+            f"(installed: {device.get('driver_version')}). Update the driver to use this "
+            "GPU; until then EMAP-SSN does not use it."
+        )
+    return None
+
+
 def _nvidia_backend(devices: list[dict[str, Any]]) -> tuple[str, str]:
     capabilities = [_version_tuple(str(device.get("compute_capability") or "")) for device in devices]
     drivers = [_version_tuple(str(device.get("driver_version") or "")) for device in devices]
@@ -521,9 +540,16 @@ def _evaluate_devices(
         reasons: list[str] = []
         status = "ineligible"
         if vendor == "NVIDIA":
-            profiles = ["cuda"]
-            status = "eligible" if device.get("driver_version") else "provisional"
-            reasons.append("NVIDIA display device detected; runtime validation is required.")
+            warning = _nvidia_driver_warning(device)
+            if warning:
+                # CUDA 12.6 would install and then fail validation on this GPU;
+                # say what to update instead, and leave it out of the ladder.
+                device["warning"] = warning
+                reasons.append(warning)
+            else:
+                profiles = ["cuda"]
+                status = "eligible" if device.get("driver_version") else "provisional"
+                reasons.append("NVIDIA display device detected; runtime validation is required.")
         elif vendor == "AMD":
             target = device.get("architecture")
             if not target and system == "linux":
@@ -797,6 +823,7 @@ def detect_hardware() -> dict[str, Any]:
         "devices": devices,
         "backend_candidates": candidates,
         "ignored_devices": ignored,
+        "warnings": [device["warning"] for device in devices if device.get("warning")],
         "vendor": primary["vendor"],
         "backend": primary["backend"],
         "gfx_target": primary.get("gfx_target"),

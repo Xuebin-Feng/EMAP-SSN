@@ -265,6 +265,29 @@ class DetectionCompatibilityTests(unittest.TestCase):
         self.assertEqual(candidates[0]["backend"], "cuda132")
         self.assertEqual(set(candidates[0]["device_ids"]), {"n0", "n1"})
 
+    def test_blackwell_with_a_driver_older_than_580_is_left_out_with_a_warning(self):
+        # CUDA 12.6 has no Blackwell kernels: it would download and then fail
+        # validation, so the GPU is left out and the user is told to update.
+        old = gpu("NVIDIA GeForce RTX 5090", "NVIDIA", identifier="n0", kind="discrete", capability="12.0", driver="576.88")
+        Detect_GPU._evaluate_devices([old], "windows", {"windows_build": 26200}, set())
+        self.assertEqual(old["eligible_profiles"], [])
+        self.assertIn("needs NVIDIA driver 580 or newer (installed: 576.88)", old["warning"])
+        candidates, _ignored = Detect_GPU._candidate_ladder([old])
+        self.assertEqual([candidate["backend"] for candidate in candidates], ["cpu"])
+
+        current = gpu("NVIDIA GeForce RTX 5090", "NVIDIA", identifier="n0", kind="discrete", capability="12.0", driver="580.97")
+        Detect_GPU._evaluate_devices([current], "windows", {"windows_build": 26200}, set())
+        self.assertNotIn("warning", current)
+        self.assertEqual(Detect_GPU._candidate_ladder([current])[0][0]["backend"], "cuda132")
+
+    def test_pre_blackwell_gpus_keep_cuda_12_6_on_an_old_driver(self):
+        for name, capability in (("NVIDIA GeForce RTX 2080", "7.5"), ("NVIDIA H100", "9.0")):
+            with self.subTest(name=name):
+                device = gpu(name, "NVIDIA", identifier="n0", kind="discrete", capability=capability, driver="560.94")
+                Detect_GPU._evaluate_devices([device], "windows", {"windows_build": 26200}, set())
+                self.assertNotIn("warning", device)
+                self.assertEqual(Detect_GPU._candidate_ladder([device])[0][0]["backend"], "cuda126")
+
     def test_linux_rocm_agent_mismatch_is_rejected(self):
         device = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", architecture="gfx1100")
         with mock.patch.object(Detect_GPU.Path, "exists", return_value=True), mock.patch.object(Detect_GPU.os, "access", return_value=True):
