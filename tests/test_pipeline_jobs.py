@@ -3,7 +3,8 @@
 Runs real processes. Cancelling a job, or closing the manager while a job runs,
 must end every process the job started, not only the one the manager launched.
 On Windows that one is usually a venv's python.exe redirector, so a tool's own
-children run two levels below it.
+children run two levels below it. taskkill finds a tree through WMI, which
+cancels queries under memory pressure, so the stop must not rely on it.
 """
 import asyncio
 import json
@@ -23,6 +24,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+from mcp_server.pipeline import Pipeline_Jobs  # noqa: E402
 from mcp_server.pipeline.Pipeline_Jobs import PipelineJobManager  # noqa: E402
 from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
     ToolInvocation,
@@ -34,6 +36,9 @@ from tools.tool_helpers.Tool_Pipeline import (  # noqa: E402
 TERMINATION_GRACE = 1.0
 
 SLEEPER = "import os, time; print(os.getpid(), flush=True); time.sleep(60)"
+# What taskkill does when WMI cancels the query that lists the tree: it exits
+# with an error and stops nothing. (The message stands in for taskkill's own.)
+FAILED_TASKKILL = (1, "ERROR: the process query was cancelled (WMI 0x80041032).")
 SIGTERM_IGNORING_SLEEPER = (
     "import os, signal, time; signal.signal(signal.SIGTERM, signal.SIG_IGN); "
     "print(os.getpid(), flush=True); time.sleep(60)"
@@ -199,6 +204,60 @@ class JobProcessTreeTests(unittest.IsolatedAsyncioTestCase):
         cancelled = await self.manager.cancel(job["job_id"])
         self.assertEqual(cancelled["status"], "cancelled")
         await self._assert_all_ended(processes, started)
+
+    @unittest.skipUnless(os.name == "nt", "taskkill is used on Windows only.")
+    async def test_cancel_ends_the_whole_tree_when_taskkill_fails(self):
+        job, processes = await self._start_spawning_job()
+        taskkill = mock.AsyncMock(return_value=FAILED_TASKKILL)
+        with mock.patch.object(PipelineJobManager, "_taskkill", taskkill):
+            started = time.monotonic()
+            cancelled = await self.manager.cancel(job["job_id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertIsNone(cancelled["failure_message"])
+        # The graceful attempt still comes first.
+        self.assertFalse(taskkill.await_args_list[0].kwargs["force"])
+        await self._assert_all_ended(processes, started)
+
+    def _shorten_stop(self):
+        # The stop gives up on processes that will not end; there is no need to wait long.
+        self.manager.termination_grace = 0.2
+        patcher = mock.patch.object(Pipeline_Jobs, "_FORCED_STOP_WAIT", 0.5)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    @unittest.skipUnless(os.name == "nt", "taskkill is used on Windows only.")
+    async def test_cancel_reports_processes_it_could_not_stop(self):
+        job, processes = await self._start_spawning_job()
+        self._shorten_stop()
+        taskkill = mock.AsyncMock(return_value=FAILED_TASKKILL)
+        with mock.patch.object(PipelineJobManager, "_taskkill", taskkill), \
+                mock.patch.object(psutil.Process, "kill", side_effect=psutil.AccessDenied()), \
+                self.assertLogs(Pipeline_Jobs.__name__, "WARNING") as logs:
+            cancelled = await self.manager.cancel(job["job_id"])
+        # The launched process is still running too, so the job cannot finish.
+        self.assertEqual(cancelled["status"], "cancelling")
+        message = cancelled["failure_message"]
+        self.assertIsNotNone(message)
+        self.assertIn("still running after a forced stop", message)
+        for process in processes:
+            self.assertIn(f" {process.pid}", message)
+        self.assertIn(job["job_id"], "\n".join(logs.output))
+
+    @unittest.skipUnless(os.name == "nt", "taskkill is used on Windows only.")
+    async def test_cancel_without_a_process_list_reports_what_taskkill_said(self):
+        # Only if psutil cannot read the tree does the stop fall back to taskkill,
+        # and when that fails too, to killing the launched process on its own.
+        job, processes = await self._start_spawning_job()
+        self._shorten_stop()
+        taskkill = mock.AsyncMock(return_value=FAILED_TASKKILL)
+        with mock.patch.object(PipelineJobManager, "_taskkill", taskkill), \
+                mock.patch.object(psutil.Process, "children", side_effect=psutil.AccessDenied()), \
+                self.assertLogs(Pipeline_Jobs.__name__, "WARNING"):
+            cancelled = await self.manager.cancel(job["job_id"])
+        self.assertEqual(cancelled["status"], "cancelled")
+        self.assertIn(FAILED_TASKKILL[1], cancelled["failure_message"])
+        self.assertIn("killed on its own", cancelled["failure_message"])
+        self.assertEqual([False, True, True], [call.kwargs["force"] for call in taskkill.await_args_list])
 
     @unittest.skipIf(os.name == "nt", "Windows stops console processes only by force.")
     async def test_cancel_lets_group_members_clean_up_within_the_grace_period(self):

@@ -816,6 +816,13 @@ still change before version 1.0.0.
   rest of the grace period, and any still running after it is killed. A process that
   cleans up on SIGTERM still finishes first; multiprocessing's resource tracker, for
   example, removes a cancelled pool's semaphores from `/dev/shm`.
+- On Windows, cancelling an MCP pipeline job on a busy computer could still leave the
+  job's child processes running. The server listed the job's processes with `taskkill`,
+  which asks Windows Management Instrumentation (WMI) for them; when WMI is over its
+  memory quota it cancels the request, and `taskkill` then stopped nothing. The server
+  fell back to ending the `python.exe` redirector alone, which orphaned the rest. It now
+  lists the job's processes itself, before stopping any, and stops them all. A stop
+  that leaves a process running is logged, and the job's `failure_message` names it.
 - Embedding MSA and embedding search (SSEARCH), run through MCP or a settings file,
   accepted local scores with `alignment_length` normalization, dividing each local
   score by its own alignment length; the Tools window, the Viewer and layout generation

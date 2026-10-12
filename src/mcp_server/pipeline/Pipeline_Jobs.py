@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from collections.abc import Mapping
 import json
+import logging
 from types import SimpleNamespace
 import os
 import shutil
@@ -20,6 +21,8 @@ import subprocess
 import sys
 import tempfile
 import uuid
+
+import psutil
 
 from mcp_server.pipeline.Pipeline_Guide import watched_directories
 from tools.tool_helpers.Tool_Pipeline import (
@@ -47,6 +50,9 @@ BENCHMARK_TOOL_ID = "run_benchmark"
 BENCHMARK_RESULT = "benchmark-result.json"
 _LATEST_OUTPUT_BYTES = 4096
 _LATEST_OUTPUT_CHARACTERS = 300
+# How long processes killed by force get to end before they are reported as still running.
+_FORCED_STOP_WAIT = 5.0
+_LOGGER = logging.getLogger(__name__)
 
 
 class PipelineJobError(RuntimeError):
@@ -144,6 +150,46 @@ def latest_line(path):
         if line.strip():
             return line.strip()[:_LATEST_OUTPUT_CHARACTERS]
     return None
+
+
+def _process_tree(pid):
+    """A running process and its descendants, each parent before its children.
+
+    Empty when the process has ended, and None when psutil cannot read it.
+    """
+    try:
+        root = psutil.Process(pid)
+        return [root, *root.children(recursive=True)]
+    except psutil.NoSuchProcess:
+        return []
+    except psutil.Error:
+        return None
+
+
+def _kill_processes(processes):
+    # In list order, parents first, so that none can start a replacement for a
+    # child just killed, as a multiprocessing pool would.
+    for member in processes:
+        try:
+            member.kill()
+        except psutil.Error:
+            pass  # ended already, or ending; waiting tells
+
+
+def _still_running(processes, timeout):
+    """The processes, in their order, that have not ended within ``timeout`` seconds."""
+    _, alive = psutil.wait_procs(processes, timeout=max(0.0, timeout))
+    return [member for member in processes if member in alive]
+
+
+def _describe_processes(processes):
+    names = []
+    for member in processes:
+        try:
+            names.append(f"{member.name()} {member.pid}")
+        except psutil.Error:
+            names.append(str(member.pid))
+    return ", ".join(names)
 
 
 @dataclass
@@ -620,11 +666,11 @@ class PipelineJobManager:
             return queued_payload
 
         if process is not None:
-            await self._terminate_process_tree(process)
+            await self._terminate_process_tree(process, job)
         try:
             await asyncio.wait_for(
                 job.completion.wait(),
-                timeout=self.termination_grace + 5.0,
+                timeout=self.termination_grace + _FORCED_STOP_WAIT,
             )
         except TimeoutError:
             pass
@@ -651,6 +697,7 @@ class PipelineJobManager:
                 evicted_directories.extend(self._finish_job_locked(job))
             self._pending.clear()
             process = self._current_process
+            current = None
             if self._current_job_id is not None:
                 current = self._jobs[self._current_job_id]
                 current.cancellation_requested = True
@@ -660,13 +707,13 @@ class PipelineJobManager:
 
         for directory in evicted_directories:
             await asyncio.to_thread(self._remove_job_directory, directory)
-        if process is not None:
-            await self._terminate_process_tree(process)
+        if process is not None and current is not None:
+            await self._terminate_process_tree(process, current)
         if self._worker_task is not None:
             try:
                 await asyncio.wait_for(
                     self._worker_task,
-                    timeout=self.termination_grace + 5.0,
+                    timeout=self.termination_grace + _FORCED_STOP_WAIT,
                 )
             except TimeoutError:
                 self._worker_task.cancel()
@@ -722,7 +769,7 @@ class PipelineJobManager:
                         if cancel_now:
                             job.status = "cancelling"
                     if cancel_now:
-                        await self._terminate_process_tree(process)
+                        await self._terminate_process_tree(process, job)
                     return_code = await process.wait()
                 output_files = []
                 if job.watched_directories:
@@ -775,7 +822,7 @@ class PipelineJobManager:
                     evicted_directories = self._finish_job_locked(job)
             except asyncio.CancelledError:
                 if process is not None:
-                    await self._terminate_process_tree(process)
+                    await self._terminate_process_tree(process, job)
                 async with self._lock:
                     job.cancellation_requested = True
                     job.status = "cancelled"
@@ -788,11 +835,9 @@ class PipelineJobManager:
                         "cancelled" if job.cancellation_requested else "failed"
                     )
                     job.finished_at = _utc_now()
-                    job.failure_message = (
-                        None
-                        if job.cancellation_requested
-                        else f"Could not run the pipeline process: {error}"
-                    )
+                    # A cancelled job keeps the note of processes that did not stop.
+                    if not job.cancellation_requested:
+                        job.failure_message = f"Could not run the pipeline process: {error}"
                     evicted_directories = self._finish_job_locked(job)
             finally:
                 async with self._lock:
@@ -920,58 +965,119 @@ class PipelineJobManager:
             }
         return {"start_new_session": True}
 
-    async def _terminate_process_tree(self, process):
+    async def _terminate_process_tree(self, process, job):
+        """Stop the job's process and every process it started, gracefully, then by force.
+
+        A stop that leaves processes running is logged, and the job's
+        failure_message names them.
+        """
         async with self._termination_lock:
             if process.returncode is not None:
                 return
             if os.name == "nt":
-                # Without /F, taskkill closes only windowed processes, so a
-                # console tool refuses it. Terminating just the launched process
-                # would then orphan the tool: a venv's python.exe is a
-                # redirector, and its interpreter's children outlive it where
-                # no later tree kill can find them. Force the tree while the
-                # launched process still roots it.
-                taskkill_code = await self._taskkill(process.pid, force=False)
-                if taskkill_code != 0 and process.returncode is None:
-                    await self._taskkill(process.pid, force=True)
+                problem = await self._stop_windows_tree(process)
             else:
-                try:
-                    os.killpg(process.pid, signal.SIGTERM)
-                except ProcessLookupError:
-                    return
-            deadline = asyncio.get_running_loop().time() + self.termination_grace
+                problem = await self._stop_process_group(process)
+        if problem:
+            message = f"Not every process of the job stopped: {problem.rstrip('.')}."
+            _LOGGER.warning("Pipeline job %s: %s", job.job_id, message)
+            async with self._lock:
+                job.failure_message = message
+
+    async def _stop_windows_tree(self, process):
+        # Windows has no process groups. A tree is found through parent-PID
+        # links, which lead nowhere once a parent has gone, so the tree is
+        # listed while the launched process still roots it: a venv's python.exe
+        # is a redirector, and its interpreter's children outlive it. psutil
+        # reads the process table itself. taskkill /T lists the tree through
+        # WMI, which cancels queries while its provider host is over its memory
+        # quota, as during a heavy test run, and taskkill then stops nothing.
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.termination_grace
+        tree = await asyncio.to_thread(_process_tree, process.pid)
+        if tree is None:
+            return await self._stop_with_taskkill(process)
+        if not tree:
+            return ""
+        # Without /F, taskkill asks only windowed processes to close. A console
+        # tool refuses that, so the tree is stopped by force at once.
+        code, output = await self._taskkill(process.pid, force=False, timeout=self.termination_grace)
+        if code != 0:
+            _LOGGER.debug("taskkill /T for process %s exited with %s: %s", process.pid, code, output)
+            await asyncio.to_thread(_kill_processes, tree)
+        running = await asyncio.to_thread(_still_running, tree, deadline - loop.time())
+        if not running:
+            return ""
+        # Whatever outlived the grace period, and anything the tree started since.
+        if process.returncode is None:
+            later = await asyncio.to_thread(_process_tree, process.pid) or []
+            running = list(dict.fromkeys([*later, *running]))
+        await asyncio.to_thread(_kill_processes, running)
+        running = await asyncio.to_thread(_still_running, running, _FORCED_STOP_WAIT)
+        if running:
+            return _describe_processes(running) + " still running after a forced stop"
+        return ""
+
+    async def _stop_with_taskkill(self, process):
+        """Stop a tree psutil cannot read with taskkill: gracefully, then by force."""
+        code, output = await self._taskkill(process.pid, force=False, timeout=self.termination_grace)
+        if code != 0 and process.returncode is None:
+            code, output = await self._taskkill(process.pid, force=True)
+        try:
+            await asyncio.wait_for(process.wait(), timeout=self.termination_grace)
+            return ""
+        except TimeoutError:
+            pass
+        code, output = await self._taskkill(process.pid, force=True)
+        killed_alone = False
+        if code != 0 and process.returncode is None:
+            # The last resort, which orphans whatever the process started.
             try:
-                await asyncio.wait_for(
-                    process.wait(),
-                    timeout=self.termination_grace,
-                )
-                # A group member can outlive the leader: multiprocessing's
-                # resource tracker ignores SIGTERM and exits once it has cleaned
-                # up after the others, and a tool's helper may ignore SIGTERM
-                # outright. Members get what is left of the grace period, then
-                # SIGKILL like a slow leader.
-                if os.name == "nt" or await self._wait_for_process_group(
-                    process.pid, deadline
-                ):
-                    return
-            except TimeoutError:
+                process.kill()
+                killed_alone = True
+            except ProcessLookupError:
                 pass
-            if os.name == "nt":
-                await self._taskkill(process.pid, force=True)
-                if process.returncode is None:
-                    try:
-                        process.kill()
-                    except ProcessLookupError:
-                        return
-            else:
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    return
-            try:
-                await asyncio.wait_for(process.wait(), timeout=5.0)
-            except TimeoutError:
-                pass
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_FORCED_STOP_WAIT)
+        except TimeoutError:
+            return f"process {process.pid} still running; taskkill /T /F exited with {code}: {output}"
+        if killed_alone:
+            return (f"taskkill /T /F exited with {code}: {output}; process {process.pid} was "
+                    "killed on its own, so processes it started may still be running")
+        return ""
+
+    async def _stop_process_group(self, process):
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return ""
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + self.termination_grace
+        try:
+            await asyncio.wait_for(
+                process.wait(),
+                timeout=self.termination_grace,
+            )
+            # A group member can outlive the leader: multiprocessing's
+            # resource tracker ignores SIGTERM and exits once it has cleaned
+            # up after the others, and a tool's helper may ignore SIGTERM
+            # outright. Members get what is left of the grace period, then
+            # SIGKILL like a slow leader.
+            if await self._wait_for_process_group(process.pid, deadline):
+                return ""
+        except TimeoutError:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return ""
+        try:
+            await asyncio.wait_for(process.wait(), timeout=_FORCED_STOP_WAIT)
+        except TimeoutError:
+            return f"process {process.pid} still running after SIGKILL"
+        if not await self._wait_for_process_group(process.pid, loop.time() + _FORCED_STOP_WAIT):
+            return f"processes of group {process.pid} still running after SIGKILL"
+        return ""
 
     @staticmethod
     async def _wait_for_process_group(pgid, deadline):
@@ -993,16 +1099,34 @@ class PipelineJobManager:
             await asyncio.sleep(0.05)
 
     @staticmethod
-    async def _taskkill(pid, *, force):
+    async def _taskkill(pid, *, force, timeout=None):
+        """Run taskkill on a process tree; return its exit code and what it printed.
+
+        A taskkill that cannot start, or that outlasts ``timeout`` seconds and is
+        stopped, returns None as its exit code.
+        """
         command = ["taskkill", "/PID", str(pid), "/T"]
         if force:
             command.append("/F")
-        process = await asyncio.create_subprocess_exec(
-            *command,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
-        )
-        return await process.wait()
+        try:
+            taskkill = await asyncio.create_subprocess_exec(
+                *command,
+                stdin=asyncio.subprocess.DEVNULL,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
+            )
+        except OSError as error:
+            return None, str(error)
+        try:
+            output, _ = await asyncio.wait_for(taskkill.communicate(), timeout=timeout)
+        except TimeoutError:
+            try:
+                taskkill.kill()
+            except ProcessLookupError:
+                pass
+            await taskkill.wait()
+            return None, f"taskkill did not finish within {timeout:g} s"
+        return taskkill.returncode, output.decode("oem", errors="replace").strip()
 
     def _remove_job_directory(self, path):
         target = os.path.abspath(os.fspath(path))

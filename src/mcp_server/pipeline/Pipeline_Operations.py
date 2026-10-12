@@ -685,8 +685,9 @@ async def cancel_pipeline_job(
 ) -> PipelineJobInfo:
     """Stop an unwanted pipeline or layout job using its job_id.
     Cancels queued work or terminates a running process tree. Inspect the returned
-    status and use get_pipeline_job if still cancelling. Existing output artifacts
-    may remain; cancellation does not undo writes.
+    status and use get_pipeline_job if still cancelling; failure_message names any
+    process the stop left running. Existing output artifacts may remain;
+    cancellation does not undo writes.
     """
     try:
         return _job_info(await _context(ctx).jobs.cancel(job_id))
