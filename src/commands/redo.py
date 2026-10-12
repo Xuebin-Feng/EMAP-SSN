@@ -47,7 +47,7 @@ def run(viewer, args):
         msg = JoinedMessage([
             Message("Usage: {syntax}", syntax="redo [N]"),
             "Description: Reapplies a state that was previously undone using the `undo` command.\n"
-            "  - With N, a positive whole number, it reapplies up to N states and stops early when there is nothing left to redo.",
+            "  - With N, a positive whole number, it reapplies up to N states, stops early when there is nothing left to redo, and reports once how many it redid.",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
@@ -65,10 +65,15 @@ def run(viewer, args):
         Command_Engine.command_failed(viewer, message)
         return
 
+    # Each step is quiet; the viewer is refreshed once, and the total reported.
     done = 0
-    while done < steps and viewer._do_redo():
+    while done < steps and viewer._do_redo(announce=False):
         done += 1
     if done:
-        Command_Engine.command_succeeded(viewer, Message("Redid %n step(s).", n=done))
+        viewer._refresh_after_history()
+        msg = Message("Redid %n step(s).", n=done)
     else:
-        Command_Engine.command_succeeded(viewer, "Nothing to redo.")
+        msg = Message("Nothing to redo.")
+    Command_Engine.show_status(viewer, msg)
+    print(msg)
+    Command_Engine.command_succeeded(viewer, msg)

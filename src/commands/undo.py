@@ -48,7 +48,7 @@ def run(viewer, args):
             Message("Usage: {syntax}", syntax="undo [N]"),
             "Description: Reverts the visual and spatial state of the network to the previous action.\n"
             "Most commands automatically save state before execution, allowing them to be undone.\n"
-            "  - With N, a positive whole number, it undoes up to N steps and stops early when the history runs out.",
+            "  - With N, a positive whole number, it undoes up to N steps, stops early when the history runs out, and reports once how many it undid.",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
@@ -66,10 +66,15 @@ def run(viewer, args):
         Command_Engine.command_failed(viewer, message)
         return
 
+    # Each step is quiet; the viewer is refreshed once, and the total reported.
     done = 0
-    while done < steps and viewer._do_undo():
+    while done < steps and viewer._do_undo(announce=False):
         done += 1
     if done:
-        Command_Engine.command_succeeded(viewer, Message("Undid %n step(s).", n=done))
+        viewer._refresh_after_history()
+        msg = Message("Undid %n step(s).", n=done)
     else:
-        Command_Engine.command_succeeded(viewer, "Nothing to undo.")
+        msg = Message("Nothing to undo.")
+    Command_Engine.show_status(viewer, msg)
+    print(msg)
+    Command_Engine.command_succeeded(viewer, msg)

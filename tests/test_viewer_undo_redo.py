@@ -537,6 +537,53 @@ class UndoRedoStepTests(unittest.TestCase):
             module.run(viewer, args)
         return succeeded, failed
 
+    def run_quietly_counted(self, viewer, module, args):
+        """Run undo or redo; return what it printed and how often it refreshed the viewer."""
+        printed = io.StringIO()
+        with mock.patch.object(viewer, "_refresh_after_history",
+                               wraps=viewer._refresh_after_history) as refreshed, \
+                mock.patch.object(Command_Engine, "command_succeeded") as succeeded, \
+                redirect_stdout(printed):
+            module.run(viewer, args)
+        return printed.getvalue().splitlines(), refreshed.call_count, succeeded
+
+    def test_a_count_reports_once_not_once_per_step(self):
+        for module, args, text in ((undo_command, ["3"], "Undid 3 steps."),
+                                   (redo_command, ["2"], "Redid 2 steps.")):
+            with self.subTest(command=module.__name__):
+                viewer = self.viewer_with_history(3)
+                if module is redo_command:
+                    quietly(viewer._do_undo)
+                    quietly(viewer._do_undo)
+
+                lines, refreshes, succeeded = self.run_quietly_counted(viewer, module, args)
+
+                self.assertEqual(lines, [text])
+                self.assertEqual(viewer.console_text.text, text)
+                self.assertEqual(str(succeeded.call_args.args[1]), text)
+                # The metadata HUD and the web pages are refreshed once, after the steps.
+                self.assertEqual(refreshes, 1)
+
+    def test_a_count_with_nothing_to_undo_says_so_once(self):
+        for module, text in ((undo_command, "Nothing to undo."), (redo_command, "Nothing to redo.")):
+            with self.subTest(command=module.__name__):
+                viewer = make_viewer()
+
+                lines, refreshes, succeeded = self.run_quietly_counted(viewer, module, ["5"])
+
+                self.assertEqual(lines, [text])
+                self.assertEqual(viewer.console_text.text, text)
+                self.assertEqual(str(succeeded.call_args.args[1]), text)
+                self.assertEqual(refreshes, 0)
+
+    def test_a_single_undo_still_reports_and_refreshes(self):
+        viewer = self.viewer_with_history(1)
+
+        lines, refreshes, succeeded = self.run_quietly_counted(viewer, undo_command, [])
+
+        self.assertEqual(lines, ["Undo successful."])
+        self.assertEqual(refreshes, 1)
+
     def test_a_count_undoes_that_many_steps(self):
         viewer = self.viewer_with_history(3)
 

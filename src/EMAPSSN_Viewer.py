@@ -1922,7 +1922,13 @@ class MainViewer:
             self._get_current_state(share_with=self._latest_full_history_state())
         )
 
-    def _do_undo(self):
+    def _do_undo(self, announce=True):
+        """Undo one step; return whether there was one.
+
+        With announce False, as for each step of `undo N`, it neither reports
+        the step nor refreshes the metadata HUD and the web pages: the command
+        calls _refresh_after_history once the steps are done.
+        """
         if len(self.position_history) > 0:
             state = self.position_history.pop()
             if state.get("_history_kind"):
@@ -1938,12 +1944,17 @@ class MainViewer:
         else:
             msg = Message("Nothing to undo.")
             changed = False
-        Command_Engine.show_status(self, msg)
-        print(msg)
-        if changed:
-            self._redraw_metadata_hud()
-            self.broadcast_metadata_state()
+        if announce:
+            Command_Engine.show_status(self, msg)
+            print(msg)
+            if changed:
+                self._refresh_after_history()
         return changed
+
+    def _refresh_after_history(self):
+        """What follows undo or redo steps: the metadata HUD redrawn, the web pages told."""
+        self._redraw_metadata_hud()
+        self.broadcast_metadata_state()
 
     def _redraw_metadata_hud(self):
         """Redraw the visible `meta show` HUD for the clicked node, as undo or
@@ -1956,7 +1967,8 @@ class MainViewer:
                 and node_idx is not None and prop in getattr(self, "metadata", {})):
             redraw(node_idx)
 
-    def _do_redo(self):
+    def _do_redo(self, announce=True):
+        """Redo one step; return whether there was one. announce is as for _do_undo."""
         if len(self.redo_stack) > 0:
             state = self.redo_stack.pop()
             if state.get("_history_kind"):
@@ -1970,11 +1982,11 @@ class MainViewer:
         else:
             msg = Message("Nothing to redo.")
             changed = False
-        Command_Engine.show_status(self, msg)
-        print(msg)
-        if changed:
-            self._redraw_metadata_hud()
-            self.broadcast_metadata_state()
+        if announce:
+            Command_Engine.show_status(self, msg)
+            print(msg)
+            if changed:
+                self._refresh_after_history()
         return changed
 
     def load_global_alignment(self, reuse_loaded=False):
