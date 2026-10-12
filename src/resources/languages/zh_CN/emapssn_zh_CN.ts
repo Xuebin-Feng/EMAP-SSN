@@ -507,7 +507,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2334"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2341"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -520,7 +520,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2233"/>
+        <location line="-2240"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -1853,7 +1853,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1712"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1719"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -2159,8 +2159,8 @@ Command-line usage:
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
-        <location filename="../../../commands/meta.py" line="+166"/>
-        <location line="+115"/>
+        <location filename="../../../commands/meta.py" line="+167"/>
+        <location line="+118"/>
         <location filename="../../../commands/print.py" line="-76"/>
         <location line="+51"/>
         <location line="+15"/>
@@ -2183,7 +2183,7 @@ Command-line usage:
         <location filename="../../../commands/group.py" line="+138"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
-        <location filename="../../../commands/meta.py" line="-133"/>
+        <location filename="../../../commands/meta.py" line="-136"/>
         <location filename="../../../commands/offset.py" line="+92"/>
         <location filename="../../../commands/print.py" line="-138"/>
         <location filename="../../../commands/query.py" line="-260"/>
@@ -3065,7 +3065,7 @@ Command-line usage:
         <translation type="unfinished">用法：{syntax} 或 {other_syntax}</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+15"/>
         <source>Metadata display cleared.</source>
         <translation type="unfinished">已清除元数据显示。</translation>
     </message>
@@ -3080,7 +3080,7 @@ Command-line usage:
         <translation type="unfinished">错误：当前元数据中找不到属性“{property}”。可用的属性：{available}。</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+56"/>
         <source>Metadata display enabled for property: &apos;{property}&apos;</source>
         <translation type="unfinished">已为属性“{property}”启用元数据显示</translation>
     </message>
@@ -3908,7 +3908,7 @@ Command-line usage:
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+683"/>
+        <location line="+695"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -4031,7 +4031,7 @@ Command-line usage:
         <translation type="unfinished">大小写有歧义：{names}</translation>
     </message>
     <message>
-        <location filename="../../../commands/meta.py" line="-107"/>
+        <location filename="../../../commands/meta.py" line="-108"/>
         <location filename="../../../Metadata_Core.py" line="+2"/>
         <source>none</source>
         <translation type="unfinished">无</translation>
@@ -6041,7 +6041,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1369"/>
+        <location line="-1376"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
@@ -8137,7 +8137,7 @@ Fedora / RHEL：
         <translation type="unfinished">ESMFold 启动错误</translation>
     </message>
     <message>
-        <location filename="../../../commands/meta.py" line="+29"/>
+        <location filename="../../../commands/meta.py" line="+30"/>
         <location line="+4"/>
         <location line="+12"/>
         <source>N/A</source>
@@ -8169,7 +8169,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2278"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2290"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8193,7 +8193,7 @@ Fedora / RHEL：
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1695"/>
+        <location line="+1707"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
