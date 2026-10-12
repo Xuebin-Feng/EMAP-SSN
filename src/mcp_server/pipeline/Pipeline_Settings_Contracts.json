@@ -14,6 +14,11 @@
         "default": false,
         "description": "Enable Length Filter: Toggle to filter sequences by amino acid length.\nWhen enabled, only sequences within the minimum and maximum length bounds will be retained."
       },
+      "SHOW_LENGTH_HISTOGRAM": {
+        "type": "boolean",
+        "default": true,
+        "description": "Show Length Histogram: Displays the length histogram of the sanitized sequences when the run ends.\nA run from a settings file (CLI or MCP) prints the same bins as a table instead. Turn off to skip both."
+      },
       "OVER_WRITE": {
         "type": "boolean",
         "default": false,

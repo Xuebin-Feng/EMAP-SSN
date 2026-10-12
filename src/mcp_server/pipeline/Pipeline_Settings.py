@@ -184,7 +184,11 @@ def get_pipeline_schema(tool_id, project_root):
                                      "validate_settings reports the effective directory."}
                 for key in spec.required_directories}},
             "headless_behavior": {"SHOW_REGRESSION_PLOT": False} if tool_id == "embedding_msa" else
-                ({"length_distribution": "50-bin text table; no figure"} if tool_id == "sanitize_sequences" else {}),
+                ({"length_distribution": "a 'Length statistics:' line (count, min, median, mean, SD, max), "
+                                         "then a text table unless SHOW_LENGTH_HISTOGRAM is false: one row per "
+                                         "length when the lengths span 50 values or fewer, else 50 equal bins; "
+                                         "no figure"}
+                 if tool_id == "sanitize_sequences" else {}),
             "validation_notes": ["Defaults are applied before conditional requirements.",
                 "Enabled minimum/maximum length bounds must be ordered; custom BLAST columns must be distinct.",
                 "Tiled execution cannot select CPU; explicit TF32 cannot select a non-CUDA device.",

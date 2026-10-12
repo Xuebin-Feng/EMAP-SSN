@@ -135,12 +135,13 @@ TOOLS_FORM_HORIZONTAL_SPACING = 30
 # makes the gap between them 8 px.
 TOOL_TITLE_ICON_SIZE = 16
 TOOL_TITLE_ICON_GAP = 6
+# How long a tool's Save & Run stays greyed out once clicked, in ms, so a
+# double click starts the tool once. The console the tool opens in shows it
+# started; no message box says so.
+RUN_BUTTON_PAUSE_MS = 1000
 
 
 COMPACT_ROW_GROUPS = {
-    "Sanitize_Sequences.py": [
-        ("MIN_SEQ_LENGTH", "MAX_SEQ_LENGTH"),
-    ],
     "Generate_Embeddings.py": [
         ("MODEL_NAME", "SAVING_MODE", "DEVICE_SELECTION"),
     ],
@@ -183,7 +184,9 @@ INLINE_FIELD_GROUPS = {
     ],
     "Sanitize_Sequences.py": [
         ("INPUT_FASTA", "OVER_WRITE"),
-        ("ENABLE_LENGTH_FILTER", "REMOVE_BY_HEADER_STRING"),
+        ("SHOW_LENGTH_HISTOGRAM", "REMOVE_BY_HEADER_STRING"),
+        # The switch on the row of the bounds it turns on.
+        ("ENABLE_LENGTH_FILTER", "MIN_SEQ_LENGTH", "MAX_SEQ_LENGTH"),
     ],
     "Sparse_MSA_Converter.py": [
         ("CONVERT_ALL", "INPUT_FASTA"),
@@ -493,7 +496,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QTextBrowser, QSplitter, QComboBox, QSlider, QDoubleSpinBox, 
                              QSpinBox, QFileDialog, QStyle, QStyleOptionSlider,
                              QSizePolicy, QFrame, QInputDialog, QStackedWidget)
-from PySide6.QtCore import QEvent, Qt
+from PySide6.QtCore import QEvent, Qt, QTimer
 from desktop.Desktop_App import ResponsiveFieldLayout
 
 # QtWebEngine ships inside the PySide6-Addons wheel, but its bundled Chromium
@@ -1454,6 +1457,7 @@ class ToolsGUI(QMainWindow):
             "Sanitize_Sequences.py": {
                 "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): The raw FASTA sequence database to clean.\nUppercases residues, trims terminal non-residues, masks invalid characters with 'X', and deduplicates headers."),
                 "ENABLE_LENGTH_FILTER": translate("Tools", "Enable Length Filter: Toggle to filter sequences by amino acid length.\nWhen enabled, only sequences within the minimum and maximum length bounds will be retained."),
+                "SHOW_LENGTH_HISTOGRAM": translate("Tools", "Show Length Histogram: Displays the length histogram of the sanitized sequences when the run ends.\nA run from a settings file (CLI or MCP) prints the same bins as a table instead. Turn off to skip both."),
                 "OVER_WRITE": translate("Tools", "Overwrite Original File: If ON, replaces the input FASTA file with sanitized sequences.\nIf OFF, creates a new file named <input_name>_sanitized.fasta to preserve the original file."),
                 "REMOVE_BY_HEADER_STRING": translate("Tools", "Remove Header Substring: Case-sensitive substring filter on raw headers.\nSequences containing this exact text (e.g. 'fragment', 'partial') are discarded. Leave blank to disable."),
                 "MIN_SEQ_LENGTH": translate("Tools", "Minimum Sequence Length: Lower length bound (inclusive) in amino acids.\nSequences shorter than this threshold will be discarded during sanitization."),
@@ -1597,9 +1601,9 @@ class ToolsGUI(QMainWindow):
                             "display": translate("Tools", "Sequence Set (.fasta):")
                         },
                         {
-                            "var_name": "ENABLE_LENGTH_FILTER", # <--- NEW
+                            "var_name": "SHOW_LENGTH_HISTOGRAM",
                             "type": "switch",
-                            "display": translate("Tools", "Enable Length Filter:")
+                            "display": translate("Tools", "Show Length Histogram:")
                         },
                         {
                             "var_name": "OVER_WRITE",
@@ -1610,6 +1614,11 @@ class ToolsGUI(QMainWindow):
                             "var_name": "REMOVE_BY_HEADER_STRING",
                             "type": "text",
                             "display": translate("Tools", "Remove Header Substring:")
+                        },
+                        {
+                            "var_name": "ENABLE_LENGTH_FILTER",
+                            "type": "switch",
+                            "display": translate("Tools", "Enable Length Filter:")
                         },
                         {
                             "var_name": "MIN_SEQ_LENGTH",
@@ -3871,7 +3880,7 @@ class ToolsGUI(QMainWindow):
             "and run this tool.",
         ))
         btn_run.clicked.connect(
-            lambda checked, sp=script_path: self.save_and_run(sp)
+            lambda checked, sp=script_path, button=btn_run: self._run_from_button(button, sp)
         )
 
         btn_export = QPushButton(translate("Tools", "Export"))
@@ -4439,6 +4448,17 @@ class ToolsGUI(QMainWindow):
         except Exception as error:
             QMessageBox.critical(self, translate("Tools", "Export Settings Error"), display_text(error))
 
+    def _run_from_button(self, button, script_path):
+        """Save & Run from a tool's button, greyed out for RUN_BUTTON_PAUSE_MS.
+
+        It greys out before the tool starts, so the second click of a double
+        click, queued meanwhile, reaches a disabled button and is dropped.
+        """
+        button.setEnabled(False)
+        # Timed on the button, so the timer goes with it if the window closes first.
+        QTimer.singleShot(RUN_BUTTON_PAUSE_MS, button, lambda: button.setEnabled(True))
+        self.save_and_run(script_path)
+
     def save_and_run(self, script_path):
         # 1. Collect current values from GUI
         new_settings = self._collect_tool_settings(script_path)
@@ -4681,18 +4701,14 @@ class ToolsGUI(QMainWindow):
             
             print(f"Executing: {script_name} in {invocation.cwd}")
             
+            # The tool's own console shows it started (RUN_BUTTON_PAUSE_MS).
             launch_in_terminal(
                 list(invocation.argv),
                 cwd=invocation.cwd,
                 hold=HoldMode.ALWAYS,
                 title=script_name,
             )
-            
-            QMessageBox.information(
-                self, translate("Tools", "Success"),
-                translate("Tools", "Saved configuration to JSON and launched {tool}.").format(tool=script_name),
-            )
-            
+
         except Exception as e:
             QMessageBox.critical(
                 self, translate("Tools", "Error"),

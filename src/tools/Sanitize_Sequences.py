@@ -51,10 +51,13 @@ What this script does step-by-step:
 
 5. Outputs:
    - Saves a new, clean `.fasta` file.
-   - Prints a highly detailed diagnostic report to your console showing exactly what 
+   - Prints a highly detailed diagnostic report to your console showing exactly what
      was changed, removed, or merged.
-   - Displays a pop-up length histogram, or prints the same bins and counts as a
-     table when invoked with a JSON settings file (including MCP runs).
+   - Prints the length statistics of the kept sequences: their number and the
+     minimum, median, mean, standard deviation and maximum length.
+   - Displays a pop-up length histogram in the Tools window's theme colour, or
+     prints the same bins and counts as a table when invoked with a JSON settings
+     file (including MCP runs). Setting SHOW_LENGTH_HISTOGRAM to False skips both.
 
 Input:
 - A raw text-based FASTA file (`INPUT_FASTA`).
@@ -96,6 +99,7 @@ ENABLE_LENGTH_FILTER = False
 MIN_SEQ_LENGTH = 0
 MAX_SEQ_LENGTH = 0
 REMOVE_BY_HEADER_STRING = ""
+SHOW_LENGTH_HISTOGRAM = True
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 _DEFAULT_DIRECTORIES = project_directory_defaults(PROJECT_ROOT)
@@ -245,33 +249,226 @@ def write_fasta_atomic(file_path, headers, sequences, refuse_empty=False):
         if temporary_path and os.path.exists(temporary_path):
             os.unlink(temporary_path)
 
-def plot_length_distribution(lengths):
-    import matplotlib.pyplot as plt
+def length_statistics(lengths):
+    """One line on the lengths: their number, minimum, median, mean, SD and maximum.
 
-    plt.figure(figsize=(10, 6))
-    plt.hist(lengths, bins=50, color='royalblue', edgecolor='black', alpha=0.8)
-    plt.title('Sequence Length Distribution (Post-Sanitization & Filtering)')
-    plt.xlabel('Sequence Length (Number of Amino Acids)')
-    plt.ylabel('Frequency (Number of Sequences)')
-    plt.grid(axis='y', linestyle='--', alpha=0.7)
-    
-    plt.tight_layout()
-    plt.show()  # Display as a pop-up window
-    plt.close()
+    The standard deviation is that of these sequences themselves (numpy's
+    default, ddof=0), not an estimate for a larger population.
+    """
+    values = np.asarray(lengths)
+    median = float(np.median(values))
+    median_text = f"{median:,.0f}" if median.is_integer() else f"{median:,.1f}"
+    sequences = "sequence" if values.size == 1 else "sequences"
+    return (
+        f"{values.size:,} {sequences} · min {values.min():,} · median {median_text} · "
+        f"mean {values.mean():,.1f} · SD {values.std():,.1f} · max {values.max():,} aa"
+    )
+
+
+# The histogram's bins: one per length while the lengths span this many
+# values or fewer, otherwise this many bins of equal width.
+HISTOGRAM_BINS = 50
+
+
+def length_bins(lengths):
+    """The histogram's (counts, edges, one_per_length), the chart's and the table's alike.
+
+    Lengths spanning HISTOGRAM_BINS values or fewer get one bin per length,
+    from half a residue below it to half above, so each bar stands over its
+    length; wider spans get HISTOGRAM_BINS bins of equal width.
+    """
+    values = np.asarray(lengths)
+    low, high = int(values.min()), int(values.max())
+    if high - low + 1 <= HISTOGRAM_BINS:
+        counts, edges = np.histogram(values, bins=np.arange(low, high + 2) - 0.5)
+        return counts, edges, True
+    counts, edges = np.histogram(values, bins=HISTOGRAM_BINS)
+    return counts, edges, False
+
+
+def length_filter_bounds():
+    """The length filter's bounds above 0 as (label, length) pairs; none while it is off."""
+    if not ENABLE_LENGTH_FILTER:
+        return []
+    return [
+        (label, int(value))
+        for label, value in (("min", MIN_SEQ_LENGTH), ("max", MAX_SEQ_LENGTH))
+        if value is not None and value > 0
+    ]
+
+
+# The Tools window keeps its theme colour in app_settings.json under this
+# setting (Desktop_App's TOOLS_THEME_SETTING). It launches this tool, so the
+# pop-up histogram takes that colour.
+_TOOLS_THEME_SETTING = "TOOLS_THEME_COLOR"
+# The histogram's bars, after Config's Network Statistics Report: a theme
+# shade with a darker edge in the theme colour, a gap between bars (a
+# fraction of a bin's width) and corners 2.25 pt round, the report's 3 px.
+_BAR_FILL = "separator"
+_BAR_EDGE = "accent"
+_BAR_GAP = 0.16
+_BAR_RADIUS = 2.25
+_HISTOGRAM_TITLE = "Sequence Length Distribution"
+
+
+def tools_theme_color():
+    """The Tools window's theme colour, or the default one when it can't be read."""
+    from desktop.Studio_Theme import DEFAULT_THEME_COLOR, THEME_COLORS
+    from utilities.App_Settings import AppSettingsError, read_app_settings
+
+    try:
+        color = read_app_settings().get(_TOOLS_THEME_SETTING)
+    except AppSettingsError:
+        color = None
+    return color if isinstance(color, str) and color in THEME_COLORS else DEFAULT_THEME_COLOR
+
+
+def _plot_font_families():
+    """The bundled Noto Sans, registered with matplotlib, else matplotlib's own font.
+
+    Only one family is named: matplotlib looks up every listed family for
+    each text, and warns when the fallback lacks the title's semibold face.
+    """
+    from matplotlib import font_manager
+
+    folder = os.path.join(
+        PROJECT_ROOT, "src", "resources", "fonts", "desktop", "noto", "NotoSans"
+    )
+    known = {entry.fname for entry in font_manager.fontManager.ttflist}
+    bundled = False
+    for face in ("NotoSans-Regular.ttf", "NotoSans-SemiBold.ttf"):
+        path = os.path.join(folder, face)
+        try:
+            if path not in known:
+                font_manager.fontManager.addfont(path)
+            bundled = True
+        except (OSError, RuntimeError, ValueError):
+            pass
+    return ["Noto Sans"] if bundled else ["DejaVu Sans"]
+
+
+def plot_length_distribution(lengths, bounds=()):
+    """Show the lengths' bins (length_bins) as a pop-up chart in the Tools window's theme colour.
+
+    bounds holds (label, length) pairs, the length filter's, drawn as dashed lines.
+    """
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import BoxStyle, FancyBboxPatch
+    from matplotlib.path import Path
+    from matplotlib.ticker import MaxNLocator, StrMethodFormatter
+    from desktop.Studio_Theme import theme_tokens
+
+    class RoundedBar(FancyBboxPatch):
+        """A bar whose corners stay _BAR_RADIUS points round however the axes scale."""
+
+        def get_path(self):
+            x, y = self.get_x(), self.get_y()
+            width, height = self.get_width(), self.get_height()
+            (x0, y0), (x1, y1) = self.axes.transData.transform([(0, 0), (1, 1)])
+            pixels = _BAR_RADIUS * self.figure.dpi / 72
+            radius_x = pixels / max(abs(x1 - x0), 1e-12)
+            aspect = (pixels / max(abs(y1 - y0), 1e-12)) / radius_x
+            # A short or narrow bar gets corners no larger than half its side.
+            size = min(radius_x, width / 2, height / aspect / 2)
+            path = BoxStyle.Round(pad=0, rounding_size=size)(
+                x, y / aspect, width, height / aspect, 1
+            )
+            return Path(path.vertices * [1, aspect], path.codes)
+
+    tokens = theme_tokens(tools_theme_color())
+    counts, edges, _one_per_length = length_bins(lengths)
+    style = {
+        "font.family": _plot_font_families(),
+        "font.size": 10,
+        "axes.edgecolor": tokens["border"],
+        "axes.labelcolor": tokens["text_muted"],
+        "xtick.color": tokens["border"],
+        "ytick.color": tokens["border"],
+        "xtick.labelcolor": tokens["text_muted"],
+        "ytick.labelcolor": tokens["text_muted"],
+    }
+    with plt.rc_context(style):
+        # The figure's label names the pop-up window.
+        figure, axes = plt.subplots(
+            num=_HISTOGRAM_TITLE, figsize=(10, 6), facecolor=tokens["surface"]
+        )
+        axes.set_facecolor(tokens["surface"])
+        bin_width = edges[1] - edges[0]
+        for left, count in zip(edges[:-1], counts):
+            if count:
+                axes.add_patch(RoundedBar(
+                    (left + bin_width * _BAR_GAP / 2, 0), bin_width * (1 - _BAR_GAP), count,
+                    boxstyle="round,pad=0", facecolor=tokens[_BAR_FILL],
+                    edgecolor=tokens[_BAR_EDGE], linewidth=0.8,
+                ))
+
+        # The x axis spans the bins and any filter bound, with a little room.
+        low = min([edges[0], *(value for _, value in bounds)])
+        high = max([edges[-1], *(value for _, value in bounds)])
+        margin = (high - low) * 0.02
+        axes.set_xlim(low - margin, high + margin)
+        axes.set_ylim(0, counts.max() * (1.14 if bounds else 1.06))
+        for side in ("top", "right", "left"):
+            axes.spines[side].set_visible(False)
+        axes.yaxis.grid(True, color=tokens["border"], linewidth=0.8)
+        axes.set_axisbelow(True)
+        axes.tick_params(axis="y", length=0, pad=6)
+        axes.tick_params(axis="x", length=4)
+        axes.xaxis.set_major_locator(MaxNLocator(nbins=10, integer=True))
+        axes.yaxis.set_major_locator(MaxNLocator(integer=True))
+        axes.xaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+        axes.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+        axes.set_xlabel("Sequence length (amino acids)", labelpad=8)
+        axes.set_ylabel("Sequences", labelpad=8)
+
+        axes.set_title(
+            _HISTOGRAM_TITLE, loc="left", pad=30, fontsize=15,
+            fontweight="semibold", color=tokens["text"],
+        )
+        axes.annotate(
+            length_statistics(lengths), (0, 1), xycoords="axes fraction",
+            xytext=(0, 10), textcoords="offset points", va="bottom",
+            color=tokens["text_muted"],
+        )
+        for label, value in bounds:
+            axes.axvline(
+                value, color=tokens["text_subtle"], linewidth=1,
+                linestyle=(0, (4, 3)), zorder=3,
+            )
+            # The label sits beside its line, on the side of the kept lengths.
+            inward = 1 if label == "min" else -1
+            axes.annotate(
+                f"{label} {value:,}", (value, 1), xycoords=("data", "axes fraction"),
+                xytext=(5 * inward, -4), textcoords="offset points",
+                ha="left" if inward > 0 else "right", va="top", fontsize=9,
+                color=tokens["text_muted"],
+            )
+
+        figure.tight_layout()
+        plt.show()  # Display as a pop-up window
+        plt.close(figure)
 
 
 def print_length_distribution(lengths):
-    """Print the same 50 bins used by the interactive histogram, without plotting."""
-    counts, edges = np.histogram(lengths, bins=50)
+    """Print the bins of the interactive histogram (length_bins), without plotting."""
+    counts, edges, one_per_length = length_bins(lengths)
     print("\nSequence Length Distribution (Post-Sanitization & Filtering)")
-    print("Sequence length in amino acids; bins include the lower bound and")
-    print("exclude the upper bound, except the final bin includes both bounds.")
-    print(f"{'Length bin (aa)':<32} | {'Frequency (sequences)':>21}")
+    if one_per_length:
+        print("Sequence length in amino acids, one row per length.")
+        heading = "Length (aa)"
+    else:
+        print("Sequence length in amino acids; bins include the lower bound and")
+        print("exclude the upper bound, except the final bin includes both bounds.")
+        heading = "Length bin (aa)"
+    print(f"{heading:<32} | {'Frequency (sequences)':>21}")
     print("-" * 57)
     for index, count in enumerate(counts):
-        closing = "]" if index == len(counts) - 1 else ")"
-        interval = f"[{edges[index]:.12g}, {edges[index + 1]:.12g}{closing}"
-        print(f"{interval:<32} | {int(count):>21}")
+        if one_per_length:
+            row = f"{edges[index] + 0.5:.12g}"
+        else:
+            closing = "]" if index == len(counts) - 1 else ")"
+            row = f"[{edges[index]:.12g}, {edges[index + 1]:.12g}{closing}"
+        print(f"{row:<32} | {int(count):>21}")
     print(f"{'Total':<32} | {int(counts.sum()):>21}")
 
 # ==========================================
@@ -483,15 +680,18 @@ def main(argv=None):
     print("="*50 + "\n")
     print(f"✅ Done! Sanitized FASTA saved.")
 
-    # Plot Histogram
-    if clean_lengths:
-        if headless:
-            print_length_distribution(clean_lengths)
-        else:
-            print(f"Opening length distribution histogram...")
-            plot_length_distribution(clean_lengths)
-    else:
+    # Length Statistics & Histogram
+    if not clean_lengths:
         print(f"⚠️ No sequences passed the length filters. Histogram skipped.")
+        return 0
+    print(f"\nLength statistics: {length_statistics(clean_lengths)}")
+    if not SHOW_LENGTH_HISTOGRAM:
+        print("Length histogram skipped (SHOW_LENGTH_HISTOGRAM is off).")
+    elif headless:
+        print_length_distribution(clean_lengths)
+    else:
+        print(f"Opening length distribution histogram...")
+        plot_length_distribution(clean_lengths, length_filter_bounds())
     return 0
 
 

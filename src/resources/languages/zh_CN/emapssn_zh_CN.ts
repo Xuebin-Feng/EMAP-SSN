@@ -6061,7 +6061,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">自动 32 位</translation>
     </message>
     <message>
-        <location line="+106"/>
+        <location line="+109"/>
         <source>Sequence &amp;&amp; Embedding Preparation</source>
         <translation type="unfinished">序列与 embedding 准备</translation>
     </message>
@@ -6250,14 +6250,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1086"/>
+        <location line="+1087"/>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
 展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="-937"/>
+        <location line="-938"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -6365,6 +6365,13 @@ Uppercases residues, trims terminal non-residues, masks invalid characters with 
 When enabled, only sequences within the minimum and maximum length bounds will be retained.</source>
         <translation type="unfinished">启用长度过滤：切换是否按氨基酸长度过滤序列。
 启用后，只保留长度在最小值和最大值之间的序列。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show Length Histogram: Displays the length histogram of the sanitized sequences when the run ends.
+A run from a settings file (CLI or MCP) prints the same bins as a table instead. Turn off to skip both.</source>
+        <translation type="unfinished">显示长度直方图：运行结束时显示清理后序列的长度直方图。
+通过设置文件运行（命令行或 MCP）时，改为以表格打印相同的直方图区间。关闭则两者都不输出。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -6992,19 +6999,24 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+9"/>
-        <location line="+41"/>
+        <location line="+46"/>
         <location line="+210"/>
         <location line="+56"/>
         <source>Sequence Set (.fasta):</source>
         <translation type="unfinished">序列集（.fasta）：</translation>
     </message>
     <message>
-        <location line="-302"/>
+        <location line="-307"/>
+        <source>Show Length Histogram:</source>
+        <translation type="unfinished">显示长度直方图：</translation>
+    </message>
+    <message>
+        <location line="+15"/>
         <source>Enable Length Filter:</source>
         <translation type="unfinished">启用长度过滤：</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-10"/>
         <source>Overwrite Original File:</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
@@ -7014,7 +7026,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">按标题子串移除：</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+10"/>
         <source>Min Seq Length:</source>
         <translation type="unfinished">最小序列长度：</translation>
     </message>
@@ -7589,13 +7601,13 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <location line="+10"/>
         <location line="+13"/>
         <location line="+1550"/>
-        <location line="+437"/>
-        <location line="+30"/>
+        <location line="+448"/>
+        <location line="+26"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2029"/>
+        <location line="-2036"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -7603,12 +7615,11 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     </message>
     <message>
         <location line="+4"/>
-        <location line="+2019"/>
         <source>Success</source>
         <translation type="unfinished">成功</translation>
     </message>
     <message>
-        <location line="-2018"/>
+        <location line="+1"/>
         <source>Global directories saved to JSON successfully.</source>
         <translation type="unfinished">全局目录已保存到 JSON。</translation>
     </message>
@@ -7823,7 +7834,7 @@ Command-line usage:
         <translation type="unfinished">导出设置出错</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+24"/>
         <source>Tool Not Started</source>
         <translation type="unfinished">工具未启动</translation>
     </message>
@@ -7913,20 +7924,19 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="+24"/>
         <source>Saved configuration to JSON and launched {tool}.</source>
-        <translation type="unfinished">已将配置保存到 JSON 并启动 {tool}。</translation>
+        <translation type="obsolete">已将配置保存到 JSON 并启动 {tool}。</translation>
     </message>
     <message>
-        <location line="-461"/>
-        <location line="+467"/>
+        <location line="-448"/>
+        <location line="+474"/>
         <source>Failed to run {path}:
 {error}</source>
         <translation type="unfinished">无法运行 {path}：
 {error}</translation>
     </message>
     <message>
-        <location line="-4461"/>
+        <location line="-4474"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -8056,7 +8066,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+1830"/>
+        <location line="+1836"/>
         <location line="+176"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>
@@ -8078,7 +8088,7 @@ Fedora / RHEL：
         <translation type="unfinished">缺少文档</translation>
     </message>
     <message>
-        <location line="+1962"/>
+        <location line="+1969"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>

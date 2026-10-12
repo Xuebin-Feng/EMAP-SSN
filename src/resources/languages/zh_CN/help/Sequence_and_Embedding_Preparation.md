@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 653906db32447349627211b72f6588157a732f11b40d347406c2dcfc1a65755e -->
+<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 c9032723ff484af1e0a7e7c249a292dfcdc68fc4401dd1884967e805c51c0b4d -->
 # 清理序列 (`Sanitize_Sequences.py`)
 
 该脚本清理（sanitize）原始 FASTA 序列数据库，为语言模型生成 embedding 做好准备。它会过滤掉长度超出目标范围的序列，排除序列标题（FASTA header）中含有特定关键词（例如片段或不完整序列）的序列，替换不安全的非标准字符，并报告序列长度分布。
@@ -25,6 +25,7 @@
 | 最小序列长度 **`MIN_SEQ_LENGTH`** | 保留一条序列所需的最小序列长度（以氨基酸计）。 |
 | 最大序列长度 **`MAX_SEQ_LENGTH`** | 允许的最大序列长度。 |
 | 按序列标题字符串删除 **`REMOVE_BY_HEADER_STRING`** | 排除序列标题中含有这一子串（区分大小写、精确匹配）的序列，例如 `partial`、`fragment` 或 `low quality`。留空即停用；`None` 会被当作字面意义上的搜索词。 |
+| 显示长度直方图 **`SHOW_LENGTH_HISTOGRAM`** | 运行结束时显示清理后序列的长度直方图。通过设置文件运行（命令行或 MCP）时，改为以表格打印相同的直方图区间。关闭则两者都不输出。 |
 
 ### 输出
 

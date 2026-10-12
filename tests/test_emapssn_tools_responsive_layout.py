@@ -135,6 +135,44 @@ class ResponsiveToolsTests(unittest.TestCase):
         self.flush()
         self.assertEqual(self.window._collect_tool_settings(path), before)
 
+    def test_sanitize_puts_the_length_filter_on_its_bounds_row(self):
+        # Row 2: Show Length Histogram, then Remove Header Substring. Row 3:
+        # Enable Length Filter, then Min and Max Seq Length, which it turns on.
+        path, data = next((path, data) for path, data in self.window.script_data.items()
+                          if path.endswith("Sanitize_Sequences.py"))
+        inputs = data["inputs"]
+        self.window.tabs.setCurrentIndex(0)
+        self.resize_panel(1400)
+        rows = [self.window.findChild(QWidget, "compactRow_" + name) for name in (
+            "INPUT_FASTA_OVER_WRITE",
+            "SHOW_LENGTH_HISTOGRAM_REMOVE_BY_HEADER_STRING",
+            "ENABLE_LENGTH_FILTER_MIN_SEQ_LENGTH_MAX_SEQ_LENGTH",
+        )]
+        self.assertNotIn(None, rows)
+        self.assertIsNone(self.window.findChild(QWidget, "compactRow_MIN_SEQ_LENGTH_MAX_SEQ_LENGTH"))
+        card = rows[0].parentWidget()
+        tops = [row.mapTo(card, QPoint(0, 0)).y() for row in rows]
+        self.assertEqual(tops, sorted(tops))
+        for row in rows:
+            self.assertFalse(row.property("stacked"), row.objectName())
+        filter_row = rows[2].layout().pairs
+        self.assertEqual([control for _, control in filter_row],
+                         [inputs[name]["widget"] for name in
+                          ("ENABLE_LENGTH_FILTER", "MIN_SEQ_LENGTH", "MAX_SEQ_LENGTH")])
+        xs = [control.mapTo(card, QPoint(0, 0)).x() for _, control in filter_row]
+        self.assertEqual(xs, sorted(xs))
+        # The second column starts at the same x on both switch rows.
+        second_labels = [row.layout().pairs[1][0] for row in rows[1:]]
+        self.assertEqual(len({label.mapTo(card, QPoint(0, 0)).x() for label in second_labels}), 1)
+        # The histogram is on by default, and the filter still turns its bounds on and off.
+        self.assertTrue(inputs["SHOW_LENGTH_HISTOGRAM"]["widget"].isChecked())
+        switch = inputs["ENABLE_LENGTH_FILTER"]["widget"]
+        for checked in (True, False):
+            switch.setChecked(checked)
+            for name in ("MIN_SEQ_LENGTH", "MAX_SEQ_LENGTH"):
+                self.assertEqual(inputs[name]["widget"].isEnabled(), checked, name)
+        self.assert_layout_geometry(self.window.tabs.currentWidget().widget())
+
     def test_exit_fills_the_row_under_the_help_and_the_tip_panel_reaches_the_bottom(self):
         window = self.window
 

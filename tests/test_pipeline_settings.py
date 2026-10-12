@@ -230,6 +230,27 @@ class PipelineSettingsTests(unittest.TestCase):
         msa["SHOW_REGRESSION_PLOT"] = "true"
         self.assertFalse(self.preview("embedding_msa", parameters=msa)["valid"])
 
+    def test_the_length_histogram_switch_defaults_on_and_is_kept_headless(self):
+        discovery = get_pipeline_schema("sanitize_sequences", ROOT)
+        field = discovery["parameters_schema"]["properties"]["SHOW_LENGTH_HISTOGRAM"]
+        self.assertEqual(field["type"], "boolean")
+        self.assertIs(field["default"], True)
+        self.assertEqual(field["description"], (
+            "Show Length Histogram: Displays the length histogram of the sanitized sequences "
+            "when the run ends.\nA run from a settings file (CLI or MCP) prints the same bins "
+            "as a table instead. Turn off to skip both."))
+        self.assertIn("SHOW_LENGTH_HISTOGRAM", discovery["headless_behavior"]["length_distribution"])
+        result = self.preview(parameters={"INPUT_FASTA": "x"})
+        self.assertIs(result["settings_document"]["Sanitize_Sequences.py"]["SHOW_LENGTH_HISTOGRAM"], True)
+        self.assertIs(result["applied_defaults"]["parameters.SHOW_LENGTH_HISTOGRAM"], True)
+        # Unlike SHOW_REGRESSION_PLOT, a headless job keeps the supplied value.
+        result = self.preview(parameters={"INPUT_FASTA": "x", "SHOW_LENGTH_HISTOGRAM": False})
+        self.assertIs(result["settings_document"]["Sanitize_Sequences.py"]["SHOW_LENGTH_HISTOGRAM"], False)
+        self.assertEqual(result["overrides"], [])
+        result = self.preview(parameters={"INPUT_FASTA": "x", "SHOW_LENGTH_HISTOGRAM": "false"})
+        self.assertFalse(result["valid"])
+        self.assertEqual([e["field"] for e in result["errors"]], ["parameters.SHOW_LENGTH_HISTOGRAM"])
+
     def test_preview_has_no_files_and_no_gui_defaults(self):
         with tempfile.TemporaryDirectory() as temp:
             shared = Path(temp) / "tools_settings.json"

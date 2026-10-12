@@ -24,6 +24,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
 | Minimum Sequence Length **`MIN_SEQ_LENGTH`** | The minimum sequence length (in amino acids) required to keep a sequence. |
 | Maximum Sequence Length **`MAX_SEQ_LENGTH`** | The maximum sequence length allowed. |
 | Remove by Header String **`REMOVE_BY_HEADER_STRING`** | Excludes sequences whose headers contain this exact case-sensitive substring (e.g., `partial`, `fragment`, or `low quality`). Leave empty to disable; `None` is treated as a literal search word. |
+| Show Length Histogram **`SHOW_LENGTH_HISTOGRAM`** | Displays the length histogram of the sanitized sequences when the run ends. A run from a settings file (CLI or MCP) prints the same bins as a table instead. Turn off to skip both. |
 
 ### Output
 

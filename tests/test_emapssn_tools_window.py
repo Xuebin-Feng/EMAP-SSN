@@ -1212,6 +1212,44 @@ class ToolsModelDropdownTests(unittest.TestCase):
         self.assertFalse(combo.currentText().startswith("Unavailable"))
 
 
+class RunButtonTests(unittest.TestCase):
+    """A tool's Save & Run greys out for a second once clicked, so a double
+    click starts the tool once."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def test_a_double_click_starts_the_tool_once_and_the_button_comes_back(self):
+        import EMAPSSN_Tools
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QPushButton
+
+        runs = []
+        window = SimpleNamespace(tool_titles={}, export_settings=lambda script_path: None)
+        window.save_and_run = runs.append
+        window._run_from_button = lambda button, path: ToolsGUI._run_from_button(window, button, path)
+        path = str(SRC_DIR / "tools" / "Sanitize_Sequences.py")
+        header = ToolsGUI._create_tool_header(window, "Sanitize_Sequences.py", path)
+        self.addCleanup(header.deleteLater)
+        header.show()
+        button = {child.objectName(): child for child in header.findChildren(QPushButton)}["saveRunButton"]
+
+        self.assertEqual(EMAPSSN_Tools.RUN_BUTTON_PAUSE_MS, 1000)
+        with mock.patch.object(EMAPSSN_Tools, "RUN_BUTTON_PAUSE_MS", 150):
+            QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+            QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+            self.assertEqual(runs, [path])
+            self.assertFalse(button.isEnabled())
+            QTest.qWait(100)
+            self.assertFalse(button.isEnabled())
+            QTest.qWait(250)
+        self.assertTrue(button.isEnabled())
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        self.assertEqual(runs, [path, path])
+
+
 class SharedSettingsSaveTests(unittest.TestCase):
     """Save Directories and a tool's Run keep a tools_settings.json they cannot load."""
 
@@ -1311,7 +1349,8 @@ class SharedSettingsSaveTests(unittest.TestCase):
 
         critical.assert_not_called()
         launch.assert_called_once()
-        information.assert_called_once()
+        # The tool's console shows it started; no message box says so too.
+        information.assert_not_called()
         document = json.loads((root / "tools_settings.json").read_text(encoding="utf-8"))
         self.assertEqual(document["Sanitize_Sequences.py"], {"INPUT_FASTA": "new.fasta"})
         self.assertEqual(document["Generate_Embeddings.py"], {"MODEL_NAME": "esm2_t6_8m"})

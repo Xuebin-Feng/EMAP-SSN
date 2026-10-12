@@ -4836,6 +4836,11 @@ When enabled, only sequences within the minimum and maximum length bounds will b
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Show Length Histogram: Displays the length histogram of the sanitized sequences when the run ends.
+A run from a settings file (CLI or MCP) prints the same bins as a table instead. Turn off to skip both.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Overwrite Original File: If ON, replaces the input FASTA file with sanitized sequences.
 If OFF, creates a new file named &lt;input_name&gt;_sanitized.fasta to preserve the original file.</source>
         <translation type="unfinished"></translation>
@@ -5290,7 +5295,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Enable Length Filter:</source>
+        <source>Show Length Histogram:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5299,6 +5304,10 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <source>Remove Header Substring:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enable Length Filter:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5980,10 +5989,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     <message>
         <source>Failed to save JSON settings:
 {error}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Saved configuration to JSON and launched {tool}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

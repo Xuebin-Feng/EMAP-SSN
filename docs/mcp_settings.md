@@ -512,8 +512,10 @@ uses `auto`, `cpu`, `mps`, `cuda:N`, or `xpu:N`, with availability checked at ru
 
 MCP MSA jobs force `SHOW_REGRESSION_PLOT` to `false` after validating its supplied
 type and report any override. GUI exports preserve the user's plotting preference.
-Headless sanitization prints the same 50-bin length distribution as a text table
-without creating a figure. Queue ownership, cancellation and subprocess logging
+Headless sanitization prints a `Length statistics:` line and the same length
+distribution as a text table, without creating a figure: one row per length when
+the lengths span 50 values or fewer, else 50 equal bins. `SHOW_LENGTH_HISTOGRAM:
+false` (default `true`) skips the table too. Queue ownership, cancellation and subprocess logging
 are unchanged; jobs report their output directories and, once finished, the
 files they wrote (`output_files`).
 

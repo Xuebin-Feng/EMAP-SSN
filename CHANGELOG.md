@@ -175,6 +175,21 @@ still change before version 1.0.0.
   the selection without changing it, so the sheet hears of it once, when the drag
   starts, instead of refiltering its rows at every mouse move and every turn of the wheel
   that rotates the dragged nodes.
+- **Sanitize Sequences can skip its length histogram.** A Show Length Histogram switch
+  (`SHOW_LENGTH_HISTOGRAM`, on by default) takes Enable Length Filter's place on the
+  Tools card, and Enable Length Filter moves to the row of the Min and Max Seq Length it
+  turns on. Turned off, a run ends without the histogram, and a run from a settings file
+  (CLI or MCP) without the table it prints instead. MCP takes the setting too; a settings
+  document without it keeps the histogram.
+- **Sanitize Sequences' length histogram has a new look.** It takes the style of the
+  Network Statistics Report: rounded bars in a light shade of the Tools window's theme
+  colour, edged in the colour itself, on a light grid, in Noto Sans. A subtitle gives the
+  number of sequences and their minimum, median, mean, standard deviation and maximum
+  length, and the console prints the same line, in a run from a settings file too. With
+  the length filter on, dashed lines mark its bounds. Lengths spanning 50 values or fewer
+  get one bar per length, and the table a row per length; wider spans keep 50 equal bins.
+  The window is titled Sequence Length Distribution. It is still matplotlib; nothing new
+  to install.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts
@@ -315,6 +330,9 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **Tools' Save & Run no longer shows a message box when the tool starts.** The console
+  the tool opens in shows it started. Instead the button greys out for a second after a
+  click, so a double click starts the tool once.
 - **The global and local alignment choices name their algorithms.** Config's and VR
   Config's Alignment Score Mode and Tools' Alignment Mode offer global (Needleman-Wunsch)
   and local (Smith-Waterman). Settings files still store `global` and `local`.
