@@ -563,25 +563,52 @@ def section_command(section, python=None, verbose=False, patterns=()):
 def _kill_tree(process):
     """Stop a section's process and the processes it started. Return "" once they
     have ended, else what is still running and why."""
-    if process.poll() is not None:
-        return ""
     if os.name == "nt":
-        problem = _kill_windows_tree(process)
+        problem = _kill_windows_tree(process) if process.poll() is None else ""
     else:
-        problem = ""
-        try:
-            os.killpg(process.pid, signal.SIGTERM)
-            process.wait(timeout=STOP_WAIT)
-        except (ProcessLookupError, subprocess.TimeoutExpired, PermissionError):
-            try:
-                os.killpg(process.pid, signal.SIGKILL)
-            except (ProcessLookupError, PermissionError):
-                pass
+        problem = _kill_process_group(process)
     try:
         process.wait(timeout=STOP_WAIT)
     except subprocess.TimeoutExpired:
         problem = problem or f"process {process.pid} is still running"
     return problem
+
+
+def _kill_process_group(process):
+    # A section runs in a process group of its own, which everything it starts
+    # joins. Members can outlive the leader: multiprocessing's resource tracker
+    # ignores SIGTERM and removes its semaphores only once the others are gone,
+    # and a test's helper may ignore SIGTERM outright. So the whole group, not
+    # just the leader, gets the grace period before SIGKILL.
+    group = process.pid
+    for signal_number in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(group, signal_number)
+        except ProcessLookupError:
+            return ""
+        except PermissionError:
+            continue
+        if _group_ended(process, group, time.monotonic() + STOP_WAIT):
+            return ""
+    return f"process group {group} still has members after SIGKILL"
+
+
+def _group_ended(process, group, deadline):
+    """Return True once the process group has no members, or False at the deadline.
+
+    The system keeps a group's ID while any member lives, so the number cannot
+    name another group until this one is empty."""
+    while True:
+        process.poll()  # the leader's zombie is a member until it is reaped
+        try:
+            os.killpg(group, 0)
+        except ProcessLookupError:
+            return True
+        except PermissionError:
+            pass  # members this user may not signal are members all the same
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.05)
 
 
 def _kill_windows_tree(process):

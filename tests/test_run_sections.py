@@ -376,33 +376,78 @@ class RunTests(unittest.TestCase):
         self.assertIn("unknown section(s): nonexistent", out)
 
 
-@unittest.skipUnless(os.name == "nt", "Windows stops trees without process groups")
-class WindowsStopTests(unittest.TestCase):
+class RealTreeTestCase(unittest.TestCase):
     """Stopping a real tree: a process whose child started a process of its own."""
 
-    FAILED_TASKKILL = subprocess.CompletedProcess([], 1, b"ERROR: cancelled\r\n", b"")
-
-    def setUp(self):
+    def start_tree(self, *child_options):
+        """Start the tree as the runner starts a section, and wait for the child.
+        "ignore-sigterm" makes the child ignore SIGTERM; "slow-cleanup" makes it
+        take half a second to leave, and write "cleaned-up" as it goes."""
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
         write(self.root, {"sleeper.py": """\
-            import subprocess, sys, time
-            if sys.argv[1:] == ["child"]:
+            import signal, subprocess, sys, time
+            if sys.argv[1:2] == ["child"]:
+                if "ignore-sigterm" in sys.argv:
+                    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+                if "slow-cleanup" in sys.argv:
+                    def clean_up(*_):
+                        time.sleep(0.5)
+                        open("cleaned-up", "w").close()
+                        sys.exit()
+                    signal.signal(signal.SIGTERM, clean_up)
                 open("child-started", "w").close()
             else:
-                subprocess.Popen([sys.executable, __file__, "child"])
+                subprocess.Popen([sys.executable, __file__, "child", *sys.argv[1:]])
             time.sleep(60)
             """})
-        self.process = subprocess.Popen([sys.executable, "sleeper.py"], cwd=self.root,
-                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        options = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if os.name == "nt"
+                   else {"start_new_session": True})
+        self.process = subprocess.Popen([sys.executable, "sleeper.py", *child_options], cwd=self.root,
+                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, **options)
         self.addCleanup(self.process.wait, 10)
         self.addCleanup(stop_processes_in, self.root, grace=0)
         deadline = time.monotonic() + 30
         while not (self.root / "child-started").exists():
             self.assertLess(time.monotonic(), deadline, "the sleeper's child did not start")
             time.sleep(0.05)
+
+
+@unittest.skipUnless(os.name == "posix", "process groups are POSIX")
+class PosixStopTests(RealTreeTestCase):
+    def test_a_member_that_ignores_sigterm_is_killed(self):
+        self.start_tree("ignore-sigterm")
+        with mock.patch.object(run_sections, "STOP_WAIT", 0.5):
+            self.assertEqual(run_sections._kill_tree(self.process), "")
+        self.assertEqual(stop_processes_in(self.root), [])
+
+    def test_members_get_the_grace_period_to_clean_up(self):
+        # As multiprocessing's resource tracker does after the leader is gone.
+        self.start_tree("slow-cleanup")
+        self.assertEqual(run_sections._kill_tree(self.process), "")
+        self.assertTrue((self.root / "cleaned-up").exists())
+
+    def test_a_group_that_outlives_sigkill_is_reported(self):
+        self.start_tree("ignore-sigterm")  # so that SIGKILL still finds the child
+        killpg = os.killpg
+
+        def members_never_leave(group, signal_number):
+            if signal_number:  # signal 0 only asks whether the group has members
+                killpg(group, signal_number)
+
+        with mock.patch.object(run_sections.os, "killpg", side_effect=members_never_leave), \
+                mock.patch.object(run_sections, "STOP_WAIT", 0.2):
+            problem = run_sections._kill_tree(self.process)
+        self.assertEqual(problem, f"process group {self.process.pid} still has members after SIGKILL")
+
+
+@unittest.skipUnless(os.name == "nt", "Windows stops trees without process groups")
+class WindowsStopTests(RealTreeTestCase):
+    FAILED_TASKKILL = subprocess.CompletedProcess([], 1, b"ERROR: cancelled\r\n", b"")
+
+    def setUp(self):
+        self.start_tree()
 
     def test_the_stop_does_not_need_taskkill(self):
         # taskkill lists the tree through WMI, which cancels queries under load.
