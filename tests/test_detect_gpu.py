@@ -218,6 +218,30 @@ class DetectionCompatibilityTests(unittest.TestCase):
                 if expected:
                     self.assertEqual(device["eligibility"], "provisional")
 
+    def test_intel_arc_pro_names_are_xpu_on_windows_and_linux(self):
+        # Windows adapter names from Intel's driver, and lspci names from the
+        # pci.ids in Ubuntu 24.04 (the Pro A-series) and 26.04 (the others).
+        cases = [
+            ("windows", "Intel(R) Arc(TM) Pro B60 Graphics", "discrete"),
+            ("windows", "Intel(R) Arc(TM) Pro B50 Graphics", "discrete"),
+            ("windows", "Intel(R) Arc(TM) Pro A60 Graphics", "discrete"),
+            ("windows", "Intel(R) Arc(TM) Pro A30M Graphics", "discrete"),
+            ("windows", "Intel(R) Arc(TM) Pro 140T GPU (16GB)", "integrated"),
+            ("linux", "Intel Corporation Battlemage G21 [Arc Pro B60]", "discrete"),
+            ("linux", "Intel Corporation DG2 [Arc Pro A40/A50]", "discrete"),
+            ("linux", "Intel Corporation Arrow Lake-P [Arc Pro 130T/140T]", "integrated"),
+        ]
+        os_info = {"windows": {"windows_build": 26200}, "linux": {"id": "ubuntu", "version_id": "24.04"}}
+        for system, name, kind in cases:
+            with self.subTest(name=name):
+                self.assertEqual(Detect_GPU._device_kind("INTEL", name, None, []), kind)
+                device = gpu(name, "INTEL", identifier="intel0", kind=kind)
+                Detect_GPU._evaluate_devices([device], system, os_info[system], set())
+                self.assertEqual(device["eligible_profiles"], ["xpu"])
+        npu = gpu("Intel Corporation Meteor Lake NPU", "INTEL", identifier="intel1")
+        Detect_GPU._evaluate_devices([npu], "linux", os_info["linux"], set())
+        self.assertEqual(npu["eligible_profiles"], [])
+
     def test_non_arc_intel_graphics_remain_ineligible(self):
         for name in ("Intel HD Graphics 630", "Intel UHD Graphics 770", "Intel Iris Xe Graphics", "Intel Graphics"):
             with self.subTest(name=name):
@@ -420,6 +444,11 @@ class GPUDetectionTests(unittest.TestCase):
             "AMD Radeon PRO W7500": "gfx1102",
             "AMD Radeon PRO W6800": "gfx1030",
             "AMD Radeon 780M Graphics": "gfx1103",
+            # AMD's 7.14.1 list has the Ryzen 200 series with these, and the
+            # Ryzen AI 5 330 with a Radeon 820M.
+            "AMD Radeon 760M Graphics": "gfx1103",
+            "AMD Radeon 740M Graphics": "gfx1103",
+            "AMD Radeon 820M Graphics": "gfx1152",
             "AMD Radeon 890M Graphics": "gfx1150",
             "AMD Radeon 8060S Graphics": "gfx1151",
             "AMD Radeon 860M Graphics": "gfx1152",
@@ -490,6 +519,10 @@ class GPUDetectionTests(unittest.TestCase):
             "AMD Ryzen AI 9 HX 370 w/ Radeon 890M": "gfx1150",
             "AMD RYZEN AI MAX+ 395 w/ Radeon 8060S": "gfx1151",
             "AMD Ryzen AI 7 350 w/ Radeon 860M": "gfx1152",
+            "AMD Ryzen 5 230 w/ Radeon 760M Graphics": "gfx1103",
+            "AMD Ryzen 3 210 w/ Radeon 740M Graphics": "gfx1103",
+            "AMD Ryzen AI 5 330 w/ Radeon 820M": "gfx1152",
+            "AMD Ryzen AI 5 430 w/ Radeon 840M": "gfx1153",
         }
         for cpu, target in cases.items():
             with self.subTest(cpu=cpu):
@@ -498,6 +531,36 @@ class GPUDetectionTests(unittest.TestCase):
                 self.assertEqual((device["architecture"], device["kind"]), (target, "integrated"))
                 self.assertEqual(report["backend"], Install_Dependencies.ROCM_BACKEND)
                 self.assertEqual(report["gfx_target"], target)
+
+    def test_windows_radeon_840m_takes_its_target_from_the_cpu_name(self):
+        # AMD gives the Radeon 840M to gfx1152 and gfx1153 processors, so for
+        # that name the CPU decides even though the GPU's own name matches a row.
+        # The 840M's name alone, with no CPU name to go by, stays gfx1152.
+        cases = [
+            ("AMD Ryzen AI 5 430 w/ Radeon 840M", "gfx1153"),
+            ("AMD Ryzen AI 5 PRO 435 w/ Radeon 840M", "gfx1153"),
+            ("AMD Ryzen AI 7 445 w/ Radeon 840M", "gfx1153"),
+            ("AMD Ryzen AI 5 340 w/ Radeon 840M", "gfx1152"),
+            ("AMD Ryzen AI 5 PRO 440 w/ Radeon 840M", "gfx1152"),
+            ("AMD Ryzen AI 7 345 w/ Radeon 840M", "gfx1152"),
+            (None, "gfx1152"),
+        ]
+        for cpu, target in cases:
+            for igpu in ("AMD Radeon 840M Graphics", "AMD Radeon(TM) Graphics"):
+                if cpu is None and igpu == "AMD Radeon(TM) Graphics":
+                    continue
+                with self.subTest(cpu=cpu, igpu=igpu):
+                    report = self._detect(controllers=[igpu], processors=[cpu] if cpu else [])
+                    device = report["devices"][0]
+                    self.assertEqual((device["architecture"], device["kind"]), (target, "integrated"))
+                    self.assertEqual(report["backend"], Install_Dependencies.ROCM_BACKEND)
+                    self.assertEqual(report["gfx_target"], target)
+        # Linux has no processor names; Krackan's lspci name keeps gfx1152.
+        report = self._detect_linux_lspci(
+            "Advanced Micro Devices, Inc. [AMD/ATI] Krackan [Radeon 840M / 860M Graphics] [1002:1114] (rev c1)",
+            {"gfx1152"},
+        )
+        self.assertEqual((report["backend"], report["gfx_target"]), ("rocm", "gfx1152"))
 
     def test_unknown_windows_amd_uses_intel_if_available_otherwise_cpu(self):
         mixed = self._detect(controllers=["AMD Radeon Graphics", "Intel Arc A770"])
@@ -538,6 +601,43 @@ class GPUDetectionTests(unittest.TestCase):
         self.assertEqual(self._detect(nvidia=old_driver)["backend"], "cuda126")
         old_gpu = [{"name": "GTX 1080", "compute_capability": "6.1", "driver_version": "595.10"}]
         self.assertEqual(self._detect(nvidia=old_gpu)["backend"], "cuda126")
+
+    def test_a_newer_gpu_than_hopper_beside_a_pre_turing_gpu_is_left_out_with_a_warning(self):
+        # One CUDA build serves every NVIDIA GPU. A GTX 1080 keeps the computer
+        # on CUDA 12.6, which has no Blackwell kernels: validation passed on the
+        # 1080 alone and the RTX 5090 went unused without a word.
+        def smi(*gpus):
+            return [
+                {"bus_id": f"00000000:0{index + 1}:00.0", "name": name,
+                 "compute_capability": capability, "driver_version": "595.79"}
+                for index, (name, capability) in enumerate(gpus)
+            ]
+
+        report = self._detect(nvidia=smi(("NVIDIA GeForce GTX 1080", "6.1"), ("NVIDIA GeForce RTX 5090", "12.0")))
+        self.assertEqual(report["backend"], "cuda126")
+        self.assertEqual(report["backend_candidates"][0]["device_ids"], ["00000000:01:00.0"])
+        (warning,) = report["warnings"]
+        self.assertIn("NVIDIA GeForce RTX 5090 runs only on the CUDA 13.2 build", warning)
+        self.assertIn("NVIDIA GeForce GTX 1080 does not", warning)
+        blackwell = next(device for device in report["devices"] if "5090" in device["name"])
+        self.assertEqual((blackwell["eligible_profiles"], blackwell["eligibility"]), ([], "ineligible"))
+        # Every GPU keeps its build: a Turing card allows CUDA 13.2, and a V100
+        # and an H100 both run on CUDA 12.6.
+        for pair, backend in (
+            ((("NVIDIA GeForce RTX 2080", "7.5"), ("NVIDIA GeForce RTX 5090", "12.0")), "cuda132"),
+            ((("NVIDIA V100", "7.0"), ("NVIDIA H100", "9.0")), "cuda126"),
+        ):
+            with self.subTest(pair=pair):
+                report = self._detect(nvidia=smi(*pair))
+                self.assertEqual(report["backend"], backend)
+                self.assertEqual(len(report["backend_candidates"][0]["device_ids"]), 2)
+                self.assertEqual(report["warnings"], [])
+        # Alone, a GPU with no reported driver is no other GPU's doing: it stays
+        # a provisional candidate for runtime validation, with no warning.
+        lone = [{"bus_id": "00000000:01:00.0", "name": "NVIDIA GeForce RTX 5090",
+                 "compute_capability": "12.0", "driver_version": None}]
+        report = self._detect(nvidia=lone)
+        self.assertEqual((report["warnings"], report["backend_candidates"][0]["eligibility"]), ([], "provisional"))
 
     def test_linux_nvidia_inventory_merges_lspci_and_smi_by_pci_address(self):
         linux_device = {
@@ -670,6 +770,154 @@ class GPUDetectionTests(unittest.TestCase):
                     self.assertEqual(report["backend"], "rocm")
                     self.assertEqual(report["gfx_target"], target)
                     self.assertEqual(report["backend_candidates"][0]["eligibility"], eligibility)
+
+    def _detect_linux_node(self, *, lspci_dnnk, lspci, rocm_agents, os_release):
+        # Every probe goes through _run, so both lspci readers run unpatched:
+        # `lspci -Dnnk` builds the inventory and plain `lspci` names the
+        # controllers, the fallback when the first yields nothing.
+        replies = {("lspci", "-Dnnk"): lspci_dnnk, ("lspci",): lspci}
+        if rocm_agents:
+            # The runtime lists each CPU agent as gfx000, and rocminfo adds
+            # target features to the ISA name.
+            replies[("rocm_agent_enumerator", "-name")] = "".join(
+                f"{agent}\n" for agent in ["gfx000", *rocm_agents]
+            )
+            replies[("rocminfo",)] = "".join(
+                f"  Name:                    {agent}\n"
+                f"      Name:                    amdgcn-amd-amdhsa--{agent}:sramecc+:xnack-\n"
+                for agent in rocm_agents
+            )
+
+        def run(command, timeout=5):
+            stdout = replies.get(tuple(command))
+            return completed(stdout) if stdout is not None else None
+
+        with mock.patch.object(Detect_GPU.platform, "system", return_value="Linux"), \
+                mock.patch.object(Detect_GPU.platform, "version", return_value="#1 SMP"), \
+                mock.patch.object(Detect_GPU.platform, "machine", return_value="x86_64"), \
+                mock.patch.object(Detect_GPU, "_read_os_release", return_value=dict(os_release)), \
+                mock.patch.object(Detect_GPU, "_run", side_effect=run), \
+                mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=[]), \
+                mock.patch.object(Detect_GPU.Path, "exists", return_value=True), \
+                mock.patch.object(Detect_GPU.os, "access", return_value=True):
+            return Detect_GPU.detect_hardware()
+
+    # AMD's MI300A system-acceptance guide lists a node's four APUs with plain
+    # `lspci` as below (PCI 1002:74a0, class 1200). The node's BMC adds its own
+    # VGA controller.
+    MI300A_LSPCI = "".join(
+        f"000{domain}:01:00.0 Processing accelerators: Advanced Micro Devices, Inc. [AMD/ATI] "
+        "Aqua Vanjaram [Instinct MI300A]\n"
+        + (
+            "0000:c2:00.0 VGA compatible controller: ASPEED Technology, Inc. ASPEED Graphics Family (rev 52)\n"
+            if domain == 0 else ""
+        )
+        for domain in range(4)
+    )
+    MI300A_LSPCI_DNNK = "".join(
+        f"000{domain}:01:00.0 Processing accelerators [1200]: Advanced Micro Devices, Inc. [AMD/ATI] "
+        "Aqua Vanjaram [Instinct MI300A] [1002:74a0]\n"
+        "\tKernel driver in use: amdgpu\n"
+        "\tKernel modules: amdgpu\n"
+        + (
+            "0000:c2:00.0 VGA compatible controller [0300]: ASPEED Technology, Inc. "
+            "ASPEED Graphics Family [1a03:2000] (rev 52)\n"
+            "\tKernel driver in use: ast\n"
+            if domain == 0 else ""
+        )
+        for domain in range(4)
+    )
+
+    def test_linux_instinct_mi300a_processing_accelerators_get_rocm(self):
+        # The MI300 series is PCI class "Processing accelerators", not a display
+        # class, and detection used to drop it: the node fell back to the CPU.
+        # Plain lspci alone (no -Dnnk) is the controller-name fallback path.
+        # Ubuntu 22.04's pci.ids (2022.01.22) predates the MI300A, so there
+        # lspci prints only the vendor and the numeric ID.
+        unnamed = {
+            name: text.replace("Aqua Vanjaram [Instinct MI300A] [1002:74a0]", "Device [1002:74a0]").replace(
+                "Aqua Vanjaram [Instinct MI300A]", "Device 74a0"
+            )
+            for name, text in (("dnnk", self.MI300A_LSPCI_DNNK), ("plain", self.MI300A_LSPCI))
+        }
+        for source, release, lspci_dnnk, lspci, pci_id, model in (
+            ("lspci -Dnnk", "24.04", self.MI300A_LSPCI_DNNK, self.MI300A_LSPCI, "1002:74a0", "Instinct MI300A"),
+            ("plain lspci", "24.04", None, self.MI300A_LSPCI, None, "Instinct MI300A"),
+            ("lspci -Dnnk", "22.04", unnamed["dnnk"], unnamed["plain"], "1002:74a0", "[AMD/ATI] Device"),
+            ("plain lspci", "22.04", None, unnamed["plain"], None, "[AMD/ATI] Device 74a0"),
+        ):
+            with self.subTest(source=source, ubuntu=release):
+                report = self._detect_linux_node(
+                    lspci_dnnk=lspci_dnnk,
+                    lspci=lspci,
+                    rocm_agents=["gfx942"] * 4,
+                    os_release={"id": "ubuntu", "version_id": release},
+                )
+                amd = [device for device in report["devices"] if device["vendor"] == "AMD"]
+                self.assertEqual(len(amd), 4)
+                for device in amd:
+                    self.assertIn(model, device["name"])
+                    self.assertEqual(device["pci_id"], pci_id)
+                    self.assertEqual(device["architecture"], "gfx942")
+                    self.assertEqual(device["eligible_profiles"], ["rocm"])
+                    self.assertEqual(device["eligibility"], "eligible")
+                self.assertEqual(report["backend"], "rocm")
+                self.assertEqual(report["gfx_target"], "gfx942")
+                rocm = report["backend_candidates"][0]
+                self.assertEqual(sorted(rocm["device_ids"]), sorted(device["id"] for device in amd))
+                self.assertEqual(
+                    [candidate["backend"] for candidate in report["backend_candidates"]], ["rocm", "cpu"]
+                )
+
+    def test_linux_instinct_mi300a_on_rhel_is_found_but_not_eligible(self):
+        # Linux ROCm is limited to the supported Ubuntu releases, so the same
+        # node on RHEL finds the four APUs and still uses the CPU.
+        report = self._detect_linux_node(
+            lspci_dnnk=self.MI300A_LSPCI_DNNK,
+            lspci=self.MI300A_LSPCI,
+            rocm_agents=["gfx942"] * 4,
+            os_release={"id": "rhel", "version_id": "9.4"},
+        )
+        amd = [device for device in report["devices"] if device["vendor"] == "AMD"]
+        self.assertEqual([device["pci_id"] for device in amd], ["1002:74a0"] * 4)
+        for device in amd:
+            self.assertEqual(device["architecture"], "gfx942")
+            self.assertEqual(device["eligible_profiles"], [])
+            self.assertIn(
+                "Linux ROCm profile is limited to the pinned supported Ubuntu releases.", device["reasons"]
+            )
+        self.assertEqual(report["backend"], "cpu")
+        self.assertEqual([candidate["backend"] for candidate in report["backend_candidates"]], ["cpu"])
+
+    def test_linux_instinct_mi210_display_controller_is_unchanged(self):
+        # The MI200 series is a display controller, which detection always kept.
+        lspci_dnnk = (
+            "0000:03:00.0 Display controller [0380]: Advanced Micro Devices, Inc. [AMD/ATI] "
+            "Aldebaran/MI200 [Instinct MI210] [1002:740f] (rev 02)\n"
+            "\tKernel driver in use: amdgpu\n"
+        )
+        lspci = (
+            "03:00.0 Display controller: Advanced Micro Devices, Inc. [AMD/ATI] "
+            "Aldebaran/MI200 [Instinct MI210] (rev 02)\n"
+        )
+        report = self._detect_linux_node(
+            lspci_dnnk=lspci_dnnk,
+            lspci=lspci,
+            rocm_agents=["gfx90a"],
+            os_release={"id": "ubuntu", "version_id": "24.04"},
+        )
+        (device,) = report["devices"]
+        self.assertEqual(
+            (device["name"], device["pci_id"], device["architecture"], device["eligible_profiles"]),
+            (
+                "Advanced Micro Devices, Inc. [AMD/ATI] Aldebaran/MI200 [Instinct MI210]",
+                "1002:740f",
+                "gfx90a",
+                ["rocm"],
+            ),
+        )
+        self.assertEqual(report["backend"], "rocm")
+        self.assertEqual(report["gfx_target"], "gfx90a")
 
     def test_json_cli_contains_selection_reason(self):
         report = detected_report(reason="No accelerator")
@@ -819,6 +1067,48 @@ class ProbeParserTests(unittest.TestCase):
         Detect_GPU._evaluate_devices(devices, "linux", {"id": "ubuntu", "version_id": "24.04"}, set())
         self.assertEqual(devices[0]["eligible_profiles"], ["xpu"])
         self.assertEqual(devices[0]["eligibility"], "provisional")
+
+    def test_lspci_processing_accelerators_count_only_for_amd_gpus(self):
+        # PCI class 12 also holds NPUs, FPGAs, DPUs and other vendors' AI cards,
+        # as Ubuntu 24.04's pci.ids names them. AMD's Pensando DPU is among
+        # them, and its vendor name contains "AMD". Only AMD graphics devices
+        # (vendor 1002, "[AMD/ATI]") of that class are GPUs.
+        lspci_dnnk = (
+            "0000:00:0b.0 Processing accelerators [1200]: Intel Corporation Meteor Lake NPU [8086:7d1d] (rev 04)\n"
+            "\tKernel driver in use: intel_vpu\n"
+            "0000:01:00.0 Processing accelerators [1200]: Advanced Micro Devices, Inc. [AMD/ATI] "
+            "Aqua Vanjaram [Instinct MI300X] [1002:74a1]\n"
+            "\tKernel driver in use: amdgpu\n"
+            "0000:02:00.0 Processing accelerators [1200]: Habana Labs Ltd. Gaudi2 AI Training Accelerator "
+            "[1da3:1020] (rev 01)\n"
+            "\tKernel driver in use: habanalabs\n"
+            "0000:03:00.0 Processing accelerators [1200]: Xilinx Corporation Device [10ee:50b4]\n"
+            "0000:04:00.0 Processing accelerators [1200]: Tenstorrent Inc Blackhole [1e52:b140]\n"
+            "0000:b5:00.0 Processing accelerators [1200]: AMD Pensando Systems DSC PDS Core Management [1dd8:100c]\n"
+            "\tKernel driver in use: pds_core\n"
+        )
+        with mock.patch.object(Detect_GPU, "_run", return_value=completed(lspci_dnnk)):
+            devices = Detect_GPU._linux_inventory([])
+        self.assertEqual(
+            [(device["id"], device["vendor"], device["pci_id"], device["driver"]) for device in devices],
+            [("0000:01:00.0", "AMD", "1002:74a1", "amdgpu")],
+        )
+
+        lspci = (
+            "00:0b.0 Processing accelerators: Intel Corporation Meteor Lake NPU (rev 04)\n"
+            "01:00.0 Processing accelerators: Advanced Micro Devices, Inc. [AMD/ATI] Aqua Vanjaram [Instinct MI300X]\n"
+            "02:00.0 Processing accelerators: Habana Labs Ltd. Gaudi2 AI Training Accelerator (rev 01)\n"
+            "03:00.0 Processing accelerators: Xilinx Corporation Device 50b4\n"
+            "04:00.0 Processing accelerators: Tenstorrent Inc Blackhole\n"
+            "b5:00.0 Processing accelerators: AMD Pensando Systems DSC PDS Core Management\n"
+        )
+        with mock.patch.object(Detect_GPU, "_run", return_value=completed(lspci)) as run:
+            names = Detect_GPU._controller_names("linux")
+        run.assert_called_once_with(["lspci"])
+        self.assertEqual(
+            names,
+            ["01:00.0 Processing accelerators: Advanced Micro Devices, Inc. [AMD/ATI] Aqua Vanjaram [Instinct MI300X]"],
+        )
 
     def test_lspci_names_drop_the_trailing_pci_id_and_revision(self):
         # The numeric ID lives on in pci_id; a zero revision prints no "(rev xx)".

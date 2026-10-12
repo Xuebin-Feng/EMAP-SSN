@@ -1186,6 +1186,16 @@ still change before version 1.0.0.
   installs ROCm and keeps it if it passes validation. Without the ROCm runtime, a new
   installation tries ROCm, but an existing one stays on the CPU until you run
   `python src/Install_Dependencies.py --refresh-backend` in its environment.
+- On Linux, GPU detection never found an AMD Instinct MI300A, MI300X, MI308X, MI325X,
+  MI350X or MI355X, so a node full of them used the CPU. `lspci` lists these as
+  "Processing accelerators" rather than as a display controller, and detection kept
+  only display controllers, so v0.3.0's note that gfx942 and gfx950 Instinct parts are
+  eligible on Linux did not hold for any of them. They are now found, along with their
+  virtual functions. Only AMD graphics devices (PCI vendor 1002) count: other
+  processing accelerators, such as Intel NPUs or AMD Pensando DPUs, are still ignored.
+  As for other Instinct parts, the GFX target comes from `rocminfo` or
+  `rocm_agent_enumerator`, and Linux ROCm needs one of the supported Ubuntu releases.
+  The first launch after updating installs ROCm and keeps it if it passes validation.
 - On Linux, GPU detection gave a GPU the kernel driver of a device `lspci` lists
   after it, usually the GPU's own HDMI audio function, so the detection report
   showed `snd_hda_intel` as the driver of an NVIDIA or AMD card. An Intel Arc GPU
@@ -1217,6 +1227,11 @@ still change before version 1.0.0.
   next launch installs CUDA 13.2. Whenever a GPU build fails to install or validate,
   setup now ends with a warning naming the build, the error (for a failed tensor check,
   each GPU's own error), and the `--refresh-backend` command that tries the GPU again.
+- On a computer with an NVIDIA GPU older than Turing (compute capability below 7.5),
+  such as a GTX 1080, and one newer than Hopper, such as an RTX 5090, setup installed
+  CUDA 12.6 for both, because CUDA 13.2 does not support the older GPU. CUDA 12.6 has
+  no kernels for the newer GPU, which then went unused without a word. Setup now
+  leaves it out and prints a warning saying why.
 - A hand-edited or damaged `ssn_backend.json` (the installer's state file in `.venv`)
   whose `schema` was not a number, such as `null`, `"abc"` or `NaN`, made every device
   lookup fail with `TypeError`, `ValueError` or `OverflowError`: the GUI's device
@@ -1235,6 +1250,22 @@ still change before version 1.0.0.
   PRO W7500 are now recognized (see Changed). On such a PC, the first launch after
   updating installs the ROCm build for a now-recognized card, and otherwise keeps the
   installed backend once it validates.
+- On Windows 11 25H2, some AMD processors whose graphics AMD's ROCm 7.14.1 list
+  covers never used ROCm. Those with Radeon 760M or 740M graphics, such as the Ryzen 5
+  220, 230 and 240 and the Ryzen 3 210, and the Ryzen AI 5 330 with its Radeon 820M,
+  used the CPU, because GPU detection knew only the Radeon 780M among these. The Ryzen
+  AI 5 430, 435 and PRO 435 and the Ryzen AI 7 445 got the ROCm build for gfx1152,
+  because their Radeon 840M has the same name as the graphics of gfx1152 processors
+  such as the Ryzen AI 5 340; it failed validation and they used the CPU. They are
+  gfx1153, which Windows ROCm now covers, and for a Radeon 840M the processor's name
+  now decides the target. On such a PC, the first launch after updating installs ROCm
+  and keeps it if it passes validation.
+- Intel Arc Pro graphics were not recognized and used the CPU: the Arc Pro A30M,
+  A40/A50, A60 and A60M, the Arc Pro B50, B60, B65 and B70, and Arrow Lake's Arc Pro
+  130T/140T. They are the same GPUs as the Arc models the XPU backend already used, and
+  are now eligible for it on the same operating systems. On Linux, detection still goes
+  by the name `lspci` prints, and Ubuntu 24.04's PCI ID list names neither the Arc Pro
+  B50 and B60 nor the Arc B570 and B580, so on Ubuntu 24.04 those still use the CPU.
 - The Viewer's instruction line (`[ENTER] Command | [LeftClick] Highlight | …`) is
   wider than the default 1200 × 800 window in English, so its end ran under the
   sidebar's toggle and past the window's edge. The actions now open on a card from a

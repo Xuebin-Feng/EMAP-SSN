@@ -55,12 +55,20 @@ AMD_GFX_PATTERNS = (
     # RX 7700S and PRO W7600 patterns are what map an RX 7600 or 7600 XT.
     ("gfx1102", (r"rx\s*7600(?:\s*xt|s|m(?:\s*xt)?)?\b", r"rx\s*7700s\b", r"w7[56]00")),
     ("gfx1030", (r"w6800", r"v620")),
-    ("gfx1103", (r"radeon\s*780m",)),
+    ("gfx1103", (r"radeon\s*7[468]0m",)),
     ("gfx1150", (r"radeon\s*(?:890m|880m)", r"ryzen\s*ai\s*9\s*hx\s*(?:375|370)")),
     ("gfx1151", (r"radeon\s*(?:8060s|8050s)", r"ryzen\s*ai\s*max")),
-    ("gfx1152", (r"radeon\s*(?:860m|840m)", r"ryzen\s*ai\s*[57]\s*3[45]0")),
+    # AMD's 7.14.1 list has the Radeon 840M under two targets: the Ryzen AI 5
+    # 430, 435 and PRO 435 and the AI 7 445 are gfx1153, the AI 7 345 and AI 5
+    # 340, PRO 340 and PRO 440 are gfx1152. Only the processor name tells them
+    # apart, so this row names processors and comes before gfx1152's 840M.
+    ("gfx1153", (r"ryzen\s*ai\s*[57]\s*(?:pro\s*)?4(?:3[05]|45)\b",)),
+    ("gfx1152", (r"radeon\s*(?:860m|840m|820m)", r"ryzen\s*ai\s*[57]\s*3[45]0")),
 )
 ROCM_714_TARGETS = frozenset(target for target, _patterns in AMD_GFX_PATTERNS)
+# Integrated GPU names AMD gives to more than one target (see gfx1153): for
+# these the processor name decides whenever it names a target.
+AMD_SHARED_IGPU_PATTERNS = (r"radeon\s*840m",)
 
 # Every GFX target the pinned ROCm PyTorch wheel (ROCM_TORCH_VERSION in
 # Install_Dependencies) declares a `device-<target>` extra for; the extra pulls
@@ -90,17 +98,19 @@ ROCM_CHANNEL_TARGETS = frozenset({
     "gfx1150", "gfx1151", "gfx1152", "gfx1153",
     "gfx1200", "gfx1201",
 })
-INTEGRATED_AMD_TARGETS = frozenset({"gfx1103", "gfx1150", "gfx1151", "gfx1152"})
+INTEGRATED_AMD_TARGETS = frozenset({"gfx1103", "gfx1150", "gfx1151", "gfx1152", "gfx1153"})
 
 INTEL_ARC_PREFIX = r"\bintel\b.*\barc(?:\(tm\)|™)?\s+"
 INTEL_SERIES_3_ARC_PATTERN = INTEL_ARC_PREFIX + r"(?:pro\s+)?b3[79]0\b"
 INTEL_INTEGRATED_ARC_PATTERNS = (
-    INTEL_ARC_PREFIX + r"1[34]0[vt]\b",
+    INTEL_ARC_PREFIX + r"(?:pro\s+)?1[34]0[vt]\b",
     INTEL_SERIES_3_ARC_PATTERN,
 )
+# Arc Pro cards are the same Alchemist and Battlemage silicon as Arc A and B,
+# some with two-digit model numbers (Pro A60, Pro B50, Pro B60).
 INTEL_XPU_PATTERNS = (
     INTEL_ARC_PREFIX + r"[ab]-?series\b",
-    INTEL_ARC_PREFIX + r"[ab]\d{3}",
+    INTEL_ARC_PREFIX + r"(?:pro\s+)?[ab]\d{2,3}",
     INTEL_ARC_PREFIX + r"(?:graphics|gpu)\b",
     *INTEL_INTEGRATED_ARC_PATTERNS,
     r"intel.*data\s+center\s+gpu\s+max",
@@ -165,6 +175,21 @@ def _windows_names(class_name: str) -> list[str]:
     return [str(row.get("Name")) for row in _windows_cim(class_name, ("Name",)) if row.get("Name")]
 
 
+def _amd_accelerator_line(line: str) -> bool:
+    """Tell whether an lspci line is an AMD GPU of PCI class "Processing accelerators".
+
+    AMD's Instinct MI300 series presents that class (12) instead of a display
+    class, and amdgpu binds it by that class. NPUs, FPGAs, DPUs and other
+    vendors' AI cards share the class, AMD's own Pensando DPUs among them
+    (vendor 1dd8, "AMD Pensando Systems"). So it counts only for AMD graphics
+    devices: vendor 1002 with `lspci -nn`, which plain `lspci` names "[AMD/ATI]".
+    """
+    if not re.search(r"Processing accelerators", line, re.I):
+        return False
+    pci_id = _pci_id(line)
+    return pci_id.startswith("1002:") if pci_id else "[amd/ati]" in line.lower()
+
+
 def _controller_names(system: str) -> list[str]:
     """Compatibility wrapper returning display-controller descriptions."""
     if system == "windows":
@@ -174,6 +199,7 @@ def _controller_names(system: str) -> list[str]:
             line
             for line in _lines(_run(["lspci"]))
             if re.search(r"VGA|3D controller|Display controller", line, re.I)
+            or _amd_accelerator_line(line)
         ]
     if system == "darwin":
         return _lines(_run(["system_profiler", "SPDisplaysDataType"], timeout=8))
@@ -263,9 +289,13 @@ def _amd_device_target(name: str, processors: list[str]) -> str | None:
     table does not know, the CPU names identify the APU instead ("Ryzen AI 9
     HX 370" is gfx1150). A name with a discrete model number never takes them:
     the CPU name describes the iGPU, so an RX, PRO W or V card missing from
-    the table would take the iGPU's target and be classed integrated.
+    the table would take the iGPU's target and be classed integrated. The one
+    exception is an iGPU name AMD gives to two targets, such as the Radeon
+    840M: there a CPU name that names a target decides.
     """
     target = amd_gfx_target([name])
+    if target and any(re.search(pattern, name, re.I) for pattern in AMD_SHARED_IGPU_PATTERNS):
+        return amd_gfx_target(processors) or target
     if target or _amd_name_looks_discrete(name):
         return target
     return amd_gfx_target(processors)
@@ -285,7 +315,7 @@ def _device_kind(vendor: str, name: str, gfx_target: str | None, processors: lis
         # particular, B370/B390 are integrated despite their B-series names.
         if any(re.search(pattern, name, re.I) for pattern in INTEL_INTEGRATED_ARC_PATTERNS):
             return "integrated"
-        if "data center gpu max" in text or re.search(r"arc.*\b[ab]\d{3}", text):
+        if "data center gpu max" in text or re.search(r"arc.*\b[ab]\d{2,3}", text):
             return "discrete"
         if "arc" in text and any("core" in value.lower() and "ultra" in value.lower() for value in processors):
             return "integrated"
@@ -341,7 +371,10 @@ def _linux_inventory(processors: list[str]) -> list[dict[str, Any]]:
     devices: list[dict[str, Any]] = []
     current: dict[str, Any] | None = None
     for line in lines:
-        if re.search(r"VGA compatible controller|3D controller|Display controller", line, re.I):
+        if (
+            re.search(r"VGA compatible controller|3D controller|Display controller", line, re.I)
+            or _amd_accelerator_line(line)
+        ):
             match = re.match(r"(\S+)\s+[^:]+:\s*(.+)", line)
             if not match:
                 continue
@@ -521,6 +554,37 @@ def _nvidia_backend(devices: list[dict[str, Any]]) -> tuple[str, str]:
     return "cuda126", "CUDA 12.6 provides the common compatible NVIDIA profile."
 
 
+def _leave_out_nvidia_without_kernels(devices: list[dict[str, Any]]) -> None:
+    """Leave out a GPU newer than Hopper when the NVIDIA GPUs get CUDA 12.6.
+
+    One CUDA build serves every NVIDIA GPU, and CUDA 13.2 needs all of them at
+    compute capability 7.5 or newer. Beside an older GPU the CUDA 12.6 build is
+    installed, which has no kernels for a GPU newer than Hopper: validation
+    passed on the older GPU alone and the newer one went unused without a word.
+    """
+    nvidia = [device for device in devices if "cuda" in device["eligible_profiles"]]
+    if not nvidia or _nvidia_backend(nvidia)[0] != "cuda126":
+        return
+    newer = [
+        device for device in nvidia
+        if _version_tuple(str(device.get("compute_capability") or "")) > CUDA_12_6_MAX_CAPABILITY
+    ]
+    holding_back = [device for device in nvidia if device not in newer and _nvidia_backend([device])[0] == "cuda126"]
+    if not holding_back:
+        return
+    names = " and ".join(str(device.get("name") or "an NVIDIA GPU") for device in holding_back)
+    for device in newer:
+        name = device.get("name") or "This NVIDIA GPU"
+        warning = (
+            f"{name} runs only on the CUDA 13.2 build, which EMAP-SSN installs only when every "
+            f"NVIDIA GPU has compute capability 7.5 or newer and driver 580 or newer. {names} "
+            f"{'does' if len(holding_back) == 1 else 'do'} not, so the CUDA 12.6 build is installed "
+            f"and EMAP-SSN does not use {name}."
+        )
+        device.update(warning=warning, eligibility="ineligible", eligible_profiles=[], profile_eligibility={})
+        device["reasons"].append(warning)
+
+
 def _rank(device: dict[str, Any]) -> tuple[int, int, str]:
     return (
         DEVICE_CLASS_ORDER.get(str(device.get("kind")), 1),
@@ -635,6 +699,7 @@ def _evaluate_devices(
         device["eligible_profiles"] = profiles
         device.setdefault("profile_eligibility", {profile: status for profile in profiles})
         device["reasons"] = reasons
+    _leave_out_nvidia_without_kernels(devices)
 
 
 def _candidate_ladder(devices: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:

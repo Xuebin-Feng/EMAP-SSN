@@ -387,6 +387,9 @@ experiments; such systems remain unsupported.
 A GPU newer than Hopper (compute capability above 9.0, such as Blackwell) runs
 only on the CUDA 13.2 build. With an NVIDIA driver older than 580, setup leaves
 that GPU out, prints a warning to update the driver, and uses the CPU until then.
+One CUDA build serves every NVIDIA GPU in the computer, so beside a GPU older than
+Turing (compute capability below 7.5) setup installs CUDA 12.6 for the older GPU
+and leaves the newer one out with a warning.
 Whenever a GPU build fails to install or validate, setup falls back the same way
 and prints which build failed, the error, and how to retry with
 `--refresh-backend`.
@@ -411,8 +414,8 @@ selected per GFX target:
 
 | Platform/profile | Eligible GFX targets | Additional requirements |
 | --- | --- | --- |
-| Windows ROCm 7.14 / PyTorch 2.12.0 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
-| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus every other target the channel ships a PyTorch 2.12.0 device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`, `gfx1153`. | Ubuntu 22.04, 24.04, 25.10, or 26.04, readable and writable `/dev/kfd`, and a target reported by `rocm_agent_enumerator` or `rocminfo`. A card matched by name while no ROCm agent is reported is only provisionally eligible. |
+| Windows ROCm 7.14 / PyTorch 2.12.0 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1153`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
+| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus every other target the channel ships a PyTorch 2.12.0 device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`. | Ubuntu 22.04, 24.04, 25.10, or 26.04, readable and writable `/dev/kfd`, and a target reported by `rocm_agent_enumerator` or `rocminfo`. A card matched by name while no ROCm agent is reported is only provisionally eligible. AMD's ROCm 7.14.1 matrix lists Ubuntu 22.04, 24.04 and 26.04, and for Ryzen processors' graphics only 24.04 and 26.04; Ubuntu 25.10 is accepted but not listed by AMD. |
 
 The two platforms differ because of how the GFX target is identified. Windows
 exposes no way to query it, so the target is inferred from the product name
@@ -438,7 +441,7 @@ one AMD published for earlier Windows 11 builds. A Windows 11 machine below
 CPU.
 
 The installer does not install the Linux kernel driver or system ROCm stack.
-Consult the [ROCm 7.14 matrix](https://rocm.docs.amd.com/en/docs-7.14.0/about/release-notes.html)
+Consult the [ROCm 7.14.1 compatibility matrix](https://rocm.docs.amd.com/en/docs-7.14.1/compatibility/compatibility-matrix.html)
 for the matching operating system, driver, and hardware requirements.
 
 SSN physics layouts on a GPU use two small kernels that EMAP-SSN compiles when a
@@ -454,13 +457,13 @@ forces that fallback on any GPU.
 
 | Device family | Supported operating-system combinations |
 | --- | --- |
-| Intel Arc A-Series, Arc B-Series, and Core Ultra processors with Arc graphics | Windows 11; Ubuntu 24.04, 25.10, or 26.04 as admitted by the current application snapshot. Ubuntu 26.04 remains project-untested. |
+| Intel Arc A-Series and Arc B-Series, including Arc Pro, and Core Ultra processors with Arc graphics | Windows 11; Ubuntu 24.04, 25.10, or 26.04 as admitted by the current application snapshot. Ubuntu 26.04 remains project-untested. |
 | Core Ultra Series 3 / Panther Lake with Arc graphics | Windows 11; Ubuntu 25.10 or 26.04. Ubuntu 26.04 remains project-untested. |
 | Intel Data Center GPU Max | Ubuntu 22.04, RHEL 9.2, or SLES 15. The non-Ubuntu combinations are upstream-listed but project-untested. |
 | Intel HD, UHD, Iris, and non-Arc integrated graphics | Not eligible for XPU; another accelerator or CPU is used. |
 
 Integrated Arc graphics are eligible for the XPU PyTorch installation, including
-Arc 130V/140V, 130T/140T, and B370/B390 model names. After runtime tensor validation,
+Arc 130V/140V, 130T/140T (Arc Pro 130T/140T too), and B370/B390 model names. After runtime tensor validation,
 automatic workload benchmarks compare available devices with CPU; integrated
 graphics are not excluded based on assumed performance.
 
