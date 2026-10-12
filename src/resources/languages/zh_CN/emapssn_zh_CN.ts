@@ -6258,14 +6258,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1158"/>
+        <location line="+1087"/>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
 展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="-1009"/>
+        <location line="-938"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -6331,7 +6331,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+547"/>
+        <location line="+476"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
@@ -7103,12 +7103,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1221"/>
+        <location line="+1219"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1216"/>
+        <location line="-1214"/>
         <location line="+265"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
@@ -7475,17 +7475,17 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">将鼠标悬停在某个输入项上或使其获得焦点，即可查看其说明。</translation>
     </message>
     <message>
-        <location line="+47"/>
+        <location line="+45"/>
         <source>Exit</source>
         <translation type="unfinished">退出</translation>
     </message>
     <message>
-        <location line="-18"/>
+        <location line="-16"/>
         <source>Script Description</source>
         <translation type="unfinished">脚本说明</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location line="+57"/>
         <source>Tools Settings Not Loaded</source>
         <translation type="unfinished">工具设置未加载</translation>
     </message>
@@ -7944,7 +7944,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-4547"/>
+        <location line="-4474"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -8074,7 +8074,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+1909"/>
+        <location line="+1836"/>
         <location line="+176"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>

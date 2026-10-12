@@ -1170,13 +1170,6 @@ still change before version 1.0.0.
   until another file is chosen or the file is back. A file saved by its full path,
   which the tools find though no folder lists it, now shows as it is instead of the
   folder's first file.
-- Resizing the Tools window's Script Description lagged, and while it widened, the strip
-  it gained showed black until the help page caught up. Chromium laid the page out and
-  drew it again on every mouse move of the drag, and drew the area it had not reached
-  yet as black. The help page now keeps its size while the drag goes on, with the
-  window's colour where it doesn't reach yet, and takes the new size once the drag
-  pauses, under a picture of itself that lifts once the page is redrawn. In a test drag
-  every step of a first widening showed the black strip; none does now.
 - A tool run from the command line without a settings file, while `tools_settings.json`
   could not be read (invalid JSON, empty, or not a JSON object), printed a warning and
   ran on its built-in defaults; an MCP job given parameters without every directory
