@@ -1159,6 +1159,14 @@ still change before version 1.0.0.
   Saving now keeps the choice the fields showed before they went blank, or that of a
   profile loaded since. Selecting an alignment network again restores that choice
   instead of resetting it to global and alignment_length.
+- In Config and VR Config, resting the pointer on an input or its label for about
+  0.7 s replaced whatever the tips panel showed, so the result of a **Consistency
+  Check**, a network-statistics message or **Save**'s report could vanish before it
+  was read. Hovering now shows tips only while the panel holds a tip. After such a
+  message, a left click on an element with a tip, or moving to it with Tab or a
+  shortcut key, shows that tip and lets hovering show tips again. Focus that returns
+  by itself, as when the window is activated again, no longer replaces a message
+  either.
 - Saving settings could wipe saved data. A `tools_settings.json` with one syntax error,
   such as a trailing comma, counted as empty: **Save Directories** then kept only the
   directories, and a tool's **Save & Run** only that tool's section, deleting every

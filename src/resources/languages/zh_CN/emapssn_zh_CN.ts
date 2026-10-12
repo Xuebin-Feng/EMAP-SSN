@@ -581,23 +581,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3030"/>
+        <location line="+3057"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3029"/>
+        <location line="-3056"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3539"/>
+        <location line="+3566"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3531"/>
+        <location line="-3558"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -625,7 +625,7 @@
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+15"/>
         <source>Consistency Check</source>
         <translation type="unfinished">一致性检查</translation>
     </message>
@@ -636,12 +636,12 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3036"/>
+        <location line="+3059"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3033"/>
+        <location line="-3056"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -682,12 +682,12 @@
     </message>
     <message>
         <location line="+221"/>
-        <location line="+1846"/>
+        <location line="+1869"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-1765"/>
+        <location line="-1788"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -786,7 +786,7 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+56"/>
         <source>Saved Config: Selects the settings profile used for this tab.
 (custom) uses the current viewer_settings.json values; (default) uses read-only built-in defaults; (new) creates a named profile; named entries load profiles from the Saved Config Directory.</source>
         <translation type="unfinished">已保存配置：选择此选项卡使用的配置方案。
@@ -1399,7 +1399,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-2314"/>
+        <location line="-2341"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1498,7 +1498,7 @@ Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &a
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+1155"/>
+        <location line="+1182"/>
         <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
 Significantly improves responsiveness and reduces rendering latency for large networks.</source>
         <translation type="unfinished">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。
@@ -3807,7 +3807,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-3845"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-3872"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -3849,7 +3849,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+977"/>
+        <location line="+981"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>

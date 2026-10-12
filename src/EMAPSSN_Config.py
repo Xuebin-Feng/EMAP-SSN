@@ -936,6 +936,10 @@ if __name__ == "__main__":
                 "Config", "Click or tab to an input or its label to see helpful tips here."
             ))
             self.tip_panel.setWordWrap(True)
+            # The panel's text when it last showed a tip (here, the
+            # placeholder). Anything else in it is a status message, such as a
+            # consistency-check result, which hovering must not replace.
+            self._tip_panel_tip_text = self.tip_panel.text()
             add_hint_icon(self.tip_panel)
             self.left_bottom_layout.addWidget(self.tip_panel, 1)
             
@@ -1821,10 +1825,33 @@ if __name__ == "__main__":
                     if not tip and isinstance(obj, QWidget):
                         tip = obj.toolTip()
                     if tip:
-                        self.tip_panel.setText(tip)
+                        # Hovering, and focus that Qt moves by itself, only
+                        # replace another tip. A status message stays until
+                        # the user picks an element with a tip by a left click
+                        # or the keyboard; then hovering works again.
+                        if (
+                            self.tip_panel.text() == self._tip_panel_tip_text
+                            or self._picks_tip_target(event)
+                        ):
+                            self.tip_panel.setText(tip)
+                            self._tip_panel_tip_text = self.tip_panel.text()
                         if event_type == QEvent.Type.ToolTip:
                             return True
             return super().eventFilter(obj, event)
+
+        @staticmethod
+        def _picks_tip_target(event):
+            """Whether event is a left click, or focus by Tab, Shift+Tab or a shortcut."""
+            from PySide6.QtCore import QEvent
+            if event.type() == QEvent.Type.MouseButtonPress:
+                return event.button() == Qt.MouseButton.LeftButton
+            if event.type() == QEvent.Type.FocusIn:
+                return event.reason() in (
+                    Qt.FocusReason.TabFocusReason,
+                    Qt.FocusReason.BacktabFocusReason,
+                    Qt.FocusReason.ShortcutFocusReason,
+                )
+            return False
 
         def _register_tip_targets(self, widget, tip, *, overwrite=True):
             if widget is None:
