@@ -411,10 +411,13 @@ class GPUDetectionTests(unittest.TestCase):
             "AMD Radeon RX 7600 XT": "gfx1102",
             # The laptop RX 7700S is that silicon too, not an RX 7700 (gfx1101).
             "AMD Radeon RX 7700S": "gfx1102",
-            # So are the laptop RX 7600S and RX 7600M XT and the PRO W7600.
+            # So are the laptop RX 7600S, RX 7600M and RX 7600M XT and the PRO
+            # W7600 and W7500.
             "AMD Radeon RX 7600S": "gfx1102",
+            "AMD Radeon RX 7600M": "gfx1102",
             "AMD Radeon RX 7600M XT": "gfx1102",
             "AMD Radeon PRO W7600": "gfx1102",
+            "AMD Radeon PRO W7500": "gfx1102",
             "AMD Radeon PRO W6800": "gfx1030",
             "AMD Radeon 780M Graphics": "gfx1103",
             "AMD Radeon 890M Graphics": "gfx1150",
@@ -455,11 +458,13 @@ class GPUDetectionTests(unittest.TestCase):
         igpu = "AMD Radeon(TM) Graphics"
         cases = [
             ("AMD Radeon RX 7600S", laptop, "gfx1102"),
+            ("AMD Radeon RX 7600M", laptop, "gfx1102"),
             ("AMD Radeon RX 7600M XT", laptop, "gfx1102"),
             ("AMD Radeon PRO W7600", desktop, "gfx1102"),
-            # Not in the table: an RDNA 2 card and a Navi 33 one AMD does not list.
+            ("AMD Radeon PRO W7500", desktop, "gfx1102"),
+            # Not in the table: two RDNA 2 (gfx1032) cards.
             ("AMD Radeon RX 6600", desktop, None),
-            ("AMD Radeon PRO W7500", desktop, None),
+            ("AMD Radeon PRO W6600", desktop, None),
         ]
         for dgpu, cpu, target in cases:
             rows = [{"Name": name, "DriverVersion": "32.0.21013.1000"} for name in (dgpu, igpu)]
@@ -645,10 +650,13 @@ class GPUDetectionTests(unittest.TestCase):
         # lspci names a PCI ID, not a product. The pci.ids in Ubuntu 24.04
         # (2024.03.31) start the 1002:7480 name with "RX 7700S", which the RX
         # 7700 (gfx1101) pattern used to match, so these cards never got ROCm
-        # there. Newer pci.ids start it with "RX 7600". Navi 32 stays gfx1101.
+        # there. Newer pci.ids start it with "RX 7600". The 1002:7483 and
+        # 1002:7489 names are the same in both. Navi 32 stays gfx1101.
         names = {
             "Navi 33 [Radeon RX 7700S/7600/7600S/7600M XT/PRO W7600] [1002:7480]": "gfx1102",
             "Navi 33 [Radeon RX 7600/7600 XT/7600M XT/7600S/7700S / PRO W7600] [1002:7480]": "gfx1102",
+            "Navi 33 [Radeon RX 7600M/7600M XT] [1002:7483]": "gfx1102",
+            "Navi 33 [Radeon Pro W7500] [1002:7489]": "gfx1102",
             "Navi 32 [Radeon RX 7700 XT / 7800 XT] [1002:747e]": "gfx1101",
         }
         for name, target in names.items():

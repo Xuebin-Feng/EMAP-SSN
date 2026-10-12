@@ -47,13 +47,13 @@ AMD_GFX_PATTERNS = (
     # The trailing \b keeps the laptop RX 7700S, a gfx1102 part, out of gfx1101.
     ("gfx1101", (r"rx\s*7800\s*xt", r"rx\s*7700(?:\s*xt)?\b", r"w7700", r"v710")),
     # AMD's ROCm 7.14 list names only the RX 7600; the RX 7600 XT, the laptop
-    # RX 7600S, RX 7600M XT and RX 7700S, and the Radeon PRO W7600 are the same
-    # gfx1102 silicon (Navi 33), and the installer validates the backend before
-    # use. lspci names a PCI ID, not a product: the pci.ids in Ubuntu 24.04
-    # (2024.03.31) call every 1002:7480 card
+    # RX 7600S, RX 7600M, RX 7600M XT and RX 7700S, and the Radeon PRO W7600
+    # and W7500 are the same gfx1102 silicon (Navi 33), and the installer
+    # validates the backend before use. lspci names a PCI ID, not a product:
+    # the pci.ids in Ubuntu 24.04 (2024.03.31) call every 1002:7480 card
     # "Navi 33 [Radeon RX 7700S/7600/7600S/7600M XT/PRO W7600]", so there the
     # RX 7700S and PRO W7600 patterns are what map an RX 7600 or 7600 XT.
-    ("gfx1102", (r"rx\s*7600(?:\s*xt|s|m\s*xt)?\b", r"rx\s*7700s\b", r"w7600")),
+    ("gfx1102", (r"rx\s*7600(?:\s*xt|s|m(?:\s*xt)?)?\b", r"rx\s*7700s\b", r"w7[56]00")),
     ("gfx1030", (r"w6800", r"v620")),
     ("gfx1103", (r"radeon\s*780m",)),
     ("gfx1150", (r"radeon\s*(?:890m|880m)", r"ryzen\s*ai\s*9\s*hx\s*(?:375|370)")),
