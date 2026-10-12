@@ -18,6 +18,7 @@ import shutil
 import sys
 import tempfile
 import unittest
+from unittest import mock
 import warnings
 
 
@@ -227,6 +228,27 @@ class ApplicationFontTests(unittest.TestCase):
         self.assertTrue(configured.italic())
         self.app.setFont(original)
         configure_qt_application_fonts(self.app)
+
+    def test_the_application_font_is_unhinted_on_windows_only(self):
+        # Qt hints on Windows, where the browser views draw the same fonts
+        # unhinted; macOS never hints, and on Linux Qt and Chromium both follow
+        # the system's setting, so there the layouts keep Qt's default.
+        original = QFont(self.app.font())
+        self.addCleanup(configure_qt_application_fonts, self.app)
+        self.addCleanup(self.app.setFont, original)
+        for platform, expected in (
+            ("win32", QFont.HintingPreference.PreferNoHinting),
+            ("linux", QFont.HintingPreference.PreferDefaultHinting),
+            ("darwin", QFont.HintingPreference.PreferDefaultHinting),
+        ):
+            with self.subTest(platform=platform), mock.patch.object(sys, "platform", platform):
+                # Explicitly: setFont merges a default QFont() with the current
+                # application font, which would keep the hinting set before.
+                start = QFont(original)
+                start.setHintingPreference(QFont.HintingPreference.PreferDefaultHinting)
+                self.app.setFont(start)
+                configure_qt_application_fonts(self.app)
+                self.assertEqual(self.app.font().hintingPreference(), expected)
 
     def test_the_core_faces_stay_registered_after_leaving_a_language_with_its_own_font(self):
         # Removing the Chinese font leaves Qt listing no family for any

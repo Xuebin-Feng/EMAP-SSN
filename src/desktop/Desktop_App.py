@@ -576,6 +576,13 @@ def configure_qt_application_fonts(
     if ui_available:
         application_font = QFont(app.font())
         application_font.setFamilies(list(QT_UI_FAMILIES))
+        if sys.platform == "win32":
+            # Unhinted, as the browser views draw the same fonts. Qt hints on
+            # Windows, snapping each stroke to whole pixels, so Chinese, with
+            # many strokes to a character, looked heavier than in the Script
+            # Description. macOS never hints, and on Linux Qt and Chromium
+            # both follow the system's setting, so those keep their default.
+            application_font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
         app.setFont(application_font)
 
     return QtFontLoadStatus(

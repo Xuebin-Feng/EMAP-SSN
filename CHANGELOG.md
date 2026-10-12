@@ -330,6 +330,13 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **Text on Windows is drawn without hinting.** Config, VR Config, Tools and the Viewer's
+  panels draw their text unhinted on Windows, as the Script Description and the Viewer's
+  web pages already did, so the bundled fonts look alike in both. Hinting had snapped
+  every stroke to whole pixels, which drew Chinese noticeably heavier. Text widths change
+  by a pixel here and there. macOS never hints, and on Linux the windows keep the
+  system's setting, which the browser views follow too.
+
 - **Tools' Save & Run no longer shows a message box when the tool starts.** The console
   the tool opens in shows it started. Instead the button greys out for a second after a
   click, so a double click starts the tool once.

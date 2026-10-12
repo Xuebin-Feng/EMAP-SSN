@@ -374,8 +374,8 @@ class ResponsiveConfigTests(unittest.TestCase):
         first column gives way, down to its own minimum, while the rest of the row
         keeps its minimum. The fields stay side by side down to the width they
         need, which the narrowest window has room for once the report is
-        collapsed: 771 px with Windows' text, 778 px with Linux's, whose FreeType
-        draws the row's labels 1 to 3 px wider each."""
+        collapsed: 772 px with Windows' unhinted text, 778 px with Linux's, whose
+        FreeType draws the row's labels wider."""
         from PySide6.QtCore import QPoint
         rows = [self.window.findChild(self.namespace["QWidget"], name) for name in
                 ("alignmentModeRow", "alignmentReferenceRow", "filterRow")]
