@@ -393,6 +393,65 @@ def _build_adjacency_index(edges, node_count):
     )
 
 
+class _SelectionNeighbours:
+    """The nodes adjacent to a selection, kept up to date as it changes.
+
+    Each node counts how many selected nodes it touches, so a change costs
+    the summed degree of the nodes added and removed, not of the whole
+    selection: a box selection growing over dense clusters pays per move
+    for what that move adds. The counts are exact integers and never drift.
+    """
+
+    def __init__(self, indptr, indices, node_count):
+        self.indptr = indptr
+        self.indices = indices
+        self.degree = np.diff(indptr)
+        self.selected = np.zeros(node_count, dtype=bool)
+        self.touches = np.zeros(node_count, dtype=np.int64)
+        self.neighbours = np.empty(0, dtype=np.int32)
+
+    def _count(self, nodes, step):
+        """Add ``step`` to the count of every neighbour of ``nodes``."""
+        starts = self.indptr[nodes]
+        counts = self.indptr[nodes + 1] - starts
+        total = int(counts.sum())
+        if total == 0:
+            return
+        # Expand every node's CSR slice into one flat gather: entry j of
+        # group g reads indices[starts[g] + (j - group_start[g])].
+        group_starts = np.cumsum(counts) - counts
+        gather = np.arange(total, dtype=np.int64) + np.repeat(
+            starts - group_starts, counts
+        )
+        reached = np.bincount(self.indices[gather], minlength=len(self.touches))
+        if step > 0:
+            self.touches += reached
+        else:
+            self.touches -= reached
+
+    def neighbours_of(self, nodes):
+        """Return the neighbours of ``nodes`` (unique, in range), ascending,
+        leaving out ``nodes`` themselves."""
+        selected = np.zeros(len(self.selected), dtype=bool)
+        selected[nodes] = True
+        added = np.flatnonzero(selected & ~self.selected)
+        removed = np.flatnonzero(self.selected & ~selected)
+        if len(added) or len(removed):
+            changed = int(self.degree[added].sum()) + int(self.degree[removed].sum())
+            if changed >= int(self.degree[nodes].sum()):
+                # A new selection: counting it afresh costs no more.
+                self.touches[:] = 0
+                self._count(nodes, 1)
+            else:
+                self._count(added, 1)
+                self._count(removed, -1)
+            self.selected = selected
+            self.neighbours = np.flatnonzero(
+                (self.touches > 0) & ~selected
+            ).astype(np.int32, copy=False)
+        return self.neighbours.copy()
+
+
 def _web_table_cell(value):
     """One metadata value as the web table receives it."""
     if isinstance(value, (float, np.floating)) and np.isnan(value):
@@ -2104,9 +2163,13 @@ class MainViewer:
         array = np.asarray(list(values) if isinstance(values, set) else values)
         if array.size == 0:
             return np.empty(0, dtype=np.int32)
-        indices = np.unique(array.astype(np.int64, copy=False).reshape(-1))
-        valid = (indices >= 0) & (indices < self.n_nodes)
-        return indices[valid].astype(np.int32, copy=False)
+        indices = array.astype(np.int64, copy=False).reshape(-1)
+        indices = indices[(indices >= 0) & (indices < self.n_nodes)]
+        # A presence mask sorts and deduplicates in one pass over the nodes;
+        # np.unique hashes or sorts, which costs more for a large selection.
+        present = np.zeros(self.n_nodes, dtype=bool)
+        present[indices] = True
+        return np.flatnonzero(present).astype(np.int32, copy=False)
 
     def _selected_node_indices(self):
         """Return command and box-selected node indices."""
@@ -2159,33 +2222,19 @@ class MainViewer:
         return indptr, indices
 
     def _connected_to_selected_indices(self, selected):
-        """Return nodes adjacent to selected nodes in the complete topology."""
-        cache_key = (id(self.edges), tuple(np.asarray(selected).tolist()))
-        if getattr(self, '_render_order_neighbor_cache_key', None) == cache_key:
-            return self._render_order_neighbor_cache.copy()
+        """Return nodes adjacent to selected nodes in the complete topology.
 
+        The neighbour counts follow the selection from call to call
+        (_SelectionNeighbours), so each mouse move of a box selection costs
+        what it adds or removes. A new topology starts the counts afresh.
+        """
         nodes = self._valid_node_indices(selected).astype(np.int64, copy=False)
         indptr, indices = self._adjacency_index()
-        starts = indptr[nodes]
-        counts = indptr[nodes + 1] - starts
-        total = int(counts.sum())
-        if total == 0:
-            connected = np.empty(0, dtype=np.int32)
-        else:
-            # Expand every selected node's CSR slice into one flat gather:
-            # entry j of group g reads indices[starts[g] + (j - group_start[g])].
-            group_starts = np.cumsum(counts) - counts
-            gather = np.arange(total, dtype=np.int64) + np.repeat(
-                starts - group_starts, counts
-            )
-            reached = np.zeros(self.n_nodes, dtype=bool)
-            reached[indices[gather]] = True
-            reached[nodes] = False
-            connected = np.flatnonzero(reached).astype(np.int32, copy=False)
-
-        self._render_order_neighbor_cache_key = cache_key
-        self._render_order_neighbor_cache = connected.copy()
-        return connected
+        tracker = getattr(self, '_selection_neighbours', None)
+        if tracker is None or tracker.indices is not indices:
+            tracker = _SelectionNeighbours(indptr, indices, self.n_nodes)
+            self._selection_neighbours = tracker
+        return tracker.neighbours_of(nodes)
 
     def visible_node_render_order(self, identify_connected=None):
         """Return the effective low-to-high order for currently visible nodes."""
@@ -2262,16 +2311,17 @@ class MainViewer:
         
         if getattr(self, 'selected_indices', None) is not None and len(self.selected_indices) > 0:
             hover_rgba = mcolors.to_rgba(cfg.HOVER_COLOR)
+            # Converted once: indexing with the list itself converts it again.
+            selected = self._selected_node_indices()
 
             if identify_connected:
-                selected = self._selected_node_indices()
                 neighbor_indices = self._connected_to_selected_indices(selected)
                 if len(neighbor_indices) > 0:
                     edge_colors[neighbor_indices] = conn_rgba
                     edge_widths[neighbor_indices] = 2.0
-                
-            edge_colors[self.selected_indices] = hover_rgba
-            edge_widths[self.selected_indices] = 2.0
+
+            edge_colors[selected] = hover_rgba
+            edge_widths[selected] = 2.0
         
         # Submit every node attribute in the same effective low-to-high order.
         draw_order = self.visible_node_render_order(

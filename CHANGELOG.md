@@ -475,6 +475,14 @@ still change before version 1.0.0.
   48.7-million-edge network (0.25 s at 5 million); the edges take half the graphics
   memory and about half the RAM they did. `SSN_EDGE_POSITION_TEXTURE=0` draws edges
   the old way, for a graphics driver that cannot read textures in a vertex shader.
+- **Box selection no longer slows down as it grows.** A right-button box selection draws
+  a border around the nodes connected to the selection, and each mouse move used to look
+  up the neighbours of every selected node again, so a move cost more the more nodes the
+  box already held. The Viewer now keeps, for each node, a count of the selected nodes it
+  touches, and a move updates only the counts of the nodes it adds or removes. On a
+  synthetic SSN-like network of 44,000 nodes and 25 million edges, a move took 11–16 ms
+  however many nodes were selected, instead of 13 ms rising to 430 ms as the box grew to
+  cover the network. The selection, the borders and the draw order are unchanged.
 - Less memory while the Viewer, the VR viewer and layout generation read a network.
   Only the columns the settings use are read: the alignment-length column only for
   `alignment_length` normalization. Scores are also normalized without a second
