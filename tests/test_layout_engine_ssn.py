@@ -624,12 +624,13 @@ class DeterministicLayoutTests(unittest.TestCase):
                 edges.append((base + offset, base + (offset + 1) % size))
         return np.array([(u, v, 1.0) for u, v in edges], dtype=np.float64)
 
-    def _layout(self, *, seed=0, dimensions=2):
+    def _layout(self, *, seed=0, dimensions=2, **extra):
         params = {
             **BASE_LAYOUT_PARAMS,
             "MAX_STEPS": 25,
             "LAYOUT_DEVICE_SELECTION": "cpu",
             "LAYOUT_SEED": seed,
+            **extra,
         }
         if dimensions != 2:
             params["LAYOUT_DIMENSIONS"] = dimensions
@@ -650,6 +651,16 @@ class DeterministicLayoutTests(unittest.TestCase):
         second = self._layout(seed=0, dimensions=3)
         self.assertEqual(first.shape, (self.NODES, 3))
         np.testing.assert_array_equal(first, second)
+
+    def test_3d_layouts_pack_into_voxels_with_the_chosen_geometry(self):
+        for geometry in ("Square", "Circle"):
+            with mock.patch.object(
+                ssn_engine, "pack_components_to_voxels",
+                wraps=ssn_engine.pack_components_to_voxels,
+            ) as packer:
+                self._layout(dimensions=3, PACKING_GEOMETRY=geometry)
+            packer.assert_called_once()
+            self.assertEqual(packer.call_args.args[3:], (200.0, 50.0, geometry))
 
     def test_distinct_seeds_produce_distinct_layouts(self):
         self.assertFalse(

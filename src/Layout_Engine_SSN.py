@@ -680,107 +680,6 @@ def _initial_lattice(n_nodes, box_limit, dimensions):
     return lattice[:n_nodes].astype(np.float32)
 
 
-def _fibonacci_sphere(count):
-    """Near-uniform unit vectors on the sphere via the golden-angle spiral."""
-    if count <= 0:
-        return np.zeros((0, 3), dtype=np.float64)
-    if count == 1:
-        return np.array([[0.0, 0.0, 1.0]], dtype=np.float64)
-    index = np.arange(count, dtype=np.float64)
-    golden_angle = math.pi * (3.0 - math.sqrt(5.0))
-    z = 1.0 - 2.0 * index / (count - 1)
-    ring = np.sqrt(np.clip(1.0 - z * z, 0.0, None))
-    theta = golden_angle * index
-    return np.column_stack((np.cos(theta) * ring, np.sin(theta) * ring, z))
-
-
-def pack_components_to_shells(pos, edges, n_nodes, spacing, padding):
-    """Distribute independent components over concentric spherical shells.
-
-    The 2D packer tiles components into a readable poster because a flat view
-    has to show everything at once. In a headset the viewer flies between
-    components, so the 3D analogue optimizes for navigability instead of area:
-    the largest component sits at the origin and the rest are distributed over
-    shells around it, each placed on a golden-angle direction that clears every
-    component already placed.
-    """
-    print("Packing independent components onto concentric spherical shells...")
-    components = find_connected_components(n_nodes, edges)
-
-    if not components:
-        return pos, 100.0
-
-    gap = max(float(spacing), 0.0)
-    pad = max(float(padding), 0.0) / 2.0
-
-    component_info = []
-    for component in components:
-        indices = np.asarray(component, dtype=np.int64)
-        block = pos[indices].astype(np.float64)
-        centroid = block.mean(axis=0)
-        local = block - centroid
-        extent = (
-            float(np.max(np.linalg.norm(local, axis=1))) if indices.size else 0.0
-        )
-        component_info.append({
-            'indices': indices,
-            'local': local,
-            'radius': max(extent, 1e-6) + pad,
-            'num_nodes': int(indices.size),
-        })
-
-    # Largest first, matching the 2D packer's ordering intent.
-    component_info.sort(key=lambda c: (c['radius'], c['num_nodes']), reverse=True)
-
-    new_pos = np.asarray(pos, dtype=np.float64).copy()
-    placed_centers = np.zeros((len(component_info), 3), dtype=np.float64)
-    placed_radii = np.zeros(len(component_info), dtype=np.float64)
-    placed_count = 0
-
-    def _place(component, center):
-        nonlocal placed_count
-        new_pos[component['indices']] = component['local'] + center
-        placed_centers[placed_count] = center
-        placed_radii[placed_count] = component['radius']
-        placed_count += 1
-
-    _place(component_info[0], np.zeros(3, dtype=np.float64))
-
-    pending = component_info[1:]
-    cursor = 0
-    shell = 0
-    shell_radius = component_info[0]['radius']
-
-    while cursor < len(pending):
-        shell += 1
-        shell_radius += max(c['radius'] for c in pending[cursor:]) + gap
-        # Candidate density grows with the shell's surface area.
-        directions = _fibonacci_sphere(max(16, 10 * shell * shell))
-        for direction in directions:
-            if cursor >= len(pending):
-                break
-            component = pending[cursor]
-            center = direction * shell_radius
-            required = placed_radii[:placed_count] + component['radius'] + gap
-            offsets = placed_centers[:placed_count] - center
-            separation = np.einsum('ij,ij->i', offsets, offsets)
-            if np.all(separation >= required * required):
-                _place(component, center)
-                cursor += 1
-
-    global_min = np.min(new_pos, axis=0)
-    global_max = np.max(new_pos, axis=0)
-    new_pos -= (global_max + global_min) / 2.0
-
-    new_box_limit = float(np.max(global_max - global_min)) / 2.0 * 1.1
-
-    print(
-        f"Packed {len(components)} objects onto {shell} shells. "
-        "Ready for display."
-    )
-    return new_pos.astype(np.float32), new_box_limit
-
-
 @_compile_serial_helper
 def _first_cell(x):
     """Index of the raster cell holding x, clamped to the first cell."""
@@ -1023,6 +922,364 @@ def pack_components_to_grid(pos, edges, n_nodes, grid_size, padding, packing_geo
     print(
         f"Packed {len(components)} components on a {size} x {size} grid "
         f"of {cell:g}-unit cells. Ready for display."
+    )
+    return new_pos, new_box_limit
+
+
+@_compile_serial_helper
+def _mark_footprint_3d(p, edges, reach, mask):
+    """Mark the voxels within `reach` of every node and edge of one component.
+
+    The 3D counterpart of _mark_footprint. Coordinates are in voxel units from
+    the component's lowest corner, and `reach` is a half-width in the same
+    units. An edge claims, slab by slab along z and then row by row along y,
+    the voxels within reach of the stretch of the segment near that row, so
+    the cost follows the voxels an edge covers rather than its drawn length.
+    """
+    nx = mask.shape[0]
+    ny = mask.shape[1]
+    nz = mask.shape[2]
+    for node in range(p.shape[0]):
+        x0 = _first_cell(p[node, 0] - reach)
+        x1 = min(_last_cell(p[node, 0] + reach, x0), nx - 1)
+        y0 = _first_cell(p[node, 1] - reach)
+        y1 = min(_last_cell(p[node, 1] + reach, y0), ny - 1)
+        z0 = _first_cell(p[node, 2] - reach)
+        z1 = min(_last_cell(p[node, 2] + reach, z0), nz - 1)
+        for i in range(x0, x1 + 1):
+            for j in range(y0, y1 + 1):
+                for k in range(z0, z1 + 1):
+                    mask[i, j, k] = True
+    for edge in range(edges.shape[0]):
+        a = edges[edge, 0]
+        b = edges[edge, 1]
+        ax = p[a, 0]
+        ay = p[a, 1]
+        az = p[a, 2]
+        dx = p[b, 0] - ax
+        dy = p[b, 1] - ay
+        dz = p[b, 2] - az
+        k0 = _first_cell(min(az, p[b, 2]) - reach)
+        k1 = min(_last_cell(max(az, p[b, 2]) + reach, k0), nz - 1)
+        for k in range(k0, k1 + 1):
+            s0 = 0.0
+            s1 = 1.0
+            if dz != 0.0:
+                # The part of the segment whose reach overlaps slab k.
+                s0 = (k - reach - az) / dz
+                s1 = (k + 1.0 + reach - az) / dz
+                if s0 > s1:
+                    s0, s1 = s1, s0
+                s0 = max(s0, 0.0)
+                s1 = min(s1, 1.0)
+                if s0 > s1:
+                    continue
+            ya = ay + s0 * dy
+            yb = ay + s1 * dy
+            if ya > yb:
+                ya, yb = yb, ya
+            j0 = _first_cell(ya - reach)
+            j1 = min(_last_cell(yb + reach, j0), ny - 1)
+            for j in range(j0, j1 + 1):
+                t0 = s0
+                t1 = s1
+                if dy != 0.0:
+                    # Within that part, the stretch whose reach overlaps row j.
+                    r0 = (j - reach - ay) / dy
+                    r1 = (j + 1.0 + reach - ay) / dy
+                    if r0 > r1:
+                        r0, r1 = r1, r0
+                    t0 = max(t0, r0)
+                    t1 = min(t1, r1)
+                    if t0 > t1:
+                        continue
+                xa = ax + t0 * dx
+                xb = ax + t1 * dx
+                if xa > xb:
+                    xa, xb = xb, xa
+                i0 = _first_cell(xa - reach)
+                i1 = min(_last_cell(xb + reach, i0), nx - 1)
+                for i in range(i0, i1 + 1):
+                    mask[i, j, k] = True
+
+
+def _dilate_along(mask, radius, axis):
+    """Voxels within `radius` cells, along one axis, of a set voxel."""
+    size = mask.shape[axis]
+    counts = np.cumsum(mask, axis=axis, dtype=np.int32)
+    lead = np.zeros_like(np.take(counts, [0], axis=axis))
+    counts = np.concatenate((lead, counts), axis=axis)
+    offsets = np.arange(size)
+    upper = np.take(counts, np.minimum(offsets + radius + 1, size), axis=axis)
+    lower = np.take(counts, np.maximum(offsets - radius, 0), axis=axis)
+    return upper > lower
+
+
+@_compile_serial_helper
+def _fill_enclosed(mask):
+    """Set every empty voxel that empty space cannot lead out of the box.
+
+    Empty voxels connect through shared faces only, so a cavity whose sole
+    opening is a diagonal crack between two voxels counts as enclosed.
+    """
+    nx = mask.shape[0]
+    ny = mask.shape[1]
+    nz = mask.shape[2]
+    outside = np.zeros(mask.shape, dtype=np.bool_)
+    stack = np.empty(mask.size, dtype=np.int64)
+    top = 0
+    for i in range(nx):
+        for j in range(ny):
+            for k in range(nz):
+                on_face = (
+                    i == 0 or j == 0 or k == 0
+                    or i == nx - 1 or j == ny - 1 or k == nz - 1
+                )
+                if on_face and not mask[i, j, k]:
+                    outside[i, j, k] = True
+                    stack[top] = (i * ny + j) * nz + k
+                    top += 1
+    while top > 0:
+        top -= 1
+        flat = stack[top]
+        i = flat // (ny * nz)
+        j = (flat // nz) % ny
+        k = flat % nz
+        for step in range(6):
+            a = i
+            b = j
+            c = k
+            if step == 0:
+                a -= 1
+            elif step == 1:
+                a += 1
+            elif step == 2:
+                b -= 1
+            elif step == 3:
+                b += 1
+            elif step == 4:
+                c -= 1
+            else:
+                c += 1
+            if a < 0 or b < 0 or c < 0 or a >= nx or b >= ny or c >= nz:
+                continue
+            if not mask[a, b, c] and not outside[a, b, c]:
+                outside[a, b, c] = True
+                stack[top] = (a * ny + b) * nz + c
+                top += 1
+    for i in range(nx):
+        for j in range(ny):
+            for k in range(nz):
+                if not outside[i, j, k]:
+                    mask[i, j, k] = True
+
+
+def _solid_footprint(mask, radius):
+    """Close gaps up to about 2 * radius cells wide, then fill enclosed cavities.
+
+    Another component then never lands inside this one's cage or in a narrow
+    gap between its arms, where it would look like part of it from most
+    viewpoints; wide open pockets stay usable. The box is padded first so the
+    closing is exact up to its borders, and the result never leaves the box.
+    """
+    if radius > 0:
+        closed = np.pad(mask, radius)
+        for axis in range(3):
+            closed = _dilate_along(closed, radius, axis)
+        for axis in range(3):
+            closed = ~_dilate_along(~closed, radius, axis)
+        mask = mask | closed[radius:-radius, radius:-radius, radius:-radius]
+    _fill_enclosed(mask)
+    return mask
+
+
+def _component_footprint_3d(shifted_pos, local_edges, cell, reach, radius):
+    """Boolean voxel raster of the cells one component claims.
+
+    shifted_pos has its lowest corner at the origin. The raw claim (see
+    _mark_footprint_3d) is made solid by _solid_footprint.
+    """
+    p = shifted_pos.astype(np.float64) / cell
+    top = p.max(axis=0)
+    dims = tuple(
+        _last_cell(float(t) + reach, _first_cell(float(t))) + 1 for t in top
+    )
+    mask = np.zeros(dims, dtype=np.bool_)
+    _mark_footprint_3d(p, local_edges, reach, mask)
+    return _solid_footprint(mask, radius)
+
+
+@_compile_serial_helper
+def _first_fit_3d(grid, spiral_x, spiral_y, spiral_z, start,
+                  cell_x, cell_y, cell_z, size_x, size_y, size_z):
+    """Place a footprint at the first spiral position, from `start`, where it fits.
+
+    The 3D counterpart of _first_fit: each spiral entry is a target voxel for
+    the footprint's centre, and the voxel that blocked the previous position
+    is tested first. Returns the spiral index used and the lowest corner, or
+    -1 when nothing fits.
+    """
+    size = grid.shape[0]
+    blocker = 0
+    for index in range(start, spiral_x.shape[0]):
+        x0 = spiral_x[index] - size_x // 2
+        y0 = spiral_y[index] - size_y // 2
+        z0 = spiral_z[index] - size_z // 2
+        if (x0 < 0 or y0 < 0 or z0 < 0
+                or x0 + size_x > size or y0 + size_y > size or z0 + size_z > size):
+            continue
+        if grid[x0 + cell_x[blocker], y0 + cell_y[blocker], z0 + cell_z[blocker]]:
+            continue
+        fits = True
+        for cell in range(cell_x.shape[0]):
+            if grid[x0 + cell_x[cell], y0 + cell_y[cell], z0 + cell_z[cell]]:
+                blocker = cell
+                fits = False
+                break
+        if fits:
+            for cell in range(cell_x.shape[0]):
+                grid[x0 + cell_x[cell], y0 + cell_y[cell], z0 + cell_z[cell]] = True
+            return index, x0, y0, z0
+    return -1, 0, 0, 0
+
+
+def _spiral_order_3d(size, round_envelope):
+    """Every voxel of a size**3 grid, ordered by distance from the centre.
+
+    Square orders by Chebyshev distance (ties by Euclidean), so the packed
+    volume grows as a cube; Circle orders by Euclidean distance, so it grows
+    as a ball. Keys are built by broadcasting and coordinates come back as
+    int32, so the order costs about 30 bytes per voxel at its peak.
+    """
+    offsets = np.arange(size, dtype=np.int64) - size // 2
+    squares = offsets * offsets
+    keys = (
+        squares[:, None, None] + squares[None, :, None] + squares[None, None, :]
+    ).ravel()
+    if not round_envelope:
+        reach = np.abs(offsets)
+        chebyshev = np.maximum(
+            np.maximum(reach[:, None, None], reach[None, :, None]),
+            reach[None, None, :],
+        ).ravel()
+        # Chebyshev first, Euclidean within a shell: 3 * (size // 2)**2 + 1
+        # exceeds every squared distance.
+        keys += chebyshev * (3 * (size // 2 + 1) ** 2)
+        del chebyshev
+    order = np.argsort(keys, kind='stable')
+    del keys
+    plane = size * size
+    return (
+        (order // plane).astype(np.int32),
+        ((order // size) % size).astype(np.int32),
+        (order % size).astype(np.int32),
+    )
+
+
+def _place_footprints_3d(footprints, size, round_envelope):
+    """First-fit every footprint in a size**3 grid; None if one does not fit."""
+    grid = np.zeros((size, size, size), dtype=np.bool_)
+    spiral_x, spiral_y, spiral_z = _spiral_order_3d(size, round_envelope)
+    # As in 2D, an identical footprint's next copy resumes after the last one.
+    resume = {}
+    corners = []
+    for footprint in footprints:
+        key = footprint['shape_key']
+        index, x0, y0, z0 = _first_fit_3d(
+            grid, spiral_x, spiral_y, spiral_z, resume.get(key, 0),
+            footprint['cell_x'], footprint['cell_y'], footprint['cell_z'],
+            footprint['dims'][0], footprint['dims'][1], footprint['dims'][2],
+        )
+        if index < 0:
+            return None
+        resume[key] = index + 1
+        corners.append((x0, y0, z0))
+    return corners
+
+
+def pack_components_to_voxels(pos, edges, n_nodes, grid_size, padding, packing_geometry="Square"):
+    """Pack independent 3D components into a shared voxel grid, largest first.
+
+    The 3D counterpart of pack_components_to_grid. A component claims every
+    voxel, `grid_size` units wide, within padding / 2 of its nodes and edges.
+    Gaps up to about twice `padding` wide and every enclosed cavity then
+    count as claimed too, so no component ends up inside another's cage,
+    where it would look like part of it from most viewpoints. Each component
+    goes to the first position along a spiral from the centre where its
+    voxels are free: a cube for "Square", a ball for "Circle".
+    """
+    print("Packing independent components into the packing volume...")
+    components = find_connected_components(n_nodes, edges)
+
+    if not components:
+        return pos, 100.0
+    if not np.isfinite(pos).all():
+        raise ValueError("Layout positions must be finite before packing.")
+
+    cell = float(grid_size)
+    reach = float(padding) / 2.0 / cell
+    radius = int(math.ceil(float(padding) / cell))
+    edges = _edge_array(edges, n_nodes)
+    labels = np.empty(n_nodes, dtype=np.int64)
+    local_index = np.empty(n_nodes, dtype=np.int64)
+    for c_id, comp in enumerate(components):
+        labels[comp] = c_id
+        local_index[comp] = np.arange(len(comp))
+    edge_order, edge_bounds = _stable_group_order(labels[edges[:, 0]], len(components))
+
+    footprints = []
+    for c_id, idx in enumerate(components):
+        comp_pos = pos[idx]
+        shifted_pos = comp_pos - np.min(comp_pos, axis=0)
+        members = edge_order[edge_bounds[c_id]:edge_bounds[c_id + 1]]
+        mask = _component_footprint_3d(
+            shifted_pos, local_index[edges[members]], cell, reach, radius
+        )
+        cell_x, cell_y, cell_z = (axis.astype(np.int32) for axis in np.nonzero(mask))
+        footprints.append({
+            'indices': idx,
+            'shifted_pos': shifted_pos,
+            'dims': mask.shape,
+            'cell_x': cell_x,
+            'cell_y': cell_y,
+            'cell_z': cell_z,
+            'shape_key': (mask.shape, mask.tobytes()),
+            'volume': len(cell_x),
+            'num_nodes': len(idx),
+        })
+    del edge_order, labels, local_index
+
+    # Largest volume first, then most nodes; ties keep component order.
+    footprints.sort(key=lambda footprint: (footprint['volume'], footprint['num_nodes']), reverse=True)
+
+    round_envelope = str(packing_geometry).lower() == "circle"
+    total_volume = sum(footprint['volume'] for footprint in footprints)
+    size = max(
+        int(math.ceil(total_volume ** (1.0 / 3.0) * (2.0 if round_envelope else 1.5))),
+        max(max(footprint['dims']) for footprint in footprints),
+    )
+    corners = _place_footprints_3d(footprints, size, round_envelope)
+    while corners is None:
+        size = int(size * 1.1) + 2
+        corners = _place_footprints_3d(footprints, size, round_envelope)
+
+    new_pos = np.zeros((n_nodes, 3), dtype=np.float32)
+    new_pos[:] = pos[:]
+    for footprint, corner in zip(footprints, corners):
+        new_pos[footprint['indices']] = (
+            footprint['shifted_pos'] + np.asarray(corner, dtype=np.float32) * cell
+        )
+
+    # --- Center the final visualization ---
+    global_min = np.min(new_pos, axis=0)
+    global_max = np.max(new_pos, axis=0)
+    new_pos -= (global_max + global_min) / 2.0
+
+    new_box_limit = float(np.max(global_max - global_min)) / 2.0 * 1.1
+
+    print(
+        f"Packed {len(components)} components in a {size} x {size} x {size} grid "
+        f"of {cell:g}-unit voxels. Ready for display."
     )
     return new_pos, new_box_limit
 
@@ -1595,10 +1852,11 @@ def calculate_layout(connectivity, n_nodes, params):
     
     # Pack independent components into a grid
     if dimensions == 3:
-        final_pos, final_box_limit = pack_components_to_shells(
+        final_pos, final_box_limit = pack_components_to_voxels(
             final_pos, edges, n_nodes,
             params.get('PACKING_GRID_SIZE', 10.0),
             params.get('PACKING_PADDING', 50.0),
+            params.get('PACKING_GEOMETRY', 'Square')
         )
         return final_pos, final_box_limit
 

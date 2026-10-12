@@ -648,12 +648,24 @@ still change before version 1.0.0.
   contains non-ASCII characters is now rejected before the guide tree is built.
 - **Packed 2D layouts are tighter.** A component's clearance box that ends exactly on
   a packing-grid cell border no longer claims the next cell, and `PACKING_GRID_SIZE`
-  defaults to 10 instead of 20, also in the VR Config, where it sets the gap between
-  shells. The grid size now only sets how finely components are fitted together:
-  drawings of different components always stay at least half of `PACKING_PADDING`
-  apart. A 12,927-node BLAST network that packed 440 units across at grid size 20
-  packs 240 across at the new default and 165 at 2.5. Packed positions differ from
-  earlier versions; saved caches keep theirs.
+  defaults to 10 instead of 20, also in the VR Config. The grid size now only sets how
+  finely components are fitted together: drawings of different components always stay
+  at least half of `PACKING_PADDING` apart. A 12,927-node BLAST network that packed
+  440 units across at grid size 20 packs 240 across at the new default and 165 at 2.5.
+  Packed positions differ from earlier versions; saved caches keep theirs.
+- **3D layouts are packed the way 2D ones are, and far more tightly.** 3D physics
+  layouts used to place disconnected components on concentric spherical shells around
+  the largest one, each sized as a sphere around its farthest node, so long or
+  branched components left most of the volume empty. They are now fitted into a grid
+  of `PACKING_GRID_SIZE` voxels by the 2D packer's rules, with the same guaranteed
+  clearance of half of `PACKING_PADDING`. A component also claims every gap in it up
+  to about twice `PACKING_PADDING` wide and every space it encloses, so no component
+  lands inside another one's cage or in its narrow gaps. `PACKING_GEOMETRY` now applies
+  in 3D, a cube for `Square` and a ball for `Circle`, and the VR Config shows its
+  Packing Geometry dropdown again. With the default settings, a 4,070-node network
+  packs 93 units across instead of 275 and a 12,927-node one 83 instead of 202, in
+  under half a second. Packed 3D positions differ from earlier versions; saved caches
+  keep theirs.
 - **Tiled embedding alignment is about 1.8 times faster.** `Align_Similarity_Matrix`
   and `Network_Injection` built every padded GPU batch with one copy per target and
   sent the target lengths from unpinned memory, which made the CPU wait for the GPU on

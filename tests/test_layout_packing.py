@@ -253,12 +253,106 @@ def _pack(pos, edges, grid_size, padding, geometry="Square"):
         )
 
 
+def _scattered_layout_3d(rng, n_components=20, singletons=15, spread=150.0):
+    """Random 3D components drawn on top of one another, as a simulation leaves them."""
+    blocks, edges, offset = [], [], 0
+    for _ in range(n_components):
+        size = int(rng.integers(2, 30))
+        centre = rng.uniform(-spread, spread, 3)
+        radius = rng.uniform(1.0, 50.0)
+        blocks.append(centre + rng.uniform(-radius, radius, (size, 3)))
+        for k in range(1, size):
+            edges.append((offset + k, offset + int(rng.integers(0, k))))
+        for _ in range(size):
+            edges.append(tuple(offset + rng.integers(0, size, 2)))
+        offset += size
+    blocks.append(rng.uniform(-spread, spread, (singletons, 3)))
+    pos = np.vstack(blocks).astype(np.float32)
+    return pos, np.asarray(edges, dtype=np.int32)
+
+
+def _pack_3d(pos, edges, grid_size, padding, geometry="Square"):
+    with redirect_stdout(io.StringIO()):
+        return ssn_engine.pack_components_to_voxels(
+            pos, edges, len(pos), grid_size, padding, geometry
+        )
+
+
+def _sphere_cage(count, radius, neighbours):
+    """Nodes spread evenly over a sphere, each joined to its nearest neighbours."""
+    index = np.arange(count, dtype=np.float64)
+    z = 1.0 - 2.0 * (index + 0.5) / count
+    ring = np.sqrt(1.0 - z * z)
+    theta = math.pi * (3.0 - math.sqrt(5.0)) * index
+    nodes = radius * np.column_stack((np.cos(theta) * ring, np.sin(theta) * ring, z))
+    _, nearest = cKDTree(nodes).query(nodes, k=neighbours + 1)
+    edges = sorted({
+        (min(a, int(b)), max(a, int(b))) for a in range(count) for b in nearest[a, 1:]
+    })
+    return nodes, np.asarray(edges, dtype=np.int32)
+
+
+def _reference_marks(p, edges, reach, shape):
+    """Each voxel a node's reach box touches, and each voxel within reach of an edge.
+
+    Positions are in voxel units. A voxel is within reach of a segment when
+    some stretch of it lies within reach of the voxel's z slab and y row
+    together, and that stretch's x extent, widened by reach, reaches the
+    voxel's column.
+    """
+    i, j, k = np.indices(shape)
+    mask = np.zeros(shape, dtype=bool)
+    for x, y, z in p:
+        mask |= (
+            (i + 1 > x - reach) & (i < x + reach)
+            & (j + 1 > y - reach) & (j < y + reach)
+            & (k + 1 > z - reach) & (k < z + reach)
+        )
+    for a, b in edges:
+        start, step = p[a], p[b] - p[a]
+        low = np.zeros(shape)
+        high = np.ones(shape)
+        near = np.ones(shape, dtype=bool)
+        for axis, index in ((2, k), (1, j)):
+            if step[axis] == 0.0:
+                near &= (index + 1 > start[axis] - reach) & (index < start[axis] + reach)
+                continue
+            ends = np.stack((
+                (index - reach - start[axis]) / step[axis],
+                (index + 1.0 + reach - start[axis]) / step[axis],
+            ))
+            low = np.maximum(low, ends.min(axis=0))
+            high = np.minimum(high, ends.max(axis=0))
+        x_ends = np.stack((start[0] + low * step[0], start[0] + high * step[0]))
+        mask |= (
+            near & (low <= high)
+            & (i + 1 > x_ends.min(axis=0) - reach)
+            & (i < x_ends.max(axis=0) + reach)
+        )
+    return mask
+
+
+def _reference_solid(mask, radius):
+    """scipy's closing by a cube of `radius` cells on a padded box, then hole filling."""
+    from scipy import ndimage
+
+    if radius > 0:
+        cube = np.ones((3, 3, 3), dtype=bool)
+        padded = np.pad(mask, radius)
+        closed = ndimage.binary_erosion(
+            ndimage.binary_dilation(padded, cube, iterations=radius),
+            cube, iterations=radius,
+        )
+        mask = mask | closed[radius:-radius, radius:-radius, radius:-radius]
+    return ndimage.binary_fill_holes(mask)
+
+
 def _drawing_samples(pos, edges, per_edge=24):
     """Points along every drawn edge, plus the nodes, with the node each one came from."""
     t = np.linspace(0.0, 1.0, per_edge)[None, :, None]
     a = pos[edges[:, 0]][:, None, :]
     b = pos[edges[:, 1]][:, None, :]
-    along = (a + t * (b - a)).reshape(-1, 2)
+    along = (a + t * (b - a)).reshape(-1, pos.shape[1])
     owners = np.repeat(edges[:, 0], per_edge)
     return (
         np.vstack((pos.astype(np.float64), along)),
@@ -509,6 +603,150 @@ class GridPackingTests(unittest.TestCase):
         # The edges average about 1,000 units: a sample every 2.5 units would
         # hold about 2.4 million points.
         self.assertLess(peak, 16 * 1024 * 1024)
+
+
+class VoxelFootprintTests(unittest.TestCase):
+    def test_a_reach_ending_on_a_cell_border_claims_one_voxel(self):
+        mask = ssn_engine._component_footprint_3d(
+            np.zeros((1, 3), dtype=np.float32), np.zeros((0, 2), dtype=np.int64), 5.0, 1.0, 0
+        )
+        np.testing.assert_array_equal(mask, [[[True]]])
+
+    def test_a_diagonal_edge_claims_only_the_voxels_it_crosses(self):
+        shifted = np.array([[0.0, 0.0, 0.0], [30.0, 30.0, 30.0]], dtype=np.float32)
+        mask = ssn_engine._component_footprint_3d(shifted, np.array([[0, 1]]), 10.0, 0.0, 0)
+        i, j, k = np.indices((4, 4, 4))
+        np.testing.assert_array_equal(mask, (i == j) & (j == k))
+        flat = np.array([[0.0, 0.0, 0.0], [30.0, 30.0, 0.0]], dtype=np.float32)
+        mask = ssn_engine._component_footprint_3d(flat, np.array([[0, 1]]), 10.0, 0.0, 0)
+        np.testing.assert_array_equal(mask, np.eye(4, dtype=bool)[:, :, None])
+
+    def test_marking_matches_a_per_voxel_check(self):
+        rng = np.random.default_rng(42)
+        for reach in (0.0, 0.35, 1.0, 2.6):
+            for _ in range(30):
+                size = int(rng.integers(1, 8))
+                # Off the lattice, so no point lies exactly on a voxel border.
+                p = rng.uniform(0.0, 9.0, (size, 3)) + 0.37
+                edges = rng.integers(0, size, (int(rng.integers(0, 12)), 2))
+                shape = tuple(int(n) for n in np.ceil(p.max(axis=0) + reach) + 1)
+                mask = np.zeros(shape, dtype=np.bool_)
+                ssn_engine._mark_footprint_3d(p, edges, reach, mask)
+                np.testing.assert_array_equal(mask, _reference_marks(p, edges, reach, shape))
+
+    def test_footprint_covers_every_drawn_point_and_its_clearance(self):
+        rng = np.random.default_rng(21)
+        cell = 10.0
+        corners = [(a, b, c) for a in (-1, 0, 1) for b in (-1, 0, 1) for c in (-1, 0, 1)]
+        for padding in (0.0, 7.0, 10.0, 20.0):
+            reach = padding / 2.0 / cell
+            inset = max(reach - 1e-6, 0.0)
+            for _ in range(25):
+                size = int(rng.integers(1, 25))
+                shifted = rng.uniform(0.0, 200.0, (size, 3)).astype(np.float32)
+                shifted -= shifted.min(axis=0)
+                edges = rng.integers(0, size, (size * 2, 2))
+                mask = ssn_engine._component_footprint_3d(shifted, edges, cell, reach, 0)
+                points, _ = _drawing_samples(shifted.astype(np.float64), edges, per_edge=30)
+                cells = points / cell
+                # Every corner of each point's clearance box, pulled just inside.
+                for corner in corners:
+                    voxels = np.floor(cells + inset * np.asarray(corner)).astype(int)
+                    inside = (voxels >= 0).all(axis=1)
+                    voxels = np.minimum(voxels[inside], np.asarray(mask.shape) - 1)
+                    self.assertTrue(mask[voxels[:, 0], voxels[:, 1], voxels[:, 2]].all())
+
+    def test_solid_footprint_matches_scipy_closing_and_hole_filling(self):
+        rng = np.random.default_rng(42)
+        for _ in range(150):
+            shape = tuple(int(n) for n in rng.integers(1, 13, 3))
+            mask = rng.random(shape) < rng.uniform(0.05, 0.6)
+            radius = int(rng.integers(0, 4))
+            solid = ssn_engine._solid_footprint(mask.copy(), radius)
+            np.testing.assert_array_equal(solid, _reference_solid(mask, radius), (shape, radius))
+
+    def test_an_enclosed_cavity_is_claimed_and_a_wide_open_pocket_is_not(self):
+        shell = np.ones((7, 7, 7), dtype=bool)
+        shell[1:-1, 1:-1, 1:-1] = False
+        self.assertTrue(ssn_engine._solid_footprint(shell.copy(), 0).all())
+        for gap, closed in ((2, True), (3, False)):
+            walls = np.zeros((4 + gap, 4, 4), dtype=bool)
+            walls[:, 0, :] = True              # the floor
+            walls[:2, :, :] = True             # one wall
+            walls[2 + gap:, :, :] = True       # the other
+            solid = ssn_engine._solid_footprint(walls.copy(), 1)
+            self.assertEqual(bool(solid[2:2 + gap, 1:, :].all()), closed, gap)
+            self.assertEqual(bool(solid[2:2 + gap, 1:, :].any()), closed, gap)
+
+
+class VoxelPackingTests(unittest.TestCase):
+    def test_components_keep_their_clearance(self):
+        for geometry in ("Square", "Circle"):
+            for seed, (grid_size, padding) in enumerate(((10.0, 10.0), (4.0, 10.0), (10.0, 3.0))):
+                rng = np.random.default_rng(seed)
+                pos, edges = _scattered_layout_3d(rng)
+                packed, _ = _pack_3d(pos, edges, grid_size, padding, geometry)
+                labels = ssn_engine.get_component_labels(len(pos), edges)
+                points, owners = _drawing_samples(packed.astype(np.float64), edges)
+                pairs = cKDTree(points).query_pairs(
+                    padding / 2.0 - 1e-3, p=np.inf, output_type="ndarray"
+                )
+                crossing = labels[owners[pairs[:, 0]]] != labels[owners[pairs[:, 1]]]
+                self.assertEqual(int(crossing.sum()), 0, (geometry, grid_size, padding))
+
+    def test_components_move_without_turning(self):
+        pos, edges = _scattered_layout_3d(np.random.default_rng(7))
+        packed, _ = _pack_3d(pos, edges, 10.0, 10.0)
+        for component in ssn_engine.find_connected_components(len(pos), edges):
+            shift = packed[component] - pos[component]
+            np.testing.assert_allclose(shift, shift[:1].repeat(len(component), 0), atol=1e-3)
+
+    def test_single_nodes_sit_one_clearance_apart(self):
+        pos = np.random.default_rng(1).uniform(-100, 100, (27, 3)).astype(np.float32)
+        for geometry in ("Square", "Circle"):
+            packed, box_limit = _pack_3d(pos, np.zeros((0, 2), dtype=np.int32), 5.0, 10.0, geometry)
+            np.testing.assert_allclose(packed.max(axis=0) - packed.min(axis=0), [10.0, 10.0, 10.0])
+            self.assertAlmostEqual(float(box_limit), 5.5, places=5)
+
+    def test_circle_fills_a_ball(self):
+        count = 15 ** 3
+        pos = np.random.default_rng(1).uniform(-100, 100, (count, 3)).astype(np.float32)
+        no_edges = np.zeros((0, 2), dtype=np.int32)
+        cube, _ = _pack_3d(pos, no_edges, 5.0, 10.0, "Square")
+        ball, _ = _pack_3d(pos, no_edges, 5.0, 10.0, "Circle")
+        ball_radius = ((3.0 * count / (4.0 * math.pi)) ** (1.0 / 3.0) + 1.0) * 5.0
+        self.assertLess(float(np.linalg.norm(ball, axis=1).max()), ball_radius)
+        self.assertGreater(float(np.linalg.norm(cube, axis=1).max()), ball_radius)
+
+    def test_no_component_lands_in_an_enclosed_cavity(self):
+        # A closed mesh: only filling its cavity keeps the single nodes out.
+        self._assert_cage_stays_empty(count=400, neighbours=6)
+
+    def test_no_component_slips_through_a_narrow_gap(self):
+        # Gaps of about 18 units: only closing them seals the cavity.
+        self._assert_cage_stays_empty(count=60, neighbours=4)
+
+    def _assert_cage_stays_empty(self, count, neighbours):
+        radius = 40.0
+        nodes, edges = _sphere_cage(count, radius, neighbours)
+        singles = np.random.default_rng(42).uniform(-100, 100, (200, 3))
+        pos = np.vstack((nodes, singles)).astype(np.float32)
+        packed, _ = _pack_3d(pos, edges, 5.0, 10.0)
+        centre = packed[:count].mean(axis=0)
+        distances = np.linalg.norm(packed[count:] - centre, axis=1)
+        self.assertGreater(float(distances.min()), radius)
+
+    def test_repeated_packing_is_identical(self):
+        pos, edges = _scattered_layout_3d(np.random.default_rng(5))
+        first, first_limit = _pack_3d(pos, edges, 10.0, 10.0)
+        second, second_limit = _pack_3d(pos.copy(), edges.copy(), 10.0, 10.0)
+        np.testing.assert_array_equal(first, second)
+        self.assertEqual(first_limit, second_limit)
+
+    def test_non_finite_positions_are_rejected(self):
+        pos = np.array([[0.0, 0.0, 0.0], [np.nan, 1.0, 0.0]], dtype=np.float32)
+        with self.assertRaises(ValueError):
+            _pack_3d(pos, np.array([[0, 1]], dtype=np.int32), 10.0, 10.0)
 
 
 class PackingDefaultTests(unittest.TestCase):
