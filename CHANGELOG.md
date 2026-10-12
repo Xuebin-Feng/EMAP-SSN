@@ -783,6 +783,11 @@ still change before version 1.0.0.
   aggregation of the layout's spectral start, the Noto licence files carry the fonts'
   own copyright lines, and the AMD ROCm packages are listed for the Ubuntu releases
   that get them.
+- **`undo N` and `redo N` report once.** They printed "Undo successful." or "Redo
+  successful." for every step, then the total; now they print only "Undid N steps."
+  or "Redid N steps.", on the console line too. The steps are quiet, and the Viewer
+  redraws the metadata HUD and updates the web pages once at the end (the VR viewer
+  sends the headset the result once). A plain `undo` or `redo` reports as before.
 
 ### Fixed
 
