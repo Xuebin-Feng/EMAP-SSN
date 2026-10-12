@@ -976,6 +976,77 @@ class ResponsiveTextBrowser(QWebEngineView):
             baseUrl = QUrl.fromLocalFile(resources_dir + os.sep)
         super().setHtml(full_html, baseUrl)
 
+
+class HelpPane(QWidget):
+    """The help card's place in the window: it holds the help view, and a
+    web view takes a new size only once resizing pauses.
+
+    A QWebEngineView that changes size has Chromium lay its page out and
+    draw it again, in Chromium's own process, and until that drawing
+    arrives the strip a widening view uncovers is black. A splitter or
+    window-edge drag changes the size on every mouse move, so meanwhile the
+    view keeps its size and the pane, transparent, shows the window's colour
+    where the view doesn't reach. RESIZE_PAUSE_MS after the last resize the
+    view takes the pane's size, under a cover (its last picture, on the
+    window's colour) that lifts COVER_MS later, once Chromium has drawn it.
+    Any other view, which lays out at once, takes each size at once.
+    """
+
+    RESIZE_PAUSE_MS = 120
+    COVER_MS = 150
+
+    def __init__(self, view, parent=None, defer=None):
+        super().__init__(parent)
+        self.view = view
+        view.setParent(self)
+        self.setSizePolicy(view.sizePolicy())
+        if defer is None:
+            defer = QTWEBENGINE_IMPORT_ERROR is None and isinstance(view, QWebEngineView)
+        self.defers = defer
+        self._fitted = False
+        self.cover = QLabel(self)
+        self.cover.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+        self.cover.setAutoFillBackground(True)
+        palette = self.cover.palette()
+        palette.setColor(palette.ColorRole.Window, QColor(TOKENS["window"]))
+        self.cover.setPalette(palette)
+        self.cover.hide()
+        self._settle = QTimer(self)
+        self._settle.setSingleShot(True)
+        self._settle.setInterval(self.RESIZE_PAUSE_MS)
+        self._settle.timeout.connect(self._fit_view)
+        self._lift = QTimer(self)
+        self._lift.setSingleShot(True)
+        self._lift.setInterval(self.COVER_MS)
+        self._lift.timeout.connect(self.cover.hide)
+
+    def sizeHint(self):
+        return self.view.sizeHint()
+
+    def minimumSizeHint(self):
+        return self.view.minimumSizeHint()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.defers and self._fitted and self.isVisible():
+            self._settle.start()
+        else:
+            self._fit_view()
+
+    def _fit_view(self):
+        self._settle.stop()
+        if self._fitted and self.view.size() == self.size():
+            return
+        if self._fitted and self.defers and self.isVisible():
+            self.cover.setPixmap(self.view.grab())
+            self.cover.setGeometry(self.rect())
+            self.cover.raise_()
+            self.cover.show()
+            self._lift.start()
+        self.view.setGeometry(self.rect())
+        self._fitted = True
+
+
 class SpacedTipLabel(QLabel):
     """Help-panel label with proportional multiline spacing."""
 
@@ -2442,13 +2513,15 @@ class ToolsGUI(QMainWindow):
         self.desc_title = set_role(QLabel(translate("Tools", "Script Description")), "title")
         self.right_panel.addWidget(self.desc_title, 0)
 
-        # The help page draws its own card (ResponsiveTextBrowser.page_html).
+        # The help page draws its own card (ResponsiveTextBrowser.page_html);
+        # HelpPane resizes it once a drag pauses.
         self.script_desc_text = ResponsiveTextBrowser()
         self.script_desc_text.setReadOnly(True)
         font = self.script_desc_text.font()
         font.setPointSize(10)
         self.script_desc_text.setFont(font)
-        self.right_panel.addWidget(self.script_desc_text, 1)
+        self.help_pane = HelpPane(self.script_desc_text)
+        self.right_panel.addWidget(self.help_pane, 1)
         self.language_selector = LanguageSelector()
         self.language_selector.language_chosen.connect(lambda setting: choose_language(self, setting))
         self.theme_switch = ThemeColorButton(TOOLS_THEME_SETTING, color=theme_color())
