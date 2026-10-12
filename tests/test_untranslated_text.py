@@ -807,6 +807,7 @@ class ViewerCanvasTextTests(WindowTestCase):
         # {width} in "View Width: {width}", in the slider row.
         viewer.canvas = SimpleNamespace(native=QWidget(), size=(1200, 800))
         self.addCleanup(viewer.canvas.native.deleteLater)
+        viewer.min_threshold, viewer.max_threshold = 0.0, 9.6
         viewer.current_slider_threshold = 3.74
         viewer._hud_timer = mock.Mock()
         viewer.hud_layout = collections.defaultdict(float, {"status_x_offset": 10.0})

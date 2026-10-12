@@ -133,7 +133,6 @@ from collections import deque
 import ctypes
 import gc
 import itertools
-import math
 import queue
 from vispy import scene, app
 from vispy.color import Color
@@ -175,7 +174,7 @@ from desktop.Desktop_App import (
 from desktop.Studio_Theme import TOKENS, set_role, studio_icon
 from desktop.Viewer_Zoom import SmoothWheelZoom
 from desktop.Viewer_Widgets import (
-    ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ViewWidthBox,
+    ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ThresholdSpinBox, ViewWidthBox,
 )
 from desktop.Viewer_State import (
     prepare_network,
@@ -1104,36 +1103,39 @@ class MainViewer:
         overlay_layout.addWidget(self.controls_button)
         overlay_layout.addSpacing(SLIDER_INFO_GAP - overlay_layout.spacing())
 
-        self.slider_label = QtWidgets.QLabel()
-        self.slider_label.setObjectName("sliderLabel")
-        self.slider_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignLeft | QtCore.Qt.AlignmentFlag.AlignVCenter)
-        self.update_slider_label_text(self.current_slider_threshold)
-        
+        # The threshold, to read and to set, then the slider: each number of
+        # the box is one of the slider's positions, so each follows the other.
+        self.threshold_box = ThresholdSpinBox()
+        self.threshold_box.setObjectName("thresholdBox")
+        self.threshold_box.set_scale(self.min_threshold, self.max_threshold)
+        positions = self.threshold_box.positions
+
         self.slider = QtWidgets.QSlider(QtCore.Qt.Orientation.Horizontal)
-        self.slider.setRange(0, 1000)
-        self.slider.setValue(0)
+        self.slider.setRange(0, positions)
+        # The wheel over the slider and a click on its track still move it
+        # about a thousandth and a hundredth of the way, however many positions it has.
+        self.slider.setSingleStep(max(1, positions // 1000))
+        self.slider.setPageStep(max(1, positions // 100))
+        start = self.threshold_box.position_of(self.current_slider_threshold)
+        self.slider.setValue(start)
+        self.threshold_box.show_value(self.threshold_box.value_at(start))
         self.slider.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
         self.slider.valueChanged.connect(self.on_slider_value_changed)
         self.slider.sliderReleased.connect(self._on_slider_released)
+        self.threshold_box.valueChanged.connect(self._set_threshold_from_box)
+        self.threshold_box.editingFinished.connect(self._return_keyboard_to_canvas)
+        self.threshold_box.dismissed.connect(self._return_keyboard_to_canvas)
 
-        overlay_layout.addWidget(self.slider_label)
+        overlay_layout.addWidget(self.threshold_box)
         overlay_layout.addWidget(self.slider)
-        
-        # The slider takes the window theme; its label, drawn over the canvas,
-        # keeps the HUD's text colour.
+
+        # The slider and the box take the window theme, the box in the View Width box's font.
         self.slider_overlay.setStyleSheet("""
             QWidget#sliderOverlay {
                 background: transparent;
             }
-            QLabel#sliderLabel {
-                font-family: %(font)s;
-                font-size: 12pt;
-                font-weight: normal;
-                color: %(text_color)s;
-                background: transparent;
-                min-width: 45px;
-            }
-        """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
+            QDoubleSpinBox#thresholdBox { font-family: %(font)s; font-size: 12pt; }
+        """ % {"font": UI_QSS_FONT_STACK})
 
         # The view's width, to read and to set as `zoom` does, at the row's
         # right; its text keeps the HUD's text colour, as the slider's value does.
@@ -1170,8 +1172,8 @@ class MainViewer:
         self._hud_timer.start()
 
     def _return_keyboard_to_canvas(self):
-        """Give the keyboard back to the network once the View Width box is done with it, so [ENTER] opens the command line."""
-        if self.view_width_box.spin_box.hasFocus():
+        """Give the keyboard back to the network once a box in the slider row is done with it, so [ENTER] opens the command line."""
+        if self.view_width_box.spin_box.hasFocus() or self.threshold_box.hasFocus():
             self.canvas.native.setFocus()
 
     def _build_main_window(self):
@@ -2054,22 +2056,6 @@ class MainViewer:
         if broadcast:
             self.broadcast_event({"type": "selection_changed", "indices": self.selected_indices})
     
-    def format_sig_figs(self, val):
-        if val == 0:
-            return "0.00"
-        try:
-            decimals = 2 - int(math.floor(math.log10(abs(val))))
-            if decimals < 0:
-                return f"{round(val, decimals):g}"
-            else:
-                return f"{val:.{decimals}f}"
-        except:
-            return f"{val:.3g}"
-
-    def update_slider_label_text(self, threshold):
-        formatted = self.format_sig_figs(threshold)
-        self.slider_label.setText(formatted)
-
     def position_slider_overlay(self):
         """Lay out the slider row: the View Width box at the right, centred on
         the row, and the threshold slider in the room left of it."""
@@ -2089,8 +2075,8 @@ class MainViewer:
             self.slider_overlay.setGeometry(SLIDER_ROW_LEFT, overlay_y, overlay_w, SLIDER_ROW_HEIGHT)
 
     def on_slider_value_changed(self, value):
-        self.current_slider_threshold = self.min_threshold + (value / 1000.0) * (self.max_threshold - self.min_threshold)
-        self.update_slider_label_text(self.current_slider_threshold)
+        self.current_slider_threshold = self.threshold_box.value_at(value)
+        self.threshold_box.show_value(self.current_slider_threshold)
         # In low resource mode a drag shows the threshold as it goes and
         # redraws the edges once, when let go (_on_slider_released).
         slider = getattr(self, 'slider', None)
@@ -2102,6 +2088,17 @@ class MainViewer:
         """Redraw the edges for the threshold a low-resource drag ended on."""
         if getattr(cfg, 'LOW_RESOURCE_MODE', False):
             self.update_edges()
+
+    def _set_threshold_from_box(self, threshold):
+        """Draw the edges for a threshold set in the box, and move the slider to it."""
+        self.current_slider_threshold = threshold
+        blocked = self.slider.blockSignals(True)
+        try:
+            self.slider.setValue(self.threshold_box.position_of(threshold))
+        finally:
+            self.slider.blockSignals(blocked)
+        self.threshold_box.show_value(threshold)  # What Esc puts back.
+        self.update_edges()
 
     def update_edges(self):
         from Viewer_Visual_State import edge_stages, edges_follow_selection

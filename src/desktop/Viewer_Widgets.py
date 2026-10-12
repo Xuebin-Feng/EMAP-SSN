@@ -20,10 +20,17 @@
 * The view's width. ViewWidthBox, at the canvas's bottom right level with the
   threshold slider, is the translated "View Width: {width}" with a
   ViewWidthSpinBox in place of {width}: it shows the view's width and sets it.
+* The threshold. ThresholdSpinBox, before the threshold slider, shows the
+  edge threshold and sets it. Each of its numbers is one of the slider's
+  positions, so the two follow each other.
+
+Both boxes are CanvasSpinBoxes: number boxes over the network that take the
+keyboard only when clicked.
 """
 
 from __future__ import annotations
 
+import math
 import re
 import sys
 
@@ -374,39 +381,74 @@ class SidebarButton(QPushButton):
 # widens or narrows the view by this factor, about a notch of the mouse wheel
 # over the network.
 VIEW_WIDTH_STEP = 1.25
-# The box's height, in px: the status texts above it go by it.
+# The height of the slider row's boxes, the View Width box's and the
+# threshold's, in px: the status texts above them go by it.
 VIEW_WIDTH_BOX_HEIGHT = 28
 # Between the box and the text either side of it, in px.
 VIEW_WIDTH_LABEL_GAP = 12
 # The widest width its field shows without scrolling; with no limit to keep
 # to (no nodes), also the widest it takes.
 VIEW_WIDTH_ROOM = 999999.9
+# The threshold box has at least this many steps from the lowest score to the
+# highest: the slider's 1000 positions before the box came, so it is never
+# coarser than the slider was.
+THRESHOLD_STEPS = 1000
+# Slack for a number a hair under a whole count of steps, as 0.57 * 100 is.
+_STEP_SLACK = 1e-9
 
 
-class ViewWidthSpinBox(QDoubleSpinBox):
-    """The view's width, in scene units, to read and to set.
+class CanvasSpinBox(QDoubleSpinBox):
+    """A number box over the network, to read and to set.
 
-    The arrows, the wheel over it and Up/Down widen or narrow the view
-    VIEW_WIDTH_STEP at a time, as the mouse wheel zooms, not by a fixed
-    amount. A typed width counts on Enter, or when the box loses the
-    keyboard; Esc puts back the width the view has. valueChanged reports only
-    what the user set, as show_width, for the view's own changes, sends
-    nothing; dismissed is Esc.
+    It takes the keyboard only when clicked, never on opening or by Tab, so
+    the keyboard stays with the network and [ENTER] opens the command line. A
+    typed number counts on Enter, or when the box loses the keyboard; Esc puts
+    back the number shown. valueChanged reports only what the user set:
+    show_value, for the Viewer's own changes, sends nothing. dismissed is Esc.
     """
 
     dismissed = QtCore.Signal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setDecimals(1)
         self.setKeyboardTracking(False)
         self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.setFixedHeight(VIEW_WIDTH_BOX_HEIGHT)
-        self.setRange(0.0, VIEW_WIDTH_ROOM)
-        # The keyboard only when clicked: never on opening or by Tab, so it
-        # stays with the network and [ENTER] opens the command line.
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._shown = self.value()
+
+    def sizeHint(self):
+        return super().sizeHint().boundedTo(self.maximumSize())
+
+    def show_value(self, value):
+        """Show value without reporting it; Esc then puts it back."""
+        blocked = self.blockSignals(True)
+        try:
+            self.setValue(value)
+        finally:
+            self.blockSignals(blocked)
+        self._shown = self.value()
+
+    def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Escape:
+            self.show_value(self._shown)  # Its text too, typed or not.
+            self.dismissed.emit()
+            return
+        super().keyPressEvent(event)
+
+
+class ViewWidthSpinBox(CanvasSpinBox):
+    """The view's width, in scene units.
+
+    The arrows, the wheel over it and Up/Down widen or narrow the view
+    VIEW_WIDTH_STEP at a time, as the mouse wheel zooms, not by a fixed
+    amount. Esc puts back the width the view has.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setDecimals(1)
+        self.setRange(0.0, VIEW_WIDTH_ROOM)
 
     def sizeHint(self):
         # As wide as VIEW_WIDTH_ROOM needs in the font it has now, whatever the
@@ -435,21 +477,53 @@ class ViewWidthSpinBox(QDoubleSpinBox):
         blocked = self.blockSignals(True)
         try:
             self.setRange(min(narrowest, width), max(top, width))
-            self.setValue(width)
         finally:
             self.blockSignals(blocked)
-        self._shown = self.value()
+        self.show_value(width)
 
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key.Key_Escape:
-            blocked = self.blockSignals(True)
-            try:
-                self.setValue(self._shown)  # Its text too, typed or not.
-            finally:
-                self.blockSignals(blocked)
-            self.dismissed.emit()
-            return
-        super().keyPressEvent(event)
+
+class ThresholdSpinBox(CanvasSpinBox):
+    """The edge threshold: edges scoring at least it are drawn.
+
+    set_scale() fits it to the scores. Its step, the smallest change it
+    makes, is the largest power of ten that still gives THRESHOLD_STEPS steps
+    between the lowest score and the highest, and no more than 1, so every
+    number it takes is on a step; it shows as many decimals as the step has.
+    Its numbers run from the multiple of the step at or under the lowest
+    score, which still draws every edge, to the one at or under the highest,
+    which still draws the best. The threshold slider has one position for
+    each number: value_at() and position_of() go between them.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.set_scale(0.0, 1.0)
+
+    def set_scale(self, lowest, highest):
+        """Fit the box to scores from lowest to highest, without a signal."""
+        self._exponent = min(0, math.floor(math.log10((highest - lowest) / THRESHOLD_STEPS)))
+        self._first = math.floor(self._in_steps(lowest) + _STEP_SLACK)
+        self.positions = max(1, math.floor(self._in_steps(highest) + _STEP_SLACK) - self._first)
+        blocked = self.blockSignals(True)
+        try:
+            self.setDecimals(-self._exponent)
+            self.setSingleStep(10.0 ** self._exponent)
+            self.setRange(self.value_at(0), self.value_at(self.positions))
+        finally:
+            self.blockSignals(blocked)
+
+    def _in_steps(self, value):
+        """value counted in steps, a whole number when it is on one."""
+        return value * 10 ** -self._exponent
+
+    def value_at(self, position):
+        """The threshold at a slider position."""
+        return (self._first + position) / 10 ** -self._exponent
+
+    def position_of(self, value):
+        """The slider position of the highest number at or under value."""
+        steps = math.floor(self._in_steps(value) + _STEP_SLACK) - self._first
+        return min(max(steps, 0), self.positions)
 
 
 class ViewWidthBox(QWidget):
@@ -476,11 +550,14 @@ class ViewWidthBox(QWidget):
 
 
 __all__ = [
+    "CanvasSpinBox",
     "ControlsButton",
     "ControlsCard",
     "SIDEBAR_INSET",
     "SidebarButton",
     "SidebarPanel",
+    "THRESHOLD_STEPS",
+    "ThresholdSpinBox",
     "VIEW_WIDTH_BOX_HEIGHT",
     "VIEW_WIDTH_STEP",
     "ViewWidthBox",

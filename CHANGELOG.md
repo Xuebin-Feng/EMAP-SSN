@@ -159,6 +159,15 @@ still change before version 1.0.0.
   back. It follows the view's width as the view changes. Hidden Nodes and a metadata
   value `meta` shows stack above it, the three evenly spaced. `zoom` stays, for
   scripts, the agent and MCP.
+- **The threshold is a box to type in too.** The number before the threshold slider is
+  now a spin box. Type a threshold and press Enter, or use its arrows, Up/Down or the
+  wheel over it, and the slider moves to it; a drag of the slider changes the box. Each
+  number of the box is one of the slider's positions. Its step is the largest power of
+  ten, at most 1, that still gives 1,000 steps from the lowest edge score to the
+  highest, so the slider is never coarser than before, and the box shows as many
+  decimals as the step has: 0.001 for scores from 0 to 9.6, 0.1 for E-value scores up
+  to 300. Its lowest number still shows every edge and its highest the best ones. Esc
+  puts the box back.
 - **The mouse wheel zooms smoothly.** A notch zooms as far as before, about a fifth of
   the view, but over a few frames, most of it in the first tenth of a second, instead of
   in one jump. Quick notches add up, and a notch the other way takes one back. The point

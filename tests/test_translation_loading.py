@@ -532,7 +532,7 @@ class StartupWiringTests(unittest.TestCase):
         # and the threshold slider, with the controls' info button, in _build_slider_overlay.
         for widget in ("QMainWindow", "QPushButton"):
             self.assertTrue(calls_in(methods["_build_main_window"], widget), widget)
-        for widget in ("QLabel", "ControlsButton"):
+        for widget in ("ThresholdSpinBox", "ControlsButton"):
             self.assertTrue(calls_in(methods["_build_slider_overlay"], widget), widget)
         self.assert_installed_between(
             methods["__init__"], before=["SceneCanvas", "instance"],

@@ -912,13 +912,20 @@ Adjust to ensure labels remain legible without obstructing structural network fe
 调整它可确保标签清晰可读，同时不遮挡网络的结构特征。</translation>
     </message>
     <message>
+        <location line="+1"/>
+        <source>Color of viewer HUD text and control labels. A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead.
+Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &apos;#333333&apos;).</source>
+        <translation type="unfinished">查看器 HUD 文字和控件标签的颜色。非零的隐藏节点计数改用主题色的深色调显示。
+可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
+    </message>
+    <message>
         <source>Color of viewer HUD text, slider values, and control labels. The top interaction instruction remains gray, and a nonzero Hidden Nodes count remains red.
 Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &apos;#333333&apos;).</source>
         <translation type="obsolete">查看器 HUD 文字、滑块数值和控件标签的颜色。顶部的交互说明保持灰色，非零的隐藏节点计数保持红色。
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+1"/>
         <source>Baseline fill color applied to all nodes when the network is first loaded.
 Serves as the default background color before custom cluster or metadata coloring is applied.</source>
         <translation type="unfinished">首次加载网络时应用于所有节点的基础填充色。
@@ -1485,14 +1492,13 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">百分比</translation>
     </message>
     <message>
-        <location line="+1148"/>
         <source>Color of viewer HUD text, slider values, and control labels. A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead.
 Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &apos;#333333&apos;).</source>
-        <translation type="unfinished">查看器 HUD 文字、滑块数值和控件标签的颜色。非零的隐藏节点计数改用主题色的深色调显示。
+        <translation type="obsolete">查看器 HUD 文字、滑块数值和控件标签的颜色。非零的隐藏节点计数改用主题色的深色调显示。
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+1155"/>
         <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
 Significantly improves responsiveness and reduces rendering latency for large networks.</source>
         <translation type="unfinished">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。
@@ -3903,7 +3909,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1180"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1241"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -3928,7 +3934,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+720"/>
+        <location line="+706"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -8169,7 +8175,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2290"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2276"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8178,7 +8184,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-121"/>
+        <location line="-124"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -8188,12 +8194,12 @@ Fedora / RHEL：
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+41"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1707"/>
+        <location line="+1693"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -8273,7 +8279,7 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+130"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+137"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>

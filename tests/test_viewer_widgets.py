@@ -11,7 +11,8 @@ card reads it, as shipped in English and in Chinese, into key caps beside
 what each action does, on a light tint of the theme colour. A sidebar button
 centres its label in the room after its icon. The View Width box steps the
 view's width by a factor, as the wheel zooms, and reports only what the
-user set.
+user set. The threshold box's step comes from the range of the scores, and
+each of its numbers is a position of the threshold slider.
 """
 
 import ast
@@ -39,6 +40,8 @@ from desktop.Viewer_Widgets import (  # noqa: E402
     ControlsCard,
     SidebarButton,
     SidebarPanel,
+    THRESHOLD_STEPS,
+    ThresholdSpinBox,
     VIEW_WIDTH_BOX_HEIGHT,
     VIEW_WIDTH_STEP,
     ViewWidthBox,
@@ -284,6 +287,97 @@ class ViewWidthBoxTests(unittest.TestCase):
                                  [box.before, box.spin_box, box.after])
                 # The text keeps clear of the box, not crowding it.
                 self.assertGreaterEqual(layout.spacing(), 10)
+
+
+class ThresholdBoxTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        apply_theme_for_class(cls, cls.app)
+
+    def make_box(self, lowest, highest):
+        box = ThresholdSpinBox()
+        self.addCleanup(box.deleteLater)
+        box.set_scale(lowest, highest)
+        return box
+
+    def test_its_step_comes_from_the_range_of_the_scores(self):
+        # The largest power of ten that still gives THRESHOLD_STEPS steps, and
+        # no more than 1; the numbers run between multiples of it at or under
+        # the lowest and highest scores.
+        for lowest, highest, step, decimals, ends, positions in (
+                (0.0, 9.6, 0.001, 3, (0.0, 9.6), 9600),
+                (0.0, 1.0, 0.001, 3, (0.0, 1.0), 1000),
+                (0.0, 0.999, 0.0001, 4, (0.0, 0.999), 9990),
+                (0.31274, 0.98, 0.0001, 4, (0.3127, 0.98), 6673),
+                (0.3, 0.9, 0.0001, 4, (0.3, 0.9), 6000),
+                (0.2, 0.3, 0.0001, 4, (0.2, 0.3), 1000),  # 0.3 - 0.2 is a hair under 0.1.
+                # 0.57 * 100 and 16.06 * 100 are each a hair under a whole number.
+                (0.57, 16.06, 0.01, 2, (0.57, 16.06), 1549),
+                (5.2, 300.0, 0.1, 1, (5.2, 300.0), 2948),
+                (12.0, 2400.0, 1.0, 0, (12.0, 2400.0), 2388),
+                (0.0, 100000.0, 1.0, 0, (0.0, 100000.0), 100000),
+                (-2.55, 7.45, 0.01, 2, (-2.55, 7.45), 1000)):
+            with self.subTest(lowest=lowest, highest=highest):
+                box = self.make_box(lowest, highest)
+                self.assertEqual((box.singleStep(), box.decimals()), (step, decimals))
+                self.assertEqual((box.minimum(), box.maximum()), ends)
+                self.assertEqual(box.positions, positions)
+                self.assertGreaterEqual(box.positions, THRESHOLD_STEPS)
+                self.assertEqual(box.value_at(0), box.minimum())
+                self.assertEqual(box.value_at(box.positions), box.maximum())
+
+    def test_each_number_is_a_slider_position(self):
+        box = self.make_box(0.3, 0.9)
+        for position in range(box.positions + 1):
+            value = box.value_at(position)
+            self.assertEqual(round(value, box.decimals()), value)
+            self.assertEqual(box.position_of(value), position)
+        # A number between two positions goes to the one under it; one
+        # outside the range, to its end.
+        self.assertEqual(box.position_of(0.30019), 1)
+        self.assertEqual(box.position_of(0.1), 0)
+        self.assertEqual(box.position_of(5.0), box.positions)
+
+    def test_its_ends_show_every_edge_and_the_best(self):
+        import numpy
+
+        rng = numpy.random.default_rng(42)
+        for scale in (1.0, 9.6, 300.0, 2400.0):
+            scores = (rng.random(500) * scale).astype(numpy.float32)
+            with self.subTest(scale=scale):
+                # The Viewer's range: the lowest and highest scores, as floats.
+                box = self.make_box(float(scores.min()), float(scores.max()))
+                self.assertTrue((scores >= box.minimum()).all())
+                self.assertTrue((scores >= box.maximum()).any())
+
+    def test_typing_counts_on_enter_and_esc_puts_back_the_number(self):
+        box = self.make_box(0.0, 9.6)
+        sets, dismissed = [], []
+        box.valueChanged.connect(sets.append)
+        box.dismissed.connect(lambda: dismissed.append(True))
+        box.show_value(3.74)
+        box.set_scale(0.0, 9.6)
+        self.assertEqual((box.text(), sets), ("3.740", []))
+        self.assertFalse(box.keyboardTracking())
+        self.assertEqual(box.focusPolicy(), Qt.FocusPolicy.ClickFocus)
+        box.lineEdit().selectAll()
+        QTest.keyClicks(box, "5.5")
+        self.assertEqual(sets, [])
+        QTest.keyClick(box, Qt.Key.Key_Escape)
+        self.assertEqual((box.text(), sets, dismissed), ("3.740", [], [True]))
+        box.lineEdit().selectAll()
+        QTest.keyClicks(box, "5.5")
+        QTest.keyClick(box, Qt.Key.Key_Return)
+        self.assertEqual(sets, [5.5])
+        # A step is the smallest change.
+        box.stepBy(1)
+        self.assertEqual(sets[-1], 5.501)
+
+    def test_it_is_as_tall_as_the_view_width_box(self):
+        box = self.make_box(0.0, 9.6)
+        self.assertEqual(box.sizeHint().height(), VIEW_WIDTH_BOX_HEIGHT)
+        self.assertGreaterEqual(box.sizeHint().width(), QFontMetrics(box.font()).horizontalAdvance("9.600"))
 
 
 class SidebarWidgetTests(unittest.TestCase):

@@ -9,7 +9,8 @@ buttons centre their labels after their icons. In a shown window it slides
 open and closed, its toggle, the slider and the HUD following it at each
 frame; a hidden or headless window switches it at once, and the toggle turns
 a slide around where it is. The info button at the threshold slider's start
-opens the mouse and keyboard controls.
+opens the mouse and keyboard controls, and the threshold box between them
+and the slider follows it and moves it.
 """
 
 import os
@@ -28,6 +29,7 @@ if str(SRC) not in sys.path:
 import EMAPSSN_Viewer  # noqa: E402
 from EMAPSSN_Viewer import SIDEBAR_SLIDE_MS, MainViewer, _sidebar_room  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 from desktop.Viewer_Widgets import SIDEBAR_INSET, ControlsButton, SidebarButton, SidebarPanel  # noqa: E402
@@ -196,15 +198,16 @@ class SliderOverlayTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme_for_class(cls, cls.app)
 
-    def make_viewer(self):
+    def make_viewer(self, low=0.0, high=9.6, current=None):
         viewer = MainViewer.__new__(MainViewer)
         viewer.canvas = SimpleNamespace(native=QWidget(), size=CANVAS_SIZE)
         self.addCleanup(viewer.canvas.native.deleteLater)
         viewer.hud_layout = {"status_x_offset": 10.0, "status_line_spacing": 38.0}
         viewer._hud_timer = mock.Mock()
-        viewer.current_slider_threshold = 3.74
-        with mock.patch.object(MainViewer, "on_slider_value_changed"):
-            viewer._build_slider_overlay()
+        viewer.min_threshold, viewer.max_threshold = low, high
+        viewer.current_slider_threshold = 3.74 if current is None else current
+        viewer.update_edges = mock.Mock()
+        viewer._build_slider_overlay()
         return viewer
 
     def test_the_view_width_box_ends_the_slider_row(self):
@@ -265,7 +268,7 @@ class SliderOverlayTests(unittest.TestCase):
                 slider.setSliderDown(True)
                 for value in (100, 200, 300):
                     slider.setValue(value)
-                self.assertEqual(viewer.slider_label.text(), viewer.format_sig_figs(30.0))
+                self.assertEqual(viewer.threshold_box.text(), "30.0")
                 self.assertEqual(viewer.update_edges.call_count, 0 if low_resource else 3)
                 slider.setSliderDown(False)
                 self.assertEqual(viewer.update_edges.call_count, 1 if low_resource else 3)
@@ -280,20 +283,67 @@ class SliderOverlayTests(unittest.TestCase):
         layout = viewer.slider_overlay.layout()
         widgets = [layout.itemAt(index).widget() for index in range(layout.count())]
         self.assertEqual([widget for widget in widgets if widget is not None],
-                         [viewer.controls_button, viewer.slider_label, viewer.slider])
+                         [viewer.controls_button, viewer.threshold_box, viewer.slider])
         button = viewer.controls_button
         self.assertIsInstance(button, ControlsButton)
         self.assertEqual(button.toolTip(), "Mouse and keyboard controls")
         self.assertTrue(button.text_source.startswith("[ENTER] Command | "))
-        self.assertEqual(viewer.slider_label.text(), "3.74")
-        # The number starts well clear of the button, so the button doesn't
-        # read as a mark on it; the label's text starts at its left edge.
+        self.assertEqual(viewer.threshold_box.text(), "3.740")
+        # The box starts well clear of the button, so the button doesn't
+        # read as a mark on the number.
         layout.activate()
-        gap = viewer.slider_label.x() - (button.x() + button.width())
+        gap = viewer.threshold_box.x() - (button.x() + button.width())
         self.assertGreaterEqual(gap, 24)
         self.assertLessEqual(gap, 40)
-        self.assertEqual(viewer.slider_label.contentsMargins().left(), 0)
-        self.assertTrue(viewer.slider_label.alignment() & Qt.AlignmentFlag.AlignLeft)
+
+    def test_the_threshold_box_and_the_slider_follow_each_other(self):
+        viewer = self.make_viewer(low=0.0, high=100.0, current=0.0)
+        box, slider = viewer.threshold_box, viewer.slider
+        # One slider position for each number of the box: 0.1 apart here.
+        self.assertEqual((slider.minimum(), slider.maximum()), (0, box.positions))
+        self.assertEqual((box.singleStep(), box.positions), (0.1, 1000))
+        # The slider sets the threshold and the box shows it.
+        slider.setValue(374)
+        self.assertEqual((viewer.current_slider_threshold, box.text()), (37.4, "37.4"))
+        viewer.update_edges.assert_called_once_with()
+        # The box sets the threshold and moves the slider, redrawing the edges once.
+        viewer.update_edges.reset_mock()
+        box.setValue(52.5)
+        self.assertEqual((viewer.current_slider_threshold, slider.value()), (52.5, 525))
+        viewer.update_edges.assert_called_once_with()
+        # Esc puts back the threshold set last, not the one it opened on.
+        box.lineEdit().selectAll()
+        QTest.keyClicks(box, "80")
+        QTest.keyClick(box, Qt.Key.Key_Escape)
+        self.assertEqual((box.text(), viewer.current_slider_threshold), ("52.5", 52.5))
+
+    def test_the_slider_starts_at_the_threshold_and_keeps_its_wheel_and_page_steps(self):
+        viewer = self.make_viewer(low=0.31274, high=0.98, current=0.31274)
+        box, slider = viewer.threshold_box, viewer.slider
+        # At the start, under the lowest score: the same edges show, so the
+        # threshold itself is left as it is.
+        self.assertEqual((slider.value(), box.text()), (0, "0.3127"))
+        self.assertEqual(viewer.current_slider_threshold, 0.31274)
+        viewer.update_edges.assert_not_called()
+        # About a thousandth and a hundredth of the way, as with 1000 positions.
+        self.assertEqual((slider.singleStep(), slider.pageStep()), (6, 66))
+        viewer = self.make_viewer(low=0.0, high=1.0, current=0.5)
+        self.assertEqual((viewer.slider.value(), viewer.slider.singleStep(), viewer.slider.pageStep()),
+                         (500, 1, 10))
+
+    def test_the_threshold_box_gives_the_keyboard_back_to_the_network(self):
+        viewer = self.make_viewer()
+        viewer.canvas.native.setFocus = mock.Mock()
+        box = viewer.threshold_box
+        # Typed in: Enter, Esc or another click hands the keyboard back.
+        with mock.patch.object(box, "hasFocus", return_value=True):
+            box.editingFinished.emit()
+            box.dismissed.emit()
+        self.assertEqual(viewer.canvas.native.setFocus.call_count, 2)
+        # The arrows keep it, so holding one keeps stepping.
+        with mock.patch.object(box, "hasFocus", return_value=True):
+            box.stepBy(1)
+        self.assertEqual(viewer.canvas.native.setFocus.call_count, 2)
 
 
 if __name__ == "__main__":
