@@ -3914,27 +3914,29 @@ Command-line usage:
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+695"/>
+        <location line="+701"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location filename="../../../commands/undo.py" line="+13"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+3"/>
         <source>Nothing to undo.</source>
         <translation type="unfinished">没有可撤销的操作。</translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+35"/>
         <source>Redo successful.</source>
         <translation type="unfinished">已重做。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location filename="../../../commands/redo.py" line="+13"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+3"/>
         <source>Nothing to redo.</source>
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location line="+706"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+706"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -5681,8 +5683,8 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">将 FASTA 加载到内存时出错：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/redo.py" line="-31"/>
-        <location filename="../../../commands/undo.py" line="-32"/>
+        <location filename="../../../commands/redo.py" line="-44"/>
+        <location filename="../../../commands/undo.py" line="-45"/>
         <source>Error: {syntax} takes a positive whole number of steps, not &apos;{value}&apos;.</source>
         <translation type="unfinished">错误：{syntax} 的步数必须为正整数，而不是“{value}”。</translation>
     </message>
@@ -5693,14 +5695,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">错误：{syntax} 只接受一个步数；未使用“{argument}”。</translation>
     </message>
     <message numerus="yes">
-        <location line="+35"/>
+        <location line="+37"/>
         <source>Redid %n step(s).</source>
         <translation type="unfinished">
             <numerusform>已重做 %n 步。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/undo.py" line="+36"/>
+        <location filename="../../../commands/undo.py" line="+38"/>
         <source>Undid %n step(s).</source>
         <translation type="unfinished">
             <numerusform>已撤销 %n 步。</numerusform>
@@ -8175,7 +8177,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2276"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2288"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8199,7 +8201,7 @@ Fedora / RHEL：
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1693"/>
+        <location line="+1705"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

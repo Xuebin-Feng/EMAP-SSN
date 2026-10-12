@@ -2579,6 +2579,10 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Nothing to redo.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Warning: Multiple matches found for &apos;{target}&apos;. Using &apos;{reference}&apos;.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2927,6 +2931,10 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>Nothing to undo.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: Zoom width must be a valid number.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3047,15 +3055,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Nothing to undo.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Redo successful.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Nothing to redo.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
