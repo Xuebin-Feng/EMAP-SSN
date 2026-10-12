@@ -26,7 +26,7 @@ from pathlib import Path
 import platform
 import re
 import subprocess
-from typing import Any, Iterable
+from typing import Any, Iterable, NamedTuple
 
 
 COMPATIBILITY_REVISION = 7
@@ -88,8 +88,9 @@ AMD_SHARED_IGPU_PATTERNS = (r"radeon\s*840m",)
 #
 # This set is wider than AMD_GFX_PATTERNS on purpose. The pattern table maps a
 # product NAME to a target and is the only option on Windows, where nothing
-# reports the GFX target directly. On Linux the ROCm runtime reports it, so the
-# eligibility gate there uses this set instead — see _linux_rocm_fallback_target.
+# reports the GFX target directly. On Linux the kernel reports it (_kfd_targets),
+# or else the ROCm runtime (_linux_rocm_fallback_target), so the eligibility
+# gate there uses this set instead.
 ROCM_CHANNEL_TARGETS = frozenset({
     "gfx908", "gfx90a", "gfx942", "gfx950",
     "gfx1010", "gfx1011", "gfx1012",
@@ -106,8 +107,9 @@ INTEL_INTEGRATED_ARC_PATTERNS = (
     INTEL_ARC_PREFIX + r"(?:pro\s+)?1[34]0[vt]\b",
     INTEL_SERIES_3_ARC_PATTERN,
 )
-# Arc Pro cards are the same Alchemist and Battlemage silicon as Arc A and B,
-# some with two-digit model numbers (Pro A60, Pro B50, Pro B60).
+# For an Intel GPU without a PCI device ID (plain lspci), the name decides. Arc
+# Pro cards are the same Alchemist and Battlemage silicon as Arc A and B, some
+# with two-digit model numbers (Pro A60, Pro B50, Pro B60).
 INTEL_XPU_PATTERNS = (
     INTEL_ARC_PREFIX + r"[ab]-?series\b",
     INTEL_ARC_PREFIX + r"(?:pro\s+)?[ab]\d{2,3}",
@@ -115,6 +117,59 @@ INTEL_XPU_PATTERNS = (
     *INTEL_INTEGRATED_ARC_PATTERNS,
     r"intel.*data\s+center\s+gpu\s+max",
 )
+
+
+class IntelPlatform(NamedTuple):
+    name: str
+    kind: str
+    windows: bool  # the Windows wheel carries kernels for it
+    linux: dict[str, tuple[str, ...]]  # distribution: releases, where the Linux wheel does
+    device_ids: tuple[str, ...] = ()
+
+
+INTEL_UBUNTU = {"ubuntu": ("24.04", "25.10", "26.04")}
+# PyTorch lists Panther Lake for Ubuntu 25.10, whose Linux 6.17 xe driver it needs.
+INTEL_UBUNTU_6_17 = {"ubuntu": ("25.10", "26.04")}
+INTEL_MAX_LINUX = {"ubuntu": ("22.04",), "rhel": ("9.2",), "redhat": ("9.2",), "sles": ("15",), "suse": ("15",)}
+# The Intel GPUs the pinned PyTorch 2.12.0 XPU wheels carry compiled kernels
+# for, by PCI device ID. torch-xpu-ops 62b793f (PyTorch v2.12.0's
+# third_party/xpu.txt) compiles ahead of time for Windows
+# "mtl,mtl-h,bmg,dg2,arl-h,lnl-m,ptl" and Linux
+# "pvc,bmg,dg2,arl-h,mtl-h,lnl-m,ptl-h,ptl-u" (cmake/BuildFlags.cmake), and
+# Intel's compute runtime also runs dg2's kernels on ACM-G11 and G12, bmg's on
+# BMG-G31 and ptl's on Panther Lake-U. Device IDs from compute-runtime
+# 26.35.39758.10 (shared/source/*/device_ids_configs_*.h), less pre-production
+# parts.
+#
+# Any other Intel GPU could only compile the wheel's SPIR-V copy on first use,
+# and PyTorch lists none of them: Meteor Lake-U on Linux, Arrow Lake-U and -S,
+# Wildcat Lake, Data Center GPU Flex, other Max parts, and the Xe-LP graphics
+# before Meteor Lake, which lack the 64-bit floating point the kernels need.
+INTEL_XPU_PLATFORMS = (
+    IntelPlatform("Arc A-series (Alchemist)", "discrete", True, INTEL_UBUNTU, (
+        "5690", "5691", "5692", "56a0", "56a1", "56a2", "56be", "56bf",  # ACM-G10
+        "5693", "5694", "5695", "56a5", "56a6", "56b0", "56b1", "56ba", "56bb", "56bc", "56bd",  # ACM-G11
+        "5696", "5697", "56a3", "56a4", "56b2", "56b3",  # ACM-G12
+    )),
+    IntelPlatform("Arc B-series (Battlemage)", "discrete", True, INTEL_UBUNTU, (
+        "e202", "e209", "e20b", "e20c", "e20d", "e210", "e211", "e212", "e215", "e216",  # BMG-G21
+        "e220", "e221", "e222", "e223",  # BMG-G31
+    )),
+    IntelPlatform("Meteor Lake-H", "integrated", True, INTEL_UBUNTU, ("7d55", "7dd5")),
+    # The Linux wheel leaves out "mtl", Meteor Lake-U's target.
+    IntelPlatform("Meteor Lake-U", "integrated", True, {}, ("7d40", "7d45")),
+    IntelPlatform("Arrow Lake-H", "integrated", True, INTEL_UBUNTU, ("7d51", "7dd1")),
+    IntelPlatform("Lunar Lake", "integrated", True, INTEL_UBUNTU, ("6420", "64a0", "64b0")),
+    IntelPlatform("Panther Lake", "integrated", True, INTEL_UBUNTU_6_17, (
+        "b080", "b081", "b082", "b083", "b084", "b085", "b086", "b087", "b08f", "b090", "b0a0", "b0b0",
+    )),
+    IntelPlatform("Data Center GPU Max", "discrete", False, INTEL_MAX_LINUX, (
+        "0b69", "0b6e", "0bd5", "0bd6", "0bd7", "0bd8", "0bd9", "0bda", "0bdb",
+    )),
+)
+INTEL_XPU_DEVICE_IDS = {device: row for row in INTEL_XPU_PLATFORMS for device in row.device_ids}
+INTEL_XPU_PLATFORM_NAMED = {row.name: row for row in INTEL_XPU_PLATFORMS}
+INTEL_ARC_BY_NAME = IntelPlatform("Intel Arc", "unknown", True, INTEL_UBUNTU)
 
 DEVICE_CLASS_ORDER = {"discrete": 0, "unknown": 1, "integrated": 2}
 VENDOR_ORDER = {"NVIDIA": 0, "AMD": 1, "INTEL": 2, "APPLE": 3, "CPU": 4}
@@ -301,7 +356,29 @@ def _amd_device_target(name: str, processors: list[str]) -> str | None:
     return amd_gfx_target(processors)
 
 
-def _device_kind(vendor: str, name: str, gfx_target: str | None, processors: list[str]) -> str:
+def _intel_platform(pci_id: str | None, name: str) -> IntelPlatform | None:
+    """The XPU platform of an Intel GPU, or None when the pinned wheels have no kernels for it.
+
+    The PCI device ID decides: the names in pci.ids and in Intel's driver
+    follow branding, and the same GPU is "Intel Arc Graphics" or "Intel
+    Graphics" depending on the memory fitted. Only without an ID does the name.
+    """
+    if pci_id:
+        vendor, _, device = pci_id.partition(":")
+        return INTEL_XPU_DEVICE_IDS.get(device) if vendor == "8086" else None
+    if not any(re.search(pattern, name, re.I) for pattern in INTEL_XPU_PATTERNS):
+        return None
+    lowered = name.lower()
+    if "data center gpu max" in lowered:
+        return INTEL_XPU_PLATFORM_NAMED["Data Center GPU Max"]
+    if "series 3" in lowered or "panther" in lowered or re.search(INTEL_SERIES_3_ARC_PATTERN, name, re.I):
+        return INTEL_XPU_PLATFORM_NAMED["Panther Lake"]
+    return INTEL_ARC_BY_NAME
+
+
+def _device_kind(
+    vendor: str, name: str, gfx_target: str | None, processors: list[str], pci_id: str | None = None
+) -> str:
     text = name.lower()
     if vendor == "NVIDIA":
         return "discrete"
@@ -311,6 +388,9 @@ def _device_kind(vendor: str, name: str, gfx_target: str | None, processors: lis
         if _amd_name_looks_discrete(name):
             return "discrete"
     if vendor == "INTEL":
+        intel_platform = _intel_platform(pci_id, name) if pci_id else None
+        if intel_platform:
+            return intel_platform.kind
         # Numbered integrated Arc GPUs do not require a CPU-name probe. In
         # particular, B370/B390 are integrated despite their B-series names.
         if any(re.search(pattern, name, re.I) for pattern in INTEL_INTEGRATED_ARC_PATTERNS):
@@ -341,7 +421,7 @@ def _windows_inventory(processors: list[str]) -> list[dict[str, Any]]:
                 "vendor": vendor,
                 "pci_id": pci_id,
                 "driver_version": str(row.get("DriverVersion") or "") or None,
-                "kind": _device_kind(vendor, name, gfx, processors),
+                "kind": _device_kind(vendor, name, gfx, processors, pci_id),
                 "architecture": gfx,
                 "source": "Win32_VideoController",
             }
@@ -360,7 +440,7 @@ def _inventory_from_names(names: Iterable[str], processors: list[str], source: s
         devices.append({
             "id": f"{source}:{index}", "name": name, "vendor": vendor,
             "pci_id": pci_id, "driver_version": None, "driver": None,
-            "kind": _device_kind(vendor, name, gfx, processors),
+            "kind": _device_kind(vendor, name, gfx, processors, pci_id),
             "architecture": gfx, "source": source,
         })
     return devices
@@ -393,7 +473,7 @@ def _linux_inventory(processors: list[str]) -> list[dict[str, Any]]:
                 "pci_id": pci_id,
                 "driver_version": None,
                 "driver": None,
-                "kind": _device_kind(vendor, name, gfx, processors),
+                "kind": _device_kind(vendor, name, gfx, processors, pci_id),
                 "architecture": gfx,
                 "source": "lspci",
             }
@@ -508,25 +588,58 @@ def _linux_rocm_fallback_target(rocm_targets: set[str]) -> str | None:
     return next(iter(supported)) if len(supported) == 1 else None
 
 
-def _intel_os_supported(system: str, os_info: dict[str, Any], device_name: str) -> bool:
+KFD_TOPOLOGY_NODES = "/sys/class/kfd/kfd/topology/nodes"
+
+
+def _kfd_nodes() -> list[dict[str, int]]:
+    """The numeric properties of every node in the kernel's KFD topology.
+
+    amdgpu's KFD lists a node per CPU and per GPU that can run ROCm, in sysfs,
+    with no ROCm software installed. WSL, containers without /sys/class/kfd and
+    kernels without the KFD list none.
+    """
+    try:
+        folders = sorted(Path(KFD_TOPOLOGY_NODES).iterdir())
+    except OSError:
+        return []
+    nodes = []
+    for folder in folders:
+        try:
+            text = (folder / "properties").read_text(encoding="ascii", errors="replace")
+        except OSError:
+            continue
+        nodes.append({
+            parts[0]: int(parts[1])
+            for parts in (line.split() for line in text.splitlines())
+            if len(parts) == 2 and parts[1].isdigit()
+        })
+    return nodes
+
+
+def _kfd_targets(nodes: list[dict[str, int]]) -> dict[str, str]:
+    """Each GPU node's GFX target, by the PCI address _pci_address() gives.
+
+    gfx_target_version is major * 10000 + minor * 100 + stepping, and LLVM
+    names minor and stepping in hex: 90010 is gfx90a, 90402 gfx942. CPU nodes
+    report 0. location_id is the bus, device and function, (bus << 8) |
+    (device << 3) | function.
+    """
+    targets: dict[str, str] = {}
+    for node in nodes:
+        version = node.get("gfx_target_version", 0)
+        location = node.get("location_id")
+        if version <= 0 or location is None:
+            continue
+        address = f"{node.get('domain', 0):x}:{location >> 8:02x}:{(location >> 3) & 0x1f:02x}.{location & 7}"
+        targets[address] = f"gfx{version // 10000}{(version // 100) % 100:x}{version % 100:x}"
+    return targets
+
+
+def _intel_os_supported(system: str, os_info: dict[str, Any], intel_platform: IntelPlatform) -> bool:
     if system == "windows":
         return int(os_info.get("windows_build") or 0) >= WINDOWS_11_MIN_BUILD
-    if system != "linux":
-        return False
     distro = str(os_info.get("id") or "").lower()
-    version = str(os_info.get("version_id") or "")
-    if "data center gpu max" in device_name.lower():
-        return (distro == "ubuntu" and version.startswith("22.04")) or (
-            distro in {"rhel", "redhat"} and version.startswith("9.2")
-        ) or (distro in {"sles", "suse"} and version.startswith("15"))
-    supported_ubuntu = ("24.04", "25.10", "26.04")
-    if (
-        "series 3" in device_name.lower()
-        or "panther" in device_name.lower()
-        or re.search(INTEL_SERIES_3_ARC_PATTERN, device_name, re.I)
-    ):
-        supported_ubuntu = ("25.10", "26.04")
-    return distro == "ubuntu" and version.startswith(supported_ubuntu)
+    return system == "linux" and str(os_info.get("version_id") or "").startswith(intel_platform.linux.get(distro, ()))
 
 
 def _nvidia_driver_warning(device: dict[str, Any]) -> str | None:
@@ -594,7 +707,11 @@ def _rank(device: dict[str, Any]) -> tuple[int, int, str]:
 
 
 def _evaluate_devices(
-    devices: list[dict[str, Any]], system: str, os_info: dict[str, Any], rocm_targets: set[str]
+    devices: list[dict[str, Any]],
+    system: str,
+    os_info: dict[str, Any],
+    rocm_targets: set[str],
+    kfd_targets: dict[str, str] | None = None,
 ) -> None:
     windows_build = os_info.get("windows_build")
     linux_kfd = Path("/dev/kfd")
@@ -616,11 +733,28 @@ def _evaluate_devices(
                 reasons.append("NVIDIA display device detected; runtime validation is required.")
         elif vendor == "AMD":
             target = device.get("architecture")
-            if not target and system == "linux":
+            kfd_target = None
+            kfd_missing = False
+            if system == "linux" and kfd_targets:
+                # The kernel reports each GPU's real target by PCI address, so
+                # it decides over a name match: pci.ids names a PCI ID, and one
+                # name can cover GPUs of several targets.
+                address = _pci_address(device.get("id")) or _pci_address(device.get("name"))
+                kfd_target = kfd_targets.get(address) if address else None
+                kfd_missing = address is not None and kfd_target is None
+                if kfd_target:
+                    if target and target != kfd_target:
+                        reasons.append(f"The kernel reports {kfd_target} for this GPU; its name suggested {target}.")
+                    target = kfd_target
+                    device["architecture"] = target
+                    device["architecture_source"] = "kfd"
+                    if device.get("kind") == "unknown" and target in INTEGRATED_AMD_TARGETS:
+                        device["kind"] = "integrated"
+            if not target and system == "linux" and kfd_target is None and not kfd_missing:
                 # The product name did not match the pinned snapshot, but the
                 # ROCm runtime reports the real target. Prefer that over
                 # declaring the device unsupported.
-                target = _linux_rocm_fallback_target(rocm_targets)
+                target = _linux_rocm_fallback_target(rocm_targets or set((kfd_targets or {}).values()))
                 if target:
                     device["architecture"] = target
                     device["architecture_source"] = "rocm_agent_enumerator"
@@ -628,7 +762,11 @@ def _evaluate_devices(
                         f"GFX target {target} resolved from the ROCm runtime; "
                         "the model is not in the pinned name table."
                     )
-            if not target:
+            if kfd_missing:
+                # The kernel lists the other GPUs but none at this address, so
+                # ROCm cannot use this one, whatever its name or the runtime say.
+                reasons.append("The kernel's ROCm driver (KFD) lists no compute node for this GPU.")
+            elif not target:
                 reasons.append("AMD model is not in the pinned GFX compatibility table.")
             elif system == "windows":
                 # ROCm 7.14 is the only Windows profile. AMD publishes it for
@@ -654,7 +792,7 @@ def _evaluate_devices(
                 version = str(os_info.get("version_id") or "")
                 os_supported = distro == "ubuntu" and version.startswith(("22.04", "24.04", "25.10", "26.04"))
                 driver_ready = linux_kfd.exists() and os.access(linux_kfd, os.R_OK | os.W_OK)
-                target_seen = not rocm_targets or target in rocm_targets
+                target_seen = kfd_target is not None or not rocm_targets or target in rocm_targets
                 if not os_supported:
                     reasons.append("Linux ROCm profile is limited to the pinned supported Ubuntu releases.")
                 elif not driver_ready:
@@ -664,10 +802,10 @@ def _evaluate_devices(
                 elif target in ROCM_CHANNEL_TARGETS:
                     # Linux gates on the targets the pinned torch wheel ships
                     # kernels for rather than on the name-pattern table, because
-                    # the target here is either name-matched or reported by the
-                    # ROCm runtime.
+                    # the target here is reported by the kernel or the ROCm
+                    # runtime, or name-matched (provisional).
                     profiles = ["rocm"]
-                    status = "eligible" if rocm_targets else "provisional"
+                    status = "eligible" if kfd_target or rocm_targets else "provisional"
                     device["profile_eligibility"] = {
                         profile: status for profile in profiles
                     }
@@ -684,15 +822,27 @@ def _evaluate_devices(
         elif vendor == "INTEL":
             # Installation eligibility is about compatibility, not speed.
             # Validated integrated Arc devices participate in workload benchmarks.
-            recognized = any(re.search(pattern, device["name"], re.I) for pattern in INTEL_XPU_PATTERNS)
-            if not recognized:
-                reasons.append("Intel adapter is not an Arc/Core Ultra Arc/Data Center GPU Max device.")
-            elif not _intel_os_supported(system, os_info, device["name"]):
-                reasons.append("Intel XPU does not list this OS/device combination.")
+            pci_id = device.get("pci_id")
+            intel_platform = _intel_platform(pci_id, device["name"])
+            if intel_platform is None:
+                reasons.append(
+                    f"The pinned PyTorch XPU build has no kernels for this Intel GPU ({pci_id})." if pci_id
+                    else "Intel adapter is not an Arc/Core Ultra Arc/Data Center GPU Max device."
+                )
+            elif system == "windows" and "intel" not in device["name"].lower():
+                # Without Intel's driver, Windows shows the GPU under its own
+                # name, such as "Microsoft Basic Display Adapter".
+                reasons.append(
+                    f"Windows lists this Intel GPU as {device['name']}: Intel's graphics driver is not installed."
+                )
+            elif not (intel_platform.windows if system == "windows" else system == "linux" and intel_platform.linux):
+                reasons.append(f"The pinned PyTorch XPU build for this OS has no kernels for {intel_platform.name}.")
+            elif not _intel_os_supported(system, os_info, intel_platform):
+                reasons.append(f"Intel XPU does not list this OS release for {intel_platform.name}.")
             else:
                 profiles = ["xpu"]
                 status = "eligible" if device.get("driver_version") or device.get("driver") else "provisional"
-                reasons.append("Intel device family and OS are in the pinned XPU compatibility table.")
+                reasons.append(f"{intel_platform.name} and this OS are in the pinned XPU compatibility table.")
         else:
             reasons.append("Display-controller vendor is not supported for compute acceleration.")
         device["eligibility"] = status
@@ -863,9 +1013,11 @@ def detect_hardware() -> dict[str, Any]:
             "reasons": ["Apple Silicon detected."],
         })
 
-    rocm_targets = _rocm_targets() if system == "linux" and any(d["vendor"] == "AMD" for d in devices) else set()
+    amd_on_linux = system == "linux" and any(d["vendor"] == "AMD" for d in devices)
+    rocm_targets = _rocm_targets() if amd_on_linux else set()
+    kfd_targets = _kfd_targets(_kfd_nodes()) if amd_on_linux else {}
     non_apple = [device for device in devices if device["vendor"] != "APPLE"]
-    _evaluate_devices(non_apple, system, os_info, rocm_targets)
+    _evaluate_devices(non_apple, system, os_info, rocm_targets, kfd_targets)
     candidates, ignored = _candidate_ladder(devices)
     primary = candidates[0]
     primary_reason = primary["reason"]
@@ -885,6 +1037,7 @@ def detect_hardware() -> dict[str, Any]:
         "processors": processors,
         "nvidia_devices": nvidia,
         "rocm_agents": sorted(rocm_targets),
+        "kfd_targets": kfd_targets,
         "devices": devices,
         "backend_candidates": candidates,
         "ignored_devices": ignored,

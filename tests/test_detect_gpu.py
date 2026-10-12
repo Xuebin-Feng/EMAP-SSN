@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
@@ -266,6 +267,45 @@ class DetectionCompatibilityTests(unittest.TestCase):
         self.assertIn(candidates[0]["device_ids"][0], {"intel1", "intel2"})
         self.assertEqual(ignored, [])
 
+    def test_intel_xpu_operating_systems_follow_the_platform_of_the_pci_id(self):
+        windows_11, windows_10 = {"windows_build": 26200}, {"windows_build": 19045}
+
+        def ubuntu(release):
+            return {"id": "ubuntu", "version_id": release}
+
+        cases = [
+            # Lunar Lake: Windows 11 and Ubuntu 24.04 or newer.
+            ("64a0", "windows", windows_11, True), ("64a0", "windows", windows_10, False),
+            ("64a0", "linux", ubuntu("22.04"), False), ("64a0", "linux", ubuntu("24.04"), True),
+            ("64a0", "linux", {"id": "fedora", "version_id": "43"}, False),
+            # PyTorch lists Panther Lake for Ubuntu 25.10, and Battlemage, the
+            # Arc Pro B70 (BMG-G31) included, from 24.04.
+            ("b080", "linux", ubuntu("24.04"), False), ("b080", "linux", ubuntu("25.10"), True),
+            ("b090", "linux", ubuntu("26.04"), True), ("b090", "windows", windows_11, True),
+            ("e223", "linux", ubuntu("24.04"), True), ("e223", "windows", windows_11, True),
+            ("e20b", "linux", ubuntu("22.04"), False),
+            # Meteor Lake-U has kernels in the Windows wheel only, Max in the Linux one only.
+            ("7d45", "windows", windows_11, True), ("7d45", "linux", ubuntu("24.04"), False),
+            ("0bd5", "windows", windows_11, False), ("0bd5", "linux", ubuntu("22.04"), True),
+            ("0bd5", "linux", {"id": "rhel", "version_id": "9.2"}, True),
+            ("0bd5", "linux", {"id": "sles", "version_id": "15.5"}, True),
+            ("0bd5", "linux", ubuntu("24.04"), False),
+        ]
+        for device_id, system, os_info, expected in cases:
+            with self.subTest(device_id=device_id, system=system, os_info=os_info):
+                device = gpu(f"Intel Corporation Device [8086:{device_id}]", "INTEL", identifier="intel0")
+                device["pci_id"] = f"8086:{device_id}"
+                Detect_GPU._evaluate_devices([device], system, os_info, set())
+                self.assertEqual(device["eligible_profiles"], ["xpu"] if expected else [])
+
+    def test_intel_xpu_device_ids_are_unique_lowercase_pci_device_ids(self):
+        listed = [device for platform in Detect_GPU.INTEL_XPU_PLATFORMS for device in platform.device_ids]
+        self.assertEqual(len(listed), len(set(listed)))
+        self.assertTrue(all(len(device) == 4 and device == device.lower() and int(device, 16) for device in listed))
+        self.assertEqual(Detect_GPU._intel_platform("8086:e20b", "").name, "Arc B-series (Battlemage)")
+        # Another vendor's ID with a known device number is not an Intel GPU.
+        self.assertIsNone(Detect_GPU._intel_platform("1002:e20b", "Intel Arc B580"))
+
     def test_amd_discrete_target_excludes_integrated_target(self):
         discrete = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd-d", kind="discrete", architecture="gfx1100", profiles=["rocm"])
         integrated = gpu("AMD Radeon 890M", "AMD", identifier="amd-i", kind="integrated", architecture="gfx1150", profiles=["rocm"])
@@ -406,19 +446,26 @@ class DetectionCompatibilityTests(unittest.TestCase):
 
 
 class GPUDetectionTests(unittest.TestCase):
-    def _detect(self, *, system="Windows", version="10.0.26200", controllers=(), processors=(), nvidia=()):
-        # An empty CIM (PowerShell) result leaves the controller names as the
-        # whole Windows inventory; every other probe is mocked as well.
+    def _detect(
+        self, *, system="Windows", version="10.0.26200", controllers=(), processors=(), nvidia=(), adapters=()
+    ):
+        # Without Win32_VideoController rows (adapters), an empty CIM
+        # (PowerShell) result leaves the controller names as the whole Windows
+        # inventory; every other probe is mocked as well.
+        def cim(class_name, _properties):
+            return [dict(row) for row in adapters] if class_name == "Win32_VideoController" else []
+
         with mock.patch.object(Detect_GPU.platform, "system", return_value=system), \
                 mock.patch.object(Detect_GPU.platform, "version", return_value=version), \
                 mock.patch.object(Detect_GPU.platform, "machine", return_value="x86_64"), \
                 mock.patch.object(Detect_GPU, "_controller_names", return_value=list(controllers)), \
                 mock.patch.object(Detect_GPU, "_windows_names", return_value=list(processors)), \
-                mock.patch.object(Detect_GPU, "_windows_cim", return_value=[]), \
+                mock.patch.object(Detect_GPU, "_windows_cim", side_effect=cim), \
                 mock.patch.object(
                     Detect_GPU, "_run", side_effect=AssertionError("Detect_GPU ran a real subprocess")
                 ), \
-                mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=list(nvidia)):
+                mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=list(nvidia)), \
+                mock.patch.object(Detect_GPU, "_kfd_nodes", return_value=[]):
             return Detect_GPU.detect_hardware()
 
     def test_windows_amd_models_map_to_official_gfx_targets(self):
@@ -742,6 +789,7 @@ class GPUDetectionTests(unittest.TestCase):
                 ), \
                 mock.patch.object(Detect_GPU, "_run", side_effect=run), \
                 mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=[]), \
+                mock.patch.object(Detect_GPU, "_kfd_nodes", return_value=[]), \
                 mock.patch.object(Detect_GPU.Path, "exists", return_value=True), \
                 mock.patch.object(Detect_GPU.os, "access", return_value=True):
             return Detect_GPU.detect_hardware()
@@ -771,7 +819,7 @@ class GPUDetectionTests(unittest.TestCase):
                     self.assertEqual(report["gfx_target"], target)
                     self.assertEqual(report["backend_candidates"][0]["eligibility"], eligibility)
 
-    def _detect_linux_node(self, *, lspci_dnnk, lspci, rocm_agents, os_release):
+    def _detect_linux_node(self, *, lspci_dnnk, lspci, rocm_agents, os_release, kfd_nodes=()):
         # Every probe goes through _run, so both lspci readers run unpatched:
         # `lspci -Dnnk` builds the inventory and plain `lspci` names the
         # controllers, the fallback when the first yields nothing.
@@ -798,6 +846,7 @@ class GPUDetectionTests(unittest.TestCase):
                 mock.patch.object(Detect_GPU, "_read_os_release", return_value=dict(os_release)), \
                 mock.patch.object(Detect_GPU, "_run", side_effect=run), \
                 mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=[]), \
+                mock.patch.object(Detect_GPU, "_kfd_nodes", return_value=[dict(node) for node in kfd_nodes]), \
                 mock.patch.object(Detect_GPU.Path, "exists", return_value=True), \
                 mock.patch.object(Detect_GPU.os, "access", return_value=True):
             return Detect_GPU.detect_hardware()
@@ -919,6 +968,221 @@ class GPUDetectionTests(unittest.TestCase):
         self.assertEqual(report["backend"], "rocm")
         self.assertEqual(report["gfx_target"], "gfx90a")
 
+    NAVI31_AND_RAPHAEL = (
+        "0000:03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] "
+        "Navi 31 [Radeon RX 7900 XT/7900 XTX/7900M] [1002:744c] (rev c8)\n"
+        "\tKernel driver in use: amdgpu\n"
+        "0000:7c:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] "
+        "Raphael [1002:164e] (rev c1)\n"
+        "\tKernel driver in use: amdgpu\n"
+    )
+
+    def test_linux_kfd_gives_each_gpu_its_target_without_rocm_tools(self):
+        # The kernel's KFD lists each GPU ROCm can use with its target and PCI
+        # address, with no ROCm software installed. Without rocminfo these
+        # GPUs used to be name-matched (provisional) or, unnamed, rejected;
+        # with it, three different targets could not be told apart.
+        # A Phoenix laptop iGPU's lspci name carries no model, so only the
+        # kernel's gfx1103 tells it is integrated graphics.
+        others = (
+            "0000:0a:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] "
+            "Navi 21 [Radeon RX 6800/6800 XT / 6900 XT] [1002:73bf] (rev c1)\n"
+            "\tKernel driver in use: amdgpu\n"
+            "0000:c5:00.0 Display controller [0380]: Advanced Micro Devices, Inc. [AMD/ATI] "
+            "Phoenix1 [1002:15bf] (rev c4)\n"
+            "\tKernel driver in use: amdgpu\n"
+        )
+        nodes = [
+            KFD_CPU_NODE,
+            kfd_node("0000:03:00.0", 110000),
+            kfd_node("0000:0a:00.0", 100300),
+            kfd_node("0000:7c:00.0", 100306),
+            kfd_node("0000:c5:00.0", 110003),
+        ]
+        for agents in ([], ["gfx1100", "gfx1030", "gfx1036", "gfx1103"]):
+            with self.subTest(rocm_agents=agents):
+                report = self._detect_linux_node(
+                    lspci_dnnk=self.NAVI31_AND_RAPHAEL + others,
+                    lspci=None,
+                    rocm_agents=agents,
+                    os_release={"id": "ubuntu", "version_id": "24.04"},
+                    kfd_nodes=nodes,
+                )
+                found = {
+                    device["id"]: (
+                        device["architecture"], device.get("architecture_source"), device["eligibility"], device["kind"]
+                    )
+                    for device in report["devices"]
+                }
+                self.assertEqual(found, {
+                    "0000:03:00.0": ("gfx1100", "kfd", "eligible", "discrete"),
+                    "0000:0a:00.0": ("gfx1030", "kfd", "eligible", "discrete"),
+                    "0000:7c:00.0": ("gfx1036", "kfd", "eligible", "unknown"),
+                    "0000:c5:00.0": ("gfx1103", "kfd", "eligible", "integrated"),
+                })
+                self.assertEqual(report["kfd_targets"], {
+                    "0:03:00.0": "gfx1100", "0:0a:00.0": "gfx1030", "0:7c:00.0": "gfx1036", "0:c5:00.0": "gfx1103",
+                })
+                rocm = report["backend_candidates"][0]
+                self.assertEqual(
+                    (rocm["gfx_target"], rocm["device_ids"], rocm["eligibility"]),
+                    ("gfx1100", ["0000:03:00.0"], "eligible"),
+                )
+
+    def test_linux_kfd_target_beats_the_gpu_name(self):
+        # pci.ids names a PCI ID, and AMD gives the Radeon 840M to gfx1152 and
+        # gfx1153 processors alike. With a name like this one (which a pci.ids
+        # could give Krackan2), only the kernel knows the target.
+        lspci_dnnk = (
+            "0000:c4:00.0 Display controller [0380]: Advanced Micro Devices, Inc. [AMD/ATI] "
+            "Krackan2 [Radeon 820M / 840M Graphics] [1002:1902] (rev c3)\n"
+            "\tKernel driver in use: amdgpu\n"
+        )
+        report = self._detect_linux_node(
+            lspci_dnnk=lspci_dnnk,
+            lspci=None,
+            rocm_agents=[],
+            os_release={"id": "ubuntu", "version_id": "26.04"},
+            kfd_nodes=[KFD_CPU_NODE, kfd_node("0000:c4:00.0", 110503)],
+        )
+        (device,) = report["devices"]
+        self.assertEqual(
+            (device["architecture"], device["architecture_source"], device["kind"], device["eligibility"]),
+            ("gfx1153", "kfd", "integrated", "eligible"),
+        )
+        self.assertIn("The kernel reports gfx1153 for this GPU; its name suggested gfx1152.", device["reasons"])
+        self.assertEqual((report["backend"], report["gfx_target"]), ("rocm", "gfx1153"))
+
+    def test_linux_gpu_without_a_kfd_node_gets_no_rocm(self):
+        # The ROCm tools report targets without saying which GPU has them, so
+        # an unnamed GPU used to take the only one reported, here the RX 7900
+        # XTX's. The kernel lists no compute node for this iGPU: ROCm cannot
+        # use it.
+        report = self._detect_linux_node(
+            lspci_dnnk=self.NAVI31_AND_RAPHAEL,
+            lspci=None,
+            rocm_agents=["gfx1100"],
+            os_release={"id": "ubuntu", "version_id": "24.04"},
+            kfd_nodes=[KFD_CPU_NODE, kfd_node("0000:03:00.0", 110000)],
+        )
+        devices = {device["id"]: device for device in report["devices"]}
+        igpu = devices["0000:7c:00.0"]
+        self.assertEqual((igpu["architecture"], igpu["eligible_profiles"]), (None, []))
+        self.assertEqual(igpu["reasons"], ["The kernel's ROCm driver (KFD) lists no compute node for this GPU."])
+        self.assertEqual(devices["0000:03:00.0"]["eligible_profiles"], ["rocm"])
+        self.assertEqual(report["backend_candidates"][0]["device_ids"], ["0000:03:00.0"])
+
+    def test_linux_kfd_targets_of_instinct_parts_by_pci_domain(self):
+        # The MI300A node's four APUs sit in PCI domains 0 to 3. The KFD gives
+        # gfx942 as 90402 and gfx90a as 90010: minor and stepping are hex.
+        report = self._detect_linux_node(
+            lspci_dnnk=self.MI300A_LSPCI_DNNK,
+            lspci=self.MI300A_LSPCI,
+            rocm_agents=[],
+            os_release={"id": "ubuntu", "version_id": "24.04"},
+            kfd_nodes=[KFD_CPU_NODE, *(kfd_node(f"000{domain}:01:00.0", 90402) for domain in range(4))],
+        )
+        amd = [device for device in report["devices"] if device["vendor"] == "AMD"]
+        self.assertEqual(
+            [(device["id"], device["architecture"], device["eligibility"]) for device in amd],
+            [(f"000{domain}:01:00.0", "gfx942", "eligible") for domain in range(4)],
+        )
+        self.assertEqual((report["backend"], len(report["backend_candidates"][0]["device_ids"])), ("rocm", 4))
+        mi210 = (
+            "0000:03:00.0 Display controller [0380]: Advanced Micro Devices, Inc. [AMD/ATI] "
+            "Aldebaran/MI200 [Instinct MI210] [1002:740f] (rev 02)\n"
+            "\tKernel driver in use: amdgpu\n"
+        )
+        report = self._detect_linux_node(
+            lspci_dnnk=mi210, lspci=None, rocm_agents=[], os_release={"id": "ubuntu", "version_id": "22.04"},
+            kfd_nodes=[KFD_CPU_NODE, kfd_node("0000:03:00.0", 90010)],
+        )
+        self.assertEqual(
+            (report["devices"][0]["architecture"], report["backend"], report["backend_candidates"][0]["eligibility"]),
+            ("gfx90a", "rocm", "eligible"),
+        )
+
+    def _detect_linux_intel(self, line: str, driver: str, os_release: dict[str, str]) -> dict:
+        lspci_dnnk = f"0000:00:02.0 {line}\n\tKernel driver in use: {driver}\n"
+        return self._detect_linux_node(lspci_dnnk=lspci_dnnk, lspci=None, rocm_agents=[], os_release=os_release)
+
+    def test_linux_intel_gpus_are_found_by_pci_id_whatever_lspci_calls_them(self):
+        # Names from the pci.ids in Ubuntu 24.04 (2024.03.31). It calls these
+        # GPUs "Intel Graphics", "Arc Xe Graphics" or nothing at all, so a match
+        # on Arc model names missed every one; the wheels carry kernels for all.
+        ubuntu_24_04 = {"id": "ubuntu", "version_id": "24.04"}
+        cases = [
+            ("VGA compatible controller [0300]: Intel Corporation Lunar Lake [Intel Graphics] [8086:64a0] (rev 04)",
+             "xe", "integrated"),
+            ("VGA compatible controller [0300]: Intel Corporation Arrow Lake-P [Intel Graphics] [8086:7dd1] (rev 03)",
+             "i915", "integrated"),
+            ("VGA compatible controller [0300]: Intel Corporation Meteor Lake-P [Intel Graphics] [8086:7dd5] (rev 08)",
+             "i915", "integrated"),
+            ("VGA compatible controller [0300]: Intel Corporation Device [8086:e20b]", "xe", "discrete"),
+            ("VGA compatible controller [0300]: Intel Corporation DG2 [Arc Xe Graphics] [8086:56a3] (rev 05)",
+             "i915", "discrete"),
+        ]
+        for line, driver, kind in cases:
+            with self.subTest(line=line):
+                report = self._detect_linux_intel(line, driver, ubuntu_24_04)
+                device = report["devices"][0]
+                self.assertEqual((device["vendor"], device["kind"], device["eligibility"]), ("INTEL", kind, "eligible"))
+                self.assertEqual(report["backend"], "xpu")
+
+    def test_linux_intel_gpus_the_xpu_wheels_have_no_kernels_for_get_none(self):
+        # The wheels could run these only by compiling their SPIR-V copy on
+        # first use, and PyTorch lists none of them. The Max 1550VG's name
+        # alone used to make it eligible.
+        cases = [
+            ("VGA compatible controller [0300]: Intel Corporation Arrow Lake-U [Intel Graphics] [8086:7d41] (rev 04)",
+             "24.04", "no kernels for this Intel GPU (8086:7d41)"),
+            ("VGA compatible controller [0300]: Intel Corporation Meteor Lake-P [Intel Graphics] [8086:7d45] (rev 08)",
+             "24.04", "build for this OS has no kernels for Meteor Lake-U"),
+            ("VGA compatible controller [0300]: Intel Corporation Wildcat Lake [Intel Graphics] [8086:fd80]",
+             "25.10", "no kernels for this Intel GPU (8086:fd80)"),
+            ("VGA compatible controller [0300]: Intel Corporation TigerLake-LP GT2 [Iris Xe Graphics] [8086:9a49] "
+             "(rev 01)", "24.04", "no kernels for this Intel GPU (8086:9a49)"),
+            ("Display controller [0380]: Intel Corporation ATS-M [Data Center GPU Flex 170] [8086:56c0] (rev 08)",
+             "22.04", "no kernels for this Intel GPU (8086:56c0)"),
+            ("Display controller [0380]: Intel Corporation Ponte Vecchio XT (2 Tile) [Data Center GPU Max 1550VG] "
+             "[8086:0bd4] (rev 2f)", "22.04", "no kernels for this Intel GPU (8086:0bd4)"),
+        ]
+        for line, release, reason in cases:
+            with self.subTest(line=line):
+                report = self._detect_linux_intel(line, "i915", {"id": "ubuntu", "version_id": release})
+                device = report["devices"][0]
+                self.assertEqual((device["vendor"], device["eligible_profiles"]), ("INTEL", []))
+                self.assertIn(reason, device["reasons"][0])
+                self.assertEqual(report["backend"], "cpu")
+
+    def test_windows_intel_gpus_are_found_by_pci_id_whatever_the_driver_calls_them(self):
+        # Intel's driver calls a Meteor Lake-H GPU "Intel(R) Graphics" rather
+        # than "Intel(R) Arc(TM) Graphics" when the memory is single-channel,
+        # and Meteor Lake-U always; the Windows wheel carries kernels for both.
+        def adapter(name, device):
+            return {
+                "Name": name, "PNPDeviceID": rf"PCI\VEN_8086&DEV_{device}&SUBSYS_0C8A1028&REV_08\3&11583659&0&10",
+                "DriverVersion": "32.0.101.8724",
+            }
+
+        cases = [
+            (adapter("Intel(R) Graphics", "7D55"), "eligible", "Meteor Lake-H"),
+            (adapter("Intel(R) Graphics", "7D45"), "eligible", "Meteor Lake-U"),
+            (adapter("Intel(R) Arc(TM) B580 Graphics", "E20B"), "eligible", "Arc B-series"),
+            (adapter("Intel(R) Graphics", "7D41"), "ineligible", "no kernels for this Intel GPU (8086:7d41)"),
+            (adapter("Intel(R) Iris(R) Xe Graphics", "9A49"), "ineligible", "no kernels for this Intel GPU (8086:9a49)"),
+            # Without Intel's driver the XPU build would install and fail validation.
+            (adapter("Microsoft Basic Display Adapter", "E20B"), "ineligible", "Intel's graphics driver is not installed"),
+        ]
+        for row, eligibility, reason in cases:
+            with self.subTest(row=row):
+                report = self._detect(controllers=[row["Name"]], adapters=[row])
+                device = report["devices"][0]
+                self.assertEqual((device["vendor"], device["source"], device["eligibility"]),
+                                 ("INTEL", "Win32_VideoController", eligibility))
+                self.assertIn(reason, device["reasons"][0])
+                self.assertEqual(report["backend"], "xpu" if eligibility == "eligible" else "cpu")
+
     def test_json_cli_contains_selection_reason(self):
         report = detected_report(reason="No accelerator")
         output = io.StringIO()
@@ -929,6 +1193,22 @@ class GPUDetectionTests(unittest.TestCase):
 
 def completed(stdout: str, returncode: int = 0) -> subprocess.CompletedProcess[str]:
     return subprocess.CompletedProcess(args=[], returncode=returncode, stdout=stdout, stderr="")
+
+
+def kfd_node(address: str, gfx_target_version: int) -> dict[str, int]:
+    """A GPU node of the kernel's KFD topology for the PCI address DDDD:BB:DD.F."""
+    domain, bus, rest = address.split(":")
+    device, function = rest.split(".")
+    return {
+        "gfx_target_version": gfx_target_version,
+        "vendor_id": 0x1002,
+        "domain": int(domain, 16),
+        "location_id": int(bus, 16) << 8 | int(device, 16) << 3 | int(function),
+    }
+
+
+# The KFD lists each CPU as a node too, with gfx_target_version 0.
+KFD_CPU_NODE = {"cpu_cores_count": 16, "simd_count": 0, "gfx_target_version": 0}
 
 
 class ProbeParserTests(unittest.TestCase):
@@ -1067,6 +1347,34 @@ class ProbeParserTests(unittest.TestCase):
         Detect_GPU._evaluate_devices(devices, "linux", {"id": "ubuntu", "version_id": "24.04"}, set())
         self.assertEqual(devices[0]["eligible_profiles"], ["xpu"])
         self.assertEqual(devices[0]["eligibility"], "provisional")
+
+    def test_kfd_topology_nodes_become_targets_by_pci_address(self):
+        # /sys/class/kfd/kfd/topology/nodes/N/properties holds "name value"
+        # lines: node 0 a CPU, then an RX 7900 XTX at 03:00.0, an MI210 at
+        # c1:00.0 and an MI300A APU in PCI domain 3.
+        properties = {
+            "0": "cpu_cores_count 16\nsimd_count 0\ngfx_target_version 0\nvendor_id 0\nlocation_id 0\ndomain 0\n",
+            "1": "cpu_cores_count 0\nsimd_count 192\ngfx_target_version 110000\nvendor_id 4098\n"
+                 "device_id 29772\nlocation_id 768\ndomain 0\ndrm_render_minor 128\nunique_id 9876543210123456789\n",
+            "2": "simd_count 416\ngfx_target_version 90010\nvendor_id 4098\nlocation_id 49408\ndomain 0\n",
+            "3": "simd_count 912\ngfx_target_version 90402\nvendor_id 4098\nlocation_id 256\ndomain 3\n",
+        }
+        with tempfile.TemporaryDirectory() as root:
+            for node, text in properties.items():
+                Path(root, node).mkdir()
+                Path(root, node, "properties").write_text(text, encoding="ascii")
+            Path(root, "4").mkdir()  # a node folder without properties is skipped
+            with mock.patch.object(Detect_GPU, "KFD_TOPOLOGY_NODES", root):
+                nodes = Detect_GPU._kfd_nodes()
+            # WSL and containers have no KFD topology at all.
+            with mock.patch.object(Detect_GPU, "KFD_TOPOLOGY_NODES", str(Path(root, "missing"))):
+                self.assertEqual(Detect_GPU._kfd_nodes(), [])
+        self.assertEqual(len(nodes), 4)
+        self.assertEqual(
+            Detect_GPU._kfd_targets(nodes),
+            {"0:03:00.0": "gfx1100", "0:c1:00.0": "gfx90a", "3:01:00.0": "gfx942"},
+        )
+        self.assertEqual(Detect_GPU._pci_address("0003:01:00.0"), "3:01:00.0")
 
     def test_lspci_processing_accelerators_count_only_for_amd_gpus(self):
         # PCI class 12 also holds NPUs, FPGAs, DPUs and other vendors' AI cards,

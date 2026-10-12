@@ -374,7 +374,7 @@ experiments; such systems remain unsupported.
 | CPU | Supported on Windows 10 version 1809+ and Windows 11 | Supported on the tested Ubuntu/Debian families; other distributions are provisional | Supported on macOS 14+ |
 | NVIDIA CUDA | CUDA 13.2 or CUDA 12.6 on Windows 10 22H2+/Windows 11 | CUDA 13.2 or CUDA 12.6; distribution and driver must support the selected runtime | Not supported |
 | AMD ROCm | Windows 11 25H2 build 26200+ only: ROCm 7.14 | Ubuntu only: ROCm 7.14 | Not supported |
-| Intel XPU | Windows 11 only for supported Arc/Core Ultra Arc devices | Supported only for the device/OS combinations below | Not supported |
+| Intel XPU | Windows 11 only, for the Intel GPUs below | Supported only for the device/OS combinations below | Not supported |
 | Apple MPS | Not applicable | Not applicable | Supported on Apple Silicon with macOS 14+ |
 
 #### NVIDIA CUDA
@@ -415,18 +415,22 @@ selected per GFX target:
 | Platform/profile | Eligible GFX targets | Additional requirements |
 | --- | --- | --- |
 | Windows ROCm 7.14 / PyTorch 2.12.0 | `gfx1030`, `gfx1100`, `gfx1101`, `gfx1102`, `gfx1103`, `gfx1150`, `gfx1151`, `gfx1152`, `gfx1153`, `gfx1200`, `gfx1201` | Windows 11 25H2 build 26200+ and a supported AMD driver. |
-| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus every other target the channel ships a PyTorch 2.12.0 device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`. | Ubuntu 22.04, 24.04, 25.10, or 26.04, readable and writable `/dev/kfd`, and a target reported by `rocm_agent_enumerator` or `rocminfo`. A card matched by name while no ROCm agent is reported is only provisionally eligible. AMD's ROCm 7.14.1 matrix lists Ubuntu 22.04, 24.04 and 26.04, and for Ryzen processors' graphics only 24.04 and 26.04; Ubuntu 25.10 is accepted but not listed by AMD. |
+| Linux ROCm 7.14 / PyTorch 2.12.0 | The Windows set, plus every other target the channel ships a PyTorch 2.12.0 device package for: `gfx908`, `gfx90a`, `gfx942`, `gfx950` (Instinct), `gfx1010`–`gfx1012` (RDNA1), and `gfx1031`–`gfx1036`. | Ubuntu 22.04, 24.04, 25.10, or 26.04, readable and writable `/dev/kfd`, and a target the kernel's ROCm driver reports for the GPU in `/sys/class/kfd`, or else one reported by `rocm_agent_enumerator` or `rocminfo`. A card matched only by name, with neither, is only provisionally eligible. AMD's ROCm 7.14.1 matrix lists Ubuntu 22.04, 24.04 and 26.04, and for Ryzen processors' graphics only 24.04 and 26.04; Ubuntu 25.10 is accepted but not listed by AMD. |
 
 The two platforms differ because of how the GFX target is identified. Windows
 exposes no way to query it, so the target is inferred from the product name
 against a pinned snapshot, and only models in that snapshot are eligible. On
-Linux the installed ROCm stack reports the target directly; when the product
-name is not in the snapshot the reported target is used instead, provided the
-ROCm channel publishes a PyTorch 2.12.0 device package for it. That covers
-AMD Instinct parts and RDNA1/RDNA2 consumer cards whose `lspci` names the
-snapshot never matched. The reported target is used only when exactly one
-supported target is reported; with several, none can be attributed to a single
-adapter, and name matching remains the only source.
+Linux the kernel's ROCm driver (amdgpu's KFD) reports each GPU's target in
+`/sys/class/kfd`, by PCI address and without any ROCm software installed, and
+that target is used whatever the product name suggests, provided the ROCm
+channel publishes a PyTorch 2.12.0 device package for it. That covers AMD
+Instinct parts and RDNA1/RDNA2 consumer cards the snapshot never named, and
+gives each GPU in a computer with several its own target; a GPU the KFD lists
+no node for cannot run ROCm. Where the kernel reports no targets, a target
+reported by `rocm_agent_enumerator` or `rocminfo` is used instead when the
+product name is not in the snapshot, but only when exactly one supported
+target is reported: with several, none can be attributed to a single adapter,
+and name matching remains the only source.
 
 Earlier releases offered four ROCm profiles (Windows 7.14 and 7.2.1, Linux 7.2
 and 6.4). ROCm 7.14 covers every GFX target the retired profiles did, so no
@@ -455,21 +459,39 @@ forces that fallback on any GPU.
 
 #### Intel XPU
 
-| Device family | Supported operating-system combinations |
-| --- | --- |
-| Intel Arc A-Series and Arc B-Series, including Arc Pro, and Core Ultra processors with Arc graphics | Windows 11; Ubuntu 24.04, 25.10, or 26.04 as admitted by the current application snapshot. Ubuntu 26.04 remains project-untested. |
-| Core Ultra Series 3 / Panther Lake with Arc graphics | Windows 11; Ubuntu 25.10 or 26.04. Ubuntu 26.04 remains project-untested. |
-| Intel Data Center GPU Max | Ubuntu 22.04, RHEL 9.2, or SLES 15. The non-Ubuntu combinations are upstream-listed but project-untested. |
-| Intel HD, UHD, Iris, and non-Arc integrated graphics | Not eligible for XPU; another accelerator or CPU is used. |
+| Device family | PCI device IDs (`8086:`) | Supported operating-system combinations |
+| --- | --- | --- |
+| Arc A-series (Alchemist), including Arc Pro | 5690–5697, 56A0–56A6, 56B0–56B3, 56BA–56BF | Windows 11; Ubuntu 24.04, 25.10, or 26.04 |
+| Arc B-series (Battlemage), including Arc Pro | E202, E209, E20B–E20D, E210–E212, E215, E216, E220–E223 | Windows 11; Ubuntu 24.04, 25.10, or 26.04 |
+| Core Ultra Series 1 H processors (Meteor Lake-H) | 7D55, 7DD5 | Windows 11; Ubuntu 24.04, 25.10, or 26.04 |
+| Core Ultra Series 1 U processors (Meteor Lake-U) | 7D40, 7D45 | Windows 11 only |
+| Core Ultra Series 2 H processors (Arrow Lake-H) | 7D51, 7DD1 | Windows 11; Ubuntu 24.04, 25.10, or 26.04 |
+| Core Ultra Series 2 V processors (Lunar Lake) | 6420, 64A0, 64B0 | Windows 11; Ubuntu 24.04, 25.10, or 26.04 |
+| Core Ultra Series 3 (Panther Lake) | B080–B087, B08F, B090, B0A0, B0B0 | Windows 11; Ubuntu 25.10 or 26.04 |
+| Data Center GPU Max 1100, 1100C, 1350, 1450 and 1550 | 0B69, 0B6E, 0BD5–0BDB | Ubuntu 22.04, RHEL 9.2, or SLES 15. The non-Ubuntu combinations are upstream-listed but project-untested. |
+| Any other Intel graphics, such as Core Ultra Series 2 U and desktop processors (Arrow Lake-U and -S), Wildcat Lake, Data Center GPU Flex, the Max 1550VG, and Iris Xe, UHD and HD graphics | — | Not eligible for XPU; another accelerator or CPU is used. |
 
-Integrated Arc graphics are eligible for the XPU PyTorch installation, including
-Arc 130V/140V, 130T/140T (Arc Pro 130T/140T too), and B370/B390 model names. After runtime tensor validation,
-automatic workload benchmarks compare available devices with CPU; integrated
-graphics are not excluded based on assumed performance.
+Ubuntu 26.04 is accepted but project-untested. An Intel GPU is identified by
+its PCI device ID (`lspci -nn` on Linux, the adapter's device instance path on
+Windows), not by its name, which follows branding: the same Meteor Lake-H GPU
+is "Intel Arc Graphics" or "Intel Graphics" depending on the memory fitted, and
+older PCI ID lists name many of these GPUs only "Intel Graphics" or not at all.
+The table follows the kernels the pinned PyTorch 2.12.0 XPU builds carry:
+compiled ahead of time for these GPUs, per operating system (Meteor Lake-U on
+Windows only, Data Center GPU Max on Linux only). The GPUs in the last row could
+only compile kernels when first used, and PyTorch lists none of them; the older
+Xe-LP graphics (Iris Xe, UHD) also lack the 64-bit floating point the kernels
+need. Only when no PCI device ID is available is an Arc, Core Ultra Arc or Data
+Center GPU Max name accepted instead.
 
-The Intel driver must already be installed. See the [PyTorch Intel XPU
-matrix](https://docs.pytorch.org/docs/2.12/notes/get_start_xpu.html) for the
-validated hardware and operating-system combinations.
+Integrated graphics are eligible for the XPU PyTorch installation. After runtime
+tensor validation, automatic workload benchmarks compare available devices with
+CPU; integrated graphics are not excluded based on assumed performance.
+
+The Intel driver must already be installed; on Windows, a GPU shown as
+Microsoft Basic Display Adapter has none and is not eligible. See the [PyTorch
+Intel XPU matrix](https://docs.pytorch.org/docs/2.12/notes/get_start_xpu.html)
+for the validated hardware and operating-system combinations.
 
 #### Apple MPS
 

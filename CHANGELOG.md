@@ -722,6 +722,31 @@ still change before version 1.0.0.
   and PRO W7500 were recognized only when the ROCm runtime reported their target; their
   `lspci` names now map too, so a new installation without the runtime also tries ROCm.
   For the other cards on Linux, see the Ubuntu 24.04 entry under Fixed.
+- On Linux, an AMD GPU's GFX target now comes from the kernel. amdgpu's ROCm driver
+  (KFD) lists each GPU it can run ROCm on, with its target and PCI address, in
+  `/sys/class/kfd`, so no ROCm software has to be installed. Before, without `rocminfo`
+  or `rocm_agent_enumerator`, a GPU got ROCm only if GPU detection knew its `lspci`
+  name, and then only provisionally; Ubuntu 22.04's older PCI ID list names no recent
+  card at all. A computer with GPUs of several targets got none of them from the ROCm
+  runtime, which does not say which GPU has which. Each GPU now gets its own target,
+  whatever its name suggests, and a GPU the kernel lists no ROCm node for gets none.
+  Where the kernel reports no targets, the ROCm tools and the name decide as before.
+  After updating, an installed ROCm backend is validated and kept without reinstalling.
+  A computer that used the CPU because its GPU was unnamed, or only provisionally
+  recognized, installs ROCm on its first launch and keeps it if it passes validation.
+- Intel GPUs are now recognized by PCI device ID, and are eligible for the XPU backend
+  when the pinned PyTorch 2.12.0 XPU build carries compiled kernels for them on that
+  operating system. Before, a GPU needed "Arc" in its name, which depends on branding:
+  Intel's driver calls a Meteor Lake-H GPU "Intel Graphics" when its memory is
+  single-channel, and the PCI ID list of Ubuntu 24.04 calls Lunar Lake and some Arrow
+  Lake-H and Meteor Lake-H GPUs "Intel Graphics", one Arc A-series GPU "DG2 [Arc Xe
+  Graphics]", and knows no Battlemage GPU at all. These now use the XPU backend, as do Meteor Lake-U
+  GPUs on Windows, where the wheel carries their kernels too. Two kinds of GPU the old
+  names admitted are now left out because the wheels have no kernels for them: a Data
+  Center GPU Max on Windows, and the Max 1550VG. On Windows, an Intel GPU that runs
+  without Intel's driver (Microsoft Basic Display Adapter) is not eligible, as the XPU
+  build would fail its validation. After updating, an installed XPU backend on a GPU
+  that stays eligible is validated and kept without reinstalling.
 - Commands in an Agent reply no longer all run automatically. Commands that only change
   the view or the session's in-memory state still do. `save`, `select save`, `print`,
   `export`, `logo`, `label` (except `label reset`), `esmfold`, `run`, `alignment`, and
@@ -1269,9 +1294,7 @@ still change before version 1.0.0.
 - Intel Arc Pro graphics were not recognized and used the CPU: the Arc Pro A30M,
   A40/A50, A60 and A60M, the Arc Pro B50, B60, B65 and B70, and Arrow Lake's Arc Pro
   130T/140T. They are the same GPUs as the Arc models the XPU backend already used, and
-  are now eligible for it on the same operating systems. On Linux, detection still goes
-  by the name `lspci` prints, and Ubuntu 24.04's PCI ID list names neither the Arc Pro
-  B50 and B60 nor the Arc B570 and B580, so on Ubuntu 24.04 those still use the CPU.
+  are now eligible for it on the same operating systems.
 - The Viewer's instruction line (`[ENTER] Command | [LeftClick] Highlight | …`) is
   wider than the default 1200 × 800 window in English, so its end ran under the
   sidebar's toggle and past the window's edge. The actions now open on a card from a
