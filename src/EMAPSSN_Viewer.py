@@ -1710,7 +1710,7 @@ class MainViewer:
         # The HUD follows the property the restored state displayed; the redraw
         # of its value comes with the undo or redo that called this.
         if 'meta_display_prop' in state and state['meta_display_prop'] != getattr(self, 'meta_display_prop', None):
-            self._set_metadata_hud_property(state['meta_display_prop'])
+            self._restore_metadata_hud_property(state['meta_display_prop'])
 
         # Clean up any active selections if those nodes are now hidden in this restored state
         if hasattr(self, 'selected_indices'):
@@ -1799,6 +1799,18 @@ class MainViewer:
             value_text = str(value).strip() or "N/A"
         display.show(f"{property_name}: {value_text}")
 
+    def _restore_metadata_hud_property(self, property_name):
+        """Set the HUD's property as undo or redo restores it, unless the user closed the HUD.
+
+        A HUD closed with `meta show off` stays closed: undo and redo may close
+        it or switch the property it shows, but never reopen it. The next
+        `meta show` or `spectrum` opens it again.
+        """
+        if (property_name is not None and getattr(self, "meta_display_prop", None) is None
+                and getattr(self, "meta_display_dismissed", False)):
+            return
+        self._set_metadata_hud_property(property_name)
+
     def _apply_metadata_history_entry(self, entry, undo):
         """Apply one compact metadata history entry in either direction."""
         kind = entry.get("_history_kind")
@@ -1825,7 +1837,7 @@ class MainViewer:
                     )
                 self.metadata = dict(restored_items)
                 if entry.get("hud_property"):
-                    self._set_metadata_hud_property(entry["hud_property"])
+                    self._restore_metadata_hud_property(entry["hud_property"])
             else:
                 for removed in removed_columns:
                     self.metadata.pop(removed["name"], None)

@@ -66,7 +66,8 @@ def print_help(meta_dir):
           Displays the selected property above the bottom-right status indicators
           whenever a node is clicked.
       meta show/display clear/off
-          Clears and removes the metadata property display.
+          Clears and removes the metadata property display. Undo and redo
+          leave it closed until the next meta show or spectrum opens it.
       meta delete/remove/clear <property_name> [property_name ...]
           Atomically deletes one or more metadata columns from the current session.
           Property matching is case-insensitive. Node ID/Sequence Header cannot be
@@ -191,6 +192,8 @@ def run(viewer, args):
             if 'meta_display' in viewer.hud_displays:
                 viewer.hud_displays['meta_display'].hide()
             viewer.meta_display_prop = None
+            # Closed by the user: undo and redo leave it closed until a show opens it.
+            viewer.meta_display_dismissed = True
             msg = Message("Metadata display cleared.")
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_succeeded(viewer, msg)
@@ -222,6 +225,7 @@ def run(viewer, args):
             return
 
         viewer.meta_display_prop = resolved_prop
+        viewer.meta_display_dismissed = False
 
         if 'meta_display' not in viewer.hud_displays:
             from EMAPSSN_Viewer import HUDDisplay

@@ -411,6 +411,95 @@ class ViewerUndoRedoTests(unittest.TestCase):
         viewer._apply_state(state)
         self.assertEqual(viewer.meta_display_prop, "Length")
 
+    def meta(self, viewer, *args):
+        """Run the meta command as typed, with its reports left out."""
+        from commands import meta as meta_command
+        engine = meta_command.Command_Engine
+        with mock.patch.object(engine, "print_help"), mock.patch.object(engine, "command_succeeded"), \
+                mock.patch.object(engine, "command_failed") as failed:
+            meta_command.run(viewer, list(args))
+        failed.assert_not_called()
+
+    def closed_after_a_command(self, viewer):
+        """`meta show Length` (as spectrum runs it), then a command, then `meta show off`."""
+        self.meta(viewer, "show", "Length")
+        viewer._save_state()
+        viewer.current_colors[1] = RED
+        self.meta(viewer, "show", "off")
+        self.assertFalse(viewer.hud_displays["meta_display"].visible)
+
+    def test_undo_does_not_reopen_a_hud_the_user_closed(self):
+        viewer = self.hud_viewer()
+        self.closed_after_a_command(viewer)
+
+        self.assertTrue(quietly(viewer._do_undo))
+
+        np.testing.assert_array_equal(viewer.current_colors[1], BLUE)
+        self.assertIsNone(viewer.meta_display_prop)
+        self.assertFalse(viewer.hud_displays["meta_display"].visible)
+
+    def test_redo_does_not_reopen_a_hud_the_user_closed(self):
+        viewer = self.hud_viewer()
+        hud = viewer.hud_displays["meta_display"]
+        self.meta(viewer, "show", "Length")
+        viewer._save_state()
+        viewer.current_colors[1] = RED
+        quietly(viewer._do_undo)
+        self.assertTrue(hud.visible)
+        self.meta(viewer, "show", "off")
+
+        self.assertTrue(quietly(viewer._do_redo))
+
+        np.testing.assert_array_equal(viewer.current_colors[1], RED)
+        self.assertIsNone(viewer.meta_display_prop)
+        self.assertFalse(hud.visible)
+        # Undoing again keeps it closed too.
+        quietly(viewer._do_undo)
+        self.assertFalse(hud.visible)
+
+    def test_meta_show_lets_history_switch_the_hud_again(self):
+        viewer = self.hud_viewer()
+        viewer.metadata["Mass"] = {"type": "number", "values": np.array([1, 2, 3, 4])}
+        hud = viewer.hud_displays["meta_display"]
+        self.closed_after_a_command(viewer)
+        self.meta(viewer, "show", "Mass")
+
+        quietly(viewer._do_undo)
+
+        self.assertEqual(viewer.meta_display_prop, "Length")
+        self.assertEqual(hud.text, "Length: 20")
+
+    def test_showing_it_again_lets_history_reopen_it(self):
+        viewer = self.hud_viewer()
+        hud = viewer.hud_displays["meta_display"]
+        viewer._save_state()
+        viewer.current_colors[1] = RED
+        self.meta(viewer, "show", "Length")
+        self.meta(viewer, "show", "off")
+        self.meta(viewer, "show", "Length")
+
+        quietly(viewer._do_undo)
+        self.assertFalse(hud.visible)
+        quietly(viewer._do_redo)
+
+        self.assertEqual(viewer.meta_display_prop, "Length")
+        self.assertTrue(hud.visible)
+
+    def test_a_hud_closed_by_undo_comes_back_with_redo(self):
+        # Only the user's own `meta show off` keeps it closed.
+        viewer = self.hud_viewer()
+        hud = viewer.hud_displays["meta_display"]
+        viewer._save_state()
+        viewer.current_colors[1] = RED
+        self.meta(viewer, "show", "Length")
+
+        quietly(viewer._do_undo)
+        self.assertFalse(hud.visible)
+        quietly(viewer._do_redo)
+
+        self.assertEqual(viewer.meta_display_prop, "Length")
+        self.assertTrue(hud.visible)
+
     def test_restored_state_drops_selected_nodes_it_hides(self):
         viewer = make_viewer()
         viewer.visible_mask[1] = False

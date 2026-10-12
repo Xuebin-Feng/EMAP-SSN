@@ -156,6 +156,23 @@ class MetadataColumnDeletionTests(unittest.TestCase):
         self.assertIsNone(viewer.meta_display_prop)
         self.assertTrue(display.hidden)
 
+    def test_undoing_a_deletion_leaves_a_hud_the_user_closed_closed(self):
+        viewer = make_viewer()
+        display = viewer.hud_displays["meta_display"]
+        viewer.meta_display_prop = "Organism"
+        meta_backend.delete_metadata_columns(viewer, ["Organism"])
+        with mock.patch.object(meta_command.Command_Engine, "print_help"), \
+                reported_outcomes(), contextlib.redirect_stdout(io.StringIO()):
+            meta_command.run(viewer, ["show", "off"])
+        shown = len(display.messages)
+
+        self.assertTrue(viewer._do_undo())
+
+        self.assertIn("Organism", viewer.metadata)
+        self.assertIsNone(viewer.meta_display_prop)
+        self.assertTrue(display.hidden)
+        self.assertEqual(len(display.messages), shown)
+
     def test_cell_edit_uses_compact_shared_history(self):
         viewer = make_viewer()
 
