@@ -138,6 +138,20 @@ def broadcast_metadata_state(viewer):
     elif hasattr(viewer, "broadcast_event"):
         viewer.broadcast_event(metadata_state_event(viewer))
 
+def show_property_name(words):
+    """The property a ``meta show`` names, and whether it was written in braces.
+
+    ``meta show Length`` and ``meta show {Length}`` name the same property, the
+    braces matching ``spectrum {Length}``. Braces always mark a property name,
+    so ``meta show {off}`` names a property called off instead of closing the
+    display. The words are joined with spaces, so a name may contain them.
+    """
+    text = " ".join(words).strip()
+    inner = text[1:-1]
+    if len(text) >= 2 and text[0] == "{" and text[-1] == "}" and "{" not in inner and "}" not in inner:
+        return inner.strip(), True
+    return text, False
+
 def _resolve_metadata_column_names(viewer, requested_names):
     if not isinstance(requested_names, (list, tuple)):
         raise MetadataColumnDeleteError(Message(

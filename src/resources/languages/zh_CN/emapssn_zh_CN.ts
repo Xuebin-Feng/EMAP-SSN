@@ -2165,8 +2165,8 @@ Command-line usage:
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
-        <location filename="../../../commands/meta.py" line="+167"/>
-        <location line="+118"/>
+        <location filename="../../../commands/meta.py" line="+172"/>
+        <location line="+119"/>
         <location filename="../../../commands/print.py" line="-76"/>
         <location line="+51"/>
         <location line="+15"/>
@@ -2189,7 +2189,7 @@ Command-line usage:
         <location filename="../../../commands/group.py" line="+138"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
-        <location filename="../../../commands/meta.py" line="-136"/>
+        <location filename="../../../commands/meta.py" line="-137"/>
         <location filename="../../../commands/offset.py" line="+92"/>
         <location filename="../../../commands/print.py" line="-138"/>
         <location filename="../../../commands/query.py" line="-260"/>
@@ -3071,7 +3071,7 @@ Command-line usage:
         <translation type="unfinished">用法：{syntax} 或 {other_syntax}</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>Metadata display cleared.</source>
         <translation type="unfinished">已清除元数据显示。</translation>
     </message>
@@ -4009,7 +4009,7 @@ Command-line usage:
         <translation type="unfinished">已取消选中所有节点。</translation>
     </message>
     <message>
-        <location filename="../../../Metadata_Core.py" line="+143"/>
+        <location filename="../../../Metadata_Core.py" line="+157"/>
         <source>Metadata columns must be supplied as a list of property names.</source>
         <translation type="unfinished">元数据列必须以属性名称列表的形式提供。</translation>
     </message>

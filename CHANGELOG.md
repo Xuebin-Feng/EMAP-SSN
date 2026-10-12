@@ -336,6 +336,10 @@ still change before version 1.0.0.
   every process they started, and none of their commands run. With none running, it
   says so and succeeds. A script started through MCP or the Agent page reports the
   stop as cancelled.
+- **`meta show {Length}`.** `meta show` and `meta display` also take the property in
+  braces, as `spectrum` writes it; `meta show Length` still works. A name in braces is
+  always a property, so `meta show {off}` shows a column named off instead of closing
+  the display. The VR viewer accepts the same form.
 
 ### Changed
 

@@ -24,6 +24,7 @@ import re
 import pandas as pd
 import Command_Engine
 import EMAPSSN_Config as cfg
+from Metadata_Core import show_property_name
 from Viewer_Command_Portal import CURRENT
 from desktop.Desktop_App import translate
 from utilities.Localization import Message
@@ -63,8 +64,11 @@ def print_help(meta_dir):
           (.csv is added when no extension is given). Overwrites the file if
           it already exists.
       meta show/display <property_name>
+      meta show/display {{property_name}}
           Displays the selected property above the bottom-right status indicators
-          whenever a node is clicked.
+          whenever a node is clicked. The name may be written in braces, as in
+          spectrum {{Length}}. In braces it is always a property name, so
+          meta show {{off}} shows a property called off.
       meta show/display clear/off
           Clears and removes the metadata property display. Undo and redo
           leave it closed until the next meta show or spectrum opens it.
@@ -83,6 +87,7 @@ def print_help(meta_dir):
       meta download
       meta download my_exported_data
       meta show Organism
+      meta show {{Length}}
       meta show clear
       meta delete Organism Taxonomy
       meta remove Host
@@ -181,14 +186,15 @@ def run(viewer, args):
                 viewer,
                 Message(
                     "Usage: {syntax} OR {other_syntax}",
-                    syntax="meta show <property_name>",
+                    syntax="meta show <property_name>|{property_name}",
                     other_syntax="meta show clear/off",
                 ),
             )
             return
 
-        prop_name = " ".join(args[1:]).strip()
-        if prop_name.lower() in ['clear', 'off']:
+        # {off} in braces names a property; only a bare clear/off closes the display.
+        prop_name, braced = show_property_name(args[1:])
+        if not braced and prop_name.lower() in ['clear', 'off']:
             if 'meta_display' in viewer.hud_displays:
                 viewer.hud_displays['meta_display'].hide()
             viewer.meta_display_prop = None

@@ -884,6 +884,53 @@ class MetaCommandArgumentTests(unittest.TestCase):
         self.assertIsNone(viewer.meta_display_prop)
         self.assertIn("Available properties: none.", result.failed.call_args.args[1])
 
+    def test_show_takes_the_property_in_braces_as_spectrum_does(self):
+        for requested in ("{Length}", "{length}", "{ Length }"):
+            with self.subTest(requested=requested):
+                viewer = make_viewer()
+                result = self.run_meta(viewer, ["show", requested])
+
+                result.failed.assert_not_called()
+                self.assertEqual(viewer.meta_display_prop, "Length")
+                self.assertTrue(viewer.hud_displays["meta_display"].messages[-1].startswith("Length: "))
+
+    def test_a_name_in_braces_may_hold_spaces(self):
+        viewer = make_viewer()
+        viewer.metadata["Host Range"] = {"type": "text", "values": np.array(["x", "y"], dtype=object)}
+
+        result = self.run_meta(viewer, ["show", "{Host", "Range}"])
+
+        result.failed.assert_not_called()
+        self.assertEqual(viewer.meta_display_prop, "Host Range")
+
+    def test_off_in_braces_names_a_property_instead_of_closing_the_display(self):
+        viewer = make_viewer()
+        self.run_meta(viewer, ["show", "Length"])
+
+        missing = self.run_meta(viewer, ["show", "{off}"])
+
+        self.assertIn("Property 'off' not found", missing.failed.call_args.args[1])
+        self.assertEqual(viewer.meta_display_prop, "Length")
+        self.assertFalse(getattr(viewer, "meta_display_dismissed", False))
+
+        viewer.metadata["off"] = {"type": "text", "values": np.array(["on", "off"], dtype=object)}
+        named = self.run_meta(viewer, ["show", "{off}"])
+
+        named.failed.assert_not_called()
+        self.assertEqual(viewer.meta_display_prop, "off")
+
+    def test_empty_braces_ask_for_a_property_name(self):
+        viewer = make_viewer()
+        result = self.run_meta(viewer, ["show", "{}"])
+
+        self.assertIsNone(viewer.meta_display_prop)
+        self.assertIn("Please specify a valid property name", result.failed.call_args.args[1])
+
+    def test_an_unclosed_brace_is_part_of_the_name(self):
+        result = self.run_meta(make_viewer(), ["show", "{Length"])
+
+        self.assertIn("Property '{Length' not found", result.failed.call_args.args[1])
+
     def test_off_and_deactivate_say_they_are_not_metadata_options(self):
         for word in ("off", "deactivate", "OFF"):
             with self.subTest(word=word):

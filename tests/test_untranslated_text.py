@@ -980,7 +980,7 @@ class ViewerCanvasTextTests(WindowTestCase):
             (select, ["save", "1.fasta"], {"selected_indices": [0]}, ()),
             (meta, ["download", "../1.csv"], {}, ()),
             (meta, ["delete", "9"], {"metadata": {"1": {}}}, ("9",)),
-            (meta, ["show"], {}, ("meta show <property_name>", "meta show clear/off")),
+            (meta, ["show"], {}, ("meta show <property_name>|{property_name}", "meta show clear/off")),
         )
         for module, args, attributes, values in cases:
             viewer = self.command_viewer(**attributes)
