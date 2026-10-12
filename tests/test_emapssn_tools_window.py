@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (  # noqa: E402
 from EMAPSSN_Tools import (  # noqa: E402
     SpacedTipLabel,
     ToolsGUI,
-    _configure_linux_qtwebengine_rendering,
+    _configure_qtwebengine_rendering,
     bind_custom_blast_column_controls,
 )
 from tests.tools_gui_fixtures import isolated_tools_project  # noqa: E402
@@ -84,36 +84,34 @@ class TooltipRoutingTests(unittest.TestCase):
         self.window.deleteLater()
         self.app.processEvents()
 
-    def test_linux_webengine_software_rendering_preserves_existing_flags(self):
-        environment = {"QTWEBENGINE_CHROMIUM_FLAGS": "--disable-logging"}
-
-        changed = _configure_linux_qtwebengine_rendering(environment, "linux")
-
-        self.assertTrue(changed)
-        self.assertEqual(
-            environment["QTWEBENGINE_CHROMIUM_FLAGS"],
-            "--disable-logging --disable-gpu",
-        )
-        self.assertFalse(
-            _configure_linux_qtwebengine_rendering(environment, "linux")
-        )
-
-    def test_webengine_rendering_is_unchanged_outside_linux(self):
-        for platform_name in ("darwin", "win32"):
+    def test_webengine_software_rendering_preserves_existing_flags(self):
+        # Linux (a blank surface on Wayland) and Windows (sheared, partly black
+        # frames after the help pane widened in one jump).
+        for platform_name in ("linux", "win32"):
             with self.subTest(platform_name=platform_name):
-                environment = {
-                    "QTWEBENGINE_CHROMIUM_FLAGS": "--disable-logging"
-                }
+                environment = {"QTWEBENGINE_CHROMIUM_FLAGS": "--disable-logging"}
 
-                changed = _configure_linux_qtwebengine_rendering(
-                    environment, platform_name
-                )
+                changed = _configure_qtwebengine_rendering(environment, platform_name)
 
-                self.assertFalse(changed)
+                self.assertTrue(changed)
                 self.assertEqual(
                     environment["QTWEBENGINE_CHROMIUM_FLAGS"],
-                    "--disable-logging",
+                    "--disable-logging --disable-gpu",
                 )
+                self.assertFalse(
+                    _configure_qtwebengine_rendering(environment, platform_name)
+                )
+
+    def test_webengine_rendering_is_unchanged_on_macos(self):
+        environment = {"QTWEBENGINE_CHROMIUM_FLAGS": "--disable-logging"}
+
+        changed = _configure_qtwebengine_rendering(environment, "darwin")
+
+        self.assertFalse(changed)
+        self.assertEqual(
+            environment["QTWEBENGINE_CHROMIUM_FLAGS"],
+            "--disable-logging",
+        )
 
     def test_native_tooltip_event_updates_bottom_panel_and_is_suppressed(self):
         event = QHelpEvent(QEvent.Type.ToolTip, QPoint(1, 1), QPoint(1, 1))

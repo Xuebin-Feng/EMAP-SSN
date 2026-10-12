@@ -1170,6 +1170,12 @@ still change before version 1.0.0.
   until another file is chosen or the file is back. A file saved by its full path,
   which the tools find though no folder lists it, now shows as it is instead of the
   folder's first file.
+- On Windows, the Tools window's Script Description could turn partly or wholly black,
+  sheared into a chessboard of garbage pixels, after it widened in one jump (closing
+  the settings panel, for one), and stayed so until the page drew again. Chromium now
+  draws the help page in software, as it already did on Linux: in tests, GPU drawing
+  corrupted the page after up to one in eight such jumps, and software drawing after
+  none of 320.
 - A tool run from the command line without a settings file, while `tools_settings.json`
   could not be read (invalid JSON, empty, or not a JSON object), printed a warning and
   ran on its built-in defaults; an MCP job given parameters without every directory

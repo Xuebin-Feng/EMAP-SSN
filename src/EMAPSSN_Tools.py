@@ -33,19 +33,25 @@ import re
 import traceback
 
 
-def _configure_linux_qtwebengine_rendering(
+def _configure_qtwebengine_rendering(
     environment=None,
     platform_name=sys.platform,
 ):
-    """Use Chromium's software renderer for the static help panel on Linux.
+    """Use Chromium's software renderer for the static help panel on Linux and Windows.
 
-    QtWebEngine can load the documentation DOM successfully but paint a blank
-    surface when Chromium's GBM/Vulkan fallback is unavailable on Linux
-    Wayland.  Disabling Chromium GPU rendering avoids that compositor path.
-    Preserve caller-supplied Chromium flags and leave other platforms alone.
+    On Linux Wayland, QtWebEngine can load the documentation DOM successfully
+    but paint a blank surface when Chromium's GBM/Vulkan fallback is
+    unavailable. On Windows, Chromium's GPU frames, which it shares with Qt's
+    Direct3D window, could come out sheared and partly black after the pane
+    widened in one jump, such as the settings panel closing, and stayed so
+    until the page drew again. In tests GPU drawing did this after up to one
+    in eight such jumps, and software drawing after none of 320. The page is
+    static text, so the CPU draws it just as well.
+    Disabling Chromium GPU rendering avoids that compositor path. Preserve
+    caller-supplied Chromium flags and leave macOS alone.
     """
     environment = os.environ if environment is None else environment
-    if not str(platform_name).startswith("linux"):
+    if not str(platform_name).startswith(("linux", "win32")):
         return False
 
     existing_flags = environment.get("QTWEBENGINE_CHROMIUM_FLAGS", "")
@@ -59,7 +65,7 @@ def _configure_linux_qtwebengine_rendering(
 
 
 # Chromium reads this before the QtWebEngine renderer process starts.
-_configure_linux_qtwebengine_rendering()
+_configure_qtwebengine_rendering()
 
 from utilities import Hardware_Acceleration as Hardware_Utils
 from Embedding_Alignment_Engine import (
