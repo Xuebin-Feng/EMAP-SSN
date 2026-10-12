@@ -1266,6 +1266,11 @@ still change before version 1.0.0.
   so the budget came out smaller than it should. Both now read the available memory
   through psutil, which gives the figure Windows already used. On Apple silicon the GPU
   memory plan now also stays within that figure, as it was meant to.
+- Undo and redo reopened the metadata HUD (`meta show`) after it was closed with
+  `meta show off`. Each undo step records which property the HUD shows, but closing it
+  is no step of its own, so stepping back or forward to a step taken while it was open
+  brought it back. Undo and redo still close the HUD or switch its property, but leave
+  one closed with `meta show off` closed until the next `meta show` or `spectrum`.
 
 ### Removed
 
