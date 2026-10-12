@@ -47,6 +47,11 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
 
+try:
+    import psutil  # in src/requirements.txt; without it, Windows stops trees with taskkill
+except ImportError:
+    psutil = None
+
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = Path("tests") / "sections.toml"
 TEST_MODULE = re.compile(r"test\w*\.py")  # unittest discovery's default pattern
@@ -57,6 +62,8 @@ LOG_BASE = Path(tempfile.gettempdir()) / "emapssn-test-sections"
 RUN_FOLDER = re.compile(r"\d{8}-\d{6}-\d+")
 KEEP_RUNS = 10
 DEFAULT_TIMEOUT = 1200
+STOP_WAIT = 10  # seconds a stopped section's processes get to end
+TASKKILL_TRIES, TASKKILL_PAUSE = 3, 1.0
 SKIP_DIRS = {".git", ".venv", "__pycache__", "player", "temp", "node_modules", ".claude"}
 FILE_NAME = re.compile(
     r"[\w.\-]+\.(?:py|json|html|js|css|md|txt|sh|bat|cmd|ps1|toml|cff|ts|qm|qss|svg|"
@@ -554,24 +561,73 @@ def section_command(section, python=None, verbose=False, patterns=()):
 
 
 def _kill_tree(process):
+    """Stop a section's process and the processes it started. Return "" once they
+    have ended, else what is still running and why."""
     if process.poll() is not None:
-        return
+        return ""
     if os.name == "nt":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)],
-                       capture_output=True, check=False)
+        problem = _kill_windows_tree(process)
     else:
+        problem = ""
         try:
             os.killpg(process.pid, signal.SIGTERM)
-            process.wait(timeout=10)
+            process.wait(timeout=STOP_WAIT)
         except (ProcessLookupError, subprocess.TimeoutExpired, PermissionError):
             try:
                 os.killpg(process.pid, signal.SIGKILL)
             except (ProcessLookupError, PermissionError):
                 pass
     try:
-        process.wait(timeout=10)
+        process.wait(timeout=STOP_WAIT)
     except subprocess.TimeoutExpired:
-        pass
+        problem = problem or f"process {process.pid} is still running"
+    return problem
+
+
+def _kill_windows_tree(process):
+    # Windows has no process groups. A tree is found through parent-PID links,
+    # which lead nowhere once a parent is gone, so the whole tree is listed
+    # before anything in it is stopped. taskkill /T lists it through WMI, and
+    # WMI cancels queries while its provider host is over its memory quota, as
+    # it can be during a heavy test run; taskkill then stops nothing. psutil
+    # reads the process table itself.
+    if psutil is None:
+        return _taskkill_tree(process)
+    try:
+        root = psutil.Process(process.pid)
+        tree = [root, *root.children(recursive=True)]
+    except psutil.NoSuchProcess:
+        return ""
+    except psutil.Error:
+        return _taskkill_tree(process)
+    for member in tree:  # parents first, so that none starts a replacement
+        try:
+            member.kill()
+        except psutil.Error:
+            pass  # ended already, or ending; wait_procs tells
+    _, alive = psutil.wait_procs(tree, timeout=STOP_WAIT)
+    if alive:
+        return "still running after a forced stop: " + ", ".join(map(_describe, alive))
+    return ""
+
+
+def _describe(member):
+    try:
+        return f"{member.name()} {member.pid}"
+    except psutil.Error:
+        return str(member.pid)
+
+
+def _taskkill_tree(process):
+    for attempt in range(TASKKILL_TRIES):
+        if attempt:
+            time.sleep(TASKKILL_PAUSE)
+        done = subprocess.run(["taskkill", "/T", "/F", "/PID", str(process.pid)],
+                              capture_output=True, check=False)
+        if done.returncode == 0 or process.poll() is not None:
+            return ""
+    output = (done.stdout + done.stderr).decode("oem", "replace").strip()
+    return f"taskkill exited with {done.returncode} on all {TASKKILL_TRIES} tries: {output}"
 
 
 class Runner:
@@ -613,11 +669,12 @@ class Runner:
                                        stderr=subprocess.STDOUT, **options)
             with self._lock:
                 self._processes.add(process)
+            stop_problem = ""
             try:
                 process.wait(timeout=self.timeout)
                 timed_out = False
             except subprocess.TimeoutExpired:
-                _kill_tree(process)
+                stop_problem = _kill_tree(process)
                 timed_out = True
             finally:
                 with self._lock:
@@ -626,6 +683,8 @@ class Runner:
         status, counts, problems = parse_log(log.read_bytes())
         if timed_out:
             status = "timeout"
+            if stop_problem:
+                problems.insert(0, f"not stopped: {stop_problem}")
         elif self._stopping and status == "crashed":
             status = "interrupted"
         elif status == "ok" and process.returncode not in (0, None):
@@ -654,7 +713,9 @@ class Runner:
             with self._lock:
                 running = list(self._processes)
             for process in running:
-                _kill_tree(process)
+                problem = _kill_tree(process)
+                if problem:
+                    self._say(f"  not stopped: {problem}")
             executor.shutdown(wait=True)
             raise
         executor.shutdown(wait=True)

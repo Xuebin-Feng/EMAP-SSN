@@ -10,10 +10,15 @@ import ast
 import io
 import os
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from unittest import mock
+
+import psutil
 
 from tests import run_sections
 from tests.run_sections import (
@@ -40,6 +45,30 @@ def write(root, files):
         path = Path(root, relative)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(textwrap.dedent(text), encoding="utf-8")
+
+
+def stop_processes_in(folder, grace=2.0):
+    """Name and stop the processes still running in folder after grace seconds,
+    so that a stop the runner missed fails an assertion instead of the folder's
+    removal. (A venv's python.exe redirector reports another folder, but it ends
+    with the interpreter it started, which reports this one.)"""
+    found = []
+    for process in psutil.process_iter():
+        try:
+            if os.path.samefile(process.cwd(), folder):
+                found.append(process)
+        except (psutil.Error, OSError):
+            pass
+    _, alive = psutil.wait_procs(found, timeout=grace)
+    names = []
+    for process in alive:
+        try:
+            names.append(f"{process.name()} {process.pid}")
+            process.kill()
+        except psutil.Error:
+            pass
+    psutil.wait_procs(alive, timeout=10)
+    return names
 
 
 class SectionsFileTests(unittest.TestCase):
@@ -276,9 +305,12 @@ class RunTests(unittest.TestCase):
                         self.fail("on purpose")
                 """,
             "tests/test_sleep.py": """\
-                import time, unittest
+                import subprocess, sys, time, unittest
                 class SleepTests(unittest.TestCase):
                     def test_sleeps(self):
+                        # A process of its own, so that stopping the section means
+                        # stopping a tree.
+                        subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
                         time.sleep(60)
                 """,
             "tests/test_forgotten.py": """\
@@ -321,14 +353,80 @@ class RunTests(unittest.TestCase):
         self.assertIn(UNASSIGNED, out)
 
     def test_a_section_past_its_timeout_is_stopped(self):
+        self.addCleanup(stop_processes_in, self.root, grace=0)
         code, out = self.run_main("slow", "--timeout", "3")
         self.assertEqual(code, 1, out)
         self.assertIn("slow: timeout", out)
+        self.assertNotIn("not stopped", out)
+        self.assertEqual(stop_processes_in(self.root), [], out)
+
+    def test_a_stop_that_failed_is_reported(self):
+        self.addCleanup(stop_processes_in, self.root, grace=0)
+        kill_tree = run_sections._kill_tree
+        with mock.patch.object(run_sections, "_kill_tree",
+                               side_effect=lambda process: kill_tree(process) or "process 1 is still running"):
+            code, out = self.run_main("slow", "--timeout", "1")
+        self.assertEqual(code, 1, out)
+        self.assertIn("slow: timeout", out)
+        self.assertIn("not stopped: process 1 is still running", out)
 
     def test_an_unknown_section_is_a_usage_error(self):
         code, out = self.run_main("nonexistent")
         self.assertEqual(code, 2)
         self.assertIn("unknown section(s): nonexistent", out)
+
+
+@unittest.skipUnless(os.name == "nt", "Windows stops trees without process groups")
+class WindowsStopTests(unittest.TestCase):
+    """Stopping a real tree: a process whose child started a process of its own."""
+
+    FAILED_TASKKILL = subprocess.CompletedProcess([], 1, b"ERROR: cancelled\r\n", b"")
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        write(self.root, {"sleeper.py": """\
+            import subprocess, sys, time
+            if sys.argv[1:] == ["child"]:
+                open("child-started", "w").close()
+            else:
+                subprocess.Popen([sys.executable, __file__, "child"])
+            time.sleep(60)
+            """})
+        self.process = subprocess.Popen([sys.executable, "sleeper.py"], cwd=self.root,
+                                        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
+        self.addCleanup(self.process.wait, 10)
+        self.addCleanup(stop_processes_in, self.root, grace=0)
+        deadline = time.monotonic() + 30
+        while not (self.root / "child-started").exists():
+            self.assertLess(time.monotonic(), deadline, "the sleeper's child did not start")
+            time.sleep(0.05)
+
+    def test_the_stop_does_not_need_taskkill(self):
+        # taskkill lists the tree through WMI, which cancels queries under load.
+        with mock.patch.object(run_sections.subprocess, "run", return_value=self.FAILED_TASKKILL):
+            self.assertEqual(run_sections._kill_tree(self.process), "")
+        self.assertEqual(stop_processes_in(self.root), [])
+
+    def test_processes_that_outlive_the_stop_are_named(self):
+        with mock.patch.object(psutil, "wait_procs", side_effect=lambda processes, timeout: ([], processes)):
+            problem = run_sections._kill_tree(self.process)
+        self.assertRegex(problem, rf"^still running after a forced stop: .*\b{self.process.pid}\b")
+
+    def test_without_psutil_taskkill_stops_the_tree(self):
+        with mock.patch.object(run_sections, "psutil", None):
+            self.assertEqual(run_sections._kill_tree(self.process), "")
+        self.assertEqual(stop_processes_in(self.root), [])
+
+    def test_without_psutil_a_failing_taskkill_is_tried_again_and_reported(self):
+        with mock.patch.object(run_sections, "psutil", None), \
+                mock.patch.multiple(run_sections, STOP_WAIT=0.1, TASKKILL_PAUSE=0), \
+                mock.patch.object(run_sections.subprocess, "run", return_value=self.FAILED_TASKKILL) as run:
+            problem = run_sections._kill_tree(self.process)
+        self.assertEqual(run.call_count, run_sections.TASKKILL_TRIES)
+        self.assertEqual(problem, "taskkill exited with 1 on all 3 tries: ERROR: cancelled")
 
 
 if __name__ == "__main__":
