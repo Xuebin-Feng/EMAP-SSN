@@ -43,7 +43,7 @@ cd "$PROJECT_ROOT"
 activate_existing_instance() {
     [ -x ".venv/bin/python" ] || return 1
     ".venv/bin/python" src/desktop/Single_Instance_Probe.py viewer \
-        >/dev/null 2>&1
+        2>/dev/null
 }
 
 if { [ -z "$LAUNCH_MODE" ] || [ "$LAUNCH_MODE" = "--run-only" ]; } &&

@@ -67,7 +67,7 @@ from desktop.Studio_Theme import (
     theme_color,
     theme_tokens,
 )
-from utilities.App_Settings import AppSettingsError, read_app_settings, save_app_setting
+from utilities.App_Settings import AppSettingsError, PROJECT_ROOT, read_app_settings, save_app_setting
 
 from utilities.Language_Packs import (
     LanguageFont,
@@ -128,14 +128,29 @@ def configure_linux_qt_desktop_identity(application, desktop_file_name):
 # 2. Main Window Focus, Single-Instance Channel & OS Window Management
 # =====================================================================
 
-def _single_instance_server_name(application_id):
-    """Return a short, stable, per-user local-server name for an application."""
+def _single_instance_server_name(application_id, checkout_root=PROJECT_ROOT):
+    """Return a short, stable local-server name for an application, per user and checkout.
+
+    Each checkout keeps its own settings files, so a launch from another
+    checkout opens a window of its own: bringing this checkout's window
+    forward would have it edit this checkout's settings instead.
+    """
     normalized_id = re.sub(r"[^A-Za-z0-9_.-]+", "-", str(application_id)).strip("-")
     if not normalized_id:
         raise ValueError("application_id must contain at least one usable character")
-    user_identity = os.path.normcase(str(Path.home().resolve()))
-    user_digest = hashlib.sha256(user_identity.encode("utf-8")).hexdigest()[:12]
-    return f"ssn-{normalized_id}-{user_digest}"
+    identity = "\n".join(
+        os.path.normcase(str(Path(path).resolve())) for path in (Path.home(), checkout_root)
+    )
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:12]
+    return f"ssn-{normalized_id}-{digest}"
+
+
+def instance_handover_message(window_name):
+    """The line a launch prints when it brings its checkout's open window forward instead."""
+    return (
+        f"{window_name} is already open from this checkout ({PROJECT_ROOT}); "
+        "brought that window to the front instead of opening another."
+    )
 
 
 def _notify_local_server(server_name, timeout_ms):
@@ -2601,6 +2616,7 @@ __all__ = [
     "VIEWER_DESKTOP_FILE_NAME",
     "configure_linux_qt_desktop_identity",
     "notify_existing_instance",
+    "instance_handover_message",
     "SingleInstanceController",
     "show_window_in_front",
     "open_in_file_manager",

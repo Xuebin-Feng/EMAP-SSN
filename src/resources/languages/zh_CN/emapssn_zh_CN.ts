@@ -507,7 +507,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2341"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2356"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -520,7 +520,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2240"/>
+        <location line="-2255"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -581,23 +581,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3057"/>
+        <location line="+3058"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3056"/>
+        <location line="-3057"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3566"/>
+        <location line="+3567"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3558"/>
+        <location line="-3559"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -620,7 +620,7 @@
         <translation type="obsolete">关闭</translation>
     </message>
     <message>
-        <location line="+719"/>
+        <location line="+720"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -1859,7 +1859,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1719"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1734"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -3807,7 +3807,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-3872"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-3873"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -3849,7 +3849,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+981"/>
+        <location line="+982"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -6049,12 +6049,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1376"/>
+        <location line="-1391"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Tools.py" line="+126"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+127"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>
@@ -8101,7 +8101,7 @@ Fedora / RHEL：
         <translation type="unfinished">{window}启动错误</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+31"/>
         <source>Missing QtWebEngine libraries</source>
         <translation type="unfinished">缺少 QtWebEngine 库</translation>
     </message>

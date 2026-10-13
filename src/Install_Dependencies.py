@@ -758,6 +758,7 @@ def validate_package_consistency(uv_executable: str, python: Path) -> bool:
         [uv_executable, "pip", "check", "--python", str(python)], capture=True
     )
     if completed.returncode == 0:
+        print("Installed package consistency: passed")
         return True
 
     # uv interleaves progress lines ("Checked N packages in Xms") with the
@@ -1150,7 +1151,7 @@ def environment_is_ready(
         if not validate_esm_stack(python):
             print("Environment is not ready: ESM import validation failed.", file=sys.stderr)
             return False
-        print("Installed package consistency: passed")
+        print("ESM/Transformers import validation: passed")
     except (FileNotFoundError, ValueError, OSError) as error:
         print(f"Environment readiness check failed: {error}", file=sys.stderr)
         return False

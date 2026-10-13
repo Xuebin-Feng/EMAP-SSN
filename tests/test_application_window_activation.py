@@ -9,11 +9,15 @@ the apps, their launchers and desktop.Single_Instance_Probe."""
 
 from __future__ import annotations
 
+from contextlib import redirect_stdout
+import io
 from pathlib import Path
 import os
 import re
+import subprocess
 import sys
 import tempfile
+import textwrap
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -193,6 +197,42 @@ class ApplicationWindowActivationTests(unittest.TestCase):
             Application_Windows._single_instance_server_name("SSN_Tools"),
         )
 
+    def test_single_instance_names_are_per_checkout(self):
+        # A real Linux check had a second checkout's Config and Tools bring the
+        # first checkout's windows forward, where they edit that checkout's
+        # settings files. Each checkout now owns its windows.
+        name = Application_Windows._single_instance_server_name
+        self.assertEqual(Application_Windows.PROJECT_ROOT, PROJECT_ROOT)
+        self.assertEqual(name("SSN_Config"), name("SSN_Config", PROJECT_ROOT))
+        with tempfile.TemporaryDirectory() as first, tempfile.TemporaryDirectory() as second:
+            first, second = Path(first), Path(second)
+            (first / "src").mkdir()
+            self.assertNotEqual(name("SSN_Config", first), name("SSN_Config", second))
+            self.assertNotEqual(name("SSN_Config", first), name("SSN_Config"))
+            # One checkout, however its path is spelled, keeps one channel.
+            self.assertEqual(name("SSN_Config", first), name("SSN_Config", first / "src" / ".."))
+            if os.name == "nt":
+                self.assertEqual(name("SSN_Config", first), name("SSN_Config", Path(str(first).upper())))
+            link = second / "link"
+            try:
+                os.symlink(first, link, target_is_directory=True)
+            except OSError:
+                if os.name != "nt":
+                    raise
+                import _winapi  # symlinks need a privilege on Windows; junctions do not
+
+                _winapi.CreateJunction(str(first), str(link))
+            self.assertEqual(name("SSN_Config", first), name("SSN_Config", link))
+            # Still per user as well.
+            with mock.patch.object(Application_Windows.Path, "home", return_value=second):
+                other_user = name("SSN_Config", first)
+            self.assertNotEqual(other_user, name("SSN_Config", first))
+
+    def test_handover_message_names_the_window_and_its_checkout(self):
+        message = Application_Windows.instance_handover_message("EMAP-SSN Tools")
+        self.assertTrue(message.startswith("EMAP-SSN Tools is already open from this checkout ("), message)
+        self.assertIn(f"({PROJECT_ROOT})", message)
+
     def test_primary_instance_claims_local_server(self):
         server = mock.Mock()
         server.listen.return_value = True
@@ -320,16 +360,22 @@ class SingleInstanceContractTests(unittest.TestCase):
 
     def test_probe_main_notifies_the_requested_application(self):
         for notified, exit_code in ((True, 0), (False, 1)):
+            stdout = io.StringIO()
             with self.subTest(notified=notified), mock.patch.object(
                 Single_Instance_Probe, "QCoreApplication"
             ), mock.patch.object(
                 Single_Instance_Probe,
                 "notify_existing_instance",
                 return_value=notified,
-            ) as notify:
+            ) as notify, redirect_stdout(stdout):
                 self.assertEqual(Single_Instance_Probe.main(["tools"]), exit_code)
 
             notify.assert_called_once_with("SSN_Tools")
+            # Only a hand-over is announced, naming the window it went to.
+            self.assertEqual(
+                stdout.getvalue(),
+                Application_Windows.instance_handover_message("EMAP-SSN Tools") + "\n" if notified else "",
+            )
 
     def test_stale_channel_after_a_crash_is_removed_and_claimed(self):
         server = mock.Mock()
@@ -367,6 +413,77 @@ class SingleInstanceContractTests(unittest.TestCase):
         local_server.removeServer.assert_called_once_with(controller.server_name)
         lock.unlock.assert_called_once_with()
         self.assertFalse(controller.owns_server)
+
+
+class ApplicationHandoverTests(unittest.TestCase):
+    """Config and Tools say so when they hand over to an open window and exit.
+
+    A real Linux check saw a Config exit silently with code 0 after losing the
+    startup race to another window. Each app runs its real __main__ in a child
+    process, with a stand-in SingleInstanceController that reports the channel
+    as owned, so no real channel is touched and no window is built.
+    """
+
+    PROBE = textwrap.dedent(
+        """
+        import runpy
+        import sys
+
+        script = sys.argv[1]
+        sys.path.insert(0, sys.argv[2])
+        from desktop import Desktop_App
+
+        class OpenAlready:
+            def __init__(self, application_id, parent=None):
+                print(f"channel: {application_id}", flush=True)
+
+            def acquire_or_notify(self):
+                return False
+
+        Desktop_App.SingleInstanceController = OpenAlready
+        sys.argv = [script]
+        runpy.run_path(script, run_name="__main__")
+        print("the app went on after handing over")
+        """
+    )
+
+    def test_config_and_tools_announce_the_handover(self):
+        cases = {
+            "EMAPSSN_Config.py": ("SSN_Config", "EMAP-SSN Configuration"),
+            "EMAPSSN_Tools.py": ("SSN_Tools", "EMAP-SSN Tools"),
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            environment = dict(
+                os.environ,
+                QT_QPA_PLATFORM="offscreen",
+                PYTHONDONTWRITEBYTECODE="1",
+                SSN_APP_SETTINGS_PATH=str(Path(directory) / "missing.json"),
+            )
+            children = {
+                script: subprocess.Popen(
+                    [sys.executable, "-c", self.PROBE, str(SRC_DIR / script), str(SRC_DIR)],
+                    cwd=str(PROJECT_ROOT), env=environment,
+                    stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                )
+                for script in cases
+            }
+            results = {}
+            for script, child in children.items():
+                try:
+                    stdout, stderr = child.communicate(timeout=180)
+                except subprocess.TimeoutExpired:
+                    child.kill()
+                    stdout, stderr = child.communicate()
+                results[script] = (child.returncode, stdout.decode("utf-8", "replace"),
+                                   stderr.decode("utf-8", "replace"))
+        for script, (application_id, window_name) in cases.items():
+            returncode, stdout, stderr = results[script]
+            with self.subTest(script=script):
+                self.assertEqual(returncode, 0, stderr)
+                lines = stdout.splitlines()
+                self.assertIn(f"channel: {application_id}", lines)
+                self.assertIn(Application_Windows.instance_handover_message(window_name), lines)
+                self.assertNotIn("the app went on after handing over", lines)
 
 
 if __name__ == "__main__":

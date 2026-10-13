@@ -260,6 +260,8 @@ __marimo__/
 # application bundles, and extensionless symlinks.
 *.lnk
 *.desktop
+/EMAP-SSN.app/
+/EMAP-SSN Tools.app/
 # Pre-EMAP generated launchers remain ignored while installers remove them.
 /SSN_Viewer.command
 /SSN_Tools.command

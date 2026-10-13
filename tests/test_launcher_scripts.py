@@ -132,6 +132,29 @@ class LauncherScriptPolicyTests(unittest.TestCase):
                     validation_position,
                 )
 
+    def test_shell_scripts_are_committed_executable(self):
+        # install.sh runs `chmod +x src/bin/*.sh`. A script committed without
+        # the executable bit then shows as modified, which can block a later
+        # `git pull` (found on a fresh Linux clone). Windows checkouts keep
+        # core.fileMode false, so git takes the bit from the index, never from
+        # the file: set it with `git update-index --chmod=+x`.
+        try:
+            listed = subprocess.run(
+                ["git", "-C", str(PROJECT_ROOT), "ls-files", "-s", "--", "*.sh"],
+                capture_output=True, text=True,
+            )
+        except OSError:
+            self.skipTest("git is not installed")
+        modes = {}
+        for line in listed.stdout.splitlines() if listed.returncode == 0 else ():
+            entry, path = line.split("\t", 1)
+            modes[path] = entry.split()[0]
+        if modes.get("install.sh") != "100755":
+            # A snapshot whose index came from `git add` on Windows has no modes.
+            self.skipTest("this index does not carry the clone's file modes")
+        self.assertIn("src/bin/EMAPSSN.sh", modes)
+        self.assertEqual({path: mode for path, mode in modes.items() if mode != "100755"}, {})
+
 
 @unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
 class PosixSetupLockTests(unittest.TestCase):

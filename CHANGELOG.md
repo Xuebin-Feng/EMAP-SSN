@@ -817,6 +817,15 @@ still change before version 1.0.0.
   or "Redid N steps.", on the console line too. The steps are quiet, and the Viewer
   redraws the metadata HUD and updates the web pages once at the end (the VR viewer
   sends the headset the result once). A plain `undo` or `redo` reports as before.
+- **Each copy of EMAP-SSN opens its own windows.** Configuration, VR Configuration and
+  Tools allowed one window each per user, so launching one from a second checkout,
+  such as a fresh clone beside your usual folder, brought the first checkout's window
+  forward, and that window reads and saves the first checkout's settings files. A
+  launch now hands over only to a window of its own checkout, and says so in its
+  terminal instead of exiting without a word: "EMAP-SSN Tools is already open from this
+  checkout (<folder>); brought that window to the front instead of opening another." A
+  window that was already open when you updated is not recognized, so close it before
+  launching again from the same folder.
 
 ### Fixed
 
@@ -1262,6 +1271,20 @@ still change before version 1.0.0.
   file". The message EMAP-SSN Tools shows when QtWebEngine cannot load now gives the
   package names for Debian 12 and 13 and Ubuntu-based distributions too, not only
   Ubuntu's.
+- On Linux and macOS, `install.sh` left the four launcher scripts in `src/bin` listed as
+  modified by `git status`: it makes them executable, and the repository stored them
+  without that permission. A later `git pull` that changed one of them stopped with
+  "Your local changes to the following files would be overwritten by merge". The
+  repository now stores them executable, so the installer changes nothing git tracks,
+  and on macOS `git status` no longer lists the `EMAP-SSN.app` and `EMAP-SSN Tools.app`
+  bundles it creates. In a checkout where `install.sh` has already run, `git pull` of
+  this update stops in the same way: run `git checkout -- src/bin/` first, which only
+  undoes the permission changes.
+- The readiness check that runs before each launch (`Install_Dependencies.py
+  --check-only`) printed "Installed package consistency" twice: once with the expected
+  esm deviations, then a plain "passed" that stood for the ESM import check after it.
+  Package consistency is now reported once, and the last line reads "ESM/Transformers
+  import validation: passed".
 - An NVIDIA Blackwell GPU (RTX 50 series and other compute capability 10.x or 12.x
   cards) with a driver older than 580 got the CUDA 12.6 build, which has no Blackwell
   kernels: setup downloaded it, failed validation and moved to the CPU with only a
@@ -1307,6 +1330,13 @@ still change before version 1.0.0.
   A40/A50, A60 and A60M, the Arc Pro B50, B60, B65 and B70, and Arrow Lake's Arc Pro
   130T/140T. They are the same GPUs as the Arc models the XPU backend already used, and
   are now eligible for it on the same operating systems.
+- GPU detection classed an Intel GPU without XPU kernels, such as UHD Graphics 770 or
+  Iris Xe Graphics, as `"kind": "unknown"` rather than `"integrated"`. Intel's discrete
+  GPUs (Iris Xe MAX, Arc, Data Center GPU Flex and Max) are now recognized by PCI
+  device ID, and every other Intel GPU is integrated; without a device ID, the name
+  decides. Which GPUs can use XPU is unchanged. Because the class is part of the saved
+  hardware profile, the first launch after updating on a computer with such a GPU
+  re-validates the installed PyTorch backend once without reinstalling it.
 - The Viewer's instruction line (`[ENTER] Command | [LeftClick] Highlight | …`) is
   wider than the default 1200 × 800 window in English, so its end ran under the
   sidebar's toggle and past the window's edge. The actions now open on a card from a

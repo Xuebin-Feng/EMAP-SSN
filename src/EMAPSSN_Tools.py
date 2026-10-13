@@ -110,6 +110,7 @@ from desktop.Desktop_App import (
     ToggleSwitch,
     configure_linux_qt_desktop_identity,
     fit_buttons_to_text,
+    instance_handover_message,
     mark_name_item,
     show_window_in_front,
     # The Tools window files its texts under one context, "Tools".
@@ -4744,6 +4745,7 @@ if __name__ == "__main__":
             )
             raise SystemExit(1)
         if not is_primary_instance:
+            print(instance_handover_message(TOOLS_DISPLAY_NAME))
             raise SystemExit(0)
         app.aboutToQuit.connect(single_instance.close)
 

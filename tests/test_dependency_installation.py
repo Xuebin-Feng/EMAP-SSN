@@ -977,10 +977,13 @@ class PackageConsistencyTests(unittest.TestCase):
 
     def test_clean_report_passes(self):
         completed = mock.Mock(returncode=0, stdout="", stderr="")
-        with mock.patch.object(Install_Dependencies, "_run", return_value=completed):
+        stdout = io.StringIO()
+        with mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
+                redirect_stdout(stdout):
             self.assertTrue(
                 Install_Dependencies.validate_package_consistency("uv", Path("python"))
             )
+        self.assertEqual(stdout.getvalue(), "Installed package consistency: passed\n")
 
     def test_sanctioned_version_and_missing_deviations_pass(self):
         self.assertTrue(self._check(*self._expected()))
@@ -1076,6 +1079,51 @@ class DependencyReadinessTests(unittest.TestCase):
 
         self.assertTrue(ready)
         consistency.assert_called_once_with("uv", python)
+
+    def test_readiness_reports_package_consistency_once(self):
+        # A real Linux check printed "Installed package consistency" twice:
+        # with the accepted esm deviations, then a bare "passed" that really
+        # stood for the ESM import check after it.
+        deviations = "\n".join((
+            "Found 2 incompatibilities",
+            PackageConsistencyTests.TORCH_LINE,
+            PackageConsistencyTests.TRANSFORMERS_LINE,
+        ))
+        for label, completed in (
+            ("esm deviations", mock.Mock(returncode=1, stdout=deviations, stderr="")),
+            ("clean", mock.Mock(returncode=0, stdout="", stderr="")),
+        ):
+            stdout = io.StringIO()
+            with self.subTest(report=label), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                python = root / "python"
+                python.touch()
+                active = Install_Dependencies.backend_specs({"backend": "cpu"})[0]
+                with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
+                        mock.patch.object(Install_Dependencies, "verify_esm_runtime_requirements"), \
+                        mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
+                        mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
+                        mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \
+                        mock.patch.object(Install_Dependencies, "read_state",
+                                          return_value={"active_backend": {"backend": "cpu"}}), \
+                        mock.patch.object(Install_Dependencies, "_state_mismatches", return_value=[]), \
+                        mock.patch.object(Install_Dependencies, "_backend_from_state", return_value=active), \
+                        mock.patch.object(Install_Dependencies, "validate_backend", return_value={"devices": []}), \
+                        mock.patch.object(Install_Dependencies, "_installed_version", side_effect=lambda _python, package: (
+                            Install_Dependencies.TRANSFORMERS_VERSION if package == "transformers"
+                            else Install_Dependencies.ESM_VERSION
+                        )), \
+                        mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
+                        mock.patch.object(Install_Dependencies, "validate_esm_stack", return_value=True), \
+                        redirect_stdout(stdout), redirect_stderr(io.StringIO()):
+                    self.assertTrue(Install_Dependencies.environment_is_ready(
+                        project_root=root, venv=root, uv_executable="uv"
+                    ))
+                lines = stdout.getvalue().splitlines()
+                self.assertEqual(
+                    len([line for line in lines if line.startswith("Installed package consistency")]), 1, lines
+                )
+                self.assertIn("ESM/Transformers import validation: passed", lines)
 
     def test_changed_state_requires_setup(self):
         with tempfile.TemporaryDirectory() as temp_dir:

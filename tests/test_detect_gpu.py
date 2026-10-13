@@ -1155,6 +1155,64 @@ class GPUDetectionTests(unittest.TestCase):
                 self.assertIn(reason, device["reasons"][0])
                 self.assertEqual(report["backend"], "cpu")
 
+    def test_linux_intel_gpus_outside_the_xpu_table_are_classed_by_pci_id(self):
+        # A real Linux check found the UHD 770 classed "unknown", which ranks
+        # ahead of "integrated". Intel's discrete GPUs are listed by ID; every
+        # other Intel GPU is a processor's graphics, whatever lspci calls it.
+        ubuntu_24_04 = {"id": "ubuntu", "version_id": "24.04"}
+        cases = [
+            ("VGA compatible controller [0300]: Intel Corporation Raptor Lake-S GT1 [UHD Graphics 770] [8086:a780] "
+             "(rev 04)", "integrated"),
+            ("VGA compatible controller [0300]: Intel Corporation CoffeeLake-S GT2 [UHD Graphics 630] [8086:3e92]",
+             "integrated"),
+            ("VGA compatible controller [0300]: Intel Corporation TigerLake-LP GT2 [Iris Xe Graphics] [8086:9a49] "
+             "(rev 01)", "integrated"),
+            ("VGA compatible controller [0300]: Intel Corporation Arrow Lake-U [Intel Graphics] [8086:7d41] (rev 04)",
+             "integrated"),
+            ("VGA compatible controller [0300]: Intel Corporation Device [8086:fd80]", "integrated"),
+            ("VGA compatible controller [0300]: Intel Corporation DG1 [Iris Xe MAX Graphics] [8086:4905] (rev 01)",
+             "discrete"),
+            ("Display controller [0380]: Intel Corporation ATS-M [Data Center GPU Flex 170] [8086:56c0] (rev 08)",
+             "discrete"),
+            ("Display controller [0380]: Intel Corporation Device [8086:0be5]", "discrete"),
+        ]
+        for line, kind in cases:
+            with self.subTest(line=line):
+                report = self._detect_linux_intel(line, "i915", ubuntu_24_04)
+                device = report["devices"][0]
+                self.assertEqual((device["vendor"], device["kind"], device["eligibility"]),
+                                 ("INTEL", kind, "ineligible"))
+                self.assertEqual(report["backend"], "cpu")
+
+    def test_intel_gpus_without_a_pci_id_are_classed_by_name(self):
+        # Legacy name discovery has no device ID; Intel's driver and pci.ids
+        # names say which GPUs are discrete.
+        cases = [
+            ("Intel(R) UHD Graphics 770", "integrated"),
+            ("Intel(R) Iris(R) Xe Graphics", "integrated"),
+            ("Intel(R) HD Graphics 630", "integrated"),
+            ("Intel(R) Graphics", "integrated"),
+            ("Intel Corporation TigerLake-LP GT2 [Iris Xe Graphics]", "integrated"),
+            ("Intel Corporation Xeon E3-1200 v3/4th Gen Core Processor Integrated Graphics Controller", "integrated"),
+            ("Intel(R) Iris(R) Xe MAX Graphics", "discrete"),
+            ("Intel Corporation DG1 [Iris Xe MAX Graphics]", "discrete"),
+            ("Intel(R) Data Center GPU Flex 170", "discrete"),
+            ("Intel(R) Data Center GPU Max 1100", "discrete"),
+            # Unchanged: a bare "Arc Graphics" is integrated only beside a Core Ultra CPU.
+            ("Intel(R) Arc(TM) Graphics", "unknown"),
+        ]
+        for name, kind in cases:
+            with self.subTest(name=name):
+                self.assertEqual(Detect_GPU._device_kind("INTEL", name, None, []), kind)
+
+    def test_intel_discrete_ids_hold_no_integrated_xpu_platform(self):
+        integrated = {
+            device for row in Detect_GPU.INTEL_XPU_PLATFORMS if row.kind == "integrated" for device in row.device_ids
+        }
+        self.assertEqual(integrated & Detect_GPU.INTEL_DISCRETE_DEVICE_IDS, set())
+        self.assertTrue(all(len(device) == 4 and device == device.lower() and int(device, 16)
+                            for device in Detect_GPU.INTEL_DISCRETE_DEVICE_IDS))
+
     def test_windows_intel_gpus_are_found_by_pci_id_whatever_the_driver_calls_them(self):
         # Intel's driver calls a Meteor Lake-H GPU "Intel(R) Graphics" rather
         # than "Intel(R) Arc(TM) Graphics" when the memory is single-channel,
@@ -1182,6 +1240,23 @@ class GPUDetectionTests(unittest.TestCase):
                                  ("INTEL", "Win32_VideoController", eligibility))
                 self.assertIn(reason, device["reasons"][0])
                 self.assertEqual(report["backend"], "xpu" if eligibility == "eligible" else "cpu")
+
+    def test_windows_intel_gpus_outside_the_xpu_table_are_classed_by_pci_id(self):
+        def adapter(name, device):
+            return {"Name": name, "PNPDeviceID": rf"PCI\VEN_8086&DEV_{device}&SUBSYS_7D251462&REV_04\3&11583659&0&10"}
+
+        cases = [
+            (adapter("Intel(R) UHD Graphics 770", "A780"), "integrated"),
+            (adapter("Intel(R) Iris(R) Xe Graphics", "9A49"), "integrated"),
+            # Without Intel's driver the name says nothing; the ID still does.
+            (adapter("Microsoft Basic Display Adapter", "A780"), "integrated"),
+            (adapter("Intel(R) Iris(R) Xe MAX Graphics", "4905"), "discrete"),
+        ]
+        for row, kind in cases:
+            with self.subTest(row=row):
+                device = self._detect(controllers=[row["Name"]], adapters=[row])["devices"][0]
+                self.assertEqual((device["vendor"], device["kind"], device["eligibility"]),
+                                 ("INTEL", kind, "ineligible"))
 
     def test_json_cli_contains_selection_reason(self):
         report = detected_report(reason="No accelerator")

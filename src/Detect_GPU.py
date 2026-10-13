@@ -170,6 +170,33 @@ INTEL_XPU_PLATFORMS = (
 INTEL_XPU_DEVICE_IDS = {device: row for row in INTEL_XPU_PLATFORMS for device in row.device_ids}
 INTEL_XPU_PLATFORM_NAMED = {row.name: row for row in INTEL_XPU_PLATFORMS}
 INTEL_ARC_BY_NAME = IntelPlatform("Intel Arc", "unknown", True, INTEL_UBUNTU)
+# Intel's discrete GPUs by PCI device ID, from Linux's include/drm/intel/pciids.h
+# (October 2026). Every other Intel display device is a processor's graphics
+# (UHD, Iris Xe, Arc and plain "Intel Graphics" alike), so an Intel GPU
+# outside INTEL_XPU_PLATFORMS is integrated unless it is listed here. Linux's
+# gma500 driver gives 0be0-0bef to the 2011 Atom D2000/N2000 graphics too;
+# those machines are far below what EMAP-SSN needs, so the three IDs that
+# overlap count as Ponte Vecchio.
+INTEL_DISCRETE_DEVICE_IDS = frozenset({
+    "4905", "4906", "4907", "4908", "4909",  # DG1 (Iris Xe MAX)
+    "5690", "5691", "5692", "56a0", "56a1", "56a2", "56be", "56bf",  # DG2-G10
+    "5693", "5694", "5695", "56a5", "56a6", "56b0", "56b1", "56ba", "56bb", "56bc", "56bd",  # DG2-G11
+    "5696", "5697", "56a3", "56a4", "56b2", "56b3",  # DG2-G12
+    "56c0", "56c1", "56c2",  # ATS-M (Data Center GPU Flex)
+    "0b69", "0b6e", "0bd4", "0bd5", "0bd6", "0bd7", "0bd8", "0bd9", "0bda", "0bdb",
+    "0be0", "0be1", "0be5",  # Ponte Vecchio (Data Center GPU Max)
+    "e202", "e209", "e20b", "e20c", "e20d", "e210", "e211", "e212", "e216",  # BMG-G21
+    "e220", "e221", "e222", "e223",  # BMG-G31
+    "674c", "674d", "674e", "674f", "6750",  # Crescent Island
+})
+# For an Intel GPU without a PCI device ID, the names Intel's driver and
+# pci.ids give its discrete GPUs, then those they give processor graphics.
+INTEL_DISCRETE_NAME_PATTERN = (
+    r"iris(?:\(r\)|®)?\s*xe\s*max|\bdg1\b|\bats-m\b|data\s+center\s+gpu\s+(?:flex|max)"
+)
+INTEL_INTEGRATED_NAME_PATTERN = (
+    r"\b(?:uhd|iris|hd)\b.*\bgraphics\b|integrated\s+graphics|\bintel(?:\(r\)|®)?\s+graphics\b"
+)
 
 DEVICE_CLASS_ORDER = {"discrete": 0, "unknown": 1, "integrated": 2}
 VENDOR_ORDER = {"NVIDIA": 0, "AMD": 1, "INTEL": 2, "APPLE": 3, "CPU": 4}
@@ -391,13 +418,18 @@ def _device_kind(
         intel_platform = _intel_platform(pci_id, name) if pci_id else None
         if intel_platform:
             return intel_platform.kind
+        vendor_id, _, device_id = (pci_id or "").partition(":")
+        if vendor_id == "8086":
+            return "discrete" if device_id in INTEL_DISCRETE_DEVICE_IDS else "integrated"
         # Numbered integrated Arc GPUs do not require a CPU-name probe. In
         # particular, B370/B390 are integrated despite their B-series names.
         if any(re.search(pattern, name, re.I) for pattern in INTEL_INTEGRATED_ARC_PATTERNS):
             return "integrated"
-        if "data center gpu max" in text or re.search(r"arc.*\b[ab]\d{2,3}", text):
+        if re.search(INTEL_DISCRETE_NAME_PATTERN, text) or re.search(r"arc.*\b[ab]\d{2,3}", text):
             return "discrete"
         if "arc" in text and any("core" in value.lower() and "ultra" in value.lower() for value in processors):
+            return "integrated"
+        if re.search(INTEL_INTEGRATED_NAME_PATTERN, text):
             return "integrated"
     return "unknown"
 
