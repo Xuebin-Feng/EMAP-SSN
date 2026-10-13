@@ -1402,6 +1402,16 @@ still change before version 1.0.0.
   can draw a text a pixel past it. They now get the width the labels ask for, as the
   label column does; on Windows the widths are unchanged. VR Configuration sizes the
   same labels the same way.
+- The bundled interface font, Noto Sans (with Noto Sans SC for Chinese), reached only
+  some widgets. On Linux, labels and buttons kept the desktop's font, such as Ubuntu
+  Sans, while fields, dropdowns and tabs drew Noto Sans, and Chinese labels fell back to
+  the system's Chinese font. Right-click menus, message boxes and tooltips kept the
+  system font on Linux and Windows (Segoe UI there). Qt gives those kinds of widget
+  fonts of their own from the desktop theme, and applying the window theme brought them
+  back after the bundled font was set. Every widget in Config, VR Configuration, Tools
+  and the Viewer now draws the bundled fonts, at the size the desktop gives it. The
+  windows' layout is unchanged on Windows; on Linux, labels and buttons take Noto Sans's
+  widths.
 - The Agent page could show light for a moment before turning dark, when dark mode had
   been chosen: it set its theme only once the page had loaded. Like the Meta Data page,
   it now sets the theme before the page is drawn.

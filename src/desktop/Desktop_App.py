@@ -66,6 +66,7 @@ from desktop.Studio_Theme import (
     switch_label,
     theme_color,
     theme_tokens,
+    widget_class_fonts,
 )
 from utilities.App_Settings import AppSettingsError, PROJECT_ROOT, read_app_settings, save_app_setting
 
@@ -598,7 +599,20 @@ def configure_qt_application_fonts(
             # Description. macOS never hints, and on Linux Qt and Chromium
             # both follow the system's setting, so those keep their default.
             application_font.setHintingPreference(QFont.HintingPreference.PreferNoHinting)
+        # A widget class with a font of its own from the platform theme keeps
+        # its size and weight but takes these families too, so labels, buttons,
+        # menus and tooltips draw the bundled fonts, Chinese included.
+        # setFont empties Qt's table of those fonts (Studio_Theme.WIDGET_FONT_CLASSES).
+        previous_font = app.font()
+        class_fonts = {
+            name: font for name, font in widget_class_fonts().items() if font != previous_font
+        }
         app.setFont(application_font)
+        for name, font in class_fonts.items():
+            font = QFont(font)
+            font.setFamilies(application_font.families())
+            font.setHintingPreference(application_font.hintingPreference())
+            app.setFont(font, name)
 
     return QtFontLoadStatus(
         loaded_files=tuple(loaded_files),

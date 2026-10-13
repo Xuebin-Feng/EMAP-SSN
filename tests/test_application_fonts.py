@@ -11,12 +11,15 @@ from __future__ import annotations
 
 import gc
 import hashlib
+import json
 import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import textwrap
 import unittest
 from unittest import mock
 import warnings
@@ -36,6 +39,7 @@ from PySide6.QtWidgets import (  # noqa: E402
     QDialog,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QSpinBox,
     QTabWidget,
@@ -53,6 +57,7 @@ from desktop.Desktop_App import (  # noqa: E402
     MONOSPACE_REGULAR_FILE,
     PSEUDO_LANGUAGE,
     QT_MONOSPACE_FAMILY,
+    QT_UI_FAMILIES,
     QT_UI_FAMILY,
     UI_BOLD_FILE,
     UI_QSS_FONT_STACK,
@@ -70,6 +75,15 @@ from desktop.Desktop_App import (  # noqa: E402
     vispy_language_face,
     vispy_points_at_reference_dpi,
     vispy_points_for_logical_pixels,
+)
+from desktop.Studio_Theme import (  # noqa: E402
+    DEFAULT_THEME_COLOR,
+    WIDGET_FONT_CLASSES,
+    apply_studio_theme,
+    restore_widget_class_fonts,
+    set_theme_color,
+    theme_color,
+    widget_class_fonts,
 )
 from utilities.Help_Pages import HELP_PAGES_DIR  # noqa: E402
 from utilities.Localization import LANGUAGES_DIR, read_catalog  # noqa: E402
@@ -411,6 +425,226 @@ class ApplicationFontTests(unittest.TestCase):
         embedded_sources = tools_source + agent_html + meta_html + docs_html
         self.assertNotIn("fonts.googleapis.com", embedded_sources)
         self.assertNotIn("fonts.gstatic.com", embedded_sources)
+
+
+# Builds one widget of each kind after a window's startup order, on the real
+# platform, and reports the font each one gets. @SRC@ and @LANGUAGE@ are filled in.
+REAL_PLATFORM_FONTS_SCRIPT = """
+import json, sys
+sys.path.insert(0, @SRC@)
+LANGUAGE = @LANGUAGE@
+from PySide6.QtGui import QFontInfo, QTextLayout
+from PySide6.QtWidgets import (
+    QApplication, QCheckBox, QComboBox, QDockWidget, QDoubleSpinBox, QGroupBox, QLabel,
+    QLineEdit, QListView, QListWidget, QMenu, QMenuBar, QMessageBox, QPlainTextEdit,
+    QProgressBar, QPushButton, QRadioButton, QSlider, QSpinBox, QStatusBar, QTabBar,
+    QTableView, QTextBrowser, QTextEdit, QToolButton, QToolTip, QTreeView, QVBoxLayout, QWidget,
+)
+
+app = QApplication([])
+from desktop.Desktop_App import (
+    QT_UI_FAMILIES, configure_linux_qt_desktop_identity, configure_qt_application_fonts,
+    install_translations,
+)
+from desktop.Studio_Theme import DEFAULT_THEME_COLOR, WIDGET_FONT_CLASSES, apply_studio_theme
+
+platform_sizes = {name: QApplication.font(name).pointSizeF() for name in WIDGET_FONT_CLASSES}
+# The windows' __main__ order: language, desktop identity, fonts, then the theme.
+install_translations(app, LANGUAGE)
+configure_linux_qt_desktop_identity(app, "emapssn")
+configure_qt_application_fonts(app)
+apply_studio_theme(app, DEFAULT_THEME_COLOR)
+
+
+def describe(font):
+    runs = []
+    if LANGUAGE:
+        layout = QTextLayout("\\u4e2d\\u6587", font)
+        layout.beginLayout()
+        layout.createLine()
+        layout.endLayout()
+        runs = sorted({run.rawFont().familyName() for run in layout.glyphRuns()})
+    return {"families": font.families(), "resolved": QFontInfo(font).family(),
+            "hinting": font.hintingPreference().name, "chinese": runs}
+
+
+def widget_fonts():
+    window = QWidget()
+    column = QVBoxLayout(window)
+    table, combo = QTableView(), QComboBox()
+    combo.addItem("Item")
+    children = {
+        "QLabel": QLabel("Label"), "QPushButton": QPushButton("Button"),
+        "QCheckBox": QCheckBox("Check"), "QRadioButton": QRadioButton("Radio"),
+        "QToolButton": QToolButton(), "QListView": QListView(), "QListWidget": QListWidget(),
+        "QTreeView": QTreeView(), "QTableView": table, "QComboBox": combo,
+        "QLineEdit": QLineEdit(), "QTabBar": QTabBar(), "QSpinBox": QSpinBox(),
+        "QDoubleSpinBox": QDoubleSpinBox(), "QTextBrowser": QTextBrowser(),
+        "QTextEdit": QTextEdit(), "QPlainTextEdit": QPlainTextEdit(),
+        "QGroupBox": QGroupBox("Group"), "QProgressBar": QProgressBar(), "QSlider": QSlider(),
+        "QMenuBar": QMenuBar(), "QStatusBar": QStatusBar(), "QDockWidget": QDockWidget("Dock"),
+    }
+    for widget in children.values():
+        column.addWidget(widget)
+    box = QMessageBox(QMessageBox.Icon.Warning, "Title", "Message")
+    widgets = dict(children, QMenu=QMenu("Menu"), QMessageBox=box)
+    widgets["QHeaderView"] = table.horizontalHeader()
+    widgets["QComboBox list"] = combo.view()
+    widgets["QMessageBox text"] = box.findChild(QLabel, "qt_msgbox_label")
+    for widget in (window, *widgets.values()):
+        widget.ensurePolished()
+    fonts = {name: describe(widget.font()) for name, widget in widgets.items()}
+    fonts["QToolTip"] = describe(QToolTip.font())
+    return fonts
+
+
+report = {
+    "application": describe(app.font()),
+    "stack": list(QT_UI_FAMILIES),
+    "startup": widget_fonts(),
+    "class_sizes": {name: [platform_sizes[name], QApplication.font(name).pointSizeF()]
+                    for name in WIDGET_FONT_CLASSES},
+}
+apply_studio_theme(app, "teal")  # the theme colour option redraws a window
+report["theme_color_switch"] = widget_fonts()
+# The classes this platform's theme names: a bare setStyle gives them its fonts back.
+app.setStyle("Fusion")
+report["platform_classes"] = sorted(
+    name for name in WIDGET_FONT_CLASSES
+    if QApplication.font(name).families() != list(QT_UI_FAMILIES)
+)
+print("@@" + json.dumps(report))
+"""
+
+
+class WidgetClassFontTests(unittest.TestCase):
+    """Every kind of widget draws the bundled stack, whatever font the platform gives its class.
+
+    Qt keeps a font per widget class from the platform theme (WIDGET_FONT_CLASSES)
+    and refills it in every QApplication.setStyle, which the window theme calls
+    after the fonts are set: on Linux, GTK put the system font back on labels,
+    buttons, check boxes, lists and menus; on Windows, Segoe UI on menus, message
+    boxes, tooltips, the status bar and the item views.
+    """
+
+    def run_startup_on_the_real_platform(self, language):
+        """The report REAL_PLATFORM_FONTS_SCRIPT prints for a window started in language.
+
+        The offscreen platform names no class font, so the script runs on the
+        real one; it is skipped where there is none, or where the platform's
+        theme names no class either, since nothing could undo the fonts there.
+        """
+        if sys.platform == "win32":
+            platform = "windows"
+        elif sys.platform == "darwin":
+            platform = "cocoa"
+        elif os.environ.get("DISPLAY"):
+            platform = "xcb"
+        else:
+            self.skipTest("no display for a real Qt platform")
+        environment = dict(os.environ, QT_QPA_PLATFORM=platform)
+        if platform == "xcb":
+            environment.setdefault("QT_QPA_PLATFORMTHEME", "gtk3")
+        script = (
+            textwrap.dedent(REAL_PLATFORM_FONTS_SCRIPT)
+            .replace("@SRC@", repr(str(SRC_DIR)))
+            .replace("@LANGUAGE@", repr(language))
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True,
+            env=environment, timeout=300,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        report = json.loads(result.stdout.split("@@", 1)[1])
+        if not report["platform_classes"]:
+            self.skipTest(f"the {platform} platform's theme gives no widget class a font")
+        return report
+
+    def test_every_kind_of_widget_draws_the_bundled_stack_on_the_real_platform(self):
+        report = self.run_startup_on_the_real_platform(None)
+        application = report["application"]
+        self.assertEqual(application["families"], list(QT_UI_FAMILIES))
+        self.assertEqual(report["stack"], list(QT_UI_FAMILIES))
+        for phase in ("startup", "theme_color_switch"):
+            for name, font in report[phase].items():
+                with self.subTest(phase=phase, widget=name):
+                    self.assertEqual(font["families"], application["families"])
+                    self.assertEqual(font["resolved"], QT_UI_FAMILY)
+                    self.assertEqual(font["hinting"], application["hinting"])
+        # Only the family changes: each class keeps the size its platform gives it.
+        for name, (platform_size, size) in report["class_sizes"].items():
+            with self.subTest(widget_class=name):
+                self.assertEqual(size, platform_size)
+
+    def test_every_kind_of_widget_draws_chinese_in_the_bundled_font_on_the_real_platform(self):
+        report = self.run_startup_on_the_real_platform("zh_CN")
+        for phase in ("startup", "theme_color_switch"):
+            for name, font in report[phase].items():
+                with self.subTest(phase=phase, widget=name):
+                    self.assertEqual(font["chinese"], [LANGUAGE_FONTS["zh_CN"].family])
+
+    def setUp(self):
+        app = QApplication.instance() or QApplication([])
+        saved = (QFont(app.font()), widget_class_fonts(), app.style().name(),
+                 QPalette(app.palette()), app.styleSheet(), theme_color())
+
+        def restore():
+            font, class_fonts, style, palette, sheet, color = saved
+            set_theme_color(color)
+            app.setStyleSheet(sheet)
+            app.setStyle(style)
+            app.setPalette(palette)
+            app.setFont(font)
+            restore_widget_class_fonts(app, class_fonts)
+
+        self.addCleanup(restore)
+        self.app = app
+
+    @staticmethod
+    def polished_font(widget):
+        """The font widget shows: Qt applies its class's font when it is polished."""
+        widget.ensurePolished()
+        return widget.font()
+
+    def class_font(self):
+        """A font unlike the bundled one, as a platform theme gives a class."""
+        font = QFont("DejaVu Serif")
+        font.setPointSizeF(13.5)
+        font.setWeight(QFont.Weight.DemiBold)
+        return font
+
+    def test_a_class_with_its_own_font_keeps_its_size_and_takes_the_bundled_stack(self):
+        start = QFont(self.app.font())
+        start.setHintingPreference(QFont.HintingPreference.PreferDefaultHinting)
+        self.app.setFont(start)
+        self.app.setFont(self.class_font(), "QMenu")
+        with mock.patch.object(sys, "platform", "win32"):
+            configure_qt_application_fonts(self.app)
+
+        for font in (QApplication.font("QMenu"), self.polished_font(QMenu())):
+            self.assertEqual(font.families(), list(QT_UI_FAMILIES))
+            self.assertEqual((font.pointSizeF(), font.weight()), (13.5, QFont.Weight.DemiBold))
+            self.assertEqual(font.hintingPreference(), QFont.HintingPreference.PreferNoHinting)
+        # A class without a font of its own takes the application font.
+        self.assertEqual(QApplication.font("QLabel"), self.app.font())
+        self.assertEqual(self.polished_font(QLabel()).families(), list(QT_UI_FAMILIES))
+
+    def test_the_window_theme_changes_no_widget_class_font(self):
+        # Offscreen, the platform names no class font, so here setStyle and the
+        # first application stylesheet empty Qt's table rather than refill it.
+        configure_qt_application_fonts(self.app)
+        own = self.class_font()
+        own.setFamilies(list(QT_UI_FAMILIES))
+        for name in ("QMenu", "QTipLabel", "QLabel"):
+            self.app.setFont(own, name)
+        before = widget_class_fonts()
+        self.assertEqual(set(before), set(WIDGET_FONT_CLASSES))
+
+        for color in (DEFAULT_THEME_COLOR, "teal"):
+            with self.subTest(color=color):
+                apply_studio_theme(self.app, color)
+                self.assertEqual(widget_class_fonts(), before)
+                self.assertEqual(self.polished_font(QMenu()), own)
 
 
 def gb2312_characters():

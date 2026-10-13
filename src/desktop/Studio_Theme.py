@@ -37,7 +37,9 @@ focus rings, slider fills and selection.
 * Body text keeps the application font at its size: the layouts size labels,
   toggles and buttons from it. Only weights 400 and 600 are used, because the
   bundled language fonts (Noto Sans SC for Chinese) have no Medium face and would
-  draw 500 as bold.
+  draw 500 as bold. The theme changes no font: Qt's setStyle gives some widget
+  classes the platform's font again, and apply_studio_theme gives them back
+  the fonts they had (WIDGET_FONT_CLASSES).
 """
 
 from __future__ import annotations
@@ -51,7 +53,7 @@ from PySide6.QtCore import QByteArray, QEvent, QObject, QPoint, QPointF, QRectF,
 from PySide6.QtGui import QColor, QFontMetrics, QIcon, QIconEngine, QPainter, QPalette, QPen, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 import shiboken6
-from PySide6.QtWidgets import QLabel, QPushButton
+from PySide6.QtWidgets import QApplication, QLabel, QPushButton
 
 ICONS_DIR = Path(__file__).resolve().parents[1] / "resources" / "icons"
 LUCIDE_DIR = ICONS_DIR / "lucide"
@@ -636,13 +638,59 @@ def apply_studio_theme(app, color=None):
 
     color names the theme colour to set first (set_theme_color); None keeps
     the one TOKENS holds. Call it before the first window is built: the
-    layouts measure their controls with the stylesheet's padding.
+    layouts measure their controls with the stylesheet's padding. The fonts
+    stay as they were (widget_class_fonts).
     """
     if color is not None:
         set_theme_color(color)
+    fonts = widget_class_fonts()
     app.setStyle("Fusion")
     app.setPalette(studio_palette())
+    # The first application stylesheet sets a style too, one that wraps Fusion.
     app.setStyleSheet(studio_stylesheet())
+    restore_widget_class_fonts(app, fonts)
+
+
+# =====================================================================
+# Widget-Class Fonts
+# =====================================================================
+
+# The widget classes Qt gives a font of their own from the platform theme
+# (QApplicationPrivate::initializeWidgetFontHash in Qt 6.11). A class's font
+# wins over the application font. Qt fills its table of them when the
+# application starts and again in every QApplication.setStyle, which the first
+# QApplication.setStyleSheet calls too, while QApplication.setFont(font)
+# empties it. Linux's GTK theme names every class here, so a theme applied
+# after setFont put the system font back on labels, buttons, check boxes,
+# menus and lists; Windows names the menus, message boxes, tooltips
+# (QTipLabel), the status bar and the item views. QApplication.font(name)
+# gives the font a class gets.
+WIDGET_FONT_CLASSES = (
+    "QMenu", "QMenuBar", "QMenuItem", "QMessageBox", "QLabel", "QTipLabel",
+    "QTitleBar", "QStatusBar", "QMdiSubWindowTitleBar", "QDockWidgetTitle",
+    "QPushButton", "QCheckBox", "QRadioButton", "QToolButton",
+    "QAbstractItemView", "QListView", "QHeaderView", "QListBox",
+    "QComboMenuItem", "QComboLineEdit", "QSmallFont", "QMiniFont",
+)
+
+
+def widget_class_fonts():
+    """The font each class in WIDGET_FONT_CLASSES gets, by class name."""
+    return {name: QApplication.font(name) for name in WIDGET_FONT_CLASSES}
+
+
+def restore_widget_class_fonts(app, fonts):
+    """Give the widget classes back the fonts widget_class_fonts() returned.
+
+    A class whose font was the application font follows it again.
+    """
+    if widget_class_fonts() == fonts:
+        return
+    application_font = app.font()
+    app.setFont(application_font)  # empties the table
+    for name, font in fonts.items():
+        if font != application_font:
+            app.setFont(font, name)
 
 
 # =====================================================================
@@ -1106,6 +1154,7 @@ __all__ = [
     "TINTED_SHADES",
     "TOKENS",
     "WEB_PAGE_PROPERTIES",
+    "WIDGET_FONT_CLASSES",
     "add_hint_icon",
     "apply_studio_theme",
     "coloured_svg",
@@ -1116,6 +1165,7 @@ __all__ = [
     "paint_switch",
     "prepare_tab_widget",
     "qss_icon_path",
+    "restore_widget_class_fonts",
     "set_role",
     "set_theme_color",
     "status_color",
@@ -1129,4 +1179,5 @@ __all__ = [
     "tinted_tokens",
     "web_page_properties",
     "web_theme_css",
+    "widget_class_fonts",
 ]
