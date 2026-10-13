@@ -16,6 +16,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 from typing import Callable
 
 
@@ -91,6 +92,27 @@ if [ "$hold_mode" = "on_error" ] && [ "$status" -ne 0 ]; then
 fi
 exit "$status"
 '''.strip()
+
+
+# Variables that describe the terminal a command runs in. The terminal sets them
+# for its own child, so they come from the terminal, never from the caller.
+_TERMINAL_VARIABLES = frozenset(
+    {
+        "TERM",
+        "COLORTERM",
+        "TERM_PROGRAM",
+        "TERM_PROGRAM_VERSION",
+        "VTE_VERSION",
+        "WINDOWID",
+        "COLUMNS",
+        "LINES",
+    }
+)
+
+# Callers hand a job its settings snapshot, session folder and launch id in
+# SSN_ variables. The terminal program never needs them, and a single-instance
+# terminal that this launch starts would pass them to every later window.
+_JOB_VARIABLE_PREFIX = "SSN_"
 
 
 def _normalize_command(command: Sequence[os.PathLike[str] | str]) -> list[str]:
@@ -223,6 +245,101 @@ def _run_windows_child(payload: str) -> int:
     return status
 
 
+def _remove_quietly(path: str) -> None:
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _write_linux_job_file(cwd: str, environment: Mapping[str, str]) -> str:
+    """Write a command's folder and complete environment for ``--posix-child``.
+
+    The file is private (mode 0600, from mkstemp) and goes to XDG_RUNTIME_DIR,
+    a per-user tmpfs, when the session has one. The child deletes it as soon as
+    it has read it. A file keeps the environment, secrets included, off the
+    command line, which ``ps`` shows to every user, and has no length limit.
+    """
+    runtime = os.environ.get("XDG_RUNTIME_DIR")
+    directory = (
+        runtime
+        if runtime and os.path.isdir(runtime) and os.access(runtime, os.W_OK | os.X_OK)
+        else None
+    )
+    descriptor, path = tempfile.mkstemp(
+        prefix="ssn_terminal_", suffix=".json", dir=directory
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump({"cwd": cwd, "environment": dict(environment)}, handle)
+    except BaseException:
+        _remove_quietly(path)
+        raise
+    return path
+
+
+def _linux_child_command(
+    command: Sequence[str], hold: HoldMode, title: str | None, job_file: str
+) -> list[str]:
+    # -I: the terminal's own PYTHONPATH or PYTHONHOME must not reach this step.
+    return [
+        _console_python(),
+        "-I",
+        os.path.abspath(__file__),
+        "--posix-child",
+        hold.value,
+        job_file,
+        *_posix_child_command(command, hold, title),
+    ]
+
+
+def _terminal_job_environment(
+    job: Mapping[str, str], terminal: Mapping[str, str]
+) -> dict[str, str]:
+    """The job's environment, with the variables that describe the terminal."""
+    environment = {
+        key: value for key, value in job.items() if key not in _TERMINAL_VARIABLES
+    }
+    environment.update(
+        (key, value) for key, value in terminal.items() if key in _TERMINAL_VARIABLES
+    )
+    return environment
+
+
+def _run_posix_child(hold_value: str, job_file: str, command: Sequence[str]) -> int:
+    """Start ``command`` in the folder and environment the job file records.
+
+    This runs first inside the new Linux terminal. Ptyxis, which Ubuntu's
+    xdg-terminal-exec starts with ``--new-window``, is single-instance: it runs
+    the command with the environment of whichever process started the running
+    instance, which can be an earlier job's, not the caller's. A terminal can
+    also ignore the caller's folder. The command therefore takes both from the
+    job file, and only the variables that describe the terminal from the
+    terminal. On success this process becomes the command and never returns.
+    """
+    hold = HoldMode(hold_value)
+    try:
+        try:
+            with open(job_file, encoding="utf-8") as handle:
+                job = json.load(handle)
+        finally:
+            _remove_quietly(job_file)
+        cwd = job["cwd"]
+        environment = _terminal_job_environment(job["environment"], os.environ)
+        environment["PWD"] = cwd
+        os.chdir(cwd)
+        os.execvpe(command[0], list(command), environment)
+    except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
+        print(f"Could not start the command in this terminal: {error}", file=sys.stderr)
+    if hold is not HoldMode.NEVER:
+        print("\nProcess exited with code 127.")
+        try:
+            input("Press Enter to close...")
+        except EOFError:
+            pass
+    return 127
+
+
 def _mac_environment_prefix(env: Mapping[str, str] | None) -> list[str]:
     if env is None:
         return []
@@ -314,6 +431,13 @@ def launch_in_terminal(
     and macOS they are the terminal program's own streams (its diagnostics),
     while ``command`` runs on the new terminal's own console. On Windows the
     command inherits them in place of the new console.
+
+    ``env`` (default: this process's environment) is the command's
+    environment. On Linux the command gets it, complete, and ``cwd`` from a
+    private file that ``--posix-child`` reads and deletes inside the terminal,
+    whatever environment and folder the terminal itself starts commands with;
+    only TERM and the other variables that describe the terminal come from the
+    terminal. The terminal program gets ``env`` without its SSN_ variables.
     """
 
     normalized = _normalize_command(command)
@@ -342,8 +466,23 @@ def launch_in_terminal(
             close_on_exit=hold is not HoldMode.ALWAYS,
         )
     elif platform_name.startswith("linux"):
-        child = _posix_child_command(normalized, hold, title)
-        argv = _build_linux_argv(child)
+        terminal = _find_linux_terminal()
+        environment = dict(os.environ if env is None else env)
+        job_file = _write_linux_job_file(cwd_text, environment)
+        try:
+            argv = _build_linux_argv(
+                _linux_child_command(normalized, hold, title, job_file),
+                terminal=terminal,
+            )
+            popen_kwargs["env"] = {
+                key: value
+                for key, value in environment.items()
+                if not key.startswith(_JOB_VARIABLE_PREFIX)
+            }
+            return subprocess.Popen(argv, **popen_kwargs)
+        except BaseException:
+            _remove_quietly(job_file)
+            raise
     else:
         raise TerminalUnavailableError(
             f"Terminal launching is not supported on platform {platform_name!r}."
@@ -358,4 +497,6 @@ __all__ = ["HoldMode", "TerminalUnavailableError", "launch_in_terminal"]
 if __name__ == "__main__":
     if len(sys.argv) == 3 and sys.argv[1] == "--windows-child":
         raise SystemExit(_run_windows_child(sys.argv[2]))
+    if len(sys.argv) >= 5 and sys.argv[1] == "--posix-child":
+        raise SystemExit(_run_posix_child(sys.argv[2], sys.argv[3], sys.argv[4:]))
     raise SystemExit("Terminal_Launcher.py is an internal utility.")

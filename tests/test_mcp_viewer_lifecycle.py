@@ -56,15 +56,22 @@ def _launch_environment(**values):
 
 
 def _stop_recorded_launches(sessions_root):
-    """Stop every launch process still recorded under ``sessions_root`` (test cleanup)."""
+    """Stop every launch process still recorded under ``sessions_root`` (test cleanup).
+
+    A normal POSIX launch records two: the terminal command (process.json) and
+    the Viewer_Terminal.py wrapper the terminal runs (terminal-process.json). A
+    single-instance terminal such as Ptyxis runs the wrapper outside the
+    command's process tree, so stopping the command alone leaves the Viewer.
+    """
     from mcp_server.viewer import Viewer_Client
-    for identity in Path(sessions_root).glob("launches/*/process.json"):
-        process = Viewer_Client._recorded_process(identity)
-        if process is not None:
-            try:
-                Viewer_Client._terminate_tree(process)
-            except MCPViewerError:
-                pass
+    for name in ("terminal-process.json", "process.json"):
+        for identity in Path(sessions_root).glob(f"launches/*/{name}"):
+            process = Viewer_Client._recorded_process(identity)
+            if process is not None:
+                try:
+                    Viewer_Client._terminate_tree(process)
+                except MCPViewerError:
+                    pass
 
 
 class SettingsTests(unittest.TestCase):
@@ -176,12 +183,17 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.skipTest("no supported terminal emulator is installed")
         fixture = SettingsTests(); fixture.setUp()
         self.addCleanup(fixture.doCleanups)
+        # Runs before the folder goes (cleanups run in reverse order), whatever
+        # the launch returned: on 2026-10-12 a launch that never became ready
+        # left its Viewer_Terminal.py and Config running after the test failed.
+        self.addCleanup(_stop_recorded_launches, fixture.root / "sessions")
         with mock.patch.dict(os.environ, _launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions")),
                              clear=True):
             client = MCPViewerClient(fixtures.ROOT)
             info = None
             try:
                 info = await client.launch_session(settings_document=fixture.document, mode="normal", timeout=45)
+                self.assertEqual(info["status"], "ready", f"The visible Viewer did not become ready: {info}")
                 self.assertEqual(info["mode"], "normal")
                 summary = await client.get_summary(info["session_id"])
                 self.assertEqual(summary["node_count"], 2)
@@ -230,7 +242,9 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(psutil.pid_exists(info["pid"]))
                     info = None
             finally:
-                if info:
+                # A launch that is still starting has no session to close; the
+                # cleanup above stops its processes.
+                if info and info.get("session_id"):
                     await client.close_session(info["session_id"])
                     self.assertFalse(psutil.pid_exists(info["pid"]))
 

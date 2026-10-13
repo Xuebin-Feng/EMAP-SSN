@@ -915,6 +915,20 @@ still change before version 1.0.0.
   writes to the launch's `stderr.log`. A launch fails, with that output, as soon as its
   terminal exits with an error, or 60 s after it started when its terminal exited
   cleanly without starting the Viewer.
+- On Linux, a job that Config or MCP opened in a terminal could run with another
+  program's environment. Ptyxis, the default terminal of Ubuntu 26.04 GNOME, runs each
+  new window's command with the environment of whichever program started the running
+  Ptyxis. Config's **Save & Run** with **(New Layout Cache)** therefore started the
+  layout generator without the settings Config had prepared: the Viewer opened with
+  default settings, Low Resource Mode off among them, and Config's settings snapshot
+  stayed in `/tmp`. While an earlier job's window was open, the next job got that job's
+  settings file and layout cache instead. A normal-mode MCP `start_session` never found
+  its Viewer. Every command started in a terminal on Linux, Tools' included, now runs
+  with its caller's complete environment and in its caller's folder, which a short
+  first step reads from a private file and then deletes; only `TERM` and the other
+  variables that describe the terminal come from the terminal. The environment stays
+  off the command line, where `ps` would show it to other users, and a terminal that a
+  job starts no longer passes that job's settings to windows opened later.
 - On Windows, a Viewer started by MCP `start_session` failed any command that printed
   text outside the Windows ANSI code page (cp1252 on most Western systems), such as a
   selection error echoing an expression with `α-amylase` in it, or the "LLM Agent

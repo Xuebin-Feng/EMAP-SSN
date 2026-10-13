@@ -6,10 +6,12 @@ from __future__ import annotations
 
 from contextlib import redirect_stderr, redirect_stdout
 import io
+import json
 import os
 from pathlib import Path
 import runpy
 import shlex
+import stat
 import subprocess
 import sys
 import tempfile
@@ -22,6 +24,8 @@ SRC_DIR = PROJECT_ROOT / "src"
 sys.path.insert(0, str(SRC_DIR))
 
 from utilities import Terminal_Launcher as launcher  # noqa: E402
+
+XDG_TERMINAL = (launcher._LINUX_TERMINALS[0], "/mock/xdg-terminal-exec")
 
 
 class TerminalRegistryTests(unittest.TestCase):
@@ -87,6 +91,11 @@ class TerminalRegistryTests(unittest.TestCase):
 
 
 class TerminalPolicyTests(unittest.TestCase):
+    def setUp(self):
+        # Linux launches write a job file there (LinuxJobEnvironmentTests).
+        self.runtime = self.enterContext(tempfile.TemporaryDirectory())
+        self.enterContext(mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": self.runtime}))
+
     def test_structured_command_is_required(self):
         with self.assertRaises(TypeError):
             launcher._normalize_command("python worker.py")
@@ -172,8 +181,12 @@ class TerminalPolicyTests(unittest.TestCase):
         popen.assert_called_once()
 
     def test_launch_forwards_environment_and_absolute_cwd(self):
+        # The terminal program gets the environment minus the job's SSN_
+        # variables; the command itself gets all of it (LinuxJobEnvironmentTests).
         environment = {"PATH": os.environ.get("PATH", ""), "SSN_TEST": "value"}
         with mock.patch.object(
+            launcher, "_find_linux_terminal", return_value=XDG_TERMINAL
+        ), mock.patch.object(
             launcher, "_build_linux_argv", return_value=["/mock/terminal"]
         ), mock.patch.object(launcher.subprocess, "Popen") as popen:
             launcher.launch_in_terminal(
@@ -183,12 +196,16 @@ class TerminalPolicyTests(unittest.TestCase):
                 platform_name="linux",
             )
         popen.assert_called_once_with(
-            ["/mock/terminal"], cwd=str(PROJECT_ROOT), env=environment
+            ["/mock/terminal"],
+            cwd=str(PROJECT_ROOT),
+            env={"PATH": environment["PATH"]},
         )
 
     def test_launch_forwards_supplied_standard_streams(self):
         log = object()
         with mock.patch.object(
+            launcher, "_find_linux_terminal", return_value=XDG_TERMINAL
+        ), mock.patch.object(
             launcher, "_build_linux_argv", return_value=["/mock/terminal"]
         ), mock.patch.object(launcher.subprocess, "Popen") as popen:
             launcher.launch_in_terminal(
@@ -202,6 +219,7 @@ class TerminalPolicyTests(unittest.TestCase):
         popen.assert_called_once_with(
             ["/mock/terminal"],
             cwd=str(PROJECT_ROOT),
+            env=mock.ANY,
             stdin=launcher.subprocess.DEVNULL,
             stdout=log,
             stderr=log,
@@ -218,6 +236,340 @@ class TerminalPolicyTests(unittest.TestCase):
             "Terminal launching is not supported on platform 'sunos5'.",
         )
         popen.assert_not_called()
+
+
+class LinuxJobEnvironmentTests(unittest.TestCase):
+    """A Linux command takes its environment and folder from a private job file
+    that --posix-child reads inside the terminal, not from the terminal.
+
+    Ptyxis, Ubuntu 26.04's default terminal behind xdg-terminal-exec, runs a
+    --new-window command with the environment of whichever process started its
+    running instance; ForeignEnvironmentTerminalTests runs a stand-in for it.
+    """
+
+    COMMAND = ["/opt/python", "worker.py", "a b"]
+    JOB = {
+        "PATH": "/job/bin:/usr/bin",
+        "SSN_VIEWER_SETTINGS_PATH": "/tmp/ssn_viewer_job.json",
+        "QT_QPA_PLATFORM": "xcb",
+        "HF_TOKEN": "hf_secret_value",
+    }
+
+    def setUp(self):
+        self.runtime = self.enterContext(tempfile.TemporaryDirectory())
+        self.enterContext(mock.patch.dict(os.environ, {"XDG_RUNTIME_DIR": self.runtime}))
+
+    def launch(self, env=None, popen_error=None, **options):
+        with mock.patch.object(
+            launcher, "_find_linux_terminal", return_value=XDG_TERMINAL
+        ), mock.patch.object(
+            launcher.subprocess, "Popen", side_effect=popen_error
+        ) as popen:
+            launcher.launch_in_terminal(
+                self.COMMAND, cwd=PROJECT_ROOT, env=env, platform_name="linux", **options
+            )
+        return popen
+
+    def job_files(self, folder=None):
+        return sorted(Path(folder or self.runtime).iterdir())
+
+    def test_command_runs_through_the_child_with_a_private_job_file(self):
+        popen = self.launch(dict(self.JOB), hold="on_error", title="EMAP-SSN Viewer")
+        argv = popen.call_args.args[0]
+        [job_file] = self.job_files()
+        self.assertEqual(argv[:2], ["/mock/xdg-terminal-exec", "--"])
+        self.assertEqual(
+            argv[2:8],
+            [
+                launcher._console_python(),
+                "-I",
+                os.path.abspath(launcher.__file__),
+                "--posix-child",
+                "on_error",
+                os.path.join(self.runtime, job_file.name),
+            ],
+        )
+        self.assertEqual(
+            argv[8:],
+            launcher._posix_child_command(
+                self.COMMAND, launcher.HoldMode.ON_ERROR, "EMAP-SSN Viewer"
+            ),
+        )
+        self.assertEqual(
+            json.loads(job_file.read_text(encoding="utf-8")),
+            {"cwd": str(PROJECT_ROOT), "environment": self.JOB},
+        )
+        if os.name == "posix":
+            self.assertEqual(stat.S_IMODE(job_file.stat().st_mode), 0o600)
+        # ps shows a command line to every user, so no value travels on it.
+        self.assertFalse(
+            [part for part in argv if "hf_secret_value" in part or "ssn_viewer_job" in part]
+        )
+
+    def test_terminal_program_gets_the_environment_without_job_variables(self):
+        # A single-instance terminal this starts would hand SSN_ variables to
+        # every window opened later, the user's own shells included.
+        popen = self.launch(dict(self.JOB))
+        expected = dict(self.JOB)
+        del expected["SSN_VIEWER_SETTINGS_PATH"]
+        self.assertEqual(popen.call_args.kwargs["env"], expected)
+
+    def test_default_environment_is_this_process_environment(self):
+        with mock.patch.dict(
+            os.environ, {"SSN_TARGET_CACHE_MODE": "new", "QT_SCALE_FACTOR": "2"}
+        ):
+            snapshot = dict(os.environ)
+            popen = self.launch()
+        [job_file] = self.job_files()
+        self.assertEqual(
+            json.loads(job_file.read_text(encoding="utf-8"))["environment"], snapshot
+        )
+        self.assertEqual(
+            popen.call_args.kwargs["env"],
+            {key: value for key, value in snapshot.items() if not key.startswith("SSN_")},
+        )
+
+    def test_failed_terminal_start_removes_the_job_file(self):
+        with self.assertRaisesRegex(FileNotFoundError, "gone"):
+            self.launch(dict(self.JOB), popen_error=FileNotFoundError("gone"))
+        self.assertEqual(self.job_files(), [])
+
+    def test_missing_terminal_writes_no_job_file(self):
+        with mock.patch.object(launcher.shutil, "which", return_value=None):
+            with self.assertRaises(launcher.TerminalUnavailableError):
+                launcher.launch_in_terminal(
+                    self.COMMAND, cwd=PROJECT_ROOT, env=dict(self.JOB), platform_name="linux"
+                )
+        self.assertEqual(self.job_files(), [])
+
+    def test_job_file_goes_to_the_temporary_folder_without_a_runtime_folder(self):
+        fallback = self.enterContext(tempfile.TemporaryDirectory())
+        missing = os.path.join(self.runtime, "missing")
+        for runtime in (None, "", missing):
+            with self.subTest(runtime=runtime), mock.patch.object(
+                launcher.tempfile, "tempdir", fallback
+            ), mock.patch.dict(os.environ):
+                os.environ.pop("XDG_RUNTIME_DIR")
+                if runtime is not None:
+                    os.environ["XDG_RUNTIME_DIR"] = runtime
+                path = launcher._write_linux_job_file("/project", {"A": "1"})
+                self.addCleanup(launcher._remove_quietly, path)
+                self.assertEqual(os.path.dirname(path), fallback)
+        self.assertEqual(self.job_files(), [])
+
+
+class _Exec(BaseException):
+    """Stands in for a successful exec, which never returns."""
+
+
+class PosixChildTests(unittest.TestCase):
+    """--posix-child, run first inside the new terminal: it reads and deletes the
+    job file, then becomes the command in the job's folder and environment."""
+
+    COMMAND = ["bash", "-c", "wrapper", "ssn-terminal", "on_error", "", "/opt/python", "w.py"]
+    # What a running Ptyxis instance started by an earlier job hands a command.
+    TERMINAL = {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "/home/user",
+        "TERM": "xterm-256color",
+        "COLORTERM": "truecolor",
+        "VTE_VERSION": "8000",
+        "SSN_PROBE": "job-ONE",
+        "SSN_VIEWER_SETTINGS_PATH": "/tmp/ssn_viewer_earlier.json",
+        "PYTHONPATH": "/stale/python",
+    }
+    # The caller's environment; it was itself started from some terminal.
+    JOB = {
+        "PATH": "/job/bin:/usr/bin",
+        "HOME": "/home/user",
+        "SSN_PROBE": "job-TWO",
+        "TERM": "dumb",
+        "WINDOWID": "4242",
+        "LINES": "10",
+    }
+    CWD = "/projects/emap ssn 数据"
+
+    def setUp(self):
+        folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.job_file = folder / "ssn_terminal_job.json"
+        self.job_file.write_text(
+            json.dumps({"cwd": self.CWD, "environment": self.JOB}), encoding="utf-8"
+        )
+
+    def run_child(self, hold="on_error", exec_error=_Exec):
+        execvpe = mock.Mock(side_effect=exec_error)
+        chdir = mock.Mock()
+        prompt = mock.Mock(side_effect=EOFError)
+        stdout, stderr = io.StringIO(), io.StringIO()
+        status = None
+        with mock.patch.dict(os.environ, self.TERMINAL, clear=True), \
+                mock.patch.object(launcher.os, "execvpe", execvpe), \
+                mock.patch.object(launcher.os, "chdir", chdir), \
+                mock.patch("builtins.input", prompt), \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            try:
+                status = launcher._run_posix_child(hold, str(self.job_file), self.COMMAND)
+            except _Exec:
+                pass
+        return status, execvpe, chdir, prompt, stdout.getvalue(), stderr.getvalue()
+
+    def test_command_gets_the_job_environment_and_folder(self):
+        status, execvpe, chdir, prompt, _output, _errors = self.run_child()
+        self.assertIsNone(status)
+        execvpe.assert_called_once_with(
+            "bash",
+            self.COMMAND,
+            {
+                # The job's own values; the earlier job's SSN_ variables and the
+                # terminal's PYTHONPATH are gone.
+                "PATH": "/job/bin:/usr/bin",
+                "HOME": "/home/user",
+                "SSN_PROBE": "job-TWO",
+                # What describes the terminal comes from the terminal only.
+                "TERM": "xterm-256color",
+                "COLORTERM": "truecolor",
+                "VTE_VERSION": "8000",
+                "PWD": self.CWD,
+            },
+        )
+        chdir.assert_called_once_with(self.CWD)
+        prompt.assert_not_called()
+        self.assertFalse(self.job_file.exists())
+
+    def test_missing_job_file_is_reported_and_held_open_unless_never(self):
+        self.job_file.unlink()
+        for hold, prompts in (("on_error", 1), ("always", 1), ("never", 0)):
+            with self.subTest(hold=hold):
+                status, execvpe, _chdir, prompt, output, errors = self.run_child(hold)
+                self.assertEqual(status, 127)
+                execvpe.assert_not_called()
+                self.assertIn("Could not start the command in this terminal:", errors)
+                self.assertEqual(prompt.call_count, prompts)
+                self.assertEqual(
+                    output, "\nProcess exited with code 127.\n" if prompts else ""
+                )
+
+    def test_corrupt_job_file_is_deleted_and_reported(self):
+        for content in ("{", '{"cwd": "/x"}', '{"cwd": "/x", "environment": []}'):
+            with self.subTest(content=content):
+                self.job_file.write_text(content, encoding="utf-8")
+                status, execvpe, *_rest, errors = self.run_child()
+                self.assertEqual(status, 127)
+                execvpe.assert_not_called()
+                self.assertIn("Could not start the command in this terminal:", errors)
+                self.assertFalse(self.job_file.exists())
+
+    def test_command_that_cannot_start_is_reported(self):
+        status, execvpe, *_rest, errors = self.run_child(
+            exec_error=FileNotFoundError(2, "No such file or directory")
+        )
+        self.assertEqual(status, 127)
+        execvpe.assert_called_once()
+        self.assertIn("No such file or directory", errors)
+        self.assertFalse(self.job_file.exists())
+
+    def test_script_entry_point_runs_the_posix_child(self):
+        script = os.path.abspath(launcher.__file__)
+        argv = [script, "--posix-child", "never", str(self.job_file), *self.COMMAND]
+        execvpe = mock.Mock(side_effect=_Exec)
+        with mock.patch.object(os, "execvpe", execvpe), mock.patch.object(os, "chdir"), \
+                mock.patch.object(sys, "argv", argv):
+            with self.assertRaises(_Exec):
+                runpy.run_path(script, run_name="__main__")
+            self.assertEqual(execvpe.call_args.args[:2], ("bash", self.COMMAND))
+            with redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as missing:
+                runpy.run_path(script, run_name="__main__")
+        self.assertEqual(missing.exception.code, 127)
+
+
+# A stand-in for Ptyxis behind xdg-terminal-exec (Ubuntu 26.04 GNOME). A running
+# Ptyxis starts a --new-window command with the environment of the process that
+# started the instance, here an earlier job's, not the caller's. This one also
+# starts it in /. It records the environment it was itself given first.
+_FOREIGN_ENVIRONMENT_TERMINAL = """#!/bin/sh
+env > "$FAKE_TERMINAL_RECORD"
+[ "$1" = "--" ] && shift
+cd / || exit 1
+exec env -i PATH=/usr/bin:/bin HOME=/nonexistent TERM=xterm-ptyxis \\
+    SSN_PROBE=job-ONE SSN_VIEWER_SETTINGS_PATH=/tmp/ssn_viewer_earlier.json \\
+    PYTHONPATH=/stale/python "$@"
+"""
+
+_ENVIRONMENT_PROBE = """
+import json, os, sys
+names = ("SSN_PROBE", "SSN_VIEWER_SETTINGS_PATH", "PATH", "PYTHONPATH", "TERM", "PWD",
+         "FAKE_TERMINAL_RECORD", "HF_TOKEN")
+with open(sys.argv[1], "w", encoding="utf-8") as handle:
+    json.dump({"cwd": os.getcwd(), "environment": {name: os.environ.get(name) for name in names}}, handle)
+"""
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "runs a stand-in Linux terminal")
+class ForeignEnvironmentTerminalTests(unittest.TestCase):
+    """Real launches through a terminal that ignores the caller's environment and
+    folder, as Ptyxis does (v0.4.0 Linux report, F1)."""
+
+    def test_command_gets_the_caller_environment_and_folder(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        terminal = bin_dir / "xdg-terminal-exec"
+        terminal.write_text(_FOREIGN_ENVIRONMENT_TERMINAL, encoding="utf-8")
+        terminal.chmod(0o755)
+        runtime = root / "runtime"
+        runtime.mkdir(mode=0o700)
+        work = root / "project dir 数据"
+        work.mkdir()
+        path = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+        self.enterContext(
+            mock.patch.dict(os.environ, {"PATH": path, "XDG_RUNTIME_DIR": str(runtime)})
+        )
+        for hold, title in (("on_error", "EMAP-SSN Layout Generator"), ("never", None)):
+            with self.subTest(hold=hold):
+                record = root / f"terminal-{hold}.env"
+                output = root / f"probe-{hold}.json"
+                environment = {
+                    key: value
+                    for key, value in os.environ.items()
+                    if key not in ("PYTHONPATH", "PYTHONHOME")
+                }
+                environment.update(
+                    SSN_PROBE="job-TWO",
+                    FAKE_TERMINAL_RECORD=str(record),
+                    HF_TOKEN="hf_secret_value",
+                    TERM="xterm-caller",
+                )
+                process = launcher.launch_in_terminal(
+                    [sys.executable, "-c", _ENVIRONMENT_PROBE, str(output)],
+                    cwd=work,
+                    env=environment,
+                    hold=hold,
+                    title=title,
+                    platform_name="linux",
+                    stdout=subprocess.DEVNULL,
+                )
+                self.assertEqual(process.wait(timeout=60), 0)
+                seen = json.loads(output.read_text(encoding="utf-8"))
+                self.assertEqual(
+                    seen["environment"],
+                    {
+                        "SSN_PROBE": "job-TWO",
+                        "SSN_VIEWER_SETTINGS_PATH": None,
+                        "PATH": path,
+                        "PYTHONPATH": None,
+                        "TERM": "xterm-ptyxis",
+                        "PWD": str(work),
+                        "FAKE_TERMINAL_RECORD": str(record),
+                        "HF_TOKEN": "hf_secret_value",
+                    },
+                )
+                self.assertEqual(os.path.realpath(seen["cwd"]), os.path.realpath(work))
+                terminal_variables = record.read_text(encoding="utf-8").splitlines()
+                self.assertIn(f"FAKE_TERMINAL_RECORD={record}", terminal_variables)
+                self.assertEqual(
+                    [line for line in terminal_variables if line.startswith("SSN_")], []
+                )
+                self.assertEqual(list(runtime.iterdir()), [])
 
 
 class WindowsLaunchTests(unittest.TestCase):
