@@ -1896,7 +1896,7 @@ Command-line usage:
         <location line="+447"/>
         <location filename="../../../commands/logo.py" line="+691"/>
         <location line="+59"/>
-        <location filename="../../../commands/print.py" line="+1060"/>
+        <location filename="../../../commands/print.py" line="+1306"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
@@ -3936,7 +3936,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+706"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+719"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -8177,7 +8177,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2288"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2301"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8201,7 +8201,7 @@ Fedora / RHEL：
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1705"/>
+        <location line="+1718"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

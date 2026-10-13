@@ -2291,33 +2291,29 @@ class MainViewer:
             )
         ).astype(np.int32, copy=False)
 
-    def update_nodes(self):
-        colors = self.current_colors.copy()
+    def node_outlines(self, identify_connected=None):
+        """Return each node's outline colour (RGBA) and width in pixels, by node index.
+
+        Every node has the boundary colour and width set in Config. Selected
+        nodes have the hover colour and, while connected-node identification
+        is on, their neighbours the connected colour, both 2 pixels wide.
+        update_nodes draws these, and print's SVG copies them.
+        """
         import matplotlib.colors as mcolors
-        # A PNG capture (commands/print.py) sets transient_marks_hidden to leave
-        # out the hover colour and the left-click rings. Only their drawing
-        # stops: the hover and click state stays, so they return when it is cleared.
-        transient_marks = not getattr(self, 'transient_marks_hidden', False)
-        if transient_marks and getattr(self, 'hovered_node_idx', None) is not None:
-            colors[self.hovered_node_idx] = mcolors.to_rgba(cfg.HOVER_COLOR)
-            
-        sizes = getattr(self, 'current_sizes', cfg.NODE_SIZE)
-        shapes = getattr(self, 'current_shapes', np.full(self.n_nodes, 'disc', dtype=object))
-        
-        # ---> FIXED: Fetch custom boundary color, fallback to black
         bound_rgba = mcolors.to_rgba(getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000'))
         conn_rgba = mcolors.to_rgba(getattr(cfg, 'CONNECTED_NODE_COLOR', '#ff0000'))
-        identify_connected = self._connected_node_identification_enabled(
-            bound_rgba, conn_rgba
-        )
-        
+        if identify_connected is None:
+            identify_connected = self._connected_node_identification_enabled(
+                bound_rgba, conn_rgba
+            )
+
         edge_colors = np.zeros((self.n_nodes, 4), dtype=np.float32)
-        edge_colors[:] = bound_rgba 
-        
+        edge_colors[:] = bound_rgba
+
         # ---> NEW: Fetch custom boundary width, fallback to 0.5
         b_width = getattr(cfg, 'NODE_BOUNDARY_WIDTH', 0.5)
         edge_widths = np.full(self.n_nodes, b_width, dtype=np.float32)
-        
+
         if getattr(self, 'selected_indices', None) is not None and len(self.selected_indices) > 0:
             hover_rgba = mcolors.to_rgba(cfg.HOVER_COLOR)
             # Converted once: indexing with the list itself converts it again.
@@ -2331,7 +2327,24 @@ class MainViewer:
 
             edge_colors[selected] = hover_rgba
             edge_widths[selected] = 2.0
-        
+        return edge_colors, edge_widths
+
+    def update_nodes(self):
+        colors = self.current_colors.copy()
+        import matplotlib.colors as mcolors
+        # A PNG capture (commands/print.py) sets transient_marks_hidden to leave
+        # out the hover colour and the left-click rings. Only their drawing
+        # stops: the hover and click state stays, so they return when it is cleared.
+        transient_marks = not getattr(self, 'transient_marks_hidden', False)
+        if transient_marks and getattr(self, 'hovered_node_idx', None) is not None:
+            colors[self.hovered_node_idx] = mcolors.to_rgba(cfg.HOVER_COLOR)
+            
+        sizes = getattr(self, 'current_sizes', cfg.NODE_SIZE)
+        shapes = getattr(self, 'current_shapes', np.full(self.n_nodes, 'disc', dtype=object))
+
+        identify_connected = self._connected_node_identification_enabled()
+        edge_colors, edge_widths = self.node_outlines(identify_connected)
+
         # Submit every node attribute in the same effective low-to-high order.
         draw_order = self.visible_node_render_order(
             identify_connected=identify_connected

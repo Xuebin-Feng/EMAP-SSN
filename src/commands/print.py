@@ -83,7 +83,8 @@ def print_help():
       is made from the time and never replaces a file. Modifiers may stand
       anywhere among the words.
       PNG exports automatically trim empty margins while retaining a 20-pixel
-      border around all rendered content. SVG view-box padding is unchanged.
+      border around all rendered content. An SVG is framed the same way: the
+      network as drawn, with a border of 20 of the PNG's pixels.
 
     Modifiers (Can be combined, except for SVG):
       transparent : Removes the configured background color (PNG only).
@@ -92,10 +93,15 @@ def print_help():
                     the entire network without OpenGL edge-clipping. The view
                     on screen stays put; keyboard and mouse input waits while
                     the tiles are drawn, and resizing the window cancels it.
-      svg         : Reconstructs the visible network as a Scalable Vector Graphic 
-                    for infinite zoom without pixelation (Not compatible with 
+      svg         : Reconstructs the visible network as a Scalable Vector Graphic
+                    for infinite zoom without pixelation (Not compatible with
                     other modifiers). Node sizes and line widths follow the
-                    current zoom, as on screen.
+                    current zoom, as on screen. It draws what a PNG of the
+                    view shows: each marker's shape, node outlines (selection
+                    borders too) and edges as wide as this screen draws them.
+                    A thin outline looks about 1.7 device pixels wide, and
+                    edges are a whole number of device pixels, so on a
+                    high-DPI display both come out thinner beside the nodes.
 
     Scale (with full or svg only, anywhere among the modifiers):
       zoom N      : Draws at the scale 'zoom N' would set, the view N scene
@@ -150,8 +156,9 @@ _SHAPE_ALIASES = {
     'p': 'clobber',
     'P': 'cross_lines', '++': 'cross_lines',
 }
-# Shapes drawn as coloured strokes rather than as a filled, outlined area.
-_STROKE_ONLY_SHAPES = ('cross', 'x', 'vbar', 'hbar', 'ring')
+# The band, in device pixels on each side, over which VisPy's markers fade
+# their outline: Markers' antialias, which the Viewer leaves at its default.
+MARKER_ANTIALIAS_PX = 1.0
 
 
 def _canonical_shape(shape):
@@ -207,6 +214,73 @@ def _scene_units_per_pixel(viewer, view_width=None):
     return scale if math.isfinite(scale) and scale > 0.0 else 1.0
 
 
+def _display_scale(viewer):
+    """Device pixels per logical pixel on the Viewer's screen, 1 when unknown.
+
+    VisPy draws marker sizes, outlines and line widths this many times their
+    setting, and a PNG has this many pixels per logical pixel of the view.
+    """
+    try:
+        scale = float(viewer.canvas.pixel_scale)
+    except (AttributeError, TypeError, ValueError):
+        return 1.0
+    return scale if math.isfinite(scale) and scale > 0.0 else 1.0
+
+
+def _marker_antialias(viewer):
+    """The antialias band of the Viewer's node markers, in device pixels."""
+    try:
+        band = float(viewer.markers.antialias)
+    except (AttributeError, TypeError, ValueError):
+        return MARKER_ANTIALIAS_PX
+    return band if math.isfinite(band) and band >= 0.0 else MARKER_ANTIALIAS_PX
+
+
+def _outline_ink_px(width, antialias=MARKER_ANTIALIAS_PX, open_lines=False):
+    """How wide VisPy draws a marker outline `width` device pixels wide, in device pixels.
+
+    Its fragment shader (vispy/visuals/markers.py) draws the outline as a band
+    centred on the shape's edge: solid for width/2 - antialias on each side,
+    then fading as exp(-(d/antialias)**2), outside into the background up to
+    width/2 + antialias, inside into the fill. An outline under one pixel is
+    also made that much more transparent. A thin outline therefore covers
+    about as much as a 1.7-pixel one: 0.98 pixels at width 0.5, 1.74 at 1,
+    and width - 0.23 from 2 up. This is the width of a solid stroke with the
+    same coverage, which is what the SVG draws. open_lines is for cross_lines,
+    two lines with no fill, which fade into the background on both sides.
+    """
+    if not (math.isfinite(width) and width > 0.0):
+        return 0.0
+    opacity = min(width, 1.0)
+    if not (math.isfinite(antialias) and antialias > 0.0):
+        return width * opacity
+    solid = max(width / 2.0 - antialias, 0.0)
+    fade = width / 2.0 + antialias - solid
+    half_bell = antialias * math.sqrt(math.pi) / 2.0
+    outside = opacity * half_bell * math.erf(fade / antialias)
+    if open_lines:
+        return 2.0 * (solid * opacity + outside)
+    # Inside, a pixel d into the fade mixes exp(-d**2) of the outline into the
+    # fill, and the mix is only 1 - exp(-d**2) * (1 - opacity) opaque.
+    inside = half_bell - (1.0 - opacity) * antialias * math.sqrt(math.pi / 2.0) / 2.0
+    return 2.0 * solid * opacity + outside + inside
+
+
+def _gl_line_px(width, pixel_scale):
+    """How many device pixels wide GL draws the Viewer's edges, set `width` logical pixels wide.
+
+    The edge layer asks GL for max(width x display scale, 1) (Viewer_Edges.py),
+    and GL draws lines without antialiasing a whole number of pixels wide:
+    that width rounded to the nearest integer, at least 1. Halves go to the
+    even neighbour, as Python's round does and an NVIDIA driver was measured
+    to do (1.5 -> 2, 2.5 -> 2, 4.5 -> 4); the GL specification leaves them
+    open. A width of 0 draws no edges.
+    """
+    if not (math.isfinite(width) and width > 0.0):
+        return 0.0
+    return float(max(round(max(width * pixel_scale, 1.0)), 1))
+
+
 def _svg_color_attrs(rgba, is_stroke=False):
     """A colour as fill or stroke attributes, for strict SVG 1.1/Illustrator compatibility."""
     r, g, b, a = rgba
@@ -219,39 +293,143 @@ def _svg_points(count):
     return " ".join(["%.3f,%.3f"] * count)
 
 
-def _svg_star(cx, cy, r, d):
-    columns = []
+# How VisPy draws each marker (vispy/visuals/markers.py), which the SVG draws
+# again: the shape of a node of radius 1 centred on (0, 0), with y pointing
+# down the screen. Every shape is filled with the node's colour and outlined,
+# except cross_lines: two lines with no area, drawn in the outline alone.
+_TRIANGLE_HALF_HEIGHT = math.sqrt(3.0) / 2.0
+# Half the width of the bars of cross, x, vbar and hbar: a third of the radius.
+_BAR = 1.0 / 3.0
+# Half the width of tailed_arrow's tail.
+_TAIL = 1.0 / (4.0 * math.sqrt(2.0))
+
+
+def _unit_star():
+    """A regular five-pointed star, first point up, as VisPy draws it.
+
+    Its inner points are at sin 18° / sin 54° of the outer radius, and VisPy
+    sets it 0.1 radius low, so its top and bottom points are as far from the
+    node's centre.
+    """
+    inner = math.sin(math.pi / 10.0) / math.sin(3.0 * math.pi / 10.0)
+    points = []
     for j in range(10):
         angle = -math.pi / 2.0 + j * math.pi / 5.0
-        rad = r if j % 2 == 0 else r * 0.4
-        columns += [cx + rad * math.cos(angle), cy + rad * math.sin(angle)]
-    return columns
+        radius = 1.0 if j % 2 == 0 else inner
+        points.append((radius * math.cos(angle), 0.1 + radius * math.sin(angle)))
+    return points
 
 
-def _svg_pentagon(cx, cy, r, d):
+def _unit_cross(turned=False):
+    """A plus of two bars 2/3 wide, or for x the same turned 45 degrees."""
+    w = _BAR
+    points = [
+        (-w, -1.0), (w, -1.0), (w, -w), (1.0, -w), (1.0, w), (w, w),
+        (w, 1.0), (-w, 1.0), (-w, w), (-1.0, w), (-1.0, -w), (-w, -w),
+    ]
+    if turned:
+        half = math.sqrt(0.5)
+        points = [((x - y) * half, (x + y) * half) for x, y in points]
+    return points
+
+
+def _unit_clobber():
+    """Clobber's three circles: their radius, and where their outline turns from one to the next.
+
+    VisPy draws circles 0.32 of the size (0.64 radius) round centres
+    0.36 / sqrt(3) of the size from the middle, one up and two down, all
+    moved down a quarter of that, so the shape is centred. Returns the radius
+    and the outer crossing of each circle with the next, clockwise from the top.
+    """
+    radius = 0.64
+    shift = 0.72 / math.sqrt(3.0)
+    centres = [
+        (shift * math.cos(angle), shift * math.sin(angle) + 0.25 * shift)
+        for angle in (-math.pi / 2.0, math.pi / 6.0, 5.0 * math.pi / 6.0)
+    ]
+    middle = (0.0, 0.25 * shift)
+    crossings = []
+    for (x1, y1), (x2, y2) in zip(centres, centres[1:] + centres[:1]):
+        gap = math.hypot(x2 - x1, y2 - y1)
+        half_chord = math.sqrt(radius * radius - gap * gap / 4.0)
+        mx, my = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+        across = (-(y2 - y1) / gap * half_chord, (x2 - x1) / gap * half_chord)
+        crossings.append(max(
+            ((mx + across[0], my + across[1]), (mx - across[0], my - across[1])),
+            key=lambda point: math.hypot(point[0] - middle[0], point[1] - middle[1]),
+        ))
+    return radius, crossings
+
+
+def _polygon(points):
+    """The element and coordinates of a polygon through `points` of a node of radius 1."""
+    template = f'    <polygon points="{_svg_points(len(points))}" %s />'
+
+    def coordinates(cx, cy, r, d):
+        columns = []
+        for x, y in points:
+            columns += [cx + r * x, cy + r * y]
+        return columns
+
+    return template, coordinates
+
+
+def _clobber_element():
+    """Clobber as one path round its three circles: each shows more than half of itself."""
+    radius, crossings = _unit_clobber()
+    arc = '%.3f %.3f 0 1 1 %.3f %.3f'
+    template = f'    <path d="M %.3f %.3f A {arc} A {arc} A {arc} Z" %s />'
+    end = crossings[1:] + crossings[:1]
+
+    def coordinates(cx, cy, r, d):
+        columns = [cx + r * crossings[0][0], cy + r * crossings[0][1]]
+        for x, y in end:
+            columns += [r * radius, r * radius, cx + r * x, cy + r * y]
+        return columns
+
+    return template, coordinates
+
+
+_RING_PATH = (
+    'M %.3f %.3f A %.3f %.3f 0 1 1 %.3f %.3f A %.3f %.3f 0 1 1 %.3f %.3f Z '
+    'M %.3f %.3f A %.3f %.3f 0 1 1 %.3f %.3f A %.3f %.3f 0 1 1 %.3f %.3f Z'
+)
+
+
+def _ring_coordinates(cx, cy, r, d):
+    """A ring from half the radius to the radius: two circles, each as two half circles."""
     columns = []
-    for j in range(5):
-        angle = -math.pi / 2.0 + j * 2.0 * math.pi / 5.0
-        columns += [cx + r * math.cos(angle), cy + r * math.sin(angle)]
+    for radius in (r, r / 2.0):
+        columns += [
+            cx + radius, cy, radius, radius, cx - radius, cy,
+            radius, radius, cx + radius, cy,
+        ]
     return columns
-
-
-def _svg_x(cx, cy, r, d):
-    off = 0.707 * r
-    return [cx - off, cy - off, cx + off, cy + off, cx - off, cy + off, cx + off, cy - off]
-
-
-def _svg_cross_lines(cx, cy, r, d):
-    w = r * 0.4
-    return [cx-r, cy-w, cx-w, cy-r, cx+w, cy-w, cx+r, cy+w, cx+w, cy+r, cx-w, cy+w, cx-r]
 
 
 # The element each canonical marker name is drawn as: a %-template whose last
 # field is the node's attributes, and the coordinates that fill the others,
 # worked out for many nodes at once from their centres (cx, cy), radii r and
 # diameters d in scene units.
+_TRIANGLE_UP = [(0.0, -_TRIANGLE_HALF_HEIGHT), (1.0, _TRIANGLE_HALF_HEIGHT), (-1.0, _TRIANGLE_HALF_HEIGHT)]
+_ARROW = [(1.0, 0.0), (0.0, -1.0), (-0.25, -0.75), (0.5, 0.0), (-0.25, 0.75), (0.0, 1.0)]
+_SVG_POLYGONS = {
+    'triangle_up': _TRIANGLE_UP,
+    'triangle_down': [(x, -y) for x, y in _TRIANGLE_UP],
+    'diamond': [(0.0, -1.0), (1.0, 0.0), (0.0, 1.0), (-1.0, 0.0)],
+    'star': _unit_star(),
+    'cross': _unit_cross(),
+    'x': _unit_cross(turned=True),
+    'vbar': [(-_BAR, -1.0), (_BAR, -1.0), (_BAR, 1.0), (-_BAR, 1.0)],
+    'hbar': [(-1.0, -_BAR), (1.0, -_BAR), (1.0, _BAR), (-1.0, _BAR)],
+    'arrow': _ARROW,
+    'tailed_arrow': [
+        (1.0, 0.0), (0.0, -1.0), (-0.25, -0.75), (0.5 - _TAIL, -_TAIL), (-1.0, -_TAIL),
+        (-1.0, _TAIL), (0.5 - _TAIL, _TAIL), (-0.25, 0.75), (0.0, 1.0),
+    ],
+}
 _SVG_NODE_ELEMENTS = {
-    'circle': (
+    'disc': (
         '    <circle cx="%.3f" cy="%.3f" r="%.3f" %s />',
         lambda cx, cy, r, d: [cx, cy, r],
     ),
@@ -259,92 +437,95 @@ _SVG_NODE_ELEMENTS = {
         '    <rect x="%.3f" y="%.3f" width="%.3f" height="%.3f" %s />',
         lambda cx, cy, r, d: [cx - r, cy - r, d, d],
     ),
-    'triangle_up': (
-        f'    <polygon points="{_svg_points(3)}" %s />',
-        lambda cx, cy, r, d: [cx, cy - r, cx + 0.866 * r, cy + 0.5 * r, cx - 0.866 * r, cy + 0.5 * r],
-    ),
-    'triangle_down': (
-        f'    <polygon points="{_svg_points(3)}" %s />',
-        lambda cx, cy, r, d: [cx, cy + r, cx + 0.866 * r, cy - 0.5 * r, cx - 0.866 * r, cy - 0.5 * r],
-    ),
-    'diamond': (
-        f'    <polygon points="{_svg_points(4)}" %s />',
-        lambda cx, cy, r, d: [cx, cy - r, cx + r, cy, cx, cy + r, cx - r, cy],
-    ),
-    'star': (f'    <polygon points="{_svg_points(10)}" %s />', _svg_star),
-    'cross': (
+    **{name: _polygon(points) for name, points in _SVG_POLYGONS.items()},
+    'clobber': _clobber_element(),
+    'ring': (f'    <path d="{_RING_PATH}" fill-rule="evenodd" %s />', _ring_coordinates),
+    'cross_lines': (
         '    <path d="M %.3f %.3f L %.3f %.3f M %.3f %.3f L %.3f %.3f" %s />',
         lambda cx, cy, r, d: [cx - r, cy, cx + r, cy, cx, cy - r, cx, cy + r],
     ),
-    'x': ('    <path d="M %.3f %.3f L %.3f %.3f M %.3f %.3f L %.3f %.3f" %s />', _svg_x),
-    'vbar': (
-        '    <line x1="%.3f" y1="%.3f" x2="%.3f" y2="%.3f" %s />',
-        lambda cx, cy, r, d: [cx, cy - r, cx, cy + r],
-    ),
-    'hbar': (
-        '    <line x1="%.3f" y1="%.3f" x2="%.3f" y2="%.3f" %s />',
-        lambda cx, cy, r, d: [cx - r, cy, cx + r, cy],
-    ),
-    'arrow': (
-        f'    <polygon points="{_svg_points(3)}" %s />',
-        lambda cx, cy, r, d: [cx + r, cy, cx - r * 0.5, cy - 0.866 * r, cx - r * 0.5, cy + 0.866 * r],
-    ),
-    'clobber': (f'    <polygon points="{_svg_points(5)}" %s />', _svg_pentagon),
-    'cross_lines': (
-        '    <path d="M %.3f %.3f H %.3f V %.3f H %.3f V %.3f H %.3f V %.3f H %.3f V %.3f H %.3f V %.3f H %.3f Z" %s />',
-        _svg_cross_lines,
-    ),
 }
 _SVG_NODE_KINDS = tuple(_SVG_NODE_ELEMENTS)
+_SVG_LINES_KIND = _SVG_NODE_KINDS.index('cross_lines')
+
+
+def _unit_extents(name):
+    """How far a round shape of radius 1 reaches (left, right, up, down) from its centre."""
+    if name == 'clobber':
+        radius, _ = _unit_clobber()
+        shift = 0.72 / math.sqrt(3.0)
+        return 1.0, 1.0, 0.75 * shift + radius, 0.75 * shift + radius
+    return 1.0, 1.0, 1.0, 1.0
+
+
+def _mitres(points):
+    """How far each corner of a polygon moves as its outline grows by 1, as (dx, dy).
+
+    VisPy's outlines keep a polygon's corners sharp (the shape's distance is
+    the largest of its sides'), so a corner moves out along its bisector,
+    1 / sin(half its angle) for each 1 the sides move: 3.2 at a star's point.
+    """
+    points = np.asarray(points, dtype=np.float64)
+    sides = np.roll(points, -1, axis=0) - points
+    normals = np.column_stack((sides[:, 1], -sides[:, 0])) / np.hypot(sides[:, 0], sides[:, 1])[:, None]
+    # Outward for a polygon listed one way round, inward for the other.
+    if np.sum(points[:, 0] * np.roll(points[:, 1], -1) - np.roll(points[:, 0], -1) * points[:, 1]) < 0:
+        normals = -normals
+    before = np.roll(normals, 1, axis=0)
+    return (before + normals) / (1.0 + np.sum(before * normals, axis=1))[:, None]
+
+
+# Each round kind's reach from the centre of a node of radius 1: left, right,
+# up, down; and each polygon's corners with their mitres.
+_SVG_NODE_EXTENTS = np.array([_unit_extents(name) for name in _SVG_NODE_KINDS])
+_SVG_NODE_CORNERS = {
+    _SVG_NODE_KINDS.index(name): (np.asarray(points, dtype=np.float64), _mitres(points))
+    for name, points in _SVG_POLYGONS.items()
+}
+
+
+def _node_extents(kinds, radii, reach):
+    """How far each node is drawn from its centre (left, right, up, down), in logical pixels.
+
+    radii are the nodes' radii, and reach how far the outline and its fading
+    go past the shape's edge, both in logical pixels; at a polygon's corner
+    they go a mitre further. The PNG may miss a pixel or two of a sharp
+    point's faintest tip, so the frame can be that much wider there.
+    """
+    extents = _SVG_NODE_EXTENTS[kinds] * radii[:, None] + reach[:, None]
+    for kind in np.unique(kinds).tolist():
+        if kind not in _SVG_NODE_CORNERS:
+            continue
+        points, mitres = _SVG_NODE_CORNERS[kind]
+        chosen = kinds == kind
+        xs = radii[chosen, None] * points[:, 0] + reach[chosen, None] * mitres[:, 0]
+        ys = radii[chosen, None] * points[:, 1] + reach[chosen, None] * mitres[:, 1]
+        extents[chosen] = np.column_stack((-xs.min(axis=1), xs.max(axis=1), -ys.min(axis=1), ys.max(axis=1)))
+    return extents
 
 
 def _svg_node_kind(shape):
-    """The element a canonical marker name is drawn as; anything else is a circle."""
-    if shape in ['circle', 'disc', 'o', 'ring']:
-        return 'circle'
-    if shape in ['square', 's']:
-        return 'square'
-    if shape in ['triangle', 'triangle_up', '^']:
-        return 'triangle_up'
-    if shape in ['triangle_down', 'v']:
-        return 'triangle_down'
-    if shape in ['diamond', 'D']:
-        return 'diamond'
-    if shape in ['star', '*']:
-        return 'star'
-    if shape in ['cross', '+']:
-        return 'cross'
-    if shape == 'x':
-        return 'x'
-    if shape in ['vbar', '|']:
-        return 'vbar'
-    if shape in ['hbar', '-', '_']:
-        return 'hbar'
-    if shape in ['arrow', 'tailed_arrow', '->', '>']:
-        return 'arrow'
-    if shape in ['clobber', 'p']:
-        return 'clobber'
-    if shape in ['cross_lines', 'P', '++']:
-        return 'cross_lines'
-    return 'circle'
+    """The element a marker name or alias is drawn as; anything else is a disc."""
+    shape = _canonical_shape(shape)
+    try:
+        return shape if shape in _SVG_NODE_ELEMENTS else 'disc'
+    except TypeError:
+        return 'disc'
 
 
 def _svg_node_codes(shapes):
-    """Each node's element (an index into _SVG_NODE_KINDS) and whether it is stroke-only."""
+    """Each node's element, as an index into _SVG_NODE_KINDS."""
     known = {}
     codes = []
     for shape in shapes:
         try:
             code = known[shape]
         except KeyError:
-            code = known[shape] = (
-                2 * _SVG_NODE_KINDS.index(_svg_node_kind(shape)) + (shape in _STROKE_ONLY_SHAPES)
-            )
+            code = known[shape] = _SVG_NODE_KINDS.index(_svg_node_kind(shape))
         except TypeError:
-            code = 2 * _SVG_NODE_KINDS.index(_svg_node_kind(shape)) + (shape in _STROKE_ONLY_SHAPES)
+            code = _SVG_NODE_KINDS.index(_svg_node_kind(shape))
         codes.append(code)
-    codes = np.asarray(codes, dtype=np.int64)
-    return codes >> 1, (codes & 1).astype(bool)
+    return np.asarray(codes, dtype=np.int64)
 
 
 def _distinct_colors(colors):
@@ -382,18 +563,26 @@ def _svg_edge_chunks(pos, edges, target_min_x, target_max_y, tail):
         yield (template * len(chunk)) % tuple(coordinates.ravel().tolist())
 
 
-def _svg_node_chunks(cx, cy, d, shapes, colors, boundary_stroke):
+def _svg_node_chunks(cx, cy, d, kinds, colors, outline_colors, stroke_widths):
     """The node lines in drawing order, SVG_CHUNK_SIZE nodes at a time.
 
-    A filled shape takes its colour as the fill and the node boundary as its
-    outline; a stroke-only shape is drawn in its colour, with no fill and a
-    stroke 0.4 of its radius wide.
+    kinds are _svg_node_codes. A shape is filled in the node's colour and
+    outlined in its outline colour, stroke_widths wide; cross_lines, which
+    has no area, is drawn in its outline alone, with round ends.
     """
     r = d / 2.0
-    kinds, stroke_only = _svg_node_codes(shapes)
-    rows, colour_of = _distinct_colors(colors)
-    fills = [_svg_color_attrs(colors[row]) + ' ' + boundary_stroke for row in rows]
-    strokes = [_svg_color_attrs(colors[row], is_stroke=True) for row in rows]
+    is_lines = kinds == _SVG_LINES_KIND
+    rows, style_of = _distinct_colors(np.column_stack((colors, outline_colors, stroke_widths, is_lines)))
+    styles = []
+    for row in rows:
+        outline = (
+            f'{_svg_color_attrs(outline_colors[row], is_stroke=True)} '
+            f'stroke-width="{stroke_widths[row]:.3f}"'
+        )
+        if is_lines[row]:
+            styles.append(f'fill="none" {outline} stroke-linecap="round"')
+        else:
+            styles.append(f'{_svg_color_attrs(colors[row])} {outline}')
     count = len(cx)
     for start in range(0, count, SVG_CHUNK_SIZE):
         stop = min(start + SVG_CHUNK_SIZE, count)
@@ -404,16 +593,8 @@ def _svg_node_chunks(cx, cy, d, shapes, colors, boundary_stroke):
             members = slots + start
             template, coordinates = _SVG_NODE_ELEMENTS[_SVG_NODE_KINDS[kind]]
             values = np.column_stack(coordinates(cx[members], cy[members], r[members], d[members])).tolist()
-            stroke_widths = (r[members] * 0.4).tolist()
-            for slot, row, colour, stroked, stroke_width in zip(
-                slots.tolist(), values, colour_of[members].tolist(),
-                stroke_only[members].tolist(), stroke_widths,
-            ):
-                if stroked:
-                    attrs = f'fill="none" {strokes[colour]} stroke-width="{stroke_width:.3f}"'
-                else:
-                    attrs = fills[colour]
-                lines[slot] = template % (*row, attrs)
+            for slot, row, style in zip(slots.tolist(), values, style_of[members].tolist()):
+                lines[slot] = template % (*row, styles[style])
         yield '\n'.join(lines) + '\n'
 
 
@@ -423,8 +604,10 @@ class _SvgSnapshot:
 
     It belongs to the background job that writes the SVG: the viewer may
     change while the job waits or writes, and the file shows the network as
-    it was. pos, colors, sizes and shapes are the visible nodes in drawing
-    order; all_positions holds every node's (x, y), which the edges index.
+    it was. pos, colors, sizes, shapes and the outlines (colour, and width in
+    logical pixels) are the visible nodes in drawing order; all_positions
+    holds every node's (x, y), which the edges index. pixel_scale and
+    antialias are how the screen drew them (_display_scale, _marker_antialias).
     """
     pos: np.ndarray
     colors: np.ndarray
@@ -437,8 +620,10 @@ class _SvgSnapshot:
     edge_color: object
     edge_alpha: float
     edge_width: float
-    boundary_color: object
-    boundary_width: float
+    outline_colors: np.ndarray
+    outline_widths: np.ndarray
+    pixel_scale: float = 1.0
+    antialias: float = MARKER_ANTIALIAS_PX
 
 
 def _svg_snapshot(viewer, view_width=None):
@@ -459,6 +644,19 @@ def _svg_snapshot(viewer, view_width=None):
     render_order = getattr(viewer, 'visible_node_render_order', None)
     visible = render_order() if callable(render_order) else vis
 
+    # Each node's outline as the screen draws it: selected nodes and their
+    # neighbours have their own colour and width (the Viewer's node_outlines).
+    node_outlines = getattr(viewer, 'node_outlines', None)
+    if callable(node_outlines):
+        outline_colors, outline_widths = node_outlines()
+        outline_colors = np.array(np.asarray(outline_colors)[visible], dtype=np.float64)
+        outline_widths = np.array(np.asarray(outline_widths)[visible], dtype=np.float64)
+    else:
+        count = len(np.asarray(viewer.pos)[visible])
+        boundary = mcolors.to_rgba(getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000'))
+        outline_colors = np.tile(np.asarray(boundary, dtype=np.float64), (count, 1))
+        outline_widths = np.full(count, float(getattr(cfg, 'NODE_BOUNDARY_WIDTH', 0.5)))
+
     # The edges on screen: the similarity threshold, visible endpoints and
     # UMAP selection, in a new array.
     active_edges, _ = edge_stages(viewer, cfg)
@@ -475,49 +673,98 @@ def _svg_snapshot(viewer, view_width=None):
         edge_color=getattr(cfg, 'EDGE_COLOR', '#000000'),
         edge_alpha=getattr(cfg, 'EDGE_ALPHA', 0.2),
         edge_width=getattr(cfg, 'EDGE_WIDTH', 0.5),
-        boundary_color=getattr(cfg, 'NODE_BOUNDARY_COLOR', '#000000'),
-        boundary_width=getattr(cfg, 'NODE_BOUNDARY_WIDTH', 0.5),
+        outline_colors=outline_colors,
+        outline_widths=outline_widths,
+        pixel_scale=_display_scale(viewer),
+        antialias=_marker_antialias(viewer),
     )
 
 
+def _outline_ink_widths(widths, antialias, open_lines):
+    """_outline_ink_px of every width (device pixels), open_lines saying which are cross_lines."""
+    ink = np.zeros(len(widths))
+    for lines in (False, True):
+        chosen = open_lines == lines
+        if np.any(chosen):
+            values, value_of = np.unique(widths[chosen], return_inverse=True)
+            table = np.array([_outline_ink_px(float(value), antialias, lines) for value in values])
+            ink[chosen] = table[value_of.ravel()]
+    return ink
+
+
+def _svg_frame(snapshot, kinds, outline_px, edge_px):
+    """The scene area (left, bottom, right, top) an SVG of the snapshot shows.
+
+    It is framed as print's PNG is: what is drawn, and a border of
+    PNG_TRIM_PADDING_PX pixels of the PNG around it, the PNG's pixels being
+    device pixels. A node is drawn to its shape's edge, plus half its outline
+    and the antialias band VisPy draws past that; an edge, GL widens by half
+    its width across its main direction, not along it. outline_px and edge_px
+    are device pixels.
+    """
+    scale, unit = snapshot.pixel_scale, snapshot.unit
+    pos = np.asarray(snapshot.pos, dtype=np.float64)[:, :2]
+    radii = np.asarray(snapshot.sizes, dtype=np.float64) / 2.0
+    # VisPy draws nothing for a node of no size.
+    drawn = np.isfinite(radii) & (radii > 0.0)
+    reach = (outline_px[drawn] / 2.0 + snapshot.antialias) / scale
+    extents = _node_extents(kinds[drawn], radii[drawn], reach)
+    lows, highs = [math.inf, math.inf], [-math.inf, -math.inf]
+    if np.any(drawn):
+        lows = [float(np.min(pos[drawn, 0] - extents[:, 0] * unit)),
+                float(np.min(pos[drawn, 1] - extents[:, 3] * unit))]
+        highs = [float(np.max(pos[drawn, 0] + extents[:, 1] * unit)),
+                 float(np.max(pos[drawn, 1] + extents[:, 2] * unit))]
+
+    # The edges, SVG_CHUNK_SIZE at a time, so a large network's are never all copied at once.
+    edges = np.asarray(snapshot.edges).reshape(-1, 2)
+    positions = np.asarray(snapshot.all_positions, dtype=np.float64)
+    half = edge_px / 2.0 / scale * unit
+    for start in range(0, len(edges) if edge_px > 0.0 else 0, SVG_CHUNK_SIZE):
+        ends = positions[edges[start:start + SVG_CHUNK_SIZE]]
+        x_major = np.abs(ends[:, 1, 0] - ends[:, 0, 0]) >= np.abs(ends[:, 1, 1] - ends[:, 0, 1])
+        for axis, widened in ((0, ~x_major), (1, x_major)):
+            spread = np.where(widened, half, 0.0)[:, None]
+            lows[axis] = min(lows[axis], float(np.min(ends[:, :, axis] - spread)))
+            highs[axis] = max(highs[axis], float(np.max(ends[:, :, axis] + spread)))
+
+    if lows[0] > highs[0]:
+        # Nothing has a size: the nodes' centres stand in for the drawing.
+        lows = [float(np.min(pos[:, 0])), float(np.min(pos[:, 1]))]
+        highs = [float(np.max(pos[:, 0])), float(np.max(pos[:, 1]))]
+    border = PNG_TRIM_PADDING_PX / scale * unit
+    return lows[0] - border, lows[1] - border, highs[0] + border, highs[1] + border
+
+
 def _write_svg(snapshot, filepath):
-    """Write a snapshot as a structured, layered SVG for Adobe Illustrator compatibility."""
+    """Write a snapshot as a structured, layered SVG for Adobe Illustrator compatibility.
+
+    It shows what a PNG of the same view shows: node shapes, outlines and
+    edges as VisPy and GL drew them on the screen print ran on (its display
+    scale and antialiasing), framed as the PNG is.
+    """
     print("Generating layered, editable SVG for Illustrator...")
 
     pos = snapshot.pos
     colors = snapshot.colors
     sizes = snapshot.sizes
-    shapes = snapshot.shapes
-
-    # 2. Calculate bounding box
-    min_x, min_y = np.min(pos[:, :2], axis=0)
-    max_x, max_y = np.max(pos[:, :2], axis=0)
-
-    w_bounds = max_x - min_x
-    h_bounds = max_y - min_y
-
     unit = snapshot.unit
+    scale = snapshot.pixel_scale
 
-    # Add 5% padding so outer nodes aren't clipped by the viewport boundaries,
-    # and at least what the largest node reaches past its centre: its radius,
-    # or the ring's wider stroke. Below the 5-unit minimum nothing changes.
-    radii = np.asarray(sizes, dtype=np.float64) / 2.0 * unit
-    is_ring = np.array([shape == 'ring' for shape in shapes], dtype=bool)
-    reach = np.where(is_ring, radii * 1.2, radii)
-    reach = reach[np.isfinite(reach)]
-    node_pad = float(reach.max()) if reach.size else 0.0
-    pad_x = max(w_bounds * 0.05, 5.0, node_pad)
-    pad_y = max(h_bounds * 0.05, 5.0, node_pad)
+    # Widths in device pixels as the screen draws them, then in scene units.
+    kinds = _svg_node_codes(snapshot.shapes)
+    outline_px = np.asarray(snapshot.outline_widths, dtype=np.float64) * scale
+    stroke_widths = _outline_ink_widths(
+        outline_px, snapshot.antialias, kinds == _SVG_LINES_KIND,
+    ) / scale * unit
+    edge_px = _gl_line_px(float(snapshot.edge_width), scale)
 
-    target_min_x = min_x - pad_x
-    target_max_x = max_x + pad_x
-    target_min_y = min_y - pad_y
-    target_max_y = max_y + pad_y
-    
+    target_min_x, target_min_y, target_max_x, target_max_y = _svg_frame(
+        snapshot, kinds, outline_px, edge_px,
+    )
     width = target_max_x - target_min_x
     height = target_max_y - target_min_y
-    if height == 0: height = 1.0
-    
+
     # 3. Write the SVG as it is made: the edges and then the nodes go out a
     # chunk at a time into a partial file, which replaces the target only once
     # it is complete, so a failure leaves any earlier file of that name alone.
@@ -533,12 +780,9 @@ def _write_svg(snapshot, filepath):
 
     # 5. Edges layer: the edges on screen, in the configured edge color and alpha.
     edge_alpha = snapshot.edge_alpha
-    edge_width = snapshot.edge_width * unit
+    edge_width = edge_px / scale * unit
     edge_rgba = mcolors.to_rgba(snapshot.edge_color)
     edge_stroke = _svg_color_attrs((*edge_rgba[:3], edge_alpha), is_stroke=True)
-    boundary_rgba = mcolors.to_rgba(snapshot.boundary_color)
-    boundary_width = snapshot.boundary_width * unit
-    boundary_stroke = _svg_color_attrs(boundary_rgba, is_stroke=True) + f' stroke-width="{boundary_width:.3f}"'
     edge_tail = f' {edge_stroke} stroke-width="{edge_width:.3f}" />'
 
     # 6. Nodes layer. Y is flipped so Cartesian +Y goes upward, matching the
@@ -562,7 +806,9 @@ def _write_svg(snapshot, filepath):
             ):
                 handle.write(text)
             handle.write('  </g>\n  <!-- Nodes -->\n  <g id="nodes" name="Nodes">\n')
-            for text in _svg_node_chunks(node_x, node_y, diameters, shapes, colors, boundary_stroke):
+            for text in _svg_node_chunks(
+                node_x, node_y, diameters, kinds, colors, snapshot.outline_colors, stroke_widths,
+            ):
                 handle.write(text)
             handle.write('  </g>\n</svg>')
         os.replace(partial_path, filepath)

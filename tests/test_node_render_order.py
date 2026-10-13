@@ -297,6 +297,25 @@ class NodeRenderOrderTests(unittest.TestCase):
         )
         np.testing.assert_allclose(node_edges[1], [1.0, 0.0, 0.0, 1.0])
 
+    @mock.patch.multiple(cfg, NODE_BOUNDARY_WIDTH=0.7, HOVER_COLOR="blue", **DISTINCT_CONNECTED_COLORS)
+    def test_node_outlines_are_the_outlines_update_nodes_draws(self):
+        # print's SVG copies node_outlines, so they must be what the screen shows.
+        viewer = self.make_renderable_viewer(4)
+        viewer.node_render_order = np.array([3, 1, 2, 0], dtype=np.int32)
+        viewer.selected_indices = [0]
+        viewer.edges = np.array([[0, 1], [2, 3]], dtype=np.int32)
+
+        colors, widths = viewer.node_outlines()
+        viewer.update_nodes()
+
+        order = viewer._submitted_visible_node_order
+        np.testing.assert_allclose(viewer.markers.data["edge_color"], colors[order])
+        np.testing.assert_allclose(viewer.markers.data["edge_width"], widths[order])
+        # The selected node in the hover colour, its neighbour in the connected
+        # colour, both 2 pixels wide; the rest as Config sets them.
+        np.testing.assert_allclose(colors, [[0, 0, 1, 1], [1, 0, 0, 1], [0, 0, 0, 1], [0, 0, 0, 1]])
+        np.testing.assert_allclose(widths, [2.0, 2.0, 0.7, 0.7])
+
     def test_undo_state_restores_persistent_order(self):
         viewer = self.make_viewer(4)
         viewer.node_render_order = np.array([2, 0, 3, 1], dtype=np.int32)

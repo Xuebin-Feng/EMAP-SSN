@@ -852,6 +852,16 @@ still change before version 1.0.0.
   - **VR:** `label` and `logo` work, `hide` reaches the headset, and undo restores metadata.
   - **Smaller command fixes:** `cluster`, `subcluster`, `print`, `hide`, `select save` and `reference` refuse arguments they would have ignored or folded into a file name, naming the first; `subcluster` wants `cluster_1`, not `cluster_01`, and changes nothing when no subcluster reaches MIN_SIZE. With MIN_SIZE 1, Leiden makes isolated nodes singleton clusters, as MCL and Jaccard do. `print foo.svg` saves an SVG and says when it replaced a file. `select save` writes FASTA for `.fa`, `.faa` and `.fas` too, and `@name@` reads them. Two different `select` modes are refused. `undo N` and `redo N` step N times. Property names with `.` work in `{...}` expressions.
   - **Smaller output fixes:** a PNG logo too large to draw (over 370 positions) is refused before its job starts, and a long reference header no longer widens a logo. `query` sums residues under 1% on an "other" line and fails, like `logo`, when the matched nodes are not in the alignment. `esmfold` names the clicked node it folds when nothing is selected, and refuses a second worker while one runs. `spectrum` restores its displayed property on undo; undo no longer changes the sidebar, and commands reopen it only to add a button. The agent waits 300 s for a slow model, not 15 s. VR: `meta download` filters may hold spaces, and the terminal notes changes the headset cannot show.
+- `print svg` looked different from `print` of the same view, most of all on a
+  high-DPI screen. Its node outlines were about half as thick: VisPy fades an outline
+  over a device pixel on each side, so a 0.5-pixel one looks about 1.7 device pixels
+  wide, and the SVG wrote 0.5. Outlines are now as wide as they look, edges as wide as
+  GL draws them (a whole number of device pixels, at least one), and selected nodes
+  keep their border. The view box frames the network as the PNG is trimmed, with 20 of
+  the PNG's pixels around what is drawn, instead of 5 % of the network's size. Every
+  marker is drawn as VisPy draws it: `cross`, `x`, `vbar`, `hbar` and `ring` were thin
+  strokes without an outline, `arrow` a triangle, `clobber` a pentagon, and the star,
+  triangles and `cross_lines` had other proportions.
 - MCP `start_session` terminated a healthy Viewer after a fixed 30 s. On a
   12,927-node network loaded from OneDrive, the Viewer was stopped while building its
   display, seconds from publishing its session. A readiness probe that timed out while

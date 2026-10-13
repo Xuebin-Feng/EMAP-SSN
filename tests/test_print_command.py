@@ -12,11 +12,14 @@ import contextlib
 import datetime
 import importlib.util
 import io
+import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
+import textwrap
 import threading
 import time
 import types
@@ -888,27 +891,132 @@ class PrintSvgShapeTests(unittest.TestCase):
             with self.subTest(alias=alias):
                 self.assertEqual(self.with_shape(alias), self.with_shape(canonical))
 
-    def test_stroke_aliases_keep_the_node_colour_and_have_no_fill(self):
-        # '+', '|' and '-' were drawn as a filled path with a black outline.
-        for alias, tag in (("+", "path"), ("|", "line"), ("-", "line"), ("_", "line")):
+    def test_bars_crosses_and_rings_are_filled_and_outlined_like_every_shape(self):
+        # VisPy fills them in the node's colour and outlines them; the SVG drew
+        # them as bare strokes in the node's colour.
+        for alias, tag in (("+", "polygon"), ("x", "polygon"), ("|", "polygon"), ("-", "polygon"),
+                           ("ring", "path")):
             with self.subTest(alias=alias):
                 nodes = self.with_shape(alias).split('<g id="nodes"')[1]
                 drawn = elements(nodes, tag)
                 self.assertEqual(len(drawn), 4)
                 for element in drawn:
-                    self.assertIn('fill="none"', element)
-                    self.assertIn('stroke="rgb(63,127,255)"', element)
+                    self.assertIn('fill="rgb(63,127,255)"', element)
+                    self.assertIn('stroke="rgb(0,0,0)"', element)
+
+    def test_a_ring_is_the_band_from_half_the_radius_to_the_radius(self):
+        nodes = self.with_shape("ring").split('<g id="nodes"')[1]
+        ring = elements(nodes, "path")[0]
+        self.assertIn('fill-rule="evenodd"', ring)
+        # 10-pixel nodes at one unit per pixel: circles of radius 5 and 2.5.
+        radii = {float(value) for value in re.findall(r"A ([\d.]+) ", ring)}
+        self.assertEqual(radii, {5.0, 2.5})
+
+    def test_cross_lines_is_two_lines_in_the_outline_colour_alone(self):
+        # VisPy's cross_lines has no area: only its outline shows.
+        nodes = self.with_shape("P").split('<g id="nodes"')[1]
+        drawn = elements(nodes, "path")
+        self.assertEqual(len(drawn), 4)
+        for element in drawn:
+            self.assertIn('fill="none"', element)
+            self.assertIn('stroke="rgb(0,0,0)"', element)
+            self.assertIn('stroke-linecap="round"', element)
+
+    def test_shapes_have_vispys_proportions(self):
+        polygons = dict(print_command._SVG_POLYGONS)
+        # An equilateral triangle with sides of the node's size, centred on its box.
+        xs, ys = zip(*polygons["triangle_up"])
+        self.assertEqual((min(xs), max(xs)), (-1.0, 1.0))
+        self.assertAlmostEqual(min(ys), -np.sqrt(3) / 2)
+        self.assertAlmostEqual(max(ys), np.sqrt(3) / 2)
+        # A regular star whose top and bottom points are as far from the centre.
+        star = np.array(polygons["star"])
+        self.assertAlmostEqual(-star[:, 1].min(), star[:, 1].max(), delta=0.01)
+        inner = np.hypot(star[1::2, 0], star[1::2, 1] - 0.1)
+        np.testing.assert_allclose(inner, np.sin(np.pi / 10) / np.sin(3 * np.pi / 10))
+        # Bars two thirds of the radius wide.
+        self.assertEqual(sorted({x for x, _ in polygons["vbar"]}), [-1 / 3, 1 / 3])
+        # Clobber's outline turns where its circles cross, as far out as each other.
+        radius, crossings = print_command._unit_clobber()
+        self.assertEqual(radius, 0.64)
+        distances = [np.hypot(x, y - 0.25 * 0.72 / np.sqrt(3)) for x, y in crossings]
+        np.testing.assert_allclose(distances, distances[0])
 
     def test_an_unknown_shape_is_still_drawn_as_a_circle(self):
         self.assertEqual(self.with_shape("blob"), self.with_shape("disc"))
         self.assertIsNone(print_command._canonical_shape(None))
 
 
-class PrintSvgPaddingTests(unittest.TestCase):
+class PrintSvgFrameTests(unittest.TestCase):
+    """The view box frames the network as print's PNG does: what is drawn, and
+    a border of 20 pixels of the PNG, which are device pixels.
+
+    square_network's four nodes lie on a 10-unit square at one unit per
+    logical pixel. A node of radius r with a 0.5-pixel outline is drawn to
+    r + 0.25 + 1 from its centre: half its outline, then VisPy's 1-pixel
+    antialias band.
+    """
+
     @staticmethod
     def view_box(svg):
         match = re.search(r'viewBox="0 0 ([\d.]+) ([\d.]+)"', svg)
         return float(match.group(1)), float(match.group(2))
+
+    def test_the_view_box_is_the_drawing_and_a_twenty_pixel_border(self):
+        # 10 between the centres, 5 + 1.25 drawn past them, 20 of border.
+        svg = export_svg(square_network())
+        self.assertEqual(self.view_box(svg), (62.5, 62.5))
+        # The first node's centre is 6.25 + 20 in from the left, and as far
+        # down from the top (y points down in the SVG).
+        circle = elements(svg, "circle")[0]
+        self.assertEqual((number(circle, "cx"), number(circle, "cy")), (26.25, 36.25))
+
+    def test_the_border_is_twenty_pixels_of_the_png_at_the_display_scale(self):
+        # At twice the display scale, 20 device pixels are 10 logical ones,
+        # and the outline (1 device pixel) and its band reach 0.5 + 0.5.
+        sharp = square_network()
+        sharp.canvas.pixel_scale = 2.0
+        self.assertEqual(self.view_box(export_svg(sharp)), (41.5, 41.5))
+
+    def test_a_ring_reaches_as_far_as_a_disc(self):
+        rings = square_network(current_shapes=np.array(["ring"] * 4, dtype=object))
+        self.assertEqual(self.view_box(export_svg(rings)), self.view_box(export_svg(square_network())))
+
+    def test_each_shape_is_framed_by_its_own_reach(self):
+        # A bar of 30-pixel nodes reaches 15 across but only 5 up and down;
+        # its square corners move the outline straight out.
+        bars = square_network(
+            current_sizes=np.full(4, 30.0), current_shapes=np.array(["hbar"] * 4, dtype=object),
+        )
+        self.assertEqual(self.view_box(export_svg(bars)), (82.5, 62.5))
+
+    def test_a_sharp_corner_reaches_a_mitre_further(self):
+        # A diamond's corners are right angles: the outline and its band go
+        # sqrt(2) times as far along their bisector as a side moves.
+        diamonds = square_network(current_shapes=np.array(["diamond"] * 4, dtype=object))
+        reach = 5.0 + 1.25 * np.sqrt(2)
+        width, height = self.view_box(export_svg(diamonds))
+        self.assertAlmostEqual(width, 10 + 2 * reach + 40, places=3)
+        self.assertAlmostEqual(height, width)
+
+    def test_nodes_without_size_are_framed_by_their_edges(self):
+        # GL widens an edge across its main direction only: the two
+        # horizontal edges shown (scores 0.9 and 0.95) by 1.5 up and down.
+        bare = square_network(current_sizes=np.zeros(4))
+        self.assertEqual(self.view_box(export_svg(bare, EDGE_WIDTH=3.0)), (50.0, 53.0))
+        # The edges are measured a chunk at a time, every chunk counting.
+        with mock.patch.object(print_command, "SVG_CHUNK_SIZE", 1):
+            self.assertEqual(self.view_box(export_svg(bare, EDGE_WIDTH=3.0)), (50.0, 53.0))
+        bare.current_slider_threshold = 0.0
+        with mock.patch.object(print_command, "SVG_CHUNK_SIZE", 1):
+            self.assertEqual(self.view_box(export_svg(bare, EDGE_WIDTH=3.0)), (53.0, 53.0))
+
+    def test_a_wide_network_gets_the_same_border_on_every_side(self):
+        viewer = square_network(
+            pos=np.array([[0.0, 0.0], [400.0, 0.0], [400.0, 200.0], [0.0, 200.0]])
+        )
+
+        self.assertEqual(self.view_box(export_svg(viewer)), (452.5, 252.5))
 
     def test_large_nodes_at_the_edge_fit_inside_the_view_box(self):
         svg = export_svg(square_network(current_sizes=np.full(4, 40.0)))
@@ -924,45 +1032,12 @@ class PrintSvgPaddingTests(unittest.TestCase):
             self.assertGreaterEqual(cy - r, 0.0)
             self.assertLessEqual(cy + r, height)
 
-    def test_a_ring_is_padded_for_its_wide_stroke(self):
-        svg = export_svg(
-            square_network(
-                current_sizes=np.full(4, 40.0),
-                current_shapes=np.array(["ring"] * 4, dtype=object),
-            )
-        )
+    def test_the_frame_follows_the_zoom_in_scene_units(self):
+        # At half a scene unit per pixel, 40-pixel nodes reach 20 + 1.25
+        # pixels past their centres, 10.625 units, and the border is 10 units.
+        svg = export_svg(square_network(view=view_at(0.5), current_sizes=np.full(4, 40.0)))
 
-        # At one unit per pixel: radius 20 plus half of its 8-unit stroke, on
-        # each side of the 10-unit square.
-        self.assertEqual(self.view_box(svg), (58.0, 58.0))
-
-    def test_padding_follows_the_node_radius_in_scene_units(self):
-        # 40-pixel nodes at half a scene unit per pixel have a radius of 10 units.
-        sizes = np.full(4, 40.0)
-        discs = export_svg(square_network(view=view_at(0.5), current_sizes=sizes))
-        rings = export_svg(
-            square_network(
-                view=view_at(0.5),
-                current_sizes=sizes,
-                current_shapes=np.array(["ring"] * 4, dtype=object),
-            )
-        )
-
-        self.assertEqual(self.view_box(discs), (30.0, 30.0))
-        # The ring's stroke reaches 1.2 times as far: 12 units each side.
-        self.assertEqual(self.view_box(rings), (34.0, 34.0))
-
-    def test_small_nodes_keep_the_five_unit_padding(self):
-        svg = export_svg(square_network(current_sizes=np.full(4, 2.0)))
-
-        self.assertEqual(self.view_box(svg), (20.0, 20.0))
-
-    def test_a_wide_network_keeps_its_five_percent_padding(self):
-        viewer = square_network(
-            pos=np.array([[0.0, 0.0], [400.0, 0.0], [400.0, 200.0], [0.0, 200.0]])
-        )
-
-        self.assertEqual(self.view_box(export_svg(viewer)), (440.0, 220.0))
+        self.assertEqual(self.view_box(svg), (51.25, 51.25))
 
 
 def number(element, name):
@@ -1001,28 +1076,37 @@ class PrintSvgScaleTests(unittest.TestCase):
 
         for square in elements(squares, "rect")[1:]:  # the first is the background
             self.assertAlmostEqual(number(square, "width"), 12 * self.UNITS_PER_PIXEL)
-        # A stroke-only shape is drawn 0.4 of its radius wide.
-        for cross in elements(crosses, "path"):
-            self.assertAlmostEqual(
-                number(cross, "stroke-width"), 0.4 * 6 * self.UNITS_PER_PIXEL
-            )
+        # A cross reaches the radius, with bars a third of it each side of its centre.
+        for cross in elements(crosses, "polygon"):
+            points = re.search(r'points="([^"]+)"', cross).group(1).split()
+            xs = [float(point.split(",")[0]) for point in points]
+            offsets = sorted({round(x - (max(xs) + min(xs)) / 2, 3) for x in xs})
+            self.assertEqual(offsets, [-1.2, -0.4, 0.4, 1.2])
 
     def test_edge_and_node_outline_widths_are_converted_too(self):
         svg = export_svg(self.network(), EDGE_WIDTH=1.5)
 
         lines = elements(svg, "line")
         self.assertTrue(lines)
+        # GL draws a 1.5-pixel edge 2 pixels wide.
         for line in lines:
-            self.assertAlmostEqual(number(line, "stroke-width"), 1.5 * self.UNITS_PER_PIXEL)
-        # The 0.5-pixel outline of every filled node.
+            self.assertAlmostEqual(number(line, "stroke-width"), 2 * self.UNITS_PER_PIXEL)
+        # The 0.5-pixel outline of every filled node, as wide as VisPy draws it.
         for circle in elements(svg, "circle"):
-            self.assertAlmostEqual(number(circle, "stroke-width"), 0.5 * self.UNITS_PER_PIXEL)
+            self.assertAlmostEqual(
+                number(circle, "stroke-width"), 0.9818 * self.UNITS_PER_PIXEL, delta=0.001,
+            )
 
     def test_node_outline_follows_the_boundary_width_setting(self):
-        svg = export_svg(self.network(), NODE_BOUNDARY_WIDTH=2.0)
-
-        for circle in elements(svg, "circle"):
-            self.assertAlmostEqual(number(circle, "stroke-width"), 2.0 * self.UNITS_PER_PIXEL)
+        # Outlines of 2 pixels and more look 0.23 pixels narrower than set.
+        for setting in (2.0, 4.0):
+            with self.subTest(setting=setting):
+                svg = export_svg(self.network(), NODE_BOUNDARY_WIDTH=setting)
+                for circle in elements(svg, "circle"):
+                    self.assertAlmostEqual(
+                        number(circle, "stroke-width"), (setting - 0.2317) * self.UNITS_PER_PIXEL,
+                        delta=0.001,
+                    )
 
     def test_doubling_the_zoom_halves_the_sizes_relative_to_the_scene(self):
         def drawn(units_per_pixel):
@@ -1042,11 +1126,12 @@ class PrintSvgScaleTests(unittest.TestCase):
         self.assertAlmostEqual(
             number(zoomed_line, "stroke-width"), number(line, "stroke-width") / 2
         )
-        # The network itself keeps its scene coordinates.
-        for name in ("cx", "cy"):
-            self.assertEqual(number(zoomed_circle, name), number(circle, name))
+        # The network itself keeps its scene coordinates: only the frame,
+        # which follows what is drawn, moves it as a whole.
+        shift = number(zoomed_circle, "cx") - number(circle, "cx")
+        self.assertAlmostEqual(number(zoomed_circle, "cy") - number(circle, "cy"), shift, places=3)
         for name in ("x1", "y1", "x2", "y2"):
-            self.assertEqual(number(zoomed_line, name), number(line, name))
+            self.assertAlmostEqual(number(zoomed_line, name) - number(line, name), shift, places=3)
 
     def test_a_node_is_drawn_as_wide_next_to_its_neighbour_as_on_screen(self):
         # Nodes 0 and 1 are 10 scene units apart: 50 pixels on screen at 0.2 per pixel.
@@ -1075,15 +1160,26 @@ class PrintSvgScaleTests(unittest.TestCase):
 
         self.assertAlmostEqual(number(circles[0], "r"), 12 / 2 * self.UNITS_PER_PIXEL)
 
-    def test_a_high_dpi_display_changes_nothing(self):
+    def test_a_high_dpi_display_draws_what_its_png_shows(self):
         # Sizes are logical pixels, which VisPy scales to the display itself,
-        # and the view is measured in them: only the physical size doubles.
-        sharp = self.network()
-        sharp.canvas.size = (800, 600)
-        sharp.canvas.physical_size = (1600, 1200)
-        sharp.canvas.pixel_scale = 2.0
+        # and the view is measured in them, so node sizes stay. Outlines and
+        # edges are drawn in device pixels: a 0.5-pixel outline is 1 device
+        # pixel there, which looks 1.74 device pixels wide, and a 1.3-pixel
+        # edge is 2.6, which GL draws 3 device pixels wide.
+        def drawn(pixel_scale):
+            viewer = self.network()
+            viewer.canvas.pixel_scale = pixel_scale
+            svg = export_svg(viewer, EDGE_WIDTH=1.3)
+            return elements(svg, "circle")[0], elements(svg, "line")[0]
 
-        self.assertEqual(export_svg(sharp), export_svg(self.network()))
+        circle, line = drawn(1.0)
+        sharp_circle, sharp_line = drawn(2.0)
+
+        self.assertEqual(number(sharp_circle, "r"), number(circle, "r"))
+        self.assertAlmostEqual(number(circle, "stroke-width"), 0.9818 * 0.2, delta=0.001)
+        self.assertAlmostEqual(number(sharp_circle, "stroke-width"), 1.7423 / 2 * 0.2, delta=0.001)
+        self.assertAlmostEqual(number(line, "stroke-width"), 1.0 * 0.2)
+        self.assertAlmostEqual(number(sharp_line, "stroke-width"), 1.5 * 0.2)
 
     def test_a_view_without_area_leaves_sizes_as_they_are(self):
         svg = export_svg(self.network(view=view_at(self.UNITS_PER_PIXEL, size=(0, 0))))
@@ -1110,6 +1206,391 @@ class PrintSvgScaleTests(unittest.TestCase):
 
                 self.assertAlmostEqual(scale * pixels_per_unit_x, 1.0, places=5)
                 self.assertAlmostEqual(scale * pixels_per_unit_y, 1.0, places=5)
+
+
+def vispy_outline_coverage(r, width, antialias, filled=True):
+    """How much of a marker outline's colour VisPy's fragment shader puts at
+    signed distance r from the shape's edge (vispy/visuals/markers.py), with
+    an opaque fill inside; the shader's arithmetic, one distance at a time."""
+    opacity = min(width, 1.0)
+    solid = max(0.5 * width - antialias, 0.0)
+    if r > 0.5 * width + antialias:
+        return 0.0
+    d = abs(r) - solid
+    if d < 0.0:
+        return opacity
+    fade = np.exp(-(d / antialias) ** 2)
+    if r > 0.0 or not filled:
+        return opacity * fade
+    # mix(fill, outline, fade), whose alpha is mix(1, opacity, fade).
+    return (1.0 - fade + fade * opacity) * fade
+
+
+class PrintSvgWidthModelTests(unittest.TestCase):
+    """Outline and edge widths as the screen draws them, in device pixels."""
+
+    def test_an_outline_is_as_wide_as_the_colour_vispy_spreads_across_it(self):
+        step = 0.0005
+        distances = np.arange(-12.0, 12.0, step) + step / 2
+        for antialias in (1.0, 0.5, 2.0):
+            for width in (0.25, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 6.0):
+                for filled in (True, False):
+                    with self.subTest(antialias=antialias, width=width, filled=filled):
+                        if filled:
+                            spread = sum(vispy_outline_coverage(r, width, antialias) for r in distances) * step
+                        else:
+                            # cross_lines: a line with background on both sides.
+                            spread = 2 * step * sum(
+                                vispy_outline_coverage(r, width, antialias, filled=False)
+                                for r in distances[distances > 0]
+                            )
+                        self.assertAlmostEqual(
+                            print_command._outline_ink_px(width, antialias, open_lines=not filled),
+                            spread, delta=2e-3,
+                        )
+
+    def test_a_thin_outline_looks_about_one_and_three_quarter_pixels_wide(self):
+        self.assertAlmostEqual(print_command._outline_ink_px(0.5), 0.9818, places=4)
+        self.assertAlmostEqual(print_command._outline_ink_px(1.0), 1.7424, places=4)
+        self.assertAlmostEqual(print_command._outline_ink_px(5.0), 5.0 - 0.2317, places=4)
+
+    def test_no_outline_is_drawn_without_width_and_a_hard_one_without_antialiasing(self):
+        self.assertEqual(print_command._outline_ink_px(0.0), 0.0)
+        self.assertEqual(print_command._outline_ink_px(float("nan")), 0.0)
+        # Without the fading band, an outline under a pixel is that much fainter.
+        self.assertEqual(print_command._outline_ink_px(0.5, antialias=0.0), 0.25)
+        self.assertEqual(print_command._outline_ink_px(3.0, antialias=0.0), 3.0)
+
+    def test_gl_draws_edges_a_whole_number_of_device_pixels_wide(self):
+        for width, scale, drawn in (
+            (0.5, 1.0, 1.0), (1.3, 1.0, 1.0), (1.5, 1.0, 2.0), (2.5, 1.0, 2.0),
+            (0.25, 2.0, 1.0), (1.3, 2.0, 3.0), (1.0, 1.5, 2.0), (3.0, 1.5, 4.0),
+            (0.0, 2.0, 0.0),
+        ):
+            with self.subTest(width=width, scale=scale):
+                self.assertEqual(print_command._gl_line_px(width, scale), drawn)
+
+    def test_the_display_scale_and_band_come_from_the_viewer(self):
+        viewer = SimpleNamespace(
+            canvas=SimpleNamespace(pixel_scale=1.5), markers=SimpleNamespace(antialias=0.5),
+        )
+        self.assertEqual(print_command._display_scale(viewer), 1.5)
+        self.assertEqual(print_command._marker_antialias(viewer), 0.5)
+        # A viewer that cannot say draws as VisPy does by default.
+        for unknown in (SimpleNamespace(), SimpleNamespace(canvas=SimpleNamespace(pixel_scale=0))):
+            self.assertEqual(print_command._display_scale(unknown), 1.0)
+            self.assertEqual(print_command._marker_antialias(unknown), 1.0)
+
+
+class PrintSvgOutlineTests(unittest.TestCase):
+    """Each node's outline is the one the screen draws it with."""
+
+    @staticmethod
+    def outlined_network(**overrides):
+        colors = np.tile([0.0, 0.0, 0.0, 1.0], (4, 1))
+        colors[2] = (1.0, 0.0, 0.0, 1.0)
+        widths = np.array([0.5, 0.5, 2.0, 0.5])
+        return square_network(
+            current_colors=numbered_colors(),
+            node_outlines=lambda: (colors, widths),
+            **overrides,
+        )
+
+    def test_a_node_drawn_with_its_own_outline_keeps_it(self):
+        circles = elements(export_svg(self.outlined_network()), "circle")
+
+        for index, circle in enumerate(circles):
+            with self.subTest(node=index):
+                if index == 2:
+                    self.assertIn('stroke="rgb(255,0,0)"', circle)
+                    self.assertAlmostEqual(number(circle, "stroke-width"), 1.768, delta=0.001)
+                else:
+                    self.assertIn('stroke="rgb(0,0,0)"', circle)
+                    self.assertAlmostEqual(number(circle, "stroke-width"), 0.982, delta=0.001)
+
+    def test_outlines_follow_the_drawing_order(self):
+        viewer = self.outlined_network(
+            visible_node_render_order=lambda: np.array([2, 0, 3, 1], dtype=np.int32),
+        )
+        svg = export_svg(viewer)
+
+        self.assertEqual(node_fills(svg), [25, 5, 35, 15])
+        self.assertIn('stroke="rgb(255,0,0)"', elements(svg, "circle")[0])
+
+    def test_selected_nodes_and_their_neighbours_keep_their_borders(self):
+        import EMAPSSN_Config
+        from EMAPSSN_Viewer import MainViewer
+
+        viewer = MainViewer.__new__(MainViewer)
+        for name, value in vars(square_network(current_colors=numbered_colors())).items():
+            setattr(viewer, name, value)
+        viewer.n_nodes = 4
+        viewer.node_render_order = np.arange(4, dtype=np.int32)
+        viewer.selected_node_idx = None
+        viewer.left_click_highlight_indices = None
+        viewer.selected_indices = [0]
+        with mock.patch.multiple(
+            EMAPSSN_Config, create=True,
+            CONNECTED_NODE_COLOR="red", NODE_BOUNDARY_COLOR="black", HOVER_COLOR="blue",
+        ):
+            svg = export_svg(viewer)
+
+        # Node 0 is selected and drawn last, after its neighbours 1 and 3.
+        self.assertEqual(node_fills(svg), [25, 15, 35, 5])
+        strokes = [re.search(r'stroke="(rgb\([\d,]+\))"', circle).group(1) for circle in elements(svg, "circle")]
+        self.assertEqual(strokes, ["rgb(0,0,0)", "rgb(255,0,0)", "rgb(255,0,0)", "rgb(0,0,255)"])
+        widths = [number(circle, "stroke-width") for circle in elements(svg, "circle")]
+        self.assertEqual(widths, [0.982, 1.768, 1.768, 1.768])
+
+
+# Draws scenes with the Viewer's own visuals on a real canvas, prints each as a
+# PNG and as an SVG with print itself, draws the SVG with QtSvg at the PNG's
+# pixels per scene unit, and reports how the two compare.
+_PNG_SVG_SCRIPT = textwrap.dedent(
+    r"""
+    import importlib.util, json, os, shutil, sys, tempfile, types
+    from types import SimpleNamespace
+    from unittest import mock
+    import numpy as np
+    SRC = sys.argv[1]
+    sys.path.insert(0, SRC)
+    from vispy import app, scene
+    app.use_app("pyside6")
+    import matplotlib.image as mpimg
+    from PySide6 import QtCore, QtGui, QtSvg
+    from desktop.Viewer_Edges import ViewerEdges
+    import commands.zoom, utilities.Output_Names, Viewer_Visual_State
+
+    SAVE_DIR = tempfile.mkdtemp(prefix="print_png_svg_")
+    engine = types.ModuleType("Command_Engine")
+    for name in ("command_artifact", "command_succeeded", "command_failed", "show_status"):
+        setattr(engine, name, mock.Mock())
+    config = types.ModuleType("EMAPSSN_Config")
+    config.SEQUENCE_SET = "test"
+    config.resolve_directory_path = lambda value: SAVE_DIR
+    spec = importlib.util.spec_from_file_location("print_under_test", os.path.join(SRC, "commands", "print.py"))
+    print_command = importlib.util.module_from_spec(spec)
+    with mock.patch.dict(sys.modules, {"Command_Engine": engine, "EMAPSSN_Config": config}):
+        spec.loader.exec_module(print_command)
+
+    canvas = scene.SceneCanvas(size=(400, 300), bgcolor="white", show=False)
+    view = canvas.central_widget.add_view()
+    view.camera = scene.PanZoomCamera(aspect=1)
+    view.camera.set_range(x=(0, 200), y=(0, 150), margin=0)
+    markers = scene.visuals.Markers(parent=view.scene)
+    markers.set_gl_state("translucent", depth_test=False)
+    if (canvas.render()[..., 0] < 250).sum() != 0:
+        sys.exit(3)
+    print("CONTEXT OK", flush=True)
+    DPR = float(canvas.pixel_scale)
+    # Device pixels per scene unit, from the view rather than from print.
+    PPU = canvas.physical_size[0] / view.camera.rect.width
+
+    class Scheduler:
+        def is_output_path_reserved(self, path):
+            return False
+
+        def enqueue(self, command_name, description, payload, worker, output_path, allow_overwrite=False):
+            worker(payload)
+
+    layer = None
+
+    def show(pos, sizes, shapes, outline_colors, outline_widths, edges=(), edge_width=1.0,
+             color=(1.0, 1.0, 1.0, 1.0)):
+        global layer
+        pos = np.asarray(pos, dtype=np.float32)
+        count = len(pos)
+        colors = np.tile(np.asarray(color, dtype=np.float32), (count, 1))
+        outline_colors = np.asarray(outline_colors, dtype=np.float32)
+        outline_widths = np.asarray(outline_widths, dtype=np.float32)
+        markers.set_data(pos=pos, face_color=colors, edge_color=outline_colors,
+                         size=np.asarray(sizes, np.float32), edge_width=outline_widths, symbol=list(shapes))
+        if layer is not None:
+            layer.visual.parent = None
+            layer = None
+        edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
+        if len(edges):
+            layer = ViewerEdges(view.scene, edges, None, pos, (0.0, 0.0, 0.0, 1.0), edge_width)
+            layer.visible = layer.show_threshold(pos, None, 0.0) > 0
+            markers.order = 1
+        config.EDGE_COLOR, config.EDGE_ALPHA, config.EDGE_WIDTH = "#000000", 1.0, edge_width
+        config.UMAP_MODE = False
+        return SimpleNamespace(
+            canvas=canvas, view=view, markers=markers, n_nodes=count,
+            visible_mask=np.ones(count, dtype=bool), pos=pos, current_colors=colors,
+            current_sizes=np.asarray(sizes, dtype=np.float32), current_shapes=np.array(shapes, dtype=object),
+            edges=edges, edge_scores=np.ones(len(edges)), current_slider_threshold=0.0, selected_indices=[],
+            node_outlines=lambda: (outline_colors, outline_widths), background_job_scheduler=Scheduler(),
+        )
+
+    def raster(path):
+        renderer = QtSvg.QSvgRenderer(path)
+        box = renderer.viewBoxF()
+        width, height = int(round(box.width() * PPU)), int(round(box.height() * PPU))
+        image = QtGui.QImage(width, height, QtGui.QImage.Format.Format_RGBA8888)
+        image.fill(QtGui.QColor("white"))
+        painter = QtGui.QPainter(image)
+        painter.setRenderHint(QtGui.QPainter.RenderHint.Antialiasing)
+        renderer.render(painter, QtCore.QRectF(0, 0, width, height))
+        painter.end()
+        pixels = np.frombuffer(image.constBits(), np.uint8).reshape(height, image.bytesPerLine() // 4, 4)
+        return pixels[:, :width, :3].astype(np.float64) / 255.0
+
+    def prints(viewer, name):
+        # The PNG and the SVG print makes, the SVG drawn at the PNG's scale: coverage 0..1.
+        print_command.run(viewer, [name])
+        print_command.run(viewer, [name + "_svg", "svg"])
+        png = mpimg.imread(os.path.join(SAVE_DIR, name + ".png"))[..., :3].astype(np.float64)
+        svg = raster(os.path.join(SAVE_DIR, name + "_svg.svg"))
+        return 1.0 - png.mean(axis=2), 1.0 - svg.mean(axis=2)
+
+    def margins(cover):
+        mask = cover > print_command.PNG_BACKGROUND_TOLERANCE
+        rows, cols = np.flatnonzero(mask.any(axis=1)), np.flatnonzero(mask.any(axis=0))
+        return [int(cols[0]), int(rows[0]), cover.shape[1] - 1 - int(cols[-1]), cover.shape[0] - 1 - int(rows[-1])]
+
+    def frame(png, svg):
+        return {"png_shape": list(png.shape), "svg_shape": list(svg.shape),
+                "png_margins": margins(png), "svg_margins": margins(svg)}
+
+    results = {"dpr": DPR}
+
+    # White discs with outlines of several widths, one a selection's (red,
+    # 2 pixels): all the colour on the page is outline.
+    widths = [0.5, 0.25, 1.0, 2.0, 0.5]
+    outline_colors = np.tile([0.0, 0.0, 0.0, 1.0], (5, 1))
+    outline_colors[3] = (1.0, 0.0, 0.0, 1.0)
+    pos = [[20.0 + 40.0 * k, 75.0 + (8.0 if k % 2 else 0.0)] for k in range(5)]
+    png, svg = prints(show(pos, [24.0] * 5, ["disc"] * 5, outline_colors, widths), "outlines")
+    inks = []
+    for cover in (png, svg):
+        left, top = margins(cover)[:2]
+        half, per_node = int(18.0 * DPR), []
+        for x, y in pos:
+            cx = left + (x - pos[0][0]) * PPU + 12.0 * DPR
+            cy = top + (max(p[1] for p in pos) - y) * PPU + 12.0 * DPR
+            window = cover[int(cy) - half:int(cy) + half + 1, int(cx) - half:int(cx) + half + 1]
+            per_node.append(float(window.sum() / (2.0 * np.pi * 12.0 * DPR) / DPR))
+        inks.append(per_node)
+    results["outlines"] = dict(frame(png, svg), png_ink=inks[0], svg_ink=inks[1])
+
+    # Long straight edges at odd places between nodes of no size.
+    pos = [[10.0, 20.0], [190.0, 20.0], [10.3, 40.0], [190.3, 40.0],
+           [30.0, 60.0], [30.0, 140.0], [60.2, 60.0], [60.2, 140.0]]
+    png, svg = prints(show(pos, [0.0] * 8, ["disc"] * 8, np.tile([0, 0, 0, 1.0], (8, 1)), [0.5] * 8,
+                           [[0, 1], [2, 3], [4, 5], [6, 7]], 1.3), "edges")
+    length = (2 * 180.0 + 2 * 80.0) * PPU * DPR
+    results["edges"] = dict(frame(png, svg), png_ink=float(png.sum() / length), svg_ink=float(svg.sum() / length))
+
+    # One node of each marker, filled and outlined.
+    shapes = {}
+    for shape in ("disc", "square", "triangle_up", "triangle_down", "diamond", "star", "cross", "x",
+                  "vbar", "hbar", "arrow", "tailed_arrow", "clobber", "cross_lines", "ring"):
+        png, svg = prints(show([[100.0, 75.0]], [60.0], [shape], [[0.0, 0.0, 0.0, 1.0]], [1.0],
+                               color=(0.2, 0.4, 0.9, 1.0)), "shape_" + shape)
+        height, width = min(png.shape[0], svg.shape[0]), min(png.shape[1], svg.shape[1])
+        a, b = png[:height, :width] > 0.25, svg[:height, :width] > 0.25
+        # Overlap at the best shift of up to 3 pixels: the frames may differ by that.
+        overlap = max(
+            (a & np.roll(b, (dy, dx), axis=(0, 1))).sum() / max((a | np.roll(b, (dy, dx), axis=(0, 1))).sum(), 1)
+            for dy in range(-3, 4) for dx in range(-3, 4)
+        )
+        shapes[shape] = dict(png_shape=list(png.shape), svg_shape=list(svg.shape),
+                             overlap=float(overlap), ink_ratio=float(svg.sum() / max(png.sum(), 1e-9)))
+    results["shapes"] = shapes
+    shutil.rmtree(SAVE_DIR, ignore_errors=True)
+    print("RESULTS " + json.dumps(results), flush=True)
+    """
+)
+
+
+class PrintSvgMatchesPngTests(unittest.TestCase):
+    """An SVG of the view looks like the PNG of it, on a 100 % and a 200 % screen.
+
+    A real OpenGL canvas draws each scene as the Viewer does; print makes a
+    PNG and an SVG of it; the SVG is drawn at the PNG's pixels per scene
+    unit. Qt's high-DPI scaling is switched off and QT_SCALE_FACTOR sets the
+    display scale, so the test runs at both on any screen.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.results = {}
+
+    def compare(self, scale):
+        if scale in self.results:
+            return self.results[scale]
+        environment = dict(os.environ)
+        # tests/__init__.py defaults Qt to offscreen, which has no OpenGL on
+        # Windows; a hidden canvas on the native platform renders.
+        environment.pop("QT_QPA_PLATFORM", None)
+        environment.update(
+            PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0", QT_SCALE_FACTOR=str(scale),
+        )
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", _PNG_SVG_SCRIPT, SRC_DIR],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                env=environment, timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            self.skipTest("the GL render probe timed out")
+        if "CONTEXT OK" not in result.stdout:
+            self.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
+        lines = [line for line in result.stdout.splitlines() if line.startswith("RESULTS ")]
+        self.assertTrue(lines, result.stdout[-2000:] + result.stderr[-3000:])
+        results = json.loads(lines[-1][len("RESULTS "):])
+        if results["dpr"] != scale:
+            self.skipTest(f"Qt drew at a display scale of {results['dpr']}, not {scale}")
+        self.results[scale] = results
+        return results
+
+    def assert_frames_match(self, scene):
+        # The PNG's trim is whole pixels and its sharp points' faintest tips
+        # may miss a pixel centre; anything else is a different frame.
+        for png, svg in zip(scene["png_shape"], scene["svg_shape"]):
+            self.assertLessEqual(abs(png - svg), 4, scene)
+
+    def test_the_svg_is_framed_like_the_png(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                results = self.compare(scale)
+                for name in ("outlines", "edges"):
+                    scene = results[name]
+                    self.assertEqual(scene["png_margins"], [20, 20, 20, 20], name)
+                    self.assert_frames_match(scene)
+                    for margin in scene["svg_margins"]:
+                        self.assertLessEqual(abs(margin - 20), 2, (name, scene))
+                for shape, scene in results["shapes"].items():
+                    with self.subTest(shape=shape):
+                        self.assert_frames_match(scene)
+
+    def test_outlines_are_as_wide_as_on_the_png(self):
+        # Outlines of 0.5, 0.25, 1 and 2 pixels; the 2-pixel one is a
+        # selection's, which the SVG copies from the viewer.
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                scene = self.compare(scale)["outlines"]
+                for node, (png, svg) in enumerate(zip(scene["png_ink"], scene["svg_ink"])):
+                    self.assertAlmostEqual(svg / png, 1.0, delta=0.08, msg=(node, scene))
+
+    def test_edges_are_as_wide_as_on_the_png(self):
+        # 1.3-pixel edges: 1 device pixel at 100 %, 3 at 200 %.
+        for scale, drawn in ((1, 1.0), (2, 1.5)):
+            with self.subTest(display_scale=scale):
+                scene = self.compare(scale)["edges"]
+                self.assertAlmostEqual(scene["png_ink"], drawn, delta=0.05, msg=scene)
+                self.assertAlmostEqual(scene["svg_ink"] / scene["png_ink"], 1.0, delta=0.05, msg=scene)
+
+    def test_every_shape_is_drawn_as_on_the_png(self):
+        for scale in (1, 2):
+            for shape, scene in self.compare(scale)["shapes"].items():
+                with self.subTest(display_scale=scale, shape=shape):
+                    self.assertAlmostEqual(scene["ink_ratio"], 1.0, delta=0.1, msg=scene)
+                    # cross_lines is a line a pixel or two wide, whose overlap
+                    # says little; its colour above says how wide it is.
+                    if shape != "cross_lines":
+                        self.assertGreaterEqual(scene["overlap"], 0.9, scene)
 
 
 class PrintCommandChecksTests(unittest.TestCase):
@@ -1694,9 +2175,11 @@ class PrintSvgZoomTests(unittest.TestCase):
         # The SVG is written to three decimals.
         for circle in circles:
             self.assertAlmostEqual(number(circle, "r"), 12 / 2 * 500 / 800, delta=0.001)
-            self.assertAlmostEqual(number(circle, "stroke-width"), 0.5 * 500 / 800, delta=0.001)
+            # The 0.5-pixel outline looks 0.98 pixels wide on screen.
+            self.assertAlmostEqual(number(circle, "stroke-width"), 0.9818 * 500 / 800, delta=0.001)
+        # GL draws the 1.5-pixel edges 2 pixels wide.
         for line in elements(svg, "line"):
-            self.assertAlmostEqual(number(line, "stroke-width"), 1.5 * 500 / 800, delta=0.001)
+            self.assertAlmostEqual(number(line, "stroke-width"), 2 * 500 / 800, delta=0.001)
 
     def test_the_scale_ignores_the_current_zoom(self):
         self.assertEqual(
