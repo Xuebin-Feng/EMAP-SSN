@@ -246,6 +246,12 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 # cleanup above stops its processes.
                 if info and info.get("session_id"):
                     await client.close_session(info["session_id"])
+                    # close_session returns once the Viewer has ended, which
+                    # counts a zombie; its parent collects it a moment later
+                    # (1 run in 6 on Ubuntu 26.04 in the v0.4.0 Linux report).
+                    deadline = asyncio.get_running_loop().time() + 10
+                    while psutil.pid_exists(info["pid"]) and asyncio.get_running_loop().time() < deadline:
+                        await asyncio.sleep(0.1)
                     self.assertFalse(psutil.pid_exists(info["pid"]))
 
     async def test_timeout_and_cancellation_leave_a_loading_viewer_running(self):

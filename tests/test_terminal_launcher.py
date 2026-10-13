@@ -15,6 +15,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -570,6 +571,57 @@ class ForeignEnvironmentTerminalTests(unittest.TestCase):
                     [line for line in terminal_variables if line.startswith("SSN_")], []
                 )
                 self.assertEqual(list(runtime.iterdir()), [])
+
+
+# A stand-in for a single-instance terminal's client, such as Ptyxis's: it hands
+# the command to a running instance and exits at once.
+_HAND_OFF_TERMINAL = """#!/bin/sh
+[ "$1" = "--" ] && shift
+"$@" >/dev/null 2>&1 &
+exit 0
+"""
+
+
+@unittest.skipUnless(sys.platform.startswith("linux"), "runs a stand-in Linux terminal")
+class HandOffTerminalTests(unittest.TestCase):
+    """A terminal command that ends at once is collected without the caller
+    waiting on it (v0.4.0 Linux report, round 2, N3: one [ptyxis] <defunct>
+    per launch until the launching app exited)."""
+
+    def test_ended_terminal_command_is_not_left_a_zombie(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        terminal = bin_dir / "xdg-terminal-exec"
+        terminal.write_text(_HAND_OFF_TERMINAL, encoding="utf-8")
+        terminal.chmod(0o755)
+        runtime = root / "runtime"
+        runtime.mkdir(mode=0o700)
+        output = root / "probe.json"
+        path = f"{bin_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+        self.enterContext(
+            mock.patch.dict(os.environ, {"PATH": path, "XDG_RUNTIME_DIR": str(runtime)})
+        )
+        process = launcher.launch_in_terminal(
+            [sys.executable, "-c", _ENVIRONMENT_PROBE, str(output)],
+            cwd=root,
+            platform_name="linux",
+            stdout=subprocess.DEVNULL,
+        )
+        # Watched through /proc, not poll() or wait(): either would collect it.
+        entry = Path(f"/proc/{process.pid}")
+        deadline = time.monotonic() + 10
+        while entry.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertFalse(entry.exists(), "The ended terminal command is still a zombie")
+        self.assertEqual(process.wait(timeout=5), 0)
+        self.assertEqual(process.poll(), 0)
+        # The command it handed on still ran and took its job file.
+        deadline = time.monotonic() + 30
+        while not output.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertTrue(output.exists(), "The handed-on command did not run")
+        self.assertEqual(list(runtime.iterdir()), [])
 
 
 class WindowsLaunchTests(unittest.TestCase):

@@ -17,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from typing import Callable
 
 
@@ -413,6 +414,21 @@ def _build_macos_argv(
     return argv
 
 
+def _reap_when_done(process: subprocess.Popen) -> subprocess.Popen:
+    """Collect the terminal command's exit status as soon as it ends.
+
+    Most callers let the Popen go, and until something waits on it an ended
+    command stays a zombie: on Ubuntu 26.04 each Save & Run left one
+    ``[ptyxis] <defunct>`` under Config until Config exited (v0.4.0 Linux
+    report, round 2, N3). poll() and wait() keep working for callers that
+    use them.
+    """
+    threading.Thread(
+        target=process.wait, name="terminal-command-reaper", daemon=True
+    ).start()
+    return process
+
+
 def launch_in_terminal(
     command: Sequence[os.PathLike[str] | str],
     *,
@@ -438,6 +454,9 @@ def launch_in_terminal(
     whatever environment and folder the terminal itself starts commands with;
     only TERM and the other variables that describe the terminal come from the
     terminal. The terminal program gets ``env`` without its SSN_ variables.
+
+    On Linux and macOS a background thread waits on the returned process, so
+    an ended terminal command never lingers as a zombie (_reap_when_done).
     """
 
     normalized = _normalize_command(command)
@@ -479,16 +498,19 @@ def launch_in_terminal(
                 for key, value in environment.items()
                 if not key.startswith(_JOB_VARIABLE_PREFIX)
             }
-            return subprocess.Popen(argv, **popen_kwargs)
+            process = subprocess.Popen(argv, **popen_kwargs)
         except BaseException:
             _remove_quietly(job_file)
             raise
+        return _reap_when_done(process)
     else:
         raise TerminalUnavailableError(
             f"Terminal launching is not supported on platform {platform_name!r}."
         )
 
-    return subprocess.Popen(argv, **popen_kwargs)
+    process = subprocess.Popen(argv, **popen_kwargs)
+    # Windows has no zombies: an ended process goes once its handles close.
+    return process if platform_name == "win32" else _reap_when_done(process)
 
 
 __all__ = ["HoldMode", "TerminalUnavailableError", "launch_in_terminal"]

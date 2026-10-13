@@ -939,6 +939,10 @@ still change before version 1.0.0.
   variables that describe the terminal come from the terminal. The environment stays
   off the command line, where `ps` would show it to other users, and a terminal that a
   job starts no longer passes that job's settings to windows opened later.
+- On Linux and macOS, every job opened in a terminal left a finished process behind (a
+  zombie, such as `[ptyxis] <defunct>`) until Config or Tools exited: the terminal
+  program, which a single-instance terminal ends at once, was never collected. It is
+  now collected as soon as it ends.
 - On Windows, a Viewer started by MCP `start_session` failed any command that printed
   text outside the Windows ANSI code page (cp1252 on most Western systems), such as a
   selection error echoing an expression with `α-amylase` in it, or the "LLM Agent
