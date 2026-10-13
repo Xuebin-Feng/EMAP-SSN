@@ -52,6 +52,7 @@ from desktop.Desktop_App import (
     catalog_languages,
     install_translations,
     installed_language,
+    message_translator,
     redraw_in_language,
     startup_language,
     translate,
@@ -299,6 +300,27 @@ class LanguageTests(TranslationTestCase):
         self.assertEqual(str(message), "Saved 3 nodes to a.svg.")
         installed.remove()
         self.assert_english()
+
+    def test_a_process_without_windows_asks_the_same_catalog_for_its_messages(self):
+        # A tool's chart (Sanitize's histogram) has no QApplication to install
+        # translators in: message_translator answers Message texts alone.
+        previous = Localization.set_translator(message_translator("de", catalog_dir=self.folder))
+        self.addCleanup(Localization.set_translator, previous)
+        self.assertIsNone(installed_language())
+        message = Message(SAVED, count=3, name="a.svg")
+        self.assertEqual(message.display(), "3 Knoten in a.svg gespeichert.")
+        self.assertEqual(str(message), "Saved 3 nodes to a.svg.")
+        for count, german in ((1, "1 Gruppe aus a.h5 entfernt."), (4, "4 Gruppen aus a.h5 entfernt.")):
+            self.assertEqual(Message(REMOVED, n=count, name="a.h5").display(), german)
+        self.assertEqual(Message("Not translated yet").display(), "Not translated yet")
+        self.assertEqual(Panel().tr("Save"), "Save", "the windows' translators stay as they were")
+
+        Localization.set_translator(message_translator(PSEUDO_LANGUAGE, catalog_dir=self.folder))
+        self.assertEqual(message.display(), pseudo_translate(SAVED).format(count=3, name="a.svg"))
+        for language in (None, "", "en"):
+            self.assertIsNone(message_translator(language, catalog_dir=self.folder), language)
+        with self.assertRaises(LookupError):
+            message_translator("fr", catalog_dir=self.folder)
 
     def test_counted_texts_take_the_languages_plural_forms_or_else_english_ones(self):
         install_translations(self.app, "de", catalog_dir=self.folder)

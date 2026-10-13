@@ -3973,6 +3973,34 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>{count} sequence · min {min} · median {median} · mean {mean} · SD {sd} · max {max} aa</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{count} sequences · min {min} · median {median} · mean {mean} · SD {sd} · max {max} aa</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence Length Distribution</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>min {length}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>max {length}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence length (amino acids)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Number of sequences</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Model: {model}
 Weights license: {license}
 Restriction: {restriction}

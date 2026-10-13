@@ -507,7 +507,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2370"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2400"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -520,7 +520,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2268"/>
+        <location line="-2297"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -1859,7 +1859,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1747"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1776"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -5708,6 +5708,41 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
             <numerusform>已撤销 %n 步。</numerusform>
         </translation>
     </message>
+    <message>
+        <location filename="../../../tools/Sanitize_Sequences.py" line="+276"/>
+        <source>{count} sequence · min {min} · median {median} · mean {mean} · SD {sd} · max {max} aa</source>
+        <translation type="unfinished">{count} 条序列 · 最短 {min} · 中位数 {median} · 平均值 {mean} · 标准差 {sd} · 最长 {max} aa</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>{count} sequences · min {min} · median {median} · mean {mean} · SD {sd} · max {max} aa</source>
+        <translation type="unfinished">{count} 条序列 · 最短 {min} · 中位数 {median} · 平均值 {mean} · 标准差 {sd} · 最长 {max} aa</translation>
+    </message>
+    <message>
+        <location line="+50"/>
+        <source>Sequence Length Distribution</source>
+        <translation type="unfinished">序列长度分布</translation>
+    </message>
+    <message>
+        <location line="+38"/>
+        <source>min {length}</source>
+        <translation type="unfinished">下限 {length}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>max {length}</source>
+        <translation type="unfinished">上限 {length}</translation>
+    </message>
+    <message>
+        <location line="+128"/>
+        <source>Sequence length (amino acids)</source>
+        <translation type="unfinished">序列长度（氨基酸数）</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Number of sequences</source>
+        <translation type="unfinished">序列数</translation>
+    </message>
 </context>
 <context>
     <name>MetadataPage</name>
@@ -6036,7 +6071,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ToggleSwitch</name>
     <message>
-        <location line="-684"/>
+        <location line="-713"/>
         <source>ON</source>
         <translation type="unfinished">开</translation>
     </message>

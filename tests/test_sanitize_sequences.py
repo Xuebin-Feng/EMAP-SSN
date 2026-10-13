@@ -8,11 +8,13 @@ import io
 import json
 import os
 import pathlib
+import re
 import sys
 import subprocess
 import tempfile
 import unittest
 from unittest import mock
+import warnings
 
 
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -388,7 +390,7 @@ class LengthStatisticsTests(unittest.TestCase):
             ([7], "1 sequence · min 7 · median 7 · mean 7.0 · SD 0.0 · max 7 aa"),
         ):
             with self.subTest(lengths=lengths):
-                self.assertEqual(sanitize_sequences.length_statistics(lengths), line)
+                self.assertEqual(str(sanitize_sequences.length_statistics(lengths)), line)
 
 
 class LengthHistogramChartTests(unittest.TestCase):
@@ -413,13 +415,20 @@ class LengthHistogramChartTests(unittest.TestCase):
         self.addCleanup(temp_dir.cleanup)
         self.app_settings = pathlib.Path(temp_dir.name) / "app_settings.json"
 
-    def draw(self, lengths=LENGTHS, bounds=(), color=None, saved=None):
+    def draw(self, lengths=LENGTHS, bounds=(), color=None, saved=None, language="en",
+             environment=None):
         """The figure plt.show was given, drawn; color is the Tools window's saved one.
 
-        saved, when given, is the whole app_settings.json text instead.
+        language is the saved LANGUAGE, English unless a test asks, whatever the
+        system's; environment adds variables, as SSN_PSEUDO_TRANSLATION. saved,
+        when given, is the whole app_settings.json text instead. The warnings
+        raised while drawing are left in self.warnings.
         """
         if saved is None:
-            saved = json.dumps({} if color is None else {"TOOLS_THEME_COLOR": color})
+            settings = {"LANGUAGE": language}
+            if color is not None:
+                settings["TOOLS_THEME_COLOR"] = color
+            saved = json.dumps(settings)
         self.app_settings.write_text(saved, encoding="utf-8")
         shown = []
 
@@ -430,9 +439,13 @@ class LengthHistogramChartTests(unittest.TestCase):
             # Closing the figure takes its window (manager) away.
             self.window_title = figure.canvas.manager.get_window_title()
 
-        with mock.patch.dict(os.environ, {"SSN_APP_SETTINGS_PATH": str(self.app_settings)}), \
-                mock.patch.object(self.plt, "show", side_effect=show):
+        variables = {"SSN_APP_SETTINGS_PATH": str(self.app_settings), **(environment or {})}
+        with mock.patch.dict(os.environ, variables), \
+                mock.patch.object(self.plt, "show", side_effect=show), \
+                warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
             sanitize_sequences.plot_length_distribution(lengths, bounds)
+        self.warnings = [str(warning.message) for warning in caught]
         self.assertEqual(len(shown), 1)
         self.assertFalse(self.plt.fignum_exists("Sequence Length Distribution"))
         return shown[0]
@@ -528,7 +541,7 @@ class LengthHistogramChartTests(unittest.TestCase):
         title = texts["Sequence Length Distribution"]
         self.assertEqual(to_rgba(title.get_color()), to_rgba(tokens["text"]))
         self.assertEqual(title.get_fontname(), "Noto Sans")
-        statistics = texts[sanitize_sequences.length_statistics(self.LENGTHS)]
+        statistics = texts[str(sanitize_sequences.length_statistics(self.LENGTHS))]
         self.assertEqual(to_rgba(statistics.get_color()), to_rgba(tokens["text_muted"]))
         self.assertEqual(to_rgba(axes.xaxis.label.get_color()), to_rgba(tokens["text_muted"]))
 
@@ -549,6 +562,72 @@ class LengthHistogramChartTests(unittest.TestCase):
         self.assertEqual(list(axes.lines), [])
         self.assertFalse(any(text.get_text().startswith(("min ", "max ")) for text in axes.texts))
 
+
+    # The chart's texts: its window's name, title, statistics line, axis labels and
+    # the filter bounds' labels, six in all; the rest are the axes' numbers.
+    @staticmethod
+    def words(figure):
+        from matplotlib.text import Text
+
+        shown = [text.get_text() for text in figure.findobj(Text) if text.get_text()]
+        return [text for text in shown if not re.fullmatch(r"[\d,.\-]+", text)]
+
+    def test_every_text_the_chart_shows_goes_through_the_catalog(self):
+        # The pseudo-language brackets every catalog text, so one left plain skipped it.
+        from utilities.Localization import is_pseudo_translated
+
+        figure = self.draw(bounds=[("min", 1), ("max", 50)],
+                           environment={"SSN_PSEUDO_TRANSLATION": "1"})
+        words = self.words(figure)
+        self.assertEqual(len(words), 6, words)
+        for text in words + [self.window_title]:
+            self.assertTrue(is_pseudo_translated(text), text)
+        self.assertEqual(self.warnings, [])
+
+    def test_simplified_chinese_draws_in_its_bundled_font_with_no_glyph_missing(self):
+        # Nor a face: matplotlib logs one a family lacks, as Noto Sans SC lacks semibold.
+        with self.assertNoLogs("matplotlib", level="WARNING"):
+            figure = self.draw(bounds=[("min", 1), ("max", 50)], language="zh_CN")
+        title = figure.axes[0].get_title(loc="left")
+        self.assertEqual(self.window_title, title)
+        for text in self.words(figure):
+            self.assertRegex(text, "[\u4e00-\u9fff]", "every text shows in Chinese")
+        self.assertEqual(sanitize_sequences._plot_font_families("zh_CN"), ["Noto Sans", "Noto Sans SC"])
+        # matplotlib warns of every character its fonts lack; with Noto Sans alone it does.
+        self.assertEqual(self.warnings, [])
+        with mock.patch.object(sanitize_sequences, "_plot_font_families", return_value=["Noto Sans"]):
+            self.draw(language="zh_CN")
+        self.assertTrue(any("missing from font" in warning for warning in self.warnings), self.warnings)
+
+    def test_the_terminal_line_stays_english_while_the_chart_shows_the_language(self):
+        from desktop.Desktop_App import message_translator
+        from utilities import Localization
+
+        statistics = sanitize_sequences.length_statistics(self.LENGTHS)
+        previous = Localization.set_translator(message_translator("zh_CN"))
+        try:
+            self.assertEqual(
+                str(statistics),
+                "10 sequences · min 1 · median 19 · mean 24.8 · SD 20.6 · max 51 aa",
+            )
+            self.assertRegex(statistics.display(), "^10 [\u4e00-\u9fff]")
+        finally:
+            Localization.set_translator(previous)
+        # The chart puts back whatever translator it found.
+        self.draw(language="zh_CN")
+        self.assertIs(Localization._translator, previous)
+
+    def test_a_language_that_cannot_load_leaves_the_chart_english(self):
+        from desktop import Desktop_App
+
+        english = "Sequence Length Distribution"
+        with mock.patch.object(Desktop_App, "message_translator", side_effect=LookupError("no catalog")), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            figure = self.draw(language="zh_CN")
+        self.assertEqual(figure.axes[0].get_title(loc="left"), english)
+        self.assertIn("stays English (no catalog)", printed.getvalue())
+        # A language without a catalog shows English, as the windows do.
+        self.assertEqual(self.draw(language="xx").axes[0].get_title(loc="left"), english)
 
 if __name__ == "__main__":
     unittest.main()

@@ -84,6 +84,7 @@ from utilities.Localization import (
     MESSAGE_CONTEXT,
     QT_TRANSLATE_NOOP,
     english_plural,
+    english_text,
     pseudo_translate,
     read_catalog,
     set_punctuation,
@@ -1743,6 +1744,35 @@ def install_translations(app, language, catalog_dir=LANGUAGES_DIR, extra_catalog
 def installed_language():
     """The language install_translations put in place, or None for English."""
     return None if _installed_translations is None else _installed_translations.language
+
+
+def message_translator(language, catalog_dir=LANGUAGES_DIR):
+    """translate(template, n) for Message texts in language, for a process with no windows.
+
+    A tool's matplotlib chart shows Message.display() text in the language
+    the windows show, but the tool has no QApplication to install Qt's
+    translators in. This asks the same catalog directly: the language's
+    <catalog_dir>/<language>/emapssn_<language>.qm, or for PSEUDO_LANGUAGE
+    the pseudo-language made from <catalog_dir>/emapssn.ts. Pass the result
+    to Localization.set_translator. None or "en" gives None, English as
+    written. Without the language's catalog it raises LookupError, as
+    install_translations does.
+    """
+    if language in (None, "", ENGLISH):
+        return None
+    if language == PSEUDO_LANGUAGE:
+        catalog = pseudo_translator(Path(catalog_dir) / f"{CATALOG_NAME}.ts")
+    else:
+        catalog = _load_language_catalog(CATALOG_NAME, language, catalog_dir)
+        if catalog is None:
+            raise LookupError(f"No {CATALOG_NAME} catalog for language {language!r} in {catalog_dir}.")
+
+    def translate_message(template, n=-1):
+        # Qt answers "" or None for a text it lacks, which then shows in English.
+        shown = catalog.translate(MESSAGE_CONTEXT, template, None, n) or template
+        return english_text(shown, n)
+
+    return translate_message
 
 
 # =====================================================================

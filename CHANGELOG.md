@@ -197,8 +197,10 @@ still change before version 1.0.0.
   length, and the console prints the same line, in a run from a settings file too. With
   the length filter on, dashed lines mark its bounds. Lengths spanning 50 values or fewer
   get one bar per length, and the table a row per length; wider spans keep 50 equal bins.
-  The window is titled Sequence Length Distribution. It is still matplotlib; nothing new
-  to install.
+  The window is titled Sequence Length Distribution. Its texts, the window's title
+  included, show in the Tools window's language, Simplified Chinese in the bundled Noto
+  Sans SC; the console's line stays English. It is still matplotlib; nothing new to
+  install.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts

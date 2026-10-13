@@ -55,9 +55,10 @@ What this script does step-by-step:
      was changed, removed, or merged.
    - Prints the length statistics of the kept sequences: their number and the
      minimum, median, mean, standard deviation and maximum length.
-   - Displays a pop-up length histogram in the Tools window's theme colour, or
-     prints the same bins and counts as a table when invoked with a JSON settings
-     file (including MCP runs). Setting SHOW_LENGTH_HISTOGRAM to False skips both.
+   - Displays a pop-up length histogram in the Tools window's theme colour and
+     language, or prints the same bins and counts as a table when invoked with a
+     JSON settings file (including MCP runs). Setting SHOW_LENGTH_HISTOGRAM to
+     False skips both. Everything printed stays English.
 
 Input:
 - A raw text-based FASTA file (`INPUT_FASTA`).
@@ -76,6 +77,7 @@ from tqdm import tqdm
 from collections import Counter
 import numpy as np
 
+from utilities.Localization import Message, set_translator
 from utilities.Sequence_Utils import (
     allocate_unique_headers,
     read_fasta,
@@ -252,16 +254,32 @@ def write_fasta_atomic(file_path, headers, sequences, refuse_empty=False):
 def length_statistics(lengths):
     """One line on the lengths: their number, minimum, median, mean, SD and maximum.
 
+    A Message: str() is the English line the terminal prints, and display()
+    the chart's, in the Tools window's language. The numbers come formatted,
+    with thousands separators, so the count isn't Qt's %n, which has none;
+    one sequence and several get a line each.
+
     The standard deviation is that of these sequences themselves (numpy's
     default, ddof=0), not an estimate for a larger population.
     """
     values = np.asarray(lengths)
     median = float(np.median(values))
-    median_text = f"{median:,.0f}" if median.is_integer() else f"{median:,.1f}"
-    sequences = "sequence" if values.size == 1 else "sequences"
-    return (
-        f"{values.size:,} {sequences} · min {values.min():,} · median {median_text} · "
-        f"mean {values.mean():,.1f} · SD {values.std():,.1f} · max {values.max():,} aa"
+    numbers = {
+        "count": f"{values.size:,}",
+        "min": f"{values.min():,}",
+        "median": f"{median:,.0f}" if median.is_integer() else f"{median:,.1f}",
+        "mean": f"{values.mean():,.1f}",
+        "sd": f"{values.std():,.1f}",
+        "max": f"{values.max():,}",
+    }
+    if values.size == 1:
+        return Message(
+            "{count} sequence · min {min} · median {median} · mean {mean} · SD {sd} · max {max} aa",
+            **numbers,
+        )
+    return Message(
+        "{count} sequences · min {min} · median {median} · mean {mean} · SD {sd} · max {max} aa",
+        **numbers,
     )
 
 
@@ -308,7 +326,8 @@ _BAR_FILL = "separator"
 _BAR_EDGE = "accent"
 _BAR_GAP = 0.16
 _BAR_RADIUS = 2.25
-_HISTOGRAM_TITLE = "Sequence Length Distribution"
+# The chart's title, which names its window too.
+_HISTOGRAM_TITLE = Message("Sequence Length Distribution")
 
 
 def tools_theme_color():
@@ -323,35 +342,92 @@ def tools_theme_color():
     return color if isinstance(color, str) and color in THEME_COLORS else DEFAULT_THEME_COLOR
 
 
-def _plot_font_families():
+def chart_translation():
+    """(language, translator) for the chart: the Tools window's language, or (None, None).
+
+    The language is the one the windows show: the saved LANGUAGE setting,
+    else the system's, or the pseudo-language for tests
+    (Desktop_App.startup_language). The translator answers from that
+    language's catalog (Desktop_App.message_translator). Anything that
+    can't be read leaves the chart English: the run never fails over its
+    language. The terminal stays English either way.
+    """
+    try:
+        from desktop.Desktop_App import message_translator, startup_language
+
+        language = startup_language()
+        return language, message_translator(language)
+    except Exception as error:  # A chart in English beats a failed run.
+        print(f"Note: the length histogram stays English ({error}).")
+        return None, None
+
+
+def _bound_label(label, value):
+    """The text beside a length filter bound's line, as "min 50" or "max 1,000"."""
+    if label == "min":
+        return Message("min {length}", length=f"{value:,}")
+    return Message("max {length}", length=f"{value:,}")
+
+
+def _plot_font_families(language=None):
     """The bundled Noto Sans, registered with matplotlib, else matplotlib's own font.
 
-    Only one family is named: matplotlib looks up every listed family for
-    each text, and warns when the fallback lacks the title's semibold face.
+    A language whose script Noto Sans lacks adds its language pack's font
+    (Noto Sans SC for Simplified Chinese), which matplotlib draws those
+    characters in. Otherwise only one family is named: matplotlib looks up
+    every listed family for each text, and warns when the fallback lacks the
+    title's semibold face.
     """
     from matplotlib import font_manager
 
-    folder = os.path.join(
-        PROJECT_ROOT, "src", "resources", "fonts", "desktop", "noto", "NotoSans"
-    )
+    fonts = os.path.join(PROJECT_ROOT, "src", "resources", "fonts", "desktop")
     known = {entry.fname for entry in font_manager.fontManager.ttflist}
-    bundled = False
-    for face in ("NotoSans-Regular.ttf", "NotoSans-SemiBold.ttf"):
-        path = os.path.join(folder, face)
+
+    def registered(paths):
+        found = False
+        for path in paths:
+            try:
+                if path not in known:
+                    font_manager.fontManager.addfont(path)
+                found = True
+            except (OSError, RuntimeError, ValueError):
+                pass
+        return found
+
+    core = registered(
+        os.path.join(fonts, "noto", "NotoSans", face)
+        for face in ("NotoSans-Regular.ttf", "NotoSans-SemiBold.ttf", "NotoSans-Bold.ttf")
+    )
+    families = ["Noto Sans"] if core else ["DejaVu Sans"]
+    font = None
+    if language is not None:
         try:
-            if path not in known:
-                font_manager.fontManager.addfont(path)
-            bundled = True
-        except (OSError, RuntimeError, ValueError):
-            pass
-    return ["Noto Sans"] if bundled else ["DejaVu Sans"]
+            from utilities.Language_Packs import read_pack
+
+            font = read_pack(language).font
+        except Exception:  # No usable pack: the core font, as for English.
+            font = None
+    if font is not None and registered(os.path.join(fonts, path) for path in font.files):
+        families.append(font.family)
+    return families
 
 
 def plot_length_distribution(lengths, bounds=()):
     """Show the lengths' bins (length_bins) as a pop-up chart in the Tools window's theme colour.
 
     bounds holds (label, length) pairs, the length filter's, drawn as dashed lines.
+    Its texts show in the Tools window's language (chart_translation).
     """
+    language, translator = chart_translation()
+    previous = set_translator(translator)
+    try:
+        _plot_length_distribution(lengths, bounds, language)
+    finally:
+        set_translator(previous)
+
+
+def _plot_length_distribution(lengths, bounds, language):
+    """plot_length_distribution's chart, its texts in language with the translator installed."""
     import matplotlib.pyplot as plt
     from matplotlib.patches import BoxStyle, FancyBboxPatch
     from matplotlib.path import Path
@@ -377,8 +453,13 @@ def plot_length_distribution(lengths, bounds=()):
 
     tokens = theme_tokens(tools_theme_color())
     counts, edges, _one_per_length = length_bins(lengths)
+    families = _plot_font_families(language)
+    # A language font has regular and bold faces only (Noto Sans SC): asked for
+    # semibold, matplotlib logs a fallback and draws its characters bold anyway.
+    # So its title is bold, which Noto Sans has too; English keeps semibold.
+    title_weight = "semibold" if len(families) == 1 else "bold"
     style = {
-        "font.family": _plot_font_families(),
+        "font.family": families,
         "font.size": 10,
         "axes.edgecolor": tokens["border"],
         "axes.labelcolor": tokens["text_muted"],
@@ -390,7 +471,7 @@ def plot_length_distribution(lengths, bounds=()):
     with plt.rc_context(style):
         # The figure's label names the pop-up window.
         figure, axes = plt.subplots(
-            num=_HISTOGRAM_TITLE, figsize=(10, 6), facecolor=tokens["surface"]
+            num=_HISTOGRAM_TITLE.display(), figsize=(10, 6), facecolor=tokens["surface"]
         )
         axes.set_facecolor(tokens["surface"])
         bin_width = edges[1] - edges[0]
@@ -418,15 +499,17 @@ def plot_length_distribution(lengths, bounds=()):
         axes.yaxis.set_major_locator(MaxNLocator(integer=True))
         axes.xaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
         axes.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
-        axes.set_xlabel("Sequence length (amino acids)", labelpad=8)
-        axes.set_ylabel("Sequences", labelpad=8)
+        axes.set_xlabel(Message("Sequence length (amino acids)").display(), labelpad=8)
+        # Not "Sequences", whose catalog entry names the benchmark report's row:
+        # a Message has no disambiguation, and a language may word a count apart.
+        axes.set_ylabel(Message("Number of sequences").display(), labelpad=8)
 
         axes.set_title(
-            _HISTOGRAM_TITLE, loc="left", pad=30, fontsize=15,
-            fontweight="semibold", color=tokens["text"],
+            _HISTOGRAM_TITLE.display(), loc="left", pad=30, fontsize=15,
+            fontweight=title_weight, color=tokens["text"],
         )
         axes.annotate(
-            length_statistics(lengths), (0, 1), xycoords="axes fraction",
+            length_statistics(lengths).display(), (0, 1), xycoords="axes fraction",
             xytext=(0, 10), textcoords="offset points", va="bottom",
             color=tokens["text_muted"],
         )
@@ -438,7 +521,8 @@ def plot_length_distribution(lengths, bounds=()):
             # The label sits beside its line, on the side of the kept lengths.
             inward = 1 if label == "min" else -1
             axes.annotate(
-                f"{label} {value:,}", (value, 1), xycoords=("data", "axes fraction"),
+                _bound_label(label, value).display(), (value, 1),
+                xycoords=("data", "axes fraction"),
                 xytext=(5 * inward, -4), textcoords="offset points",
                 ha="left" if inward > 0 else "right", va="top", fontsize=9,
                 color=tokens["text_muted"],
