@@ -378,7 +378,9 @@
             gap: 6px;
         }
 
-        .metadata-typed-column .tabulator-header-filter::before {
+        /* A column's type badge, beside its filter and in the help */
+        .metadata-typed-column .tabulator-header-filter::before,
+        .type-badge {
             border: 1px solid;
             border-radius: 4px;
             box-sizing: border-box;
@@ -390,20 +392,23 @@
             padding: 3px 4px;
         }
 
-        /* The page's script sets each badge's text in the page's language. */
-        .metadata-number-column .tabulator-header-filter::before {
+        .metadata-number-column .tabulator-header-filter::before,
+        .type-badge-number {
             background-color: var(--number-badge-bg);
             border-color: var(--number-badge-border);
             color: var(--number-badge-text);
-            content: var(--number-badge, "NUM");
         }
 
-        .metadata-text-column .tabulator-header-filter::before {
+        .metadata-text-column .tabulator-header-filter::before,
+        .type-badge-text {
             background-color: var(--text-badge-bg);
             border-color: var(--text-badge-border);
             color: var(--text-badge-text);
-            content: var(--text-badge, "TXT");
         }
+
+        /* The page's script sets each badge's text in the page's language. */
+        .metadata-number-column .tabulator-header-filter::before { content: var(--number-badge, "NUM"); }
+        .metadata-text-column .tabulator-header-filter::before { content: var(--text-badge, "TXT"); }
 
         .tabulator-header-filter input {
             flex: 1 1 auto;
@@ -484,6 +489,11 @@
         }
         .tabulator .tabulator-tableholder {
             background-color: var(--bg-card);
+        }
+        /* The rows fill the table's width, as the fitDataFill layout's do;
+           the page uses fitData, which keeps the columns' widths. */
+        .tabulator .tabulator-tableholder .tabulator-table {
+            min-width: 100%;
         }
         .tabulator .tabulator-tableholder .tabulator-table {
             background-color: var(--bg-card);
@@ -617,11 +627,11 @@
         .modal-content {
             position: relative;
             box-sizing: border-box;
-            width: 500px;
-            max-width: 90%;
-            max-height: 90vh;
+            width: 880px;
+            max-width: calc(100% - 32px);
+            max-height: calc(100vh - 48px);
             overflow-y: auto;
-            padding: 24px;
+            padding: 24px 28px;
             background-color: var(--bg-card);
             border: 1px solid var(--border-color);
             border-radius: var(--radius-card);
@@ -648,26 +658,77 @@
             height: 28px;
         }
 
-        .modal-section {
-            margin-top: 16px;
+        .modal-intro {
+            margin: 10px 32px 0 0;
             font-size: 13px;
             line-height: 1.6;
             color: var(--text-secondary);
         }
-        .modal-section + .modal-section {
+
+        .modal-section {
             margin-top: 20px;
             padding-top: 18px;
             border-top: 1px solid var(--border-color);
+            font-size: 13px;
+            line-height: 1.6;
+            color: var(--text-secondary);
         }
-        .modal-group + .modal-group { margin-top: 16px; }
-        .modal-group > strong { color: var(--text-primary); font-size: 13.5px; }
+        .modal-section h4 {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .modal-section h4 .icon { color: var(--text-secondary); }
+        .modal-section p { margin: 6px 0 0; }
         .modal-section strong { color: var(--text-primary); }
         .modal-section ul { margin: 6px 0 0 18px; padding: 0; }
         .modal-section ul ul { margin-top: 4px; list-style-type: circle; }
+        .modal-section li + li { margin-top: 4px; }
         .modal-section li.spaced { margin-top: 8px; }
-        .modal-section ul.rules { margin-top: 10px; }
-        .modal-section ul.rules > li { margin-bottom: 8px; }
-        .modal-section code {
+
+        /* The text and number filters, side by side while there is room */
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            margin-top: 12px;
+        }
+        .filter-card {
+            padding: 12px 14px;
+            background-color: var(--bg-main);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+        }
+        .filter-card-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text-primary);
+            font-size: 13.5px;
+        }
+
+        /* Short rules, each led by its name in bold, in two columns */
+        .modal-section ul.rules-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px 28px;
+            margin: 12px 0 0;
+            padding: 0;
+            list-style: none;
+        }
+        .modal-section ul.rules-grid > li { margin: 0; }
+        .modal-section ul.rules-grid > li.wide { grid-column: 1 / -1; }
+
+        @media (max-width: 720px) {
+            .filter-grid,
+            .modal-section ul.rules-grid { grid-template-columns: minmax(0, 1fr); }
+        }
+
+        .modal-content code {
             font-family: var(--font-mono);
             font-size: 12px;
             color: var(--text-primary);
@@ -713,6 +774,7 @@
         <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
         <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
         <symbol id="i-mouse-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 12.586 19 19"/><path d="M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"/></symbol>
+        <symbol id="i-sheet" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><line x1="3" x2="21" y1="9" y2="9"/><line x1="3" x2="21" y1="15" y2="15"/><line x1="9" x2="9" y1="9" y2="21"/><line x1="15" x2="15" y1="9" y2="21"/></symbol>
         <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
         <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></symbol>
         <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
@@ -849,6 +911,58 @@
             return wrapper;
         }
 
+        // The widths the user gave columns by dragging a header's edge, by
+        // field (the row numbers' field is undefined). The fitData layout
+        // fits a column to its data only when the column is made, so a
+        // window resize leaves every width as it is; the columns rebuilt for
+        // the Viewer's updates, and those set back in place after a move,
+        // take their widths from here.
+        const resizedColumnWidths = new Map();
+
+        function keepResizedWidths(columns) {
+            return columns.map(column => resizedColumnWidths.has(column.field)
+                ? {...column, width: resizedColumnWidths.get(column.field)}
+                : column);
+        }
+
+        // The page order of every metadata column the page has shown, by
+        // field. The columns rebuilt for the Viewer's updates take this
+        // order, so a column the user moved stays where they put it, and one
+        // deleted and brought back by an undo returns to its place, as its
+        // width does. A column new to the page goes before the next column
+        // the Viewer lists after it that the page knows, or last when there
+        // is none: the Viewer lists the columns an import or a command adds
+        // last, so they come last here too, wherever the others were moved.
+        const metadataColumnOrder = [];
+
+        function orderMetadataColumns(columnNames) {
+            if (table) {
+                // The columns shown fill their places in the remembered
+                // order in the order the page shows them now.
+                const shown = table.getColumns().map(column => column.getField())
+                    .filter(field => field !== undefined && field !== "Node ID");
+                shown.forEach(field => {
+                    if (!metadataColumnOrder.includes(field)) metadataColumnOrder.push(field);
+                });
+                const shownFields = new Set(shown);
+                let next = 0;
+                metadataColumnOrder.forEach((field, index) => {
+                    if (shownFields.has(field)) metadataColumnOrder[index] = shown[next++];
+                });
+            }
+            const known = new Set(metadataColumnOrder);
+            columnNames.forEach((columnName, index) => {
+                if (known.has(columnName)) return;
+                const following = columnNames.slice(index + 1).find(name => known.has(name));
+                metadataColumnOrder.splice(
+                    following === undefined ? metadataColumnOrder.length : metadataColumnOrder.indexOf(following),
+                    0, columnName);
+                known.add(columnName);
+            });
+            const listed = new Set(columnNames);
+            return metadataColumnOrder.filter(field => listed.has(field));
+        }
+
         function buildTableColumns(columnNames, types) {
             const columns = [
                 {
@@ -871,8 +985,7 @@
                 }
             ];
 
-            columnNames.forEach(columnName => {
-                if (columnName === "Node ID") return;
+            orderMetadataColumns(columnNames.filter(columnName => columnName !== "Node ID")).forEach(columnName => {
                 const type = (types && types[columnName]) || "text";
                 columns.push({
                     title: columnName,
@@ -888,7 +1001,7 @@
                     headerFilterFunc: type === "number" ? numberFilterFunc : textFilterFunc
                 });
             });
-            return columns;
+            return keepResizedWidths(columns);
         }
 
         function textFilterFunc(headerValue, rowValue, rowData, filterParams) {
@@ -1091,17 +1204,7 @@
                     break;
                 case "state_updated":
                     if (table && event.metadata) {
-                        isEditingFromVispy = true;
-                        if (event.columns) {
-                            table.setColumns(buildTableColumns(event.columns, event.types));
-                        }
-                        table.setData(event.metadata).then(() => {
-                            currentSelectionIndices = event.selected_indices;
-                            currentSelectionIndicesSet = event.selected_indices ? new Set(event.selected_indices) : null;
-                            currentVisibleMask = event.visible_mask;
-                            applyCombinedFilter();
-                            isEditingFromVispy = false;
-                        });
+                        refreshTable(event.metadata, event);
                     }
                     break;
                 case "metadata_error":
@@ -1110,12 +1213,43 @@
             }
         }
 
+        // Show the Viewer's rows, and its columns, selection and visible
+        // nodes from state, in the table made already.
+        function refreshTable(rows, state) {
+            isEditingFromVispy = true;
+            // The data first: the fitData layout fits a column to what it
+            // holds as the column is made, so the columns rebuilt after it
+            // fit the new values, apart from those the user resized.
+            table.setData(rows).then(() => {
+                if (state.columns) {
+                    table.setColumns(buildTableColumns(state.columns, state.types));
+                }
+                currentSelectionIndices = state.selected_indices;
+                currentSelectionIndicesSet = state.selected_indices ? new Set(state.selected_indices) : null;
+                currentVisibleMask = state.visible_mask;
+                applyCombinedFilter();
+                isEditingFromVispy = false;
+            });
+        }
+
         function initSpreadsheet(data) {
+            // The Viewer sends init each time the page connects to it,
+            // again after a lost connection. The table and the buttons are
+            // set up already then: the table takes the Viewer's data as on
+            // an update, and each button still sends its action once.
+            if (table) {
+                refreshTable(data.rows, data);
+                return;
+            }
+
             const columns = buildTableColumns(data.columns, data.types);
 
             table = new Tabulator("#spreadsheet-table", {
                 data: data.rows,
-                layout: "fitDataFill",
+                // Not fitDataFill, which fits every column to its data again
+                // at each redraw, a window resize's too, undoing the widths
+                // the user set. The page's style fills the rows instead.
+                layout: "fitData",
                 columns: columns,
                 selectable: true,
                 virtualDom: true,
@@ -1165,6 +1299,10 @@
                 }
             });
 
+            table.on("columnResized", (column) => {
+                resizedColumnWidths.set(column.getField(), column.getWidth());
+            });
+
             table.on("cellEdited", (cell) => {
                 const row = cell.getRow().getData();
                 sendAction({
@@ -1206,7 +1344,7 @@
                 }
                 
                 if (changed) {
-                    table.setColumns(targetDefs);
+                    table.setColumns(keepResizedWidths(targetDefs));
                 }
             });
 
@@ -1377,50 +1515,85 @@
     <!-- Help Modal -->
     <div id="help-modal" class="modal-overlay" style="display: none;">
         <div class="modal-content" role="dialog" aria-modal="true" aria-labelledby="help-modal-title">
-            <h3 id="help-modal-title"><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span data-i18n>Search Filter Rules</span></h3>
+            <h3 id="help-modal-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Metadata Spreadsheet Help</span></h3>
             <button id="close-modal-btn" class="btn btn-ghost btn-icon modal-close" title="Close"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+            <p class="modal-intro" data-i18n>The table holds the metadata of the network's nodes, one row per node. Filter, sort and edit it here; each edit goes straight to the Viewer, where commands such as <code>spectrum</code> and <code>meta show</code> use it.</p>
 
-            <div class="modal-section">
-                <div class="modal-group">
-                    <strong data-i18n>Text / Sequence Header Columns:</strong>
-                    <ul>
-                        <li data-i18n><strong>Substring Match</strong>: Matches anywhere in the text by default (e.g. <code>candidatus</code>).</li>
-                        <li data-i18n><strong>Wildcard Match</strong>: Use <code>*</code> for zero or more characters, or <code>?</code> for a single character (e.g. <code>*coli*</code>, <code>b*subtilis</code>, or <code>node?</code>).</li>
-                    </ul>
+            <section class="modal-section">
+                <h4><svg class="icon" aria-hidden="true"><use href="#i-search"/></svg><span data-i18n>Search Filter Rules</span></h4>
+                <p data-i18n>Type in the box under a column's name to show only the rows that match. Filters in several columns work together: a row shows only when it matches all of them.</p>
+                <div class="filter-grid">
+                    <div class="filter-card">
+                        <div class="filter-card-title"><span class="type-badge type-badge-text" data-i18n>TXT</span><strong data-i18n>Text / Sequence Header Columns:</strong></div>
+                        <ul>
+                            <li data-i18n><strong>Substring Match</strong>: Matches anywhere in the text by default (e.g. <code>candidatus</code>).</li>
+                            <li data-i18n><strong>Wildcard Match</strong>: Use <code>*</code> for zero or more characters, or <code>?</code> for a single character (e.g. <code>*coli*</code>, <code>b*subtilis</code>, or <code>node?</code>).</li>
+                            <li data-i18n><strong>Whole Value</strong>: A pattern with a wildcard must match the whole value, so <code>coli*</code> finds only values that start with “coli”.</li>
+                            <li data-i18n><strong>Letter Case</strong>: Ignored, so <code>bacillus</code> also finds “Bacillus”.</li>
+                        </ul>
+                    </div>
+
+                    <div class="filter-card">
+                        <div class="filter-card-title"><span class="type-badge type-badge-number" data-i18n>NUM</span><strong data-i18n>Numerical Columns (e.g. Length):</strong></div>
+                        <ul>
+                            <li data-i18n><strong>Range</strong>: Format <code>min-max</code> (e.g. <code>100-300</code>).</li>
+                            <li data-i18n><strong>Range Ends</strong>: Both are included, and either may be negative or a decimal (e.g. <code>-2.5-0</code>).</li>
+                            <li class="spaced"><span data-i18n><strong>Operators</strong>: Prepend with math operators:</span>
+                                <ul>
+                                    <li data-i18n><code>&gt;=100</code> (greater than or equal to 100)</li>
+                                    <li data-i18n><code>&lt;=150</code> (less than or equal to 150)</li>
+                                    <li data-i18n><code>&gt;50</code> (greater than 50)</li>
+                                    <li data-i18n><code>&lt;200</code> (less than 200)</li>
+                                    <li data-i18n><code>!=10</code> (not equal to 10)</li>
+                                    <li data-i18n><code>=10</code> or just <code>10</code> (exactly equal to 10)</li>
+                                </ul>
+                            </li>
+                            <li class="spaced"><span data-i18n><strong>Logical Commands</strong>: Combine comparisons enclosed in matching parentheses with operators:</span>
+                                <ul>
+                                    <li data-i18n><code>&amp;</code> (AND): e.g. <code>(&gt;=100)&amp;(&lt;=500)</code></li>
+                                    <li data-i18n><code>|</code> (OR): e.g. <code>(&gt;10)|(&lt;3)</code></li>
+                                    <li data-i18n><code>^</code> (XOR): e.g. <code>(&gt;100)^(&gt;200)</code></li>
+                                    <li data-i18n>Parentheses can nest: <code>((&gt;=1)&amp;(&lt;5))|(&gt;100)</code></li>
+                                    <li data-i18n>Where parentheses don't group them, <code>&amp;</code> applies first, then <code>^</code>, then <code>|</code>.</li>
+                                </ul>
+                            </li>
+                            <li class="spaced" data-i18n><strong>Empty Cells</strong>: A cell without a number never matches a number filter.</li>
+                            <li data-i18n><strong>Unreadable Filters</strong>: A filter in none of these forms, such as <code>abc</code>, matches no row.</li>
+                        </ul>
+                    </div>
                 </div>
+            </section>
 
-                <div class="modal-group">
-                    <strong data-i18n>Numerical Columns (e.g. Length):</strong>
-                    <ul>
-                        <li data-i18n><strong>Range</strong>: Format <code>min-max</code> (e.g. <code>100-300</code>).</li>
-                        <li><span data-i18n><strong>Operators</strong>: Prepend with math operators:</span>
-                            <ul>
-                                <li data-i18n><code>&gt;=100</code> (greater than or equal to 100)</li>
-                                <li data-i18n><code>&lt;=150</code> (less than or equal to 150)</li>
-                                <li data-i18n><code>&gt;50</code> (greater than 50)</li>
-                                <li data-i18n><code>&lt;200</code> (less than 200)</li>
-                                <li data-i18n><code>!=10</code> (not equal to 10)</li>
-                                <li data-i18n><code>=10</code> or just <code>10</code> (exactly equal to 10)</li>
-                            </ul>
-                        </li>
-                        <li class="spaced"><span data-i18n><strong>Logical Commands</strong>: Combine comparisons enclosed in matching parentheses with operators:</span>
-                            <ul>
-                                <li data-i18n><code>&amp;</code> (AND): e.g. <code>(&gt;=100)&amp;(&lt;=500)</code></li>
-                                <li data-i18n><code>|</code> (OR): e.g. <code>(&gt;10)|(&lt;3)</code></li>
-                                <li data-i18n><code>^</code> (XOR): e.g. <code>(&gt;100)^(&gt;200)</code></li>
-                            </ul>
-                        </li>
-                    </ul>
-                </div>
-            </div>
+            <section class="modal-section">
+                <h4><svg class="icon" aria-hidden="true"><use href="#i-sheet"/></svg><span data-i18n>Working with the Table</span></h4>
+                <ul class="rules-grid">
+                    <li data-i18n><strong>Sort:</strong> Click a column's name to sort by it. Click again to reverse the order, and a third time to return to the Viewer's order.</li>
+                    <li data-i18n><strong>Resize:</strong> Drag the right edge of a column's header. The column keeps that width when the window is resized and when the Viewer updates the table.</li>
+                    <li data-i18n><strong>Edit:</strong> Double-click a cell in a metadata column, type, and press Enter, or Esc to cancel. A number column takes only numbers, and Sequence Header can't be edited.</li>
+                    <li data-i18n><strong>Move:</strong> Drag a metadata column's header sideways. The row numbers and Sequence Header stay first.</li>
+                    <li data-i18n><strong>Undo and Redo:</strong> Ctrl+Z and Ctrl+Y, or the buttons above, step through the Viewer's history, which holds its commands as well as the edits made here.</li>
+                    <li data-i18n><strong>Delete a Column:</strong> Click the X in its header. The page asks first, and Undo brings the column back.</li>
+                    <li class="wide" data-i18n><strong>Copy:</strong> Drag across cells to select them, then press Ctrl+C. The values are copied tab-separated, ready to paste into a spreadsheet.</li>
+                </ul>
+            </section>
 
-            <div class="modal-section">
-                <h3><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Interaction Rules</span></h3>
-                <ul class="rules">
+            <section class="modal-section">
+                <h4><svg class="icon" aria-hidden="true"><use href="#i-download"/></svg><span data-i18n>Import and Export</span></h4>
+                <ul class="rules-grid">
+                    <li data-i18n><strong>Import:</strong> Merges a CSV or Excel file into the table. Row 1 holds the column names (letters, digits, <code>_</code>, <code>-</code> and <code>.</code>), row 2 each column's type (<code>number</code> or <code>text</code>), and every later row a sequence header in column A followed by its values. A row whose header matches no node is skipped; <code>docs/metadata_template.xlsx</code> shows the layout.</li>
+                    <li data-i18n><strong>Export:</strong> Saves the metadata of every node that has a value, as CSV or Excel, in the layout Import reads. The filters and the Viewer's selection don't limit it.</li>
+                </ul>
+            </section>
+
+            <section class="modal-section">
+                <h4><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Interaction Rules</span></h4>
+                <ul class="rules-grid">
                     <li data-i18n><strong>Network Selection Filtering:</strong> Selecting a group of nodes in the network viewer (e.g., using the selection tool) will automatically filter the spreadsheet to display only the data for those specific nodes.</li>
                     <li data-i18n><strong>Node Click Highlighting:</strong> Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</li>
+                    <li data-i18n><strong>Sequence Header Clicks:</strong> Clicking a cell in Sequence Header selects its node in the Viewer, as a left-click on the node does. Clicking an empty part of this page clears it.</li>
+                    <li data-i18n><strong>Hidden Nodes:</strong> Nodes hidden in the Viewer leave the table until they are shown again.</li>
                 </ul>
-            </div>
+            </section>
 
             <div class="modal-footer">
                 <button class="btn btn-primary" id="close-modal-btn-ok" data-i18n>Got it</button>

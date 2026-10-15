@@ -56,7 +56,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>EMAP-SSN Agent Chat</source>
+        <source>EMAP-SSN Agent (Beta)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4447,11 +4447,23 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Search Filter Rules</source>
+        <source>Metadata Spreadsheet Help</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Close</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The table holds the metadata of the network&apos;s nodes, one row per node. Filter, sort and edit it here; each edit goes straight to the Viewer, where commands such as &lt;code&gt;spectrum&lt;/code&gt; and &lt;code&gt;meta show&lt;/code&gt; use it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Search Filter Rules</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Type in the box under a column&apos;s name to show only the rows that match. Filters in several columns work together: a row shows only when it matches all of them.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4467,11 +4479,23 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>&lt;strong&gt;Whole Value&lt;/strong&gt;: A pattern with a wildcard must match the whole value, so &lt;code&gt;coli*&lt;/code&gt; finds only values that start with “coli”.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Letter Case&lt;/strong&gt;: Ignored, so &lt;code&gt;bacillus&lt;/code&gt; also finds “Bacillus”.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Numerical Columns (e.g. Length):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>&lt;strong&gt;Range&lt;/strong&gt;: Format &lt;code&gt;min-max&lt;/code&gt; (e.g. &lt;code&gt;100-300&lt;/code&gt;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Range Ends&lt;/strong&gt;: Both are included, and either may be negative or a decimal (e.g. &lt;code&gt;-2.5-0&lt;/code&gt;).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4519,6 +4543,66 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Parentheses can nest: &lt;code&gt;((&amp;gt;=1)&amp;amp;(&amp;lt;5))|(&amp;gt;100)&lt;/code&gt;</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Where parentheses don&apos;t group them, &lt;code&gt;&amp;amp;&lt;/code&gt; applies first, then &lt;code&gt;^&lt;/code&gt;, then &lt;code&gt;|&lt;/code&gt;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Empty Cells&lt;/strong&gt;: A cell without a number never matches a number filter.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Unreadable Filters&lt;/strong&gt;: A filter in none of these forms, such as &lt;code&gt;abc&lt;/code&gt;, matches no row.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Working with the Table</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Sort:&lt;/strong&gt; Click a column&apos;s name to sort by it. Click again to reverse the order, and a third time to return to the Viewer&apos;s order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Resize:&lt;/strong&gt; Drag the right edge of a column&apos;s header. The column keeps that width when the window is resized and when the Viewer updates the table.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Edit:&lt;/strong&gt; Double-click a cell in a metadata column, type, and press Enter, or Esc to cancel. A number column takes only numbers, and Sequence Header can&apos;t be edited.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Move:&lt;/strong&gt; Drag a metadata column&apos;s header sideways. The row numbers and Sequence Header stay first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Undo and Redo:&lt;/strong&gt; Ctrl+Z and Ctrl+Y, or the buttons above, step through the Viewer&apos;s history, which holds its commands as well as the edits made here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Delete a Column:&lt;/strong&gt; Click the X in its header. The page asks first, and Undo brings the column back.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Copy:&lt;/strong&gt; Drag across cells to select them, then press Ctrl+C. The values are copied tab-separated, ready to paste into a spreadsheet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Import and Export</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Import:&lt;/strong&gt; Merges a CSV or Excel file into the table. Row 1 holds the column names (letters, digits, &lt;code&gt;_&lt;/code&gt;, &lt;code&gt;-&lt;/code&gt; and &lt;code&gt;.&lt;/code&gt;), row 2 each column&apos;s type (&lt;code&gt;number&lt;/code&gt; or &lt;code&gt;text&lt;/code&gt;), and every later row a sequence header in column A followed by its values. A row whose header matches no node is skipped; &lt;code&gt;docs/metadata_template.xlsx&lt;/code&gt; shows the layout.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Export:&lt;/strong&gt; Saves the metadata of every node that has a value, as CSV or Excel, in the layout Import reads. The filters and the Viewer&apos;s selection don&apos;t limit it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Interaction Rules</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4528,6 +4612,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>&lt;strong&gt;Node Click Highlighting:&lt;/strong&gt; Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Sequence Header Clicks:&lt;/strong&gt; Clicking a cell in Sequence Header selects its node in the Viewer, as a left-click on the node does. Clicking an empty part of this page clears it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&lt;strong&gt;Hidden Nodes:&lt;/strong&gt; Nodes hidden in the Viewer leave the table until they are shown again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

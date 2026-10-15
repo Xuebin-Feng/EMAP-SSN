@@ -735,6 +735,105 @@ class MetadataPageTests(WebPageTestCase):
             time.sleep(0.02)
         self.assertEqual(self.actions, [{"action": "clear_selection"}])
 
+    def test_a_column_keeps_the_width_the_user_gave_it(self):
+        """A window resize redraws the table, and the fitDataFill layout once fitted
+        every column to its data again at each redraw, undoing a width the user
+        dragged. A Viewer update rebuilds the columns: the dragged one keeps its
+        width, and one the user left alone fits its new values."""
+        self.addCleanup(self.view.resize, 1200, 800)
+        self.open(self.TABLE)
+        widths = "JSON.stringify(Object.fromEntries(table.getColumns().map(c => [c.getField() || '#', c.getWidth()])))"
+        fitted = json.loads(self.js(widths))
+        # Drag the right edge of column 1's header 120 px to the right.
+        self.js("""(() => {
+            const column = table.getColumn('1').getElement();
+            const handle = column.nextElementSibling;
+            if (!handle.classList.contains('tabulator-col-resize-handle')) throw new Error('no resize handle');
+            const x = column.getBoundingClientRect().right - 2, y = column.getBoundingClientRect().top + 8;
+            handle.dispatchEvent(new MouseEvent('mousedown', {bubbles: true, clientX: x, clientY: y}));
+            document.body.dispatchEvent(new MouseEvent('mousemove', {bubbles: true, clientX: x + 120, clientY: y}));
+            document.body.dispatchEvent(new MouseEvent('mouseup', {bubbles: true, clientX: x + 120, clientY: y}));
+        })()""")
+        dragged = json.loads(self.js(widths))
+        self.assertEqual(dragged, {**fitted, "1": fitted["1"] + 120})
+
+        self.js("window.redraws = 0; const redraw = table.redraw.bind(table);"
+                "table.redraw = (...args) => { window.redraws++; return redraw(...args); }")
+        self.view.resize(900, 800)
+        self.wait_for("window.redraws > 0")
+        self.assertEqual(json.loads(self.js(widths)), dragged)
+
+        rows = [{**row, "2": "5" * 60} for row in self.TABLE["rows"]]
+        self.js(f"handleServerEvent({{type: 'state_updated', metadata: {json.dumps(rows)},"
+                f" columns: {json.dumps(self.TABLE['columns'])}, types: {json.dumps(self.TABLE['types'])},"
+                " selected_indices: [], visible_mask: [true, true]})")
+        self.wait_for(f"table.getRows()[0].getCell('2').getValue() === '{'5' * 60}'"
+                      f" && table.getColumn('2').getWidth() > {fitted['2']}")
+        updated = json.loads(self.js(widths))
+        self.assertEqual(updated["1"], dragged["1"])
+        self.assertEqual(updated["Node ID"], dragged["Node ID"])
+
+    def test_a_moved_column_keeps_its_place(self):
+        """A Viewer update rebuilds the columns, once in the Viewer's order each
+        time, putting back a column the user moved. A moved column keeps its
+        place, and one an undo brings back returns to it. A column new to the
+        page goes before the next column the Viewer lists that the page has, so
+        one the Viewer adds last comes last."""
+        types = {"1": "number", "2": "text", "3": "text", "4": "text", "5": "text"}
+        self.open({**self.TABLE, "columns": ["Node ID", "1", "2", "3"], "types": types})
+        order = "JSON.stringify(table.getColumns().map(c => c.getField() || '#'))"
+
+        def update(*columns):
+            self.js(f"handleServerEvent({{type: 'state_updated', metadata: {json.dumps(self.TABLE['rows'])},"
+                    f" columns: {json.dumps(['Node ID', *columns])}, types: {json.dumps(types)},"
+                    " selected_indices: [], visible_mask: [true, true]})")
+            self.wait_for("!isEditingFromVispy")  # The handler has rebuilt the columns.
+            return json.loads(self.js(order))
+
+        self.js("table.moveColumn('3', '1', false)")
+        self.assertEqual(json.loads(self.js(order)), ["#", "Node ID", "3", "1", "2"])
+        self.assertEqual(update("1", "2", "3"), ["#", "Node ID", "3", "1", "2"])
+        # Deleted, then brought back by an undo where the Viewer had it.
+        self.assertEqual(update("1", "2"), ["#", "Node ID", "1", "2"])
+        self.assertEqual(update("1", "2", "3"), ["#", "Node ID", "3", "1", "2"])
+        # An import adds 4 last; 5 comes before 2, which the Viewer lists after it.
+        self.assertEqual(update("1", "2", "3", "4"), ["#", "Node ID", "3", "1", "2", "4"])
+        self.assertEqual(update("1", "5", "2", "3", "4"), ["#", "Node ID", "3", "1", "5", "2", "4"])
+        # Dropped before the row numbers, a column goes behind Sequence Header, and stays there.
+        self.js("table.moveColumn('4', table.getColumns()[0], false)")
+        moved = ["#", "Node ID", "4", "3", "1", "5", "2"]
+        self.assertEqual(json.loads(self.js(order)), moved)
+        self.assertEqual(update("1", "5", "2", "3", "4"), moved)
+
+    def test_a_second_init_refreshes_the_page(self):
+        """The Viewer sends init each time the page connects to it, again after a
+        lost connection. The page shows the new init's data in its one table, a
+        column the user moved keeps its place, and a button or shortcut still
+        sends its action once, not once for each init."""
+        self.open(self.TABLE)
+        self.js("table.moveColumn('2', '1', false)")
+        again = {**self.TABLE, "columns": ["Node ID", "1", "2", "3"], "types": {**self.TABLE["types"], "3": "text"},
+                 "rows": [{**row, "3": "9"} for row in self.TABLE["rows"]]}
+        self.js(f"handleServerEvent({{type: 'init', data: {json.dumps(again)}}})")
+        self.wait_for("!isEditingFromVispy && table.getColumn('3') !== false"
+                      " && table.getRows()[0].getCell('3').getValue() === '9'")
+        self.assertEqual(json.loads(self.js("JSON.stringify(table.getColumns().map(c => c.getField() || '#'))")),
+                         ["#", "Node ID", "2", "1", "3"])
+        self.assertEqual(self.js("Tabulator.registry.tables.length"), 1)
+
+        self.actions.clear()
+        self.js("document.getElementById('import-btn').click()")
+        self.js("document.body.dispatchEvent(new KeyboardEvent('keydown', {key: 'z', ctrlKey: true, bubbles: true}))")
+        deadline = time.monotonic() + 5
+        while len(self.actions) < 2 and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.02)
+        settled = time.monotonic() + 0.3  # A second request for either arrives too.
+        while time.monotonic() < settled:
+            self.app.processEvents()
+            time.sleep(0.02)
+        self.assertCountEqual(self.actions, [{"action": "import_metadata"}, {"action": "metadata_undo"}])
+
     def test_the_theme_is_the_agent_pages(self):
         """The page keeps its theme as ssn_theme, as the Agent page does: it opens
         in the theme chosen last on either page, and while both are open a choice

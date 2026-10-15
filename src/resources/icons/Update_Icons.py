@@ -51,8 +51,9 @@ ICONS = (
     # Viewer sidebar
     "bot", "chart-column", "panel-right-close", "panel-right-open",
     # Viewer web pages (agent.html, meta.html, attachments.js)
-    "camera", "check", "copy", "download", "eye", "eye-off", "loader-circle", "menu", "moon",
-    "mouse-pointer", "plus", "redo-2", "save", "send", "sun", "trash-2", "undo-2", "upload", "x",
+    "brush-cleaning", "camera", "check", "copy", "download", "eye", "eye-off", "loader-circle", "menu",
+    "moon", "mouse-pointer", "plus", "redo-2", "save", "send", "sheet", "sun", "trash-2", "undo-2",
+    "upload", "x",
 )
 
 ALLOWED_ELEMENTS = {"svg", "path", "circle", "rect", "line", "polyline", "polygon", "ellipse"}

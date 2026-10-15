@@ -345,6 +345,15 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **A fuller Help on the Meta Data page.** The dialog is wider (880 px; one column in a
+  narrow window) and covers the whole page: each filter's rules beside its TXT or NUM
+  badge, with whole-value wildcards, letter case, range ends, nested parentheses and
+  operator precedence, cells without a number and filters that match nothing; sorting,
+  resizing, moving, editing, undo and redo (the Viewer's history), deleting a column and
+  copying; the Import file's layout and what Export saves; and how the table follows the
+  Viewer's selection, clicks and hidden nodes.
+- The Agent page is titled **EMAP-SSN Agent (Beta)**, and Clear Chat is a broom icon
+  button whose name shows on hover.
 - **Text on Windows is drawn without hinting.** Config, VR Config, Tools and the Viewer's
   panels draw their text unhinted on Windows, as the Script Description and the Viewer's
   web pages already did, so the bundled fonts look alike in both. Hinting had snapped
@@ -831,6 +840,18 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- A column width dragged on the Meta Data page snapped back whenever the browser window
+  was resized: the spreadsheet fitted every column to its contents again at each redraw.
+  Columns now keep their widths through resizes, and a dragged width also outlasts the
+  Viewer's updates of the table (after a command, an undo or an import), while the other
+  columns still fit their new values.
+- A metadata column moved on the Meta Data page went back to the Viewer's order at the
+  Viewer's next update of the table. It now keeps its place, and a column deleted and
+  brought back by an undo returns to where it was; columns an import or a command adds
+  come last.
+- After the Meta Data page lost its connection to the Viewer and reconnected, its buttons,
+  such as Import, and its Ctrl+Z and Ctrl+Y shortcuts sent their action once more for each
+  reconnect. A reconnect now refreshes the table the page already shows.
 - A switch with keyboard focus, such as Low Resource Mode, showed only part of its focus
   ring when it sat at the start of a field column; the ring is whole now.
 - A dropdown with few entries, such as Alignment Score Mode, showed one and a half of

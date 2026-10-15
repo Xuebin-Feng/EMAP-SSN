@@ -69,10 +69,8 @@
         <translation type="unfinished">无法确认是否已提交。点击“发送”可重试同一条消息。草稿已保留。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent.html" line="+22"/>
-        <location line="+952"/>
         <source>EMAP-SSN Agent Chat</source>
-        <translation type="unfinished">EMAP-SSN 智能体对话</translation>
+        <translation type="obsolete">EMAP-SSN 智能体对话</translation>
     </message>
     <message>
         <source>🤖 EMAP-SSN Agent Chat</source>
@@ -83,7 +81,7 @@
         <translation type="obsolete">🌙 深色模式</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location filename="../../../web_ui/agent.html" line="+978"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -119,6 +117,7 @@
     </message>
     <message>
         <location line="+1"/>
+        <location line="+0"/>
         <source>Clear Chat</source>
         <translation type="unfinished">清空对话</translation>
     </message>
@@ -245,7 +244,13 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-231"/>
+        <location line="-1186"/>
+        <location line="+953"/>
+        <source>EMAP-SSN Agent (Beta)</source>
+        <translation type="unfinished">EMAP-SSN 智能体（测试版）</translation>
+    </message>
+    <message>
+        <location line="+2"/>
         <location line="+147"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
@@ -581,23 +586,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3058"/>
+        <location line="+3178"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3057"/>
+        <location line="-3177"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3567"/>
+        <location line="+3687"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3559"/>
+        <location line="-3679"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -620,7 +625,7 @@
         <translation type="obsolete">关闭</translation>
     </message>
     <message>
-        <location line="+720"/>
+        <location line="+726"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -636,12 +641,12 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3059"/>
+        <location line="+3173"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3056"/>
+        <location line="-3170"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -666,7 +671,7 @@
         <translation type="unfinished">选择 FASTA 子集和 HDF5 网络文件，然后点击计算。</translation>
     </message>
     <message>
-        <location line="+216"/>
+        <location line="+227"/>
         <source>New profile name</source>
         <translation type="unfinished">新配置方案名称</translation>
     </message>
@@ -682,12 +687,12 @@
     </message>
     <message>
         <location line="+221"/>
-        <location line="+1869"/>
+        <location line="+1972"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-1788"/>
+        <location line="-1891"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -704,7 +709,7 @@
 {error}</translation>
     </message>
     <message>
-        <location line="+174"/>
+        <location line="+170"/>
         <source>Running Consistency Check...</source>
         <translation type="unfinished">正在运行一致性检查…</translation>
     </message>
@@ -1169,31 +1174,31 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
 默认使用 $cache_file$，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="+139"/>
-        <location line="+214"/>
+        <location line="+141"/>
+        <location line="+257"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
     </message>
     <message>
-        <location line="-93"/>
+        <location line="-127"/>
         <source>Target Cache: Missing input files</source>
         <translation type="unfinished">目标缓存：缺少输入文件</translation>
     </message>
     <message>
-        <location line="+30"/>
-        <location line="+127"/>
+        <location line="+63"/>
+        <location line="+133"/>
         <source>Cache compatibility error: {error}</source>
         <translation type="unfinished">缓存兼容性错误：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="-110"/>
+        <location line="-103"/>
         <source>Error: %n compatible cache folder(s) found</source>
         <translation type="unfinished">
             <numerusform>错误：找到 %n 个兼容的缓存文件夹</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+18"/>
         <source>Compatible Folder: {folder}</source>
         <translation type="unfinished">兼容文件夹：{folder}</translation>
     </message>
@@ -1208,7 +1213,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">缓存哈希计算失败：{error}</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+17"/>
         <source>Target Cache: Missing FASTA or HDF5</source>
         <translation type="unfinished">目标缓存：缺少 FASTA 或 HDF5</translation>
     </message>
@@ -1228,7 +1233,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">正在检查输入文件…</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+105"/>
         <location line="+1257"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
@@ -1399,7 +1404,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-2341"/>
+        <location line="-2455"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1498,14 +1503,14 @@ Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &a
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+1182"/>
+        <location line="+1189"/>
         <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
 Significantly improves responsiveness and reduces rendering latency for large networks.</source>
         <translation type="unfinished">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+578"/>
+        <location line="+685"/>
         <source>global (Needleman-Wunsch)</source>
         <comment>alignment score mode</comment>
         <translation type="unfinished">全局（Needleman-Wunsch）</translation>
@@ -1763,12 +1768,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
     </message>
     <message>
         <location line="+13"/>
-        <location line="+99"/>
+        <location line="+120"/>
         <source>A unique compatible cache folder has not been resolved.</source>
         <translation type="unfinished">尚未确定唯一的兼容缓存文件夹。</translation>
     </message>
     <message>
-        <location line="-44"/>
+        <location line="-65"/>
         <source>JSON Files (*.json)</source>
         <translation type="unfinished">JSON 文件 (*.json)</translation>
     </message>
@@ -1796,7 +1801,7 @@ Command-line usage:
         <translation type="unfinished">导出布局设置出错</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+32"/>
         <source>Layout Device Unavailable</source>
         <translation type="unfinished">布局设备不可用</translation>
     </message>
@@ -3807,7 +3812,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-3873"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4008"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -3849,7 +3854,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+982"/>
+        <location line="+993"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -3909,12 +3914,12 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1241"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1242"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+701"/>
+        <location line="+707"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -5734,7 +5739,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">上限 {length}</translation>
     </message>
     <message>
-        <location line="+128"/>
+        <location line="+133"/>
         <source>Sequence length (amino acids)</source>
         <translation type="unfinished">序列长度（氨基酸数）</translation>
     </message>
@@ -5760,7 +5765,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">+ 导入</translation>
     </message>
     <message>
-        <location line="+704"/>
+        <location line="+766"/>
         <source>Export Spreadsheet (CSV / Excel)</source>
         <translation type="unfinished">导出电子表格（CSV / Excel）</translation>
     </message>
@@ -5797,16 +5802,18 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+41"/>
+        <location line="+701"/>
         <source>NUM</source>
         <translation type="unfinished">数值</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-700"/>
+        <location line="+690"/>
         <source>TXT</source>
         <translation type="unfinished">文本</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="-635"/>
         <location line="+1"/>
         <source>Delete metadata column {column}</source>
         <translation type="unfinished">删除元数据列 {column}</translation>
@@ -5817,12 +5824,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">要删除元数据列“{column}”吗？</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+74"/>
         <source>Sequence Header</source>
         <translation type="unfinished">序列标题</translation>
     </message>
     <message>
-        <location line="+186"/>
+        <location line="+185"/>
         <source>Connected</source>
         <translation type="unfinished">已连接</translation>
     </message>
@@ -5832,12 +5839,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+44"/>
         <source>Metadata operation failed.</source>
         <translation type="unfinished">元数据操作失败。</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+45"/>
         <source>No network data loaded</source>
         <translation type="unfinished">未加载网络数据</translation>
     </message>
@@ -5846,7 +5853,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">🔍 搜索过滤规则</translation>
     </message>
     <message>
-        <location line="-399"/>
+        <location line="-471"/>
         <source>EMAP-SSN Metadata Spreadsheet</source>
         <translation type="unfinished">EMAP-SSN 元数据电子表格</translation>
     </message>
@@ -5872,32 +5879,47 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+300"/>
+        <location line="+351"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="-299"/>
+        <location line="-350"/>
         <source>Help</source>
         <translation type="unfinished">帮助</translation>
     </message>
     <message>
-        <location line="+299"/>
+        <location line="+350"/>
         <source>Light Mode</source>
         <translation type="unfinished">浅色模式</translation>
     </message>
     <message>
-        <location line="+349"/>
+        <location line="+379"/>
         <source>Search Filter Rules</source>
         <translation type="unfinished">搜索过滤规则</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-4"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
+        <location line="-1"/>
+        <source>Metadata Spreadsheet Help</source>
+        <translation type="unfinished">元数据电子表格帮助</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The table holds the metadata of the network&apos;s nodes, one row per node. Filter, sort and edit it here; each edit goes straight to the Viewer, where commands such as &lt;code&gt;spectrum&lt;/code&gt; and &lt;code&gt;meta show&lt;/code&gt; use it.</source>
+        <translation type="unfinished">此表列出网络中各节点的元数据，每个节点一行。可在此过滤、排序和编辑；每次编辑都会直接传给查看器，供 &lt;code&gt;spectrum&lt;/code&gt;、&lt;code&gt;meta show&lt;/code&gt; 等命令使用。</translation>
+    </message>
+    <message>
         <location line="+4"/>
+        <source>Type in the box under a column&apos;s name to show only the rows that match. Filters in several columns work together: a row shows only when it matches all of them.</source>
+        <translation type="unfinished">在列名下方的输入框中输入内容，即可只显示匹配的行。多列的过滤条件同时生效：一行须匹配全部条件才会显示。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Text / Sequence Header Columns:</source>
         <translation type="unfinished">文本列/序列标题列：</translation>
     </message>
@@ -5912,6 +5934,16 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">&lt;strong&gt;通配符匹配&lt;/strong&gt;：用 &lt;code&gt;*&lt;/code&gt; 表示零个或多个字符，用 &lt;code&gt;?&lt;/code&gt; 表示单个字符（如 &lt;code&gt;*coli*&lt;/code&gt;、&lt;code&gt;b*subtilis&lt;/code&gt; 或 &lt;code&gt;node?&lt;/code&gt;）。</translation>
     </message>
     <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Whole Value&lt;/strong&gt;: A pattern with a wildcard must match the whole value, so &lt;code&gt;coli*&lt;/code&gt; finds only values that start with “coli”.</source>
+        <translation type="unfinished">&lt;strong&gt;整值匹配&lt;/strong&gt;：含通配符的模式须匹配整个值，因此 &lt;code&gt;coli*&lt;/code&gt; 只会找到以“coli”开头的值。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Letter Case&lt;/strong&gt;: Ignored, so &lt;code&gt;bacillus&lt;/code&gt; also finds “Bacillus”.</source>
+        <translation type="unfinished">&lt;strong&gt;大小写&lt;/strong&gt;：不区分，因此 &lt;code&gt;bacillus&lt;/code&gt; 也能找到“Bacillus”。</translation>
+    </message>
+    <message>
         <location line="+5"/>
         <source>Numerical Columns (e.g. Length):</source>
         <translation type="unfinished">数值列（如 Length）：</translation>
@@ -5920,6 +5952,11 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+2"/>
         <source>&lt;strong&gt;Range&lt;/strong&gt;: Format &lt;code&gt;min-max&lt;/code&gt; (e.g. &lt;code&gt;100-300&lt;/code&gt;).</source>
         <translation type="unfinished">&lt;strong&gt;范围&lt;/strong&gt;：格式为 &lt;code&gt;min-max&lt;/code&gt;（如 &lt;code&gt;100-300&lt;/code&gt;）。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Range Ends&lt;/strong&gt;: Both are included, and either may be negative or a decimal (e.g. &lt;code&gt;-2.5-0&lt;/code&gt;).</source>
+        <translation type="unfinished">&lt;strong&gt;范围端点&lt;/strong&gt;：包含两端，且任一端都可以是负数或小数（如 &lt;code&gt;-2.5-0&lt;/code&gt;）。</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -5977,7 +6014,82 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">&lt;code&gt;^&lt;/code&gt;（异或）：如 &lt;code&gt;(&amp;gt;100)^(&amp;gt;200)&lt;/code&gt;</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+1"/>
+        <source>Parentheses can nest: &lt;code&gt;((&amp;gt;=1)&amp;amp;(&amp;lt;5))|(&amp;gt;100)&lt;/code&gt;</source>
+        <translation type="unfinished">括号可以嵌套：&lt;code&gt;((&amp;gt;=1)&amp;amp;(&amp;lt;5))|(&amp;gt;100)&lt;/code&gt;</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Where parentheses don&apos;t group them, &lt;code&gt;&amp;amp;&lt;/code&gt; applies first, then &lt;code&gt;^&lt;/code&gt;, then &lt;code&gt;|&lt;/code&gt;.</source>
+        <translation type="unfinished">没有括号分组时，先计算 &lt;code&gt;&amp;amp;&lt;/code&gt;，再计算 &lt;code&gt;^&lt;/code&gt;，最后计算 &lt;code&gt;|&lt;/code&gt;。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>&lt;strong&gt;Empty Cells&lt;/strong&gt;: A cell without a number never matches a number filter.</source>
+        <translation type="unfinished">&lt;strong&gt;空单元格&lt;/strong&gt;：没有数值的单元格永远不匹配数值过滤条件。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Unreadable Filters&lt;/strong&gt;: A filter in none of these forms, such as &lt;code&gt;abc&lt;/code&gt;, matches no row.</source>
+        <translation type="unfinished">&lt;strong&gt;无法识别的过滤条件&lt;/strong&gt;：不符合上述任何格式的过滤条件（如 &lt;code&gt;abc&lt;/code&gt;）不匹配任何行。</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Working with the Table</source>
+        <translation type="unfinished">使用表格</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>&lt;strong&gt;Sort:&lt;/strong&gt; Click a column&apos;s name to sort by it. Click again to reverse the order, and a third time to return to the Viewer&apos;s order.</source>
+        <translation type="unfinished">&lt;strong&gt;排序：&lt;/strong&gt;点击列名按该列排序。再次点击反转顺序，第三次点击恢复查看器中的顺序。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Resize:&lt;/strong&gt; Drag the right edge of a column&apos;s header. The column keeps that width when the window is resized and when the Viewer updates the table.</source>
+        <translation type="unfinished">&lt;strong&gt;调整列宽：&lt;/strong&gt;拖动表头的右边缘。窗口大小改变或查看器更新表格时，该列保持此宽度。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Edit:&lt;/strong&gt; Double-click a cell in a metadata column, type, and press Enter, or Esc to cancel. A number column takes only numbers, and Sequence Header can&apos;t be edited.</source>
+        <translation type="unfinished">&lt;strong&gt;编辑：&lt;/strong&gt;双击元数据列中的单元格，输入后按 Enter 确认，按 Esc 取消。数值列只接受数字，序列标题列不可编辑。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Move:&lt;/strong&gt; Drag a metadata column&apos;s header sideways. The row numbers and Sequence Header stay first.</source>
+        <translation type="unfinished">&lt;strong&gt;移动：&lt;/strong&gt;左右拖动元数据列的表头。行号和序列标题列始终位于最前。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Undo and Redo:&lt;/strong&gt; Ctrl+Z and Ctrl+Y, or the buttons above, step through the Viewer&apos;s history, which holds its commands as well as the edits made here.</source>
+        <translation type="unfinished">&lt;strong&gt;撤销与重做：&lt;/strong&gt;Ctrl+Z 和 Ctrl+Y（或上方的按钮）在查看器的历史记录中前后移动，其中既有查看器的命令，也有在此所做的编辑。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Delete a Column:&lt;/strong&gt; Click the X in its header. The page asks first, and Undo brings the column back.</source>
+        <translation type="unfinished">&lt;strong&gt;删除列：&lt;/strong&gt;点击表头中的 X。页面会先确认，撤销可恢复该列。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Copy:&lt;/strong&gt; Drag across cells to select them, then press Ctrl+C. The values are copied tab-separated, ready to paste into a spreadsheet.</source>
+        <translation type="unfinished">&lt;strong&gt;复制：&lt;/strong&gt;拖动选中单元格，然后按 Ctrl+C。各值以制表符分隔复制，可直接粘贴到电子表格中。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Import and Export</source>
+        <translation type="unfinished">导入与导出</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>&lt;strong&gt;Import:&lt;/strong&gt; Merges a CSV or Excel file into the table. Row 1 holds the column names (letters, digits, &lt;code&gt;_&lt;/code&gt;, &lt;code&gt;-&lt;/code&gt; and &lt;code&gt;.&lt;/code&gt;), row 2 each column&apos;s type (&lt;code&gt;number&lt;/code&gt; or &lt;code&gt;text&lt;/code&gt;), and every later row a sequence header in column A followed by its values. A row whose header matches no node is skipped; &lt;code&gt;docs/metadata_template.xlsx&lt;/code&gt; shows the layout.</source>
+        <translation type="unfinished">&lt;strong&gt;导入：&lt;/strong&gt;将 CSV 或 Excel 文件合并到表格中。第 1 行为列名（字母、数字、&lt;code&gt;_&lt;/code&gt;、&lt;code&gt;-&lt;/code&gt; 和 &lt;code&gt;.&lt;/code&gt;），第 2 行为各列的类型（&lt;code&gt;number&lt;/code&gt; 或 &lt;code&gt;text&lt;/code&gt;），之后每行在 A 列写序列标题，其后为该序列的值。标题与任何节点都不匹配的行会被跳过；格式可参考 &lt;code&gt;docs/metadata_template.xlsx&lt;/code&gt;。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Export:&lt;/strong&gt; Saves the metadata of every node that has a value, as CSV or Excel, in the layout Import reads. The filters and the Viewer&apos;s selection don&apos;t limit it.</source>
+        <translation type="unfinished">&lt;strong&gt;导出：&lt;/strong&gt;以 CSV 或 Excel 格式保存所有有值节点的元数据，格式与导入所读取的相同。不受过滤条件和查看器中选中节点的限制。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Interaction Rules</source>
         <translation type="unfinished">交互规则</translation>
     </message>
@@ -5994,6 +6106,16 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+1"/>
         <source>&lt;strong&gt;Node Click Highlighting:&lt;/strong&gt; Left-clicking an individual node in the network viewer will automatically locate, highlight, and scroll to its corresponding entry in the spreadsheet.</source>
         <translation type="unfinished">&lt;strong&gt;点击节点高亮：&lt;/strong&gt;在网络查看器中左键点击某个节点时，会自动在电子表格中定位、高亮并滚动到对应的条目。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Sequence Header Clicks:&lt;/strong&gt; Clicking a cell in Sequence Header selects its node in the Viewer, as a left-click on the node does. Clicking an empty part of this page clears it.</source>
+        <translation type="unfinished">&lt;strong&gt;点击序列标题：&lt;/strong&gt;点击序列标题列中的单元格会在查看器中选中对应节点，效果与左键点击该节点相同。点击本页的空白处可取消选中。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>&lt;strong&gt;Hidden Nodes:&lt;/strong&gt; Nodes hidden in the Viewer leave the table until they are shown again.</source>
+        <translation type="unfinished">&lt;strong&gt;隐藏节点：&lt;/strong&gt;在查看器中隐藏的节点不会出现在表格中，直到再次显示。</translation>
     </message>
     <message>
         <location line="+5"/>
@@ -8212,7 +8334,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2301"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2307"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8236,7 +8358,7 @@ Fedora / RHEL：
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1718"/>
+        <location line="+1724"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
