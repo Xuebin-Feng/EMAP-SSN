@@ -3,6 +3,8 @@ import json
 import pathlib
 import sys
 import tempfile
+import time
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -1595,6 +1597,9 @@ class CacheDiscoveryRaceTests(unittest.TestCase):
     the worker's late result was cached under the newly selected files and
     shown for them. Here each worker hashes only when a test finishes it, on
     the test's thread, so every interleaving is deterministic.
+
+    Nor does a check that ends in Save & Run's pause after a click, which
+    keeps a double click from launching twice, cut the pause short or outlast it.
     """
 
     @classmethod
@@ -1797,6 +1802,62 @@ class CacheDiscoveryRaceTests(unittest.TestCase):
                 self.assertIn(hashing.request_id, self.interrupted)
                 self._finish(hashing)
                 self.assertEqual(self._tracker(), message)
+
+    def test_a_double_click_on_save_and_run_launches_once_and_the_button_comes_back(self):
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+
+        self._select("a.fasta")
+        self._finish(self.workers[-1])
+        self.window.show()
+        button = self.window.btn_save_run
+        self.assertTrue(button.isEnabled())
+
+        self.assertEqual(self.namespace["CONFIG_RUN_BUTTON_PAUSE_MS"], 1000)
+        with mock.patch.object(self.window, "save_and_run") as save_and_run, \
+                mock.patch.dict(self.namespace, {"CONFIG_RUN_BUTTON_PAUSE_MS": 150}):
+            started = time.monotonic()
+            QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+            QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+            save_and_run.assert_called_once_with()
+            self.assertFalse(button.isEnabled())
+            deadline = started + 5.0
+            while not button.isEnabled() and time.monotonic() < deadline:
+                QTest.qWait(10)
+            self.assertTrue(button.isEnabled())
+            self.assertGreaterEqual(time.monotonic() - started, 0.14)
+            QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+            self.assertEqual(save_and_run.call_count, 2)
+
+    def test_a_cache_check_ending_in_the_pause_neither_ends_it_nor_outlasts_it(self):
+        self._select("a.fasta")
+        self._finish(self.workers[-1])
+        button = self.window.btn_save_run
+        timers = []
+        # The pause ends when the test says, not on a clock.
+        stand_in = SimpleNamespace(singleShot=lambda *args: timers.append(args))
+        with mock.patch.object(self.window, "save_and_run"), \
+                mock.patch.dict(self.namespace, {"QTimer": stand_in}):
+            button.click()
+            [(pause, context, end_pause)] = timers
+            self.assertEqual((pause, context), (1000, button))
+            self.assertFalse(button.isEnabled())
+
+            # b.fasta is hashed, and its cache found, before the pause ends.
+            self._select("b.fasta")
+            self._finish(self.workers[-1])
+            self.assertEqual(self._tracker(), self._shown("b.fasta"))
+            self.assertFalse(button.isEnabled())
+            end_pause()
+            self.assertTrue(button.isEnabled())
+
+            # The inputs are cleared in the next pause: the button stays grey after it.
+            button.click()
+            end_pause = timers[-1][2]
+            self._select("")
+            self.assertEqual(self._tracker(), "Target Cache: Missing FASTA or HDF5")
+            end_pause()
+            self.assertFalse(button.isEnabled())
 
 
 class TipPanelStatusLockTests(unittest.TestCase):

@@ -220,6 +220,9 @@ CONFIG_TAB_ROW_SPACING = 12
 CONFIG_FIELD_HORIZONTAL_SPACING = 12
 CONFIG_SEPARATOR_THICKNESS = 2  # the theme's separator_thickness (desktop.Studio_Theme.GEOMETRY)
 CONFIG_SEPARATOR_PADDING = 24
+# How long Save & Run stays greyed out once clicked, in ms, so a double click
+# launches once; as a tool's Save & Run (EMAPSSN_Tools.RUN_BUTTON_PAUSE_MS).
+CONFIG_RUN_BUTTON_PAUSE_MS = 1000
 # A colour swatch: its colour, framed by a hairline that shows on white and on dark colours.
 SWATCH_STYLESHEET = (
     "background-color: {color}; border: 1px solid rgba(9, 9, 11, 0.16); border-radius: 5px;"
@@ -627,7 +630,7 @@ if __name__ == "__main__":
         status_color,
         theme_color,
     )
-    from PySide6.QtCore import Qt, QSize, QUrl, QThread, Signal
+    from PySide6.QtCore import Qt, QSize, QUrl, QThread, QTimer, Signal
     from PySide6.QtGui import (
         QColor,
         QDesktopServices,
@@ -952,7 +955,7 @@ if __name__ == "__main__":
             self.btn_check.clicked.connect(self.run_consistency_check)
             
             self.btn_save_run = QPushButton(translate("Config", "Save && Run"))
-            self.btn_save_run.clicked.connect(self.save_and_run)
+            self.btn_save_run.clicked.connect(self._save_and_run_from_button)
             set_role(self.btn_save_run, "primary")
 
             self.btn_export_layout = QPushButton(translate("Config", "Export Layout Settings"))
@@ -1032,6 +1035,7 @@ if __name__ == "__main__":
             self._cache_hash_workers = {}
             self._cache_hash_pending_keys = None
             self._cache_launch_allowed = False
+            self._save_run_paused = False  # in the pause after a click (_save_and_run_from_button)
             self._last_duplicate_signature = None
             self._scoring_hidden_by_blast = None
             self._statistics = None  # what the statistics report shows (show_statistics)
@@ -2102,7 +2106,7 @@ if __name__ == "__main__":
         def _set_cache_unavailable(self, message, status="subtle"):
             self._carried_cache_choice = None
             self._cache_launch_allowed = False
-            self.btn_save_run.setEnabled(False)
+            self._update_save_run_button()
             self.current_cache_folder = None
             self._show_cache_status(message, status)
             self.cb_cache_file.blockSignals(True)
@@ -2222,7 +2226,7 @@ if __name__ == "__main__":
                 folders = tuple(item["folder"] for item in matches)
                 self.current_cache_folder = None
                 self._cache_launch_allowed = False
-                self.btn_save_run.setEnabled(False)
+                self._update_save_run_button()
                 self.cb_cache_file.setEnabled(False)
                 self._toggle_new_cache_input()
                 self.btn_open_target_folder.setEnabled(False)
@@ -2277,7 +2281,7 @@ if __name__ == "__main__":
             self.cb_cache_file.setCurrentIndex(0)
             self.cb_cache_file.blockSignals(False)
             self._cache_launch_allowed = True
-            self.btn_save_run.setEnabled(True)
+            self._update_save_run_button()
             self._toggle_new_cache_input()
             self._apply_carried_cache_choice()
 
@@ -4043,6 +4047,27 @@ if __name__ == "__main__":
                 QMessageBox.critical(
                     self, translate("Config", "Export Layout Settings Error"), display_text(error)
                 )
+
+        def _update_save_run_button(self):
+            """Save & Run is on while a cache can be launched, except in the pause after a click."""
+            self.btn_save_run.setEnabled(self._cache_launch_allowed and not self._save_run_paused)
+
+        def _save_and_run_from_button(self):
+            """Save & Run from its button, greyed out for CONFIG_RUN_BUTTON_PAUSE_MS.
+
+            It greys out before the Viewer starts, so the second click of a double
+            click, queued meanwhile, reaches a disabled button and is dropped. A
+            cache check that ends in the pause leaves the button grey until it ends.
+            """
+            self._save_run_paused = True
+            self._update_save_run_button()
+            # Timed on the button, so the timer goes with it if the window closes first.
+            QTimer.singleShot(CONFIG_RUN_BUTTON_PAUSE_MS, self.btn_save_run, self._end_save_run_pause)
+            self.save_and_run()
+
+        def _end_save_run_pause(self):
+            self._save_run_paused = False
+            self._update_save_run_button()
 
         def save_and_run(self):
             if not self.check_umap.isChecked():
