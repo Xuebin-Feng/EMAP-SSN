@@ -45,6 +45,9 @@ Settings:
 - INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS: Whether missing pairs receive replicate-averaged cophenetic distances in the final matrix. Imputed pairs always participate in replicate trees.
 - GAP_OPEN: Penalty scoring for opening gaps in the sequence.
 - DEVICE_SELECTION: Auto-benchmarked or manually selected score-matrix device.
+- SHOW_REGRESSION_PLOT: For a sparse network, shows the isotonic regression fit over the observed pairs as a pop-up
+  chart in the Tools window's look (its theme colour, language and window style). Runs with a JSON settings file
+  (including MCP runs) never show it.
 
 Algorithm:
 1. Loads IDs from all three inputs and computes the mathematical intersection set.
@@ -85,8 +88,10 @@ from scipy.stats import spearmanr
 from sklearn.metrics import r2_score
 
 from Cache_Manifest import validate_network_schema
+from utilities.Localization import Message, set_translator
 from utilities.Sequence_Utils import load_sanitized_fasta
 from utilities.HDF5_Storage import read_embedding_manifest
+from tools.tool_helpers import Tool_Charts
 
 
 # ==========================================
@@ -1260,6 +1265,149 @@ def merge_clusters(cluster_a, cluster_b, path, emb_a, emb_b):
     return new_cluster
 
 # ==========================================
+# REGRESSION CHART
+# ==========================================
+# The regression chart's title, which names its window too.
+_REGRESSION_TITLE = Message("Isotonic Regression Fit")
+# The shades of the pairs' hexagons, from one pair to the most: the Tools
+# theme's (Studio_Theme tokens), from the statistics report's histogram tint
+# to the theme colour's darkest text shade.
+_DENSITY_SHADES = ("histogram", "separator", "accent", "accent_text")
+# Hexagons across and up the plot; for a 10 x 6 inch window's plot, about
+# twice as wide as it is tall, these keep them about regular.
+_DENSITY_GRID = (64, 20)
+# The fit's line, in points, and the ring in the chart's surface colour
+# around it, which keeps it apart from the hexagons it crosses.
+_FIT_WIDTH = 2.25
+_FIT_RING = 2.0
+
+
+def regression_statistics(rho, r2, pairs):
+    """One line on the fit: Spearman's rho, R² and how many observed pairs they were measured on.
+
+    A Message: str() is the English line, and display() the chart's, in the
+    Tools window's language. The numbers come formatted as the terminal's
+    fit diagnostics print them, the count with thousands separators.
+    """
+    numbers = {"rho": f"{rho:.4f}", "r2": f"{r2:.4f}", "count": f"{pairs:,}"}
+    if pairs == 1:
+        return Message("Spearman ρ {rho} · R² {r2} · {count} observed pair", **numbers)
+    return Message("Spearman ρ {rho} · R² {r2} · {count} observed pairs", **numbers)
+
+
+def _count_ticks(top):
+    """The colour bar's ticks for 1 to top pairs: the powers of ten, or 1 and top below 10."""
+    ticks = [10 ** power for power in range(int(np.log10(top)) + 1)]
+    return ticks if len(ticks) > 1 else [1, top]
+
+
+def plot_regression_fit(iso_reg, x, y, rho, r2, pairs):
+    """Show the fit over the observed pairs as a pop-up chart in the Tools window's look.
+
+    x and y are the length-adjusted similarities and normalized scores the
+    fit was made on: every observed pair, or a random sample of them; pairs
+    counts them all. The pairs show as hexagons shaded by how many fall in
+    each, in the Tools window's theme colour. The fit is drawn through its
+    breakpoints (X_thresholds_, y_thresholds_), between which it predicts
+    linearly, so the line is the very function the imputation uses. rho and r2
+    head the chart. Its texts show in the Tools window's language
+    (Tool_Charts.chart_translation), and its window takes the Tools window's
+    style (Tool_Charts.show_chart).
+    """
+    language, translator = Tool_Charts.chart_translation("regression plot")
+    previous = set_translator(translator)
+    try:
+        _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language)
+    finally:
+        set_translator(previous)
+
+
+def _plot_regression_fit(iso_reg, x, y, rho, r2, pairs, language):
+    """plot_regression_fit's chart, its texts in language with the translator installed."""
+    import matplotlib.pyplot as plt
+    from matplotlib import patheffects
+    from matplotlib.colors import LinearSegmentedColormap, LogNorm
+    from matplotlib.lines import Line2D
+    from matplotlib.ticker import FixedLocator, NullLocator, StrMethodFormatter
+    from desktop.Studio_Theme import theme_tokens
+
+    color = Tool_Charts.tools_theme_color()
+    tokens = theme_tokens(color)
+    families = Tool_Charts.plot_font_families(PROJECT_ROOT, language)
+    shades = LinearSegmentedColormap.from_list(
+        "pairs", [tokens[name] for name in _DENSITY_SHADES]
+    )
+    with plt.rc_context(Tool_Charts.chart_style(tokens, families)):
+        # The figure's label names the pop-up window.
+        figure, axes = plt.subplots(
+            num=_REGRESSION_TITLE.display(), figsize=(10, 6), facecolor=tokens["surface"]
+        )
+        axes.set_facecolor(tokens["surface"])
+        # Thin edges in each hexagon's own colour close the hairline seams between them.
+        cells = axes.hexbin(
+            x, y, gridsize=_DENSITY_GRID, mincnt=1, cmap=shades, norm=LogNorm(),
+            linewidths=0.2, edgecolors="face",
+        )
+        # A colour bar needs two counts apart, even when every hexagon holds one pair.
+        top = max(2, int(cells.get_array().max()))
+        cells.set_clim(1, top)
+        ring = [
+            patheffects.Stroke(linewidth=_FIT_WIDTH + 2 * _FIT_RING, foreground=tokens["surface"]),
+            patheffects.Normal(),
+        ]
+        axes.plot(
+            iso_reg.X_thresholds_, iso_reg.y_thresholds_, color=tokens["text"],
+            linewidth=_FIT_WIDTH, solid_joinstyle="round", solid_capstyle="round",
+            path_effects=ring, zorder=3,
+        )
+
+        for side in ("top", "right", "left"):
+            axes.spines[side].set_visible(False)
+        axes.grid(True, color=tokens["border"], linewidth=0.8)
+        axes.set_axisbelow(True)
+        axes.tick_params(axis="y", length=0, pad=6)
+        axes.tick_params(axis="x", length=4)
+        axes.set_xlabel(Message("Length-adjusted embedding cosine similarity").display(), labelpad=8)
+        axes.set_ylabel(Message("Normalized network score").display(), labelpad=8)
+
+        colorbar = figure.colorbar(cells, ax=axes, aspect=40, pad=0.015, fraction=0.03)
+        colorbar.outline.set_visible(False)
+        colorbar.ax.yaxis.set_major_locator(FixedLocator(_count_ticks(top)))
+        colorbar.ax.yaxis.set_minor_locator(NullLocator())
+        colorbar.ax.yaxis.set_major_formatter(StrMethodFormatter("{x:,.0f}"))
+        colorbar.ax.tick_params(length=0, pad=6)
+        colorbar.set_label(Message("Pairs per hexagon").display(), labelpad=8)
+
+        # Above the plot, bottom up: the legend, the statistics line, the title.
+        if len(x) < pairs:
+            observed = Message("Observed pairs (random sample of {count})", count=f"{len(x):,}")
+        else:
+            observed = Message("Observed pairs")
+        keys = [
+            Line2D([], [], linestyle="none", marker="h", markersize=10,
+                   markerfacecolor=shades(0.6), markeredgecolor="none"),
+            Line2D([], [], color=tokens["text"], linewidth=_FIT_WIDTH),
+        ]
+        axes.legend(
+            keys, [observed.display(), Message("Isotonic fit").display()],
+            loc="lower left", bbox_to_anchor=(0, 1), ncols=2, frameon=False,
+            borderaxespad=0.6, borderpad=0, handlelength=1.6, columnspacing=1.8,
+            labelcolor=tokens["text_soft"],
+        )
+        axes.annotate(
+            regression_statistics(rho, r2, pairs).display(), (0, 1), xycoords="axes fraction",
+            xytext=(0, 30), textcoords="offset points", va="bottom",
+            color=tokens["text_muted"],
+        )
+        axes.set_title(
+            _REGRESSION_TITLE.display(), loc="left", pad=50, fontsize=15,
+            fontweight=Tool_Charts.title_weight(families), color=tokens["text"],
+        )
+
+        figure.tight_layout()
+        Tool_Charts.show_chart(figure, color, PROJECT_ROOT)
+
+# ==========================================
 # MAIN EXECUTION
 # ==========================================
 def report_processing_times(
@@ -1572,37 +1720,12 @@ def run_msa_builder():
         print(f"  > Spearman Rank Correlation (rho): {rho:.4f}")
         print(f"  > Coefficient of Determination (R^2): {r2:.4f}")
 
-        # ==========================================
-        # TEMPORARY PLOTTING SECTION (EASY TO REMOVE)
-        # ==========================================
         if SHOW_REGRESSION_PLOT:
             try:
-                import matplotlib.pyplot as plt
                 print("Displaying Isotonic Regression plot. Close the plot window to continue...")
-                plt.figure(figsize=(10, 6))
-                
-                plot_sample_size = min(len(X_cos), 5000)
-                np.random.seed(42)
-                plot_idx = np.random.choice(len(X_cos), size=plot_sample_size, replace=False)
-                
-                plt.scatter(X_cos[plot_idx], Y_align[plot_idx], color='blue', alpha=0.3, label='Edges (Sample)', s=5)
-                
-                x_line = np.linspace(np.min(X_cos), np.max(X_cos), 1000)
-                y_line = iso_reg.predict(x_line)
-                plt.plot(x_line, y_line, color='red', linewidth=3, label='Isotonic Fit')
-                
-                plt.title(f"Isotonic Regression Fit (Spearman rho = {rho:.4f}, R^2 = {r2:.4f})")
-                plt.xlabel("Length-Adjusted Embedding Cosine Similarity")
-                plt.ylabel("Normalized Network Score")
-                plt.legend()
-                plt.grid(True, linestyle='--', alpha=0.5)
-                plt.tight_layout()
-                plt.show()
+                plot_regression_fit(iso_reg, X_fit, Y_fit, rho, r2, len(X_cos))
             except Exception as plot_err:
                 print(f"Could not open plot window: {plot_err}")
-        # ==========================================
-        # END OF TEMPORARY PLOTTING SECTION
-        # ==========================================
 
     # 8. BUILD CONSENSUS TREE
     tree_building_started = time.perf_counter()

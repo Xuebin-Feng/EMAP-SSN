@@ -575,6 +575,24 @@ QPushButton[role="icon"]:focus {{ padding: 2px; }}
 QPushButton[role="compact"] {{ padding: 3px 9px; }}
 QPushButton[role="compact"]:focus {{ padding: 2px 8px; }}
 
+/* Toolbars (the tools' chart windows): a strip in the window's grey over a
+   hairline, icon buttons filled under the mouse and on a light tint of the
+   theme colour while checked. Only a toolbar's buttons: a tab bar's arrows
+   keep their own rules. */
+QToolBar {{
+    background: {t['window']}; border: none; border-bottom: 1px solid {t['border']};
+    padding: 4px 8px; spacing: 2px;
+}}
+QToolBar::separator {{ background: {t['border']}; width: 1px; margin: 6px 6px; }}
+QToolBar QToolButton {{
+    background: transparent; border: 1px solid transparent;
+    border-radius: {t['radius']}px; padding: 4px;
+}}
+QToolBar QToolButton:hover {{ background: {t['surface_muted']}; }}
+QToolBar QToolButton:pressed {{ background: {t['border']}; }}
+QToolBar QToolButton:checked {{ background: {t['accent_soft']}; border-color: {t['accent_soft']}; }}
+QToolBar QLabel {{ color: {t['text_muted']}; padding: 0px 4px; }}
+
 /* Panels */
 QFrame[role="separator"] {{
     background: {t['separator']}; border: none; max-height: {t['separator_thickness']}px;

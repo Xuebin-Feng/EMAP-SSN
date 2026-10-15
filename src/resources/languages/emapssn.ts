@@ -3973,6 +3973,42 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Isotonic Regression Fit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Spearman ρ {rho} · R² {r2} · {count} observed pair</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Spearman ρ {rho} · R² {r2} · {count} observed pairs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Length-adjusted embedding cosine similarity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Normalized network score</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pairs per hexagon</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Observed pairs (random sample of {count})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Observed pairs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Isotonic fit</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{count} sequence · min {min} · median {median} · mean {mean} · SD {sd} · max {max} aa</source>
         <translation type="unfinished"></translation>
     </message>

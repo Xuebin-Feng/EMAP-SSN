@@ -5714,7 +5714,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message>
-        <location filename="../../../tools/Sanitize_Sequences.py" line="+276"/>
+        <location filename="../../../tools/Sanitize_Sequences.py" line="+278"/>
         <source>{count} sequence · min {min} · median {median} · mean {mean} · SD {sd} · max {max} aa</source>
         <translation type="unfinished">{count} 条序列 · 最短 {min} · 中位数 {median} · 平均值 {mean} · 标准差 {sd} · 最长 {max} aa</translation>
     </message>
@@ -5724,12 +5724,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">{count} 条序列 · 最短 {min} · 中位数 {median} · 平均值 {mean} · 标准差 {sd} · 最长 {max} aa</translation>
     </message>
     <message>
-        <location line="+50"/>
+        <location line="+46"/>
         <source>Sequence Length Distribution</source>
         <translation type="unfinished">序列长度分布</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+6"/>
         <source>min {length}</source>
         <translation type="unfinished">下限 {length}</translation>
     </message>
@@ -5739,7 +5739,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">上限 {length}</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+83"/>
         <source>Sequence length (amino acids)</source>
         <translation type="unfinished">序列长度（氨基酸数）</translation>
     </message>
@@ -5747,6 +5747,51 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+3"/>
         <source>Number of sequences</source>
         <translation type="unfinished">序列数</translation>
+    </message>
+    <message>
+        <location filename="../../../tools/Embedding_MSA.py" line="+1271"/>
+        <source>Isotonic Regression Fit</source>
+        <translation type="unfinished">保序回归拟合</translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Spearman ρ {rho} · R² {r2} · {count} observed pair</source>
+        <translation type="unfinished">Spearman ρ {rho} · R² {r2} · 已观测 {count} 个序列对</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Spearman ρ {rho} · R² {r2} · {count} observed pairs</source>
+        <translation type="unfinished">Spearman ρ {rho} · R² {r2} · 已观测 {count} 个序列对</translation>
+    </message>
+    <message>
+        <location line="+75"/>
+        <source>Length-adjusted embedding cosine similarity</source>
+        <translation type="unfinished">长度校正的 embedding 余弦相似性</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Normalized network score</source>
+        <translation type="unfinished">归一化网络得分</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Pairs per hexagon</source>
+        <translation type="unfinished">每个六边形中的序列对数</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Observed pairs (random sample of {count})</source>
+        <translation type="unfinished">已观测的序列对（随机抽取 {count} 个）</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Observed pairs</source>
+        <translation type="unfinished">已观测的序列对</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Isotonic fit</source>
+        <translation type="unfinished">保序回归拟合曲线</translation>
     </message>
 </context>
 <context>

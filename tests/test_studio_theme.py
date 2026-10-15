@@ -97,6 +97,42 @@ class StudioThemeTests(unittest.TestCase):
         # Away from the text and the rounded corners, the fill is the primary colour.
         self.assertEqual(image.pixelColor(10, image.height() // 2).name(), TOKENS["primary"])
 
+    def test_a_toolbars_checked_button_shows_a_tint_of_the_theme_colour(self):
+        from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QMainWindow, QToolBar
+
+        window = QMainWindow()
+        self.addCleanup(window.deleteLater)
+        toolbar = QToolBar(window)
+        window.addToolBar(toolbar)
+        plain = QAction(studio_icon("x"), "Plain", toolbar)
+        checked = QAction(studio_icon("x"), "Checked", toolbar)
+        checked.setCheckable(True)
+        checked.setChecked(True)
+        toolbar.addAction(plain)
+        toolbar.addAction(checked)
+        window.resize(200, 80)
+        window.show()
+        flush(self.app)
+
+        def corner_fill(action):
+            # Inside the button's padding but clear of the 16 px icon, as the
+            # toolbar shows it: a plain button is transparent on the strip.
+            button = toolbar.widgetForAction(action)
+            image = toolbar.grab().toImage()
+            return image.pixelColor(button.x() + 4, button.y() + button.height() // 2).name()
+
+        self.assertEqual(corner_fill(checked), TOKENS["accent_soft"])
+        self.assertEqual(corner_fill(plain), TOKENS["window"])
+        self.assertEqual(toolbar.grab().toImage().pixelColor(100, toolbar.height() - 1).name(),
+                         TOKENS["border"])
+        # Only a toolbar's buttons: a bare QToolButton rule would reach a tab bar's arrows too.
+        selectors = re.findall(r"^([^{}\n/]+)\{", studio_stylesheet(), re.MULTILINE)
+        for selector in selectors:
+            for part in selector.split(","):
+                if "QToolButton" in part:
+                    self.assertRegex(part.strip(), r"^(QToolBar|QTabBar) QToolButton", part)
+
     def test_the_hint_card_keeps_its_info_icon_clear_of_the_text(self):
         label = QLabel("Click or tab to an input to see helpful tips here.")
         self.addCleanup(label.deleteLater)

@@ -201,6 +201,20 @@ still change before version 1.0.0.
   included, show in the Tools window's language, Simplified Chinese in the bundled Noto
   Sans SC; the console's line stays English. It is still matplotlib; nothing new to
   install.
+- **Embedding MSA's isotonic regression plot has a new look.** It takes the length
+  histogram's style. The observed pairs show as hexagons shaded in the Tools window's
+  theme colour by how many pairs fall in each (a colour bar gives the counts), in place
+  of 5,000 blue dots; they are the pairs the fit was made on, every pair or a random
+  sample of 100,000, and the legend says which. The fit is a near-black line through its
+  own breakpoints, the function the missing scores are taken from, in place of a red
+  line sampled at 1,000 points. A subtitle gives Spearman's ρ, R² and the number of
+  observed pairs. Its texts, the window's title included, show in the Tools window's
+  language.
+- **The tools' pop-up charts open in the Tools window's style.** The windows of the
+  length histogram and the regression plot take the Tools window's theme colour,
+  palette and Noto Sans, and its icon in the title bar. Their toolbar is a light strip
+  with Lucide icons, and the button of the active pan or zoom mode shows a tint of the
+  theme colour. The toolbar's tips and matplotlib's own dialogs stay English.
 - **The Config window is ready to translate.** Every text it shows comes from the
   catalog: labels, tips, dropdown choices, the statistics and consistency reports,
   messages and errors. Its errors still print in English in the terminal. Counted texts

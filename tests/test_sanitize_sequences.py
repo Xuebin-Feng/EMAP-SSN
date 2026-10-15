@@ -516,11 +516,12 @@ class LengthHistogramChartTests(unittest.TestCase):
                 bar = self.bars(self.draw(saved=saved))[0]
                 self.assertEqual(bar.get_facecolor(), colours["purple"])
 
-    def test_the_setting_name_is_the_tools_windows(self):
-        source = (SRC_DIR / "desktop" / "Desktop_App.py").read_text(encoding="utf-8")
-        self.assertIn(
-            f'TOOLS_THEME_SETTING = "{sanitize_sequences._TOOLS_THEME_SETTING}"', source
-        )
+    def test_the_pop_up_opens_in_a_window_in_the_tools_windows_look(self):
+        from tools.tool_helpers import Tool_Charts
+
+        with mock.patch.object(Tool_Charts, "show_chart", wraps=Tool_Charts.show_chart) as show:
+            figure = self.draw(color="teal")
+        show.assert_called_once_with(figure, "teal", sanitize_sequences.PROJECT_ROOT)
 
     def test_light_axes_a_titled_window_and_the_statistics_under_the_title(self):
         from matplotlib.colors import to_rgba

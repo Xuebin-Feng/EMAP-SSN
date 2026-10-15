@@ -55,8 +55,8 @@ What this script does step-by-step:
      was changed, removed, or merged.
    - Prints the length statistics of the kept sequences: their number and the
      minimum, median, mean, standard deviation and maximum length.
-   - Displays a pop-up length histogram in the Tools window's theme colour and
-     language, or prints the same bins and counts as a table when invoked with a
+   - Displays a pop-up length histogram in the Tools window's look (its theme
+     colour, language and window style), or prints the same bins and counts as a table when invoked with a
      JSON settings file (including MCP runs). Setting SHOW_LENGTH_HISTOGRAM to
      False skips both. Everything printed stays English.
 
@@ -91,6 +91,8 @@ from tools.tool_helpers.Tool_Pipeline import (
     project_directory_defaults,
     select_settings_path,
 )
+from tools.tool_helpers import Tool_Charts
+from tools.tool_helpers.Tool_Charts import tools_theme_color
 
 # ==========================================
 # CONFIGURATION
@@ -315,10 +317,6 @@ def length_filter_bounds():
     ]
 
 
-# The Tools window keeps its theme colour in app_settings.json under this
-# setting (Desktop_App's TOOLS_THEME_SETTING). It launches this tool, so the
-# pop-up histogram takes that colour.
-_TOOLS_THEME_SETTING = "TOOLS_THEME_COLOR"
 # The histogram's bars, after Config's Network Statistics Report: a theme
 # shade with a darker edge in the theme colour, a gap between bars (a
 # fraction of a bin's width) and corners 2.25 pt round, the report's 3 px.
@@ -330,38 +328,6 @@ _BAR_RADIUS = 2.25
 _HISTOGRAM_TITLE = Message("Sequence Length Distribution")
 
 
-def tools_theme_color():
-    """The Tools window's theme colour, or the default one when it can't be read."""
-    from desktop.Studio_Theme import DEFAULT_THEME_COLOR, THEME_COLORS
-    from utilities.App_Settings import AppSettingsError, read_app_settings
-
-    try:
-        color = read_app_settings().get(_TOOLS_THEME_SETTING)
-    except AppSettingsError:
-        color = None
-    return color if isinstance(color, str) and color in THEME_COLORS else DEFAULT_THEME_COLOR
-
-
-def chart_translation():
-    """(language, translator) for the chart: the Tools window's language, or (None, None).
-
-    The language is the one the windows show: the saved LANGUAGE setting,
-    else the system's, or the pseudo-language for tests
-    (Desktop_App.startup_language). The translator answers from that
-    language's catalog (Desktop_App.message_translator). Anything that
-    can't be read leaves the chart English: the run never fails over its
-    language. The terminal stays English either way.
-    """
-    try:
-        from desktop.Desktop_App import message_translator, startup_language
-
-        language = startup_language()
-        return language, message_translator(language)
-    except Exception as error:  # A chart in English beats a failed run.
-        print(f"Note: the length histogram stays English ({error}).")
-        return None, None
-
-
 def _bound_label(label, value):
     """The text beside a length filter bound's line, as "min 50" or "max 1,000"."""
     if label == "min":
@@ -370,55 +336,18 @@ def _bound_label(label, value):
 
 
 def _plot_font_families(language=None):
-    """The bundled Noto Sans, registered with matplotlib, else matplotlib's own font.
-
-    A language whose script Noto Sans lacks adds its language pack's font
-    (Noto Sans SC for Simplified Chinese), which matplotlib draws those
-    characters in. Otherwise only one family is named: matplotlib looks up
-    every listed family for each text, and warns when the fallback lacks the
-    title's semibold face.
-    """
-    from matplotlib import font_manager
-
-    fonts = os.path.join(PROJECT_ROOT, "src", "resources", "fonts", "desktop")
-    known = {entry.fname for entry in font_manager.fontManager.ttflist}
-
-    def registered(paths):
-        found = False
-        for path in paths:
-            try:
-                if path not in known:
-                    font_manager.fontManager.addfont(path)
-                found = True
-            except (OSError, RuntimeError, ValueError):
-                pass
-        return found
-
-    core = registered(
-        os.path.join(fonts, "noto", "NotoSans", face)
-        for face in ("NotoSans-Regular.ttf", "NotoSans-SemiBold.ttf", "NotoSans-Bold.ttf")
-    )
-    families = ["Noto Sans"] if core else ["DejaVu Sans"]
-    font = None
-    if language is not None:
-        try:
-            from utilities.Language_Packs import read_pack
-
-            font = read_pack(language).font
-        except Exception:  # No usable pack: the core font, as for English.
-            font = None
-    if font is not None and registered(os.path.join(fonts, path) for path in font.files):
-        families.append(font.family)
-    return families
+    """The chart's font families: this project's bundled fonts (Tool_Charts.plot_font_families)."""
+    return Tool_Charts.plot_font_families(PROJECT_ROOT, language)
 
 
 def plot_length_distribution(lengths, bounds=()):
-    """Show the lengths' bins (length_bins) as a pop-up chart in the Tools window's theme colour.
+    """Show the lengths' bins (length_bins) as a pop-up chart in the Tools window's look.
 
     bounds holds (label, length) pairs, the length filter's, drawn as dashed lines.
-    Its texts show in the Tools window's language (chart_translation).
+    Its texts show in the Tools window's language (Tool_Charts.chart_translation),
+    and its window takes the Tools window's style (Tool_Charts.show_chart).
     """
-    language, translator = chart_translation()
+    language, translator = Tool_Charts.chart_translation("length histogram")
     previous = set_translator(translator)
     try:
         _plot_length_distribution(lengths, bounds, language)
@@ -451,24 +380,11 @@ def _plot_length_distribution(lengths, bounds, language):
             )
             return Path(path.vertices * [1, aspect], path.codes)
 
-    tokens = theme_tokens(tools_theme_color())
+    color = tools_theme_color()
+    tokens = theme_tokens(color)
     counts, edges, _one_per_length = length_bins(lengths)
     families = _plot_font_families(language)
-    # A language font has regular and bold faces only (Noto Sans SC): asked for
-    # semibold, matplotlib logs a fallback and draws its characters bold anyway.
-    # So its title is bold, which Noto Sans has too; English keeps semibold.
-    title_weight = "semibold" if len(families) == 1 else "bold"
-    style = {
-        "font.family": families,
-        "font.size": 10,
-        "axes.edgecolor": tokens["border"],
-        "axes.labelcolor": tokens["text_muted"],
-        "xtick.color": tokens["border"],
-        "ytick.color": tokens["border"],
-        "xtick.labelcolor": tokens["text_muted"],
-        "ytick.labelcolor": tokens["text_muted"],
-    }
-    with plt.rc_context(style):
+    with plt.rc_context(Tool_Charts.chart_style(tokens, families)):
         # The figure's label names the pop-up window.
         figure, axes = plt.subplots(
             num=_HISTOGRAM_TITLE.display(), figsize=(10, 6), facecolor=tokens["surface"]
@@ -506,7 +422,7 @@ def _plot_length_distribution(lengths, bounds, language):
 
         axes.set_title(
             _HISTOGRAM_TITLE.display(), loc="left", pad=30, fontsize=15,
-            fontweight=title_weight, color=tokens["text"],
+            fontweight=Tool_Charts.title_weight(families), color=tokens["text"],
         )
         axes.annotate(
             length_statistics(lengths).display(), (0, 1), xycoords="axes fraction",
@@ -529,8 +445,7 @@ def _plot_length_distribution(lengths, bounds, language):
             )
 
         figure.tight_layout()
-        plt.show()  # Display as a pop-up window
-        plt.close(figure)
+        Tool_Charts.show_chart(figure, color, PROJECT_ROOT)
 
 
 def print_length_distribution(lengths):
