@@ -555,6 +555,32 @@ class ShippedCommandLineTests(unittest.TestCase):
         self.assertTrue([line for line in lines("_color_command_box") if line > lines("apply_studio_theme")[0]])
         # So does the hidden-node count, in case the session opens with nodes hidden.
         self.assertTrue([line for line in lines("_color_hidden_count") if line > lines("apply_studio_theme")[0]])
+        # And the right-drag selection box, drawn with the network before the HUD.
+        self.assertLess(lines("draw_network")[0], lines("create_hud")[0])
+        self.assertTrue([line for line in lines("_color_selection_box") if line > lines("apply_studio_theme")[0]])
+
+    def test_the_selection_box_takes_the_theme_colour(self):
+        from vispy.color import Color
+
+        from desktop.Studio_Theme import set_theme_color, theme_color, theme_tokens
+
+        self.addCleanup(set_theme_color, theme_color())
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.selection_box = EMAPSSN_Viewer.scene.visuals.Line(method="gl", name="selection_box")
+        for color in (theme_color(), "teal", "black"):
+            set_theme_color(color)
+            viewer._color_selection_box()
+            with self.subTest(color=color):
+                # The colour the command line's box is edged in; grey in black.
+                self.assertEqual(Color(viewer.selection_box.color).hex, theme_tokens(color)["accent"])
+        # draw_network colours the box as soon as it builds it.
+        with open(EMAPSSN_Viewer.__file__, encoding="utf-8") as source:
+            tree = ast.parse(source.read())
+        draw_network = next(node for node in ast.walk(tree)
+                            if isinstance(node, ast.FunctionDef) and node.name == "draw_network")
+        calls = [call.func.attr for call in ast.walk(draw_network)
+                 if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)]
+        self.assertIn("_color_selection_box", calls)
 
     def test_the_hud_has_no_instruction_line(self):
         viewer = MainViewer.__new__(MainViewer)

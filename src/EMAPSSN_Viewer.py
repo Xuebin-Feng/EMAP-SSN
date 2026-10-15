@@ -999,8 +999,9 @@ class MainViewer:
         if qapp:
             try:
                 apply_studio_theme(qapp, configured_theme_color(CONFIG_THEME_SETTING))
-                # The HUD was drawn before the theme colour was known.
+                # The network and the HUD were drawn before the theme colour was known.
                 self._color_command_box()
+                self._color_selection_box()
                 self._color_hidden_count()
             except Exception as e:
                 print(f"Warning: Could not apply the window theme: {e}")
@@ -1318,6 +1319,12 @@ class MainViewer:
         if box is not None:
             box.color = Color(TOKENS["tint"], alpha=COMMAND_BOX_OPACITY)
             box.border_color = TOKENS["accent"]
+
+    def _color_selection_box(self):
+        """Draw the right-drag selection box in the theme colour, as the command line's box is edged."""
+        box = getattr(self, 'selection_box', None)
+        if box is not None:
+            box.set_data(color=TOKENS["accent"])
 
     def update_console_background(self):
         """Wrap the console visually and size its background to the rendered rows."""
@@ -2041,9 +2048,9 @@ class MainViewer:
 
         # ---> NEW: Visuals for Selection Feedback <---
         self.selection_box = scene.visuals.Line(
-            color='black', method='gl',
-            parent=self.view.scene, name='selection_box',
+            method='gl', parent=self.view.scene, name='selection_box',
         )
+        self._color_selection_box()
         self.selection_box.visible = False
         
         self.selection_highlight = scene.visuals.Markers(parent=self.view.scene)
