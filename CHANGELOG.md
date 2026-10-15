@@ -1158,6 +1158,17 @@ still change before version 1.0.0.
   earlier check and ignores its result, and a file that changes while it is being
   checked is checked again at the next change in the window instead of keeping the
   result for its earlier content.
+- Config and VR Config missed a layout cache published after they checked the selected
+  inputs. When the Layout Generator that Save & Run started (or any other run) finished,
+  the Target Cache still read [Needs Computing] with only (New Layout Cache) to choose,
+  so a second Save & Run computed the layout again, until the inputs were chosen again.
+  Both windows now look at the layout folder again every second while they are shown,
+  and whenever the cache list opens: a new cache shows at once and is selected, a cache
+  that goes leaves the list, and while nothing changes the window is left alone, keeping
+  the cache chosen or the new cache name being typed. Only folder listings are read for
+  this, the full search runs only when one changes, and a layout folder that is slow to
+  list is looked at less often. A cache folder removed while Config listed its caches
+  now shows as a cache error instead of closing Config.
 - `Network_Extraction.py` left whitelist sequences out of the sub-network. It read the
   whitelist FASTA as plain UTF-8, so a file saved with a byte-order mark, as Windows
   Notepad can write, lost its first record without any message. It also compared

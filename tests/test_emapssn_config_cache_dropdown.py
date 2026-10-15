@@ -1,6 +1,7 @@
 import os
 import json
 import pathlib
+import shutil
 import sys
 import tempfile
 import time
@@ -1600,6 +1601,10 @@ class CacheDiscoveryRaceTests(unittest.TestCase):
 
     Nor does a check that ends in Save & Run's pause after a click, which
     keeps a double click from launching twice, cut the pause short or outlast it.
+
+    A cache published after the check, as the Layout Generator publishes one
+    (manifest, then .h5), shows at the window's next look without the inputs
+    being chosen again; a look that finds what is shown changes nothing.
     """
 
     @classmethod
@@ -1665,7 +1670,7 @@ class CacheDiscoveryRaceTests(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _write_layout_folder(self, layouts, fasta_name):
+    def _write_layout_folder(self, layouts, fasta_name, folder_name=None):
         """Write a layout folder whose manifest matches this FASTA with the network."""
         sequence = self.cache_manifest.fingerprint_file(self.work / fasta_name)
         network = self.cache_manifest.fingerprint_file(self.work / "network.h5")
@@ -1675,7 +1680,7 @@ class CacheDiscoveryRaceTests(unittest.TestCase):
             "blast",
             **self.window._cache_setting_values(),
         )
-        folder = layouts / f"{pathlib.Path(fasta_name).stem}_layout"
+        folder = layouts / (folder_name or f"{pathlib.Path(fasta_name).stem}_layout")
         self.cache_manifest.write_manifest_atomic(
             folder, self.cache_manifest.build_manifest(sequence, network, compatibility)
         )
@@ -1700,6 +1705,26 @@ class CacheDiscoveryRaceTests(unittest.TestCase):
 
     def _shown(self, fasta_name):
         return f"Compatible Folder: {self.layout_folders[fasta_name].name}"
+
+    def _items(self):
+        combo = self.window.cb_cache_file
+        return [combo.itemText(index) for index in range(combo.count())]
+
+    def _needs_computing(self, fasta_name):
+        """Select a FASTA whose layout folder is gone; return the folder the window targets."""
+        shutil.rmtree(self.layout_folders[fasta_name])
+        self._select(fasta_name)
+        self._finish(self.workers[-1])
+        target = pathlib.Path(self.window.current_cache_folder)
+        self.assertEqual(self._tracker(), f"Target Folder: {target.name} [Needs Computing]")
+        self.assertEqual(self._items(), ["(New Layout Cache)"])
+        return target
+
+    def _generate(self, fasta_name, folder, cache_name="version_00.h5"):
+        """Publish a cache as the Layout Generator does: the manifest, then the .h5 file."""
+        if not (folder / self.cache_manifest.MANIFEST_FILENAME).exists():
+            self._write_layout_folder(folder.parent, fasta_name, folder.name)
+        (folder / cache_name).write_bytes(b"")
 
     def test_hashing_left_running_for_earlier_inputs_never_overrides_cached_ones(self):
         """a.fasta is still being hashed when b.fasta, already hashed, is chosen again."""
@@ -1858,6 +1883,181 @@ class CacheDiscoveryRaceTests(unittest.TestCase):
             self.assertEqual(self._tracker(), "Target Cache: Missing FASTA or HDF5")
             end_pause()
             self.assertFalse(button.isEnabled())
+
+    def test_a_cache_generated_after_the_check_shows_at_the_next_look(self):
+        target = self._needs_computing("a.fasta")
+        needs_computing = self._tracker()
+        self.window._recheck_saved_caches()  # nothing published yet
+        self.assertEqual(self._tracker(), needs_computing)
+
+        self._generate("a.fasta", target)
+        self.window._recheck_saved_caches()
+        self.assertEqual(self._tracker(), f"Compatible Folder: {target.name}")
+        self.assertEqual(self._items(), ["version_00.h5", "(New Layout Cache)"])
+        # Selected, so Save & Run opens it rather than computing another.
+        self.assertEqual(self.window.cb_cache_file.currentText(), "version_00.h5")
+        self.assertTrue(self.window._cache_launch_allowed)
+        self.assertEqual(len(self.workers), 1, "the inputs were not hashed again")
+
+    def test_a_manifest_published_before_its_cache_shows_the_folder_then_the_cache(self):
+        target = self._needs_computing("a.fasta")
+        self._write_layout_folder(target.parent, "a.fasta", target.name)
+        self.window._recheck_saved_caches()
+        self.assertEqual(self._tracker(), f"Compatible Folder: {target.name}")
+        self.assertEqual(self._items(), ["(New Layout Cache)"])
+
+        # Still being written: the Layout Generator's .partial file is no cache yet.
+        (target / ".version_00.h5.x1y2.partial").write_bytes(b"")
+        with mock.patch.object(self.window, "_request_cache_discovery") as search:
+            self.window._recheck_saved_caches()
+        search.assert_not_called()
+
+        self._generate("a.fasta", target)
+        self.window._recheck_saved_caches()
+        self.assertEqual(self.window.cb_cache_file.currentText(), "version_00.h5")
+
+    def test_a_cache_generated_into_the_compatible_folder_is_selected(self):
+        self._select("b.fasta")
+        self._finish(self.workers[-1])
+        self.assertEqual(self._items(), ["(New Layout Cache)"])
+        self.window.line_new_cache.setText("mine.h5")
+
+        self._generate("b.fasta", self.layout_folders["b.fasta"], "mine.h5")
+        self.window._recheck_saved_caches()
+        self.assertEqual(self._items(), ["mine.h5", "(New Layout Cache)"])
+        self.assertEqual(self.window.cb_cache_file.currentText(), "mine.h5")
+        self.assertEqual(self.window.line_new_cache.text(), "")
+
+    def test_a_look_that_finds_no_new_cache_keeps_the_choice(self):
+        folder = self.layout_folders["b.fasta"]
+        for age, name in enumerate(("newer.h5", "older.h5")):
+            (folder / name).write_bytes(b"")
+            os.utime(folder / name, (1_700_000_000 - age, 1_700_000_000 - age))
+        self._select("b.fasta")
+        self._finish(self.workers[-1])
+        combo = self.window.cb_cache_file
+        self.assertEqual(self._items(), ["newer.h5", "older.h5", "(New Layout Cache)"])
+        combo.setCurrentIndex(combo.findText("older.h5"))
+
+        # A layout folder for other inputs appears: the window is left alone.
+        self._write_layout_folder(folder.parent, "a.fasta", "other_inputs_layout")
+        with mock.patch.object(combo, "clear", wraps=combo.clear) as clear:
+            self.window._recheck_saved_caches()
+        clear.assert_not_called()
+        self.assertEqual(combo.currentText(), "older.h5")
+
+        # A cache that goes is dropped from the list; the one chosen stays chosen.
+        (folder / "newer.h5").unlink()
+        self.window._recheck_saved_caches()
+        self.assertEqual(self._items(), ["older.h5", "(New Layout Cache)"])
+        self.assertEqual(combo.currentText(), "older.h5")
+
+        # So does a new cache being named.
+        combo.setCurrentIndex(combo.count() - 1)
+        self.window._toggle_new_cache_input()
+        self.window.line_new_cache.setText("draft.h5")
+        (folder / "older.h5").unlink()
+        self.window._recheck_saved_caches()
+        self.assertEqual(self._items(), ["(New Layout Cache)"])
+        self.assertEqual(self.window.line_new_cache.text(), "draft.h5")
+
+    def test_a_second_compatible_folder_shows_the_duplicate_error_at_the_next_look(self):
+        self._select("b.fasta")
+        self._finish(self.workers[-1])
+        folder = self.layout_folders["b.fasta"]
+        shutil.copytree(folder, folder.with_name("b_layout_copy"))
+        self.window._recheck_saved_caches()
+        self.assertEqual(self._tracker(), "Error: 2 compatible cache folders found")
+        self.assertFalse(self.window._cache_launch_allowed)
+
+        shutil.rmtree(folder.with_name("b_layout_copy"))
+        self.window._recheck_saved_caches()
+        self.assertEqual(self._tracker(), self._shown("b.fasta"))
+
+    def test_a_cache_published_during_the_search_shows_at_the_next_look(self):
+        """What a search looks at is read before it runs, so a cache it missed
+        still counts as a change at the next look."""
+        target = self._needs_computing("a.fasta")
+        find_matching = self.cache_manifest.find_matching_manifest_folders
+
+        def search_then_generate(saved_layout_dir, compatibility):
+            matches = find_matching(saved_layout_dir, compatibility)
+            self._generate("a.fasta", target)
+            return matches
+
+        (target.parent / "unrelated").mkdir()  # so the next look searches
+        with mock.patch.object(
+            self.cache_manifest, "find_matching_manifest_folders", side_effect=search_then_generate
+        ):
+            self.window._recheck_saved_caches()
+        self.assertIn("[Needs Computing]", self._tracker())
+        self.window._recheck_saved_caches()
+        self.assertEqual(self.window.cb_cache_file.currentText(), "version_00.h5")
+
+    def test_opening_the_cache_list_looks_again(self):
+        target = self._needs_computing("a.fasta")
+        self._generate("a.fasta", target)
+        self.window.show()
+        combo = self.window.cb_cache_file
+        combo.showPopup()
+        combo.hidePopup()
+        self.assertEqual(self._tracker(), f"Compatible Folder: {target.name}")
+        self.assertEqual(combo.currentText(), "version_00.h5")
+
+    def test_a_shown_window_looks_again_by_itself(self):
+        from PySide6.QtTest import QTest
+
+        self.assertEqual(self.namespace["CONFIG_CACHE_RECHECK_MS"], 1000)
+        timer = self.window._cache_recheck_timer
+        self.assertTrue(timer.isActive())
+        self.assertEqual(timer.interval(), 1000)
+        target = self._needs_computing("a.fasta")
+        self._generate("a.fasta", target)
+
+        # Hidden, it does not look.
+        self.window._recheck_saved_caches_while_shown()
+        self.assertIn("[Needs Computing]", self._tracker())
+
+        with mock.patch.dict(self.namespace, {"CONFIG_CACHE_RECHECK_MS": 20}):
+            timer.setInterval(20)
+            self.window.show()
+            deadline = time.monotonic() + 5.0
+            while "[Needs Computing]" in self._tracker() and time.monotonic() < deadline:
+                QTest.qWait(10)
+        self.assertEqual(self._tracker(), f"Compatible Folder: {target.name}")
+
+    def test_a_slow_layout_folder_is_looked_at_less_often(self):
+        timer = self.window._cache_recheck_timer
+        self.window.show()
+        clock = iter([10.0, 10.2, 20.0, 20.001])  # a 200 ms look, then a 1 ms one
+        with mock.patch.dict(self.namespace, {"time": SimpleNamespace(perf_counter=lambda: next(clock))}), \
+                mock.patch.object(self.window, "_recheck_saved_caches"):
+            self.window._recheck_saved_caches_while_shown()
+            self.assertEqual(timer.interval(), 4000)
+            self.window._recheck_saved_caches_while_shown()
+            self.assertEqual(timer.interval(), 1000)
+
+    def test_a_folder_removed_before_its_caches_are_listed_shows_an_error(self):
+        self._select("b.fasta")
+        self._finish(self.workers[-1])
+        self.assertIsNotNone(self.window._saved_cache_look)
+        gone = str(self.layout_folders["b.fasta"].parent / "removed_layout")
+        with mock.patch.object(
+            self.cache_manifest, "find_matching_manifest_folders",
+            return_value=[{"folder": gone, "manifest": {}}],
+        ):
+            self.window.update_live_validators()  # b.fasta's hashes are cached
+            self.assertTrue(
+                self._tracker().startswith("Cache compatibility error: "), self._tracker()
+            )
+            self.assertIsNone(self.window._saved_cache_look, "nothing left to look at again")
+
+            # Nor does it escape the result of hashing, which nothing else guards.
+            self._select("a.fasta")
+            self._finish(self.workers[-1])
+            self.assertTrue(
+                self._tracker().startswith("Cache compatibility error: "), self._tracker()
+            )
 
 
 class TipPanelStatusLockTests(unittest.TestCase):

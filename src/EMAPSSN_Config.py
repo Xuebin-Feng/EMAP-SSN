@@ -223,6 +223,9 @@ CONFIG_SEPARATOR_PADDING = 24
 # How long Save & Run stays greyed out once clicked, in ms, so a double click
 # launches once; as a tool's Save & Run (EMAPSSN_Tools.RUN_BUTTON_PAUSE_MS).
 CONFIG_RUN_BUTTON_PAUSE_MS = 1000
+# How often, in ms, a shown window looks again for layout caches, so a cache
+# published after the inputs were checked shows by itself (_recheck_saved_caches).
+CONFIG_CACHE_RECHECK_MS = 1000
 # A colour swatch: its colour, framed by a hairline that shows on white and on dark colours.
 SWATCH_STYLESHEET = (
     "background-color: {color}; border: 1px solid rgba(9, 9, 11, 0.16); border-radius: 5px;"
@@ -1040,6 +1043,10 @@ if __name__ == "__main__":
             self._scoring_hidden_by_blast = None
             self._statistics = None  # what the statistics report shows (show_statistics)
             self.current_cache_folder = None
+            # What the shown cache search looked at and found (_apply_cache_discovery);
+            # None while no search result is shown.
+            self._saved_cache_look = None
+            self._cache_listing_shown = None
             self._label_column = []
 
             self.create_inputs_tab()
@@ -1066,6 +1073,12 @@ if __name__ == "__main__":
             self.cb_msa.currentTextChanged.connect(self.update_live_validators)
             
             self.update_live_validators()
+            # A cache published later, by a Layout Generator this window
+            # launched or by anything else, shows without the inputs being chosen again.
+            self._cache_recheck_timer = QTimer(self)
+            self._cache_recheck_timer.setInterval(CONFIG_CACHE_RECHECK_MS)
+            self._cache_recheck_timer.timeout.connect(self._recheck_saved_caches_while_shown)
+            self._cache_recheck_timer.start()
             self.setup_tips()
 
         def _make_field_group(self, pairs, *, parent=None, name="", ratios=None, **options):
@@ -1611,11 +1624,7 @@ if __name__ == "__main__":
                     tab_id: (combo_value(self.profile_selectors[tab_id]), self.profile_name_inputs[tab_id].text())
                     for tab_id in TAB_PROFILE_SPECS
                 },
-                "cache_choice": {
-                    "new": self._new_cache_selected(),
-                    "data": self.cb_cache_file.currentData(),
-                    "name": self.line_new_cache.text(),
-                },
+                "cache_choice": self._current_cache_choice(),
                 # Its figures, not its text, so it comes back in the new language.
                 "statistics": self._statistics,
             }
@@ -2029,6 +2038,8 @@ if __name__ == "__main__":
             return path.resolve()
 
         def _refresh_cache_file_combo(self):
+            # The list opens on what is there now: a compatible folder, too.
+            self._recheck_saved_caches()
             folder_path = self.current_cache_folder
             if not folder_path or not os.path.isdir(folder_path):
                 return
@@ -2105,6 +2116,8 @@ if __name__ == "__main__":
 
         def _set_cache_unavailable(self, message, status="subtle"):
             self._carried_cache_choice = None
+            self._saved_cache_look = None
+            self._cache_listing_shown = None
             self._cache_launch_allowed = False
             self._update_save_run_button()
             self.current_cache_folder = None
@@ -2180,7 +2193,14 @@ if __name__ == "__main__":
         def _default_new_cache_name(self, folder_path):
             return cache_manifest.next_cache_version_filename(folder_path)
 
-        def _apply_cache_discovery(self, records):
+        def _apply_cache_discovery(self, records, refresh=False):
+            """Show the cache folder these inputs and settings match, and its caches.
+
+            refresh=True is another look for the same inputs (_recheck_saved_caches).
+            Finding what is shown, it leaves the window alone; otherwise a
+            cache that has appeared, most likely one just generated, is
+            selected, or else the cache chosen stays chosen where it can.
+            """
             sequence_path, network_path = self._cache_paths_from_inputs()
             if not sequence_path or not network_path:
                 self._set_cache_unavailable(translate("Config", "Target Cache: Missing input files"))
@@ -2208,15 +2228,61 @@ if __name__ == "__main__":
                 default_folder = cache_manifest.resolve_default_cache_folder(
                     saved_layout_dir, canonical_name, compatibility
                 )
+                # Read before the search, so a cache published during it
+                # still differs at the next look (_recheck_saved_caches).
+                looked_at = [default_folder]
+                state = [
+                    self._saved_cache_names(saved_layout_dir, subfolders=True),
+                    self._saved_cache_names(default_folder),
+                ]
                 matches = cache_manifest.find_matching_manifest_folders(
                     saved_layout_dir, compatibility
                 )
+                for item in matches:
+                    if os.path.normcase(item["folder"]) != os.path.normcase(default_folder):
+                        looked_at.append(item["folder"])
+                        state.append(self._saved_cache_names(item["folder"]))
+                cache_items = []
+                if len(matches) == 1:
+                    # Listed here, so a folder removed since the search shows as an error.
+                    active_folder = matches[0]["folder"]
+                    cache_files = [
+                        entry.name
+                        for entry in os.scandir(active_folder)
+                        if entry.is_file() and entry.name.lower().endswith(".h5")
+                    ]
+                    cache_files.sort(
+                        key=lambda name: os.path.getmtime(os.path.join(active_folder, name)),
+                        reverse=True,
+                    )
+                    cache_items = [
+                        (
+                            filename,
+                            cache_manifest.relative_cache_path(
+                                saved_layout_dir, active_folder, filename
+                            ),
+                        )
+                        for filename in cache_files
+                    ]
             except Exception as error:
                 self._set_cache_unavailable(
                     translate("Config", "Cache compatibility error: {error}").format(error=error),
                     "danger",
                 )
                 return
+
+            listing = (tuple(item["folder"] for item in matches), default_folder, tuple(cache_items))
+            shown, self._cache_listing_shown = self._cache_listing_shown, listing
+            self._saved_cache_look = (saved_layout_dir, tuple(looked_at), tuple(state))
+            if refresh:
+                if listing == shown:
+                    return
+                shown_items = shown[2] if shown else ()
+                appeared = [data for name, data in cache_items if (name, data) not in shown_items]
+                self._carried_cache_choice = (
+                    {"new": False, "data": appeared[0], "name": ""}
+                    if appeared else self._current_cache_choice()
+                )
 
             self.cb_cache_file.blockSignals(True)
             self.cb_cache_file.clear()
@@ -2246,19 +2312,7 @@ if __name__ == "__main__":
             if matches:
                 active_folder = matches[0]["folder"]
                 self.current_cache_folder = active_folder
-                cache_files = [
-                    entry.name
-                    for entry in os.scandir(active_folder)
-                    if entry.is_file() and entry.name.lower().endswith(".h5")
-                ]
-                cache_files.sort(
-                    key=lambda name: os.path.getmtime(os.path.join(active_folder, name)),
-                    reverse=True,
-                )
-                for filename in cache_files:
-                    relative_path = cache_manifest.relative_cache_path(
-                        saved_layout_dir, active_folder, filename
-                    )
+                for filename, relative_path in cache_items:
                     self.cb_cache_file.addItem(filename, relative_path)
                 self._show_cache_status(translate(
                     "Config", "Compatible Folder: {folder}"
@@ -2302,7 +2356,12 @@ if __name__ == "__main__":
             self._cache_hash_cache[network_key] = records["network"]
             self._apply_cache_discovery(records)
 
-        def _request_cache_discovery(self):
+        def _request_cache_discovery(self, refresh=False):
+            """Find the cache for the selected inputs, hashing them first unless their hashes are cached.
+
+            refresh=True looks again for the same inputs (_apply_cache_discovery);
+            inputs that must be hashed again count as new ones.
+            """
             sequence_path, network_path = self._cache_paths_from_inputs()
             if not sequence_path or not network_path:
                 self._cancel_cache_hashing()
@@ -2337,7 +2396,7 @@ if __name__ == "__main__":
                     cached_records["network_type"] = (
                         cache_manifest.validate_network_schema(network_path).network_type
                     )
-                    self._apply_cache_discovery(cached_records)
+                    self._apply_cache_discovery(cached_records, refresh=refresh)
                 except Exception as error:
                     self._set_cache_unavailable(
                         translate("Config", "Cache compatibility error: {error}").format(error=error),
@@ -2370,6 +2429,63 @@ if __name__ == "__main__":
             self._cache_hash_pending_keys = None
             for worker in self._cache_hash_workers.values():
                 worker.requestInterruption()
+
+        def _current_cache_choice(self):
+            """The cache chosen, as _apply_carried_cache_choice takes it back."""
+            return {
+                "new": self._new_cache_selected(),
+                "data": self.cb_cache_file.currentData(),
+                "name": self.line_new_cache.text(),
+            }
+
+        def _saved_cache_names(self, folder, subfolders=False):
+            """The names in folder that the cache search depends on, None if it cannot be read.
+
+            Its subfolders for the layout folder (subfolders=True), else its
+            manifest and .h5 files; a file the Layout Generator is still
+            writing has a .partial name, so it shows only once published.
+            """
+            try:
+                with os.scandir(folder) as entries:
+                    if subfolders:
+                        names = [entry.name for entry in entries if entry.is_dir(follow_symlinks=False)]
+                    else:
+                        names = [
+                            entry.name for entry in entries
+                            if entry.name.lower() == cache_manifest.MANIFEST_FILENAME
+                            or entry.name.lower().endswith(".h5")
+                        ]
+            except OSError:
+                return None
+            return tuple(sorted(names))
+
+        def _recheck_saved_caches(self):
+            """Search for layout caches again if a folder the shown search looked at has changed.
+
+            A cache published since, by a Layout Generator this window launched
+            or by anything else, then shows without the inputs being chosen
+            again. The inputs' hashes are cached, so nothing is hashed again
+            unless an input file changed too.
+            """
+            if self._saved_cache_look is None:
+                return
+            saved_layout_dir, folders, state = self._saved_cache_look
+            now = (self._saved_cache_names(saved_layout_dir, subfolders=True),) + tuple(
+                self._saved_cache_names(folder) for folder in folders
+            )
+            if now != state:
+                self._request_cache_discovery(refresh=True)
+
+        def _recheck_saved_caches_while_shown(self):
+            """_recheck_saved_caches on the window's timer, while it shows and its cache list is closed."""
+            if not self.isVisible() or self.isMinimized() or self.cb_cache_file.view().isVisible():
+                return
+            started = time.perf_counter()
+            self._recheck_saved_caches()
+            # A slow layout folder (on a network share, say) is looked at less
+            # often, so looking takes at most a twentieth of the window's time.
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            self._cache_recheck_timer.setInterval(max(CONFIG_CACHE_RECHECK_MS, round(elapsed_ms * 20)))
 
         def create_inputs_tab(self):
             tab = QWidget()
