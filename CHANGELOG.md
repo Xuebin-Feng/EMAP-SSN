@@ -1500,8 +1500,8 @@ still change before version 1.0.0.
   is no step of its own, so stepping back or forward to a step taken while it was open
   brought it back. Undo and redo still close the HUD or switch its property, but leave
   one closed with `meta show off` closed until the next `meta show` or `spectrum`.
-- A long file name could give Config's Inputs & Outputs tab a horizontal scroll bar at
-  the window's default size. The dropdowns that list files or profiles (Sequence Set,
+- A long file name could give the Inputs & Outputs tab of Config and VR Config a
+  horizontal scroll bar at the window's default size. The dropdowns that list files or profiles (Sequence Set,
   Network Edges, MSA, the Target Cache's file and each tab's profile) kept the width of
   their longest entry when the window opened: with
   `benchmark_sequences_sanitized_[esm2_t6_8m]_network.h5` in the network folder, the
