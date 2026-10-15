@@ -1500,6 +1500,20 @@ still change before version 1.0.0.
   is no step of its own, so stepping back or forward to a step taken while it was open
   brought it back. Undo and redo still close the HUD or switch its property, but leave
   one closed with `meta show off` closed until the next `meta show` or `spectrum`.
+- A long file name could give Config's Inputs & Outputs tab a horizontal scroll bar at
+  the window's default size. The dropdowns that list files or profiles (Sequence Set,
+  Network Edges, MSA, the Target Cache's file and each tab's profile) kept the width of
+  their longest entry when the window opened: with
+  `benchmark_sequences_sanitized_[esm2_t6_8m]_network.h5` in the network folder, the
+  tab's content needed 653 px at its narrowest instead of 420. They now keep twelve
+  characters at their narrowest, whatever they list; the other dropdowns are unchanged.
+  Config's layout tests no longer list the checkout's own `Input_Files`, which failed
+  four of them whenever it held such a network.
+- On Linux, the tools' pop-up charts (Sanitize Sequences' length histogram, Embedding
+  MSA's regression plot) showed in GNOME's Alt+Tab with its generic icon, not the Tools
+  icon. matplotlib names its application `matplotlib`, and Qt names the window's
+  `WM_CLASS` and GTK application ID after it, which no desktop entry claims. The charts
+  now take the Tools window's name, `emapssn_tools`, which its desktop entry claims.
 
 ### Removed
 

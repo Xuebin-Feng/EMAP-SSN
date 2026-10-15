@@ -68,9 +68,30 @@ def directory_settings(root):
     }
 
 
+def directory_globals(namespace, root):
+    """The module's directory settings, every one of them in root.
+
+    The base directories are directory_settings(root); each other directory is
+    its default under them.
+    """
+    settings = directory_settings(root)
+    resolve = namespace["resolve_directory_path"]
+    return {
+        key: settings.get(key) or resolve(default, base_directories=settings)
+        for key, default in namespace["DIRECTORY_PROFILE_DEFAULTS"].items()
+    }
+
+
 def open_config_window(gui_class, root):
-    """Build a ConfigGUI that reads directory_settings(root) instead of viewer_settings.json."""
-    with mock.patch.object(
+    """Build a ConfigGUI that reads directory_settings(root) instead of viewer_settings.json.
+
+    While it is built, the module's directory settings point into root too:
+    the Inputs tab lists FASTA_DIR, MSA_DIR and HDF5_DIR before it reads its
+    settings, and those are relative to the working directory, so a test run
+    from a checkout would otherwise list the checkout's own Input_Files.
+    """
+    namespace = gui_class._read_custom_settings.__globals__
+    with mock.patch.dict(namespace, directory_globals(namespace, root)), mock.patch.object(
         gui_class, "_read_custom_settings", return_value=directory_settings(root)
     ):
         return gui_class()

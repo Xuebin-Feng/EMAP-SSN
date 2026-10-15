@@ -745,10 +745,21 @@ if __name__ == "__main__":
                 super().wheelEvent(event)
                 
     class DynamicComboBox(NoScrollComboBox):
+        """A combo box that lists the files or profiles on disk again as it opens."""
+
         def __init__(self, refresh_callback, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.refresh_callback = refresh_callback
-            
+            # Twelve characters at its narrowest, however long the names it
+            # lists. Set before anything measures it: a combo box keeps the
+            # minimum width it first works out, and a tab's scroll area works
+            # it out as it takes the tab, before _prepare_responsive_layouts.
+            # A long file name would otherwise widen the window for good.
+            self.setMinimumContentsLength(12)
+            self.setSizeAdjustPolicy(
+                QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+            )
+
         def showPopup(self):
             if self.refresh_callback:
                 self.refresh_callback()

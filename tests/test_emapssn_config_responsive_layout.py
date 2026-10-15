@@ -251,6 +251,31 @@ class ResponsiveConfigTests(unittest.TestCase):
                                 - (field_pos.y() + field.height() / 2)), 3)
         self.assertEqual(self.window.tabs.currentWidget().horizontalScrollBar().maximum(), 0)
 
+    def test_long_file_names_listed_at_launch_do_not_widen_the_window(self):
+        folder = Path(self.directory.name) / "inputs" / "Networks_EValues"
+        folder.mkdir(parents=True)
+        name = "A_long_network_filename_" * 6 + "network.h5"
+        (folder / name).touch()
+        # The Inputs tab lists its folders as it is built, before its scroll
+        # area first measures it, and a combo box keeps that first minimum.
+        # It lists the test's folder, not the checkout's (open_config_window).
+        listed = []
+        create = self.gui_class.create_inputs_tab
+
+        def create_inputs_tab(window):
+            create(window)
+            listed.extend(window.cb_hdf5.itemText(i) for i in range(window.cb_hdf5.count()))
+
+        with patch.object(self.gui_class, "create_inputs_tab", create_inputs_tab):
+            window = self.open_window_with()
+        self.assertEqual(listed, ["", name])
+        # As narrow as the (empty) sequence set list.
+        self.assertEqual(window.cb_hdf5.minimumSizeHint().width(),
+                         window.cb_fasta.minimumSizeHint().width())
+        window.tabs.setCurrentIndex(0)
+        self.resize_panel(600, window)
+        self.assertEqual(window.tabs.currentWidget().horizontalScrollBar().maximum(), 0)
+
     def test_input_order_and_shared_rows(self):
         from PySide6.QtCore import QPoint
         self.resize_panel(1400)

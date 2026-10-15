@@ -12,8 +12,8 @@ window's QApplication. Its matplotlib chart still takes the window's look:
 * the bundled Noto Sans and the window's text colours (plot_font_families,
   chart_style);
 * and, in a Qt window, the window's style (show_chart): the Studio palette,
-  stylesheet and fonts, the Tools icon, and Lucide icons on matplotlib's
-  toolbar.
+  stylesheet and fonts, the Tools icon and desktop identity, and Lucide icons
+  on matplotlib's toolbar.
 
 Nothing here imports matplotlib or Qt until a chart is drawn: headless (JSON
 or MCP) runs print their results instead.
@@ -160,10 +160,11 @@ def show_chart(figure, color, project_root):
 def style_chart_window(figure, color, project_root):
     """Give figure's Qt window the Tools window's look; True if it had one to style.
 
-    The window takes what the Tools window starts with: the bundled fonts,
-    then the Studio palette and stylesheet in color, and the Tools icon from
-    project_root. matplotlib's toolbar shows Lucide icons (TOOLBAR_ICONS).
-    A backend with no Qt window, such as Agg's, is left alone.
+    The window takes what the Tools window starts with: its desktop identity
+    (configure_linux_qt_desktop_identity), the bundled fonts, then the Studio
+    palette and stylesheet in color, and the Tools icon from project_root.
+    matplotlib's toolbar shows Lucide icons (TOOLBAR_ICONS). A backend with
+    no Qt window, such as Agg's, is left alone.
     """
     try:
         from PySide6.QtCore import QSize
@@ -176,10 +177,19 @@ def style_chart_window(figure, color, project_root):
     if not isinstance(window, QMainWindow):
         return False
 
-    from desktop.Desktop_App import configure_qt_application_fonts
+    from desktop.Desktop_App import (
+        TOOLS_DESKTOP_FILE_NAME,
+        configure_linux_qt_desktop_identity,
+        configure_qt_application_fonts,
+    )
     from desktop.Studio_Theme import apply_studio_theme, studio_icon
 
     application = QApplication.instance()
+    # matplotlib names its application "matplotlib", and so the window's
+    # WM_CLASS, which GNOME matches to no app: it showed its generic icon.
+    # Named as the Tools window is, it shows the Tools icon. Set before the
+    # window is shown: Qt reads it as the first window opens.
+    configure_linux_qt_desktop_identity(application, TOOLS_DESKTOP_FILE_NAME)
     configure_qt_application_fonts(application)
     apply_studio_theme(application, color)
     logos = os.path.join(project_root, "src", "bin", "logos")

@@ -7,8 +7,8 @@
 The charts themselves are tested with their tools: Sanitize Sequences'
 histogram in test_sanitize_sequences, Embedding MSA's regression chart in
 test_embedding_msa_regression_chart. Here: the theme colour's setting, the
-toolbar's icons, and the window's style, the last in a subprocess because
-it restyles the whole QApplication.
+toolbar's icons, and the window's style and desktop identity, the last in a
+subprocess because it restyles and renames the whole QApplication.
 """
 import contextlib
 import io
@@ -45,6 +45,7 @@ from tools.tool_helpers import Tool_Charts
 
 figure = plt.figure(figsize=(10, 6))
 manager = figure.canvas.manager
+identity_before = [QApplication.instance().applicationName(), QApplication.instance().desktopFileName()]
 logo = QIcon(os.path.join({root!r}, "src", "bin", "logos", "tool_logo.ico")).pixmap(32).toImage()
 icon_before = manager.window.windowIcon().pixmap(32).toImage()
 styled = Tool_Charts.style_chart_window(figure, "teal", {root!r})
@@ -60,6 +61,8 @@ for callback, action in toolbar._actions.items():
 size = figure.canvas.sizeHint()
 print(json.dumps({{
     "styled": styled,
+    "identity_before": identity_before,
+    "identity": [application.applicationName(), application.desktopFileName()],
     "stylesheet": application.styleSheet() == studio_stylesheet(theme_tokens("teal")),
     "palette_window": application.palette().window().color().name(),
     "font": application.font().families(),
@@ -119,6 +122,7 @@ class ToolChartsTests(unittest.TestCase):
         self.assertIn("the chart window keeps matplotlib's look (no Qt)", printed.getvalue())
 
     def test_the_qt_window_takes_the_tools_windows_look(self):
+        from desktop.Desktop_App import TOOLS_DESKTOP_FILE_NAME
         from desktop.Studio_Theme import theme_tokens
 
         environment = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "PYTHONIOENCODING": "utf-8"}
@@ -130,6 +134,12 @@ class ToolChartsTests(unittest.TestCase):
         seen = json.loads(result.stdout.strip().splitlines()[-1])
         tokens = theme_tokens("teal")
         self.assertTrue(seen["styled"])
+        if sys.platform.startswith("linux"):
+            # Qt names the window's WM_CLASS and GTK application ID after
+            # these, and GNOME shows the app they name: matplotlib's own
+            # names matched none, so the window had GNOME's generic icon.
+            self.assertEqual(seen["identity_before"][0], "matplotlib")
+            self.assertEqual(seen["identity"], [TOOLS_DESKTOP_FILE_NAME] * 2)
         self.assertTrue(seen["stylesheet"], "the Studio stylesheet in the theme colour")
         self.assertEqual(seen["palette_window"], tokens["window"])
         self.assertEqual(seen["font"][0], "Noto Sans")
