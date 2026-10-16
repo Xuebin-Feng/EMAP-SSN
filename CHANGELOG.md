@@ -111,7 +111,12 @@ still change before version 1.0.0.
   Config and Tools redraw in the chosen language at once, at the same size, position
   and tabs, keeping their splitter and scroll positions and every value entered, saved
   or not; a Network Statistics Report already computed shows again in the new language.
-  The Viewer and any dialog take the language when they next open. Simplified
+  Another of those windows that is open redraws the same way the next time it becomes
+  the active window, as when it is clicked into, so a Config left open while Tools
+  switched no longer stays in the old language while the Viewer it launches shows the
+  new one. It waits while one of its dialogs or dropdown lists is open, and stays as it
+  is while `app_settings.json` can't be read or holds no language yet. The Viewer and
+  any dialog take the language when they next open. Simplified
   Chinese brings a font of its own, Noto Sans SC cut down to GB2312's 7,445 characters
   plus Latin and punctuation (4.4 MiB for Regular and Bold), which loads only while
   that language shows.

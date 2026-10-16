@@ -24,7 +24,7 @@ The Language dropdown (after a globe icon) sits at the bottom right of the Confi
 
 The choice is saved in `app_settings.json` in the project folder, and every window uses it.
 
-- **Config and Tools** redraw at once in the chosen language. They keep their size, position, splitters, tabs, scroll positions and every value entered, saved or not.
+- **Config, Tools and VR Config** redraw at once in the chosen language. Another of them that is open redraws the next time it becomes the active window, as when it is clicked into. They keep their size, position, splitters, tabs, scroll positions and every value entered, saved or not.
 - **The Viewer**, with its web pages, and any other window, such as a dialog, uses the language the next time it opens.
 - **Number formats** keep following the system's regional settings in every language.
 

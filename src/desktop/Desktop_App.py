@@ -1891,8 +1891,9 @@ class LanguageSelector(QComboBox):
             self.addItem(language_name(code, catalog_dir), code)
         self.setToolTip(QtCore.QCoreApplication.translate(
             "LanguageSelector",
-            "The language of the windows. Config and Tools switch at once; "
-            "other windows use it the next time they open.",
+            "The language of the windows. This window switches at once, and another open "
+            "Config or Tools window when it is next clicked into; other windows use it "
+            "the next time they open.",
         ))
         self.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         self.show_setting(configured_language() if setting is None else setting)
@@ -1942,6 +1943,75 @@ def choose_language(window, setting):
         return window
     window.language_selector.show_setting(setting)
     return window.switch_language(resolve_language(setting))
+
+
+class LanguageFollower(QtCore.QObject):
+    """Brings a window round to the language another window saved, when it is next activated.
+
+    Every window shares one LANGUAGE setting, but each shows the language it
+    was built in, so a choice made in Tools leaves an open Config as it was.
+    A window that installs this, as LanguageFollower(self), with a
+    language_selector and a switch_language(language) method, looks at the
+    saved setting each time it becomes the active window, as when it is
+    clicked into: its dropdown shows the setting, and switch_language
+    redraws it in the language the setting names, if that isn't the one it
+    shows. The redrawn window looks again when it is activated in turn, and
+    finds its language.
+
+    It looks once the activation is over, after any mouse button that is
+    down goes up, so the click that activated the window reaches it whole.
+    It leaves the window as it is, quietly, while app_settings.json can't be
+    read or holds no LANGUAGE (no window saved one), while a modal dialog or
+    a popup such as an open dropdown shows, when the next activation looks
+    again, and while the window shows the test-only pseudo-language. A
+    redraw that fails leaves the window as it is, with a warning, and that
+    setting isn't tried again.
+    """
+
+    BUTTON_WAIT_MS = 50     # between looks while a mouse button is down
+
+    def __init__(self, window):
+        super().__init__(window)
+        self._window = window
+        self._failed_setting = None
+        window.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if event.type() == QEvent.Type.WindowActivate:
+            # Not during the activation, which a redraw would replace the window in.
+            QTimer.singleShot(0, self, self.follow)
+        return False
+
+    def follow(self):
+        """Show the saved language now, if the window may change; returns the window that shows it."""
+        window = self._window
+        if not window.isActiveWindow():
+            return window  # Left again before this looked; the next activation looks.
+        if QApplication.activeModalWidget() is not None or QApplication.activePopupWidget() is not None:
+            return window
+        if QApplication.mouseButtons() != Qt.MouseButton.NoButton:
+            QTimer.singleShot(self.BUTTON_WAIT_MS, self, self.follow)
+            return window
+        if installed_language() == PSEUDO_LANGUAGE:
+            return window
+        try:
+            settings = read_app_settings()
+        except AppSettingsError:
+            return window
+        if LANGUAGE_SETTING not in settings:
+            return window
+        setting = configured_language(settings)
+        if setting == self._failed_setting:
+            return window
+        try:
+            shown = window.switch_language(resolve_language(setting))
+        except Exception as error:
+            self._failed_setting = setting
+            _warn_once(f"The window could not switch to the saved language {setting!r}, so it stays as it is: {error}")
+            return window
+        # "System default (English)" and "English" show the same language.
+        shown.language_selector.show_setting(setting)
+        return shown
 
 
 def language_selector_row(selector, theme_switch=None, leading=None):
@@ -2309,14 +2379,15 @@ def redraw_in_language(window, language, build, catalog_dir=LANGUAGES_DIR, extra
     splitter positions, tabs and scroll positions, and the single-instance
     controller's attention (window.single_instance). It is shown in the
     window's place before the window closes, so the program never runs
-    without a window. If build() fails, the window and its language stay.
-    Returns the replacement.
+    without a window. If the language can't be installed or build() fails,
+    the window and its language stay. Returns the replacement.
     """
     app = QApplication.instance()
     previous = _installed_translations
     view = capture_view(window)
-    install_translations(app, language, catalog_dir, extra_catalogs)
     try:
+        # A language whose catalog is gone raises after removing the one installed.
+        install_translations(app, language, catalog_dir, extra_catalogs)
         replacement = build()
     except BaseException:
         if previous is None:
@@ -2751,6 +2822,7 @@ __all__ = [
     "redraw_in_theme_color",
     "theme_color_name",
     "choose_language",
+    "LanguageFollower",
     "language_selector_row",
     "capture_view",
     "restore_view",

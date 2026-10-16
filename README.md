@@ -242,9 +242,10 @@ The first is Simplified Chinese (**简体中文**); its translations are drafts 
 a native speaker has yet to review.
 
 The choice is saved in `app_settings.json` in the project folder and applies to
-every window. The Configuration and Tools windows redraw in the new language at
-once and keep everything entered. The Viewer, its browser pages and any dialog
-use it the next time they open. Number formats keep following the system's
+every window. The window it is chosen in redraws in the new language at once
+and keeps everything entered; another Configuration or Tools window that is
+open does the same the next time it is clicked into. The Viewer, its browser
+pages and any dialog use it the next time they open. Number formats keep following the system's
 regional settings.
 
 The chosen language covers:

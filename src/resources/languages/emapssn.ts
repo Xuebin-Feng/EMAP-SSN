@@ -1352,7 +1352,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The language of the windows. Config and Tools switch at once; other windows use it the next time they open.</source>
+        <source>The language of the windows. This window switches at once, and another open Config or Tools window when it is next clicked into; other windows use it the next time they open.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

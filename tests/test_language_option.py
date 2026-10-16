@@ -8,8 +8,11 @@ One LANGUAGE setting in app_settings.json serves every window. Config and
 Tools each show a Language dropdown. Choosing a language saves it and
 redraws that window in it at once, keeping everything the window shows: its
 size, position and splitters, its tabs and scroll positions, and every
-field, unsaved edits included. Other windows take the language when they
-next open. The redraws here go to the test-only pseudo-language, and small compiled
+field, unsaved edits included. An open Config or Tools window takes a
+language another window saved when it is next activated, redrawn the same
+way; other windows take it when they next open. The redraws here go to the
+test-only pseudo-language, or to the shipped Simplified Chinese where a
+window follows the saved setting, and small compiled
 catalogs, each in its language's folder, stand in for real ones. Simplified Chinese also brings its bundled font, only while it
 shows.
 """
@@ -34,7 +37,11 @@ for folder in (SRC, SRC / "resources" / "languages"):
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QFontDatabase, QTextLayout
-from PySide6.QtWidgets import QAbstractScrollArea, QApplication, QSplitter, QTabWidget, QTextBrowser
+from PySide6.QtTest import QTest
+from PySide6.QtWidgets import (
+    QAbstractScrollArea, QApplication, QDialog, QSplitter, QTabWidget, QTextBrowser, QWidget,
+)
+from shiboken6 import isValid
 
 from desktop import Desktop_App
 from desktop.Desktop_App import (
@@ -54,7 +61,7 @@ from desktop.Desktop_App import (
     startup_language,
     system_language,
 )
-from utilities.App_Settings import read_app_settings
+from utilities.App_Settings import read_app_settings, save_app_setting
 from utilities.Localization import is_pseudo_translated
 import Update_Translations
 from tests.translation_fixtures import visible_texts
@@ -100,6 +107,11 @@ def runtime_warning(test):
         warnings.simplefilter("always")
         yield
     test.assertTrue(any(issubclass(warning.category, RuntimeWarning) for warning in caught), "no RuntimeWarning")
+
+
+def gone(window):
+    """Whether window has left the screen: hidden, or deleted by a redraw."""
+    return not isValid(window) or not window.isVisible()
 
 
 def view(window):
@@ -154,6 +166,37 @@ class LanguageTestCase(unittest.TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.addCleanup(install_translations, self.app, None)
+
+    def track(self, window):
+        # A redraw the follower makes, in an event, deletes the old window at once.
+        self.addCleanup(lambda: isValid(window) and window.deleteLater())
+        self.addCleanup(lambda: isValid(window) and window.close())
+
+    def leave(self, window):
+        """Activate another window, as clicking away from window does."""
+        elsewhere = QWidget()
+        self.addCleanup(elsewhere.deleteLater)
+        self.addCleanup(elsewhere.close)
+        elsewhere.show()
+        flush(self.app)
+        self.assertFalse(window.isActiveWindow())
+        return elsewhere
+
+    def come_back(self, window):
+        """Activate window again, as clicking into it does; returns the window shown afterwards."""
+        window.activateWindow()
+        flush(self.app)
+        return self.shown_after(window)
+
+    def shown_after(self, window):
+        """window, or the window a redraw put in its place."""
+        flush(self.app)
+        if not gone(window):
+            return window
+        replacement = Desktop_App._redrawn_windows[-1]
+        self.assertIsNot(replacement, window)
+        self.track(replacement)
+        return replacement
 
 
 class LanguageSettingTests(LanguageTestCase):
@@ -318,7 +361,9 @@ class LanguageFontTests(LanguageTestCase):
         self.assertTrue(any("could not be registered" in str(warning.message) for warning in caught))
 
 
-class ConfigLanguageTests(LanguageTestCase):
+class ConfigWindowCase(LanguageTestCase):
+    """An offscreen Config window that reads a folder of its own."""
+
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
@@ -336,10 +381,6 @@ class ConfigLanguageTests(LanguageTestCase):
         window.show()
         flush(self.app)
         return window
-
-    def track(self, window):
-        self.addCleanup(window.deleteLater)
-        self.addCleanup(window.close)
 
     def change_everything(self, window):
         """Change what a user can change, leaving it all unsaved."""
@@ -361,6 +402,8 @@ class ConfigLanguageTests(LanguageTestCase):
         scroll_bar.setValue(scroll_bar.maximum() // 2)
         self.assertGreater(scroll_bar.value(), 0)
 
+
+class ConfigLanguageTests(ConfigWindowCase):
     def test_the_dropdown_sits_under_the_statistics_report(self):
         window = self.open_window()
         selector = window.language_selector
@@ -492,6 +535,16 @@ class ConfigLanguageTests(LanguageTestCase):
         self.assertTrue(window.isVisible())
         self.assertEqual(installed_language(), PSEUDO_LANGUAGE)
 
+    def test_a_language_whose_catalog_is_gone_keeps_the_window_and_its_language(self):
+        window = self.open_window()
+        install_translations(self.app, PSEUDO_LANGUAGE)
+        built = []
+        with self.assertRaises(LookupError):
+            redraw_in_language(window, "ko", lambda: built.append(1), self.catalogs)
+        self.assertEqual(built, [])
+        self.assertTrue(window.isVisible())
+        self.assertEqual(installed_language(), PSEUDO_LANGUAGE)
+
     def test_the_cache_chosen_before_the_redraw_is_chosen_again_once_discovery_lists_it(self):
         window = self.open_window()
         cache_manifest = self.namespace["cache_manifest"]
@@ -533,7 +586,180 @@ class ConfigLanguageTests(LanguageTestCase):
                 self.assertIsNone(window._carried_cache_choice, "applied once")
 
 
-class ToolsLanguageTests(LanguageTestCase):
+class FollowCase:
+    """Tests of a window following the saved setting into the shipped Simplified Chinese.
+
+    The language comes without its bundled font. Offscreen tests register no
+    UI font, so once that font has drawn a window, Qt goes on matching later
+    windows' font to it, even unregistered, and they lay out differently for
+    the rest of the process. (The programs register Noto Sans first, which
+    keeps them clear of that.)
+    """
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.dict(Desktop_App.LANGUAGE_FONTS, clear=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
+class ConfigLanguageFollowTests(FollowCase, ConfigWindowCase):
+    """An open Config takes a language another window saved when it is next activated."""
+
+    def test_an_open_window_follows_a_language_saved_elsewhere_when_next_activated(self):
+        window = self.open_window()
+        window.resize(1180, 720)
+        window.inputs["MAX_STEPS"].setText("4321")  # unsaved
+        before_view, before = view(window), window.language_carry_over()
+        self.leave(window)
+
+        save_app_setting("LANGUAGE", "zh_CN")  # as Tools saves it
+        flush(self.app)
+        self.assertIs(window.language_follower.follow(), window, "only the active window follows")
+        self.assertTrue(window.isVisible(), "no file watching: the window waits for its activation")
+        self.assertIsNone(installed_language())
+
+        replacement = self.come_back(window)
+        self.assertIsNot(replacement, window)
+        self.assertTrue(gone(window))
+        self.assertEqual(installed_language(), "zh_CN")
+        self.assertEqual(replacement.windowTitle(), "EMAP-SSN 配置")
+        self.assertEqual(replacement.language_selector.setting(), "zh_CN")
+        self.assertEqual(view(replacement)["geometry"], before_view["geometry"])
+        after = replacement.language_carry_over()
+        self.assertEqual(after["values"], before["values"])
+        self.assertEqual(after["values"]["MAX_STEPS"], "4321")
+
+        # The replacement is activated in turn, and again later: it shows the language already.
+        self.leave(replacement)
+        self.assertIs(self.come_back(replacement), replacement)
+        self.assertIs(Desktop_App._redrawn_windows[-1], replacement)
+
+    def test_the_dropdown_follows_a_setting_that_shows_the_same_language(self):
+        window = self.open_window()
+        self.assertEqual(window.language_selector.setting(), SYSTEM_LANGUAGE)
+        self.leave(window)
+        save_app_setting("LANGUAGE", ENGLISH)
+        self.assertIs(self.come_back(window), window, "English already shows")
+        self.assertEqual(window.language_selector.setting(), ENGLISH)
+        self.assertEqual(window.language_selector.currentText(), "English")
+
+    def test_a_settings_file_that_names_no_language_leaves_the_window_as_it_is_quietly(self):
+        save_app_setting("LANGUAGE", ENGLISH)
+        window = self.open_window()
+        self.assertEqual(window.language_selector.setting(), ENGLISH)
+        cases = {
+            "unreadable": "{not json",
+            "not an object": "[]",
+            "no language saved": json.dumps({"CONFIG_THEME_COLOR": "blue"}),
+            "missing": None,
+        }
+        message_box = self.namespace["QMessageBox"]
+        uncaught = []
+        for case, text in cases.items():
+            with self.subTest(case=case):
+                self.leave(window)
+                if text is None:
+                    self.settings.unlink(missing_ok=True)
+                else:
+                    self.settings.write_text(text, encoding="utf-8")
+                # Were "no setting" taken for the system default, this system would show Chinese.
+                with mock.patch.object(Desktop_App, "system_language", return_value="zh_CN"), \
+                        mock.patch.object(message_box, "critical") as critical, \
+                        mock.patch.object(message_box, "warning") as warning, \
+                        mock.patch.object(sys, "excepthook", lambda *error: uncaught.append(error)), \
+                        warnings.catch_warnings(record=True) as caught:
+                    warnings.simplefilter("always")
+                    self.assertIs(self.come_back(window), window)
+                critical.assert_not_called()
+                warning.assert_not_called()
+                self.assertEqual(caught, [])
+                # The programs' excepthook ends the program.
+                self.assertEqual(uncaught, [])
+                self.assertIsNone(installed_language())
+                self.assertEqual(window.language_selector.setting(), ENGLISH)
+                if text is not None:
+                    self.assertEqual(self.settings.read_text(encoding="utf-8"), text, "left as it was")
+
+    def test_an_open_dialog_puts_the_switch_off_until_the_next_activation(self):
+        window = self.open_window()
+        dialog = QDialog(window)  # as a QMessageBox the window shows
+        dialog.setModal(True)
+        dialog.show()
+        flush(self.app)
+        save_app_setting("LANGUAGE", "zh_CN")
+        self.assertIs(self.come_back(window), window)
+        self.assertIsNone(installed_language())
+
+        dialog.close()
+        flush(self.app)
+        self.leave(window)
+        replacement = self.come_back(window)
+        self.assertIsNot(replacement, window)
+        self.assertEqual(installed_language(), "zh_CN")
+
+    def test_an_open_dropdown_puts_the_switch_off(self):
+        window = self.open_window()
+        save_app_setting("LANGUAGE", "zh_CN")
+        window.language_selector.showPopup()
+        flush(self.app)
+        self.assertIsNotNone(QApplication.activePopupWidget())
+        self.assertIs(window.language_follower.follow(), window)
+        self.assertIsNone(installed_language())
+        window.language_selector.hidePopup()
+        flush(self.app)
+        replacement = window.language_follower.follow()
+        self.track(replacement)
+        self.assertIsNot(replacement, window)
+        self.assertEqual(installed_language(), "zh_CN")
+
+    def test_a_mouse_button_held_down_puts_the_switch_off_until_it_goes_up(self):
+        window = self.open_window()
+        save_app_setting("LANGUAGE", "zh_CN")
+        with mock.patch.object(Desktop_App.QApplication, "mouseButtons", return_value=Qt.MouseButton.LeftButton):
+            self.assertIs(window.language_follower.follow(), window)
+            QTest.qWait(3 * Desktop_App.LanguageFollower.BUTTON_WAIT_MS)
+            self.assertTrue(window.isVisible(), "the click that activated the window comes first")
+        # Up again: the follower looks once more by itself, with no new activation.
+        QTest.qWait(3 * Desktop_App.LanguageFollower.BUTTON_WAIT_MS)
+        self.assertIsNot(self.shown_after(window), window)
+        self.assertEqual(installed_language(), "zh_CN")
+
+    def test_the_pseudo_language_is_never_switched_away_from(self):
+        install_translations(self.app, PSEUDO_LANGUAGE)
+        window = self.open_window()
+        self.leave(window)
+        save_app_setting("LANGUAGE", "zh_CN")
+        self.assertIs(self.come_back(window), window)
+        self.assertEqual(installed_language(), PSEUDO_LANGUAGE)
+
+    def test_a_switch_that_fails_leaves_the_window_with_a_warning_and_is_not_tried_again(self):
+        window = self.open_window()
+        uncaught = []
+        with mock.patch.object(window, "switch_language", side_effect=RuntimeError("cannot build")) as switch, \
+                mock.patch.object(sys, "excepthook", lambda *error: uncaught.append(error)), \
+                warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            self.leave(window)
+            save_app_setting("LANGUAGE", "zh_CN")
+            self.assertIs(self.come_back(window), window)
+            self.leave(window)
+            self.assertIs(self.come_back(window), window)
+            self.assertEqual(switch.call_count, 1, "a setting that failed is not tried at every activation")
+            # A setting saved later is tried.
+            save_app_setting("LANGUAGE", ENGLISH)
+            self.leave(window)
+            self.come_back(window)
+            self.assertEqual(switch.call_count, 2)
+        # Raised out of the follower, it would reach the window's excepthook, which exits the program.
+        self.assertEqual(uncaught, [])
+        self.assertTrue(any("cannot build" in str(warning.message) for warning in caught))
+        self.assertEqual(window.language_selector.setting(), SYSTEM_LANGUAGE, "the dropdown matches the window")
+
+
+class ToolsWindowCase(LanguageTestCase):
+    """An offscreen Tools window in a project folder of its own."""
+
     def open_window(self):
         import EMAPSSN_Tools
         from tests.tools_gui_fixtures import isolated_tools_project
@@ -548,10 +774,8 @@ class ToolsLanguageTests(LanguageTestCase):
         flush(self.app)
         return window
 
-    def track(self, window):
-        self.addCleanup(window.deleteLater)
-        self.addCleanup(window.close)
 
+class ToolsLanguageTests(ToolsWindowCase):
     def test_the_dropdown_sits_under_the_script_description(self):
         window = self.open_window()
         selector = window.language_selector
@@ -619,6 +843,28 @@ class ToolsLanguageTests(LanguageTestCase):
         self.assertEqual(selector.setting(), SYSTEM_LANGUAGE)
         self.assertTrue(window.isVisible())
 
+
+class ToolsLanguageFollowTests(FollowCase, ToolsWindowCase):
+    """An open Tools window takes a language another window saved when it is next activated."""
+
+    def test_an_open_window_follows_a_language_saved_elsewhere_when_next_activated(self):
+        window = self.open_window()
+        key = next(iter(window.dir_inputs))
+        window.dir_inputs[key].setText(window.dir_inputs[key].text() + "_unsaved")
+        before = window.language_carry_over()
+        self.leave(window)
+        save_app_setting("LANGUAGE", "zh_CN")  # as Config saves it
+        flush(self.app)
+        self.assertTrue(window.isVisible())
+
+        replacement = self.come_back(window)
+        self.assertIsNot(replacement, window)
+        self.assertEqual(installed_language(), "zh_CN")
+        self.assertEqual(replacement.windowTitle(), "EMAP-SSN 工具")
+        self.assertEqual(replacement.language_selector.setting(), "zh_CN")
+        self.assertEqual(replacement.language_carry_over()["document"], before["document"])
+        self.leave(replacement)
+        self.assertIs(self.come_back(replacement), replacement)
 
 class StartupHandOffTests(unittest.TestCase):
     """The started window gives a redraw its single-instance controller to pass on."""

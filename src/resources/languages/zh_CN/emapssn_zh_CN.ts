@@ -512,7 +512,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2400"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2471"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -525,7 +525,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2297"/>
+        <location line="-2368"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -586,23 +586,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3178"/>
+        <location line="+3192"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3177"/>
+        <location line="-3191"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3687"/>
+        <location line="+3701"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3679"/>
+        <location line="-3693"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -625,7 +625,7 @@
         <translation type="obsolete">关闭</translation>
     </message>
     <message>
-        <location line="+726"/>
+        <location line="+738"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -641,12 +641,12 @@
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3173"/>
+        <location line="+3175"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3170"/>
+        <location line="-3172"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -671,7 +671,7 @@
         <translation type="unfinished">选择 FASTA 子集和 HDF5 网络文件，然后点击计算。</translation>
     </message>
     <message>
-        <location line="+227"/>
+        <location line="+229"/>
         <source>New profile name</source>
         <translation type="unfinished">新配置方案名称</translation>
     </message>
@@ -1404,7 +1404,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-2455"/>
+        <location line="-2468"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1503,7 +1503,7 @@ Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &a
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+1189"/>
+        <location line="+1202"/>
         <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
 Significantly improves responsiveness and reduces rendering latency for large networks.</source>
         <translation type="unfinished">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。
@@ -1869,12 +1869,16 @@ Command-line usage:
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>The language of the windows. Config and Tools switch at once; other windows use it the next time they open.</source>
-        <translation type="unfinished">窗口使用的语言。配置和工具窗口会立即切换；其他窗口在下次打开时生效。</translation>
+        <translation type="obsolete">窗口使用的语言。配置和工具窗口会立即切换；其他窗口在下次打开时生效。</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+7"/>
+        <source>The language of the windows. This window switches at once, and another open Config or Tools window when it is next clicked into; other windows use it the next time they open.</source>
+        <translation type="unfinished">窗口使用的语言。本窗口会立即切换，已打开的另一个配置或工具窗口在下次点击该窗口时切换；其余窗口在下次打开时生效。</translation>
+    </message>
+    <message>
+        <location line="+46"/>
         <source>Language Not Saved</source>
         <translation type="unfinished">语言未保存</translation>
     </message>
@@ -3812,7 +3816,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4008"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4022"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -3854,7 +3858,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+993"/>
+        <location line="+1007"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -6171,7 +6175,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ThemeColorSwitch</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+46"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+115"/>
         <source>Purple</source>
         <translation type="unfinished">紫色</translation>
     </message>
@@ -6238,7 +6242,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ToggleSwitch</name>
     <message>
-        <location line="-713"/>
+        <location line="-783"/>
         <source>ON</source>
         <translation type="unfinished">开</translation>
     </message>
@@ -6460,7 +6464,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1087"/>
+        <location line="+1088"/>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
@@ -7305,12 +7309,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1219"/>
+        <location line="+1221"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1214"/>
+        <location line="-1216"/>
         <location line="+265"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
@@ -7677,17 +7681,17 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">将鼠标悬停在某个输入项上或使其获得焦点，即可查看其说明。</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+47"/>
         <source>Exit</source>
         <translation type="unfinished">退出</translation>
     </message>
     <message>
-        <location line="-16"/>
+        <location line="-18"/>
         <source>Script Description</source>
         <translation type="unfinished">脚本说明</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+59"/>
         <source>Tools Settings Not Loaded</source>
         <translation type="unfinished">工具设置未加载</translation>
     </message>
@@ -8146,7 +8150,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-4474"/>
+        <location line="-4477"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -8228,7 +8232,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">局部（Smith-Waterman）</translation>
     </message>
     <message>
-        <location line="+395"/>
+        <location line="+396"/>
         <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
@@ -8276,7 +8280,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+1836"/>
+        <location line="+1838"/>
         <location line="+176"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>

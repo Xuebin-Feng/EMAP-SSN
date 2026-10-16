@@ -534,6 +534,7 @@ from desktop.Desktop_App import (
     installed_language,
     language_selector_row,
     language_web_font_css,
+    LanguageFollower,
     LanguageSelector,
     redraw_in_language,
     redraw_in_theme_color,
@@ -2458,6 +2459,8 @@ class ToolsGUI(QMainWindow):
         self.right_panel.addWidget(self.script_desc_text, 1)
         self.language_selector = LanguageSelector()
         self.language_selector.language_chosen.connect(lambda setting: choose_language(self, setting))
+        # A language chosen in another window comes here when this one is next activated.
+        self.language_follower = LanguageFollower(self)
         self.theme_switch = ThemeColorButton(TOOLS_THEME_SETTING, color=theme_color())
         self.theme_switch.color_chosen.connect(lambda color: choose_theme_color(self, color))
         # Exit fills the row under the help card up to the Language dropdown, so
