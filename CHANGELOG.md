@@ -165,7 +165,9 @@ still change before version 1.0.0.
   it is while `app_settings.json` can't be read or holds no language yet. The Viewer and
   any dialog take the language when they next open. Simplified Chinese brings a font of
   its own, Noto Sans SC cut down to GB2312's 7,445 characters plus Latin and punctuation
-  (4.4 MiB for Regular and Bold), which loads only while that language shows.
+  (4.4 MiB for Regular and Bold), which loads only while that language shows. A window
+  redrawn into it draws bold text in its Bold, as one started in it does, also on Windows
+  with Noto Sans SC installed, whose thin faces it otherwise drew.
 - **A language is one folder.** Each language lives in `src/resources/languages/<code>/`
   (`zh_CN/`): its catalog `emapssn_<code>.ts` with the compiled `.qm`, an optional
   `language.json` and its translated tool help pages in `help/`. `language.json` gives

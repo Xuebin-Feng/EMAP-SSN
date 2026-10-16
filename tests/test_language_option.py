@@ -348,6 +348,39 @@ class LanguageFontTests(LanguageTestCase):
                 install_translations(self.app, language, self.catalogs)
                 self.assertNotIn(CHINESE_FAMILY, QFontDatabase.families())
 
+    def test_registered_while_a_window_shows_it_makes_qt_look_fonts_up_again(self):
+        # Text a window drew before the font came keeps what Qt found then until
+        # removing a font invalidates Qt's lookups; adding one doesn't. On Windows
+        # with Noto Sans SC installed, a window redrawn into Chinese drew its bold
+        # text thin. Offscreen sees no system copy, so this checks the removal.
+        window = QWidget()
+        self.addCleanup(window.deleteLater)
+        window.show()
+        flush(self.app)
+        real_remove = QFontDatabase.removeApplicationFont
+
+        def install(language):
+            removed = []
+            with mock.patch.object(QFontDatabase, "removeApplicationFont",
+                                   side_effect=lambda font_id: removed.append(font_id) or real_remove(font_id)):
+                installed = install_translations(self.app, language, self.catalogs)
+            return installed, removed
+
+        installed, removed = install("zh_CN")
+        self.assertEqual(len(removed), 1, "one spare copy, added and removed")
+        self.assertNotIn(removed[0], installed.font_ids)
+        self.assertEqual(len(installed.font_ids), 2)
+        # Qt registers its fonts again at the next lookup, which this is.
+        self.assertTrue({"Regular", "Bold"} <= set(QFontDatabase.styles(CHINESE_FAMILY)))
+        for font_id in installed.font_ids:
+            self.assertEqual(QFontDatabase.applicationFontFamilies(font_id), [CHINESE_FAMILY], "still registered")
+
+        install_translations(self.app, None)
+        with mock.patch.object(QApplication, "topLevelWidgets", return_value=[]):
+            installed, removed = install("zh_CN")
+        self.assertEqual(removed, [], "no window yet, as when a program starts: nothing to look up again")
+        self.assertEqual(len(installed.font_ids), 2)
+
     def test_a_missing_font_file_leaves_the_language_with_the_system_fonts(self):
         missing = Desktop_App.LanguageFont(
             CHINESE_FAMILY, "Missing", ("noto/Missing/Missing-Regular.ttf", "noto/Missing/Missing-Bold.ttf")

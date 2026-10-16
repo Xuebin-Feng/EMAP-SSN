@@ -702,6 +702,8 @@ def _add_language_font(
     """Register the bundled font language needs with Qt, if any.
 
     Returns the ids that QFontDatabase.removeApplicationFont takes it out by.
+    Registered while a window shows, as a redraw in the language does, it
+    then makes Qt match fonts again (_match_fonts_again).
     """
     from PySide6.QtGui import QFontDatabase
 
@@ -709,6 +711,7 @@ def _add_language_font(
     if font is None:
         return ()
     font_ids: list[int] = []
+    registered: list[Path] = []
     for relative_path in font.files:
         font_path = Path(font_dir).resolve() / relative_path
         font_id = (
@@ -720,7 +723,33 @@ def _add_language_font(
             _warn_once(f"Bundled font could not be registered: {font_path}.")
         else:
             font_ids.append(font_id)
+            registered.append(font_path)
+    if registered and _window_shown():
+        _match_fonts_again(registered[0])
     return tuple(font_ids)
+
+
+def _window_shown() -> bool:
+    app = QtCore.QCoreApplication.instance()
+    return isinstance(app, QApplication) and any(widget.isVisible() for widget in app.topLevelWidgets())
+
+
+def _match_fonts_again(font_path: Path) -> None:
+    """Make Qt look fonts up again, as for windows built after it starts.
+
+    Text a window drew before a font was added goes on finding what Qt
+    found then, in new windows too, until Qt invalidates its font lookups:
+    removing a font does that, adding one does not. On Windows with Noto
+    Sans SC installed system-wide, a window redrawn into Simplified
+    Chinese drew its bold text in the system font's thin face instead of
+    the bundled Bold. Adding font_path once more and removing that copy
+    leaves the language's own registration in place.
+    """
+    from PySide6.QtGui import QFontDatabase
+
+    spare = QFontDatabase.addApplicationFont(str(font_path))
+    if spare >= 0:
+        QFontDatabase.removeApplicationFont(spare)
 
 
 def vispy_language_face(

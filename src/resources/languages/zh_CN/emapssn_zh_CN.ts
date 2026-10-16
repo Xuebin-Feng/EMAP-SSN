@@ -4,7 +4,7 @@
 <context>
     <name>AgentPage</name>
     <message>
-        <location filename="../../agent/attachments.js" line="+35"/>
+        <location filename="../../agent/attachments.js" line="+47"/>
         <source>Processing…</source>
         <translation type="unfinished">处理中…</translation>
     </message>
@@ -512,7 +512,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2471"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2500"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -525,7 +525,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2368"/>
+        <location line="-2397"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -1864,7 +1864,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1776"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1805"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -6255,7 +6255,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1404"/>
+        <location line="-1433"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
