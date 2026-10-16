@@ -1028,7 +1028,7 @@
                 </div>
                 <div class="figure-caption">
                     <strong>Figure 2: EMAP-SSN Tools GUI Interface Layout.</strong>
-                    The upper tabs organize the pipeline into logical stages. The left panel contains parameter controls (dropdowns bound to workspace directories, toggles, sliders, and numeric inputs) and action buttons (<strong>Save &amp; Run</strong> and <strong>Export Setting</strong>). The bottom-left tooltip bar provides contextual parameter explanations, and the right panel embeds an interactive web-based Markdown documentation viewer with full scientific descriptions and mathematical formulations.
+                    The upper tabs organize the pipeline into logical stages. The left panel contains parameter controls (dropdowns bound to workspace directories, toggles, sliders, and numeric inputs) and action buttons (<strong>Save &amp; Run</strong> and <strong>Export</strong>). The bottom-left tooltip bar provides contextual parameter explanations, and the right panel embeds an interactive web-based Markdown documentation viewer with full scientific descriptions and mathematical formulations.
                 </div>
             </div>
 
@@ -1058,7 +1058,7 @@
                         <strong>Embedding &amp; Network Tools:</strong> <code>Embedding_Injection.py</code> and <code>Network_Injection.py</code> add new sequences to an existing embedding database or network while reusing the stored results, and <code>Embedding_Extraction.py</code> and <code>Network_Extraction.py</code> extract subsets of them for a list of sequence headers.
                     </li>
                     <li>
-                        <strong>Manual Tools:</strong> <code>Embedding_PWA.py</code> aligns two sequences by their residue embeddings and maps positions between them, and <code>Embedding_SSEARCH.py</code> searches one query sequence against an embedding database, similar to FASTA's <code>ssearch</code>.
+                        <strong>Manual Tools:</strong> <code>Embedding_PWA.py</code> aligns two sequences by their residue embeddings and maps positions between them, and <code>Embedding_SSEARCH.py</code> searches one query sequence against an embedding database, similar to FASTA's <code>ssearch</code>. The tab also holds the <strong>Benchmark</strong> card: <strong>Run Benchmark</strong> times EMAP-SSN's heavy calculations on a bundled set of 860 public protein sequences, so computers and versions can be compared, and saves a report in the card's Report Folder. It asks before it starts.
                     </li>
                     <li>
                         <strong>Directories:</strong> Master path manager defining base directories for FASTA inputs, network outputs, embeddings, layout caches, and analysis results.
@@ -1071,19 +1071,20 @@
                 </p>
                 <ul>
                     <li><strong>Reactive Dropdowns:</strong> Automatically scan their respective target directories (e.g., <code>Input_Files/Sequence_Sets/</code> for FASTA files, or <code>Embeddings/</code> for HDF5 files) and populate valid options dynamically.</li>
+                    <li><strong>Theme Colour:</strong> The circle after the Language dropdown, at the bottom right, sets the window's theme colour: Purple (the default), Blue, Teal, Green, Orange, Red, Pink or Black. The Configuration, VR Configuration and Tools windows each keep their own, and the Viewer takes the Configuration window's.</li>
                     <li><strong>Dynamic Parameter Tooltips:</strong> Hovering your mouse over or clicking into any parameter field instantly updates the status bar at the bottom-left with a concise explanation of the parameter's meaning, expected units, and recommended default range.</li>
                 </ul>
 
-                <h3>3. "Save &amp; Run" vs. "Export Setting" (HPC &amp; Headless Reproduction)</h3>
+                <h3>3. "Save &amp; Run" vs. "Export" (HPC &amp; Headless Reproduction)</h3>
                 <p>
                     Every tool card features two primary action buttons:
                 </p>
                 <ul>
                     <li>
-                        <strong style="color: #16a34a;">Save &amp; Run (Green Button):</strong> Validates input fields, persists settings into <code>tools_settings.json</code>, and launches the computational script in an isolated terminal or background process, displaying live standard output and progress bars.
+                        <strong>Save &amp; Run (the theme-coloured button):</strong> Validates input fields, persists settings into <code>tools_settings.json</code>, and launches the computational script in an isolated terminal or background process, displaying live standard output and progress bars.
                     </li>
                     <li>
-                        <strong style="color: #2563eb;">Export Setting (Blue Button):</strong> Serializes the exact current configuration into an independent, minimal JSON file saved in <code>Cache_Files/Exported_Settings/</code>. This decoupled file contains only the parameters and directories necessary for that single tool.
+                        <strong>Export:</strong> Serializes the exact current configuration into an independent, minimal JSON file saved in <code>Cache_Files/Exported_Settings/</code>. This decoupled file contains only the parameters and directories necessary for that single tool.
                     </li>
                 </ul>
 
@@ -1133,8 +1134,9 @@
                     <li><strong>Network Edges Input (.h5):</strong> Binds the all-vs-all pairwise similarity or E-value matrix.</li>
                     <li><strong>Alignment Score &amp; Normalization Modes:</strong> Specifies score interpretation (<code>global</code> vs. <code>local</code>) and score normalization (<code>alignment_length</code>, <code>shorter_sequence</code>, <code>longer_sequence</code>, or <code>average_sequence</code>; <code>alignment_length</code> applies to global scores only).</li>
                     <li><strong>Alignment Reference ID &amp; Offset:</strong> Names the protein whose native residue coordinates anchor the alignment. The value is matched against the network headers, preferring an exact header, then a leading identifier, then a substring or wildcard match, and the alignment anchors on the resolved header when the MSA contains it. Numbering across all residue commands (e.g., <code>color K188 red</code>) then aligns 1:1 with this reference protein's native residue coordinates. If nothing matches or the MSA lacks the resolved header, the Viewer warns at startup, uses occupancy numbering instead, and ignores the offset.</li>
-                    <li><strong>Enable UMAP Layout:</strong> When toggled ON, switches the solver from force-directed physics to UMAP non-linear manifold projection, with tunable <code>UMAP Nearest Neighbors (k)</code> and <code>UMAP Min Distance</code>.</li>
-                    <li><strong>Similarity Threshold &amp; Top Edge %:</strong> Prunes edges below a given similarity score or keeps only the top $X\%$ strongest edges across the entire network to eliminate topological noise.</li>
+                    <li><strong>Plot UMAP Instead:</strong> When toggled ON, plots a UMAP non-linear manifold projection instead of running the force-directed physics, with tunable <code>UMAP Nearest Neighbors</code> and <code>UMAP Min Distance</code>, which take the place of the Similarity Threshold and Top Edge % fields.</li>
+                    <li><strong>Min Occupancy %:</strong> The smallest percentage of non-gap characters an alignment column needs to be kept in residue analyses such as logos and conservation. The default is 10.</li>
+                    <li><strong>Similarity Threshold &amp; Top Edge %:</strong> Prunes edges below a given similarity score or keeps only the top $X\%$ strongest edges across the entire network to eliminate topological noise. Top Edge % overrides the threshold; its <strong>Clear</strong> button unsets it, so the Similarity Threshold applies.</li>
                     <li><strong>Target Cache &amp; Selected Cache File:</strong> Automatically scans for pre-computed layout coordinates in <code>Cache_Files/Saved_Layouts/</code>. If found, the Viewer loads the pre-existing layout instantly without recomputing it. Selecting <code>(New Layout Cache)</code> initiates a fresh simulation.</li>
                 </ul>
 
@@ -1154,7 +1156,7 @@
                     <div class="grid-card">
                         <h4><span>🔍 Consistency Check</span></h4>
                         <p style="font-size: 0.88rem;">
-                            Clicking the yellow <strong>Consistency Check</strong> button performs a strict pre-flight validation:
+                            Clicking the <strong>Consistency Check</strong> button performs a strict pre-flight validation:
                         </p>
                         <ul style="font-size: 0.85rem; margin-bottom: 0;">
                             <li>Cross-checks sequence headers and record counts across the Network HDF5, FASTA sequence set, and MSA file.</li>
@@ -1268,7 +1270,7 @@
 
                 <h3>1. OpenGL Canvas &amp; Camera Navigation</h3>
                 <p>
-                    The main viewport is a 2D pan-and-zoom canvas. The Viewer's on-screen control hint summarizes these bindings:
+                    The main viewport is a 2D pan-and-zoom canvas. The info button at the start of the threshold slider opens a card listing these bindings.
                 </p>
                 <div class="table-responsive">
                     <table>
@@ -1400,7 +1402,7 @@
                             Place your target protein FASTA file (e.g., <code>kinase_family.fasta</code>) into the <code>Input_Files/Sequence_Sets/</code> directory.
                         </p>
                         <p>
-                            Launch <strong>EMAP-SSN Tools</strong> (via shortcut or <code>python src/EMAPSSN_Tools.py</code>). On the <em>Sequence &amp; Embedding Preparation</em> tab, select <code>kinase_family.fasta</code>. Enable <strong>Length Filter</strong> with a minimum length of 150 and maximum of 1000 amino acids to remove incomplete fragments. Click <strong style="color: #16a34a;">Save &amp; Run</strong>.
+                            Launch <strong>EMAP-SSN Tools</strong> (via shortcut or <code>python src/EMAPSSN_Tools.py</code>). On the <em>Sequence &amp; Embedding Preparation</em> tab, select <code>kinase_family.fasta</code>. Enable <strong>Length Filter</strong> with a minimum length of 150 and maximum of 1000 amino acids to remove incomplete fragments. Click <strong>Save &amp; Run</strong>.
                         </p>
                         <div class="callout callout-tip" style="margin-bottom: 0;">
                             <strong>Result:</strong> Produces a sanitized, deduplicated sequence database <code>kinase_family_sanitized.fasta</code> with normalized headers and standard residue alphabets.
@@ -1416,7 +1418,7 @@
                             Still in the <em>Sequence &amp; Embedding Preparation</em> tab, navigate to <strong>Generate Embeddings</strong>. Select <code>kinase_family_sanitized.fasta</code> as the input FASTA.
                         </p>
                         <p>
-                            Select your desired model, such as <code>esm2_t33_650m</code> (the largest supported ESM-2 model). Verify that GPU acceleration is enabled. Click <strong style="color: #16a34a;">Save &amp; Run</strong>.
+                            Select your desired model, such as <code>esm2_t33_650m</code> (the largest supported ESM-2 model). Verify that GPU acceleration is enabled. Click <strong>Save &amp; Run</strong>.
                         </p>
                         <div class="callout callout-tip" style="margin-bottom: 0;">
                             <strong>Result:</strong> An HDF5 database (<code>kinase_family_sanitized_[esm2_t33_650m]_embeddings.h5</code>) is written to <code>Embeddings/</code> containing high-dimensional per-residue embedding vectors.
@@ -1429,7 +1431,7 @@
                     <div class="step-content">
                         <h4>Step 3: Calculate Pairwise Similarity &amp; Guide-Tree MSA</h4>
                         <p>
-                            Switch to the <em>Sequence Similarity Calculations</em> tab. Run <strong>Dynamic Programming Embedding Alignment</strong> (<code>Align_Similarity_Matrix.py</code>), or <strong>Substitution Matrix Alignment</strong> (<code>Align_Substitution_Matrix.py</code>) for traditional BLAST. Click <strong style="color: #16a34a;">Save &amp; Run</strong> to compute the all-vs-all similarity matrix.
+                            Switch to the <em>Sequence Similarity Calculations</em> tab. Run <strong>Dynamic Programming Embedding Alignment</strong> (<code>Align_Similarity_Matrix.py</code>), or <strong>Substitution Matrix Alignment</strong> (<code>Align_Substitution_Matrix.py</code>) for traditional BLAST. Click <strong>Save &amp; Run</strong> to compute the all-vs-all similarity matrix.
                         </p>
                         <p>
                             Next, switch to the <em>Embedding MSA</em> tab and run <strong>Embedding Multiple Sequence Alignment</strong> (<code>Embedding_MSA.py</code>) with Score Mode set to <code>global</code> and Normalization Mode to <code>alignment_length</code>. This builds a guide tree from the network's scores and progressively aligns the sequences into a global MSA using their embeddings.
@@ -1449,10 +1451,10 @@
                         </p>
                         <ol style="margin-bottom: 12px;">
                             <li>Select your Sequence Set, Network Edges H5, and MSA Input in the dropdowns.</li>
-                            <li>Click the blue <strong style="color: #2563eb;">Compute Network Statistics</strong> button. Review the report in the right panel to choose an appropriate <code>Top Edge %</code> (e.g., 5.0% or 10.0%) to prevent excessive edge clutter.</li>
+                            <li>Click the <strong>Compute Network Statistics</strong> button. Review the report in the right panel to choose an appropriate <code>Top Edge %</code> (e.g., 5.0% or 10.0%) to prevent excessive edge clutter.</li>
                             <li>Set your <code>Alignment Reference ID</code> to a known reference protein (e.g., a crystallized family archetype).</li>
-                            <li>Click the yellow <strong style="color: #d97706;">Consistency Check</strong> button to confirm that sequence counts and headers match 100%.</li>
-                            <li>Click <strong style="color: #16a34a;">Save &amp; Run</strong> to start the force-directed physics layout solver and open the Viewer!</li>
+                            <li>Click the <strong>Consistency Check</strong> button to confirm that sequence counts and headers match 100%.</li>
+                            <li>Click <strong>Save &amp; Run</strong> to start the force-directed physics layout solver and open the Viewer!</li>
                         </ol>
                     </div>
                 </div>
@@ -1506,7 +1508,7 @@
                 <ul>
                     <li><strong>NVIDIA GPUs:</strong> Highly recommended. Supports CUDA 13.2 and CUDA 12.6 profiles with full PyTorch acceleration for both embedding generation and physics layout solvers.</li>
                     <li><strong>AMD GPUs:</strong> Supported via ROCm 7.14 on Windows 11 25H2 (build 26200 or newer) and on Ubuntu Linux. The physics layout's GPU kernels are compiled for ROCm at run time but have not been tested on AMD hardware; they are checked on first use, and layouts fall back to the slower PyTorch implementation automatically if the check fails (<code>SSN_LAYOUT_GPU_KERNELS=0</code> forces the fallback).</li>
-                    <li><strong>Intel Arc / Core Ultra:</strong> Supported via Intel XPU on Windows 11 and on Ubuntu 24.04, 25.10 or 26.04 (Core Ultra Series 3 needs Ubuntu 25.10 or 26.04). Intel Data Center GPU Max is supported on Ubuntu 22.04, RHEL 9.2 or SLES 15. Intel HD, UHD, Iris and other non-Arc integrated graphics are not eligible.</li>
+                    <li><strong>Intel Arc / Core Ultra:</strong> Supported via Intel XPU on Windows 11 and on Ubuntu 24.04, 25.10 or 26.04 (Core Ultra Series 3 needs Ubuntu 25.10 or 26.04; Core Ultra Series 1 U processors (Meteor Lake-U) work on Windows 11 only; Core Ultra Series 2 U and desktop processors (Arrow Lake-U and -S) are not eligible). Intel Data Center GPU Max is supported on Ubuntu 22.04, RHEL 9.2 or SLES 15. Intel HD, UHD, Iris and other non-Arc integrated graphics are not eligible.</li>
                     <li><strong>Apple Silicon (all generations):</strong> Supported natively via Metal Performance Shaders (MPS) on macOS 14+.</li>
                     <li><strong>CPU Fallback:</strong> If no accelerator passes tensor validation, the application automatically falls back to multi-threaded CPU execution safely.</li>
                 </ul>

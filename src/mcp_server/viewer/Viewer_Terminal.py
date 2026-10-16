@@ -1,3 +1,7 @@
+# Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
+# SPDX-License-Identifier: Apache-2.0
+
 """Run an MCP Viewer in a real terminal while retaining both output streams."""
 from __future__ import annotations
 

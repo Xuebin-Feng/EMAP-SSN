@@ -1,3 +1,7 @@
+# Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
+# SPDX-License-Identifier: Apache-2.0
+
 """Frozen, network-only alignment data for read-only snapshot analysis."""
 from collections import Counter
 from copy import deepcopy

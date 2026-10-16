@@ -1080,6 +1080,48 @@ class DependencyReadinessTests(unittest.TestCase):
         self.assertTrue(ready)
         consistency.assert_called_once_with("uv", python)
 
+    def test_a_gpu_not_visible_now_prints_no_state_mismatch(self):
+        # With no accelerator visible, a changed hardware fingerprint keeps the
+        # saved build. It used to list "State mismatch" lines on every start
+        # anyway; only a mismatch that stops the launch is listed now.
+        active = Install_Dependencies.backend_specs({"backend": "cpu"})[0]
+        for mismatches, expected_ready in (
+            (["hardware_fingerprint", "requested_candidates"], True),
+            (["hardware_fingerprint", "requirements"], False),
+        ):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with self.subTest(mismatches=mismatches), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                python = root / "python"
+                python.touch()
+                with mock.patch.object(Install_Dependencies, "venv_python", return_value=python), \
+                        mock.patch.object(Install_Dependencies, "verify_esm_runtime_requirements"), \
+                        mock.patch.object(Install_Dependencies.Detect_GPU, "detect_hardware", return_value={}), \
+                        mock.patch.object(Install_Dependencies, "backend_specs", return_value=[]), \
+                        mock.patch.object(Install_Dependencies, "hardware_fingerprint", return_value="fp"), \
+                        mock.patch.object(Install_Dependencies, "read_state",
+                                          return_value={"active_backend": {"backend": "cpu"}}), \
+                        mock.patch.object(Install_Dependencies, "_state_mismatches", return_value=list(mismatches)), \
+                        mock.patch.object(Install_Dependencies, "_backend_from_state", return_value=active), \
+                        mock.patch.object(Install_Dependencies, "_accelerator_runtime_visible", return_value=False), \
+                        mock.patch.object(Install_Dependencies, "validate_backend", return_value={"devices": []}), \
+                        mock.patch.object(Install_Dependencies, "_installed_version", side_effect=lambda _python, package: (
+                            Install_Dependencies.TRANSFORMERS_VERSION if package == "transformers"
+                            else Install_Dependencies.ESM_VERSION
+                        )), \
+                        mock.patch.object(Install_Dependencies, "validate_package_consistency", return_value=True), \
+                        mock.patch.object(Install_Dependencies, "validate_esm_stack", return_value=True), \
+                        redirect_stdout(stdout), redirect_stderr(stderr):
+                    ready = Install_Dependencies.environment_is_ready(
+                        project_root=root, venv=root, uv_executable="uv"
+                    )
+                self.assertEqual(ready, expected_ready)
+                if expected_ready:
+                    self.assertNotIn("State mismatch", stderr.getvalue())
+                    self.assertIn("compatible accelerator state is being preserved", stdout.getvalue())
+                else:
+                    self.assertIn("State mismatch [requirements]", stderr.getvalue())
+
     def test_readiness_reports_package_consistency_once(self):
         # A real Linux check printed "Installed package consistency" twice:
         # with the accepted esm deviations, then a bare "passed" that really

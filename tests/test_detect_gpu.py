@@ -352,6 +352,39 @@ class DetectionCompatibilityTests(unittest.TestCase):
                 self.assertNotIn("warning", device)
                 self.assertEqual(Detect_GPU._candidate_ladder([device])[0][0]["backend"], "cuda126")
 
+    def test_gpus_and_drivers_too_old_for_cuda_12_are_left_out_with_a_warning(self):
+        # The CUDA 12.6 build's oldest kernels are for compute capability 5.0,
+        # and CUDA 12 needs driver 525.60.13 on Linux, 528.33 on Windows. Below
+        # either, the multi-GB build downloaded and then failed validation.
+        for name, capability, driver, system, message in (
+            ("NVIDIA GeForce GTX 780", "3.5", "470.256.02", "linux",
+             "has compute capability 3.5; the CUDA builds EMAP-SSN installs need 5.0 or newer"),
+            ("NVIDIA GeForce GTX 750 Ti", "5.0", "470.256.02", "linux",
+             "needs NVIDIA driver 525.60.13 or newer for CUDA 12 (installed: 470.256.02)"),
+            ("NVIDIA GeForce GTX 1080", "6.1", "527.56", "windows",
+             "needs NVIDIA driver 528.33 or newer for CUDA 12 (installed: 527.56)"),
+        ):
+            with self.subTest(name=name, system=system):
+                device = gpu(name, "NVIDIA", identifier="n0", kind="discrete", capability=capability, driver=driver)
+                Detect_GPU._evaluate_devices([device], system, {"windows_build": 26200}, set())
+                self.assertEqual(device["eligible_profiles"], [])
+                self.assertIn(message, device["warning"])
+                candidates, _ignored = Detect_GPU._candidate_ladder([device])
+                self.assertEqual([candidate["backend"] for candidate in candidates], ["cpu"])
+        # At the minimums the GPU is used. Without nvidia-smi there is no compute
+        # capability and the driver is the Windows package's own number, which
+        # is never compared.
+        for name, capability, driver, system in (
+            ("NVIDIA GeForce GTX 750 Ti", "5.0", "525.60.13", "linux"),
+            ("NVIDIA GeForce GTX 1080", "6.1", "528.33", "windows"),
+            ("NVIDIA GeForce GTX 1080", None, "32.0.15.6094", "windows"),
+        ):
+            with self.subTest(name=name, system=system, driver=driver):
+                device = gpu(name, "NVIDIA", identifier="n0", kind="discrete", capability=capability, driver=driver)
+                Detect_GPU._evaluate_devices([device], system, {"windows_build": 26200}, set())
+                self.assertNotIn("warning", device)
+                self.assertEqual(device["eligible_profiles"], ["cuda"])
+
     def test_linux_rocm_agent_mismatch_is_rejected(self):
         device = gpu("AMD Radeon RX 7900 XTX", "AMD", identifier="amd0", architecture="gfx1100")
         with mock.patch.object(Detect_GPU.Path, "exists", return_value=True), mock.patch.object(Detect_GPU.os, "access", return_value=True):
@@ -388,6 +421,48 @@ class DetectionCompatibilityTests(unittest.TestCase):
         self.assertIn("Ubuntu", unsupported_distro["reasons"][0])
         self.assertEqual(inaccessible_kfd["eligible_profiles"], [])
         self.assertIn("/dev/kfd", inaccessible_kfd["reasons"][0])
+
+    def test_linux_rocm_releases(self):
+        # Every target: the pinned Ubuntu releases and distributions built on
+        # them, by their UBUNTU_CODENAME. Instinct MI300 (gfx942) and MI350
+        # (gfx950) also: the enterprise releases AMD's 7.14.1 matrix lists.
+        mint = {"id": "linuxmint", "id_like": "ubuntu debian", "version_id": "22", "ubuntu_codename": "noble"}
+        pop = {"id": "pop", "id_like": "ubuntu debian", "version_id": "24.04", "ubuntu_codename": "noble"}
+        cases = [
+            ({"id": "ubuntu", "version_id": "22.04"}, "gfx1100", True),
+            ({"id": "ubuntu", "version_id": "20.04"}, "gfx1100", False),
+            (mint, "gfx1100", True),
+            (pop, "gfx1201", True),
+            (dict(mint, ubuntu_codename="jammy", version_id="21.3"), "gfx1102", True),
+            # An Ubuntu base older than the pinned releases, and a codename
+            # without an Ubuntu ID_LIKE, are not enough.
+            (dict(mint, ubuntu_codename="focal", version_id="20.3"), "gfx1100", False),
+            ({"id": "other", "version_id": "1", "ubuntu_codename": "noble"}, "gfx1100", False),
+            # Radeon targets stay on Ubuntu.
+            ({"id": "debian", "version_id": "13"}, "gfx1100", False),
+            ({"id": "rhel", "version_id": "9.4"}, "gfx1100", False),
+            ({"id": "rhel", "version_id": "9.4"}, "gfx90a", False),
+            ({"id": "rhel", "version_id": "9.4"}, "gfx942", True),
+            ({"id": "rhel", "version_id": "8.10"}, "gfx942", True),
+            ({"id": "rhel", "version_id": "10.2"}, "gfx950", True),
+            ({"id": "rhel", "version_id": "9.2"}, "gfx942", False),
+            ({"id": "rhel", "version_id": "10.1"}, "gfx942", False),
+            ({"id": "rhel", "version_id": "8.1"}, "gfx942", False),
+            ({"id": "rocky", "version_id": "9.6"}, "gfx942", True),
+            ({"id": "rocky", "version_id": "9.6"}, "gfx950", False),
+            ({"id": "ol", "version_id": "8.10"}, "gfx942", True),
+            ({"id": "ol", "version_id": "8.10"}, "gfx950", False),
+            ({"id": "ol", "version_id": "10.0"}, "gfx950", True),
+            ({"id": "debian", "version_id": "12"}, "gfx950", True),
+            ({"id": "debian", "version_id": "11"}, "gfx942", False),
+            ({"id": "sles", "version_id": "15.7"}, "gfx942", True),
+            ({"id": "sles", "version_id": "16.0"}, "gfx950", True),
+            ({"id": "sles", "version_id": "15.6"}, "gfx942", False),
+            ({"id": "fedora", "version_id": "42"}, "gfx942", False),
+        ]
+        for os_info, target, expected in cases:
+            with self.subTest(os_info=os_info, target=target):
+                self.assertEqual(Detect_GPU._linux_rocm_release(os_info, target) is not None, expected)
 
     def test_linux_rocm_accepts_every_channel_target_as_one_profile(self):
         # The per-release Linux profiles are gone. Eligibility is now a single
@@ -480,6 +555,7 @@ class GPUDetectionTests(unittest.TestCase):
             "AMD Radeon RX 7600": "gfx1102",
             # Same silicon as the RX 7600, though AMD's list names only that.
             "AMD Radeon RX 7600 XT": "gfx1102",
+            "AMD Radeon RX 7650 GRE": "gfx1102",
             # The laptop RX 7700S is that silicon too, not an RX 7700 (gfx1101).
             "AMD Radeon RX 7700S": "gfx1102",
             # So are the laptop RX 7600S, RX 7600M and RX 7600M XT and the PRO
@@ -918,25 +994,59 @@ class GPUDetectionTests(unittest.TestCase):
                     [candidate["backend"] for candidate in report["backend_candidates"]], ["rocm", "cpu"]
                 )
 
-    def test_linux_instinct_mi300a_on_rhel_is_found_but_not_eligible(self):
-        # Linux ROCm is limited to the supported Ubuntu releases, so the same
-        # node on RHEL finds the four APUs and still uses the CPU.
-        report = self._detect_linux_node(
-            lspci_dnnk=self.MI300A_LSPCI_DNNK,
-            lspci=self.MI300A_LSPCI,
-            rocm_agents=["gfx942"] * 4,
-            os_release={"id": "rhel", "version_id": "9.4"},
+    def test_linux_instinct_mi300a_on_enterprise_releases(self):
+        # AMD lists the MI300 series on RHEL, Rocky, Oracle Linux, Debian and
+        # SLES as well, so the node gets ROCm there too. A release AMD does not
+        # list, or another distribution, finds the four APUs and uses the CPU.
+        for os_release, backend in (
+            ({"id": "rhel", "version_id": "9.4"}, "rocm"),
+            ({"id": "rocky", "version_id": "9.6"}, "rocm"),
+            ({"id": "debian", "version_id": "13"}, "rocm"),
+            ({"id": "sles", "version_id": "15.7"}, "rocm"),
+            ({"id": "rhel", "version_id": "9.2"}, "cpu"),
+            ({"id": "fedora", "version_id": "42"}, "cpu"),
+        ):
+            with self.subTest(**os_release):
+                report = self._detect_linux_node(
+                    lspci_dnnk=self.MI300A_LSPCI_DNNK,
+                    lspci=self.MI300A_LSPCI,
+                    rocm_agents=["gfx942"] * 4,
+                    os_release=os_release,
+                )
+                amd = [device for device in report["devices"] if device["vendor"] == "AMD"]
+                self.assertEqual([device["pci_id"] for device in amd], ["1002:74a0"] * 4)
+                self.assertEqual(report["backend"], backend)
+                for device in amd:
+                    self.assertEqual(device["architecture"], "gfx942")
+                    self.assertEqual(device["eligible_profiles"], ["rocm"] if backend == "rocm" else [])
+                if backend == "cpu":
+                    self.assertEqual([candidate["backend"] for candidate in report["backend_candidates"]], ["cpu"])
+                    # The APUs, not the BMC's VGA controller, explain the CPU
+                    # fallback, with their verdict rather than how their GFX
+                    # target was found.
+                    self.assertEqual(
+                        report["reason"],
+                        "Linux ROCm needs Ubuntu 22.04, 24.04, 25.10 or 26.04, or a distribution built on "
+                        "one of them, or a RHEL, Rocky Linux, Oracle Linux, Debian or SLES release that "
+                        "AMD lists for gfx942.",
+                    )
+
+    def test_cpu_fallback_reason_comes_from_the_first_ranked_gpu(self):
+        # An integrated Intel GPU listed first used to explain the fallback of
+        # a discrete Radeon on an unsupported distribution.
+        lspci_dnnk = (
+            "0000:00:02.0 VGA compatible controller [0300]: Intel Corporation AlderLake-S GT1 [8086:a780] (rev 0c)\n"
+            "\tKernel driver in use: i915\n"
+            "0000:03:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] "
+            "Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M] [1002:744c] (rev c8)\n"
+            "\tKernel driver in use: amdgpu\n"
         )
-        amd = [device for device in report["devices"] if device["vendor"] == "AMD"]
-        self.assertEqual([device["pci_id"] for device in amd], ["1002:74a0"] * 4)
-        for device in amd:
-            self.assertEqual(device["architecture"], "gfx942")
-            self.assertEqual(device["eligible_profiles"], [])
-            self.assertIn(
-                "Linux ROCm profile is limited to the pinned supported Ubuntu releases.", device["reasons"]
-            )
+        report = self._detect_linux_node(
+            lspci_dnnk=lspci_dnnk, lspci=None, rocm_agents=["gfx1100"],
+            os_release={"id": "fedora", "version_id": "42"},
+        )
         self.assertEqual(report["backend"], "cpu")
-        self.assertEqual([candidate["backend"] for candidate in report["backend_candidates"]], ["cpu"])
+        self.assertTrue(report["reason"].startswith("Linux ROCm needs Ubuntu 22.04"), report["reason"])
 
     def test_linux_instinct_mi210_display_controller_is_unchanged(self):
         # The MI200 series is a display controller, which detection always kept.

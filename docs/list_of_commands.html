@@ -722,7 +722,7 @@
                     This reference documents all available visual, physical, and community-clustering commands. Use the sidebar to search or filter commands dynamically. Core commands operate on the visual state in memory, while external scripts execute advanced bioinformatics algorithms and export outputs to the disk.
                 </p>
                 <p style="font-size: 1rem; color: var(--text-secondary);">
-                    <code>COMMAND help</code> or <code>COMMAND -h</code> prints a command's own help in the terminal. Most commands also accept <code>--help</code>; <code>export</code> and <code>label</code> accept <code>-?</code> instead, because <code>label --help</code> would be read as a report filename. <code>label help</code> requires a loaded MSA with an active reference.
+                    <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the terminal; <code>export</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference.
                 </p>
             </header>
 
@@ -909,7 +909,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">hide [expression]</div>
+                    <div class="syntax-content">hide [expression | single | free]</div>
                     <button class="copy-btn" onclick="copyText('hide', this)">Copy</button>
                 </div>
                 <p><strong>Function:</strong> Hides matching nodes and their displayed edges without deleting nodes, coordinates, sequences, metadata, clusters, or groups. Visibility-aware commands exclude hidden nodes; analyses that operate on stored subsets or alignment rows retain their own documented behavior.</p>
@@ -965,7 +965,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">run</div>
+                    <div class="syntax-content">run [stop]</div>
                     <button class="copy-btn" onclick="copyText('run', this)">Copy</button>
                 </div>
                 <p><strong>Function:</strong> Opens a file explorer to select a command script file (<code>.txt</code> or <code>.py</code>) and executes the commands in sequence.</p>
@@ -973,6 +973,7 @@
                 <ul>
                     <li><strong>Python Scripts (<code>.py</code>):</strong> Executed in a subprocess using the active python environment, in the script's own folder, so relative paths in the script resolve beside it. The subprocess runs in the background, so the viewer stays responsive; when it finishes, its standard output (stdout) is read and executed line-by-line in the viewer. One script runs at a time: running another while one is still running is refused.</li>
                     <li><strong>Text Files (<code>.txt</code>):</strong> Read line-by-line. Text after <code>//</code> is removed, so both full-line and trailing comments are ignored.</li>
+                    <li><strong>Stopping Scripts:</strong> <code>run stop</code> ends the Python scripts the viewer is running, with every process they started, and runs none of their commands. No file explorer opens. With no script running, it succeeds and says so. Closing the viewer stops them too.</li>
                     <li><strong>Infinite Loop Protection:</strong> Recursive <code>run</code> calls inside a script are automatically ignored to prevent viewer freezes.</li>
                     <li><strong>Stops at the First Failure:</strong> The commands run in order, and the first command that fails ends the run. The commands after it are not run; the console names the command that failed and says how many were left out. A command cancelled from its own dialog ends the run in the same way.</li>
                     <li><strong>Command Limit:</strong> A script may supply at most 1000 commands. A longer script is refused before any command runs.</li>
@@ -980,6 +981,7 @@
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>run</span><button class="copy-btn" onclick="copyText('run', this)">Copy</button></li>
+                    <li class="example-item"><span>run stop</span><button class="copy-btn" onclick="copyText('run stop', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1565,6 +1567,7 @@
                     <li><strong>Diverging:</strong> coolwarm, bwr, seismic, Spectral, BrBG, PiYG, PRGn, PuOr, RdBu, RdGy, RdYlBu, RdYlGn</li>
                     <li><strong>Cyclic:</strong> twilight, twilight_shifted, hsv</li>
                     <li><strong>Qualitative:</strong> tab10, tab20, tab20b, tab20c, Pastel1, Pastel2, Paired, Accent, Dark2, Set1, Set2, Set3</li>
+                    <li><strong>Miscellaneous:</strong> jet, rainbow, turbo, ocean, terrain, cubehelix, gnuplot, gnuplot2, flag, prism, gist_earth, nipy_spectral</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1597,7 +1600,7 @@
                 <ul>
                     <li><strong>transparent:</strong> Removes the solid background, making the output PNG transparent.</li>
                     <li><strong>full:</strong> Bypasses OpenGL camera edge-clipping. Renders the network tile by tile off screen, without moving the view, and stitches the tiles into a massive, ultra-high-resolution PNG. Keyboard and mouse input waits while the tiles are drawn, and resizing the window cancels the capture. An image of more than 1000 megapixels (<code>MAX_FULL_IMAGE_MEGAPIXELS</code> in <code>src/commands/print.py</code>) is refused before any tile is drawn, naming the smallest <code>zoom N</code> that fits; making the image takes about 4 bytes of memory per pixel, 7 with transparency. Can be combined with transparency.</li>
-                    <li><strong>svg:</strong> Writes a layered Scalable Vector Graphic of the network as displayed, without shutting down the OpenGL viewer: visible nodes and the edges shown on screen (the similarity-threshold and UMAP-mode filters apply), in the configured edge and node-boundary colors. Text labels are not included. Node sizes and line widths follow the current zoom, so the SVG keeps the proportions shown on screen. It draws what a PNG of the view shows: each marker's shape as on screen, and node outlines (selection borders too) and edges as wide as the screen draws them, so a thin outline is about 1.7 device pixels wide and edges are whole device pixels; on a high-DPI display both come out thinner beside the nodes. Cannot be combined with other modifiers.</li>
+                    <li><strong>svg:</strong> Writes a layered Scalable Vector Graphic of the network as displayed, without shutting down the OpenGL viewer: visible nodes and the edges shown on screen (the similarity-threshold and UMAP-mode filters apply), in the configured edge and node-boundary colors. Text labels are not included. Node sizes and line widths follow the current zoom, so the SVG keeps the proportions shown on screen. It draws what a PNG of the view shows: each marker's shape as on screen, and node outlines (selection borders too) and edges as wide as the screen draws them, so a thin outline is about 1.7 device pixels wide and edges are whole device pixels; on a high-DPI display both come out thinner beside the nodes. Cannot be combined with <code>transparent</code> or <code>full</code>.</li>
                     <li><strong>zoom N:</strong> Only with <code>full</code> or <code>svg</code>, anywhere among the modifiers. Draws at the scale <code>zoom N</code> would set, the view N scene units wide on the current canvas, without moving the view; N must be a positive width the view can draw, and the <code>zoom</code> command's 0.5 and whole-network limits do not apply. With <code>full</code>, node sizes stay in screen pixels and a smaller N gives a larger image; an image whose longest side is under 1000&nbsp;px is still saved, with a warning. With <code>svg</code>, node sizes and line widths are written as on a view N units wide. Refused with a plain PNG. The word after <code>zoom</code> is always read as N, so a file named zoom is written <code>zoom.png</code>.</li>
                 </ul>
 
@@ -1636,7 +1639,7 @@
 
                 <div class="subheading">Core Arguments</div>
                 <ul>
-                    <li><strong>[POSITIONS] (Required):</strong> Comma-separated reference positions or integer ranges in brackets (e.g. <code>[10-25]</code>). Fractional insertion positions, representing retained alignment columns where the reference has a gap, may be listed explicitly (e.g. <code>[10,10.1,10.2,11]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),0,1]</code> or <code>[(-3)-(-1)]</code>; bare negative positions are invalid. Integer ranges retain integer-only behavior. Write the list without spaces (<code>[1,2]</code>, not <code>[1, 2]</code>), and each range from lower to higher (<code>[10-25]</code>, not <code>[25-10]</code>).</li>
+                    <li><strong>[POSITIONS] (Required):</strong> Comma-separated reference positions or integer ranges in brackets (e.g. <code>[10-25]</code>). Fractional insertion positions, representing retained alignment columns where the reference has a gap, may be listed explicitly (e.g. <code>[10,10.1,10.2,11]</code>). Every negative position or range endpoint must be enclosed individually in parentheses, as in <code>[(-1),0,1]</code> or <code>[(-3)-(-1)]</code>; bare negative positions are invalid. Integer ranges retain integer-only behavior. Spaces after commas are accepted (<code>[1, 2]</code>). Write each range from lower to higher (<code>[10-25]</code>, not <code>[25-10]</code>).</li>
                     <li><strong>FILENAME:</strong> Output name, which must end in <code>.svg</code> or <code>.png</code>; without one a timestamped <code>logo_YYYYMMDD_HHMMSS.svg</code> is created. Saved beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Sequence_Logos/</code>). A last remaining word without that extension is read as part of the expression, so a mistyped keyword such as <code>nogap</code> is refused rather than used as a filename: write <code>logo $sele$ [10-20] my_logo.svg</code>.</li>
                     <li><strong>MODE:</strong> <code>bits</code> (Default - Shannon Information Content) or <code>pcts</code> (Percentages).</li>
                     <li><strong>GAP_MODE:</strong> <code>with_gap</code> (Default - scales stack height by occupancy) or <code>no_gap</code> (ignores gaps).</li>

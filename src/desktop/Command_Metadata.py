@@ -1,3 +1,7 @@
+# Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
+# SPDX-License-Identifier: Apache-2.0
+
 """Descriptive command metadata only; never imports handlers or validates commands.
 
 Maintain alongside src/commands parsers. Choices enumerate finite keywords;
@@ -67,7 +71,7 @@ COMMAND_METADATA = {
         argument('numbers', 'Alternatively supply gmax, cmin, then optional identity positionally. Do not put positional numbers after keyword arguments.'),
         argument('filename', 'Optional final XLSX basename; extension added. Numeric or reserved names must include .xlsx. Explicit filenames overwrite; automatic timestamp names avoid collisions.')),
     'logo': entry('Queue a sequence-logo image for a selected subset; requires a nonempty MSA and background scheduler.',
-        argument('positions', 'Required bracketed displayed positions/ranges, e.g. [1,5-8,10.1] or [(-3)-(-1)]: reference numbering with an active reference, otherwise occupancy numbering as in query. Fractional insertions must be explicit. No spaces inside the brackets; ranges run from lower to higher.'),
+        argument('positions', 'Required bracketed displayed positions/ranges, e.g. [1,5-8,10.1] or [(-3)-(-1)]: reference numbering with an active reference, otherwise occupancy numbering as in query. Fractional insertions must be explicit. Spaces after commas are accepted; ranges run from lower to higher.'),
         argument('expression', EXPRESSION + ' Defaults to selected nodes, or all nodes if nothing is selected. An expression that matches no node succeeds with a note and queues nothing; nodes that match but are not in the alignment make the command fail.'),
         argument('filename', 'Optional SVG/PNG basename; default timestamped SVG. A filename must end in .svg or .png (any case): if the last remaining string does, it is the filename and any other remaining strings form the expression; otherwise all remaining strings form the expression, so a mistyped keyword such as nogap is refused rather than used as a filename. A PNG is one 600 dpi image, so a PNG of more than a few hundred positions (the refusal names the exact limit) is refused before it is queued; SVG has no such limit.'),
         argument('mode', 'Default bits (information content); pcts displays frequencies. Bits subtracts a small-sample correction counting only the sequences with a residue at that position (gaps are not counted; with identity, their summed weight).', choice('bits', 'bit'), choice('pcts', 'pct', 'percentage', 'percentages')),
@@ -125,10 +129,8 @@ COMMAND_METADATA = {
 # Help flags are command-specific; these are documentation, not dispatch aliases.
 for name, metadata in COMMAND_METADATA.items():
     help_description = 'Print command help instead of performing the operation.'
-    if name == 'label':
-        help_description += ' Requires a nonempty MSA and active reference, like analysis.'
-    metadata['arguments'].append(argument('help', help_description,
-        choice('help', '-h', '-?' if name in {'export', 'label'} else '--help')))
+    help_choices = ('help', '-h', '-?', '--help') if name in {'export', 'label'} else ('help', '-h', '--help')
+    metadata['arguments'].append(argument('help', help_description, choice(*help_choices)))
 
 
 def policy(default, first_argument=None):

@@ -6,6 +6,46 @@ still change before version 1.0.0.
 
 ## [Unreleased]
 
+### Upgrade Notes
+
+- **Linux and macOS: run `git checkout -- src/bin/` before `git pull`.** v0.3.0's
+  `install.sh` made the launcher scripts in `src/bin` executable and the repository now
+  stores them that way, so in a checkout where it has run, the pull stops with "Your
+  local changes to the following files would be overwritten by merge" until that command
+  undoes the permission changes.
+- **The first launch updates the managed environment.** Markdown and the ESM runtime
+  dependencies are now pinned and `xlrd` 2.0.2 is new (for `.xls` metadata uploads), so
+  the first launch of EMAP-SSN or EMAP-SSN Tools installs them; the MCP server and
+  scripts run straight from `.venv` before any launcher run lack `xlrd`. A computer
+  whose AMD or Intel GPU is now recognized also installs ROCm or XPU on that launch and
+  keeps it if it passes validation.
+- **Regenerated results differ from v0.3.0; saved caches do not.** New layouts differ
+  (spectral starts, the GPU kernels, 2D and 3D packing, and `PACKING_GRID_SIZE` now
+  defaults to 10 instead of 20, though a saved setting keeps its value), and so do
+  `cluster` and `subcluster` results (MCL, Jaccard and Leiden), subcluster numbering,
+  `logo` bits for gapped columns and the text of NA values in metadata imports. Layout
+  caches already saved open as they were.
+- **Output names, `print full`, `zoom` and `run` are stricter.** `select save`,
+  `meta download`, `print` and `@file@` take plain file names only, and a name with a
+  directory, a drive, a network share or a `:` stream suffix is refused. `print full`
+  over 1000 megapixels, `zoom` outside the view's limits and a typed `run` script of
+  more than 1000 commands are refused as well, and a typed `run` stops at its first
+  failed or cancelled command.
+- **Agent replies wait before commands that touch files.** `save`, `select save`,
+  `print`, `export`, `logo`, `label` (except `label reset`), `esmfold`, `run`,
+  `alignment` and `meta` uploads, downloads and file imports wait in the Agent page for
+  **Run** or **Discard**, and a reply's `agent` lines are refused; commands typed in the
+  Viewer or sent through MCP are unaffected.
+- **MCP clients: `start_session` returns instead of raising.** When its wait ends while
+  the Viewer is still loading, it returns `status: "starting"` with a `launch_id` and
+  leaves the Viewer running, where v0.3.0 raised an error and stopped it; the default
+  wait is 45 s instead of 30 s. The server version goes from 0.11.0 to 0.14.0, with
+  every other change additive.
+- **Close open Config, VR Config and Tools windows before updating.** Each copy of
+  EMAP-SSN now opens its own windows, and the updated launchers do not recognize a
+  window opened from the old version, so launching again from the same folder opens a
+  second one beside it.
+
 ### Added
 
 - **Theme colours.** Config, VR Config and Tools each take a theme colour of their own:
@@ -27,14 +67,14 @@ still change before version 1.0.0.
   the Fold View page keeps Mol*'s own look.
 
 - **MCP planning knowledge.** `emapssn_pipeline(action="list_tools")` describes each
-  pipeline tool's stage, inputs (with the directory a relative name resolves in),
-  output file names, what happens to an existing output, requirements and typical next
-  tools, plus workflow recipes (embedding SSN, BLAST SSN, imported BLAST or DIAMOND
-  results, adding sequences by injection, subsets, MSA, fragments) and path rules, so
-  an agent can plan a multi-step calculation without reading tool source.
-  `get_tool_schema` repeats the tool's entry and, for embedding models, reports which
-  models an MCP job can use on this machine and what the user must do first for the
-  others (store a Biohub token, accept a weights license).
+  pipeline tool's stage, inputs (with the directory a relative name resolves in), output
+  file names, what happens to an existing output, requirements and typical next tools,
+  plus workflow recipes (embedding SSN, BLAST SSN, imported BLAST or DIAMOND results,
+  adding sequences by injection, subsets, MSA, fragments) and path rules, so an agent
+  can plan a multi-step calculation without reading tool source. `get_tool_schema`
+  repeats the tool's entry and, for embedding models, reports which models an MCP job
+  can use on this machine and what the user must do first for the others (store a Biohub
+  token, accept a weights license). MCP server version 0.14.0 (was 0.11.0).
 - MCP `emapssn_pipeline(action="wait_job")` waits up to 50 s for a job instead of
   polling. Job results list the files a job created, modified or deleted
   (`output_files`) and its latest stdout and stderr line (`latest_output`); layout
@@ -51,18 +91,16 @@ still change before version 1.0.0.
   `parameters`, so an agent inherits the saved physics settings without writing an
   overlay file. `inspect_file` reports FASTA length quantiles and duplicate sequences,
   and a network's gap penalties, precision or BLAST matrix. An unknown MCP argument
-  error names the accepted arguments. MCP server version 0.13.0.
+  error names the accepted arguments.
 - MCP `emapssn_viewer_control(action="wait_session")` keeps waiting for a Viewer launch
   and connects when it is ready. `start_session` takes an optional `ready_timeout`
   (default 45 s, at most 600), and `close_session` accepts the launch's `launch_id`,
-  which also stops a Viewer that is still loading. MCP server version 0.12.0.
+  which also stops a Viewer that is still loading.
 - `emapssn_pipeline(action="inspect_file")` reports a layout cache's saved state —
   cluster count and noise nodes, groups, the last clustering parameters, and metadata
   columns — and its layout dimensions. Viewer `export_settings` reports the same state
   for the selected cache and for the folder's other caches, so a saved figure cache
   can be chosen deliberately.
-- `get_command_catalog` works without a running Viewer; it then reads the installed
-  command sources.
 - The ESM3 structure worker (`esmfold_worker.py`) gains `--skip-existing`, which keeps
   structures already on disk so an interrupted run can resume.
 - `Parse_BLAST_Output.py` records DIAMOND provenance. DIAMOND output written with
@@ -93,10 +131,9 @@ still change before version 1.0.0.
   at 0.0097 to 0.0148 and the batch of small components at 0.083, with the same run
   time and edge lengths as `DT` 0.01. Layout documents without `AUTO_DT` load with it
   off. The VR Config has the same button.
-- **Translation machinery, with no translations yet.** The Config, Tools and VR Config
-  windows and the Viewer can now take their text from Qt translation catalogs in
-  `src/resources/languages/`. No window text is translated yet, so every window stays
-  English.
+- **Translation machinery, and Simplified Chinese as its first language.** The Config,
+  Tools and VR Config windows and the Viewer can now take their text from Qt translation
+  catalogs in `src/resources/languages/`.
   `python src/resources/languages/Update_Translations.py` collects the marked texts,
   including the Viewer's console messages, into the catalogs. It keeps each language's
   translations, compiles the catalogs and checks that translations keep their
@@ -104,22 +141,31 @@ still change before version 1.0.0.
   date. `SSN_PSEUDO_TRANSLATION=1` starts a window in a test-only pseudo-language: every
   text from the catalog shows accented, longer and bracketed, so text never marked for
   translation, or cut off, stands out. See `src/resources/languages/README.md`.
-- **Language option.** Config, VR Config and Tools show a Language dropdown (🌐) at the
-  bottom right. It lists the system's language, English and every language with a
-  compiled catalog, each named in itself. The choice is saved as `LANGUAGE` in a new
-  `app_settings.json` in the project folder and applies to every window. Config, VR
-  Config and Tools redraw in the chosen language at once, at the same size, position
-  and tabs, keeping their splitter and scroll positions and every value entered, saved
-  or not; a Network Statistics Report already computed shows again in the new language.
-  Another of those windows that is open redraws the same way the next time it becomes
-  the active window, as when it is clicked into, so a Config left open while Tools
-  switched no longer stays in the old language while the Viewer it launches shows the
-  new one. It waits while one of its dialogs or dropdown lists is open, and stays as it
-  is while `app_settings.json` can't be read or holds no language yet. The Viewer and
-  any dialog take the language when they next open. Simplified
-  Chinese brings a font of its own, Noto Sans SC cut down to GB2312's 7,445 characters
-  plus Latin and punctuation (4.4 MiB for Regular and Bold), which loads only while
-  that language shows.
+  Simplified Chinese (简体中文) is the first language, shipped as a draft awaiting review:
+  every text of the windows, the Viewer's canvas and the two browser pages, VR Config's
+  own texts and the five tool help pages are drafted in Chinese with one glossary, and
+  no native speaker has reviewed them yet. The drafts show until a reviewer accepts them
+  in Qt Linguist, and the catalog update counts them apart ("0 of N texts translated; N
+  more drafted, awaiting review."). The Language option below offers 简体中文, and "System
+  default" picks it on a Simplified Chinese system. The browser views draw Chinese in
+  the bundled Noto Sans SC too: a page served in Chinese, and the Tools help panel,
+  carry its @font-face rules under one page family, 'EMAP-SSN Language', which their
+  font stacks name after Noto Sans, as the windows' stacks name the language's font.
+- **Language option.** Config, VR Config and Tools show a Language dropdown, marked by a
+  globe icon, at the bottom right. It lists the system's language, English and every
+  language with a compiled catalog, each named in itself. The choice is saved as
+  `LANGUAGE` in a new `app_settings.json` in the project folder and applies to every
+  window. Config, VR Config and Tools redraw in the chosen language at once, at the same
+  size, position and tabs, keeping their splitter and scroll positions and every value
+  entered, saved or not; a Network Statistics Report already computed shows again in the
+  new language. Another of those windows that is open redraws the same way the next time
+  it becomes the active window, as when it is clicked into, so a Config left open while
+  Tools switched no longer stays in the old language while the Viewer it launches shows
+  the new one. It waits while one of its dialogs or dropdown lists is open, and stays as
+  it is while `app_settings.json` can't be read or holds no language yet. The Viewer and
+  any dialog take the language when they next open. Simplified Chinese brings a font of
+  its own, Noto Sans SC cut down to GB2312's 7,445 characters plus Latin and punctuation
+  (4.4 MiB for Regular and Bold), which loads only while that language shows.
 - **A language is one folder.** Each language lives in `src/resources/languages/<code>/`
   (`zh_CN/`): its catalog `emapssn_<code>.ts` with the compiled `.qm`, an optional
   `language.json` and its translated tool help pages in `help/`. `language.json` gives
@@ -138,14 +184,158 @@ still change before version 1.0.0.
   while both are open, a choice made on one shows on the other at once. Until a choice
   is made, a page follows the system's dark setting. The Meta Data page sets its theme
   before it is drawn, so a dark page never shows light first.
+- **Sanitize Sequences can skip its length histogram.** A Show Length Histogram switch
+  (`SHOW_LENGTH_HISTOGRAM`, on by default) takes Enable Length Filter's place on the
+  Tools card, and Enable Length Filter moves to the row of the Min and Max Seq Length it
+  turns on. Turned off, a run ends without the histogram, and a run from a settings file
+  (CLI or MCP) without the table it prints instead. MCP takes the setting too; a settings
+  document without it keeps the histogram.
+- **Every window is ready to translate.** The Config, Tools and VR Config windows, the
+  Viewer's window and the launchers' failure dialog take their texts from the catalog.
+  Config's are its labels, tips, dropdown choices, the statistics and consistency
+  reports, messages and errors (its errors still print in English in the terminal).
+  Tools' are its labels, tips, dropdown choices, card and tab titles, help-panel notes,
+  messages, the external model license dialog and the names a screen reader speaks, with
+  file and model names, devices, substitution matrices such as BLOSUM62, and float32
+  staying as written. The Viewer's are its title, the sidebar's buttons and toggle, the
+  metadata spreadsheet's file dialogs and the messages shown when a browser page opens
+  (MCP clients still read the window's title in English). VR Config shows the language
+  the Language dropdown chose, as the desktop Config does: the texts the two share come
+  from the main catalog, and VR Config's own (the VR client's fields, tips and notes)
+  from opt_vr's new catalog, `opt_vr/src/resources/languages/emapssn_vr.ts`, which
+  `Update_Translations_VR.py` keeps beside the main one. When an application started
+  from a desktop launcher fails and no terminal can open to show its log, the dialog
+  that says so shows in the windows' language, or in English if that language can't
+  load; the log stays English. Counted texts name their count with `%n` and mark their
+  English plural endings, as in `%n file(s)`, so English shows "1 file" and "2 files"
+  and a translation gives each plural form its language has. Some Config messages now
+  read as correct English, such as "Created profile:" for one new profile and "The
+  network lacks 3 sequences." Exporting metadata now picks CSV or Excel by the chosen
+  filter's file pattern, which every language keeps. The update command refuses calls
+  whose text or count Qt's `lupdate` would miss (arguments passed by name, and a counted
+  `tr()`) and a text whose lines a backslash joins, which `lupdate` reads with a line
+  break the code never shows; `install_translations` takes a window's extra catalogs,
+  and `update_catalogs` can keep a catalog that leaves out another catalog's texts.
+- **The Viewer's canvas text and the console messages of all 24 commands are ready to
+  translate.** The HUD (View Width and Hidden Nodes) and the console-line messages of
+  the Viewer, the command engine, background jobs, the metadata spreadsheet and the
+  agent come from the catalog, the selection-expression errors included, and so do those
+  of every command: agent, alignment, esmfold, offset, redo, reference, reset, run,
+  save, undo and zoom (eleven); color, export, group, hide, meta, select and spectrum
+  (seven); print, query, cluster and subcluster (four); and label and logo (two). Each
+  takes its console messages, the first line of its help ("Usage: zoom <width>", the
+  syntax staying English), its file dialogs and its error dialogs from the catalog.
+  meta's HUD display shows "N/A" in the windows' language, and so do the errors of a
+  file name that is a path or holds an unsupported character, of a position written
+  wrongly (a bare negative position or an unknown label), of a frequency search, and of
+  a full print capture that the window spoiled. The terminal, logs and MCP replies keep
+  the English, so the commands that used to report what the console line shows as their
+  failure no longer do: `label` no longer reads its console line back into a job's
+  error, and a failed background job's error reaches the console line as itself, so it
+  shows in the windows' language while MCP clients get the English. The scheduler's own
+  refusals (an output file that exists or is reserved) are translated too. Counted
+  messages read correctly for one, as in "Selected 1 node.", "Applied: 1 node (red)",
+  "Done! Found 1 cluster via LEIDEN.", "Queried 1 position. Check terminal." and "Batch
+  execution completed: 1 command run."; the metadata upload summary gives its counts as
+  separate sentences, and the error for an invalid metadata predicate shows its example
+  as '{Length>500}', no longer with doubled braces.
+- **The Agent page, the metadata page and the tool help pages are ready to translate.**
+  The Viewer's web server writes each text of the Agent page in the Viewer's language as
+  it serves it (`src/web_ui/Page_Texts.py`), so the page marks its texts (`data-i18n` on
+  an element whose content is one text, its titles, placeholders and screen-reader
+  names, and `t()` in its scripts) and takes them from the windows' catalogs, under
+  `AgentPage`, and needs none of its own; the update command collects them. What the
+  Viewer sends the page comes in the same language: an agent turn's errors, model card
+  problems, a refused image or Viewer capture, and a command the agent may not run. The
+  terminal and MCP clients keep the English. The metadata page likewise marks its
+  buttons, help, column titles, delete prompts, status and its columns' NUM and TXT
+  badges, which its style now takes from the page's script, takes its texts from the
+  catalogs under `MetadataPage`, and gets a refused column deletion in the Viewer's
+  language. The ESMFold page stays English: it is Mol*'s own interface, which has no
+  translations. A translation of a tool help page,
+  `src/tools/tool_descriptions/<name>.md`, is a whole page in its language's folder,
+  `src/resources/languages/<code>/help/<name>.md`, whose first line names the English
+  page by its SHA-256. The Tools window shows it in its language while that line
+  matches, and the English page once the English changes, until the translation is
+  brought up to date; the catalog update lists those. Card titles still come from the
+  English pages.
+- **Benchmark.** `src/resources/benchmark/Run_Benchmark.py` times the program's heavy
+  calculations on a bundled set of public sequences, so computers and versions can be
+  compared. It runs ten stages, each in a process of its own with every device setting
+  on Auto: sanitizing, ESM-2 8M embeddings, the all-against-all embedding alignment
+  (369,370 pairs), the SSN and UMAP layouts, clustering, an embedding database search,
+  injection of 92 new sequences, an embedding MSA and the BLAST all-against-all
+  alignment. The report gives each stage's time, throughput, CPU time, memory peaks and
+  device, every choice the tools' Auto trials made, the hardware and software, and what
+  can slow a run, such as other EMAP-SSN processes or a laptop on battery. Tools report
+  their Auto choices only when `SSN_BENCHMARK_RECORD` is set, as the benchmark does. A
+  stage the computer can't run, such as BLAST without NCBI BLAST+, is skipped with the
+  reason, and so are the stages that need it; `--stages 3,7` runs only some. The
+  report, `Benchmark_Report_<date>_<time>.txt` in the benchmark folder, is written in
+  the windows' language with an English `.json` of its data beside it, and is never
+  deleted; the terminal shows it in English. A run keeps its files in its own `temp/`,
+  which it clears, and never reads or changes `tools_settings.json` or the configured
+  folders. A run took about 6 minutes on an RTX 5070 Ti with a Core Ultra 7 265KF. See
+  `src/resources/benchmark/README.md`.
+- **The benchmark's sequences.** 860 reviewed UniProtKB/Swiss-Prot entries of the
+  metallo-β-lactamase superfamily (InterPro IPR001279, UniProt release 2026_03), one
+  per distinct sequence, with 92 more held out for the injection stage. UniProt shares
+  them under CC BY 4.0. The benchmark README records the query, the code that remakes
+  both files byte for byte, their SHA-256 and the attribution, and
+  `THIRD_PARTY_LICENSES.md` lists them.
+- **A Benchmark card on the Tools window's Manual Tools tab.** **Run Benchmark** asks
+  before it starts, then runs the benchmark in a console window of its own, which shows
+  the progress and the report. **Report Folder** opens the folder the reports are kept
+  in. The Manual Tools help page describes the stages and the report.
+- MCP `emapssn_pipeline(action="start_benchmark")` queues the benchmark as a job: all
+  ten stages, or the `stages` given by number or name with the stages they need. When
+  the job ends, its `result` holds the benchmark's English summary: the outcome, the
+  report paths, and each stage's time, throughput, device and Auto choices. `list_tools`
+  describes the stages and the expected duration.
+- **`run stop`.** It stops the Python command scripts the Viewer is running, with
+  every process they started, and none of their commands run. With none running, it
+  says so and succeeds. A script started through MCP or the Agent page reports the
+  stop as cancelled.
+- **`meta show {Length}`.** `meta show` and `meta display` also take the property in
+  braces, as `spectrum` writes it; `meta show Length` still works. A name in braces is
+  always a property, so `meta show {off}` shows a column named off instead of closing
+  the display. The VR viewer accepts the same form.
+
+### Changed
+
+- **A fuller Help on the Meta Data page.** The dialog is wider (880 px; one column in a
+  narrow window) and covers the whole page: each filter's rules beside its TXT or NUM
+  badge, with whole-value wildcards, letter case, range ends, nested parentheses and
+  operator precedence, cells without a number and filters that match nothing; sorting,
+  resizing, moving, editing, undo and redo (the Viewer's history), deleting a column and
+  copying; the Import file's layout and what Export saves; and how the table follows the
+  Viewer's selection, clicks and hidden nodes.
+- The Agent page is titled **EMAP-SSN Agent (Beta)**, and Clear Chat is a broom icon
+  button whose name shows on hover.
+- **Text on Windows is drawn without hinting.** Config, VR Config, Tools and the Viewer's
+  panels draw their text unhinted on Windows, as the Script Description and the Viewer's
+  web pages already did, so the bundled fonts look alike in both. Hinting had snapped
+  every stroke to whole pixels, which drew Chinese noticeably heavier. Text widths change
+  by a pixel here and there. macOS never hints, and on Linux the windows keep the
+  system's setting, which the browser views follow too.
+
+- **Tools' Save & Run no longer shows a message box when the tool starts.** The console
+  the tool opens in shows it started. Instead the button greys out for a second after a
+  click, so a double click starts the tool once.
+- **The global and local alignment choices name their algorithms.** Config's and VR
+  Config's Alignment Score Mode and Tools' Alignment Mode offer global (Needleman-Wunsch)
+  and local (Smith-Waterman). Settings files still store `global` and `local`.
+
 - **The Viewer's mouse and keyboard controls open from a button.** The line of key and
-  mouse actions across the top of the Viewer is gone. An info button at the start of
-  the threshold slider opens them on a card in a light tint of the theme colour, each
-  action's keys as key caps beside what it does. A click outside the card, Esc, its ×
-  or the button again closes it, and the keyboard stays with the network, so
-  **[ENTER]** still opens the command line. The command line moves up to the top of
-  the window, level with the sidebar's toggle, and its box takes the theme colour: a
-  light tint of it inside, the colour itself round the edge.
+  mouse actions across the top of the Viewer is gone: in English it was wider than the
+  default 1200 × 800 window, so its end ran under the sidebar's toggle and past the
+  window's edge. An info button at the start of the threshold slider opens them on a
+  card in a light tint of the theme colour, each action's keys as key caps beside what
+  it does. A click outside the card, Esc, its × or the button again closes it, and the
+  keyboard stays with the network, so **[ENTER]** still opens the command line. The
+  command line moves up to the top of the window, level with the sidebar's toggle, and
+  its box takes the theme colour: a light tint of it inside, the colour itself round the
+  edge.
 - **The Viewer's sidebar slides.** Its toggle slides the sidebar open and closed instead
   of switching it at once, and a click mid-slide turns it around where it is. The
   command line, the threshold slider and the status texts move with it. The sidebar is
@@ -189,204 +379,6 @@ still change before version 1.0.0.
   the selection without changing it, so the sheet hears of it once, when the drag
   starts, instead of refiltering its rows at every mouse move and every turn of the wheel
   that rotates the dragged nodes.
-- **Sanitize Sequences can skip its length histogram.** A Show Length Histogram switch
-  (`SHOW_LENGTH_HISTOGRAM`, on by default) takes Enable Length Filter's place on the
-  Tools card, and Enable Length Filter moves to the row of the Min and Max Seq Length it
-  turns on. Turned off, a run ends without the histogram, and a run from a settings file
-  (CLI or MCP) without the table it prints instead. MCP takes the setting too; a settings
-  document without it keeps the histogram.
-- **Sanitize Sequences' length histogram has a new look.** It takes the style of the
-  Network Statistics Report: rounded bars in a light shade of the Tools window's theme
-  colour, edged in the colour itself, on a light grid, in Noto Sans. A subtitle gives the
-  number of sequences and their minimum, median, mean, standard deviation and maximum
-  length, and the console prints the same line, in a run from a settings file too. With
-  the length filter on, dashed lines mark its bounds. Lengths spanning 50 values or fewer
-  get one bar per length, and the table a row per length; wider spans keep 50 equal bins.
-  The window is titled Sequence Length Distribution. Its texts, the window's title
-  included, show in the Tools window's language, Simplified Chinese in the bundled Noto
-  Sans SC; the console's line stays English. It is still matplotlib; nothing new to
-  install.
-- **Embedding MSA's isotonic regression plot has a new look.** It takes the length
-  histogram's style. The observed pairs show as hexagons shaded in the Tools window's
-  theme colour by how many pairs fall in each (a colour bar gives the counts), in place
-  of 5,000 blue dots; they are the pairs the fit was made on, every pair or a random
-  sample of 100,000, and the legend says which. The fit is a near-black line through its
-  own breakpoints, the function the missing scores are taken from, in place of a red
-  line sampled at 1,000 points. A subtitle gives Spearman's ρ, R² and the number of
-  observed pairs. Its texts, the window's title included, show in the Tools window's
-  language.
-- **The tools' pop-up charts open in the Tools window's style.** The windows of the
-  length histogram and the regression plot take the Tools window's theme colour,
-  palette and Noto Sans, and its icon in the title bar. Their toolbar is a light strip
-  with Lucide icons, and the button of the active pan or zoom mode shows a tint of the
-  theme colour. The toolbar's tips and matplotlib's own dialogs stay English.
-- **The Config window is ready to translate.** Every text it shows comes from the
-  catalog: labels, tips, dropdown choices, the statistics and consistency reports,
-  messages and errors. Its errors still print in English in the terminal. Counted texts
-  name their count with `%n` and mark their English plural endings, as in
-  `%n file(s)`, so English shows "1 file" and "2 files", and a translation gives each
-  plural form its language has. Some Config messages now read as correct English, such
-  as "Created profile:" for one new profile, and "The network lacks 3 sequences." The
-  update command also refuses calls whose text or count Qt's `lupdate` would miss:
-  arguments passed by name, and a counted `tr()`.
-- **The Tools window is ready to translate.** Its labels, tips, dropdown choices, card
-  and tab titles, help-panel notes, messages, the external model license dialog and the
-  names a screen reader speaks all come from the catalog. Names stay as written: file
-  and model names, devices, substitution matrices such as BLOSUM62, and float32. The
-  tool help pages in `src/tools/tool_descriptions/` stay English. The update command
-  now also refuses a text whose lines a backslash joins, which `lupdate` reads with a
-  line break the code never shows.
-- **The Viewer's window is ready to translate.** Its title, the sidebar's buttons and
-  toggle, the metadata spreadsheet's file dialogs, and the messages shown when a browser
-  page opens come from the catalog. MCP clients still read the window's title in English.
-  The canvas text (the console line and the HUD) follows. Exporting metadata now picks
-  CSV or Excel by the chosen filter's file pattern, which every language keeps.
-- **The launchers' failure dialog is ready to translate.** When an application started
-  from a desktop launcher fails and no terminal can open to show its log, the dialog that
-  says so shows in the language the windows show, or in English if that language can't
-  load. The log stays English.
-- **The Viewer's canvas text is ready to translate, outside the commands.** The HUD
-  (its controls line, View Width and Hidden Nodes) and the console-line messages of the
-  Viewer, the command engine, background jobs, the metadata spreadsheet and the agent
-  come from the catalog, the selection-expression errors included. The terminal, logs
-  and MCP replies keep the English text. The commands' own messages follow. Counted
-  messages now read correctly for one, as in "Selected 1 node.", and the metadata
-  upload summary gives its counts as separate sentences. The error for an invalid
-  metadata predicate shows its example as '{Length>500}', no longer with doubled braces.
-- **Eleven commands' console messages are ready to translate.** agent, alignment,
-  esmfold, offset, redo, reference, reset, run, save, undo and zoom take their console
-  messages, the first line of their help ("Usage: zoom <width>", the syntax staying
-  English), their file dialogs and their error dialogs from the catalog. The terminal
-  and MCP replies keep the English: these commands no longer report what the console
-  line shows as their failure. Some counts now read correctly for one, as in
-  "Batch execution completed: 1 command run."
-- **Seven more commands' console messages are ready to translate.** color, export,
-  group, hide, meta, select and spectrum take their console messages and the first
-  line of their help from the catalog, and meta's HUD display shows "N/A" in the
-  windows' language. So do the errors of a file name that is a path or holds an
-  unsupported character, wherever a command shows them. The terminal and MCP replies
-  keep the English; color, export, select and spectrum no longer report what the
-  console line shows as their failure. Counts read correctly for one, as in
-  "Applied: 1 node (red)" and "Removed 1 group from 3 total node instances."
-- **print, query, cluster and subcluster's console messages are ready to translate,**
-  and so are the errors of a position written wrongly (a bare negative position or an
-  unknown label), of a frequency search, and of a full print capture that the window
-  spoiled. query, cluster and subcluster no longer report what the console line shows
-  as their failure. Counts read correctly for one, as in "Done! Found 1 cluster via
-  LEIDEN." and "Queried 1 position. Check terminal."
-- **label and logo's console messages are ready to translate, so every command's
-  are.** A failed background job's error now reaches the console line as itself rather
-  than as its text, so it shows in the windows' language while MCP clients get the
-  English; the scheduler's own refusals (an output file that exists or is reserved)
-  are translated too. label no longer reads its console line back into a job's error,
-  which would have sent MCP clients the translated text.
-- **VR Config's texts are ready to translate, so every window's are.** VR Config shows
-  the language the 🌐 dropdown chose, as the desktop Config does. The texts the two share
-  come from the main catalog, and VR Config's own (the VR client's fields, tips and
-  notes) from opt_vr's new catalog, `opt_vr/src/resources/languages/emapssn_vr.ts`,
-  which `Update_Translations_VR.py` keeps beside the main one. `install_translations`
-  takes a window's extra catalogs, and `update_catalogs` can keep a catalog that leaves
-  out another catalog's texts.
-- **The Agent page is ready to translate.** The browser page the Viewer opens for the
-  agent marks its texts: `data-i18n` on an element whose content is one text, its
-  titles, placeholders and screen-reader names, and `t()` in its scripts. As the Viewer's
-  web server serves the page, it writes each text in the Viewer's language
-  (`src/web_ui/Page_Texts.py`), so the page takes its texts from the windows' catalogs,
-  under `AgentPage`, and needs none of its own. The update command collects them. What
-  the Viewer sends the page comes in the same language: an agent turn's errors, model
-  card problems, a refused image or Viewer capture, and a command the agent may not run.
-  The terminal and MCP clients keep the English. The ESMFold page stays English: it is
-  Mol*'s own interface, which has no translations.
-- **The metadata page is ready to translate.** The spreadsheet page marks its buttons,
-  help, column titles, delete prompts, status and its columns' NUM and TXT badges, which
-  its style now takes from the page's script. It takes its texts from the windows'
-  catalogs under `MetadataPage`, and a refused column deletion reaches it in the
-  Viewer's language.
-- **The tool help pages can be translated.** A translation of
-  `src/tools/tool_descriptions/<name>.md` is a whole page in its language's folder,
-  `src/resources/languages/<code>/help/<name>.md`, whose first line names the English
-  page by its SHA-256. The
-  Tools window shows it in its language while that line matches, and the English page
-  once the English changes, until the translation is brought up to date; the catalog
-  update lists those. Card titles still come from the English pages.
-- **Simplified Chinese (简体中文), drafted and awaiting review.** The 🌐 dropdown offers
-  简体中文, and "System default" picks it on a Simplified Chinese system. Every text of
-  the windows, the Viewer's canvas and the two browser pages, VR Config's own texts and
-  the five tool help pages are drafted in Chinese with one glossary; no native speaker
-  has reviewed them yet. The drafts show until a reviewer accepts them in Qt Linguist,
-  and the catalog update counts them apart ("0 of N texts translated; N more drafted,
-  awaiting review."). The
-  browser views draw Chinese in the bundled Noto Sans SC too: a page served in Chinese,
-  and the Tools help panel, carry its @font-face rules under one page family, 'EMAP-SSN
-  Language', which their font stacks name after Noto Sans, as the windows' stacks name
-  the language's font.
-- **Benchmark.** `src/resources/benchmark/Run_Benchmark.py` times the program's heavy
-  calculations on a bundled set of public sequences, so computers and versions can be
-  compared. It runs ten stages, each in a process of its own with every device setting
-  on Auto: sanitizing, ESM-2 8M embeddings, the all-against-all embedding alignment
-  (369,370 pairs), the SSN and UMAP layouts, clustering, an embedding database search,
-  injection of 92 new sequences, an embedding MSA and the BLAST all-against-all
-  alignment. The report gives each stage's time, throughput, CPU time, memory peaks and
-  device, every choice the tools' Auto trials made, the hardware and software, and what
-  can slow a run, such as other EMAP-SSN processes or a laptop on battery. Tools report
-  their Auto choices only when `SSN_BENCHMARK_RECORD` is set, as the benchmark does. A
-  stage the computer can't run, such as BLAST without NCBI BLAST+, is skipped with the
-  reason, and so are the stages that need it; `--stages 3,7` runs only some. The
-  report, `Benchmark_Report_<date>_<time>.txt` in the benchmark folder, is written in
-  the windows' language with an English `.json` of its data beside it, and is never
-  deleted; the terminal shows it in English. A run keeps its files in its own `temp/`,
-  which it clears, and never reads or changes `tools_settings.json` or the configured
-  folders. A run took about 6 minutes on an RTX 5070 Ti with a Core Ultra 7 265KF. See
-  `src/resources/benchmark/README.md`.
-- **The benchmark's sequences.** 860 reviewed UniProtKB/Swiss-Prot entries of the
-  metallo-β-lactamase superfamily (InterPro IPR001279, UniProt release 2026_03), one
-  per distinct sequence, with 92 more held out for the injection stage. UniProt shares
-  them under CC BY 4.0. The benchmark README records the query, the code that remakes
-  both files byte for byte, their SHA-256 and the attribution, and
-  `THIRD_PARTY_LICENSES.md` lists them.
-- **A Benchmark card on the Tools window's Manual Tools tab.** **Run Benchmark** asks
-  before it starts, then runs the benchmark in a console window of its own, which shows
-  the progress and the report. **Report Folder** opens the folder the reports are kept
-  in. The Manual Tools help page describes the stages and the report.
-- MCP `emapssn_pipeline(action="start_benchmark")` queues the benchmark as a job: all
-  ten stages, or the `stages` given by number or name with the stages they need. When
-  the job ends, its `result` holds the benchmark's English summary: the outcome, the
-  report paths, and each stage's time, throughput, device and Auto choices. `list_tools`
-  describes the stages and the expected duration. MCP server version 0.14.0.
-- **`run stop`.** It stops the Python command scripts the Viewer is running, with
-  every process they started, and none of their commands run. With none running, it
-  says so and succeeds. A script started through MCP or the Agent page reports the
-  stop as cancelled.
-- **`meta show {Length}`.** `meta show` and `meta display` also take the property in
-  braces, as `spectrum` writes it; `meta show Length` still works. A name in braces is
-  always a property, so `meta show {off}` shows a column named off instead of closing
-  the display. The VR viewer accepts the same form.
-
-### Changed
-
-- **A fuller Help on the Meta Data page.** The dialog is wider (880 px; one column in a
-  narrow window) and covers the whole page: each filter's rules beside its TXT or NUM
-  badge, with whole-value wildcards, letter case, range ends, nested parentheses and
-  operator precedence, cells without a number and filters that match nothing; sorting,
-  resizing, moving, editing, undo and redo (the Viewer's history), deleting a column and
-  copying; the Import file's layout and what Export saves; and how the table follows the
-  Viewer's selection, clicks and hidden nodes.
-- The Agent page is titled **EMAP-SSN Agent (Beta)**, and Clear Chat is a broom icon
-  button whose name shows on hover.
-- **Text on Windows is drawn without hinting.** Config, VR Config, Tools and the Viewer's
-  panels draw their text unhinted on Windows, as the Script Description and the Viewer's
-  web pages already did, so the bundled fonts look alike in both. Hinting had snapped
-  every stroke to whole pixels, which drew Chinese noticeably heavier. Text widths change
-  by a pixel here and there. macOS never hints, and on Linux the windows keep the
-  system's setting, which the browser views follow too.
-
-- **Tools' Save & Run no longer shows a message box when the tool starts.** The console
-  the tool opens in shows it started. Instead the button greys out for a second after a
-  click, so a double click starts the tool once.
-- **The global and local alignment choices name their algorithms.** Config's and VR
-  Config's Alignment Score Mode and Tools' Alignment Mode offer global (Needleman-Wunsch)
-  and local (Smith-Waterman). Settings files still store `global` and `local`.
-
 - **The mouse works in the Viewer while a command is typed.** With the command line
   open, a click does what it does with the line closed: a right-click selects, drags
   and draws a selection box, a left-click focuses a node, Shift- and Ctrl-click copy a
@@ -414,17 +406,49 @@ still change before version 1.0.0.
   returned to the Viewer after 6.4 s, and the job saved it 84 s later, with the process
   at 4.1 GB.
 - The Network Statistics Report of Config and VR Config draws its threshold table as a
-  histogram of the edges' scores, on its side: behind each threshold, a bar in the
-  theme colour's tint for the edges from that threshold up to the next. Count and
-  Percentage keep to the width of their figures in a wide report, so the threshold
-  column and its bars take the rest; the report's text can still be selected and
-  copied.
+  histogram of the edges' scores, on its side: behind each threshold, a bar in the theme
+  colour's tint for the edges from that threshold up to the next. Count and Percentage
+  keep to the width of their figures in a wide report, so the threshold column and its
+  bars take the rest, and the report's text can still be selected and copied. The report
+  fits its panel at the launch size: its figures used to be spaced-out text that wrapped
+  mid-row, the summary lines above the table now wrap, the report's own "Network
+  Statistics" banner line is gone since the panel's title already says it, and the hint
+  it shows before a report is computed wraps to the panel's width instead of being cut
+  off after its first line (Qt shows only the first line of a text box's placeholder).
+- **Sanitize Sequences' length histogram has a new look.** It takes the style of the
+  Network Statistics Report: rounded bars in a light shade of the Tools window's theme
+  colour, edged in the colour itself, on a light grid, in Noto Sans. A subtitle gives the
+  number of sequences and their minimum, median, mean, standard deviation and maximum
+  length, and the console prints the same line, in a run from a settings file too. With
+  the length filter on, dashed lines mark its bounds. Lengths spanning 50 values or fewer
+  get one bar per length, and the table a row per length; wider spans keep 50 equal bins.
+  The window is titled Sequence Length Distribution. Its texts, the window's title
+  included, show in the Tools window's language, Simplified Chinese in the bundled Noto
+  Sans SC; the console's line stays English. It is still matplotlib; nothing new to
+  install.
+- **Embedding MSA's isotonic regression plot has a new look.** It takes the length
+  histogram's style. The observed pairs show as hexagons shaded in the Tools window's
+  theme colour by how many pairs fall in each (a colour bar gives the counts), in place
+  of 5,000 blue dots; they are the pairs the fit was made on, every pair or a random
+  sample of 100,000, and the legend says which. The fit is a near-black line through its
+  own breakpoints, the function the missing scores are taken from, in place of a red
+  line sampled at 1,000 points. A subtitle gives Spearman's ρ, R² and the number of
+  observed pairs. Its texts, the window's title included, show in the Tools window's
+  language.
+- **The tools' pop-up charts open in the Tools window's style.** The windows of the
+  length histogram and the regression plot take the Tools window's theme colour, palette
+  and Noto Sans, and its icon in the title bar. Their toolbar is a light strip with
+  Lucide icons, and the button of the active pan or zoom mode shows a tint of the theme
+  colour. The toolbar's tips and matplotlib's own dialogs stay English. On Linux they
+  take the Tools window's name, `emapssn_tools`, as their window class, which its
+  desktop entry claims, so GNOME's Alt+Tab shows the Tools icon instead of a generic one
+  (matplotlib names its application `matplotlib`, which no desktop entry claims).
 - The Inputs & Outputs tab of Config and VR Config keeps its rows side by side in
-  narrower windows: they need 771 px instead of 1,046 px, so they stay side by side down
-  to the smallest window when the statistics report is collapsed, and down to about
-  1,110 px wide with the report open. When the room runs short, the first column
-  (Alignment Score Mode, Alignment Reference ID, Similarity Threshold) narrows before the
-  others, and the number fields keep room for their usual values.
+  narrower windows: they need about 772 px (778 on Linux) instead of 1,046 px, so they
+  stay side by side down to the smallest window when the statistics report is collapsed,
+  and down to about 1,110 px wide with the report open. When the room runs short, the
+  first column (Alignment Score Mode, Alignment Reference ID, Similarity Threshold)
+  narrows before the others, and the number fields keep room for their usual values.
 - The Parameter tables of Tools' Script Description give the parameter column one width
   in every table, on every page and in every language, room for any setting's name and
   key in three lines. Each table used to size the column to its own text, so names took
@@ -462,10 +486,7 @@ still change before version 1.0.0.
   - `cluster`/`subcluster` jaccard counts shared neighbours from the shorter neighbour
     list of each edge: the filter takes 0.30 s instead of 0.80 s at 200,000 nodes and
     7.2 million edges.
-  - `print` encodes a PNG on a thread of its own, so the window keeps painting while a
-    large `full` capture is saved, and the hover colour and click halo come back as
-    soon as the picture is taken. The first `print` of a session no longer loads
-    pyplot, which it never used.
+  - The first `print` of a session no longer loads pyplot, which it never used.
 - **Viewer command behaviour, as decided after the command audit.** Results change on purpose:
   - **`cluster`/`subcluster` jaccard:** compares closed neighbourhoods (each node counts as its own neighbour), so an edge scores (c + 2) / (a + b − c). Isolated pairs, stars and chains are no longer forced into Noise at any threshold above 0, and a clique scores 1. Every Jaccard result changes, and the default threshold of 0.2 now keeps more edges.
   - **`cluster`/`subcluster` mcl:** each node's self-loop weighs as much as its strongest edge instead of a fixed 1, so the clusters no longer depend on the scale of the scores (identity 0–1 or −log10 E). MCL results change.
@@ -480,6 +501,8 @@ still change before version 1.0.0.
   paths; the Viewer keeps loading. Cancelling the call, including a client-side tool
   timeout, also leaves it running. The Viewer now logs when it validates its inputs
   and when it builds the network display.
+- `get_command_catalog` works without a running Viewer; it then reads the installed
+  command sources.
 - **Setup no longer repeats the readiness check.** When `.venv` needs installing or
   repairing, the EMAP-SSN and EMAP-SSN Tools launchers started from a desktop shortcut
   checked it three more times after the shortcut's own check (twice on Linux and
@@ -501,9 +524,9 @@ still change before version 1.0.0.
   build once it validates.
 - Faster Viewer startup on large networks: edges are drawn without a per-edge Python
   loop, and the top-percent cutoff uses a partial sort. On a 12,927-node network with
-  4.18 million displayed edges, headless readiness fell from 14.0 s to 9.6 s on the
-  test machine, and edge drawing from 5.9 s to 0.15 s. Layout generation shares the
-  faster network preparation; cutoffs are unchanged.
+  4.18 million displayed edges, headless readiness fell from 14.0 s to 9.6 s on the test
+  machine. Layout generation shares the faster network preparation; cutoffs are
+  unchanged.
 - **Smooth threshold slider and node dragging in the Viewer.** The edges are sorted by
   score once when the Viewer opens, so the edges at or above a threshold are always the
   first ones in that order: moving the slider only changes how many are drawn, and
@@ -611,11 +634,9 @@ still change before version 1.0.0.
 - **Auto solves each spectral start once.** To benchmark the devices, Auto prepares one
   job of each size class, spectral starting layout included, and that job then prepared
   it again. The job now takes over the benchmarked batch with its own random stream, so
-  seeded layouts are unchanged and the benchmark only reads the batch. On the test
-  machine the 44K network's layout took 695 s instead of 919 s, solving the spectral
-  layout of its 34,302-node component once (5 to 7 minutes) instead of twice, with 0.4
-  GiB less peak memory; the 13K network took 15.3 s instead of 22.5 s, with identical
-  positions.
+  seeded layouts are unchanged and the benchmark only reads the batch. The 44K network
+  solves the spectral layout of its 34,302-node component once instead of twice, with
+  0.4 GiB less peak memory.
 - **Spectral starts use the intended eigenvectors, and large components solve them in
   seconds.** A component's starting layout comes from the eigenvectors of its normalized
   graph Laplacian after the trivial one: λ2 and λ3, and λ2–λ4 in 3D. ARPACK's
@@ -627,21 +648,18 @@ still change before version 1.0.0.
   Components of 2,000 or more nodes are solved with SciPy's LOBPCG, kept orthogonal to
   √degree, with its matrix products on all but two logical CPUs; a result that misses
   the residual or orthogonality check falls back to ARPACK, continuing the same seeded
-  random stream. On the test machine the 44K network's 34,302-node component now gets
-  its spectral start in 23 s (28 s in 3D) instead of about 7 minutes.
+  random stream.
 - **Spectral starts no longer collapse to a dot.** Each axis of a spectral start is
   spread with asinh around its median, in units of half its 5–95% range, before the
   usual mapping into the component's box. A few outlying nodes used to stretch that
   mapping so far that the rest of a large component started inside a dot one or two
   units wide, and its explosive expansion left about a dozen nodes per 44K run on the
   layout boundary in the first stages. With both changes, the 44K network's layout shows
-  no boundary warnings and took 257 s instead of 695 s (296 s in 3D), and the 13K
-  network took 8.7 s instead of 14 s (10.1 s instead of 11.6 s in 3D); the Fungal
-  network's time was unchanged (3.6–3.8 s). **Seeded layouts change once** for every
-  component with a spectral start (4 or more nodes in 2D, 5 or more in 3D) and for every
-  batch that contains one, because a batch shares one simulation; packing may also move
-  unchanged components. Grid starts (2–3 nodes, up to 4 in 3D) are unchanged, and so are
-  batches made only of them.
+  no boundary warnings, and the Fungal network's time is unchanged (3.6–3.8 s). **Seeded
+  layouts change once** for every component with a spectral start (4 or more nodes in
+  2D, 5 or more in 3D) and for every batch that contains one, because a batch shares one
+  simulation; packing may also move unchanged components. Grid starts (2–3 nodes, up to
+  4 in 3D) are unchanged, and so are batches made only of them.
 - **Large components get their spectral start several times faster.** For components of
   2,000 or more nodes, LOBPCG is now preconditioned with an algebraic multigrid V-cycle,
   with no new dependency. Nodes are grouped by the greedy aggregation that pyamg's
@@ -651,12 +669,12 @@ still change before version 1.0.0.
   finest-level products run on all but two logical CPUs, and every product works row by
   row, so the result does not depend on the thread count. The hierarchy draws no random
   numbers and is freed as soon as the solve returns. On the test machine the 44K
-  network's 34,302-node component now solves in about 8 s, instead of 20–31 s in 2D and
-  25–52 s in 3D, over three seeds. Inside its whole 2D layout the spectral start took 16
-  s instead of 23 s, at the same 14.2 GiB peak memory. On synthetic SSN-like components
-  of 99,000 and 199,000 nodes, the solve took 25 s instead of 68 s and 36 s instead of
-  154 s. With verbose output, the layout log names the solver used for each component of
-  2,000+ nodes, and the reason for any fallback.
+  network's 34,302-node component now solves its spectral start in about 8 s, where
+  v0.3.0's solver took about 7 minutes, and the network's whole 2D layout took under
+  260 s, with a 14.2 GiB peak, where it took 919 s before this release's spectral-start
+  changes. On synthetic SSN-like components of 99,000 and 199,000 nodes, the solve took
+  25 s and 36 s. With verbose output, the layout log names the solver used for each
+  component of 2,000+ nodes, and the reason for any fallback.
 - **Seeded layouts of large components come from the preconditioned solve.** Every
   component of 2,000 or more nodes, and every batch that contains one, starts from the
   AMG-preconditioned solver's eigenvectors. These match plain LOBPCG's to its tolerance
@@ -700,17 +718,19 @@ still change before version 1.0.0.
   packs 93 units across instead of 275 and a 12,927-node one 83 instead of 202, in
   under half a second. Packed 3D positions differ from earlier versions; saved caches
   keep theirs.
-- **Tiled embedding alignment is about 1.8 times faster.** `Align_Similarity_Matrix`
-  and `Network_Injection` built every padded GPU batch with one copy per target and
-  sent the target lengths from unpinned memory, which made the CPU wait for the GPU on
-  every batch and left the GPU half idle. Each tile's embeddings are now uploaded once
-  into a packed GPU buffer that every batch gathers from in one step, lengths travel
-  through pinned memory, one CPU task aligns a whole batch instead of one task per
-  pair, and tiles no longer wait for the GPU queue to empty when they change. On the
-  test machine (RTX 4070, i5-13600K), an MCP job on 12,927 sequences took 31.4 s per
-  500,000-pair batch instead of 56.9 s. The old code's speed also varied with CPU load
-  (up to 88 s per batch in another session); the new code is limited by the GPU.
-  Scores and alignment lengths are unchanged bit for bit for a given execution plan.
+- **Tiled embedding alignment is about 1.8 times faster.** `Align_Similarity_Matrix` and
+  `Network_Injection` built every padded GPU batch with one copy per target and sent the
+  target lengths from unpinned memory, which made the CPU wait for the GPU on every
+  batch and left the GPU half idle. Each tile's embeddings are now uploaded once into a
+  packed GPU buffer that every batch gathers from in one step, lengths travel through
+  pinned memory, one CPU task aligns a whole batch instead of one task per pair, and
+  tiles no longer wait for the GPU queue to empty when they change. On the test machine
+  (RTX 4070, i5-13600K), an MCP job on 12,927 sequences took 31.4 s per 500,000-pair
+  batch instead of 56.9 s. The old code's speed also varied with CPU load (up to 88 s
+  per batch in another session); the new code is limited by the GPU. Scores and
+  alignment lengths are unchanged bit for bit for a given execution plan. The
+  `GPU_STREAMS` setting of `Align_Similarity_Matrix` and the `ACCELERATOR_LANES` setting
+  of `Network_Injection` are gone.
 - **Faster alignment scoring when the CPU sets the pace.** A float32
   dynamic-programming kernel aligns pairs about 2.2 times faster per core when float32
   is provably exact: a global gap penalty of 0 with a local gap penalty of 0 or a
@@ -745,17 +765,18 @@ still change before version 1.0.0.
 - `subcluster` numbers subclusters by size, as `cluster` numbers clusters:
   `subcluster_N_1` is the largest, and equal sizes are ordered by their lowest member
   node. They used to be numbered in the order they were found.
-- On Windows 11 25H2 or newer, the AMD Radeon RX 7600 XT, the laptop RX 7600S, RX
-  7600M, RX 7600M XT and RX 7700S, and the Radeon PRO W7600 and W7500 now get the ROCm
-  backend, like the RX 7600, whose gfx1102 chip they share. AMD's ROCm 7.14 support list
-  names only the RX 7600, so the others ran on the CPU or, beside some AMD processors,
-  took the target of the processor's graphics (see Fixed). The 7700S was taken for an
-  RX 7700, a gfx1101 GPU, so the wrong ROCm build was installed, failed validation and
-  left it on the CPU. On such a PC, the first launch after updating installs ROCm and
-  keeps it if it passes validation; other PCs are unaffected. On Linux, the RX 7600M
-  and PRO W7500 were recognized only when the ROCm runtime reported their target; their
-  `lspci` names now map too, so a new installation without the runtime also tries ROCm.
-  For the other cards on Linux, see the Ubuntu 24.04 entry under Fixed.
+- On Windows 11 25H2 or newer, the AMD Radeon RX 7600 XT and RX 7650 GRE, the laptop RX
+  7600S, RX 7600M, RX 7600M XT and RX 7700S, and the Radeon PRO W7600 and W7500 now get
+  the ROCm backend, like the RX 7600, whose gfx1102 chip they share. AMD's ROCm 7.14
+  support list names only the RX 7600, so the others ran on the CPU or, beside some AMD
+  processors, took the target of the processor's graphics (see Fixed). The 7700S was
+  taken for an RX 7700, a gfx1101 GPU, so the wrong ROCm build was installed, failed
+  validation and left it on the CPU. On such a PC, the first launch after updating
+  installs ROCm and keeps it if it passes validation; other PCs are unaffected. On
+  Linux, the RX 7600M and PRO W7500 were recognized only when the ROCm runtime reported
+  their target; their `lspci` names now map too, so a new installation without the
+  runtime also tries ROCm. For the other cards on Linux, see the Ubuntu 24.04 entry
+  under Fixed.
 - On Linux, an AMD GPU's GFX target now comes from the kernel. amdgpu's ROCm driver
   (KFD) lists each GPU it can run ROCm on, with its target and PCI address, in
   `/sys/class/kfd`, so no ROCm software has to be installed. Before, without `rocminfo`
@@ -768,6 +789,14 @@ still change before version 1.0.0.
   After updating, an installed ROCm backend is validated and kept without reinstalling.
   A computer that used the CPU because its GPU was unnamed, or only provisionally
   recognized, installs ROCm on its first launch and keeps it if it passes validation.
+- Linux ROCm is no longer for Ubuntu alone. Distributions built on Ubuntu 22.04, 24.04,
+  25.10 or 26.04, such as Linux Mint and Pop!_OS, get it by the Ubuntu release they name
+  (`UBUNTU_CODENAME`). The Instinct MI300 (gfx942) and MI350 (gfx950) series also get it
+  on the other releases AMD's ROCm 7.14.1 matrix lists for them: RHEL 8.10, 9.4, 9.6,
+  9.8, 10.0 and 10.2; Oracle Linux 9 and 10 (and 8 for the MI300); Rocky Linux 9 (MI300
+  only); Debian 12 and 13; and SLES 15.7 and 16.0. These releases are listed upstream
+  but not tested by the project; the tensor validation after installing decides, as
+  everywhere.
 - Intel GPUs are now recognized by PCI device ID, and are eligible for the XPU backend
   when the pinned PyTorch 2.12.0 XPU build carries compiled kernels for them on that
   operating system. Before, a GPU needed "Arc" in its name, which depends on branding:
@@ -793,19 +822,20 @@ still change before version 1.0.0.
 - The Agent page switches only to a saved model card, named by its id, so a request can
   no longer point the agent at an unsaved server. Edits to a card take effect once
   saved, and the page says so when the model being switched on has unsaved edits.
-- The Configuration, Tools and VR Configuration windows, the Viewer's sidebar and slider,
-  and its Agent, Meta Data and Fold View pages share a new look: light greys, hairline
-  borders, rounded controls on rounded cards, tabs as a segmented control, switches for
-  the ON/OFF toggles, and one main button per window (such as **Save & Run**), in the
-  window's theme colour with its focus rings and sliders (see Theme colours). Other
-  buttons, **Exit** included, are outlined. The Agent page keeps its dark mode. Line icons
-  from the open-source [Lucide](https://lucide.dev) set (ISC licence, bundled in
-  `src/resources/icons/`) replace the emoji the windows used as icons, so they look the
-  same on every system: the folder buttons, the language globe, the Tools card titles and
-  help headings, the Viewer's sidebar buttons, and the web pages' controls. The tool help
-  pages (`src/tools/tool_descriptions/*.md`) no longer contain emoji; the Tools help pane
-  draws the icons. Sliders no longer show tick marks. The tool scripts' printed ✅, ❌
-  and ⚠️ markers are unchanged.
+- The Configuration, Tools and VR Configuration windows, the Viewer's sidebar and
+  slider, and its Agent, Meta Data and Fold View pages share a new look: light greys,
+  hairline borders, rounded controls on rounded cards, tabs as a segmented control,
+  dropdowns that open their list below the field with up to ten entries in view,
+  switches for the ON/OFF toggles, and one main button per window (such as **Save &
+  Run**), in the window's theme colour with its focus rings and sliders (see Theme
+  colours). Other buttons, **Exit** included, are outlined. The Agent page keeps its
+  dark mode. Line icons from the open-source [Lucide](https://lucide.dev) set (ISC
+  licence, bundled in `src/resources/icons/`) replace the emoji the windows used as
+  icons, so they look the same on every system: the folder buttons, the language globe,
+  the Tools card titles and help headings, the Viewer's sidebar buttons, and the web
+  pages' controls. The tool help pages (`src/tools/tool_descriptions/*.md`) no longer
+  contain emoji; the Tools help pane draws the icons. Sliders no longer show tick marks.
+  The tool scripts' printed ✅, ❌ and ⚠️ markers are unchanged.
 - Tools' **Exit** button fills the row under the Script Description, up to the
   Language dropdown, so the tips card reaches the bottom of the window.
 - The **Pick** buttons of Config and VR Config open a colour picker on a card under the
@@ -842,11 +872,10 @@ still change before version 1.0.0.
   aggregation of the layout's spectral start, the Noto licence files carry the fonts'
   own copyright lines, and the AMD ROCm packages are listed for the Ubuntu releases
   that get them.
-- **`undo N` and `redo N` report once.** They printed "Undo successful." or "Redo
-  successful." for every step, then the total; now they print only "Undid N steps."
-  or "Redid N steps.", on the console line too. The steps are quiet, and the Viewer
-  redraws the metadata HUD and updates the web pages once at the end (the VR viewer
-  sends the headset the result once). A plain `undo` or `redo` reports as before.
+- **`undo N` and `redo N` report once.** They print only "Undid N steps." or "Redid N
+  steps.", on the console line too. The steps are quiet, and the Viewer redraws the
+  metadata HUD and updates the web pages once at the end (the VR viewer sends the
+  headset the result once). A plain `undo` or `redo` reports as before.
 - **Each copy of EMAP-SSN opens its own windows.** Configuration, VR Configuration and
   Tools allowed one window each per user, so launching one from a second checkout,
   such as a fresh clone beside your usual folder, brought the first checkout's window
@@ -871,12 +900,6 @@ still change before version 1.0.0.
 - After the Meta Data page lost its connection to the Viewer and reconnected, its buttons,
   such as Import, and its Ctrl+Z and Ctrl+Y shortcuts sent their action once more for each
   reconnect. A reconnect now refreshes the table the page already shows.
-- A switch with keyboard focus, such as Low Resource Mode, showed only part of its focus
-  ring when it sat at the start of a field column; the ring is whole now.
-- A dropdown with few entries, such as Alignment Score Mode, showed one and a half of
-  them above a scroll arrow. Fusion's popup put the current entry over the field and
-  sized itself without the list's padding. Every dropdown now opens a list below its
-  field with every entry in view, up to ten.
 - **Viewer command audit.**
   - **`label`:** it kept dropping fully conserved residues at exact thresholds: with `id` weighting, a residue in every member could fail `cmin 100%`, and 999 of 1000 failed `cmin 99.9%`. Hex Color now matches the viewer's palette, and thresholds outside 0–100% are refused. `--help` and typos such as `gmax=0.4` no longer become report filenames. With nothing to analyse, it fails before writing an empty workbook. The ambiguity codes X, B, Z and J are no longer reported as conserved residues; they still count as occupied positions.
   - **`query`:** grouped targets such as `(AC)<=30%` are exact at the boundary, and multi-word metadata values such as `{Organism=Escherichia coli}` work in `query` and `logo`.
@@ -887,35 +910,39 @@ still change before version 1.0.0.
   - **`logo`:** a mistyped keyword such as `nogap` no longer becomes the file `nogap.svg`, overwriting any file of that name: a filename must end in `.svg` or `.png`.
   - **`alignment`:** says why a file was rejected, such as unequal sequence lengths or an empty file.
   - **`esmfold`:** no longer leaves its temporary input file behind when PyTorch is missing.
-  - **`run`:** reports how many lines failed and treats `#` lines as comments.
+  - **`run`:** treats `#` lines as comments, and a failed typed run names the command it stopped at and how many commands it did not run.
   - **Metadata:** a column named `id` no longer redirects web-table edits to the wrong node. The advertised `.xls` uploads work: `xlrd` is now a requirement.
-  - **`print svg`:** draws nodes in screen order and keeps the colour of `+`, `|` and `-` shapes. Node sizes, edge widths and outlines keep the proportions shown on screen; they were about twice as thick at a typical zoom.
   - Commands run for MCP or the agent page report whether their browser page opened, and never wait on a dialog.
   - **VR:** `label` and `logo` work, `hide` reaches the headset, and undo restores metadata.
-  - **Smaller command fixes:** `cluster`, `subcluster`, `print`, `hide`, `select save` and `reference` refuse arguments they would have ignored or folded into a file name, naming the first; `subcluster` wants `cluster_1`, not `cluster_01`, and changes nothing when no subcluster reaches MIN_SIZE. With MIN_SIZE 1, Leiden makes isolated nodes singleton clusters, as MCL and Jaccard do. `print foo.svg` saves an SVG and says when it replaced a file. `select save` writes FASTA for `.fa`, `.faa` and `.fas` too, and `@name@` reads them. Two different `select` modes are refused. `undo N` and `redo N` step N times. Property names with `.` work in `{...}` expressions.
-  - **Smaller output fixes:** a PNG logo too large to draw (over 370 positions) is refused before its job starts, and a long reference header no longer widens a logo. `query` sums residues under 1% on an "other" line and fails, like `logo`, when the matched nodes are not in the alignment. `esmfold` names the clicked node it folds when nothing is selected, and refuses a second worker while one runs. `spectrum` restores its displayed property on undo; undo no longer changes the sidebar, and commands reopen it only to add a button. The agent waits 300 s for a slow model, not 15 s. VR: `meta download` filters may hold spaces, and the terminal notes changes the headset cannot show.
-- `print svg` looked different from `print` of the same view, most of all on a
-  high-DPI screen. Its node outlines were about half as thick: VisPy fades an outline
-  over a device pixel on each side, so a 0.5-pixel one looks about 1.7 device pixels
-  wide, and the SVG wrote 0.5. Outlines are now as wide as they look, edges as wide as
-  GL draws them (a whole number of device pixels, at least one), and selected nodes
-  keep their border. The view box frames the network as the PNG is trimmed, with 20 of
-  the PNG's pixels around what is drawn, instead of 5 % of the network's size. Every
-  marker is drawn as VisPy draws it: `cross`, `x`, `vbar`, `hbar` and `ring` were thin
-  strokes without an outline, `arrow` a triangle, `clobber` a pentagon, and the star,
-  triangles and `cross_lines` had other proportions.
+  - **Smaller command fixes:** `cluster`, `subcluster`, `print`, `hide`, `select save` and `reference` refuse arguments they would have ignored or folded into a file name, naming the first; `subcluster` wants `cluster_1`, not `cluster_01`, and changes nothing when no subcluster reaches MIN_SIZE. With MIN_SIZE 1, Leiden makes isolated nodes singleton clusters, as MCL and Jaccard do. `print foo.svg` saves an SVG and says when it replaced a file. `select save` writes FASTA for `.fa`, `.faa` and `.fas` too, and `@name@` reads them. Two different `select` modes are refused. `undo N` and `redo N` step up to N times. Property names with `.` work in `{...}` expressions.
+  - **Smaller output fixes:** a PNG logo too large to draw (over 370 positions) is refused before its job starts, and a long reference header no longer widens a logo. `query` sums residues under 1% on an "other" line and fails, like `logo`, when the matched nodes are not in the alignment. `esmfold` names the clicked node it folds when nothing is selected, and refuses a second worker while one runs. `spectrum` restores its displayed property on undo, and undo and redo leave a metadata HUD closed with `meta show off` closed until the next `meta show` or `spectrum`; undo no longer changes the sidebar, and commands reopen it only to add a button. The agent waits 300 s for a slow model, not 15 s. VR: `meta download` filters may hold spaces, and the terminal notes changes the headset cannot show.
+- `print svg` looked different from `print` of the same view. Nodes were not drawn in
+  screen order, `+`, `|` and `-` shapes lost their colour, and node sizes and edge
+  widths came out about twice as thick at a typical zoom. Outlines were thinner than on
+  screen, most of all on a high-DPI screen, where they were about half as thick: VisPy
+  fades an outline over a device pixel on each side, so a 0.5-pixel one looks about 1
+  device pixel wide (0.98), and the SVG wrote 0.5. Outlines are now as wide as they
+  look, edges as wide as GL draws them (a whole number of device pixels, at least one),
+  and selected nodes keep their border. The view box frames the network as the PNG is
+  trimmed, with 20 of the PNG's pixels around what is drawn, instead of 5 % of the
+  network's size. Every marker is drawn as VisPy draws it: `cross`, `x`, `vbar`, `hbar`
+  and `ring` were thin strokes without an outline, `arrow` a triangle, `clobber` a
+  pentagon, and the star, triangles and `cross_lines` had other proportions.
 - MCP `start_session` terminated a healthy Viewer after a fixed 30 s. On a
   12,927-node network loaded from OneDrive, the Viewer was stopped while building its
   display, seconds from publishing its session. A readiness probe that timed out while
   the Viewer's Qt thread was busy also stopped the launch; the probe is now retried.
 - MCP pipeline jobs inherited the server's standard input, which carries the MCP
   protocol; a job that prompted for input could consume protocol messages.
-- On Windows, cancelling an MCP pipeline job, or closing the MCP server while a job
-  ran, could leave processes the job had started running, such as the worker processes
-  of an alignment with several `WORKERS`. The server ended only the process it had
-  launched, which in a virtual environment is the `python.exe` redirector. The tool's
-  interpreter stopped with it, but the interpreter's own child processes did not. The
-  job's whole process tree is now ended.
+- On Windows, cancelling an MCP pipeline job, or closing the MCP server while a job ran,
+  could leave processes the job had started running, such as the worker processes of an
+  alignment with several `WORKERS`. The server ended only the process it had launched,
+  which in a virtual environment is the `python.exe` redirector. The tool's interpreter
+  stopped with it, but the interpreter's own child processes did not. The job's whole
+  process tree is now ended. The server lists the job's processes itself, before
+  stopping any, rather than asking `taskkill`, which stops nothing when Windows
+  Management Instrumentation (WMI) is over its memory quota on a busy computer. A stop
+  that leaves a process running is logged, and the job's `failure_message` names it.
 - On Linux and macOS, cancelling an MCP pipeline job, or closing the MCP server while
   one ran, left a process of the job running if it ignored the stop signal (SIGTERM):
   the job's main process stopped, and the forced stop (SIGKILL) followed only when the
@@ -923,35 +950,24 @@ still change before version 1.0.0.
   rest of the grace period, and any still running after it is killed. A process that
   cleans up on SIGTERM still finishes first; multiprocessing's resource tracker, for
   example, removes a cancelled pool's semaphores from `/dev/shm`.
-- On Windows, cancelling an MCP pipeline job on a busy computer could still leave the
-  job's child processes running. The server listed the job's processes with `taskkill`,
-  which asks Windows Management Instrumentation (WMI) for them; when WMI is over its
-  memory quota it cancels the request, and `taskkill` then stopped nothing. The server
-  fell back to ending the `python.exe` redirector alone, which orphaned the rest. It now
-  lists the job's processes itself, before stopping any, and stops them all. A stop
-  that leaves a process running is logged, and the job's `failure_message` names it.
-- Embedding MSA and embedding search (SSEARCH), run through MCP or a settings file,
-  accepted local scores with `alignment_length` normalization, dividing each local
-  score by its own alignment length; the Tools window, the Viewer and layout generation
-  already refuse that pairing. Both tools now stop with a configuration error before
-  opening their inputs, and their MCP schemas require `shorter_sequence`,
-  `longer_sequence` or `average_sequence` with local scores.
 - Embedding MSA, embedding search (SSEARCH) and pairwise embedding alignment (PWA), run
-  with a hand-written settings file, accepted an `ALIGNMENT_SCORE` (MSA) or
-  `ALIGNMENT_MODE` (SSEARCH, PWA) other than `global` or `local`. SSEARCH ran a global
-  search, with the global gap penalty, for any value but `local`, such as `Local`.
-  Embedding MSA built its guide tree from local scores for any value but `global`, such
-  as `Global`, even with `alignment_length` normalization. PWA ran a local alignment,
-  with the local gap penalty, for any text but `global`, such as `Global`, while its
-  report printed that text as the mode. All three tools now stop with a configuration
-  error that names the setting, before opening their inputs.
-- Embedding search (SSEARCH), run with a hand-written settings file, divided every score
-  by its alignment length when `NORM_MODE` was not one of `alignment_length`,
+  through MCP or with a hand-written settings file, accepted settings that the Tools
+  window, the Viewer and layout generation refuse. Embedding MSA and SSEARCH accepted
+  local scores with `alignment_length` normalization, dividing each local score by its
+  own alignment length; their MCP schemas now require `shorter_sequence`,
+  `longer_sequence` or `average_sequence` with local scores. An `ALIGNMENT_SCORE` (MSA)
+  or `ALIGNMENT_MODE` (SSEARCH, PWA) other than `global` or `local` was read as one of
+  the two: SSEARCH ran a global search, with the global gap penalty, for any value but
+  `local`, such as `Local`; Embedding MSA built its guide tree from local scores for any
+  value but `global`, such as `Global`, even with `alignment_length` normalization; and
+  PWA ran a local alignment, with the local gap penalty, for any text but `global`, such
+  as `Global`, while its report printed that text as the mode. SSEARCH divided every
+  score by its alignment length when `NORM_MODE` was not one of `alignment_length`,
   `shorter_sequence`, `longer_sequence` and `average_sequence`, such as
-  `Longer_Sequence`, while its reports printed that text as the mode. It now stops with
-  a configuration error that names the setting, before opening its inputs. Embedding MSA
+  `Longer_Sequence`, while its reports printed that text as the mode, and Embedding MSA
   refused an unknown `NORMALIZATION_MODE` only after loading the network, and accepted
-  one with a BLAST network; it now refuses it before opening its inputs too.
+  one with a BLAST network. All three tools now stop with a configuration error that
+  names the setting, before opening their inputs.
 - Embedding MSA kept its noise-perturbed guide-tree cache (a memory-mapped distance
   matrix of about 4 bytes per sequence pair, 3.9 GB for 44,000 sequences) in the
   project's default `Input_Files/Multiple_Alignments` folder whenever it ran through
@@ -985,16 +1001,25 @@ still change before version 1.0.0.
   zombie, such as `[ptyxis] <defunct>`) until Config or Tools exited: the terminal
   program, which a single-instance terminal ends at once, was never collected. It is
   now collected as soon as it ends.
-- On Windows, a Viewer started by MCP `start_session` failed any command that printed
-  text outside the Windows ANSI code page (cp1252 on most Western systems), such as a
-  selection error echoing an expression with `α-amylase` in it, or the "LLM Agent
-  Activated: … → …" line: the command stopped with "'charmap' codec can't encode
-  character". The Viewer printed to a pipe in normal mode and to its log files in
-  headless mode, which Python writes in that code page, while `read_log` and the
-  Viewer's console window read UTF-8, so even `é` came back as `�`. The Viewer now
-  writes UTF-8 to pipes and files, whatever started it, and escapes characters a
-  terminal's encoding lacks instead of failing. The normal-mode console window also
-  lost or garbled a character that a pipe read split in two; it now shows it whole.
+- On Windows, the Viewer, Config, Tools and the layout generator failed when they
+  printed text outside the Windows ANSI code page (cp1252 on most Western systems),
+  because Python writes pipes and log files in that code page. A Viewer started by MCP
+  `start_session` failed any command that printed such text, such as a selection error
+  echoing an expression with `α-amylase` in it, or the "LLM Agent Activated: … → …"
+  line, with "'charmap' codec can't encode character", while `read_log` and the Viewer's
+  console window read UTF-8, so even `é` came back as `�`; the normal-mode console
+  window also lost or garbled a character that a pipe read split in two. Config and
+  Tools opened from the EMAP-SSN and EMAP-SSN Tools shortcuts, and MCP layout jobs,
+  failed the same way: Tools could not run any tool from a project folder such as
+  `Projekt-α`, Config closed when it found two compatible cache folders for the selected
+  inputs and their paths had such a character, a `start_layout_job` job reading or
+  writing such a path failed, and the terminal that shows the log after a failure read
+  it as UTF-8. A layout generator run on its own
+  (`python src/Layout_Cache_Generator.py <settings.json>`) with its output redirected
+  ended before saving its cache when the FASTA file was in a `Projekt-α` folder. All
+  four now write UTF-8 to files and pipes, whatever started them, and escape characters
+  a terminal's encoding lacks instead of failing, and the console window shows a split
+  character whole.
 - On Windows, the `run` command mangled non-ASCII text in the commands that a Python
   command script printed, however the Viewer was started. Python wrote the script's
   output to the Viewer's pipe in the Windows ANSI code page (cp1252 on most Western
@@ -1016,27 +1041,10 @@ still change before version 1.0.0.
   most Western systems), with a note in the terminal. A byte that still doesn't
   decode shows as `�` instead of disappearing. The VR viewer's `run` reads files the
   same way.
-- On Windows, Config and Tools opened from the EMAP-SSN and EMAP-SSN Tools shortcuts,
-  and MCP layout jobs, failed when they printed text outside the Windows ANSI code page
-  (cp1252 on most Western systems). Their output goes to a log file, which Python
-  writes in that code page. Tools could not run any tool from a project folder such as
-  `Projekt-α`: Run reported "'charmap' codec can't encode character" and started
-  nothing. Config closed when it found two compatible cache folders for the selected
-  inputs and their paths had such a character, and a `start_layout_job` job reading or
-  writing such a path failed. The terminal that shows the log after a failure read it
-  as UTF-8, so even `é` came back as `�`. Config and Tools now write UTF-8 to files and
-  pipes, whatever started them, as the Viewer does, and escape characters a terminal's
-  encoding lacks instead of failing.
-- On Windows, a layout generator run on its own
-  (`python src/Layout_Cache_Generator.py <settings.json>`) with its output redirected to
-  a file or a pipe stopped with "'charmap' codec can't encode character" when it printed
-  a path with a character outside the Windows ANSI code page (cp1252 on most Western
-  systems). With the FASTA file in a `Projekt-α` folder, it ended before saving its
-  cache. It now writes UTF-8 to files and pipes, as Config, Tools and the Viewer do.
 - `inspect_file` reported valid 3D layout caches (for the VR viewer) as invalid.
 - A network whose `model_name` attribute was not valid UTF-8 was accepted when the
   attribute was a variable-length string, h5py's default for text: h5py reads the
-  invalid bytes as placeholder characters, which then reached cache names. Such a
+  invalid bytes as lone surrogate characters, which then reached cache names. Such a
   network is now refused with the "not valid UTF-8" error that a fixed-length attribute
   already got.
 - `capture_view` on a headless Viewer failed with a bare OpenGL error; it now explains
@@ -1113,13 +1121,12 @@ still change before version 1.0.0.
   the error gives the path's length and suggests mapping a drive letter to the network
   folder.
 - Embedding MSA ran out of memory on large complete networks. Filtering stored every
-  edge as a Python tuple (about 130 bytes each), so a 44,127-sequence network with
-  973.6 million edges needed about 150 GB and stopped with `MemoryError` on a 96 GB
-  PC. Edges are now filtered as whole arrays, and arrays are freed once used. Bootstrap
-  workers pass SciPy a float64 matrix directly instead of a float32 one it must
-  convert, and tree distances are summed in place. That run should now peak at about
-  51 GB with `WORKERS` 3, about 16 GB per worker; guide trees are unchanged bit for
-  bit.
+  edge as a Python tuple (about 130 bytes each), so a 44,127-sequence network with 973.6
+  million edges needed about 127 GB and stopped with `MemoryError` on a 96 GB PC. Edges
+  are now filtered as whole arrays, and arrays are freed once used. Bootstrap workers
+  pass SciPy a float64 matrix directly instead of a float32 one it must convert, and
+  tree distances are summed in place. That run should now peak at about 51 GB with
+  `WORKERS` 3, about 16 GB per worker; guide trees are unchanged bit for bit.
 - `Sparse_MSA_Converter.py` exited with code 0 when it converted nothing: when its
   input FASTA was missing, validation rejected the alignment, or the HDF5 save failed.
   An MCP job therefore reported `succeeded` (seen when step 4 failed and the queued
@@ -1128,17 +1135,12 @@ still change before version 1.0.0.
   `MSA_DIR` holds no `.fasta` files.
 - `Network_Injection.py` stopped every run with `TypeError` before aligning anything
   (v0.2.0 and v0.3.0): it checked the precision of an existing output network before
-  setting that network's path. Past that check, CPU runs failed too, because the
-  worker processes never received the gap penalties read from the input network.
-  Both are fixed, so runs complete.
-- `Network_Injection.py`'s final compile step skipped a batch file it could not read,
-  printing only a warning, and skipped one lacking `i` or `j` without one. That batch's
-  pairs stayed in the network with zero scores and lengths, which look like real edges,
-  and the job exited with code 0. Such a batch now stops the job with exit code 1 and
-  names the file. The network is written to a `.partial` file that replaces the final
-  one only once complete, so a failed write no longer leaves a truncated network or
-  replaces an earlier one. Networks are byte-identical to the old code's output with
-  both failures above bypassed.
+  setting that network's path. Past that check, CPU runs failed too, because the worker
+  processes never received the gap penalties read from the input network. Both are
+  fixed, so runs complete. Its final compile step now also stops the job with exit code
+  1, naming the file, on a batch file it cannot read, instead of leaving that batch's
+  pairs in the network with zero scores, and writes the network to a `.partial` file
+  that replaces the final one only once complete.
 - `Network_Injection.py` also exited with code 0 when it stopped with "Cannot start
   Network Injection", so MCP reported jobs that wrote nothing as succeeded. That
   happened when no existing network or new embeddings file was selected, when
@@ -1185,9 +1187,9 @@ still change before version 1.0.0.
   layout boundary, where a diverged simulation leaves them. Stages stop at the same
   step as before.
 - In a narrow Config or VR Config window, where the Alignment Reference ID, Min
-  Occupancy % and Alignment Offset fields stack, the Alignment Offset field stayed
-  100 px wide instead of reaching the right edge like the others. It now does; in a
-  wide window it keeps its 100 px beside the other two.
+  Occupancy % and Alignment Offset fields stack, the Alignment Offset field stayed 100
+  px wide instead of reaching the right edge like the others. It now does; in a wide
+  window it keeps a narrow width beside the other two.
 - Config and VR Config could point the Target Cache, and so Save & Run, at the layout
   folder of inputs that were no longer selected. When other inputs were chosen while the
   selected FASTA or network was still being checked, and those inputs had been checked
@@ -1270,13 +1272,13 @@ still change before version 1.0.0.
   `model_card.json` could not be read. Both files are now refused with the parse error
   and left unchanged, saves replace them atomically, and the agent panel shows "Saved"
   only once the Viewer confirms the save.
-- A save interrupted by a crash or a forced stop could leave a temporary copy beside
-  `model_card.json` or the Biohub API token file, both holding API keys, or beside
-  `tools_settings.json`, `viewer_settings.json` or the VR Config's
-  `viewer_settings_vr.json`, and git offered the copy for commit. These copies are now
-  git-ignored. The next save or load of the model cards or the Biohub token, and the
-  next save of either Config window's settings, removes copies more than a minute old
-  without reading them.
+- A save interrupted by a crash or a forced stop could leave a temporary copy beside the
+  Biohub API token file, which holds an API key, or beside `viewer_settings.json` or the
+  VR Config's `viewer_settings_vr.json`, and git offered the copy for commit. The atomic
+  saves of `model_card.json` and `tools_settings.json` (the previous entry) use
+  temporary copies too. All of these copies are now git-ignored, and the next save or
+  load of the model cards or the Biohub token, and the next save of either Config
+  window's settings, removes copies more than a minute old without reading them.
 - The Tools window opened over an unreadable `tools_settings.json` showing default
   values without a word; the problem came to light only when **Save Directories** or
   **Save & Run** refused. It now warns when the window opens, with the parse error's
@@ -1298,11 +1300,11 @@ still change before version 1.0.0.
   which the tools find though no folder lists it, now shows as it is instead of the
   folder's first file.
 - On Windows, the Tools window's Script Description could turn partly or wholly black,
-  sheared into a chessboard of garbage pixels, after it widened in one jump (closing
-  the settings panel, for one), and stayed so until the page drew again. Chromium now
-  draws the help page in software, as it already did on Linux: in tests, GPU drawing
-  corrupted the page after up to one in eight such jumps, and software drawing after
-  none of 320.
+  sheared into a chessboard of garbage pixels, after it widened in one jump (closing the
+  settings panel, for one), and stayed so until the page drew again. Chromium now draws
+  the help page in software, as it already did on Linux: in this release's tests, GPU
+  drawing corrupted the page after up to one in eight such jumps, and software drawing
+  after none of 320.
 - A tool run from the command line without a settings file, while `tools_settings.json`
   could not be read (invalid JSON, empty, or not a JSON object), printed a warning and
   ran on its built-in defaults; an MCP job given parameters without every directory
@@ -1321,14 +1323,15 @@ still change before version 1.0.0.
   `python src/Install_Dependencies.py --refresh-backend` in its environment.
 - On Linux, GPU detection never found an AMD Instinct MI300A, MI300X, MI308X, MI325X,
   MI350X or MI355X, so a node full of them used the CPU. `lspci` lists these as
-  "Processing accelerators" rather than as a display controller, and detection kept
-  only display controllers, so v0.3.0's note that gfx942 and gfx950 Instinct parts are
+  "Processing accelerators" rather than as a display controller, and detection kept only
+  display controllers, so v0.3.0's note that gfx942 and gfx950 Instinct parts are
   eligible on Linux did not hold for any of them. They are now found, along with their
-  virtual functions. Only AMD graphics devices (PCI vendor 1002) count: other
-  processing accelerators, such as Intel NPUs or AMD Pensando DPUs, are still ignored.
-  As for other Instinct parts, the GFX target comes from `rocminfo` or
-  `rocm_agent_enumerator`, and Linux ROCm needs one of the supported Ubuntu releases.
-  The first launch after updating installs ROCm and keeps it if it passes validation.
+  virtual functions. Only AMD graphics devices (PCI vendor 1002) count: other processing
+  accelerators, such as Intel NPUs or AMD Pensando DPUs, are still ignored. As for other
+  Instinct parts, the GFX target comes from the kernel's ROCm driver (see Changed), or
+  from `rocminfo` or `rocm_agent_enumerator` where it lists none, and Linux ROCm needs
+  one of the supported Ubuntu releases. The first launch after updating installs ROCm
+  and keeps it if it passes validation.
 - On Linux, GPU detection gave a GPU the kernel driver of a device `lspci` lists
   after it, usually the GPU's own HDMI audio function, so the detection report
   showed `snd_hda_intel` as the driver of an NVIDIA or AMD card. An Intel Arc GPU
@@ -1374,6 +1377,21 @@ still change before version 1.0.0.
   next launch installs CUDA 13.2. Whenever a GPU build fails to install or validate,
   setup now ends with a warning naming the build, the error (for a failed tensor check,
   each GPU's own error), and the `--refresh-backend` command that tries the GPU again.
+- An NVIDIA GPU below compute capability 5.0, such as a GTX 780, or one whose driver is
+  older than CUDA 12 needs (525.60.13 on Linux, 528.33 on Windows) got the CUDA 12.6
+  build, which failed validation after a download of several gigabytes. Setup now leaves
+  such a GPU out, says why or which driver it needs, and uses the CPU.
+- When setup fell back to the CPU, the reason it printed came from whichever device was
+  listed first, such as an integrated Intel GPU beside an AMD card the distribution kept
+  from ROCm, or told how a GPU's target was found rather than why it was refused. It now
+  gives the refusal of the GPU that would have been used.
+- While a computer's GPU was not visible (unplugged, or its driver not loaded), every
+  launch printed "State mismatch" lines although the installed GPU build was rightly
+  kept. Only a mismatch that stops the launch is listed now.
+- The bundled Tabulator stylesheet is upstream's again: one value in a print-table rule
+  had been changed by accident (16px became 166px).
+- In a Windows checkout, `sha256sum -c src/resources/fonts/desktop/SHA256SUMS` failed
+  for every font, because the file got CRLF line ends. It now keeps LF everywhere.
 - On a computer with an NVIDIA GPU older than Turing (compute capability below 7.5),
   such as a GTX 1080, and one newer than Hopper, such as an RTX 5090, setup installed
   CUDA 12.6 for both, because CUDA 13.2 does not support the older GPU. CUDA 12.6 has
@@ -1413,18 +1431,11 @@ still change before version 1.0.0.
   are now eligible for it on the same operating systems.
 - GPU detection classed an Intel GPU without XPU kernels, such as UHD Graphics 770 or
   Iris Xe Graphics, as `"kind": "unknown"` rather than `"integrated"`. Intel's discrete
-  GPUs (Iris Xe MAX, Arc, Data Center GPU Flex and Max) are now recognized by PCI
-  device ID, and every other Intel GPU is integrated; without a device ID, the name
-  decides. Which GPUs can use XPU is unchanged. Because the class is part of the saved
-  hardware profile, the first launch after updating on a computer with such a GPU
-  re-validates the installed PyTorch backend once without reinstalling it.
-- The Viewer's instruction line (`[ENTER] Command | [LeftClick] Highlight | …`) is
-  wider than the default 1200 × 800 window in English, so its end ran under the
-  sidebar's toggle and past the window's edge. The actions now open on a card from a
-  button by the threshold slider (see Added).
-- The statistics report in Config and VR Config cut its hint off after "Select Fasta
-  subset and HDF5" at the window's default size, in every language: Qt shows only the
-  first line of a text box's placeholder. The hint now wraps to the report's width.
+  GPUs (Iris Xe MAX, Arc, Data Center GPU Flex and Max) are now recognized by PCI device
+  ID, and every other Intel GPU is integrated; without a device ID, the name decides.
+  Because the class is part of the saved hardware profile, the first launch after
+  updating on a computer with such a GPU re-validates the installed PyTorch backend once
+  without reinstalling it.
 - The Embedding Database Search (`Embedding_SSEARCH.py`) and the Pairwise Embedding
   Alignment (`Embedding_PWA.py`) imported `Generate_Embeddings.py` to find a model's
   plugin, and that import read the shared `tools_settings.json`, in the tool and in each
@@ -1440,11 +1451,6 @@ still change before version 1.0.0.
   (`Hits_*.fasta`) in Windows' default encoding, so a header with a character outside it,
   such as a Greek letter, stopped the search before the Excel report was written. Both
   files are now UTF-8.
-- The Configuration and VR Configuration windows' statistics report fits its panel at
-  the launch size. Its threshold figures were spaced-out text that wrapped mid-row in
-  the narrow panel; they now sit in a table under their column headings, and the
-  summary lines above it wrap. The report's own "Network Statistics" banner line is gone,
-  since the panel's title already says it.
 - The Tools window's help pane wraps its text to the pane. A help page kept a 600 px
   minimum width, so in a narrower pane every line ran past the right edge and had to be
   scrolled sideways. A table wider than the pane now scrolls on its own, and long names
@@ -1453,22 +1459,19 @@ still change before version 1.0.0.
   launch size. Its VR client settings stand in two halves side by side only while both
   fit; in a narrower window the second half goes under the first, its fields lined up
   with the ones above. The wide layout is unchanged.
-- The Configuration window's Simulation & Physics tab cut the last pixel column off
-  "Min % Drop Threshold:" on Linux, and off its Chinese label. The four labels beside the
-  paired fields shared a width taken from their text's advance, and Linux font hinting
-  can draw a text a pixel past it. They now get the width the labels ask for, as the
-  label column does; on Windows the widths are unchanged. VR Configuration sizes the
-  same labels the same way.
-- The bundled interface font, Noto Sans (with Noto Sans SC for Chinese), reached only
-  some widgets. On Linux, labels and buttons kept the desktop's font, such as Ubuntu
-  Sans, while fields, dropdowns and tabs drew Noto Sans, and Chinese labels fell back to
-  the system's Chinese font. Right-click menus, message boxes and tooltips kept the
-  system font on Linux and Windows (Segoe UI there). Qt gives those kinds of widget
-  fonts of their own from the desktop theme, and applying the window theme brought them
-  back after the bundled font was set. Every widget in Config, VR Configuration, Tools
-  and the Viewer now draws the bundled fonts, at the size the desktop gives it. The
-  windows' layout is unchanged on Windows; on Linux, labels and buttons take Noto Sans's
-  widths.
+- The Configuration window's Simulation & Physics tab cut the last pixel column off "Min
+  % Drop Threshold:" on Linux. The four labels beside the paired fields shared a width
+  taken from their text's advance, and Linux font hinting can draw a text a pixel past
+  it. They now get the width the labels ask for, as the label column does; on Windows
+  the widths are unchanged. VR Configuration sizes the same labels the same way.
+- The bundled interface font, Noto Sans, reached only some widgets. On Linux, labels and
+  buttons kept the desktop's font, such as Ubuntu Sans, while fields, dropdowns and tabs
+  drew Noto Sans. Right-click menus, message boxes and tooltips kept the system font on
+  Linux and Windows (Segoe UI there). Qt gives those kinds of widget fonts of their own
+  from the desktop theme, and applying the window theme brought them back after the
+  bundled font was set. Every widget in Config, VR Configuration, Tools and the Viewer
+  now draws the bundled fonts, at the size the desktop gives it. The windows' layout is
+  unchanged on Windows; on Linux, labels and buttons take Noto Sans's widths.
 - The Agent page could show light for a moment before turning dark, when dark mode had
   been chosen: it set its theme only once the page had loaded. Like the Meta Data page,
   it now sets the theme before the page is drawn.
@@ -1479,20 +1482,16 @@ still change before version 1.0.0.
   failed generation, a window closed during generation, or a VR launch refused because
   another VR viewer was running left the file behind. Each now deletes the file as soon
   as it has read it; the VR layout launcher does the same for its layout settings file.
-- A Python command script started by `run` kept running after the Viewer closed, and
-  one that never ended kept further `.py` runs refused until the Viewer restarted.
-  Closing the Viewer now ends the script and every process it started, and quitting
-  it does the same for scripts started through MCP or the Agent page; `run stop` ends
-  them while the Viewer runs.
-- On a Mac, `export` wrote two groups whose names differ only in letter case, such as
-  "Alpha" and "alpha", to one file, so one subset silently replaced the other. A Mac's
-  usual APFS volume ignores letter case as Windows does, but the export refused such
-  names only on Windows. It now asks the destination folder, by making and removing one
-  empty file there, and refuses whenever the folder ignores case: on a Mac's usual
-  volume, and on Linux too for FAT- or NTFS-formatted drives and Windows shares. A
-  folder that keeps case apart, such as a case-sensitive APFS volume, gets both files.
-  The VR viewer's `export` never refused such names, so there one subset replaced the
-  other on Windows too; it now refuses them the same way.
+- A Python command script that MCP or the Agent page started through `run` kept running
+  after the Viewer quit. Quitting the Viewer now ends the script and every process it
+  started; `run stop` ends them while the Viewer runs.
+- `export` wrote two groups whose names differ only in letter case, such as "Alpha" and
+  "alpha", to one file wherever the destination folder ignores letter case, so one
+  subset silently replaced the other: on Windows, on a Mac's usual APFS volume, and on
+  Linux for FAT- or NTFS-formatted drives and Windows shares. It now asks the
+  destination folder, by making and removing one empty file there, and refuses whenever
+  the folder ignores case. A folder that keeps case apart, such as a case-sensitive APFS
+  volume, gets both files. The VR viewer's `export` refuses such names the same way.
 - On a Mac, Host Cache (GiB) set to AUTO in Dynamic Programming Embedding Alignment and
   Network Injection always came to 0, so embeddings were read again from the HDF5 file
   instead of kept in RAM: the memory check asked for a figure macOS doesn't provide. On
@@ -1500,25 +1499,14 @@ still change before version 1.0.0.
   so the budget came out smaller than it should. Both now read the available memory
   through psutil, which gives the figure Windows already used. On Apple silicon the GPU
   memory plan now also stays within that figure, as it was meant to.
-- Undo and redo reopened the metadata HUD (`meta show`) after it was closed with
-  `meta show off`. Each undo step records which property the HUD shows, but closing it
-  is no step of its own, so stepping back or forward to a step taken while it was open
-  brought it back. Undo and redo still close the HUD or switch its property, but leave
-  one closed with `meta show off` closed until the next `meta show` or `spectrum`.
 - A long file name could give the Inputs & Outputs tab of Config and VR Config a
-  horizontal scroll bar at the window's default size. The dropdowns that list files or profiles (Sequence Set,
-  Network Edges, MSA, the Target Cache's file and each tab's profile) kept the width of
-  their longest entry when the window opened: with
+  horizontal scroll bar at the window's default size. The dropdowns that list files or
+  profiles (Sequence Set, Network Edges, MSA, the Target Cache's file and each tab's
+  profile) kept the width of their longest entry when the window opened: with
   `benchmark_sequences_sanitized_[esm2_t6_8m]_network.h5` in the network folder, the
-  tab's content needed 653 px at its narrowest instead of 420. They now keep twelve
-  characters at their narrowest, whatever they list; the other dropdowns are unchanged.
-  Config's layout tests no longer list the checkout's own `Input_Files`, which failed
-  four of them whenever it held such a network.
-- On Linux, the tools' pop-up charts (Sanitize Sequences' length histogram, Embedding
-  MSA's regression plot) showed in GNOME's Alt+Tab with its generic icon, not the Tools
-  icon. matplotlib names its application `matplotlib`, and Qt names the window's
-  `WM_CLASS` and GTK application ID after it, which no desktop entry claims. The charts
-  now take the Tools window's name, `emapssn_tools`, which its desktop entry claims.
+  tab's content needed 653 px at its narrowest instead of 420 in this release. They now
+  keep twelve characters at their narrowest, whatever they list; the other dropdowns are
+  unchanged.
 
 ### Removed
 

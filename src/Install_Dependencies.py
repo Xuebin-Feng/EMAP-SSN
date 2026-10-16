@@ -1089,13 +1089,14 @@ def environment_is_ready(
         preserve_without_accelerator = bool(
             active is not None and not accelerator_visible
         )
-        if mismatches:
-            _print_state_mismatches(mismatches)
         tolerable_cpu_only_fields = {"hardware_fingerprint", "requested_candidates"}
         if mismatches and not (
             preserve_without_accelerator
             and set(mismatches).issubset(tolerable_cpu_only_fields)
         ):
+            # Only a mismatch that stops the launch is worth listing: a GPU
+            # that is merely not visible now would print it on every start.
+            _print_state_mismatches(mismatches)
             print(
                 "Environment is not ready: dependency or hardware state changed.",
                 file=sys.stderr,

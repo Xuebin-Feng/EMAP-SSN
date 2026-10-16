@@ -35,6 +35,11 @@ CUDA_13_MIN_DRIVER = (580, 0)
 # 9.0). A newer GPU (Blackwell is 10.x and 12.x) runs only on the CUDA 13.2
 # build, so with a driver older than 580 no build can use it.
 CUDA_12_6_MAX_CAPABILITY = (9, 0)
+# Its oldest kernels are for Maxwell (compute capability 5.0), and CUDA 12 runs
+# on these drivers or newer (NVIDIA's minor version compatibility). Below
+# either, the CUDA build would install and then fail validation.
+CUDA_12_6_MIN_CAPABILITY = (5, 0)
+CUDA_12_MIN_DRIVER = {"linux": (525, 60, 13), "windows": (528, 33)}
 WINDOWS_11_MIN_BUILD = 22000
 WINDOWS_11_25H2_MIN_BUILD = 26200
 
@@ -46,14 +51,15 @@ AMD_GFX_PATTERNS = (
     ("gfx1100", (r"rx\s*7900\s*(?:xtx|xt|gre)", r"w7900", r"w7800")),
     # The trailing \b keeps the laptop RX 7700S, a gfx1102 part, out of gfx1101.
     ("gfx1101", (r"rx\s*7800\s*xt", r"rx\s*7700(?:\s*xt)?\b", r"w7700", r"v710")),
-    # AMD's ROCm 7.14 list names only the RX 7600; the RX 7600 XT, the laptop
-    # RX 7600S, RX 7600M, RX 7600M XT and RX 7700S, and the Radeon PRO W7600
-    # and W7500 are the same gfx1102 silicon (Navi 33), and the installer
-    # validates the backend before use. lspci names a PCI ID, not a product:
+    # AMD's ROCm 7.14 list names only the RX 7600; the RX 7600 XT and RX 7650
+    # GRE, the laptop RX 7600S, RX 7600M, RX 7600M XT and RX 7700S, and the
+    # Radeon PRO W7600 and W7500 are the same gfx1102 silicon (Navi 33), and
+    # the installer validates the backend before use. lspci names a PCI ID, not
+    # a product:
     # the pci.ids in Ubuntu 24.04 (2024.03.31) call every 1002:7480 card
     # "Navi 33 [Radeon RX 7700S/7600/7600S/7600M XT/PRO W7600]", so there the
     # RX 7700S and PRO W7600 patterns are what map an RX 7600 or 7600 XT.
-    ("gfx1102", (r"rx\s*7600(?:\s*xt|s|m(?:\s*xt)?)?\b", r"rx\s*7700s\b", r"w7[56]00")),
+    ("gfx1102", (r"rx\s*7600(?:\s*xt|s|m(?:\s*xt)?)?\b", r"rx\s*7650\s*gre\b", r"rx\s*7700s\b", r"w7[56]00")),
     ("gfx1030", (r"w6800", r"v620")),
     ("gfx1103", (r"radeon\s*7[468]0m",)),
     ("gfx1150", (r"radeon\s*(?:890m|880m)", r"ryzen\s*ai\s*9\s*hx\s*(?:375|370)")),
@@ -99,6 +105,33 @@ ROCM_CHANNEL_TARGETS = frozenset({
     "gfx1150", "gfx1151", "gfx1152", "gfx1153",
     "gfx1200", "gfx1201",
 })
+
+# Linux releases for ROCm. Every target runs on these Ubuntu releases and on
+# distributions built on them (Linux Mint, Pop!_OS, ...), which name their
+# Ubuntu base in UBUNTU_CODENAME; their own VERSION_ID numbers differ.
+LINUX_ROCM_UBUNTU_RELEASES = ("22.04", "24.04", "25.10", "26.04")
+UBUNTU_CODENAME_RELEASES = {"jammy": "22.04", "noble": "24.04", "questing": "25.10", "resolute": "26.04"}
+# AMD's ROCm 7.14.1 compatibility matrix also lists the Instinct MI300 (gfx942)
+# and MI350 (gfx950) series on these releases, by os-release ID. Each target
+# takes every release AMD lists for any of its models (MI300A, MI300X and
+# MI325X differ a little); validation after installing catches the rest. A
+# release given as "9" covers every 9.x; "9.4" only 9.4.
+LINUX_DISTRO_NAMES = {"rhel": "RHEL", "rocky": "Rocky Linux", "ol": "Oracle Linux", "debian": "Debian", "sles": "SLES"}
+INSTINCT_LINUX_RELEASES = {
+    "gfx942": {
+        "rhel": ("8.10", "9.4", "9.6", "9.8", "10.0", "10.2"),
+        "rocky": ("9",),
+        "ol": ("8", "9", "10"),
+        "debian": ("12", "13"),
+        "sles": ("15.7", "16.0"),
+    },
+    "gfx950": {
+        "rhel": ("8.10", "9.4", "9.6", "9.8", "10.0", "10.2"),
+        "ol": ("9", "10"),
+        "debian": ("12", "13"),
+        "sles": ("15.7", "16.0"),
+    },
+}
 INTEGRATED_AMD_TARGETS = frozenset({"gfx1103", "gfx1150", "gfx1151", "gfx1152", "gfx1153"})
 
 INTEL_ARC_PREFIX = r"\bintel\b.*\barc(?:\(tm\)|™)?\s+"
@@ -674,17 +707,51 @@ def _intel_os_supported(system: str, os_info: dict[str, Any], intel_platform: In
     return system == "linux" and str(os_info.get("version_id") or "").startswith(intel_platform.linux.get(distro, ()))
 
 
-def _nvidia_driver_warning(device: dict[str, Any]) -> str | None:
-    """The update-the-driver message for an NVIDIA GPU no installable build can run."""
+def _linux_rocm_release(os_info: dict[str, Any], target: str) -> str | None:
+    """The supported Linux release this system is for ROCm on target, or None."""
+    distro = str(os_info.get("id") or "").lower()
+    version = str(os_info.get("version_id") or "")
+    if distro == "ubuntu" and version.startswith(LINUX_ROCM_UBUNTU_RELEASES):
+        return f"Ubuntu {version}"
+    base = UBUNTU_CODENAME_RELEASES.get(str(os_info.get("ubuntu_codename") or "").lower())
+    if base and "ubuntu" in str(os_info.get("id_like") or "").lower().split():
+        return f"Ubuntu {base} ({os_info.get('name') or distro})"
+    parts = version.split(".")
+    for release in INSTINCT_LINUX_RELEASES.get(target, {}).get(distro, ()):
+        listed = release.split(".")
+        if parts[:len(listed)] == listed:
+            return f"{os_info.get('name') or distro} {version}"
+    return None
+
+
+def _nvidia_driver_warning(device: dict[str, Any], system: str = "") -> str | None:
+    """Why no installable build can run this NVIDIA GPU, or None.
+
+    The compute capability and driver version both come from nvidia-smi, so the
+    driver is NVIDIA's own version number, not the Windows driver package's.
+    """
     capability = _version_tuple(str(device.get("compute_capability") or ""))
     driver = _version_tuple(str(device.get("driver_version") or ""))
     if not (capability and driver):
         return None
+    name = device.get("name") or "This NVIDIA GPU"
+    installed = device.get("driver_version")
+    if capability < CUDA_12_6_MIN_CAPABILITY:
+        return (
+            f"{name} has compute capability {device.get('compute_capability')}; the CUDA builds "
+            "EMAP-SSN installs need 5.0 or newer, so it uses the CPU instead."
+        )
     if capability > CUDA_12_6_MAX_CAPABILITY and driver < CUDA_13_MIN_DRIVER:
         return (
-            f"{device.get('name') or 'This NVIDIA GPU'} needs NVIDIA driver 580 or newer "
-            f"(installed: {device.get('driver_version')}). Update the driver to use this "
-            "GPU; until then EMAP-SSN does not use it."
+            f"{name} needs NVIDIA driver 580 or newer (installed: {installed}). "
+            "Update the driver to use this GPU; until then EMAP-SSN does not use it."
+        )
+    minimum = CUDA_12_MIN_DRIVER.get(system)
+    if minimum and driver < minimum:
+        return (
+            f"{name} needs NVIDIA driver {'.'.join(map(str, minimum))} or newer for CUDA 12 "
+            f"(installed: {installed}). Update the driver to use this GPU; until then "
+            "EMAP-SSN does not use it."
         )
     return None
 
@@ -753,10 +820,10 @@ def _evaluate_devices(
         reasons: list[str] = []
         status = "ineligible"
         if vendor == "NVIDIA":
-            warning = _nvidia_driver_warning(device)
+            warning = _nvidia_driver_warning(device, system)
             if warning:
-                # CUDA 12.6 would install and then fail validation on this GPU;
-                # say what to update instead, and leave it out of the ladder.
+                # A CUDA build would install and then fail validation on this
+                # GPU; say why instead, and leave it out of the ladder.
                 device["warning"] = warning
                 reasons.append(warning)
             else:
@@ -820,13 +887,19 @@ def _evaluate_devices(
                         f"{target} is not in the pinned Windows GFX compatibility table."
                     )
             elif system == "linux":
-                distro = str(os_info.get("id") or "").lower()
-                version = str(os_info.get("version_id") or "")
-                os_supported = distro == "ubuntu" and version.startswith(("22.04", "24.04", "25.10", "26.04"))
+                release = _linux_rocm_release(os_info, target)
                 driver_ready = linux_kfd.exists() and os.access(linux_kfd, os.R_OK | os.W_OK)
                 target_seen = kfd_target is not None or not rocm_targets or target in rocm_targets
-                if not os_supported:
-                    reasons.append("Linux ROCm profile is limited to the pinned supported Ubuntu releases.")
+                if release is None:
+                    others = [LINUX_DISTRO_NAMES[distro] for distro in INSTINCT_LINUX_RELEASES.get(target, {})]
+                    reasons.append(
+                        "Linux ROCm needs Ubuntu 22.04, 24.04, 25.10 or 26.04, or a distribution "
+                        "built on one of them"
+                        + (
+                            f", or a {', '.join(others[:-1])} or {others[-1]} release that AMD lists "
+                            f"for {target}." if others else "."
+                        )
+                    )
                 elif not driver_ready:
                     reasons.append("/dev/kfd is missing or inaccessible; the installer does not install system GPU drivers.")
                 elif not target_seen:
@@ -1054,9 +1127,12 @@ def detect_hardware() -> dict[str, Any]:
     primary = candidates[0]
     primary_reason = primary["reason"]
     if primary["backend"] == "cpu":
-        rejected = [reason for device in devices for reason in device.get("reasons", [])]
+        # Explain with the GPU that would have ranked first, and with its last
+        # reason: each check appends its verdict after any notes about how the
+        # GPU was identified (a GFX target from the runtime, say).
+        rejected = [device for device in sorted(devices, key=_rank) if device.get("reasons")]
         if rejected:
-            primary_reason = rejected[0]
+            primary_reason = rejected[0]["reasons"][-1]
     controllers = [device["name"] for device in devices]
     return {
         "schema": 2,

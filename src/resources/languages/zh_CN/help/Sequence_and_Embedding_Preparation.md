@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 c9032723ff484af1e0a7e7c249a292dfcdc68fc4401dd1884967e805c51c0b4d -->
+<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 45e55e2ca99b38005ec96322a9fe7e171e031d85f8ba2b31056af12808cbb4ef -->
 # 清理序列 (`Sanitize_Sequences.py`)
 
 该脚本清理（sanitize）原始 FASTA 序列数据库，为语言模型生成 embedding 做好准备。它会过滤掉长度超出目标范围的序列，排除序列标题（FASTA header）中含有特定关键词（例如片段或不完整序列）的序列，替换不安全的非标准字符，并报告序列长度分布。
@@ -53,7 +53,7 @@
      $$\text{Substring} \subseteq h_{\text{raw}}$$
 
 4. **写入与诊断**：
-     将清理后的序列写入目标 FASTA 文件，然后分析序列长度分布并显示统计信息（平均值、中位数、标准差）。
+     将清理后的序列写入目标 FASTA 文件，然后打印序列数量，以及序列长度的最小值、中位数、平均值、标准差和最大值；除非关闭**显示长度直方图**，还会显示长度直方图。
 
 </details>
 

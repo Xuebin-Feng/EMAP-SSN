@@ -357,7 +357,7 @@ Structural inspection does not validate numerical values, edge ordering or
 uniqueness, CSR pointer values, or future runtime success. It remains optional:
 queued jobs may depend on files that preceding jobs have not yet produced.
 
-## Planning, waiting and job results (server 0.13.0)
+## Planning, waiting and job results (server 0.14.0)
 
 These additions let an agent plan and run calculations without reading tool
 source code:
@@ -827,8 +827,8 @@ emapssn_viewer_data(action="read_command_output", arguments={
 })
 ```
 
-Execution remains under `viewer_control` and discovery/status/output remain under
-read-only `viewer_data`. New submissions and identical retries return `next_step`
+Execution remains under `emapssn_viewer_control` and discovery/status/output remain under
+read-only `emapssn_viewer_data`. New submissions and identical retries return `next_step`
 for status inspection, without storing this guidance in the execution record.
 Use execution `status` to determine completion: pagination `complete` and stream
 `eof` do not indicate that execution has finished. Restart the server and Viewer

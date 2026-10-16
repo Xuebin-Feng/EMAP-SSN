@@ -86,6 +86,7 @@ modules = [
     "test_esmfold_command",
     "test_esmfold_worker",
     "test_meta_backend",
+    "test_vendored_assets",
 ]
 
 [sections.mcp]

@@ -52,7 +52,7 @@ This script cleans raw FASTA sequence databases to prepare them for language mod
      $$\text{Substring} \subseteq h_{\text{raw}}$$
 
 4. **Serialization and Diagnostics**:
-     Writes the sanitized sequences to the target FASTA file. It then analyzes the sequence length distribution and displays statistics (mean, median, standard deviation).
+     Writes the sanitized sequences to the target FASTA file. It then prints the sequence count and the minimum, median, mean, standard deviation and maximum of the lengths, and shows the length histogram unless **Show Length Histogram** is off.
 
 </details>
 

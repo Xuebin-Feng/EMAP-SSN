@@ -39,3 +39,7 @@ src/resources/benchmark/*.fasta -text
 # compares the stylesheet's coloured copies byte for byte: keep their exact bytes.
 src/resources/icons/lucide/*  -text
 src/resources/icons/qss/*     -text
+
+# The desktop fonts' recorded SHA-256 values, in `sha256sum -c` format: a CRLF
+# checkout would add "\r" to every file name.
+src/resources/fonts/desktop/SHA256SUMS text eol=lf

@@ -86,7 +86,7 @@ def print_help():
       border around all rendered content. An SVG is framed the same way: the
       network as drawn, with a border of 20 of the PNG's pixels.
 
-    Modifiers (Can be combined, except for SVG):
+    Modifiers (Can be combined, except svg with transparent or full):
       transparent : Removes the configured background color (PNG only).
       full        : Renders the network tile by tile off screen and stitches
                     the tiles into a massive, ultra-high-resolution PNG of
@@ -94,8 +94,8 @@ def print_help():
                     on screen stays put; keyboard and mouse input waits while
                     the tiles are drawn, and resizing the window cancels it.
       svg         : Reconstructs the visible network as a Scalable Vector Graphic
-                    for infinite zoom without pixelation (Not compatible with
-                    other modifiers). Node sizes and line widths follow the
+                    for infinite zoom without pixelation (not with
+                    transparent or full). Node sizes and line widths follow the
                     current zoom, as on screen. It draws what a PNG of the
                     view shows: each marker's shape, node outlines (selection
                     borders too) and edges as wide as this screen draws them.

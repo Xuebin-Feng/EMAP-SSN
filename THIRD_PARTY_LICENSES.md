@@ -6,7 +6,7 @@ inventories third-party material that is either bundled in this repository or
 required at runtime, together with the licenses that govern it. Each such
 component remains under its own license.
 
-Last reviewed: 2026-10-11
+Last reviewed: 2026-10-16
 
 ---
 
@@ -28,7 +28,7 @@ body is otherwise unchanged.
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT; the fonts SIL OFL 1.1 (also MIT per the KaTeX repository) | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex); fonts: [`LICENSE.OFL`](src/resources/fonts/LICENSE.OFL) |
 | [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSans/` and `NotoSansMono/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
 | [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc) | 2.004-H2 (Google Fonts), cut down to GB2312 | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSansSC/` | [`LICENSE.Noto`](src/resources/fonts/LICENSE.Noto) |
-| [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (42 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
+| [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (51 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
 | [UniProtKB/Swiss-Prot](https://www.uniprot.org/) sequences | Release 2026_03, 952 entries of InterPro IPR001279 | CC BY 4.0 | `src/resources/benchmark/benchmark_sequences.fasta`, `injection_sequences.fasta` | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); attribution in [`README.md`](src/resources/benchmark/README.md) |
 
 - Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15 from
@@ -193,11 +193,13 @@ cache, so nothing persisted between runs. All four are now vendored (section 1),
 which makes the UI render identically offline and stops disclosing user IP
 addresses to Google on every page open.
 
-They are served locally as follows:
+They, and the other vendored web assets, are served locally as follows:
 
 | Asset | Served by |
 |---|---|
-| `marked.umd.js` | `Web_Server.py` static route `/agent_resource/` |
+| `marked.umd.js` | the agent plugin's static route `/agent_resource/` (`src/web_ui/agent_backend.py`) |
+| Tabulator (`tabulator.min.css`, `tabulator.min.js`) | the Meta Data plugin's static route `/meta_resource/` (`src/web_ui/meta_backend.py`, used by `meta.html`) |
+| Mol* (`molstar.js`, `molstar.css`) | the Fold View plugin's static route `/esmfold/` (`src/web_ui/esmfold_backend.py`) |
 | `fonts.css`, `*.woff2` | `Web_Server.py` static route `/fonts/` |
 | KaTeX CSS/JS | `EMAPSSN_Tools.py`, via a `file://` baseUrl on `setHtml()` |
 | Fonts in `docs/list_of_commands.html` and `docs/quickstart.html` | relative path, pages are opened from disk |
@@ -327,6 +329,9 @@ program.
 
 Users must obtain BLAST+ separately and comply with its terms.
 
+DIAMOND (GPL-3.0) is likewise only an external program whose tabular output
+`Parse_BLAST_Output.py` reads; this project does not run, bundle or link it.
+
 Hardware detection in `src/Detect_GPU.py` also queries tools that are already
 present on the user's system when available: `nvidia-smi`,
 `rocm_agent_enumerator`/`rocminfo`, `lspci`, `system_profiler`, and PowerShell
@@ -386,8 +391,7 @@ that acknowledgement is not a sublicense or a substitute for reading the terms.
 
 The project author confirmed on 2026-08-09 that the logos and icons in
 `src/bin/logos/` and screenshots in `docs/assets/` are original or otherwise
-authorized. Authority to release those works remains subject to the same
-University of Toronto ownership review as the rest of the project.
+authorized.
 
 ## 7. Optional `opt_vr` submodule
 
