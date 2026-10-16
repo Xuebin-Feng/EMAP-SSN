@@ -534,6 +534,24 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertRaisesRegex(MCPViewerError, "No terminal started the Viewer within 0 s"):
             await client.wait_for_launch(started["launch_id"], timeout=10)
 
+    async def _wait_for_recorded_terminal(self, record, timeout=10.0):
+        """Wait until ``record`` names a running process; fail saying what it holds."""
+        from mcp_server.viewer import Viewer_Client
+
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while loop.time() < deadline:
+            if await asyncio.to_thread(Viewer_Client._recorded_process, record) is not None:
+                return
+            await asyncio.sleep(0.05)
+        try:
+            recorded = json.loads(record.read_text(encoding="utf-8"))
+            process = psutil.Process(int(recorded["pid"]))
+            state = f"pid {process.pid} {process.status()}, created {process.create_time()!r}"
+        except (OSError, ValueError, KeyError, psutil.Error) as error:
+            recorded, state = record.read_text(encoding="utf-8") if record.exists() else None, repr(error)
+        self.fail(f"The launch record never named the running terminal command: {recorded!r}; process: {state}")
+
     async def test_posix_terminal_still_running_keeps_the_launch_until_closed(self):
         # macOS's osascript waits while the user is asked to allow control of
         # Terminal; that wait is not a failure, and close_session must stop it.
@@ -543,9 +561,13 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(Viewer_Client, "TERMINAL_START_GRACE", 0):
             started = await client.launch_session(settings_document={}, mode="normal", timeout=0.5)
             self.assertEqual(started["status"], "starting")
+            directory = root / "sessions" / "launches" / started["launch_id"]
+            # With no grace, wait_for_launch keeps the launch only while its
+            # record names the running terminal command. Wait for that rather
+            # than race it: once in a full Debian run it did not match in time.
+            await self._wait_for_recorded_terminal(directory / "process.json")
             waited = await client.wait_for_launch(started["launch_id"], timeout=0.5)
             self.assertEqual(waited["status"], "starting")
-        directory = root / "sessions" / "launches" / started["launch_id"]
         terminal = json.loads((directory / "process.json").read_text())
         closed = await client.close_session(launch_id=started["launch_id"])
         self.assertEqual((closed["closed"], closed["pid"]), (True, terminal["pid"]))

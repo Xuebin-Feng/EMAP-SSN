@@ -4,7 +4,35 @@ All notable changes to EMAP-SSN are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/); interfaces and persisted formats may
 still change before version 1.0.0.
 
-## [Unreleased]
+## [0.4.0] - 2026-10-16
+
+### Highlights
+
+- **A new look, theme colours and a second language.** Config, VR Config, Tools and the
+  Viewer's pages share one look with line icons, and each window takes one of eight
+  theme colours. Every window can switch to Simplified Chinese (简体中文, drafts awaiting
+  review), and open windows follow a language chosen in another.
+- **Much faster layouts of large networks.** GPU layout generation is about 50 times
+  faster and fits large components, CPU layouts use several cores, spectral starts are
+  solved far faster, and 2D and 3D layouts are packed more tightly. New layouts differ
+  from v0.3.0's; saved caches open as before.
+- **A responsive Viewer at tens of millions of edges.** The threshold slider, node
+  dragging and box selection stay smooth on large networks, startup and many commands
+  are faster, and the view width and threshold are boxes to type in.
+- **A built-in benchmark.** **Run Benchmark** on the Tools window's Manual Tools tab, or
+  MCP `start_benchmark`, times the program's heavy stages on 860 public UniProt
+  sequences and writes a report to compare computers with.
+- **MCP agents can plan and wait.** `list_tools` describes each pipeline tool's inputs,
+  outputs and usual next steps, `wait_job` and `wait_session` wait for jobs and Viewer
+  launches, and a slow Viewer launch is handed back instead of stopped (server 0.14.0).
+- **Wider GPU support.** On Linux an AMD GPU's target comes from the kernel, so Instinct
+  cards and unnamed Radeons get ROCm without ROCm tools; Ubuntu-based distributions get
+  ROCm, and Instinct MI300 and MI350 also on the RHEL, Debian, SLES, Oracle and Rocky
+  Linux releases AMD lists. Intel GPUs are recognized by PCI ID, and more Radeon RX
+  7600-class cards get ROCm on Windows.
+- **Safer by default.** Output names stay in their folders, Agent replies wait for
+  **Run** before commands that write files, settings files are written atomically and
+  never replaced when they cannot be read, and the Fold View makes no remote request.
 
 ### Upgrade Notes
 
@@ -64,7 +92,7 @@ still change before version 1.0.0.
   code backgrounds take a tint of the colour, and its collapsible sections' titles the
   colour itself, while its icons stay grey. The Viewer takes Config's colour when it
   starts, and its Agent and Meta Data pages take the Viewer's, in light and dark mode;
-  the Fold View page keeps Mol*'s own look.
+  the Fold View page takes no theme colour, since Mol* draws its own interface there.
 
 - **MCP planning knowledge.** `emapssn_pipeline(action="list_tools")` describes each
   pipeline tool's stage, inputs (with the directory a relative name resolves in), output
@@ -825,19 +853,21 @@ still change before version 1.0.0.
   no longer point the agent at an unsaved server. Edits to a card take effect once
   saved, and the page says so when the model being switched on has unsaved edits.
 - The Configuration, Tools and VR Configuration windows, the Viewer's sidebar and
-  slider, and its Agent, Meta Data and Fold View pages share a new look: light greys,
-  hairline borders, rounded controls on rounded cards, tabs as a segmented control,
-  dropdowns that open their list below the field with up to ten entries in view,
-  switches for the ON/OFF toggles, and one main button per window (such as **Save &
-  Run**), in the window's theme colour with its focus rings and sliders (see Theme
-  colours). Other buttons, **Exit** included, are outlined. The Agent page keeps its
-  dark mode. Line icons from the open-source [Lucide](https://lucide.dev) set (ISC
-  licence, bundled in `src/resources/icons/`) replace the emoji the windows used as
-  icons, so they look the same on every system: the folder buttons, the language globe,
-  the Tools card titles and help headings, the Viewer's sidebar buttons, and the web
-  pages' controls. The tool help pages (`src/tools/tool_descriptions/*.md`) no longer
-  contain emoji; the Tools help pane draws the icons. Sliders no longer show tick marks.
-  The tool scripts' printed ✅, ❌ and ⚠️ markers are unchanged.
+  slider, and its Agent and Meta Data pages share a new look: light greys, hairline
+  borders, rounded controls on rounded cards, tabs as a segmented control, dropdowns
+  that open their list below the field with up to ten entries in view, switches for the
+  ON/OFF toggles, and one main button per window (such as **Save & Run**), in the
+  window's theme colour with its focus rings and sliders (see Theme colours). Other
+  buttons, **Exit** included, are outlined. The Agent page keeps its dark mode. On the
+  Fold View page Mol* draws its own interface; only the page's background, fonts and
+  status toast take the new look. Line icons from the open-source
+  [Lucide](https://lucide.dev) set (ISC licence, bundled in `src/resources/icons/`)
+  replace the emoji the windows used as icons, so they look the same on every system:
+  the folder buttons, the language globe, the Tools card titles and help headings, the
+  Viewer's sidebar buttons, and the web pages' controls. The tool help pages
+  (`src/tools/tool_descriptions/*.md`) no longer contain emoji; the Tools help pane
+  draws the icons. Sliders no longer show tick marks. The tool scripts' printed ✅, ❌ and
+  ⚠️ markers are unchanged.
 - Tools' **Exit** button fills the row under the Script Description, up to the
   Language dropdown, so the tips card reaches the bottom of the window.
 - The **Pick** buttons of Config and VR Config open a colour picker on a card under the
@@ -2023,7 +2053,7 @@ still change before version 1.0.0.
 - Distributed as GitHub-generated source archives. Native executables and model
   weights are not included.
 
-[Unreleased]: https://github.com/Xuebin-Feng/EMAP-SSN/compare/v0.3.0...HEAD
+[0.4.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.2.0
 [0.1.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.1.0

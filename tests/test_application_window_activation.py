@@ -46,7 +46,7 @@ class FakeApplication:
 class ApplicationIdentityTests(unittest.TestCase):
     def test_canonical_product_and_component_names(self):
         self.assertEqual(Application_Windows.PRODUCT_NAME, "EMAP-SSN")
-        self.assertEqual(Application_Windows.APPLICATION_VERSION, "0.3.0")
+        self.assertEqual(Application_Windows.APPLICATION_VERSION, "0.4.0")
         self.assertEqual(
             Application_Windows.PRODUCT_LONG_NAME,
             "EMAP-SSN: Embedding- and Multiple-Alignment-integrated Protein "
