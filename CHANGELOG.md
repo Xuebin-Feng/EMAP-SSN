@@ -6,6 +6,27 @@ still change before version 1.0.0.
 
 ## [Unreleased]
 
+### Upgrade Notes
+
+- Settings that select an embedding are not readable by v0.4.0. Going back, it refuses an
+  Inputs & Outputs profile that names an embedding file, and that tab falls back to its
+  defaults, and it refuses a Viewer settings document exported with an `embedding`
+  section. Profiles and documents saved by v0.4.0 keep working.
+
+### Added
+
+- **Optional embedding input.** Config and VR Config can select a protein language model
+  embedding file (**Embedding Input**, listed from the new **Embedding Directory**: the
+  project's `Embeddings` folder by default, `opt_vr/Embeddings` for VR Config), for
+  commands that use each sequence's embedding. No command uses it yet. Only the file's
+  headers, sequences and model are read at launch; a command reads per-residue rows or
+  pooled vectors when it needs them. A node is matched by its exact header and sequence,
+  partial coverage gives a warning as for the MSA, and an incomplete file is refused at
+  launch. The Consistency Check reports the embedding's coverage, the sequences that
+  differ from the FASTA and its model, with a note when the network was built with
+  another model. Viewer settings documents gain an optional `embedding` section and
+  `EMBED_DIR`; documents exported before still validate.
+
 ### Changed
 
 - Config, Tools and VR Config start faster. The launcher's check imported the ESM and
