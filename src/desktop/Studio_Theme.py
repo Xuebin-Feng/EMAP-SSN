@@ -896,12 +896,17 @@ class IconLabel(QLabel):
 
     def __init__(self, name, size=16, color=None, parent=None):
         super().__init__(parent)
-        self._icon = studio_icon(name, color)
+        self._set(name, color)
         self.setFixedSize(size, size)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
 
-    def set_icon(self, name, color=None):
+    def _set(self, name, color):
         self._icon = studio_icon(name, color)
+        self.icon_name = name
+        self.icon_color = color or TOKENS["text_subtle"]
+
+    def set_icon(self, name, color=None):
+        self._set(name, color)
         self.update()
 
     def paintEvent(self, event):

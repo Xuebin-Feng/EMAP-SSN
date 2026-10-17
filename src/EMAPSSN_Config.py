@@ -1039,12 +1039,10 @@ if __name__ == "__main__":
                 )
         return "".join(parts)
 
-    def consistency_error_html(message):
-        """What the Consistency Check shows when it could not run at all: message, with an error mark."""
-        return (
-            '<p style="margin: 0px; line-height: 120%;">'
-            f'{consistency_mark("danger")} {html.escape(wrappable(message))}</p>'
-        )
+    def consistency_verdict(checks):
+        """The Consistency Check's overall status, which the panel's corner icon shows: its worst row's."""
+        worst = {"success": 0, "warning": 1, "danger": 2}
+        return max((check.status for check in checks), key=lambda status: worst[status])
 
     # --- Custom Widget Classes ---
     # SpacedTipLabel, the tip panel's label, is in desktop.Tip_Panel.
@@ -2048,7 +2046,7 @@ if __name__ == "__main__":
                 if msa_file else None
             )
 
-            self.tip_panel.setText(translate("Config", "Running Consistency Check..."))
+            self.tip_panel.setStatus("info", translate("Config", "Running Consistency Check..."))
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
 
@@ -2085,12 +2083,13 @@ if __name__ == "__main__":
                     candidates = [header for header in headers if header in fasta_set]
                     checks.append(reference_consistency_check(ref_id, candidates, msa_headers))
 
-                self.tip_panel.setReport(consistency_report_html(checks))
+                # The corner icon shows the worst row's status; each row keeps its own.
+                self.tip_panel.setReport(consistency_report_html(checks), consistency_verdict(checks))
 
             except Exception as e:
-                self.tip_panel.setReport(consistency_error_html(
-                    translate("Config", "Error during consistency check: {error}").format(error=display_text(e))
-                ))
+                self.tip_panel.setStatus("danger", translate(
+                    "Config", "Error during consistency check: {error}"
+                ).format(error=display_text(e)))
             
         def eventFilter(self, obj, event):
             from PySide6.QtCore import QEvent
@@ -3378,7 +3377,7 @@ if __name__ == "__main__":
                 self.cb_hdf5.currentText(),
             )
             
-            self.tip_panel.setText(translate(
+            self.tip_panel.setStatus("info", translate(
                 "Config", "Computing network statistics... This may take a moment for large HDF5 networks."
             ))
             QApplication.processEvents()
@@ -3473,7 +3472,7 @@ if __name__ == "__main__":
                         scores = (raw_scores / denom).astype(np.float32)
                 
                 if len(scores) == 0:
-                    self.tip_panel.setText(translate(
+                    self.tip_panel.setStatus("warning", translate(
                         "Config", "Warning: No valid edges were found in the selected FASTA subset."
                     ))
                     return
@@ -4401,13 +4400,14 @@ if __name__ == "__main__":
                     self._set_profile_selection(tab_id, name)
                     self._profile_previous_selection[tab_id] = name
                     self._set_new_profile_field_visible(tab_id, False)
-                self.tip_panel.setText(
-                    self._save_success_message(created_profiles, default_tabs)
+                self.tip_panel.setStatus(
+                    "success", self._save_success_message(created_profiles, default_tabs)
                 )
                 return True
             except Exception as e:
-                self.tip_panel.setText(
-                    translate("Config", "Failed to save settings: {error}").format(error=display_text(e))
+                self.tip_panel.setStatus(
+                    "danger",
+                    translate("Config", "Failed to save settings: {error}").format(error=display_text(e)),
                 )
                 return False
 

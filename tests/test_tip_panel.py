@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (  # noqa: E402
 )
 
 from desktop.Desktop_App import MONOSPACE_QSS_FONT_STACK, ToggleSwitch  # noqa: E402
-from desktop.Studio_Theme import TOKENS, status_color  # noqa: E402
+from desktop.Studio_Theme import TOKENS, add_hint_icon, status_color  # noqa: E402
 from desktop.Tip_Panel import (  # noqa: E402
     MISSING,
     Code,
@@ -564,13 +564,62 @@ class PanelTests(WithApplication):
         panel.setTip("plain")
         self.assertEqual(panel.minimumHeight(), 0)
 
-    def test_a_status_has_its_icon_and_is_not_a_tip(self):
+    def test_a_status_without_a_corner_icon_has_its_icon_beside_the_text(self):
         panel = self.panel()
+        self.assertIsNone(panel._corner_icon())
         panel.setStatus("success", "Done <ok>.")
         self.assertEqual(mark_colour(images(panel.text())[0]), status_color("success"))
         self.assertEqual(plain_text(panel.text()), "Done <ok>.")
         self.assertEqual(panel.accessibleName(), "Done <ok>.")
         self.assertFalse(panel.refresh())
+
+    def corner_panel(self):
+        panel = self.panel()
+        add_hint_icon(panel)
+        return panel, panel._corner_icon()
+
+    def test_a_status_is_marked_by_the_corner_icon_and_not_twice(self):
+        panel, corner = self.corner_panel()
+        self.assertEqual((corner.icon_name, corner.icon_color), ("info", TOKENS["text_subtle"]))
+        for kind, name, colour in (
+            ("success", "check", status_color("success")),
+            ("warning", "triangle-alert", status_color("warning")),
+            ("danger", "x", status_color("danger")),
+            ("info", "info", TOKENS["text_subtle"]),
+        ):
+            with self.subTest(kind=kind):
+                panel.setStatus(kind, "Done <ok>.\nSecond line.")
+                self.assertEqual((corner.icon_name, corner.icon_color), (name, colour))
+                # One icon: the text has no mark of its own, and keeps its line break.
+                self.assertEqual(images(panel.text()), [])
+                self.assertEqual(plain_text(panel.text()), "Done <ok>.\nSecond line.")
+                self.assertEqual(panel.accessibleName(), "Done <ok>.\nSecond line.")
+                self.assertFalse(panel.refresh())
+
+    def test_the_corner_icon_goes_back_to_the_info_icon_when_a_tip_or_text_replaces_the_status(self):
+        entry, _ = full_entry()
+        panel, corner = self.corner_panel()
+        for replace in (lambda: panel.setTip(entry), lambda: panel.setTip("plain tip"),
+                        lambda: panel.setText("plain"), lambda: panel.setReport("<p>r</p>")):
+            with self.subTest():
+                panel.setStatus("danger", "Failed.")
+                self.assertEqual(corner.icon_name, "x")
+                replace()
+                self.assertEqual((corner.icon_name, corner.icon_color), ("info", TOKENS["text_subtle"]))
+        # The same status twice (the text unchanged) still marks the corner.
+        panel.setStatus("warning", "Same")
+        panel.setText("tip")
+        panel.setStatus("warning", "Same")
+        self.assertEqual(corner.icon_name, "triangle-alert")
+
+    def test_a_report_shows_its_overall_verdict_in_the_corner_and_keeps_its_own_icons(self):
+        panel, corner = self.corner_panel()
+        report = status_html("success", "row one") + status_html("danger", "row two")
+        panel.setReport(report, "danger")
+        self.assertEqual((corner.icon_name, corner.icon_color), ("x", status_color("danger")))
+        self.assertEqual(len(images(panel.text())), 2)
+        panel.setReport(report)
+        self.assertEqual(corner.icon_name, "info")
 
     def test_refresh_shows_a_tip_again_and_leaves_anything_else_alone(self):
         line = QLineEdit("red")
@@ -748,12 +797,16 @@ class ConfigWindowTipTests(WithApplication):
         self.assertIn("ALIGNMENT_REFERENCE", text)
         self.assertEqual(chips(self.panel.text())[:2], ["WP_0123.1", "WP_01*"])
 
-    def test_the_statistics_messages_have_status_icons(self):
+    def test_the_statistics_messages_are_marked_by_the_corner_icon(self):
+        corner = self.panel._corner_icon()
         shown = []
         for kind in ("success", "danger"):
             self.panel.setStatus(kind, "m")
-            shown.append(mark_colour(images(self.panel.text())[0]))
-        self.assertEqual(shown, [status_color("success"), status_color("danger")])
+            shown.append((corner.icon_name, corner.icon_color))
+            self.assertEqual(images(self.panel.text()), [])
+        self.assertEqual(shown, [("check", status_color("success")), ("x", status_color("danger"))])
+        self.click(self.window.labels["ALIGNMENT_REFERENCE"])
+        self.assertEqual(corner.icon_name, "info")
 
 
 # ---------------------------------------------------------------------

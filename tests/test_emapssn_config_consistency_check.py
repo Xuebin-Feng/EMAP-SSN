@@ -20,6 +20,7 @@ from types import SimpleNamespace
 from unittest import mock
 
 import h5py
+from PySide6.QtCore import Qt
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 PROJECT_ROOT = pathlib.Path(__file__).resolve().parents[1]
@@ -88,6 +89,16 @@ class ConsistencyHeaderSanitizationTests(unittest.TestCase):
         self.assertEqual(hdf5_headers, ["Alpha_Beta"])
 
 
+def _left_press():
+    from PySide6.QtCore import QEvent, QPoint
+    from PySide6.QtGui import QMouseEvent
+
+    return QMouseEvent(
+        QEvent.Type.MouseButtonPress, QPoint(1, 1), Qt.MouseButton.LeftButton,
+        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
+    )
+
+
 class _Choice:
     def __init__(self, text):
         self._text = text
@@ -100,16 +111,25 @@ class _Choice:
 
 
 class _Panel:
-    """Stands for the tip panel: keeps the report it was given, or the plain message."""
+    """Stands for the tip panel: keeps the report it was given, its verdict, or the message and its status."""
 
     report_html = ""
     message = ""
+    status_kind = None
+    status_message = ""
+    verdict = None
 
     def setText(self, text):
         self.message, self.report_html = text, ""
+        self.status_kind, self.status_message, self.verdict = None, "", None
 
-    def setReport(self, report_html):
+    def setStatus(self, kind, text):
+        self.message, self.report_html = "", ""
+        self.status_kind, self.status_message, self.verdict = kind, text, kind
+
+    def setReport(self, report_html, status=None):
         self.message, self.report_html = "", report_html
+        self.status_kind, self.status_message, self.verdict = None, "", status
 
 
 class _Report:
@@ -117,8 +137,13 @@ class _Report:
 
     def __init__(self, panel):
         self.html = panel.report_html
-        parsed = parse_report(panel.report_html)
-        self.rows, self.notes = parsed.rows, parsed.notes
+        self.verdict = panel.verdict
+        if panel.status_kind:
+            # A message with a status (the check could not run): its text, in the status's colour.
+            self.rows, self.notes = [], [(status_color(panel.status_kind), panel.status_message)]
+        else:
+            parsed = parse_report(panel.report_html)
+            self.rows, self.notes = parsed.rows, parsed.notes
 
     def row(self, name):
         found = [row for row in self.rows if row.name == name]
@@ -276,6 +301,20 @@ class ConsistencyReferenceReportTests(_ReportFixture, unittest.TestCase):
         self.assertEqual(report.notes_of("FASTA vs MSA")[0][1].splitlines()[0],
                          "Missing examples: WP_0123.10_protein_B, Extra_seq")
 
+    def test_the_corner_icon_gets_the_worst_rows_status(self):
+        # The report's own rows keep their icons; the panel's corner shows the verdict.
+        self.assertEqual(self.report("WP_0123.1").verdict, "warning")  # the MSA lacks a node
+        self.assertEqual(self.report("NOSUCH_ID").verdict, "warning")
+        (pathlib.Path(self.folder) / "alignment.fasta").write_text(
+            "".join(f">{header}\n{sequence}\n" for header, sequence in self.RECORDS.items()),
+            encoding="utf-8",
+        )
+        self.assertEqual(self.report("WP_0123.1").verdict, "success")
+        # A node the network lacks is an error.
+        (pathlib.Path(self.folder) / "nodes.fasta").write_text(
+            ">Not_in_the_network\nMKTAYIAK\n", encoding="utf-8")
+        self.assertEqual(self.report("").verdict, "danger")
+
     def test_an_unreadable_network_is_reported_as_an_error_without_a_table(self):
         (pathlib.Path(self.folder) / "broken.h5").write_text("not an HDF5 file", encoding="utf-8")
         report = _Report(self.run_check("", network="broken.h5"))
@@ -283,6 +322,8 @@ class ConsistencyReferenceReportTests(_ReportFixture, unittest.TestCase):
         (colour, text), = report.notes
         self.assertEqual(colour, status_color("danger"))
         self.assertTrue(text.startswith("Error during consistency check: "), text)
+        # A message, not a report: the corner icon marks it, so it has no mark of its own.
+        self.assertEqual((report.verdict, report.html), ("danger", ""))
 
 
 class ConsistencyEmbeddingReportTests(_ReportFixture, unittest.TestCase):
@@ -536,6 +577,22 @@ class ConsistencyReportWindowTests(unittest.TestCase):
     @staticmethod
     def long_headers(count=7):
         return [f"WP_{number:03d}." + "Hypothetical_protein_" * 4 + "end" for number in range(count)]
+
+    def test_the_corner_icon_shows_the_verdict_and_a_tip_gives_it_back(self):
+        from PySide6.QtCore import QEvent, QPoint
+        from PySide6.QtGui import QHelpEvent
+
+        window, panel = self.window, self.window.tip_panel
+        corner = panel._corner_icon()
+        self.assertEqual((corner.icon_name, corner.icon_color), ("info", TOKENS["text_subtle"]))
+        self.run_check(self.long_headers(), "WP_005", msa_lacks=1)  # the MSA lacks a node: a warning
+        self.assertEqual((corner.icon_name, corner.icon_color), ("triangle-alert", status_color("warning")))
+        # Hovering leaves the report, and its corner icon, alone; a left click shows a tip.
+        label = window.labels["ALIGNMENT_OFFSET"]
+        self.app.sendEvent(label, QHelpEvent(QEvent.Type.ToolTip, QPoint(1, 1), label.mapToGlobal(QPoint(1, 1))))
+        self.assertEqual(corner.icon_name, "triangle-alert")
+        self.window.eventFilter(label, _left_press())
+        self.assertEqual((corner.icon_name, corner.icon_color), ("info", TOKENS["text_subtle"]))
 
     def test_the_report_is_never_cut_off(self):
         window, panel = self.window, self.window.tip_panel

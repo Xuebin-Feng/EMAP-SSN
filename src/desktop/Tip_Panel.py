@@ -43,7 +43,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import QCoreApplication, Qt
 from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QLabel, QWidget
 
-from desktop.Studio_Theme import TOKENS, coloured_svg, icon_svg, status_color
+from desktop.Studio_Theme import TOKENS, IconLabel, coloured_svg, icon_svg, status_color
 
 # The few words the panel itself adds (the facts' labels, the words that stand
 # for the icons) are filed under the context "TipPanel", for every window.
@@ -473,9 +473,19 @@ def _row_table(rows, margin_top):
     )
 
 
+def _lines(text):
+    """text escaped, with a line break where it has one."""
+    return html.escape(wrappable(text)).replace("\r\n", "\n").replace("\n", "<br>")
+
+
 def status_html(kind, text):
-    """A status message: its icon, then its text, which wraps beside the icon."""
-    return _row_table([(status_mark(kind), html.escape(wrappable(text)))], 0)
+    """A status message with its icon beside it, for a panel that has no corner icon."""
+    return _row_table([(status_mark(kind), _lines(text))], 0)
+
+
+def status_text_html(text):
+    """A status message's text, which the panel's corner icon marks."""
+    return _paragraph(_lines(text), 0)
 
 
 def model_html(model):
@@ -576,8 +586,24 @@ class SpacedTipLabel(QLabel):
         self.setTextFormat(Qt.TextFormat.RichText)
         self.setText(text)
 
+    def _corner_icon(self):
+        """The icon in the panel's corner (Studio_Theme.add_hint_icon puts it there), or None."""
+        return self.findChild(IconLabel)
+
+    def _mark_corner(self, kind):
+        """Show a status in the corner icon (a tip's is the info icon). False if there is no corner icon."""
+        icon = self._corner_icon()
+        if icon is None:
+            return False
+        if kind in (None, "info", "subtle"):
+            icon.set_icon("info")
+        else:
+            icon.set_icon(STATUS_ICONS[kind], status_color(kind))
+        return True
+
     def setText(self, text):
         """Show plain text: escaped, a line break where the text has one."""
+        self._mark_corner(None)
         self._showing_report = False
         self._entry = None
         self.setMinimumHeight(0)
@@ -591,6 +617,7 @@ class SpacedTipLabel(QLabel):
         if isinstance(entry, (Tip, FieldTip)):
             model = resolve(entry)
             self._show_rich(model_html(model), model_plain(model))
+            self._mark_corner(None)
             self._entry = entry
         else:
             self.setText(entry)
@@ -607,19 +634,30 @@ class SpacedTipLabel(QLabel):
         return True
 
     def setStatus(self, kind, text):
-        """Show a status message ("success", "warning", "danger" or "info") with its icon.
+        """Show a status message ("success", "warning", "danger" or "info"), marked by the corner icon.
+
+        The corner icon becomes the status's icon, in its colour, until a tip
+        or plain text replaces the message. A panel with no corner icon shows
+        the icon beside the text instead.
 
         Like any status message, it is not the tip the panel last showed
         (the window's _tip_panel_tip_text), so hovering leaves it in place.
         """
-        self._show_rich(status_html(kind, text), text)
+        if self._mark_corner(kind):
+            self._show_rich(status_text_html(text), text)
+        else:
+            self._show_rich(status_html(kind, text), text)
 
-    def setReport(self, report_html):
+    def setReport(self, report_html, status=None):
         """Show a status report, rich text whose own text is already escaped.
+
+        status is its overall verdict ("success", "warning" or "danger"), which
+        the corner icon shows. The report's own rows keep their icons.
 
         Like any status message, it is not the tip the panel last showed
         (ConfigGUI._tip_panel_tip_text), so hovering leaves it in place.
         """
+        self._mark_corner(status)
         self._show_rich(report_html, None)
 
     def _show_rich(self, rich_text, plain_text):
@@ -670,6 +708,7 @@ __all__ = [
     "resolve",
     "rich",
     "status_html",
+    "status_text_html",
     "status_mark",
     "swatch_mark",
     "tip_html",
