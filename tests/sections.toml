@@ -174,6 +174,7 @@ description = "Config window: profiles, cache dropdown, launch, responsive layou
 seconds = 25
 modules = [
     "test_color_picker",
+    "test_combo_popup",
     "test_dropdown_values",
     "test_emapssn_config_cache_dropdown",
     "test_emapssn_config_consistency_check",

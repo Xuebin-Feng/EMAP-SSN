@@ -1410,8 +1410,69 @@ class StatisticsReport(WrappedPlaceholderTextEdit):
 
 
 # =====================================================================
-# 5. Combo Boxes Storing Values Apart from Their Labels
+# 5. Combo Boxes: Steady Lists, and Values Apart from Their Labels
 # =====================================================================
+
+class _ListScrollGuard(QtCore.QObject):
+    """Tells a combo box's list view which kind of input drives it.
+
+    A list view scrolls to its current row whenever that row changes (its
+    autoScroll property). The mouse changes the current row too: the popup
+    makes the row under the pointer the current one, and a press or a drag
+    sets it as well. So resting the pointer on a partly visible last row
+    scrolled it into view, which showed the next partly visible row under the
+    pointer, and the list ran away under the mouse. The guard turns autoScroll
+    off for every mouse event and on again for every key press, ahead of the
+    popup's own filter and the view, so a key that moves the highlight still
+    keeps it in view and the mouse never scrolls the list. The wheel and the
+    scroll bar are not affected: they change no current row.
+    """
+
+    _MOUSE_EVENTS = frozenset({
+        QEvent.Type.MouseMove,
+        QEvent.Type.MouseButtonPress,
+        QEvent.Type.MouseButtonRelease,
+        QEvent.Type.MouseButtonDblClick,
+    })
+
+    def __init__(self, view):
+        super().__init__(view)
+        self._view = view
+        # Mouse events reach the viewport; key presses reach the view.
+        view.installEventFilter(self)
+        view.viewport().installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        kind = event.type()
+        if kind in self._MOUSE_EVENTS:
+            self._view.setAutoScroll(False)
+        elif kind == QEvent.Type.KeyPress:
+            self._view.setAutoScroll(True)
+        return False
+
+
+class SteadyPopupComboBox(QComboBox):
+    """A combo box whose open list scrolls only by the wheel, the scroll bar or the keys.
+
+    Qt scrolls an open list under a resting pointer: the row under it becomes
+    the current row, and the list scrolls to show that row whole (see
+    _ListScrollGuard). Every combo box of the programs derives from this one.
+    The guard is put on the list the first time it opens: a window holds many
+    combo boxes and most are never opened. The highlight still follows the
+    pointer, a click selects the row it is on, and the list opens at the
+    current entry.
+    """
+
+    def showPopup(self):
+        view = self.view()
+        if view.findChild(_ListScrollGuard) is None:
+            _ListScrollGuard(view)
+        # The list opens scrolled to its current entry, whichever input the
+        # previous opening ended on. Its first mouse event turns scrolling by
+        # the current row off, and its first key turns it on again.
+        view.setAutoScroll(True)
+        super().showPopup()
+
 
 def add_combo_options(combo, values, labels=None):
     """Add items that store ``values`` and show ``labels`` (the values by default).
@@ -1893,7 +1954,7 @@ def resolve_language(setting, catalog_dir=LANGUAGES_DIR, ui_languages=None):
     return code
 
 
-class LanguageSelector(QComboBox):
+class LanguageSelector(SteadyPopupComboBox):
     """The Language dropdown: the system's language, English and every language with a catalog.
 
     Each language is named in itself, so anyone can find theirs whatever
@@ -2806,6 +2867,7 @@ __all__ = [
     "ResponsiveSelectorLayout",
     "WrappedPlaceholderTextEdit",
     "StatisticsReport",
+    "SteadyPopupComboBox",
     "add_combo_options",
     "combo_value",
     "select_combo_value",

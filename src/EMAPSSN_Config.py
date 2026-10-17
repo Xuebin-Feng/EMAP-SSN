@@ -595,6 +595,7 @@ if __name__ == "__main__":
         ResponsiveSelectorLayout,
         SingleInstanceController,
         StatisticsReport,
+        SteadyPopupComboBox,
         ToggleSwitch,
         add_combo_options,
         combo_value,
@@ -734,7 +735,7 @@ if __name__ == "__main__":
             escaped_text = escaped_text.replace("\n", "<br>")
             super().setText(f'<div style="line-height: 120%;">{escaped_text}</div>')
 
-    class NoScrollComboBox(QComboBox):
+    class NoScrollComboBox(SteadyPopupComboBox):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)

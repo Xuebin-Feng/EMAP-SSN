@@ -540,6 +540,7 @@ from desktop.Desktop_App import (
     redraw_in_theme_color,
     select_combo_value,
     startup_language,
+    SteadyPopupComboBox,
     ThemeColorButton,
     TOOLS_THEME_SETTING,
 )
@@ -998,7 +999,7 @@ class SpacedTipLabel(QLabel):
         super().setText(f'<div style="line-height: 120%;">{escaped_text}</div>')
 
 
-class NoScrollComboBox(QComboBox):
+class NoScrollComboBox(SteadyPopupComboBox):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
@@ -1132,7 +1133,7 @@ class HostCacheControl(QWidget):
         value = float(self.spinbox.value())
         return int(value) if value.is_integer() else value
 
-class DynamicComboBox(QComboBox):
+class DynamicComboBox(SteadyPopupComboBox):
     def __init__(self, folder, ext, include_ext=False, exclude_str=None, parent=None):
         super().__init__(parent)
         self.folder = folder
