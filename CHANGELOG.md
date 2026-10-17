@@ -55,13 +55,18 @@ still change before version 1.0.0.
   of Noto Sans SC (221 KB) in `docs/fonts` covers the page's characters offline. A test
   fails when the English page changes and the Chinese one is not updated to match, naming
   the sections to update; `docs/Docs_Translation.py` lists and re-stamps them.
-- **Session on the Viewer's info card.** The ⓘ card at the start of the threshold slider,
-  now titled "Session and controls", lists the number of nodes and edges, with how many
-  are visible and how many edges show at the current threshold, and the sequence set,
-  network, alignment, embedding and layout cache the Viewer opened, each with an Open
-  Folder button. The values follow the threshold and commands while the card is open.
-  Below the mouse and keyboard controls, a link opens the list of commands in the
-  Viewer's language, or in English if that language has no translated copy.
+- **Session on the Viewer's info card.** The ⓘ card at the start of the threshold slider
+  now opens with a Session section above the mouse and keyboard controls:
+  - the nodes and edges on one line, with how many are visible and how many edges show
+    at the current threshold;
+  - the sequence set, network and layout cache the Viewer opened, written with their
+    folder's alias as on the Config's Directories tab (`$input_file$/Networks_EValues/…`)
+    and fixed for the session;
+  - the alignment and embedding, each with a button that runs `alignment` or `embedding`
+    as if typed, to pick another file.
+  The values follow every command while the card is open. A link beside the × opens the
+  list of commands in the Viewer's language, or in English if that language has no
+  translated copy.
 
 ### Changed
 
