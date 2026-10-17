@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import csv
 import io
 import json
@@ -26,7 +27,7 @@ from pathlib import Path
 import platform
 import re
 import subprocess
-from typing import Any, Iterable, NamedTuple
+from typing import Any, Callable, Iterable, NamedTuple
 
 
 COMPATIBILITY_REVISION = 7
@@ -467,11 +468,20 @@ def _device_kind(
     return "unknown"
 
 
-def _windows_inventory(processors: list[str]) -> list[dict[str, Any]]:
-    rows = _windows_cim(
+def _windows_video_rows() -> list[dict[str, Any]]:
+    """The Win32_VideoController rows the Windows device inventory is built from."""
+    return _windows_cim(
         "Win32_VideoController",
         ("Name", "PNPDeviceID", "DriverVersion", "AdapterCompatibility", "VideoProcessor", "AdapterRAM"),
     )
+
+
+def _windows_inventory(
+    processors: list[str], rows: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    """Build the Windows device list; `rows` spares the query when already fetched."""
+    if rows is None:
+        rows = _windows_video_rows()
     devices: list[dict[str, Any]] = []
     for index, row in enumerate(rows):
         name = str(row.get("Name") or row.get("VideoProcessor") or "Unknown display controller")
@@ -1075,15 +1085,42 @@ def hardware_compatibility_material(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _call_concurrently(calls: Iterable[Callable[[], Any]]) -> list[Any]:
+    """Run independent probes in parallel threads and return results in call order.
+
+    Each probe is a subprocess wait, so threads overlap them fully. A probe's own
+    timeout and failure fallback are unchanged; an exception one raises is
+    raised here, as it would be if the probes ran one after another.
+    """
+    calls = list(calls)
+    with ThreadPoolExecutor(max_workers=max(1, len(calls))) as pool:
+        futures = [pool.submit(call) for call in calls]
+        return [future.result() for future in futures]
+
+
+def _windows_probes(system: str) -> tuple[list[str], list[str], dict[str, Any], list[dict[str, Any]]]:
+    """The four PowerShell CIM queries Windows detection needs, run together.
+
+    They are independent and each spends nearly all its time in a PowerShell
+    start-up and a WMI call, so run one after another they added up to about
+    2.4 s, against the 1.3 s of the slowest alone.
+    """
+    controller_names, processors, os_row, video_rows = _call_concurrently((
+        lambda: _controller_names(system),
+        lambda: _windows_names("Win32_Processor"),
+        _windows_os,
+        _windows_video_rows,
+    ))
+    return controller_names, processors, os_row, video_rows
+
+
 def detect_hardware() -> dict[str, Any]:
     system = platform.system().lower()
     version = platform.version()
     processors: list[str] = []
     os_info: dict[str, Any]
-    controller_names = _controller_names(system)
     if system == "windows":
-        processors = _windows_names("Win32_Processor")
-        os_row = _windows_os()
+        controller_names, processors, os_row, video_rows = _windows_probes(system)
         build = _windows_build(version)
         if build is None and str(os_row.get("BuildNumber") or "").isdigit():
             build = int(os_row["BuildNumber"])
@@ -1091,14 +1128,16 @@ def detect_hardware() -> dict[str, Any]:
             "caption": os_row.get("Caption"), "version": os_row.get("Version") or version,
             "windows_build": build,
         }
-        devices = _windows_inventory(processors)
-    elif system == "linux":
-        os_info = _read_os_release()
-        os_info["kernel"] = platform.release()
-        devices = _linux_inventory(processors)
+        devices = _windows_inventory(processors, video_rows)
     else:
-        os_info = {"version": version}
-        devices = []
+        controller_names = _controller_names(system)
+        if system == "linux":
+            os_info = _read_os_release()
+            os_info["kernel"] = platform.release()
+            devices = _linux_inventory(processors)
+        else:
+            os_info = {"version": version}
+            devices = []
 
     discovered_names = {str(device.get("name", "")).lower() for device in devices}
     requested_names = {name.lower() for name in controller_names}

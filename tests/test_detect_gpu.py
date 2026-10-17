@@ -7,13 +7,14 @@ ladder and the full detection report, with every hardware probe mocked."""
 
 from __future__ import annotations
 
-from contextlib import redirect_stdout
+from contextlib import ExitStack, redirect_stdout
 import io
 import json
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -1718,6 +1719,177 @@ class ProbeParserTests(unittest.TestCase):
         for label, (devices, expected) in cases.items():
             with self.subTest(label):
                 self.assertEqual(Detect_GPU._nvidia_backend(devices), expected)
+
+
+class WindowsProbeConcurrencyTests(unittest.TestCase):
+    """Windows detection runs its four PowerShell CIM queries together.
+
+    The queries are real subprocess calls in production; here subprocess.run is
+    faked, so the real _run, _windows_cim and the parsers all execute.
+    """
+
+    NVIDIA_ID = "PCI\\VEN_10DE&DEV_2786&SUBSYS_1&REV_A1\\4&2283F625&0&0019"
+    ROWS = {
+        "Win32_Processor": [{"Name": "13th Gen Intel(R) Core(TM) i5-13600K"}],
+        "Win32_OperatingSystem": [
+            {"Caption": "Microsoft Windows 11 Education", "Version": "10.0.26300", "BuildNumber": "26300"}
+        ],
+        "controllers": [{"Name": "NVIDIA GeForce RTX 4070"}, {"Name": "Intel(R) UHD Graphics 770"}],
+        "inventory": [
+            {
+                "Name": "NVIDIA GeForce RTX 4070", "PNPDeviceID": NVIDIA_ID, "DriverVersion": "32.0.15.7",
+                "AdapterCompatibility": "NVIDIA", "VideoProcessor": "NVIDIA GeForce RTX 4070",
+                "AdapterRAM": 4293918720,
+            },
+            {
+                "Name": "Intel(R) UHD Graphics 770",
+                "PNPDeviceID": "PCI\\VEN_8086&DEV_4680&SUBSYS_1&REV_0C\\3&11583659&0&10",
+                "DriverVersion": "31.0.101.5", "AdapterCompatibility": "Intel Corporation",
+                "VideoProcessor": "Intel(R) UHD Graphics Family", "AdapterRAM": 1073741824,
+            },
+        ],
+    }
+
+    @staticmethod
+    def _query_of(command):
+        script = command[-1]
+        if "Win32_Processor" in script:
+            return "Win32_Processor"
+        if "Win32_OperatingSystem" in script:
+            return "Win32_OperatingSystem"
+        return "inventory" if "PNPDeviceID" in script else "controllers"
+
+    def _fake_subprocess(self, failures=None, timeouts=None):
+        """subprocess.run for the PowerShell queries, with chosen ones failing or timing out."""
+        failures = failures or {}
+        timeouts = list(timeouts or ())
+        calls = []
+
+        def run(command, **kwargs):
+            if command[0] != "powershell":
+                raise FileNotFoundError(command[0])  # no nvidia-smi on the fake host
+            query = self._query_of(command)
+            calls.append((query, kwargs.get("timeout")))
+            if query in timeouts:
+                raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))
+            if query in failures:
+                return completed("", returncode=failures[query])
+            return completed("﻿" + json.dumps(self.ROWS[query]))
+
+        return run, calls
+
+    def _detect(self, run, *, sequential=False):
+        patches = [
+            mock.patch.object(Detect_GPU.platform, "system", return_value="Windows"),
+            mock.patch.object(Detect_GPU.platform, "version", return_value="10.0.26300"),
+            mock.patch.object(Detect_GPU.platform, "machine", return_value="AMD64"),
+            mock.patch.object(Detect_GPU.subprocess, "run", side_effect=run),
+        ]
+        if sequential:
+            # The behaviour before the queries were overlapped: one after another, in order.
+            patches.append(mock.patch.object(
+                Detect_GPU, "_call_concurrently", side_effect=lambda calls: [call() for call in calls]
+            ))
+        with ExitStack() as stack:
+            for patch in patches:
+                stack.enter_context(patch)
+            return Detect_GPU.detect_hardware()
+
+    def test_the_four_queries_run_at_the_same_time(self):
+        # Each probe waits for the other three at a barrier: run one after another,
+        # the first would wait alone and the barrier would break.
+        barrier = threading.Barrier(4, timeout=10)
+        names = {"controllers": ["NVIDIA GeForce RTX 4070"], "processors": ["cpu"], "os": {"BuildNumber": "26300"}, "rows": []}
+
+        def meet(value):
+            def probe(*_args):
+                barrier.wait()
+                return value
+            return probe
+
+        with mock.patch.object(Detect_GPU, "_controller_names", side_effect=meet(names["controllers"])), \
+                mock.patch.object(Detect_GPU, "_windows_names", side_effect=meet(names["processors"])), \
+                mock.patch.object(Detect_GPU, "_windows_os", side_effect=meet(names["os"])), \
+                mock.patch.object(Detect_GPU, "_windows_video_rows", side_effect=meet(names["rows"])):
+            results = Detect_GPU._windows_probes("windows")
+        self.assertEqual(results, (names["controllers"], names["processors"], names["os"], names["rows"]))
+
+    def test_each_query_keeps_its_own_timeout_and_its_own_result(self):
+        run, calls = self._fake_subprocess()
+        report = self._detect(run)
+        self.assertEqual(sorted(calls), sorted([
+            ("Win32_Processor", 8), ("Win32_OperatingSystem", 8), ("controllers", 8), ("inventory", 8),
+        ]))
+        self.assertEqual(report["processors"], ["13th Gen Intel(R) Core(TM) i5-13600K"])
+        self.assertEqual(report["windows_build"], 26300)
+        self.assertEqual(
+            [device["name"] for device in report["devices"]],
+            ["NVIDIA GeForce RTX 4070", "Intel(R) UHD Graphics 770"],
+        )
+
+    def test_the_report_is_the_same_as_when_the_queries_ran_one_after_another(self):
+        scenarios = {
+            "all answer": {},
+            "the processor query times out": {"timeouts": ["Win32_Processor"]},
+            "the OS query times out": {"timeouts": ["Win32_OperatingSystem"]},
+            "the controller-name query times out": {"timeouts": ["controllers"]},
+            "the inventory query times out": {"timeouts": ["inventory"]},
+            "every query times out": {
+                "timeouts": ["Win32_Processor", "Win32_OperatingSystem", "controllers", "inventory"]
+            },
+            "a query exits with an error": {"failures": {"Win32_OperatingSystem": 1, "inventory": 1}},
+            "two queries fail and one times out": {
+                "failures": {"controllers": 1, "Win32_Processor": 5}, "timeouts": ["inventory"]
+            },
+        }
+        for label, options in scenarios.items():
+            with self.subTest(scenario=label):
+                concurrent = self._detect(self._fake_subprocess(**options)[0])
+                sequential = self._detect(self._fake_subprocess(**options)[0], sequential=True)
+                self.assertEqual(
+                    json.dumps(concurrent, sort_keys=True, default=str),
+                    json.dumps(sequential, sort_keys=True, default=str),
+                )
+                self.assertEqual(
+                    Install_Dependencies.hardware_fingerprint(concurrent),
+                    Install_Dependencies.hardware_fingerprint(sequential),
+                )
+
+    def test_a_timed_out_query_degrades_as_it_always_did(self):
+        report = self._detect(self._fake_subprocess(timeouts=["controllers"])[0])
+        self.assertEqual(report["devices"], [])  # no controller names on Windows: no devices
+        report = self._detect(self._fake_subprocess(timeouts=["Win32_OperatingSystem"])[0])
+        # No CIM OS row: the build comes from platform.version().
+        self.assertEqual(report["windows_build"], 26300)
+        self.assertEqual(len(report["devices"]), 2)
+
+    def test_an_unexpected_error_in_a_query_still_propagates(self):
+        with mock.patch.object(Detect_GPU, "_windows_os", side_effect=RuntimeError("boom")), \
+                mock.patch.object(Detect_GPU, "_windows_names", return_value=[]), \
+                mock.patch.object(Detect_GPU, "_controller_names", return_value=[]), \
+                mock.patch.object(Detect_GPU, "_windows_video_rows", return_value=[]):
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                Detect_GPU._windows_probes("windows")
+
+    def test_other_systems_still_query_their_controllers_in_line(self):
+        with mock.patch.object(Detect_GPU.platform, "system", return_value="Darwin"), \
+                mock.patch.object(Detect_GPU.platform, "version", return_value="25.0"), \
+                mock.patch.object(Detect_GPU.platform, "machine", return_value="x86_64"), \
+                mock.patch.object(Detect_GPU, "_controller_names", return_value=[]) as controllers, \
+                mock.patch.object(Detect_GPU, "_call_concurrently") as concurrently, \
+                mock.patch.object(Detect_GPU, "_nvidia_devices", return_value=[]):
+            Detect_GPU.detect_hardware()
+        controllers.assert_called_once_with("darwin")
+        concurrently.assert_not_called()
+
+    def test_the_inventory_can_take_rows_already_fetched(self):
+        with mock.patch.object(Detect_GPU, "_windows_cim") as cim:
+            devices = Detect_GPU._windows_inventory([], self.ROWS["inventory"])
+        cim.assert_not_called()
+        self.assertEqual([device["vendor"] for device in devices], ["NVIDIA", "INTEL"])
+        with mock.patch.object(Detect_GPU, "_windows_cim", return_value=self.ROWS["inventory"]) as cim:
+            self.assertEqual(Detect_GPU._windows_inventory([]), devices)
+        cim.assert_called_once()
 
 
 if __name__ == "__main__":
