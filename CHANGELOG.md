@@ -61,6 +61,12 @@ still change before version 1.0.0.
 - Windows hardware detection at launch runs its four PowerShell queries at the same time
   and asks for the processor name alone, about 0.55 s instead of 2.5 s, with the same
   result.
+- The Consistency Check in Config and VR Config shows each check as one row of a compact
+  table (a status icon, the check, the counts and the verdict) instead of three or four
+  lines. Whatever a check found wrong is listed below the table: missing headers,
+  sequences that differ, a different embedding model or an unreadable file. A long
+  report is no longer cut off at the bottom of its panel, and a long header no longer
+  widens the window.
 
 ### Fixed
 
