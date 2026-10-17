@@ -195,9 +195,61 @@
         update();
     }
 
+    // The language switch is a <select> in a .lang-switch: each option's value is the
+    // address of that language's page, relative to this page (a page can't find its
+    // translations itself when opened from disk, so each page lists them). Choosing one
+    // opens it at the section being read: the last menu target that has reached the top
+    // fifth of the window or, at the end of the page, the page's own #anchor when that
+    // section is on screen. The first target is the top of the page.
+    function initLanguage() {
+        var select = document.querySelector(".lang-switch select");
+        if (!select) return;
+        var items = Array.prototype.slice.call(document.querySelectorAll(".menu-item[data-target]"));
+
+        function visibleTarget(id) {
+            var target = id ? document.getElementById(id) : null;
+            return target && target.getClientRects().length > 0 ? target : null;
+        }
+
+        function anchor() {
+            var found = "";
+            items.forEach(function (item, index) {
+                var id = item.getAttribute("data-target");
+                var target = visibleTarget(id);
+                if (target && target.getBoundingClientRect().top <= window.innerHeight * 0.2) {
+                    found = index === 0 ? "" : "#" + id;
+                }
+            });
+            var atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+            var hashTarget = visibleTarget(window.location.hash.slice(1));
+            if (atEnd && hashTarget) {
+                var box = hashTarget.getBoundingClientRect();
+                if (box.bottom > 0 && box.top < window.innerHeight) found = window.location.hash;
+            }
+            return found;
+        }
+
+        // The address a language's option leads to from the reader's place.
+        window.docsLanguageTarget = function (value) {
+            return value.split("#")[0] + anchor();
+        };
+
+        select.addEventListener("change", function () {
+            if (select.value) window.location.href = window.docsLanguageTarget(select.value);
+        });
+
+        // Coming back to this page with Back must show its own language again.
+        window.addEventListener("pageshow", function () {
+            for (var i = 0; i < select.options.length; i++) {
+                if (select.options[i].defaultSelected) select.selectedIndex = i;
+            }
+        });
+    }
+
     document.addEventListener("DOMContentLoaded", function () {
         initTheme();
         initSidebar();
         initScrollSpy();
+        initLanguage();
     });
 })();

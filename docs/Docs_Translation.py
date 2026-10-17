@@ -48,8 +48,15 @@ What `check` compares, apart from the fingerprints:
     must be translated; the theme and sidebar code is the shared assets/docs.js,
     which shows the labels its button carries (TRANSLATED_ATTRIBUTES), and those
     too must be translated;
-  - the language switch: the current language is marked, the other one links
-    to the sibling page, and that file exists.
+  - the language switch, a dropdown (<div class="lang-switch"> with a <select>
+    in the top bar) that lists the page's languages, English first and then each
+    folder under docs/ that holds the page, the same on every page: each option
+    names its page, which exists, and the page's own language is the selected
+    one. The select has an accessible label. The options sit between the comments
+    <!-- languages:begin --> and <!-- languages:end -->, a block a script can
+    rewrite from the language folders, and the shared docs/assets/docs.js opens
+    the chosen page at the reader's place, so a language added later needs only
+    its option on every page.
 The translatable attributes (title, placeholder, aria-label) must be present
 but may differ.
 """
@@ -78,6 +85,11 @@ TRANSLATED_SCRIPT_STRINGS = ("Copied!",)
 # own language. They differ between the pages, and the translated page must not keep the
 # English text.
 TRANSLATED_ATTRIBUTES = ("data-label-dark", "data-label-light")
+
+# The comments around the language dropdown's <option>s: everything between them is the
+# block that lists the languages, written the same way on every page.
+LANGUAGES_BEGIN = "<!-- languages:begin -->"
+LANGUAGES_END = "<!-- languages:end -->"
 
 # Attributes whose text is for readers: present on both pages, free to differ.
 TRANSLATABLE_ATTRIBUTES = ("title", "placeholder", "aria-label", "alt") + TRANSLATED_ATTRIBUTES
@@ -585,36 +597,67 @@ def language_attribute(code):
 
 
 def _language_switch_problems(page, language, siblings):
-    """The switch on one page: the current language marked, a working link to the other page."""
+    """The switch on one page: every language listed, the page's own selected, each option reaching its page."""
     problems = []
     switch = next((e for e in page.root.walk() if "lang-switch" in e.classes), None)
-    if switch is None:
-        return ['%s has no language switch (a <nav class="lang-switch"> beside the theme button).' % page.path.name]
-    options = [e for e in switch.elements() if "lang-option" in e.classes]
+    select = next((e for e in switch.walk() if e.tag == "select"), None) if switch is not None else None
+    if select is None:
+        return [
+            '%s has no language switch (a <div class="lang-switch"> holding a <select> beside the theme button).'
+            % page.path.name
+        ]
+    if not select.attrs.get("aria-label", "").strip():
+        problems.append("%s: the language switch's <select> needs an aria-label naming it for screen readers." % page.path.name)
+    options = [e for e in select.elements() if e.tag == "option"]
+    # The options sit between two comments, the block a script can rewrite from the language folders.
+    segment = page.source[select.start:select.end]
+    begin, end = segment.find(LANGUAGES_BEGIN), segment.find(LANGUAGES_END)
+    if not (
+        0 <= begin < end
+        and all(begin < option.start - select.start < end for option in options)
+    ):
+        problems.append(
+            "%s: the language switch's options must all sit between %s and %s, inside the <select>, so that the block "
+            "can be regenerated." % (page.path.name, LANGUAGES_BEGIN, LANGUAGES_END)
+        )
     expected = [lang for lang, _ in siblings]
     if [e.attrs.get("lang") for e in options] != expected:
-        return [
-            "%s: the language switch should list %s in this order, by their lang attributes; it has %s."
+        return problems + [
+            "%s: the language switch should list %s in this order, by the lang attributes of its options; it has %s. "
+            "Every page lists every language, English first and then one for each folder under docs/ that holds the page."
             % (page.path.name, expected, [e.attrs.get("lang") for e in options])
         ]
     for option, (lang, target) in zip(options, siblings):
-        if lang == language:
-            if option.tag == "a" or "current" not in option.classes or option.attrs.get("aria-current") != "page":
-                problems.append(
-                    "%s: the switch must mark %s, the page's own language, as current (a <span> with the classes "
-                    "'lang-option current' and aria-current=\"page\")." % (page.path.name, lang)
-                )
-            continue
-        if option.tag != "a" or "current" in option.classes:
-            problems.append("%s: the switch's entry for %s must be a link that is not marked current." % (page.path.name, lang))
-            continue
-        base = option.attrs.get("href", "").split("#")[0]
+        base = option.attrs.get("value", "").split("#")[0]
         resolved = (page.path.parent / base).resolve() if base else None
         if resolved is None or resolved != Path(target).resolve():
-            problems.append("%s: the switch's link for %s points at '%s'; it should reach %s." % (page.path.name, lang, base, target))
+            problems.append(
+                "%s: the switch's option for %s has the value '%s'; it should reach %s."
+                % (page.path.name, lang, option.attrs.get("value", ""), target)
+            )
         elif not resolved.is_file():
-            problems.append("%s: the switch's link for %s points at %s, which does not exist." % (page.path.name, lang, resolved))
+            problems.append("%s: the switch's option for %s leads to %s, which does not exist." % (page.path.name, lang, resolved))
+        if lang == language and "selected" not in option.attrs:
+            problems.append(
+                "%s: the switch must have %s, the page's own language, selected (give its <option> the attribute "
+                "selected)." % (page.path.name, lang)
+            )
+        if lang != language and "selected" in option.attrs:
+            problems.append("%s: the switch's option for %s must not be the selected one." % (page.path.name, lang))
     return problems
+
+
+def language_pages(english_path, translated_path, language):
+    """(lang attribute, page) of every language the page exists in: English, then each folder under docs/ that has it."""
+    english_path, translated_path = Path(english_path), Path(translated_path)
+    pages = [("en", english_path)]
+    for folder in sorted(path for path in english_path.parent.iterdir() if path.is_dir()):
+        candidate = folder / english_path.name
+        if candidate.is_file():
+            pages.append((language_attribute(folder.name), candidate))
+    if translated_path.resolve() not in [path.resolve() for _, path in pages]:
+        pages.append((language_attribute(language), translated_path))
+    return pages
 
 
 # ---- The check ----------------------------------------------------------
@@ -729,7 +772,7 @@ def check_page(english_path, translated_path, language=DEFAULT_LANGUAGE):
             for key in shared:
                 _compare_section(key, english, translated, report.problems)
 
-    switches = [("en", english_path), (expected_lang, translated_path)]
+    switches = language_pages(english_path, translated_path, language)
     report.problems.extend(_language_switch_problems(english, "en", switches))
     report.problems.extend(_language_switch_problems(translated, expected_lang, switches))
 

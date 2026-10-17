@@ -19,7 +19,7 @@ import unittest
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-for folder in (SRC, ROOT / "docs"):
+for folder in (SRC, ROOT / "docs", ROOT / "docs" / "assets"):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
@@ -229,12 +229,12 @@ class PageTests(unittest.TestCase):
                 for control in ('id="theme-toggle-btn"', 'id="toggle-sidebar-btn"', "data-label-dark=", "data-label-light="):
                     self.assertIn(control, bar)
                 self.assertIn('id="sidebar"', html)
-                # A page with a translation says so in a switch beside the theme button.
-                self.assertEqual('<nav class="lang-switch"' in bar, name != "quickstart.html")
+                # A page with a translation offers its languages in a dropdown beside the theme button.
+                self.assertEqual('class="lang-switch"' in bar, name != "quickstart.html")
 
     def test_every_page_has_the_same_top_bar(self):
         def skeleton(html):
-            bar = re.sub(r'<nav class="lang-switch".*?</nav>', "", self.top_bar(html), flags=re.S)
+            bar = re.sub(r'<div class="lang-switch".*?</div>', "", self.top_bar(html), flags=re.S)
             bar = re.sub(r'<(?:a|span) class="tab"[^>]*>', "<tab>", bar)
             bar = re.sub(r"</(?:a|span)>(?=\s*(?:<tab>|</nav>))", "</tab>", bar)
 
@@ -268,6 +268,52 @@ class PageTests(unittest.TestCase):
                 for icon in symbols:
                     if icon not in ("sun", "moon"):
                         self.assertIn(f'href="#i-{icon}"', html, icon)
+
+
+class LogoTests(unittest.TestCase):
+    """The EMAP-SSN mark in the top bar and as the favicon: a small copy of the application's logo."""
+
+    LOGO = DOCS / "assets" / "emapssn_logo.png"
+
+    def test_the_copy_is_small_and_square(self):
+        data = self.LOGO.read_bytes()
+        self.assertEqual(data[:8], bytes([0x89]) + b"PNG\r\n" + bytes([0x1A]) + b"\n")
+        width, height = int.from_bytes(data[16:20], "big"), int.from_bytes(data[20:24], "big")
+        self.assertEqual((width, height), (64, 64))  # sharp at 28 px on a 2x screen
+        self.assertLess(len(data), 10_000)  # the application's own logo is 460 KB
+
+    def test_the_command_that_makes_it_is_recorded_and_names_the_application_logo(self):
+        script = (DOCS / "assets" / "Make_Logo.py").read_text(encoding="utf-8")
+        self.assertIn("python docs/assets/Make_Logo.py", script)
+        self.assertIn("src/bin/logos/viewer_logo.png", script)
+        self.assertTrue((ROOT / "src" / "bin" / "logos" / "viewer_logo.png").is_file())
+
+    def test_the_copy_is_a_fresh_downscale_of_the_application_logo(self):
+        try:
+            from PIL import Image
+        except ImportError as error:
+            raise unittest.SkipTest("needs Pillow: %s" % error)
+        import Make_Logo
+
+        self.assertEqual(Make_Logo.SOURCE, ROOT / "src" / "bin" / "logos" / "viewer_logo.png")
+        self.assertEqual(Make_Logo.TARGET, self.LOGO)
+        with Image.open(self.LOGO) as stored:
+            stored = stored.convert("RGBA")
+        fresh = Make_Logo.downscaled()
+        self.assertEqual(stored.size, fresh.size)
+        self.assertEqual(stored.tobytes(), fresh.tobytes(), "Run python docs/assets/Make_Logo.py to rebuild the logo.")
+
+    def test_every_page_shows_it_in_the_top_bar_and_as_its_favicon(self):
+        for name in PAGES:
+            with self.subTest(page=name):
+                html = read(DOCS / name)
+                up = prefix(name)
+                self.assertIn(
+                    f'<div class="brand"><img class="brand-logo" src="{up}assets/emapssn_logo.png" alt="" width="28" height="28">'
+                    "<span>EMAP-SSN</span></div>",
+                    html,
+                )
+                self.assertIn(f'<link rel="icon" type="image/png" sizes="64x64" href="{up}assets/emapssn_logo.png">', html)
 
 
 class NoPictographTests(unittest.TestCase):

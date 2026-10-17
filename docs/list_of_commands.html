@@ -22,6 +22,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)">
+    <link rel="icon" type="image/png" sizes="64x64" href="assets/emapssn_logo.png">
     <title>EMAP-SSN Viewer Command Reference</title>
     <!-- Fonts are vendored locally so this page renders offline. They live in
          docs/fonts/ rather than src/, so this page is self-contained and does
@@ -40,7 +41,6 @@
 
     <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
     <svg class="icon-sprite" id="icons" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
-        <symbol id="i-dna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></symbol>
         <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></symbol>
         <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
         <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
@@ -53,16 +53,20 @@
     <!-- Top bar, the same on both documentation pages -->
     <header class="topbar" id="topbar">
         <button id="toggle-sidebar-btn" class="btn btn-ghost btn-icon" type="button" title="Toggle Sidebar" aria-label="Toggle Sidebar" aria-controls="sidebar" aria-expanded="true"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg></button>
-        <div class="brand"><svg class="icon" aria-hidden="true"><use href="#i-dna"/></svg><span>EMAP-SSN</span></div>
+        <div class="brand"><img class="brand-logo" src="assets/emapssn_logo.png" alt="" width="28" height="28"><span>EMAP-SSN</span></div>
         <nav class="tabs" aria-label="Documentation">
             <a class="tab" href="quickstart.html" title="Go to Quick Start Manual">Quick Start</a>
             <span class="tab" aria-current="page">Command Reference</span>
         </nav>
         <div class="topbar-actions">
-            <nav class="lang-switch" aria-label="Language">
-                <span class="lang-option current" lang="en" aria-current="page">English</span>
-                <a class="lang-option" lang="zh-CN" hreflang="zh-CN" href="zh_CN/list_of_commands.html" title="Simplified Chinese">简体中文</a>
-            </nav>
+            <div class="lang-switch">
+                <select class="lang-select" id="lang-select" aria-label="Language" title="Language">
+                    <!-- languages:begin -->
+                    <option value="list_of_commands.html" lang="en" data-lang="en" selected>English</option>
+                    <option value="zh_CN/list_of_commands.html" lang="zh-CN" data-lang="zh_CN">简体中文</option>
+                    <!-- languages:end -->
+                </select>
+            </div>
             <button id="theme-toggle-btn" class="btn btn-ghost" type="button" title="Toggle Dark/Light Mode" data-label-dark="Dark Mode" data-label-light="Light Mode"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="theme-label">Dark Mode</span></button>
         </div>
     </header>
@@ -1162,8 +1166,8 @@
         </div> <!-- end .content-wrapper -->
     </main>
 
-    <!-- The theme, the sidebar and the highlight of the section being read are in
-         assets/docs.js. -->
+    <!-- The theme, the sidebar, the highlight of the section being read and the language
+         switch are in assets/docs.js. -->
     <script>
         // Copy to clipboard function
         function copyText(text, btnElement) {
@@ -1266,44 +1270,6 @@
             });
 
             emptyState.style.display = hasMatches || query === "" ? 'none' : 'block';
-        });
-
-        const navMenuItems = document.querySelectorAll('.menu-item');
-
-        // Language switch: the other language's page opens at the section being read,
-        // the last menu target that has reached the top fifth of the window (or, at the
-        // end of the page, the page's own #anchor when that section is on screen).
-        const languageLinks = document.querySelectorAll('a.lang-option');
-
-        function visibleTarget(id) {
-            const target = document.getElementById(id);
-            return target && target.getClientRects().length > 0 ? target : null;
-        }
-
-        function updateLanguageLinks() {
-            let anchor = '';
-            navMenuItems.forEach(item => {
-                const id = item.getAttribute('data-target');
-                const target = visibleTarget(id);
-                if (target && target.getBoundingClientRect().top <= window.innerHeight * 0.2) {
-                    anchor = id === 'docs-intro' ? '' : '#' + id;
-                }
-            });
-            const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
-            const hashTarget = visibleTarget(window.location.hash.slice(1));
-            if (atEnd && hashTarget) {
-                const box = hashTarget.getBoundingClientRect();
-                if (box.bottom > 0 && box.top < window.innerHeight) {
-                    anchor = window.location.hash;
-                }
-            }
-            languageLinks.forEach(link => {
-                link.setAttribute('href', link.getAttribute('href').split('#')[0] + anchor);
-            });
-        }
-
-        ['pointerdown', 'focus', 'click', 'contextmenu'].forEach(type => {
-            languageLinks.forEach(link => link.addEventListener(type, updateLanguageLinks));
         });
 
         // Highlight card when navigating directly via hash

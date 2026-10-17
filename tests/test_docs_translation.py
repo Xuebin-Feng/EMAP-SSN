@@ -73,27 +73,26 @@ class RealPagesTests(unittest.TestCase):
                 self.assertGreater(count, 0)
         self.assertGreater(counts[0], 300)  # the page's <code> snippets
 
-    def test_each_page_has_a_language_switch_that_reaches_the_other(self):
+    def test_each_page_has_a_language_dropdown_that_reaches_the_other(self):
         english, chinese = T.Page(ENGLISH), T.Page(CHINESE)
         self.assertEqual(english.html.attrs["lang"], "en")
         self.assertEqual(chinese.html.attrs["lang"], "zh-CN")
-        expected = {
-            ENGLISH: ("en", "zh-CN", "zh_CN/list_of_commands.html", CHINESE),
-            CHINESE: ("zh-CN", "en", "../list_of_commands.html", ENGLISH),
-        }
-        for page, (own, other, href, target) in ((english, expected[ENGLISH]), (chinese, expected[CHINESE])):
-            with self.subTest(page=page.path.name, own=own):
+        expected = (
+            (english, "en", {"en": "list_of_commands.html", "zh-CN": "zh_CN/list_of_commands.html"}),
+            (chinese, "zh-CN", {"en": "../list_of_commands.html", "zh-CN": "list_of_commands.html"}),
+        )
+        for page, own, values in expected:
+            with self.subTest(page=page.path.parent.name, own=own):
                 switch = next(e for e in page.root.walk() if "lang-switch" in e.classes)
-                options = {option.attrs["lang"]: option for option in switch.elements()}
-                self.assertEqual(sorted(options), sorted(["en", "zh-CN"]))
-                self.assertEqual(options[own].tag, "span")
-                self.assertEqual(options[own].attrs.get("aria-current"), "page")
-                self.assertIn("current", options[own].classes)
-                self.assertEqual(options[other].tag, "a")
-                self.assertEqual(options[other].attrs["href"], href)
-                self.assertEqual(options[other].attrs["hreflang"], other)
-                self.assertNotIn("current", options[other].classes)
-                self.assertTrue((page.path.parent / href).resolve().samefile(target))
+                select = next(e for e in switch.walk() if e.tag == "select")
+                self.assertTrue(select.attrs["aria-label"].strip())
+                options = {option.attrs["lang"]: option for option in select.elements() if option.tag == "option"}
+                self.assertEqual(list(options), ["en", "zh-CN"])
+                for lang, option in options.items():
+                    self.assertEqual(option.attrs["data-lang"], lang.replace("-", "_"))
+                    self.assertEqual(option.attrs["value"], values[lang])
+                    self.assertEqual("selected" in option.attrs, lang == own)
+                    self.assertTrue((page.path.parent / option.attrs["value"]).resolve().is_file())
 
     def test_both_pages_load_the_latin_and_the_chinese_font_stylesheets(self):
         for page in (T.Page(ENGLISH), T.Page(CHINESE)):
@@ -393,31 +392,71 @@ class TranslationChangesTests(TemporaryPages):
 
 class LanguageSwitchTests(TemporaryPages):
     def test_a_page_without_a_switch_is_named(self):
-        self.sub(self.chinese, r'<nav class="lang-switch".*?</nav>', "")
+        self.sub(self.chinese, r'<div class="lang-switch">.*?</select>\s*</div>', "")
         self.assertIn("list_of_commands.html has no language switch", self.problems())
 
-    def test_a_link_to_a_file_that_is_not_the_other_page_is_named(self):
-        self.edit(self.chinese, 'href="../list_of_commands.html" title="English"', 'href="../quickstart.html" title="English"')
-        self.assertIn("the switch's link for en points at '../quickstart.html'", self.problems())
+    def test_a_select_without_a_label_is_named(self):
+        self.edit(self.chinese, ' aria-label="语言" title="语言"', ' title="语言"')
+        self.assertIn("needs an aria-label", self.problems())
 
-    def test_a_link_to_a_page_that_does_not_exist_is_named(self):
-        self.edit(self.english, 'href="zh_CN/list_of_commands.html"', 'href="zh_CN/missing.html"')
-        self.assertIn("points at 'zh_CN/missing.html'", self.problems())
+    def test_an_option_that_leads_to_a_file_that_is_not_the_other_page_is_named(self):
+        self.edit(self.chinese, 'value="../list_of_commands.html"', 'value="../quickstart.html"')
+        self.assertIn("the switch's option for en has the value '../quickstart.html'", self.problems())
 
-    def test_the_switch_must_mark_its_own_language(self):
-        self.edit(self.chinese, '<span class="lang-option current" lang="zh-CN" aria-current="page">', '<span class="lang-option" lang="zh-CN">')
-        self.assertIn("must mark zh-CN, the page's own language, as current", self.problems())
+    def test_an_option_that_leads_to_a_page_that_does_not_exist_is_named(self):
+        self.edit(self.english, 'value="zh_CN/list_of_commands.html"', 'value="zh_CN/missing.html"')
+        self.assertIn("has the value 'zh_CN/missing.html'", self.problems())
 
-    def test_the_switch_must_not_mark_the_other_language(self):
-        self.edit(self.english, '<a class="lang-option" lang="zh-CN"', '<a class="lang-option current" lang="zh-CN"')
-        self.assertIn("must be a link that is not marked current", self.problems())
+    def test_the_switch_must_select_its_own_language(self):
+        self.edit(self.chinese, ' data-lang="zh_CN" selected>', ' data-lang="zh_CN">')
+        self.assertIn("must have zh-CN, the page's own language, selected", self.problems())
+
+    def test_the_switch_must_not_select_the_other_language(self):
+        self.edit(self.english, 'data-lang="zh_CN">', 'data-lang="zh_CN" selected>')
+        self.assertIn("option for zh-CN must not be the selected one", self.problems())
 
     def test_the_switch_may_follow_the_reader_s_anchor(self):
-        self.edit(self.english, 'href="zh_CN/list_of_commands.html"', 'href="zh_CN/list_of_commands.html#cmd-label"')
+        self.edit(self.english, 'value="zh_CN/list_of_commands.html"', 'value="zh_CN/list_of_commands.html#cmd-label"')
         self.assertTrue(self.check().ok, self.check().format())
 
     def test_the_switch_does_not_make_the_sidebar_stale(self):
-        self.edit(self.english, 'title="Simplified Chinese">简体中文<', 'title="Chinese (Simplified)">简体中文<')
+        self.edit(self.english, 'aria-label="Language" title="Language"', 'aria-label="Language switch" title="Choose a language"')
+        self.assertTrue(self.check().ok, self.check().format())
+
+    def test_a_language_missing_from_a_switch_is_named(self):
+        self.sub(self.english, r'\s*<option value="zh_CN/list_of_commands.html"[^>]*>[^<]*</option>', "")
+        self.assertIn("should list ['en', 'zh-CN'] in this order", self.problems())
+
+    def test_the_options_must_sit_between_the_markers_a_script_rewrites(self):
+        marker = "<!-- languages:begin -->"
+        self.edit(self.chinese, marker, "")
+        self.assertIn("must all sit between <!-- languages:begin --> and <!-- languages:end -->", self.problems())
+        self.edit(self.chinese, "<option value=\"../list_of_commands.html\"", marker + "<option value=\"../list_of_commands.html\"")
+        self.assertTrue(self.check().ok, self.check().format())
+        # An option outside the block is not rewritten with it.
+        self.edit(self.english, "<!-- languages:end -->", "")
+        self.edit(self.english, "</select>", "<!-- languages:end --></select>")
+        self.assertTrue(self.check().ok, self.check().format())
+        self.edit(self.english, "<!-- languages:begin -->", "")
+        self.edit(self.english, "<select ", "<!-- languages:begin --><select ")
+        self.assertIn("must all sit between", self.problems())
+
+    def test_the_options_must_be_in_the_pages_order(self):
+        self.sub(
+            self.chinese,
+            r'(\s*)(<option value="\.\./list_of_commands.html"[^>]*>English</option>)(\s*)(<option value="list_of_commands.html"[^>]*>简体中文</option>)',
+            r"\1\4\3\2",
+        )
+        self.assertIn("should list ['en', 'zh-CN'] in this order", self.problems())
+
+    def test_a_language_added_under_docs_must_be_listed_by_every_page(self):
+        (self.docs / "fr").mkdir()
+        shutil.copyfile(self.chinese, self.docs / "fr" / (PAGE + ".html"))
+        problems = self.problems()
+        self.assertIn("should list ['en', 'fr', 'zh-CN'] in this order", problems)
+        self.assertEqual(problems.count("should list ['en', 'fr', 'zh-CN']"), 2)  # both pages
+        self.edit(self.english, '<option value="zh_CN/list_of_commands.html"', '<option value="fr/list_of_commands.html" lang="fr" data-lang="fr">Français</option>\n                    <option value="zh_CN/list_of_commands.html"')
+        self.edit(self.chinese, '<option value="list_of_commands.html" lang="zh-CN"', '<option value="../fr/list_of_commands.html" lang="fr" data-lang="fr">Français</option>\n                    <option value="list_of_commands.html" lang="zh-CN"')
         self.assertTrue(self.check().ok, self.check().format())
 
 
@@ -576,14 +615,24 @@ class BrowserTests(unittest.TestCase):
         self.run_js("document.documentElement.style.scrollBehavior = 'auto'; document.getElementById('%s').scrollIntoView()" % section)
         self.pump(300)
 
+    OTHER_LANGUAGE = "Array.from(document.querySelector('.lang-switch select').options).find(o => !o.defaultSelected).value"
+
     def switch_link(self):
-        """The language switch's link as a reader pressing it would find it."""
-        return self.run_js(
-            "var link = document.querySelector('a.lang-option'); link.dispatchEvent(new Event('pointerdown')); link.getAttribute('href')"
-        )
+        """Where the language dropdown would take the reader now, from the place being read."""
+        return self.run_js("window.docsLanguageTarget(%s)" % self.OTHER_LANGUAGE)
 
     def follow_switch(self):
-        self.load(self.view.url().resolved(self.QUrl(self.switch_link())))
+        """Chooses the other language in the dropdown, as a reader does, and waits for its page."""
+        loop = self.QEventLoop()
+        self.view.loadFinished.connect(lambda ok: loop.quit())
+        self.run_js(
+            "var select = document.querySelector('.lang-switch select'); select.value = %s; "
+            "select.dispatchEvent(new Event('change')); 1" % self.OTHER_LANGUAGE
+        )
+        self.QTimer.singleShot(20000, loop.quit)
+        loop.exec()
+        self.pump(600)
+        self.assertEqual(self.run_js("document.readyState"), "complete")
 
     def facts(self):
         import json
@@ -612,6 +661,27 @@ class BrowserTests(unittest.TestCase):
         self.follow_switch()
         facts = self.facts()
         self.assertEqual((facts["lang"], facts["hash"]), ("en", "#cmd-logo"))
+
+    def test_the_dropdown_shows_the_pages_own_language_again_after_going_back(self):
+        for page, own in ((ENGLISH, "en"), (CHINESE, "zh-CN")):
+            with self.subTest(page=page.parent.name):
+                self.open(page)
+                self.run_js("document.querySelector('.lang-switch select').value = %s; 1" % self.OTHER_LANGUAGE)
+                self.run_js("window.dispatchEvent(new Event('pageshow')); 1")
+                self.assertEqual(
+                    self.run_js("document.querySelector('.lang-switch select').selectedOptions[0].getAttribute('lang')"), own
+                )
+
+    def test_the_dropdown_is_a_labelled_select_a_keyboard_can_reach(self):
+        for page in (ENGLISH, CHINESE):
+            with self.subTest(page=page.parent.name):
+                self.open(page)
+                self.assertTrue(self.run_js("document.querySelector('.lang-switch select').getAttribute('aria-label').length > 0"))
+                self.assertTrue(self.run_js("document.querySelector('.lang-switch select').tabIndex === 0"))
+                self.run_js("document.querySelector('.lang-switch select').focus(); 1")
+                self.assertEqual(self.run_js("document.activeElement.tagName"), "SELECT")
+                # The field draws a chevron, as the windows' combo boxes do.
+                self.assertIn("data:image/svg+xml", self.run_js("getComputedStyle(document.querySelector('.lang-switch select')).backgroundImage"))
 
     def test_the_switch_finds_the_section_at_the_end_of_the_page_too(self):
         self.open(CHINESE, "cmd-agent")

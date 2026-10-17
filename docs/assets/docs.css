@@ -222,7 +222,14 @@ button { font-family: inherit; }
     color: var(--text-primary);
     white-space: nowrap;
 }
-.brand .icon { width: 18px; height: 18px; color: var(--text-secondary); }
+.brand-logo { display: block; width: 28px; height: 28px; flex-shrink: 0; }
+/* The mark's dark edges and grey lines are drawn for a light ground: on the dark bar it sits on a light tile, as an app icon does. */
+[data-theme="dark"] .brand-logo {
+    box-sizing: border-box;
+    padding: 2px;
+    background: var(--text-primary);
+    border-radius: 7px;
+}
 
 /* The tab bar: a segmented control, the current page a raised pill in a track */
 .tabs {
@@ -259,32 +266,28 @@ button { font-family: inherit; }
     margin-left: auto;
 }
 
-/* The language switch of a translated page: a small tab bar, the page's own language raised */
-.lang-switch {
-    display: inline-flex;
-    padding: 2px;
-    background: var(--track);
-    border-radius: 8px;
-}
-.lang-option {
-    display: inline-flex;
-    align-items: center;
-    padding: 2px 9px;
-    border: 1px solid transparent;
-    border-radius: 6px;
-    font-size: 0.75rem;
-    line-height: 1.5;
-    color: var(--text-secondary);
-    text-decoration: none;
-    white-space: nowrap;
-}
-a.lang-option:hover { color: var(--text-primary); text-decoration: none; }
-.lang-option.current {
-    background: var(--tab-selected);
+/* The language switch of a translated page: a dropdown of the languages' pages, with the
+   field, chevron and focus ring of the windows' combo boxes. The list itself is the browser's
+   own and follows the page's colour scheme. */
+.lang-switch { display: inline-flex; }
+.lang-select {
+    height: 30px;
+    max-width: 170px;
+    padding: 0 28px 0 10px;
+    background: var(--input-bg) var(--select-chevron) no-repeat right 9px center / 14px 14px;
+    border: 1px solid var(--field-border);
+    border-radius: var(--radius);
+    font-family: var(--font-family);
+    font-size: 0.8125rem;
     color: var(--text-primary);
-    border-color: var(--border-color);
-    border-bottom-color: var(--field-border-hover);
+    -webkit-appearance: none;
+    appearance: none;
+    box-shadow: var(--shadow-control);
+    cursor: pointer;
+    outline: none;
 }
+.lang-select:hover { border-color: var(--field-border-hover); }
+.lang-select:focus-visible { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 
 /* ── Buttons: outline unless a variant says otherwise ─────── */
 .btn {
@@ -989,7 +992,15 @@ footer p { margin-bottom: 4px; color: inherit; }
 }
 
 @media (max-width: 760px) {
-    .brand span { display: none; }
+    .brand span {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0 0 0 0);
+        white-space: nowrap;
+    }
     .theme-label { display: none; }
     #theme-toggle-btn { width: 30px; padding: 0; }
 }
