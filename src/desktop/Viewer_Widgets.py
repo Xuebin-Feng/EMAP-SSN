@@ -10,10 +10,17 @@
   by " + ", then what they do. controls_rows() reads that text into rows.
   ControlsCard shows the session, then the rows as key caps beside what they
   do, on a card in a light tint of the theme colour. The session is the
-  network's nodes and edges and its files, each in the form of the Config's
-  Directories tab: a label, a read-only field holding the path, and a button
-  that opens the file's folder (never making one). ControlsButton, at the
-  start of the threshold slider, opens the card above itself.
+  network's nodes and edges, on one line, and its files, each in the form of
+  the Config's Directories tab: a label and a read-only field holding the path
+  written with the alias of the folder it is in ($input_file$/...). The sequence
+  set, the network and the layout cache are fixed for the session, and their
+  fields are quiet and carry no button; the alignment and the embedding can be
+  changed, below a small gap, and their button runs the command of that name
+  with no argument, as typed, which opens its file dialog. The card's two
+  headings, "Session" and "Mouse and keyboard controls", are in the text
+  colour; the link to the list of commands is in the first one's row, beside
+  the ×. ControlsButton, at the start of the threshold slider, opens the card
+  above itself.
   The card is a child of the canvas, so the network, the sliders, the View
   Width box and the sidebar work as usual while it is open: it closes only
   by its × or by the button again, never by a click elsewhere, and it never
@@ -68,6 +75,7 @@ from PySide6.QtWidgets import (
 
 from desktop.Desktop_App import button_icon_room, installed_language
 from desktop.Studio_Theme import TOKENS, icon_button, studio_icon
+from desktop.Viewer_State import alias_form
 from utilities.Help_Pages import command_list_path
 
 # What separates the actions in the Viewer's text, and the keys of one action.
@@ -97,22 +105,32 @@ def controls_rows(text):
 
 
 # The session card's files, in its order: the key of ViewerInspectionService.session_overview()'s
-# "inputs", and the label of its row, as the Config's Directories tab labels a folder.
+# "inputs", and the label of its row, as the Config's Directories tab labels a folder. The first
+# three are fixed for the session; the last two can be changed from the card.
 SESSION_FILES = (
     ("node_fasta", QT_TRANSLATE_NOOP("ViewerControls", "Sequence Set:")),
     ("network_hdf5", QT_TRANSLATE_NOOP("ViewerControls", "Network:")),
+    ("layout_cache", QT_TRANSLATE_NOOP("ViewerControls", "Layout Cache:")),
     ("msa", QT_TRANSLATE_NOOP("ViewerControls", "Alignment:")),
     ("embedding", QT_TRANSLATE_NOOP("ViewerControls", "Embedding:")),
-    ("layout_cache", QT_TRANSLATE_NOOP("ViewerControls", "Layout Cache:")),
 )
+# The files the card can change: the command its pick button runs, typed with no argument (it opens
+# the command's file dialog), and the button's tooltip.
+PICK_FILES = {
+    "msa": ("alignment", QT_TRANSLATE_NOOP("ViewerControls", "Choose another alignment file…")),
+    "embedding": ("embedding", QT_TRANSLATE_NOOP("ViewerControls", "Choose another embedding file…")),
+}
+# The line the tooltip of a fixed file's field adds to its path.
+FIXED_NOTE = QT_TRANSLATE_NOOP("ViewerControls", "Fixed for this Viewer session.")
 
 
 def display_path(value):
-    """A file's path as the card shows it: absolute and normalised, or "" for none.
+    """A file's full path, as the card keeps it for its tooltip: absolute and normalised, or "" for none.
 
     The Viewer's settings hold every input already resolved (a $input_file$
     alias is expanded, desktop.Viewer_State.normalize_viewer_paths), so this
-    only tidies; an empty setting, such as no alignment, is no path.
+    only tidies; an empty setting, such as no alignment, is no path. The
+    field shows it written back with the alias (desktop.Viewer_State.alias_form).
     """
     if value is None:
         return ""
@@ -127,17 +145,22 @@ class PathField(QLineEdit):
 
     The mouse selects (a drag, a double or triple click) and the right-click
     menu copies, as in any field; Ctrl+C is not taken for it, since the
-    command line copies its own text with it. The field starts at the end of
-    the path, where the file's name is. The wheel over it scrolls a path too
-    long for the field, and the tooltip is the whole path. An empty field
-    shows its placeholder, muted.
+    command line copies its own text with it. The field starts at the start of
+    its text, as the Config's fields do. The wheel over it scrolls a text too
+    long for the field, and the tooltip is the whole path, which may be
+    written in full when the field shows it with an alias, and then a note.
+    An empty field shows its placeholder, muted. A ``fixed`` field, one the
+    user cannot change, is drawn quieter (its "fixed" property, for the
+    card's stylesheet) but selects and copies the same.
     """
 
     WHEEL_STEP = 4   # characters a notch of the wheel scrolls
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, *, fixed=False):
         super().__init__(parent)
         self.setObjectName("controlsPath")
+        self.fixed = fixed
+        self.setProperty("fixed", fixed)
         self.setReadOnly(True)
         # The keyboard stays with the network, so [ENTER] still opens the
         # command line; the mouse still selects, and the context menu copies.
@@ -145,11 +168,11 @@ class PathField(QLineEdit):
         self._scroll = 0
         self.setPlaceholderText(QtCore.QCoreApplication.translate("ViewerControls", "None"))
 
-    def show_path(self, path):
-        """Show path, scrolled to its end."""
-        self.setText(path)
-        self.setToolTip(path)
-        self.scroll_to(len(path))
+    def show_path(self, path, shown=None, note=None):
+        """Show ``shown`` (the path itself when there is none) from its start; the tooltip is the path, then ``note``."""
+        self.setText(path if shown is None else shown)
+        self.setToolTip(f"{path}\n{note}" if path and note else path)
+        self.scroll_to(0)
 
     def scroll_to(self, index):
         """Scroll so character ``index`` is the first shown, or as near the end as the field allows."""
@@ -170,14 +193,28 @@ class PathField(QLineEdit):
 class ControlsCard(QWidget):
     """The Viewer's session and controls on a card over the canvas.
 
-    title heads the card. The session section, when ``session`` is given,
-    lists the network's nodes and edges and the files it was built from in
-    the form of the Config's Directories tab: a label, a read-only field
-    holding the path, and a button that opens the file's folder. ``session``
-    is a function returning ViewerInspectionService.session_overview()'s
-    dictionary; refresh() reads it again, and does only the work what changed
-    needs. The controls section, headed controls_title, is text, the Viewer's
-    list of actions (controls_rows): key caps beside what they do.
+    title names the card (its accessible name) and is not shown: the card
+    has two headings, "Session" and controls_title, in the text colour. The
+    session section, when ``session`` is given, lists the network's nodes and
+    edges on one line and the files it was built from in the form of the
+    Config's Directories tab: a label and a read-only field holding the path
+    written with the alias of the folder it is in. The sequence set, network
+    and layout cache are fixed for the session: their fields are quiet, have no
+    button, and their tooltip says so after the full path. The alignment and
+    the embedding (PICK_FILES) come after a small gap and can be changed: the
+    button after each calls ``command`` (a function taking a Viewer command
+    line, as process_command does) with "alignment" or "embedding" and nothing
+    else, as if it were typed, which opens that command's file dialog, and then
+    leaves the keyboard with the canvas; the row shows the new file when the
+    owner refreshes the card. ``session`` is a function returning
+    ViewerInspectionService.session_overview()'s dictionary (its "inputs" are
+    the files' absolute paths, its "directories" and "project_root" what the
+    aliases are written from); refresh() reads it again, and does only the
+    work what changed needs. The controls section, headed controls_title, is
+    text, the Viewer's list of actions (controls_rows): key caps in the left
+    half of the section, what they do in the right half. The link to the list
+    of commands is in the row of the first heading, beside the ×. Without a
+    session the card has the controls only, headed controls_title (or title).
 
     The card is a child of the canvas, not a window of its own, so it leaves
     the network, the sliders and the sidebar working under the mouse and the
@@ -191,11 +228,13 @@ class ControlsCard(QWidget):
     PAD = 14          # inside the card
     RADIUS = 12       # the card's corners, a card's
     ROW_GAP = 8       # between rows
-    COLUMN_GAP = 16   # between the keys and what they do
+    COLUMN_GAP = 16   # least between the widest keys and what they do, in the controls' two halves
+    COUNT_GAP = 24    # between the nodes and the edges on their line
     FIELD_GAP = 8     # between a label, its field and the button after it
+    GROUP_GAP = 8     # extra, between the fixed files and the ones that can be changed
     KEY_GAP = 4       # between a key cap and the "+" beside it
     CLOSE_SIZE = 22   # the × button
-    OPEN_WIDTH = 30   # the Open Folder button, as the Config's
+    PICK_WIDTH = 30   # the pick button, as wide as the Config's folder buttons
     PATH_WIDTH = 260  # the least room a path's field is asked for
     ANCHOR_GAP = 16   # between the card and the button it opens from, clear of the slider
     MIN_HEIGHT = 120  # the least a card shrinks to in a short window
@@ -204,22 +243,26 @@ class ControlsCard(QWidget):
     SHADOW = 8
 
     def __init__(self, title, text, anchor=None, parent=None, *, session=None, controls_title=None,
-                 area=None):
+                 area=None, command=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsCard")
         self.anchor = anchor
         self.session = session
         self.area = area
+        self.command = command
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setMouseTracking(True)
         self.setAccessibleName(title)
         self.rows = controls_rows(text)
         self.path_fields = {}
-        self.open_buttons = {}
+        self.pick_buttons = {}
         self.file_labels = {}
         self.count_labels = {}
         self._paths = {}
+        self._bases = None
         self._natural = None
+        self.key_holders = []
+        self.controls_heading = None
 
         margin = self.SHADOW
         layout = QVBoxLayout(self)
@@ -229,12 +272,18 @@ class ControlsCard(QWidget):
                                   margin + self.PAD - 6, 2 * margin - top + self.PAD)
         layout.setSpacing(10)
 
+        # The first heading, then the link to the list of commands and the ×.
         header = QHBoxLayout()
         header.setContentsMargins(0, 0, 0, 0)
-        self.title_label = QLabel(title)
-        self.title_label.setObjectName("controlsTitle")
-        header.addWidget(self.title_label)
+        header.setSpacing(4)
+        self.session_heading = QLabel(
+            QtCore.QCoreApplication.translate("ViewerControls", "Session") if session is not None
+            else (controls_title or title))
+        self.session_heading.setObjectName("controlsHeading")
+        header.addWidget(self.session_heading)
         header.addStretch(1)
+        self.commands_button = self._commands_link()
+        header.addWidget(self.commands_button)
         self.close_button = QPushButton()
         self.close_button.setObjectName("controlsClose")
         self.close_button.setIcon(studio_icon("x", TOKENS["text_muted"]))
@@ -272,8 +321,7 @@ class ControlsCard(QWidget):
 
         t = TOKENS
         self.setStyleSheet(f"""
-            QLabel#controlsTitle {{ font-weight: 600; color: {t['text']}; padding: 0px; }}
-            QLabel#controlsSection {{ font-weight: 600; color: {t['text_muted']}; padding: 0px; }}
+            QLabel#controlsHeading {{ font-weight: 600; color: {t['text']}; padding: 0px; }}
             QLabel#controlsLabel {{ color: {t['text_soft']}; }}
             QLabel#controlsValue {{ color: {t['text']}; }}
             QLabel#controlsDescription {{ color: {t['text_soft']}; }}
@@ -290,6 +338,10 @@ class ControlsCard(QWidget):
                 selection-background-color: {t['accent_soft']}; selection-color: {t['text']};
             }}
             QLineEdit#controlsPath:hover {{ border-color: {t['field_border_hover']}; }}
+            QLineEdit#controlsPath[fixed="true"] {{
+                background: transparent; color: {t['text_soft']}; border-color: {t['separator']};
+            }}
+            QLineEdit#controlsPath[fixed="true"]:hover {{ border-color: {t['field_border']}; }}
             QPushButton#controlsLink {{
                 background: transparent; border: none; border-radius: 6px; color: {t['accent_text']};
                 font-weight: 600; text-align: left; padding: 3px 8px 3px 4px; min-height: 0px;
@@ -313,17 +365,31 @@ class ControlsCard(QWidget):
         for child in self.findChildren(QWidget):
             child.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         if session is not None:
-            self.refresh(check_folders=True)
+            self.refresh()
         self.fit(1 << 16, 1 << 16)
 
     def _session_section(self):
-        """The nodes and edges, and a row for each file: label, path field, Open Folder."""
+        """The nodes and edges on one line, and a row for each file: label, path field, and for a file that can be changed a pick button."""
         section = QVBoxLayout()
         section.setContentsMargins(0, 0, 0, 0)
         section.setSpacing(self.ROW_GAP)
-        heading = QLabel(QtCore.QCoreApplication.translate("ViewerControls", "Session"))
-        heading.setObjectName("controlsSection")
-        section.addWidget(heading)
+        counts = QHBoxLayout()
+        counts.setContentsMargins(0, 0, 0, 0)
+        counts.setSpacing(self.FIELD_GAP)
+        for index, (key, label_text) in enumerate((
+                ("nodes", QtCore.QCoreApplication.translate("ViewerControls", "Nodes:")),
+                ("edges", QtCore.QCoreApplication.translate("ViewerControls", "Edges:")))):
+            if index:
+                counts.addSpacing(self.COUNT_GAP - self.FIELD_GAP)
+            label = QLabel(label_text)
+            label.setObjectName("controlsLabel")
+            value = QLabel()
+            value.setObjectName("controlsValue")
+            self.count_labels[key] = value
+            counts.addWidget(label)
+            counts.addWidget(value)
+        counts.addStretch(1)
+        section.addLayout(counts)
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(self.FIELD_GAP)
@@ -331,66 +397,89 @@ class ControlsCard(QWidget):
         grid.setColumnMinimumWidth(1, self.PATH_WIDTH)
         grid.setColumnStretch(1, 1)
         row = 0
-        for key, label_text in (("nodes", QtCore.QCoreApplication.translate("ViewerControls", "Nodes:")),
-                                ("edges", QtCore.QCoreApplication.translate("ViewerControls", "Edges:"))):
-            label = QLabel(label_text)
-            label.setObjectName("controlsLabel")
-            value = QLabel()
-            value.setObjectName("controlsValue")
-            self.count_labels[key] = value
-            grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(value, row, 1, 1, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            row += 1
-        open_text = QtCore.QCoreApplication.translate("ViewerControls", "Open Folder")
         for key, label_text in SESSION_FILES:
+            changeable = key in PICK_FILES
+            if changeable and not self.pick_buttons:
+                # A gap before the files that can be changed.
+                grid.setRowMinimumHeight(row, self.GROUP_GAP)
+                row += 1
             label = QLabel(QtCore.QCoreApplication.translate("ViewerControls", label_text))
             label.setObjectName("controlsLabel")
-            field = PathField()
-            button = icon_button("folder-open", open_text)
-            button.setFixedWidth(self.OPEN_WIDTH)
-            button.setEnabled(False)
-            button.clicked.connect(lambda checked=False, name=key: self.open_folder(name))
-            self.file_labels[key], self.path_fields[key], self.open_buttons[key] = label, field, button
+            field = PathField(fixed=not changeable)
+            self.file_labels[key], self.path_fields[key] = label, field
             self._paths[key] = None
             grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
-            grid.addWidget(field, row, 1)
-            grid.addWidget(button, row, 2)
+            if changeable:
+                button = icon_button("file-input", QtCore.QCoreApplication.translate("ViewerControls", PICK_FILES[key][1]))
+                button.setFixedWidth(self.PICK_WIDTH)
+                button.clicked.connect(lambda checked=False, name=key: self.pick_file(name))
+                self.pick_buttons[key] = button
+                grid.addWidget(field, row, 1)
+                grid.addWidget(button, row, 2)
+            else:
+                # No button after it, so the field takes that room.
+                grid.addWidget(field, row, 1, 1, 2)
             row += 1
         section.addLayout(grid)
         return section
 
     def _controls_section(self, heading_text):
-        """The actions as key caps beside what they do, under heading_text when there is one."""
+        """The actions as key caps beside what they do, under heading_text when there is one.
+
+        The keys and what they do are the two halves of the section: equal
+        columns, the second starting at the section's middle.
+        """
         section = QVBoxLayout()
         section.setContentsMargins(0, 0, 0, 0)
         section.setSpacing(self.ROW_GAP)
         if heading_text:
-            heading = QLabel(heading_text)
-            heading.setObjectName("controlsSection")
-            section.addWidget(heading)
+            self.controls_heading = QLabel(heading_text)
+            self.controls_heading.setObjectName("controlsHeading")
+            section.addWidget(self.controls_heading)
         grid = QGridLayout()
         grid.setContentsMargins(0, 0, 0, 0)
-        grid.setHorizontalSpacing(self.COLUMN_GAP)
+        grid.setHorizontalSpacing(0)
         grid.setVerticalSpacing(self.ROW_GAP)
+        self.controls_grid = grid
         self.key_caps = []
         self.descriptions = []
         for row, (keys, description) in enumerate(self.rows):
-            grid.addWidget(self._keys_widget(keys), row, 0, Qt.AlignmentFlag.AlignLeft)
+            holder = self._keys_widget(keys)
+            self.key_holders.append(holder)
+            grid.addWidget(holder, row, 0, Qt.AlignmentFlag.AlignLeft)
             label = QLabel(description)
             label.setObjectName("controlsDescription")
             self.descriptions.append(label)
             grid.addWidget(label, row, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        grid.setColumnStretch(0, 1)
         grid.setColumnStretch(1, 1)
         section.addLayout(grid)
-        self.commands_button = QPushButton(QtCore.QCoreApplication.translate("ViewerControls", "List of commands"))
-        self.commands_button.setObjectName("controlsLink")
-        self.commands_button.setIcon(studio_icon("file-text", TOKENS["accent_text"]))
-        self.commands_button.setIconSize(QSize(16, 16))
-        self.commands_button.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.commands_button.clicked.connect(self.open_command_list)
-        self.show_command_list_availability()
-        section.addWidget(self.commands_button, 0, Qt.AlignmentFlag.AlignLeft)
         return section
+
+    def _commands_link(self):
+        """The link that opens the list of commands, for the header's row."""
+        link = QPushButton(QtCore.QCoreApplication.translate("ViewerControls", "List of commands"))
+        link.setObjectName("controlsLink")
+        link.setIcon(studio_icon("file-text", TOKENS["accent_text"]))
+        link.setIconSize(QSize(16, 16))
+        link.setCursor(Qt.CursorShape.PointingHandCursor)
+        link.clicked.connect(self.open_command_list)
+        self.commands_button = link
+        self.show_command_list_availability()
+        return link
+
+    def _share_columns(self):
+        """Make the controls' two columns equal, each as wide as the wider of what they must hold.
+
+        The keys need their widest row and a gap after it, what they do their
+        widest description; the section is twice the larger, so that nothing
+        is cut short and the second column starts at the section's middle.
+        Measured once the widgets are polished.
+        """
+        keys = max((holder.sizeHint().width() for holder in self.key_holders), default=0) + self.COLUMN_GAP
+        what = max((label.sizeHint().width() for label in self.descriptions), default=0)
+        for column in (0, 1):
+            self.controls_grid.setColumnMinimumWidth(column, max(keys, what))
 
     def _keys_widget(self, keys):
         """The key caps of one action, a "+" between each two."""
@@ -413,12 +502,12 @@ class ControlsCard(QWidget):
 
     # ---- the session's values ----
 
-    def refresh(self, check_folders=False):
+    def refresh(self):
         """Show the session as it is now.
 
         It sets only what changed, so it is cheap to call after every
-        threshold step: nothing is looked up on disk unless a path changed,
-        or check_folders asks for every folder to be looked at again.
+        threshold step: a path is written again only when it, or what it is
+        written from, changed, and nothing is looked up on disk.
         """
         if self.session is None:
             return
@@ -430,36 +519,42 @@ class ControlsCard(QWidget):
         self._show(self.count_labels["edges"], total if shown is None else QtCore.QCoreApplication.translate(
             "ViewerControls", "{total} ({shown} shown)").format(total=total, shown=shown))
         inputs = info.get("inputs") or {}
+        directories = info.get("directories") or {}
+        root = info.get("project_root") or ""
+        # What the paths are written from: when it is the same, so are they.
+        bases = (tuple(sorted((str(key), str(value)) for key, value in directories.items())), str(root))
+        rewrite = bases != self._bases
+        self._bases = bases
+        fixed = QtCore.QCoreApplication.translate("ViewerControls", FIXED_NOTE)
         for key, _label in SESSION_FILES:
             path = display_path(inputs.get(key))
-            if path == self._paths[key] and not check_folders:
+            if path == self._paths[key] and not rewrite:
                 continue
-            if path != self._paths[key]:
-                self._paths[key] = path
-                self.path_fields[key].show_path(path)
-            self.open_buttons[key].setEnabled(bool(self.folder_of(path)))
+            self._paths[key] = path
+            self.path_fields[key].show_path(path, alias_form(path, directories, root),
+                                            None if key in PICK_FILES else fixed)
 
     @staticmethod
     def _show(label, text):
         if label.text() != text:
             label.setText(text)
 
-    @staticmethod
-    def folder_of(path):
-        """The folder that holds ``path`` if it exists, else ""; nothing is created."""
-        folder = os.path.dirname(path) if path else ""
-        return folder if folder and os.path.isdir(folder) else ""
+    def pick_file(self, key):
+        """Run the command that picks another file for ``key``, as typed with no argument; returns whether one was run.
 
-    def open_folder(self, key):
-        """Open the folder that holds a file in the file manager; returns whether it did.
-
-        A folder that is gone is not made: the button goes grey instead.
+        "alignment" or "embedding" goes to ``command`` alone, which opens that
+        command's file dialog and does the rest as it does when typed (history,
+        the messages, the rollback of a file that fails). The keyboard stays
+        with the canvas afterwards. A file the card cannot change, or a card
+        given no command, runs nothing.
         """
-        folder = self.folder_of(self._paths.get(key) or "")
-        if not folder:
-            self.open_buttons[key].setEnabled(False)
+        entry = PICK_FILES.get(key)
+        if entry is None or self.command is None:
             return False
-        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+        self.command(entry[0])
+        host = self.parentWidget()
+        if host is not None:
+            host.setFocus()
         return True
 
     def show_command_list_availability(self):
@@ -500,6 +595,7 @@ class ControlsCard(QWidget):
             # layout when its hint changes: polish, then drop every cached hint.
             for widget in (self, *self.findChildren(QWidget)):
                 widget.ensurePolished()
+            self._share_columns()
             self.scroll.updateGeometry()
             for layout in (self.layout(), self.body.layout()):
                 _invalidate(layout)
@@ -620,9 +716,10 @@ def with_separators(total, part):
 class ControlsButton(QPushButton):
     """The info button that opens the session and controls card above itself.
 
-    title is the button's tooltip and the card's heading; text the Viewer's
-    list of actions, headed controls_title next to the session. session and
-    area are the card's (ControlsCard). The card is a child of host, the
+    title is the button's tooltip and the card's accessible name, which the
+    card does not show; text the Viewer's list of actions, headed
+    controls_title next to the session. session, area and command
+    are the card's (ControlsCard). The card is a child of host, the
     canvas, which is the button's parent by default. A click while the card
     is open closes it; so does its ×, and nothing else does.
     """
@@ -630,7 +727,7 @@ class ControlsButton(QPushButton):
     SIZE = 28   # as tall as a field
 
     def __init__(self, title, text, parent=None, *, host=None, session=None, controls_title=None,
-                 area=None):
+                 area=None, command=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsButton")
         self.title = title
@@ -639,6 +736,7 @@ class ControlsButton(QPushButton):
         self.session = session
         self.controls_title = controls_title
         self.area = area
+        self.command = command
         self.card = None
         self.setIcon(studio_icon("info", TOKENS["text_muted"]))
         self.setIconSize(QSize(16, 16))
@@ -679,7 +777,7 @@ class ControlsButton(QPushButton):
         host = self.host or self.parentWidget() or self.window()
         self.card = ControlsCard(self.title, self.text_source, anchor=self, parent=host,
                                  session=self.session, controls_title=self.controls_title,
-                                 area=self.area)
+                                 area=self.area, command=self.command)
         return self.card.open()
 
     def refresh_card(self):

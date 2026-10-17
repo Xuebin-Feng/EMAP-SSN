@@ -376,20 +376,25 @@ def resolve_cache_settings(path, *, allow_3d=False):
         raise ViewerSettingsError(f"Cache provenance: {error}") from error
 
 
-def normalize_viewer_paths(values, project_root, *, require_cache=True):
-    """Resolve Config paths without validating unrelated display/physics controls."""
-    result = deepcopy(values)
-    root = os.path.abspath(project_root)
-
+def _path_resolver(directories, root):
+    """The function that resolves one Config path: an alias is expanded from ``directories``, the rest taken from ``base`` or ``root``."""
     def resolve(value, base=None):
         value = os.path.expandvars(os.path.expanduser(value.strip()))
         for alias, key in ALIASES.items():
             if value == alias or value.startswith((alias + "/", alias + "\\")):
-                value = os.path.join(result[key], value[len(alias):].lstrip("/\\"))
+                value = os.path.join(directories[key], value[len(alias):].lstrip("/\\"))
                 break
         if any(alias in value for alias in ALIASES):
             raise ViewerSettingsError(f"Invalid directory alias: {value}")
         return os.path.abspath(os.path.join(base or root, value))
+    return resolve
+
+
+def normalize_viewer_paths(values, project_root, *, require_cache=True):
+    """Resolve Config paths without validating unrelated display/physics controls."""
+    result = deepcopy(values)
+    root = os.path.abspath(project_root)
+    resolve = _path_resolver(result, root)
 
     for key in ALIASES.values():
         result[key] = resolve(result[key])
@@ -410,6 +415,54 @@ def normalize_viewer_paths(values, project_root, *, require_cache=True):
         raise ViewerSettingsError("CACHE_FILENAME must match TARGET_CACHE_PATH.")
     result["CACHE_FILENAME"] = filename
     return result
+
+
+def _path_parts(path):
+    """An absolute path as its drive and folder names, and each of them as the platform compares it (case, slashes)."""
+    drive, tail = os.path.splitdrive(os.path.abspath(path))
+    names = [drive, *(name for name in tail.split(os.sep) if name)]
+    return names, [os.path.normcase(name) for name in names]
+
+
+def alias_form(path, directories, project_root):
+    """``path`` as the Config's Directories tab writes it: under the deepest folder it is in, as that folder's alias.
+
+    The other way round from resolving: a file in the Networks_EValues folder
+    of INPUT_FILE_DIR is "$input_file$/Networks_EValues/x.h5". ``directories``
+    holds the four base folders by setting key (INPUT_FILE_DIR, CACHE_FILE_DIR,
+    ANALYSIS_RESULT_DIR, EMBED_DIR), as the settings do: absolute, or an alias
+    or a folder in ``project_root``, resolved as normalize_viewer_paths resolves
+    them. A base that is missing or cannot be resolved is left out. The deepest
+    base the path is under names it (the first in ALIASES order when two are
+    one folder), the case and the slash ignored where the platform ignores
+    them. Under no base, a path in ``project_root`` is written relative to it,
+    and any other stays absolute. What follows the alias or the root is written
+    with "/", as the tab writes it. No path is "".
+    """
+    if not path:
+        return ""
+    names, keys = _path_parts(path)
+    best = None  # (names in the base, its alias)
+    directories = directories or {}
+    values = {key: directories.get(key) for key in ALIASES.values()}
+    resolve = _path_resolver(values, os.path.abspath(project_root) if project_root else os.getcwd())
+    for alias, key in ALIASES.items():
+        try:
+            values[key] = resolve(str(values[key])) if values[key] else None
+        except (KeyError, TypeError, ViewerSettingsError):
+            values[key] = None
+        if values[key] is None:
+            continue
+        base = _path_parts(values[key])[1]
+        if keys[:len(base)] == base and (best is None or len(base) > best[0]):
+            best = (len(base), alias)
+    if best is not None:
+        return "/".join([best[1], *names[best[0]:]])
+    if project_root:
+        base = _path_parts(project_root)[1]
+        if keys[:len(base)] == base and len(keys) > len(base):
+            return "/".join(names[len(base):])
+    return os.path.normpath(os.path.abspath(path))
 
 
 def normalize_viewer_settings(document, project_root, *, require_cache=True):
@@ -884,6 +937,7 @@ __all__ = [
     "read_viewer_settings",
     "normalize_viewer_settings",
     "normalize_viewer_paths",
+    "alias_form",
     "resolve_selected_cache",
     "prepare_network",
 ]

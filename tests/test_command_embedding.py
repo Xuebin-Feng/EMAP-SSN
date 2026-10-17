@@ -32,6 +32,8 @@ if str(SRC) not in sys.path:
 import h5py  # noqa: E402
 import numpy as np  # noqa: E402
 from PySide6 import QtWidgets  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 
 import Command_Engine  # noqa: E402
@@ -717,30 +719,71 @@ class InfoCardTests(EmbeddingFixture, unittest.TestCase):
         return viewer
 
     def row(self, card):
-        return card.path_fields["embedding"].text(), card.open_buttons["embedding"].isEnabled()
+        """The Embedding row: the path it shows, and its tooltip, the full path."""
+        return card.path_fields["embedding"].text(), card.path_fields["embedding"].toolTip()
+
+    @staticmethod
+    def shows(path):
+        """What the row holds for a file in the embedding folder: its name under $embedding$, and the full path."""
+        return "$embedding$/" + os.path.basename(path), display_path(path.replace("\\", "/"))
 
     def test_the_embedding_row_shows_the_new_file_after_a_switch_and_keeps_the_old_one_after_a_rollback(self):
         viewer = self.make_card_viewer()
         card = viewer.controls_button.toggle_card()
         self.app.processEvents()
-        self.assertEqual(self.row(card), ("", False))
+        self.assertEqual(self.row(card), ("", ""))
 
         self.assertEqual(run(viewer, self.first)[1], [])
-        self.assertEqual(self.row(card), (display_path(self.first.replace("\\", "/")), True))
+        self.assertEqual(self.row(card), self.shows(self.first))
 
         self.assertEqual(run(viewer, self.second)[1], [])
-        self.assertEqual(self.row(card), (display_path(self.second.replace("\\", "/")), True))
+        self.assertEqual(self.row(card), self.shows(self.second))
 
         # A refused file leaves the row on the file in use, and the card too says which.
         run(viewer, self.write_unusable("text.h5", "text"))
-        self.assertEqual(self.row(card), (display_path(self.second.replace("\\", "/")), True))
+        self.assertEqual(self.row(card), self.shows(self.second))
+
+    def test_the_pick_button_runs_embedding_through_the_viewers_command_path_and_the_row_follows(self):
+        viewer = self.make_card_viewer()
+        viewer.command_history = []
+        viewer.history_file = os.path.join(self.root, "history.txt")
+        viewer.broadcast_metadata_state = lambda: None
+        viewer.update_console_background = lambda: None
+        card = viewer.controls_button.toggle_card()
+        self.app.processEvents()
+        self.assertEqual(self.row(card), ("", ""))
+
+        def pick(chosen):
+            with mock.patch.object(QtWidgets.QFileDialog, "getOpenFileName", return_value=(chosen, "")) as dialog, \
+                    reported_outcomes() as (succeeded, failed), contextlib.redirect_stdout(io.StringIO()):
+                QTest.mouseClick(card.pick_buttons["embedding"], Qt.MouseButton.LeftButton)
+            self.app.processEvents()
+            dialog.assert_called_once()
+            return succeeded, failed
+
+        # The button typed "embedding" alone: its dialog opened, the file loaded, the row shows it.
+        succeeded, failed = pick(self.first)
+        self.assertTrue(succeeded.called)
+        self.assertFalse(failed.called)
+        self.assertEqual(viewer.command_history, ["embedding"])
+        self.assertEqual(self.row(card), self.shows(self.first))
+        # Another file replaces it; a refused one, and a cancelled dialog, leave the row on the file in use.
+        pick(self.second)
+        self.assertEqual(self.row(card), self.shows(self.second))
+        succeeded, failed = pick(self.write_unusable("text.h5", "text"))
+        self.assertTrue(failed.called)
+        self.assertEqual(self.row(card), self.shows(self.second))
+        pick("")
+        self.assertEqual(self.row(card), self.shows(self.second))
+        # The same command typed twice in a row is in the history once, as for any typed command.
+        self.assertEqual(viewer.command_history, ["embedding"])
 
     def test_a_card_opened_after_a_switch_shows_it_too(self):
         viewer = self.make_card_viewer()
         run(viewer, self.first)
         card = viewer.controls_button.toggle_card()
         self.app.processEvents()
-        self.assertEqual(self.row(card)[0], display_path(self.first.replace("\\", "/")))
+        self.assertEqual(self.row(card), self.shows(self.first))
 
     def test_the_command_costs_a_closed_card_nothing(self):
         viewer = self.make_card_viewer()

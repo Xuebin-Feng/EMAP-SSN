@@ -6,6 +6,7 @@ exports leave visual preferences out."""
 import copy
 import hashlib
 import json
+import os
 import pathlib
 import sys
 import tempfile
@@ -26,6 +27,7 @@ from desktop.Viewer_State import (
     EMBEDDING_ALIAS,
     VIEWER_SECTIONS,
     ViewerSettingsError,
+    alias_form,
     decode_document,
     encode_document,
     get_viewer_settings_schema,
@@ -325,6 +327,126 @@ class EmbeddingRootAliasTests(unittest.TestCase):
                 # A root that names itself is circular, and so refused too.
                 with self.assertRaisesRegex(ViewerSettingsError, "Invalid directory alias"):
                     self.resolve(**{key: f"{alias}/folder"})
+
+
+class AliasFormTests(unittest.TestCase):
+    """alias_form writes a path the way the Config's Directories tab does: under the deepest base folder it
+    is in, as that folder's alias; failing that relative to the project root; failing that in full."""
+
+    def setUp(self):
+        # Only strings are compared; nothing here is read from the disk.
+        self.root = pathlib.Path(os.path.abspath(os.sep)) / "alias_project"
+        self.bases = {
+            "INPUT_FILE_DIR": str(self.root / "Input_Files"),
+            "CACHE_FILE_DIR": str(self.root / "Cache_Files"),
+            "ANALYSIS_RESULT_DIR": str(self.root / "Analysis_Results"),
+            "EMBED_DIR": str(self.root / "Embeddings"),
+        }
+
+    def form(self, path, bases=None, root="default"):
+        return alias_form(str(path), self.bases if bases is None else bases,
+                          str(self.root) if root == "default" else root)
+
+    def test_each_base_folder_names_the_files_under_it_and_the_rest_is_written_with_slashes(self):
+        for alias, key in ALIASES.items():
+            with self.subTest(alias=alias):
+                folder = pathlib.Path(self.bases[key])
+                self.assertEqual(self.form(folder / "x.h5"), f"{alias}/x.h5")
+                self.assertEqual(self.form(folder / "Networks_EValues" / "deep" / "x.h5"),
+                                 f"{alias}/Networks_EValues/deep/x.h5")
+                # The folder itself is the bare alias, as the tab writes it.
+                self.assertEqual(self.form(folder), alias)
+
+    def test_the_deepest_base_names_a_file_and_the_first_alias_when_two_are_one_folder(self):
+        nested = dict(self.bases, EMBED_DIR=str(self.root / "Input_Files" / "Embeddings"),
+                      ANALYSIS_RESULT_DIR=str(self.root / "Input_Files" / "Embeddings" / "Results"))
+        inside = self.root / "Input_Files"
+        self.assertEqual(self.form(inside / "Embeddings" / "e.h5", nested), "$embedding$/e.h5")
+        self.assertEqual(self.form(inside / "Embeddings" / "Results" / "r.csv", nested), "$analysis_result$/r.csv")
+        self.assertEqual(self.form(inside / "Sequence_Sets" / "s.fasta", nested), "$input_file$/Sequence_Sets/s.fasta")
+        # The deeper one wins whichever order the folders are listed in.
+        reordered = dict(reversed(list(nested.items())))
+        self.assertEqual(self.form(inside / "Embeddings" / "e.h5", reordered), "$embedding$/e.h5")
+        # One folder under two aliases: the first of them.
+        same = dict(self.bases, EMBED_DIR=self.bases["INPUT_FILE_DIR"])
+        self.assertEqual(self.form(inside / "x.h5", same), "$input_file$/x.h5")
+
+    def test_a_folder_whose_name_only_starts_like_a_base_is_not_under_it(self):
+        self.assertEqual(self.form(self.root / "Input_Files2" / "x.h5"), "Input_Files2/x.h5")
+        self.assertEqual(self.form(self.root / "Input_Files_backup" / "x.h5"), "Input_Files_backup/x.h5")
+
+    def test_case_and_slashes_do_not_matter_where_the_platform_ignores_them(self):
+        path = str(self.root / "INPUT_files" / "Networks_EValues" / "X.h5")
+        if os.path.normcase("A") == "a":  # Windows: case-insensitive, and either slash is one
+            self.assertEqual(self.form(path), "$input_file$/Networks_EValues/X.h5")
+            self.assertEqual(self.form(path.replace("\\", "/")), "$input_file$/Networks_EValues/X.h5")
+            slashes = {key: value.replace("\\", "/").upper() for key, value in self.bases.items()}
+            self.assertEqual(self.form(path, slashes), "$input_file$/Networks_EValues/X.h5")
+            # The file's own spelling is kept, not folded.
+            self.assertEqual(self.form(str(self.root / "input_files" / "ReadMe.TXT")), "$input_file$/ReadMe.TXT")
+        else:  # a case-sensitive file system: another case is another folder
+            self.assertEqual(self.form(path), "INPUT_files/Networks_EValues/X.h5")
+        self.assertEqual(self.form(self.root / "Input_Files" / "Networks_EValues" / "X.h5"),
+                         "$input_file$/Networks_EValues/X.h5")
+
+    @unittest.skipUnless(os.name == "nt", "drive letters and UNC shares are Windows paths")
+    def test_another_drive_is_not_under_a_base(self):
+        other = "D:" if self.root.drive.upper() != "D:" else "E:"
+        self.assertEqual(self.form(other + "\\alias_project\\Input_Files\\x.h5"),
+                         other + "\\alias_project\\Input_Files\\x.h5")
+        self.assertEqual(self.form("\\\\server\\share\\Input_Files\\x.h5", {"INPUT_FILE_DIR": "\\\\server\\share\\Input_Files"},
+                                   None), "$input_file$/x.h5")
+
+    def test_without_a_base_a_file_in_the_project_is_relative_to_its_root_and_any_other_is_absolute(self):
+        self.assertEqual(self.form(self.root / "somewhere" / "deep" / "c.h5"), "somewhere/deep/c.h5")
+        self.assertEqual(self.form(self.root / "c.h5"), "c.h5")
+        outside = self.root.parent / "other_project" / "Input_Files" / "x.h5"
+        self.assertEqual(self.form(outside), str(outside))
+        # The root itself is no file's relative path, and a root that is not given leaves the path in full.
+        self.assertEqual(self.form(self.root), str(self.root))
+        self.assertEqual(self.form(self.root / "c.h5", root=None), str(self.root / "c.h5"))
+        self.assertEqual(self.form(self.root / "c.h5", root=""), str(self.root / "c.h5"))
+        # A path with ".." in it is the path it leads to; a relative one is made absolute first.
+        self.assertEqual(self.form(self.root / "Cache_Files" / ".." / "Input_Files" / "x.h5"), "$input_file$/x.h5")
+        self.assertEqual(self.form("relative.h5", {}, None), os.path.abspath("relative.h5"))
+        self.assertEqual(self.form("", self.bases), "")
+
+    def test_the_base_folders_are_resolved_as_the_viewer_resolves_them(self):
+        # As the settings hold them: a folder of the project root, or an alias of another base.
+        raw = {"INPUT_FILE_DIR": "inputs", "CACHE_FILE_DIR": "Cache_Files", "ANALYSIS_RESULT_DIR": "Analysis_Results",
+               "EMBED_DIR": "$input_file$/Embeddings"}
+        self.assertEqual(self.form(self.root / "inputs" / "Embeddings" / "e.h5", raw), "$embedding$/e.h5")
+        self.assertEqual(self.form(self.root / "inputs" / "s.fasta", raw), "$input_file$/s.fasta")
+        self.assertEqual(self.form(self.root / "Cache_Files" / "v.h5", raw), "$cache_file$/v.h5")
+        # A base that is missing, empty or cannot be resolved is left out, and the others still work.
+        for broken in ({"INPUT_FILE_DIR": None}, {"INPUT_FILE_DIR": ""}, {"INPUT_FILE_DIR": "$cache_file$/$input_file$"},
+                       {"INPUT_FILE_DIR": "$input_file$/loop"}):
+            with self.subTest(broken=broken):
+                bases = dict(self.bases, **broken)
+                self.assertEqual(self.form(self.root / "Cache_Files" / "v.h5", bases), "$cache_file$/v.h5")
+                self.assertEqual(self.form(self.root / "Input_Files" / "s.fasta", bases), "Input_Files/s.fasta")
+        self.assertEqual(self.form(self.root / "Cache_Files" / "v.h5", {"CACHE_FILE_DIR": self.bases["CACHE_FILE_DIR"]}),
+                         "$cache_file$/v.h5")
+        # A base that needs a missing one cannot be written, and costs nothing else.
+        dependent = {"EMBED_DIR": "$input_file$/Embeddings", "CACHE_FILE_DIR": self.bases["CACHE_FILE_DIR"]}
+        self.assertEqual(self.form(self.root / "Cache_Files" / "v.h5", dependent), "$cache_file$/v.h5")
+        self.assertEqual(self.form(self.root / "Input_Files" / "Embeddings" / "e.h5", dependent),
+                         "Input_Files/Embeddings/e.h5")
+        # No base folders at all (None or an empty mapping): the root, then the full path.
+        self.assertEqual(alias_form(str(self.root / "c.h5"), None, str(self.root)), "c.h5")
+        self.assertEqual(alias_form(str(self.root / "c.h5"), {}, str(self.root)), "c.h5")
+
+    def test_resolving_the_alias_form_gives_the_path_back(self):
+        values = copy.deepcopy(DEFAULTS)
+        values.update(self.bases, NODE_FASTA_FILE="set.fasta")
+        for path in (self.root / "Input_Files" / "Networks_EValues" / "net.h5",
+                     self.root / "Cache_Files" / "Saved_Layouts" / "c" / "version_00.h5",
+                     self.root / "Analysis_Results" / "r" / "x.h5", self.root / "Embeddings" / "e.h5"):
+            with self.subTest(path=path.name):
+                values["INPUT_HDF5"] = self.form(path)
+                self.assertIn("$", values["INPUT_HDF5"])
+                resolved = normalize_viewer_paths(values, self.root, require_cache=False)
+                self.assertEqual(pathlib.Path(resolved["INPUT_HDF5"]), path)
 
 
 if __name__ == "__main__":

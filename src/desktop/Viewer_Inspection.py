@@ -526,13 +526,22 @@ class ViewerInspectionService:
             "layout_cache": json_value(layout_cache),
         }
 
-    def session_overview(self):
-        """The counts and input files the Viewer's info card shows.
+    def _base_directories(self):
+        """The folders the aliases stand for ($input_file$ and the rest), as the settings hold them, by setting key."""
+        from desktop.Viewer_State import ALIASES
+        configuration = self._configuration
+        values = {key: getattr(configuration, key, None) for key in ALIASES.values()}
+        return {key: str(value) for key, value in values.items() if value}
 
-        It is read while the card is open, after every threshold step and
-        visibility change, so it costs no more than a count over the
-        visibility mask: the edge counts are the lengths the Viewer already
-        holds.
+    def session_overview(self):
+        """The counts, input files and base folders the Viewer's info card shows.
+
+        The card writes each file under the base folder it is in
+        (desktop.Viewer_State.alias_form), so the overview carries the base
+        folders and the project root with the files. It is read while the card
+        is open, after every threshold step and visibility change, so it costs
+        no more than a count over the visibility mask: the edge counts are the
+        lengths the Viewer already holds.
         """
         node_count = self._node_count()
         return {
@@ -541,6 +550,8 @@ class ViewerInspectionService:
             "edge_count": self._edge_count(),
             "shown_edge_count": self._shown_edge_count(),
             "inputs": self._input_paths(),
+            "directories": self._base_directories(),
+            "project_root": str(getattr(self._configuration, "PROJECT_ROOT", "") or ""),
         }
 
     def get_summary(self):

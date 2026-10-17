@@ -18,7 +18,9 @@ follows the slider and moves it.
 import os
 from pathlib import Path
 import sys
+import tempfile
 import time
+import types
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -32,6 +34,7 @@ if str(SRC) not in sys.path:
 
 import EMAPSSN_Viewer  # noqa: E402
 from EMAPSSN_Viewer import SIDEBAR_SLIDE_MS, MainViewer, _sidebar_room  # noqa: E402
+from PySide6 import QtWidgets  # noqa: E402
 from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
@@ -339,7 +342,35 @@ class SliderOverlayTests(unittest.TestCase):
         self.assertEqual(card.count_labels["edges"].text(), "6")
         self.assertEqual(card.path_fields["node_fasta"].text(), os.path.abspath("set.fasta"))
         self.assertEqual(card.path_fields["network_hdf5"].text(), "")
-        self.assertFalse(card.open_buttons["msa"].isEnabled())
+        # No alignment is loaded: its field says so, and its button is the way to choose one.
+        self.assertEqual(card.path_fields["msa"].text(), "")
+        self.assertTrue(card.pick_buttons["msa"].isEnabled())
+        self.assertEqual(set(card.pick_buttons), {"msa", "embedding"})
+
+    def test_the_info_card_writes_the_paths_with_the_viewers_base_folders(self):
+        root = os.path.abspath("sidebar_project")
+        viewer = self.make_card_viewer()
+        configuration = viewer.viewer_inspection._configuration
+        configuration.PROJECT_ROOT = root
+        configuration.INPUT_FILE_DIR = os.path.join(root, "Input_Files")
+        configuration.CACHE_FILE_DIR = os.path.join(root, "Cache_Files")
+        configuration.EMBED_DIR = os.path.join(root, "Embeddings")
+        configuration.NODE_FASTA_FILE = os.path.join(root, "Input_Files", "Sequence_Sets", "set.fasta")
+        configuration.EMBED_FILE = os.path.join(root, "Embeddings", "e.h5")
+        configuration.TARGET_CACHE_PATH = os.path.join(root, "elsewhere", "version_00.h5")
+        card = viewer.controls_button.toggle_card()
+        self.app.processEvents()
+        self.assertEqual(card.path_fields["node_fasta"].text(), "$input_file$/Sequence_Sets/set.fasta")
+        # The tooltip is the whole path, and for a file fixed for the session a line that says so.
+        self.assertEqual(card.path_fields["node_fasta"].toolTip().splitlines()[0], configuration.NODE_FASTA_FILE)
+        self.assertEqual(len(card.path_fields["node_fasta"].toolTip().splitlines()), 2)
+        self.assertEqual(card.path_fields["embedding"].text(), "$embedding$/e.h5")
+        self.assertEqual(card.path_fields["layout_cache"].text(), "elsewhere/version_00.h5")
+        # The embedding changes, as a command does it: the card's row follows at the next refresh.
+        configuration.EMBED_FILE = os.path.join(root, "Embeddings", "other.h5")
+        viewer._refresh_session_card()
+        self.assertEqual(card.path_fields["embedding"].text(), "$embedding$/other.h5")
+        self.assertEqual(card.path_fields["embedding"].toolTip(), configuration.EMBED_FILE)
 
     def test_the_info_card_follows_the_threshold_and_hidden_nodes_while_open(self):
         viewer = self.make_card_viewer()
@@ -405,12 +436,166 @@ class SliderOverlayTests(unittest.TestCase):
     def test_the_viewers_overview_reads_the_edge_layers_count_and_the_settings_paths(self):
         viewer = self.make_card_viewer()
         overview = viewer._session_overview()
-        self.assertEqual({key: value for key, value in overview.items() if key != "inputs"},
+        self.assertEqual({key: value for key, value in overview.items()
+                          if key not in ("inputs", "directories", "project_root")},
                          {"node_count": 5, "visible_node_count": 5, "edge_count": 6, "shown_edge_count": 6})
         self.assertEqual(overview["inputs"]["node_fasta"], "set.fasta")
         # Before the Viewer builds its inspection service, the card builds one on demand.
         del viewer.viewer_inspection
         self.assertEqual(viewer._session_overview()["node_count"], 5)
+
+    # ---- the pick buttons, through the Viewer's own commands ----
+
+    def make_command_viewer(self):
+        """A card viewer whose commands run for real: Command_Engine's dispatch and the alignment command.
+
+        Only the file dialog and the alignment loader are stand-ins: the loader
+        reads cfg.MSA_FILE as the Viewer's does and fails for "broken.fasta".
+        """
+        import EMAPSSN_Config as cfg
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name)
+        msa_folder = root / "Input_Files" / "Multiple_Alignments"
+        msa_folder.mkdir(parents=True)
+        files = {name: msa_folder / name for name in ("first.fasta", "second.fasta", "broken.fasta")}
+        for path in files.values():
+            path.write_text(">a\nAC\n")
+        patcher = mock.patch.multiple(
+            cfg, create=True, PROJECT_ROOT=str(root), INPUT_FILE_DIR=str(root / "Input_Files"),
+            CACHE_FILE_DIR=str(root / "Cache_Files"), ANALYSIS_RESULT_DIR=str(root / "Analysis_Results"),
+            EMBED_DIR=str(root / "Embeddings"), NODE_FASTA_FILE=str(root / "Input_Files" / "set.fasta"),
+            INPUT_HDF5=str(root / "Input_Files" / "net.h5"), MSA_FILE=str(files["first.fasta"]), EMBED_FILE="",
+            TARGET_CACHE_PATH=str(root / "Cache_Files" / "version_00.h5"), MSA_DIR=str(msa_folder))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        viewer = self.make_card_viewer()
+        viewer.viewer_inspection = EMAPSSN_Viewer.ViewerInspectionService(viewer, cfg)
+        viewer.command_history = []
+        viewer.history_file = str(root / "history.txt")
+        viewer.broadcast_metadata_state = lambda: None
+        viewer.update_console_background = lambda: None
+        viewer.active_reference = None
+        viewer.alignment = SimpleNamespace(aln=object(), matched_headers=["a"], has_reference=False)
+
+        def load_global_alignment():
+            if Path(cfg.MSA_FILE).name == "broken.fasta":
+                viewer.alignment = SimpleNamespace(aln=None, load_failure="not an alignment")
+            else:
+                viewer.alignment = SimpleNamespace(aln=object(), matched_headers=["a"], has_reference=False)
+
+        viewer.load_global_alignment = load_global_alignment
+        return viewer, cfg, files
+
+    def pick(self, viewer, key, chosen):
+        """Click a pick button with the file dialog answering ``chosen``; returns the dialog's mock."""
+        card = viewer.controls_button.card or viewer.controls_button.toggle_card()
+        self.app.processEvents()
+        with mock.patch.object(QtWidgets.QFileDialog, "getOpenFileName",
+                               return_value=("" if chosen is None else str(chosen), "")) as dialog, \
+                mock.patch("builtins.print"):
+            QTest.mouseClick(card.pick_buttons[key], Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        return dialog
+
+    def test_the_viewer_gives_the_card_its_own_command_path(self):
+        viewer = self.make_viewer()
+        self.assertEqual(viewer.controls_button.command, viewer.process_command)
+
+    def test_the_alignment_pick_button_runs_the_alignment_command_and_the_row_follows(self):
+        viewer, cfg, files = self.make_command_viewer()
+        card = viewer.controls_button.toggle_card()
+        self.app.processEvents()
+        self.assertEqual(card.path_fields["msa"].text(), "$input_file$/Multiple_Alignments/first.fasta")
+        with mock.patch.object(EMAPSSN_Viewer.Command_Engine, "command_succeeded") as succeeded:
+            dialog = self.pick(viewer, "msa", files["second.fasta"])
+        # The command is the typed one: its dialog opened, it is in the history, it reported success.
+        dialog.assert_called_once()
+        self.assertEqual(viewer.command_history, ["alignment"])
+        succeeded.assert_called_once()
+        self.assertIn("second.fasta", succeeded.call_args.args[1])
+        self.assertEqual(os.path.normpath(cfg.MSA_FILE), str(files["second.fasta"]))
+        # The row shows the new file, with its alias, and its tooltip is the whole path.
+        self.assertEqual(card.path_fields["msa"].text(), "$input_file$/Multiple_Alignments/second.fasta")
+        self.assertEqual(card.path_fields["msa"].toolTip(), str(files["second.fasta"]))
+        # The other rows are as they were.
+        self.assertEqual(card.path_fields["node_fasta"].text(), "$input_file$/set.fasta")
+        self.assertEqual(card.path_fields["embedding"].text(), "")
+
+    def test_a_file_the_alignment_command_refuses_or_a_cancelled_dialog_leaves_the_row_alone(self):
+        viewer, cfg, files = self.make_command_viewer()
+        card = viewer.controls_button.toggle_card()
+        self.app.processEvents()
+        first = "$input_file$/Multiple_Alignments/first.fasta"
+        with mock.patch.object(EMAPSSN_Viewer.Command_Engine, "command_failed") as failed, \
+                mock.patch.object(EMAPSSN_Viewer.Command_Engine, "command_succeeded") as succeeded:
+            self.pick(viewer, "msa", files["broken.fasta"])
+        # The command failed and put the previous alignment back, so the row shows the previous file.
+        failed.assert_called()
+        succeeded.assert_not_called()
+        self.assertEqual(os.path.normpath(cfg.MSA_FILE), str(files["first.fasta"]))
+        self.assertEqual(card.path_fields["msa"].text(), first)
+        with mock.patch.object(EMAPSSN_Viewer.Command_Engine, "command_cancelled") as cancelled:
+            self.pick(viewer, "msa", None)
+        cancelled.assert_called_once()
+        self.assertEqual(card.path_fields["msa"].text(), first)
+        # Typed twice in a row, it is in the history once, as for a typed command.
+        self.assertEqual(viewer.command_history, ["alignment"])
+
+    def test_the_embedding_pick_button_types_embedding_and_the_row_follows_a_changed_file(self):
+        viewer, cfg, files = self.make_command_viewer()
+        card = viewer.controls_button.toggle_card()
+        typed = []
+        other = os.path.join(cfg.EMBED_DIR, "e.h5")
+
+        def embedding_command(viewer_, args):
+            # Stands in for the embedding command, which is not part of this change: it switches the file.
+            typed.append(args)
+            cfg.EMBED_FILE = other
+
+        stand_in = types.ModuleType("commands.embedding")
+        stand_in.run = embedding_command
+        # Set and removed by hand: patch.dict(sys.modules) would drop what the dispatch imports meanwhile.
+        sys.modules["commands.embedding"] = stand_in
+        self.addCleanup(sys.modules.pop, "commands.embedding", None)
+        # No real dialog may open, whatever command the button types.
+        with mock.patch("builtins.print"), \
+                mock.patch.object(QtWidgets.QFileDialog, "getOpenFileName", return_value=("", "")):
+            QTest.mouseClick(card.pick_buttons["embedding"], Qt.MouseButton.LeftButton)
+        self.app.processEvents()
+        self.assertEqual(typed, [[]])   # the command alone: no argument
+        self.assertEqual(viewer.command_history, ["embedding"])
+        self.assertEqual(card.path_fields["embedding"].text(), "$embedding$/e.h5")
+
+    def test_any_command_that_changes_a_file_the_card_lists_updates_its_row(self):
+        # Not only the pick buttons: a typed command, or one from a script or an agent, goes the same way.
+        viewer, cfg, files = self.make_command_viewer()
+        card = viewer.controls_button.toggle_card()
+        self.app.processEvents()
+        with mock.patch("builtins.print"):
+            viewer.process_command(f'alignment "{files["second.fasta"]}"')
+        self.assertEqual(card.path_fields["msa"].text(), "$input_file$/Multiple_Alignments/second.fasta")
+        with mock.patch("builtins.print"):
+            viewer.process_command("alignment first.fasta")
+        self.assertEqual(card.path_fields["msa"].text(), "$input_file$/Multiple_Alignments/first.fasta")
+
+    def test_the_keyboard_stays_with_the_canvas_after_a_pick(self):
+        viewer, cfg, files = self.make_command_viewer()
+        native = viewer.canvas.native
+        native.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        native.activateWindow()
+        native.setFocus()
+        self.app.processEvents()
+        has_keyboard = native.hasFocus()
+        # Whatever the platform does with focus, the canvas is given the keyboard after the command ran.
+        with mock.patch.object(native, "setFocus") as set_focus:
+            self.pick(viewer, "msa", files["second.fasta"])
+        set_focus.assert_called_once_with()
+        if has_keyboard:   # and where the platform gives a window the keyboard, it is the canvas that has it
+            native.setFocus()
+            self.pick(viewer, "msa", files["first.fasta"])
+            self.assertIs(QApplication.focusWidget(), native)
 
     def test_the_threshold_box_and_the_slider_follow_each_other(self):
         viewer = self.make_viewer(low=0.0, high=100.0, current=0.0)
@@ -460,6 +645,101 @@ class SliderOverlayTests(unittest.TestCase):
         with mock.patch.object(box, "hasFocus", return_value=True):
             box.stepBy(1)
         self.assertEqual(viewer.canvas.native.setFocus.call_count, 2)
+
+
+class CommandRefreshesInfoCardTests(unittest.TestCase):
+    """Command_Engine tells the info card to refresh after every command, however it ends.
+
+    A command can change a file the card lists (alignment does), and none of
+    the card's other triggers (the threshold, hiding, the HUD) fires for it.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+
+    def setUp(self):
+        from tests.viewer_fixtures import Viewer
+
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.events = []
+        self.viewer = Viewer(folder.name)
+        self.viewer._refresh_session_card = lambda: self.events.append("refresh")
+
+    def add_command(self, name, run):
+        module = types.ModuleType(f"commands.{name}")
+        module.run = run
+        # Set and removed by hand: patch.dict(sys.modules) would drop what the dispatch imports meanwhile.
+        sys.modules[f"commands.{name}"] = module
+        self.addCleanup(sys.modules.pop, f"commands.{name}", None)
+
+    def run_command(self, command, dispatch="process_command"):
+        with mock.patch("builtins.print"):
+            if dispatch == "process_command":
+                self.viewer.process_command(command)
+            else:  # as a command script runs its lines
+                EMAPSSN_Viewer.Command_Engine._dispatch_user_command(self.viewer, command, record_history=False)
+
+    def test_the_card_refreshes_once_after_a_command_that_ran(self):
+        self.add_command("cardprobe_ok", lambda viewer, args: self.events.append("ran"))
+        self.run_command("cardprobe_ok")
+        self.assertEqual(self.events, ["ran", "refresh"])
+        self.events.clear()
+        # A script's line, which does not go through execute_command, refreshes it too.
+        self.run_command("cardprobe_ok", dispatch="script")
+        self.assertEqual(self.events, ["ran", "refresh"])
+
+    def test_the_card_refreshes_when_the_command_fails_after_changing_something(self):
+        def run(viewer, args):
+            self.events.append("changed")
+            raise RuntimeError("boom")
+
+        self.add_command("cardprobe_fail", run)
+        with EMAPSSN_Viewer.Command_Engine.recorded_outcome() as outcome:
+            self.run_command("cardprobe_fail")
+        self.assertEqual(outcome["status"], "failed")
+        self.assertEqual(self.events, ["changed", "refresh"])
+
+    def test_the_card_refreshes_after_an_unknown_command_and_one_without_an_entry_point(self):
+        self.run_command("cardprobe_nosuchcommand")
+        self.assertEqual(self.events, ["refresh"])
+        self.events.clear()
+        self.add_command("cardprobe_norun", None)
+        del sys.modules["commands.cardprobe_norun"].run
+        self.run_command("cardprobe_norun")
+        self.assertEqual(self.events, ["refresh"])
+
+    def test_a_card_that_cannot_refresh_does_not_turn_a_command_into_a_failure(self):
+        def run(viewer, args):
+            EMAPSSN_Viewer.Command_Engine.command_succeeded(viewer, "done")
+
+        self.add_command("cardprobe_done", run)
+        self.viewer._refresh_session_card = mock.Mock(side_effect=RuntimeError("card gone"))
+        with EMAPSSN_Viewer.Command_Engine.recorded_outcome() as outcome:
+            self.run_command("cardprobe_done")
+        self.assertEqual(outcome["status"], "succeeded")
+        self.viewer._refresh_session_card.assert_called_once_with()
+
+    def test_a_viewer_with_no_card_runs_commands_as_before(self):
+        del self.viewer._refresh_session_card
+        self.add_command("cardprobe_ok", lambda viewer, args: self.events.append("ran"))
+        with EMAPSSN_Viewer.Command_Engine.recorded_outcome() as outcome:
+            self.run_command("cardprobe_ok")
+        self.assertEqual(self.events, ["ran"])
+
+    def test_the_card_costs_a_closed_card_nothing_per_command(self):
+        # The real hook, with the card closed: no overview is read.
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.controls_button = SimpleNamespace(refresh_card=mock.Mock())
+        viewer._refresh_session_card()
+        viewer.controls_button.refresh_card.assert_called_once_with()
+        viewer.controls_button = ControlsButton("x", "[A] b", None)
+        viewer._session_overview = mock.Mock()
+        viewer.controls_button.session = viewer._session_overview
+        for _ in range(100):
+            viewer._refresh_session_card()
+        viewer._session_overview.assert_not_called()
 
 
 if __name__ == "__main__":

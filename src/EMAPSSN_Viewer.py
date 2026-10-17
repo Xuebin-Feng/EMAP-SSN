@@ -1106,7 +1106,8 @@ class MainViewer:
         # The info button at the slider's start opens the session (the nodes,
         # edges and files) and the mouse and keyboard controls on a card above
         # it. The card is a child of the canvas, so it stays open while the
-        # network is used; _refresh_session_card keeps it current.
+        # network is used; _refresh_session_card keeps it current (after a
+        # command too: Command_Engine calls it).
         self.controls_button = ControlsButton(
             translate("Viewer", "Session and controls"),
             translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes"),
@@ -1114,6 +1115,8 @@ class MainViewer:
             session=self._session_overview,
             controls_title=translate("Viewer", "Mouse and keyboard controls"),
             area=self._session_card_area,
+            # The card's pick buttons type "alignment" and "embedding": the same command path.
+            command=self.process_command,
         )
         overlay_layout.addWidget(self.controls_button)
         overlay_layout.addSpacing(SLIDER_INFO_GAP - overlay_layout.spacing())
@@ -1194,8 +1197,9 @@ class MainViewer:
     def _refresh_session_card(self):
         """Bring the info card up to date, if it is open: at no cost when it is not.
 
-        update_edges (the threshold, hide and undo) and _update_hud_elements
-        (every change to the nodes) call it. It reads counts the Viewer
+        update_edges (the threshold, hide and undo), _update_hud_elements
+        (every change to the nodes) and Command_Engine, after every command
+        (one may change a file the card shows, as alignment does), call it. It reads counts the Viewer
         already holds, so it adds no work per edge.
         """
         button = getattr(self, 'controls_button', None)

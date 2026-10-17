@@ -2363,7 +2363,7 @@ Command-line usage:
         <location filename="../../../commands/alignment.py" line="+49"/>
         <location filename="../../../commands/cluster.py" line="+304"/>
         <location filename="../../../commands/color.py" line="+95"/>
-        <location filename="../../../commands/embedding.py" line="+80"/>
+        <location filename="../../../commands/embedding.py" line="+57"/>
         <location filename="../../../commands/esmfold.py" line="-59"/>
         <location filename="../../../commands/export.py" line="+107"/>
         <location filename="../../../commands/group.py" line="+138"/>
@@ -4092,7 +4092,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1284"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1288"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -5992,17 +5992,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">无法读取 embedding 文件：{path}</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+156"/>
         <source>No embedding is loaded.</source>
         <translation type="unfinished">未加载 embedding。</translation>
     </message>
     <message>
-        <location filename="../../../commands/embedding.py" line="-103"/>
+        <location line="-32"/>
         <source>NOTE: The network was built with {network}, not {model}. The Viewer accepts this; embedding commands use the embedding&apos;s model.</source>
         <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location filename="../../../commands/embedding.py" line="-57"/>
         <source>Embedding selection cancelled.</source>
         <translation type="unfinished">已取消选择 embedding。</translation>
     </message>
@@ -6012,24 +6012,24 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">错误：找不到 embedding 文件“{file}”（已检查绝对路径、相对路径和 {folder}）。</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location filename="../../../Embedding_Manager.py" line="-21"/>
         <source>Embedding model: {model} ({saving_mode}).</source>
         <translation type="unfinished">Embedding 模型：{model}（{saving_mode}）。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
         <source>Embedding model: {model} (width {width}, {saving_mode}).</source>
         <translation type="unfinished">Embedding 模型：{model}（宽度 {width}，{saving_mode}）。</translation>
     </message>
     <message numerus="yes">
-        <location line="+10"/>
+        <location line="-10"/>
         <source>%n node(s) not embedded: the file holds a different sequence.</source>
         <translation type="unfinished">
             <numerusform>%n 个节点没有 embedding：文件中的序列不同。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location filename="../../../commands/embedding.py" line="+51"/>
         <source>Loaded {file}: {embedded}/{total} embedded.</source>
         <translation type="unfinished">已加载 {file}：{embedded}/{total} 个节点有 embedding。</translation>
     </message>
@@ -8577,7 +8577,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../commands/embedding.py" line="-147"/>
+        <location filename="../../../commands/embedding.py" line="-126"/>
         <location filename="../../../commands/run.py" line="-66"/>
         <source>All Files (*)</source>
         <translation type="unfinished">所有文件 (*)</translation>
@@ -8634,7 +8634,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-152"/>
+        <location line="-155"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -8649,12 +8649,12 @@ Fedora / RHEL：
         <translation type="unfinished">会话与操作</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+48"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1774"/>
+        <location line="+1775"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -8744,7 +8744,7 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+102"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+111"/>
         <source>Sequence Set:</source>
         <translation type="unfinished">序列集：</translation>
     </message>
@@ -8754,7 +8754,7 @@ Fedora / RHEL：
         <translation type="unfinished">网络：</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Alignment:</source>
         <translation type="unfinished">比对：</translation>
     </message>
@@ -8764,27 +8764,42 @@ Fedora / RHEL：
         <translation type="unfinished">Embedding：</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-2"/>
         <source>Layout Cache:</source>
         <translation type="unfinished">布局缓存：</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+7"/>
+        <source>Choose another alignment file…</source>
+        <translation type="unfinished">选择其他比对文件…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Choose another embedding file…</source>
+        <translation type="unfinished">选择其他 embedding 文件…</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Fixed for this Viewer session.</source>
+        <translation type="unfinished">在本次查看器会话中固定不变。</translation>
+    </message>
+    <message>
+        <location line="+45"/>
         <source>None</source>
         <translation type="unfinished">无</translation>
     </message>
     <message>
-        <location line="+98"/>
+        <location line="+124"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="-13"/>
         <source>Session</source>
         <translation type="unfinished">会话</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+100"/>
         <source>Nodes:</source>
         <translation type="unfinished">节点：</translation>
     </message>
@@ -8794,17 +8809,16 @@ Fedora / RHEL：
         <translation type="unfinished">边：</translation>
     </message>
     <message>
-        <location line="+9"/>
         <source>Open Folder</source>
-        <translation type="unfinished">打开文件夹</translation>
+        <translation type="obsolete">打开文件夹</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+80"/>
         <source>List of commands</source>
         <translation type="unfinished">命令列表</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+55"/>
         <source>{total} ({visible} visible)</source>
         <translation type="unfinished">{total}（可见 {visible}）</translation>
     </message>
@@ -8814,7 +8828,7 @@ Fedora / RHEL：
         <translation type="unfinished">{total}（显示 {shown}）</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+46"/>
         <source>Open the list of commands in your web browser</source>
         <translation type="unfinished">在网页浏览器中打开命令列表</translation>
     </message>

@@ -1912,30 +1912,12 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <source>NOTE: The network was built with {network}, not {model}. The Viewer accepts this; embedding commands use the embedding&apos;s model.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Embedding selection cancelled.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: Embedding file &apos;{file}&apos; not found (checked absolute, relative, and {folder}).</source>
         <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Embedding model: {model} ({saving_mode}).</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Embedding model: {model} (width {width}, {saving_mode}).</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message numerus="yes">
-        <source>%n node(s) not embedded: the file holds a different sequence.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
     </message>
     <message>
         <source>Loaded {file}: {embedded}/{total} embedded.</source>
@@ -3233,6 +3215,24 @@ Command-line usage:
     </message>
     <message>
         <source>Embedding file could not be read: {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n node(s) not embedded: the file holds a different sequence.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Embedding model: {model} ({saving_mode}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding model: {model} (width {width}, {saving_mode}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>NOTE: The network was built with {network}, not {model}. The Viewer accepts this; embedding commands use the embedding&apos;s model.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6425,6 +6425,10 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Layout Cache:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Alignment:</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6433,7 +6437,15 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Layout Cache:</source>
+        <source>Choose another alignment file…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Choose another embedding file…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fixed for this Viewer session.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6441,11 +6453,11 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Close</source>
+        <source>Session</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Session</source>
+        <source>Close</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6454,10 +6466,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Edges:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Open Folder</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

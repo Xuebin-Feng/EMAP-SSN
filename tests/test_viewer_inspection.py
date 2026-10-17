@@ -65,9 +65,11 @@ class ViewerInspectionTests(unittest.TestCase):
         self.config.TARGET_CACHE_PATH = "cache/version_00.h5"
         overview = self.service.session_overview()
         self.assertEqual(
-            {key: value for key, value in overview.items() if key != "inputs"},
+            {key: value for key, value in overview.items() if key not in ("inputs", "directories", "project_root")},
             {"node_count": 4, "visible_node_count": 3, "edge_count": 2, "shown_edge_count": 0},
         )
+        # This configuration names no base folder and no project root.
+        self.assertEqual((overview["directories"], overview["project_root"]), ({}, ""))
         self.assertEqual(overview["inputs"], {
             "node_fasta": "set.fasta", "network_hdf5": "network.h5", "msa": "",
             "embedding": "embeddings.h5", "layout_cache": "cache/version_00.h5",
@@ -77,6 +79,20 @@ class ViewerInspectionTests(unittest.TestCase):
         self.assertEqual((overview["node_count"], overview["visible_node_count"], overview["edge_count"]),
                          (summary["node_count"], summary["visible_node_count"], summary["edge_count"]))
         self.assertEqual(overview["inputs"], summary["inputs"])
+
+    def test_the_session_overview_carries_the_base_folders_and_the_project_root_the_card_writes_aliases_from(self):
+        self.config.INPUT_FILE_DIR = "C:/data/Input_Files"
+        self.config.CACHE_FILE_DIR = "Cache_Files"
+        self.config.EMBED_DIR = Path("D:/emb")
+        self.config.ANALYSIS_RESULT_DIR = ""            # an empty setting names no folder
+        self.config.PROJECT_ROOT = Path("C:/project")
+        overview = self.service.session_overview()
+        self.assertEqual(overview["directories"], {
+            "INPUT_FILE_DIR": "C:/data/Input_Files", "CACHE_FILE_DIR": "Cache_Files", "EMBED_DIR": str(Path("D:/emb")),
+        })
+        self.assertEqual(overview["project_root"], str(Path("C:/project")))
+        # The agents' summary does not carry them: it is the card's.
+        self.assertNotIn("directories", self.service.get_summary())
 
     def test_the_overview_counts_a_mask_of_any_kind_and_the_edge_layers_drawn_edges(self):
         for mask, expected in (

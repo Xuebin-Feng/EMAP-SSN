@@ -1648,3 +1648,12 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
         print(f"Command Error: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        # Whatever the command did, however it ended, the info card shows the session as it now is (a
+        # command can change a file it lists, as alignment does). Nothing happens while the card is closed.
+        refresh_card = getattr(viewer, '_refresh_session_card', None)
+        if refresh_card is not None:
+            try:
+                refresh_card()
+            except Exception as error:
+                print(f"Warning: the info card could not be refreshed ({error})")
