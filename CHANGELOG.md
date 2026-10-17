@@ -12,13 +12,20 @@ still change before version 1.0.0.
   Inputs & Outputs profile that names an embedding file, and that tab falls back to its
   defaults, and it refuses a Viewer settings document exported with an `embedding`
   section. Profiles and documents saved by v0.4.0 keep working.
+- VR Config and the VR viewer resolve default and relative folders against the project
+  root instead of `opt_vr`. A VR setup that relied on the old defaults or on relative
+  paths now uses the project's `Input_Files`, `Embeddings` and `Analysis_Results`, and
+  `Cache_Files_VR` for its cache. Profiles, layouts and history saved in
+  `opt_vr\Cache_Files` are no longer read: copy them to `Cache_Files_VR`, or point the
+  Cache File Directory at the old folder. Move inputs from `opt_vr\Input_Files` to
+  `Input_Files`. Absolute folders are unaffected.
 
 ### Added
 
 - **Optional embedding input.** Config and VR Config can select a protein language model
-  embedding file (**Embedding Input**, listed from the new **Embedding Directory**: the
-  project's `Embeddings` folder by default, `opt_vr/Embeddings` for VR Config), for
-  commands that use each sequence's embedding. No command uses it yet. Only the file's
+  embedding file (**Embedding Input**, listed from the new **Embedding Directory**, by
+  default the project's `Embeddings` folder), for commands that use each sequence's
+  embedding. No command uses it yet. Only the file's
   headers, sequences and model are read at launch; a command reads per-residue rows or
   pooled vectors when it needs them. A node is matched by its exact header and sequence,
   partial coverage gives a warning as for the MSA, and an incomplete file is refused at
@@ -26,8 +33,21 @@ still change before version 1.0.0.
   differ from the FASTA and its model, with a note when the network was built with
   another model. Viewer settings documents gain an optional `embedding` section and
   `EMBED_DIR`; documents exported before still validate.
+- **Commands name the inputs they need.** Each command's catalog entry lists the optional
+  inputs it cannot run without (`requires`: `alignment` for `label`, `logo` and `query`),
+  and MCP `get_command_catalog` returns it. Commands that will use the embedding share
+  one check, with one message for a missing, failed or non-matching embedding file.
+  Viewer snapshots report the embedding's model, width and node coverage (capability
+  `embedding_input_v1`), never its vectors.
 
 ### Changed
+
+- VR Config and the VR viewer use the same default folders as the main program, at the
+  project root, with one exception: the cache folder defaults to `Cache_Files_VR`, so
+  VR's saved configs, 3D layouts and history stay apart from the main program's.
+  `viewer_settings_vr.json` and the VR client stay in `opt_vr`. VR Config and its viewer
+  now start in the project root, so relative paths typed in commands resolve as on the
+  desktop.
 
 - Config, Tools and VR Config start faster. The launcher's check imported the ESM and
   Transformers packages at every launch, which took about 6.5 s, or about 20 s when the
