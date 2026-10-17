@@ -25,7 +25,9 @@ still change before version 1.0.0.
 - **Optional embedding input.** Config and VR Config can select a protein language model
   embedding file (**Embedding Input**, listed from the new **Embedding Directory**, by
   default the project's `Embeddings` folder), for commands that use each sequence's
-  embedding. No command uses it yet. Only the file's
+  embedding. No command uses it yet. The Embedding Directory is a fourth base directory
+  on the Directories tab, beside the input, cache and analysis-results ones, and other
+  folders can name it as `$embedding$`. Only the file's
   headers, sequences and model are read at launch; a command reads per-residue rows or
   pooled vectors when it needs them. A node is matched by its exact header and sequence,
   partial coverage gives a warning as for the MSA, and an incomplete file is refused at
