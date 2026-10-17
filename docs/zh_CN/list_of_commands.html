@@ -597,7 +597,7 @@
                 <div class="subheading">参数</div>
                 <ul>
                     <li><strong>MODE：</strong>要使用的聚类算法：<code>leiden</code>、<code>mcl</code> 或 <code>jaccard</code>。默认为 <code>leiden</code>。</li>
-                    <li><strong>PARAMETER：</strong>所选算法的主要调节变量（Leiden 分辨率（resolution）、MCL inflation 或 Jaccard 阈值）。</li>
+                    <li><strong>PARAMETER：</strong>所选算法的主要调节变量：Leiden 分辨率（resolution）、MCL inflation 或 Jaccard 阈值。</li>
                     <li><strong>MIN_SIZE：</strong>至少为 1 的整数，定义形成有效簇所需的最少节点数。更小的社区会被归为噪声（灰色），并被下游工具忽略。默认为 10。没有边的节点在三种模式下都自成一个社区：MIN_SIZE 为 1 时是单节点簇，更大时则为噪声。</li>
                     <li><strong>多余的参数：</strong>MODE、PARAMETER 和 MIN_SIZE 之后（或 <code>list</code> 之后）的任何内容都会被拒绝，错误信息会指出第一个多余的参数，且不做任何更改。</li>
                     <li><strong>范围与编号：</strong>聚类使用所有已加载的边和节点，不受相似性阈值滑块或隐藏节点的影响。保留下来的簇按大小编号，因此 <code>cluster_1</code> 是最大的簇。</li>
@@ -758,7 +758,7 @@
                 <ul>
                     <li><strong>隐式界面定位：</strong>在查看器中用鼠标选中节点后运行 <code>group [NAME]</code>，会把该分组标签直接分配给所选节点。</li>
                     <li><strong>高级表达式定位：</strong>使用表达式解释器可以立即为数千个节点分配标签。可以链式书写多个表达式和名称，例如 <code>group P106 mutant "Human" human_proteins</code>。</li>
-                    <li><strong>仅限可见节点：</strong>与 <code>color</code>、<code>spectrum</code> 和 <code>select</code> 一样，<code>group</code> 会跳过隐藏节点。表达式和选中节点都可能包含它们，但只有可见节点会获得标签；只匹配隐藏节点的表达式不会给任何节点添加标签，与匹配不到任何节点的表达式一样。节点已有的标签在其被隐藏时会保留。</li>
+                    <li><strong>仅限可见节点：</strong>与 <code>color</code>、<code>spectrum</code> 和 <code>select</code> 一样，<code>group</code> 会跳过隐藏节点。表达式可能匹配它们，选中节点也可能包含它们，但只有可见节点会获得标签；只匹配隐藏节点的表达式不会给任何节点添加标签，与匹配不到任何节点的表达式一样。节点已有的标签在其被隐藏时会保留。</li>
                 </ul>
 
                 <div class="subheading">管理分组</div>
@@ -827,7 +827,7 @@
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">label</span>
-                        <span class="command-card-desc-title">&ndash; 差异标注与 SDP 分析</span>
+                        <span class="command-card-desc-title">&ndash; 差异标签与 SDP 分析</span>
                     </div>
                     
                 </div>
@@ -835,8 +835,8 @@
                     <div class="syntax-content">label [cluster|clusters|group|groups] [outside_max] [cluster_min] [identity] [filename]  |  label [cluster|clusters|group|groups] [gmax value] [cmin value] [id value] [filename]</div>
                     <button class="copy-btn" onclick="copyText('label', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>label 命令执行差异序列分析，旨在识别特异性决定位点（SDP）——在特定簇或分组内高度保守、但在更广泛的蛋白质家族中存在差异的氨基酸。它会导出一份丰富的彩色 Microsoft Excel（.xlsx）报告，详细说明究竟是哪些残基定义了各个亚家族。</p>
-                <p>标注计算和工作簿生成在查看器共用的后台任务队列中运行。命令在提交时会捕获其比对映射、簇/分组成员关系、参考序列编号、参数和输出元数据，因此之后对查看器所做的更改不会影响已排队的报告。label 和 logo 任务按顺序执行；排队和完成的消息会显示在控制台和终端中。</p>
+                <p><strong>概述：</strong>label 命令执行差异序列分析，旨在识别特异性决定位点（SDP）——在特定簇或分组内高度保守、但在更广泛的蛋白质家族中存在差异的氨基酸。它会导出一份内容丰富、带颜色编码的 Microsoft Excel（.xlsx）报告，详细说明究竟是哪些残基定义了各个亚家族。</p>
+                <p>标签计算和工作簿生成在查看器共用的后台任务队列中运行。命令在提交时会捕获其比对映射、簇/分组成员关系、参考序列编号、参数和输出元数据，因此之后对查看器所做的更改不会影响已排队的报告。label 和 logo 任务按顺序执行；排队和完成的消息会显示在控制台和终端中。</p>
                 
                 <div class="callout callout-note">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>前提条件</div>
@@ -858,7 +858,7 @@
                 <div class="subheading">理解 Excel 输出</div>
                 <p>输出写入已配置的分析结果目录之下（默认为 <code>Analysis_Results/Cluster_Label/</code>），包含三个工作表：</p>
                 <ul>
-                    <li><strong>Meta Data：</strong>记录网络、比对、聚类和标注的参数。紧凑的统计值报告 <code>Aligned N of N | Excluded N | Effective N</code>；没有一致性重新加权时，Effective 等于已比对的数量。</li>
+                    <li><strong>Meta Data：</strong>记录网络、比对、聚类和标签的参数。紧凑的统计值报告 <code>Aligned N of N | Excluded N | Effective N</code>；没有一致性重新加权时，Effective 等于已比对的数量。</li>
                     <li><strong>Subset Stats (SDP Matrix)：</strong>行为簇/分组，列为比对位置。显示按空位占有率着色的保守氨基酸。如果多个氨基酸在同一个子集位置上各自独立通过，则单元格按子集频率从高到低的顺序把它们连接起来，例如 <code>Y120 | F120</code>。</li>
                     <li><strong>Occupancy Stats：</strong>提供每个位置的空位占有率百分比，以绿色突出显示。可用于识别各亚家族之间的插入/缺失差异。</li>
                 </ul>
@@ -926,7 +926,7 @@
                     <div class="syntax-content">esmfold [large] [multi]  |  esmfold help</div>
                     <button class="copy-btn" onclick="copyText('esmfold', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>esmfold 命令用 ESM3 预测蛋白质结构，并在基于网页的 Mol* 三维结构查看器中打开。不带 <code>large</code> 修饰符时，它会在本地运行 EvolutionaryScale ESM3 1.4B 开放权重模型（<code>biohub/esm3-sm-open-v1</code>），并写出含 N、C&alpha;、C 以及按几何推断的羰基 O 原子的主链坐标 PDB 文件。加上 <code>large</code> 会把预测发送到为 Biohub 配置的 ESM3 模型——当前为 <code>esm3-large-2024-03</code>（98B）——其当前输出包含侧链重原子坐标。两种模式都不添加氢原子。该命令还会注册“结构视图”侧边栏按钮；该按钮是新添加时侧边栏会打开，之后再运行时会保持上次留下的打开或关闭状态。</p>
+                <p><strong>概述：</strong>esmfold 命令用 ESM3 预测蛋白质结构，并在基于网页的 Mol* 三维结构查看器中打开。不带 <code>large</code> 修饰符时，它会在本地运行 EvolutionaryScale ESM3 1.4B 开放权重模型（<code>biohub/esm3-sm-open-v1</code>），并写出含 N、C&alpha;、C 以及按几何推断的羰基 O 原子的主链坐标 PDB 文件。加上 <code>large</code> 会把预测发送到为 Biohub 配置的 ESM3 模型——当前为 <code>esm3-large-2024-03</code>（98B）——其当前输出包含侧链重原子坐标。两种模式都不添加氢原子。该命令还会注册“结构视图”侧边栏按钮；该按钮为新添加时，侧边栏会打开，之后再运行时会保持上次留下的打开或关闭状态。</p>
 
                 <div class="subheading">核心参数</div>
                 <ul>
@@ -973,7 +973,7 @@
                 
                 <div class="subheading">子命令与用法</div>
                 <ul>
-                    <li><strong><code>meta</code>（不带参数）：</strong>在默认浏览器中打开查看器的 HTML5 元数据电子表格页面，并注册其侧边栏快捷方式。快捷方式是新添加时侧边栏会打开；再次运行 <code>meta</code> 会保持其打开或关闭状态不变。</li>
+                    <li><strong><code>meta</code>（不带参数）：</strong>在默认浏览器中打开查看器的 HTML5 元数据电子表格页面，并注册其侧边栏快捷方式。快捷方式为新添加时，侧边栏会打开；再次运行 <code>meta</code> 会保持其打开或关闭状态不变。</li>
                     <li><strong><code>meta &lt;filename&gt; [filename ...]</code>、<code>meta upload ...</code> 或 <code>meta import ...</code>：</strong>按参数顺序加载并合并一个或多个 <code>.xlsx</code>、<code>.xls</code> 或 <code>.csv</code> 元数据文件。路径可以是绝对路径、相对路径，或已配置的元数据目录中的名称；省略扩展名时会依次尝试受支持的扩展名。输入表格把序列标题放在第一列，属性名称放在第一行，属性类型放在第二行。在文本列中，<code>NA</code>、<code>N/A</code>、<code>None</code>、<code>null</code> 和 <code>NaN</code> 这些词按原样保留，因为它们可能是真实的值（例如 NA 表示北美）；只有空单元格才算空白。在数值列中，它们与任何其他非数字一样被视为缺失。</li>
                     <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>：</strong>在查看器右下角激活一个 HUD 文本框，在点击节点时显示指定属性的值。属性名可以写在大括号中，就像 <code>spectrum</code> 的写法（<code>meta show {Length}</code>）；写在大括号中的名称始终被视为属性，因此 <code>meta show {off}</code> 显示的是名为 <code>off</code> 的属性。</li>
                     <li><strong><code>meta show clear</code> / <code>meta show off</code>：</strong>停用并隐藏元数据属性 HUD。撤销和重做会让它保持隐藏，直到下一次 <code>meta show</code> 或 <code>spectrum</code> 再次打开它。</li>
@@ -1051,7 +1051,7 @@
                     <div class="syntax-content">print [filename] [modifiers]</div>
                     <button class="copy-btn" onclick="copyText('print', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>print 命令导出网络视图，同时暂时隐藏交互式浮层，如说明文字、缩放/提示框文字、隐藏节点计数、元数据 HUD 和命令控制台文字。PNG 截取还会略去鼠标下节点的悬停颜色和被点击节点的光晕，它们在之后恢复；选中节点的边框会保留。图像会输出到已配置的分析结果目录之下（默认为 <code>Analysis_Results/Saved_Images/</code>）；文件名必须是一个词，并且是纯文件名而不是路径，缺少 <code>.png</code> 或 <code>.svg</code> 时会自动加上。以 <code>.svg</code> 结尾的名称会像 <code>svg</code> 修饰符一样选择 SVG 格式（因此不能与 <code>transparent</code> 或 <code>full</code> 组合），以 <code>.png</code> 结尾的名称不能与 <code>svg</code> 组合；单独的 <code>.png</code> 或 <code>.svg</code> 不是名称，会被拒绝。不是修饰符的第二个词会被拒绝，因此拼错的修饰符永远不会被当作名称的一部分保存。显式指定的名称会替换已存在的同名文件，并在报告中说明；自动生成的带时间戳的名称则永远不会替换文件。每种 PNG 模式在渲染后都会自动裁掉只有背景的边距，同时在渲染内容周围保留固定的 20 像素边框；SVG 也以同样方式加框，网络按所绘制的样子，周围留出相当于 PNG 的 20 个像素的边框。</p>
+                <p><strong>概述：</strong>print 命令导出网络视图，同时暂时隐藏交互式浮层，如说明文字、缩放/提示框文字、隐藏节点计数、元数据 HUD 和命令控制台文字。PNG 截取还会略去鼠标下节点的悬停颜色和被点击节点的光晕，它们在之后恢复；选中节点的边框会保留。图像会输出到已配置的分析结果目录之下（默认为 <code>Analysis_Results/Saved_Images/</code>）；文件名必须是一个词，并且是纯文件名而不是路径，缺少 <code>.png</code> 或 <code>.svg</code> 时会自动加上。以 <code>.svg</code> 结尾的名称会像 <code>svg</code> 修饰符一样选择 SVG 格式（因此不能与 <code>transparent</code> 或 <code>full</code> 组合），以 <code>.png</code> 结尾的名称不能与 <code>svg</code> 组合；单独的 <code>.png</code> 或 <code>.svg</code> 不是名称，会被拒绝。不是修饰符的第二个词会被拒绝，因此拼错的修饰符永远不会被当作名称的一部分保存。显式指定的名称会替换已存在的同名文件，并在报告中说明；自动生成的带时间戳的名称则永远不会替换文件。每种 PNG 模式在渲染后都会自动裁掉只有背景的边距，同时在渲染内容周围保留固定的 20 像素边框；SVG 也以同样方式加框：在所绘制的网络周围留出相当于 PNG 的 20 个像素的边框。</p>
                 <p>图像是在命令运行的那一刻截取的：当前视图、<code>full</code> PNG 的每个分块（tile），或 SVG 所绘制的节点和边。随后，PNG 的裁剪（cropping）和编码，或 SVG 的写入，会在查看器共用的后台任务队列中运行（<code>label</code> 和 <code>logo</code> 使用的是同一个队列），因此查看器仍可使用，之后的更改也不会改变文件。队列会在文件保存后报告，并打开其所在文件夹。已排队任务尚未写入的名称会被拒绝，带时间戳的名称会跳过已排队任务占用的名称。</p>
                 
                 <div class="subheading">修饰符</div>
@@ -1108,8 +1108,8 @@
                 <div class="subheading">结果与限制</div>
                 <ul>
                     <li><strong>无匹配：</strong>没有任何节点匹配的表达式会成功并给出提示，不会排队任何任务。匹配的节点若都不在已加载的 MSA 中，则没有可分析的内容，命令失败。</li>
-                    <li><strong>PNG 大小：</strong>PNG 按一张 600 dpi 的图像绘制，因此位置数超过几百个的 PNG 标识图会在排队之前被拒绝，错误信息会指出确切的上限。请使用没有这一限制的 <code>.svg</code> 文件名，或减少位置数。</li>
-                    <li><strong>坐标轴标签：</strong>x 轴写出位置所依据编号的参考序列标题。对坐标轴来说太长的序列标题会被省略号截短，因此永远不会加宽图像。</li>
+                    <li><strong>PNG 大小：</strong>PNG 绘制成一张 600 dpi 的图像，因此位置数超过几百个的 PNG 标识图会在排队之前被拒绝，错误信息会指出确切的上限。请使用没有这一限制的 <code>.svg</code> 文件名，或减少位置数。</li>
+                    <li><strong>坐标轴标签：</strong>x 轴标出位置编号所依据的参考序列标题。对坐标轴来说太长的序列标题会被省略号截短，因此永远不会加宽图像。</li>
                 </ul>
 
                 <div class="subheading">示例</div>
