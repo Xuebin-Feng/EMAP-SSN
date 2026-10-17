@@ -210,8 +210,9 @@ def config_export_document(kind, project_root, *, settings_path=None, overlay=No
     values["TARGET_CACHE_PATH"] = selected or ""
     if not selected:
         values["CACHE_FILENAME"] = ""
-    # MSA and visualization are irrelevant to generating or selecting a layout.
-    path_values = {**values, "MSA_FILE": ""}
+    # The MSA, the embedding and visualization are irrelevant to generating
+    # or selecting a layout.
+    path_values = {**values, "MSA_FILE": "", "EMBED_FILE": ""}
     resolved_paths = normalize_viewer_paths(path_values, project_root, require_cache=False)
     for key in (*DIRECTORY_PROFILE_DEFAULTS, "SAVED_CONFIG_DIR", "NODE_FASTA_FILE", "INPUT_HDF5", "TARGET_CACHE_PATH", "CACHE_FILENAME"):
         values[key] = resolved_paths[key]

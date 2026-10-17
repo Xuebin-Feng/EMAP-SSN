@@ -77,6 +77,7 @@ ANALYSIS_RESULT_DIR = "Analysis_Results"
 
 FASTA_DIR = os.path.join(INPUT_FILE_ALIAS, "Sequence_Sets")
 MSA_DIR = os.path.join(INPUT_FILE_ALIAS, "Multiple_Alignments")
+EMBED_DIR = DIRECTORY_PROFILE_DEFAULTS["EMBED_DIR"]
 HDF5_DIR = os.path.join(INPUT_FILE_ALIAS, "Networks_EValues")
 SAVED_LAYOUT_DIR = os.path.join(CACHE_FILE_ALIAS, "Saved_Layouts")
 SETTING_EXPORT_DIR = os.path.join(CACHE_FILE_ALIAS, "Exported_Settings")
@@ -115,6 +116,7 @@ NODE_FASTA_FILE = ""
 
 # Default values if scanning directories fails:
 MSA_FILE = ""
+EMBED_FILE = ""
 INPUT_HDF5 = ""
 
 # Sequences File points to NODE_FASTA_FILE for backward compatibility
@@ -173,6 +175,7 @@ DIRECTORY_LABELS = {
     "ANALYSIS_RESULT_DIR": QT_TRANSLATE_NOOP("Config", "Analysis Results Directory:"),
     "FASTA_DIR": QT_TRANSLATE_NOOP("Config", "Input FASTA Directory:"),
     "MSA_DIR": QT_TRANSLATE_NOOP("Config", "MSA Directory:"),
+    "EMBED_DIR": QT_TRANSLATE_NOOP("Config", "Embedding Directory:"),
     "HDF5_DIR": QT_TRANSLATE_NOOP("Config", "Network Directory:"),
     "METADATA_DIR": QT_TRANSLATE_NOOP("Config", "Metadata Directory:"),
     "HEADER_LIST_DIR": QT_TRANSLATE_NOOP("Config", "Header List Directory:"),
@@ -275,6 +278,7 @@ def _resolve_runtime_path_settings():
     for key in (
         "FASTA_DIR",
         "MSA_DIR",
+        "EMBED_DIR",
         "HDF5_DIR",
         "METADATA_DIR",
         "HEADER_LIST_DIR",
@@ -282,6 +286,7 @@ def _resolve_runtime_path_settings():
         "SETTING_EXPORT_DIR",
         "NODE_FASTA_FILE",
         "MSA_FILE",
+        "EMBED_FILE",
         "INPUT_HDF5",
     ):
         value = globals().get(key)
@@ -409,7 +414,7 @@ def apply_viewer_settings(settings_dict):
             v = _migrate_saved_config_dir(v)
         if k in DIRECTORY_PROFILE_DEFAULTS:
             v = _migrate_default_directory_path(k, v)
-        if k in globals() and v is not None and (str(v).strip() != "" or k in ["MSA_FILE", "ALIGNMENT_REFERENCE"]):
+        if k in globals() and v is not None and (str(v).strip() != "" or k in ["MSA_FILE", "EMBED_FILE", "ALIGNMENT_REFERENCE"]):
             orig = globals()[k]
             if isinstance(orig, int) and not isinstance(orig, bool):
                 try: v = int(v)
@@ -567,6 +572,29 @@ def _load_consistency_msa_headers(msa_path):
     return headers
 
 
+def _load_consistency_fasta_sequences(fasta_path):
+    """Return the canonical FASTA sequence of each canonical header."""
+    from utilities.Sequence_Utils import load_sanitized_fasta
+
+    headers, sequences, _ = load_sanitized_fasta(fasta_path, report=False)
+    return dict(zip(headers, sequences))
+
+
+def _load_consistency_embedding_manifest(embed_path):
+    """Return (manifest, width) of an embedding file, as the Viewer reads it."""
+    from Embedding_Manager import read_embedding_summary
+
+    return read_embedding_summary(embed_path)
+
+
+def _consistency_network_metadata(network_path):
+    """The network's model name and type (Cache_Manifest), or None when unreadable."""
+    try:
+        return cache_manifest.read_network_metadata(network_path)
+    except (OSError, ValueError):
+        return None
+
+
 # =============================================================================
 # GUI APPLICATION
 # =============================================================================
@@ -720,6 +748,72 @@ if __name__ == "__main__":
             translate("Config", "Percentage", "statistics column"),
         )
         return summary, headings
+
+    def embedding_consistency_report(embed_path, fasta_path, fasta_headers, network_path):
+        """The Consistency Check's embedding section, matched as the Viewer matches it.
+
+        A FASTA node is covered when the embedding file holds its header with
+        the same sanitized sequence (Embedding_Manager).
+        """
+        try:
+            manifest, width = _load_consistency_embedding_manifest(embed_path)
+        except (OSError, ValueError, KeyError) as error:
+            return translate(
+                "Config",
+                "ERROR: The embedding file cannot be used, so the Viewer will not "
+                "open with it: {error}",
+            ).format(error=display_text(error))
+        stored = manifest.sequence_by_header
+        sequences = _load_consistency_fasta_sequences(fasta_path)
+        missing = [header for header in fasta_headers if header not in stored]
+        different = [
+            header for header in fasta_headers
+            if header in stored and sequences.get(header, stored[header]) != stored[header]
+        ]
+        matched = len(fasta_headers) - len(missing) - len(different)
+        summary = translate(
+            "Config",
+            "FASTA vs embedding:\nMatched: {matched} of %n FASTA header(s) | "
+            "Missing: {missing} | Different sequence: {different}",
+            None, len(fasta_headers),
+        ).format(matched=matched, missing=len(missing), different=len(different))
+        if missing or different:
+            lines = [translate(
+                "Config",
+                "WARNING: Embedding coverage is incomplete.\n{summary}",
+            ).format(summary=summary)]
+            if missing:
+                lines.append(translate("Config", "Missing examples: {examples}").format(
+                    examples=", ".join(missing[:5])
+                ))
+            if different:
+                lines.append(translate(
+                    "Config", "Examples with a different sequence: {examples}"
+                ).format(examples=", ".join(different[:5])))
+            lines.append(translate(
+                "Config",
+                "Missing nodes, and nodes whose sequence differs, remain plotted "
+                "but are excluded from embedding-dependent analyses.",
+            ))
+        else:
+            lines = [translate(
+                "Config", "SUCCESS: The embedding covers all FASTA nodes.\n{summary}"
+            ).format(summary=summary)]
+        lines.append(translate(
+            "Config", "Embedding model: {model} (width {width}, {saving_mode})."
+        ).format(model=manifest.model_name, width=width, saving_mode=manifest.saving_mode))
+        network = _consistency_network_metadata(network_path)
+        if (
+            network is not None
+            and network.network_type == "alignment"
+            and network.model_name != manifest.model_name
+        ):
+            lines.append(translate(
+                "Config",
+                "NOTE: The network was built with {network}, not {model}. The "
+                "Viewer accepts this; embedding commands use the embedding's model.",
+            ).format(network=network.model_name, model=manifest.model_name))
+        return "\n".join(lines)
 
     # --- Custom Widget Classes ---
     class SpacedTipLabel(QLabel):
@@ -1086,6 +1180,7 @@ if __name__ == "__main__":
             self.spin_thresh.valueChanged.connect(self.update_live_validators)
             self.spin_top.valueChanged.connect(self.update_live_validators)
             self.cb_msa.currentTextChanged.connect(self.update_live_validators)
+            self.cb_embed.currentTextChanged.connect(self.update_live_validators)
             
             self.update_live_validators()
             # A cache published later, by a Layout Generator this window
@@ -1479,7 +1574,7 @@ if __name__ == "__main__":
                     select_combo_value(widget, str(value))
                 else:
                     text_value = str(value)
-                    if key in {"NODE_FASTA_FILE", "MSA_FILE", "INPUT_HDF5"}:
+                    if key in {"NODE_FASTA_FILE", "MSA_FILE", "EMBED_FILE", "INPUT_HDF5"}:
                         text_value = os.path.basename(text_value)
                         if text_value and widget.findText(text_value) < 0:
                             widget.addItem(text_value)
@@ -1795,6 +1890,15 @@ if __name__ == "__main__":
                         msg += "\n\n" + translate(
                             "Config", "SUCCESS: MSA covers all FASTA nodes.\n{summary}"
                         ).format(summary=msa_summary)
+
+                embed_file = self.cb_embed.currentText()
+                if embed_file:
+                    embed_path = os.path.join(
+                        self._resolved_directory_input("EMBED_DIR"), embed_file
+                    )
+                    msg += "\n\n" + embedding_consistency_report(
+                        embed_path, fasta_path, fasta_headers, hdf5_path
+                    )
                 
                 # Check Reference ID if provided. Resolve it exactly as the
                 # Viewer will: the same rules over the same candidates, the
@@ -1897,6 +2001,7 @@ if __name__ == "__main__":
                 "SAVED_CONFIG": translate("Config", "Saved Config: Selects the settings profile used for this tab.\n(custom) uses the current viewer_settings.json values; (default) uses read-only built-in defaults; (new) creates a named profile; named entries load profiles from the Saved Config Directory."),
                 "NODE_FASTA_FILE": translate("Config", "Primary FASTA file containing sequences visualized as nodes in the SSN.\nMust match sequences present in the selected network edges and multiple alignments."),
                 "MSA_FILE": translate("Config", "Multiple sequence alignment file (.fasta, .h5, or _sparse.h5) for the sequence set.\nUsed to calculate positional conservation, gaps, and occupancy thresholds during analysis."),
+                "EMBED_FILE": translate("Config", "Optional protein language model embedding file (.h5) from Generate Embeddings, for commands that analyse embeddings.\nMatched to nodes by header and sequence; the per-residue data stays on disk until a command reads it, so keep the file on this device."),
                 "INPUT_HDF5": translate("Config", "Network or similarity matrix file (.h5) containing pairwise sequence similarity scores and edge coordinates.\nMust contain alignment metrics for at least all sequences present in the active sequence set."),
                 "ALIGNMENT_SCORE": translate("Config", "(For embedding SSNs) Specifies whether to use global (Needleman-Wunsch) or local (Smith-Waterman) scores.\nLocal alignment is recommended for multi-domain proteins; global alignment is best for full-length comparisons."),
                 "NORM_MODE": translate("Config", "(For embedding SSNs) Normalization strategy for pairwise sequence alignment scores.\nNormalizes by alignment length, shorter sequence, longer sequence, or average sequence length to reduce length bias."),
@@ -1939,6 +2044,7 @@ if __name__ == "__main__":
                 "UMAP_MIN_DIST": translate("Config", "Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).\nLower values produce tight, dense point clusters; larger values distribute nodes more evenly."),
                 "FASTA_DIR": translate("Config", "Directory containing input FASTA files for sequence sets and subsets.\nPopulates the Sequence Set dropdown in the Inputs tab."),
                 "MSA_DIR": translate("Config", "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).\nPopulates the MSA dropdown in the Inputs tab."),
+                "EMBED_DIR": translate("Config", "Directory containing protein language model embedding files (.h5), as the Tools write them.\nPopulates the Embedding dropdown in the Inputs tab."),
                 "HDF5_DIR": translate("Config", "Directory containing HDF5 pairwise sequence similarity scores and network edge files.\nPopulates the Network Edges dropdown in the Inputs tab."),
                 "SAVED_LAYOUT_DIR": translate("Config", "Directory where calculated 2D layout coordinate files and network metadata (.h5) are saved and loaded.\nServes as the layout cache to avoid recalculating layouts when reopening networks."),
                 "SETTING_EXPORT_DIR": translate("Config", "Directory where command-line layout generation JSON settings are exported."),
@@ -2040,6 +2146,7 @@ if __name__ == "__main__":
                 for combo, key, extensions in (
                     (self.cb_fasta, "FASTA_DIR", [".fasta"]),
                     (self.cb_msa, "MSA_DIR", [".fasta", ".h5"]),
+                    (self.cb_embed, "EMBED_DIR", [".h5"]),
                     (self.cb_hdf5, "HDF5_DIR", [".h5"]),
                 ):
                     self.refresh_combo(combo, key, extensions)
@@ -2593,6 +2700,19 @@ if __name__ == "__main__":
             add_row_with_dynamic_btn(
                 "MSA_FILE", translate("Config", "MSA Input (.fasta / _sparse.h5):"),
                 self.cb_msa, "MSA_DIR", msa_dir_path,
+            )
+
+            # --- Embedding Input (optional, like the MSA) ---
+            self.cb_embed = DynamicComboBox(lambda: self.refresh_combo(self.cb_embed, "EMBED_DIR", ['.h5']))
+            embed_dir_path = globals().get("EMBED_DIR", DIRECTORY_PROFILE_DEFAULTS["EMBED_DIR"])
+            embed_files = [f for f in os.listdir(embed_dir_path) if f.endswith('.h5')] if os.path.exists(embed_dir_path) else []
+            self.cb_embed.addItems([""] + embed_files)
+            embed_val = globals().get("EMBED_FILE") or ""
+            if os.path.basename(embed_val) in embed_files:
+                self.cb_embed.setCurrentText(os.path.basename(embed_val))
+            add_row_with_dynamic_btn(
+                "EMBED_FILE", translate("Config", "Embedding Input (.h5):"),
+                self.cb_embed, "EMBED_DIR", embed_dir_path,
             )
 
             # --- Rest of Inputs ---
@@ -3845,7 +3965,7 @@ if __name__ == "__main__":
                 # Reusable roots
                 "INPUT_FILE_DIR", "CACHE_FILE_DIR", "ANALYSIS_RESULT_DIR",
                 # Input files
-                "FASTA_DIR", "MSA_DIR", "HDF5_DIR", "METADATA_DIR",
+                "FASTA_DIR", "MSA_DIR", "EMBED_DIR", "HDF5_DIR", "METADATA_DIR",
                 "HEADER_LIST_DIR",
                 # Cache files
                 "SAVED_LAYOUT_DIR", "SETTING_EXPORT_DIR",
@@ -3894,6 +4014,7 @@ if __name__ == "__main__":
             # Bind the text changes to dynamically refresh the dropdowns in Tab 1
             self.inputs["FASTA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_fasta, "FASTA_DIR", ['.fasta']))
             self.inputs["MSA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_msa, "MSA_DIR", ['.fasta', '.h5']))
+            self.inputs["EMBED_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_embed, "EMBED_DIR", ['.h5']))
             self.inputs["HDF5_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_hdf5, "HDF5_DIR", ['.h5']))
             self.inputs["SAVED_LAYOUT_DIR"].textChanged.connect(self.update_live_validators)
             for base_key in (
@@ -3939,11 +4060,12 @@ if __name__ == "__main__":
                 
                 if not str(val).strip(): 
                     if key == "TOP_EDGE_PERCENT": val = "None"
-                    elif key in ["MSA_FILE", "ALIGNMENT_REFERENCE"]: val = ""
+                    elif key in ["MSA_FILE", "EMBED_FILE", "ALIGNMENT_REFERENCE"]: val = ""
                     else: continue
                 
                 if key == "NODE_FASTA_FILE": val = os.path.join(self.inputs["FASTA_DIR"].text(), val).replace("\\", "/") if val else ""
                 elif key == "MSA_FILE": val = os.path.join(self.inputs["MSA_DIR"].text(), val).replace("\\", "/") if val else ""
+                elif key == "EMBED_FILE": val = os.path.join(self.inputs["EMBED_DIR"].text(), val).replace("\\", "/") if val else ""
                 elif key == "INPUT_HDF5": val = os.path.join(self.inputs["HDF5_DIR"].text(), val).replace("\\", "/") if val else ""
                 
                 data[key] = val
@@ -3984,6 +4106,11 @@ if __name__ == "__main__":
             elif key == "MSA_FILE":
                 value = (
                     os.path.join(self.inputs["MSA_DIR"].text(), value).replace("\\", "/")
+                    if value else ""
+                )
+            elif key == "EMBED_FILE":
+                value = (
+                    os.path.join(self.inputs["EMBED_DIR"].text(), value).replace("\\", "/")
                     if value else ""
                 )
             elif key == "INPUT_HDF5":

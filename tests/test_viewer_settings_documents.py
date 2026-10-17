@@ -23,10 +23,12 @@ from desktop.Viewer_State import (
     ViewerSettingsError,
     decode_document,
     encode_document,
+    get_viewer_settings_schema,
     resolve_viewer_document,
     validate_viewer_document,
 )
 from utilities.Headless_Settings import export_config_settings
+from tests.embedding_fixtures import write_embedding_file
 from tests.layout_fixtures import HeadlessSettingsFixture
 
 
@@ -61,6 +63,7 @@ class ViewerSettingsDocumentTests(HeadlessSettingsFixture, unittest.TestCase):
         document = export_config_settings("layout", self.root)["settings_document"]
         self.assertNotIn("visualization", document)
         self.assertNotIn("alignment", document)
+        self.assertNotIn("embedding", document)
         self.assertEqual(document["simulation"]["MAX_STEPS"], self.saved["MAX_STEPS"])
 
     def test_empty_and_old_export_overlays_fail(self):
@@ -112,6 +115,67 @@ class ViewerSettingsDocumentTests(HeadlessSettingsFixture, unittest.TestCase):
             self.assertEqual(normalized["alignment"], original["alignment"])
             for key, value in original["alignment"].items():
                 self.assertEqual(runtime[key], value)
+
+    def test_embedding_preference_is_kept_and_resolved_in_its_folder(self):
+        _, viewer = self.cache_and_viewer()
+        folder = self.root / "embeddings"
+        folder.mkdir()
+        write_embedding_file(folder / "set_[model]_embeddings.h5",
+                             [("Alpha_Beta", "AA"), ("Gamma_Delta", "CC")])
+        viewer["directories"]["EMBED_DIR"] = str(folder)
+        viewer["embedding"]["EMBED_FILE"] = "set_[model]_embeddings.h5"
+        original = copy.deepcopy(viewer)
+        runtime = resolve_viewer_document(viewer, self.root)
+        self.assertEqual(pathlib.Path(runtime["EMBED_FILE"]), folder / "set_[model]_embeddings.h5")
+        normalized = validate_viewer_document(viewer, self.root)
+        self.assertEqual(viewer, original)
+        self.assertEqual(pathlib.Path(normalized["embedding"]["EMBED_FILE"]),
+                         folder / "set_[model]_embeddings.h5")
+        self.assertEqual(resolve_viewer_document(normalized, self.root)["EMBED_FILE"],
+                         runtime["EMBED_FILE"])
+        # Empty selects no embedding.
+        viewer["embedding"]["EMBED_FILE"] = ""
+        self.assertEqual(resolve_viewer_document(viewer, self.root)["EMBED_FILE"], "")
+
+    def test_documents_exported_before_the_embedding_input_still_decode(self):
+        _, viewer = self.cache_and_viewer()
+        del viewer["embedding"]
+        del viewer["directories"]["EMBED_DIR"]
+        runtime = resolve_viewer_document(viewer, self.root)
+        self.assertEqual(runtime["EMBED_FILE"], "")
+        self.assertEqual(pathlib.Path(runtime["EMBED_DIR"]), self.root / "Embeddings")
+        normalized = validate_viewer_document(viewer, self.root)
+        self.assertEqual(normalized["embedding"], {"EMBED_FILE": ""})
+        self.assertIn("EMBED_DIR", normalized["directories"])
+        # The schema agents read lets them leave both out, as these documents do.
+        schema = get_viewer_settings_schema()
+        self.assertNotIn("embedding", schema["required"])
+        self.assertIn("alignment", schema["required"])
+        self.assertEqual(schema["properties"]["embedding"]["required"], [])
+        self.assertNotIn("EMBED_DIR", schema["properties"]["directories"]["required"])
+        self.assertIn("MSA_DIR", schema["properties"]["directories"]["required"])
+        self.assertIn("EMBED_FILE", schema["properties"]["embedding"]["properties"])
+
+    def test_an_embedding_file_breaking_the_interface_refuses_launch(self):
+        _, viewer = self.cache_and_viewer()
+        incomplete = self.root / "incomplete_embeddings.h5"
+        write_embedding_file(incomplete, [("Alpha_Beta", "AA")], complete=False)
+        not_hdf5 = self.root / "not_hdf5.h5"
+        not_hdf5.write_text(">Alpha_Beta\nAA\n")
+        for path, pattern in ((incomplete, "EMBED_FILE: Embedding generation is incomplete"),
+                              (not_hdf5, "EMBED_FILE: "),
+                              (self.root / "absent.h5", "EMBED_FILE: file does not exist")):
+            with self.subTest(path=path.name):
+                viewer["embedding"]["EMBED_FILE"] = str(path)
+                with self.assertRaisesRegex(ViewerSettingsError, pattern):
+                    validate_viewer_document(viewer, self.root)
+
+    def test_partial_embedding_coverage_is_accepted_at_launch(self):
+        _, viewer = self.cache_and_viewer()
+        partial = self.root / "partial_embeddings.h5"
+        write_embedding_file(partial, [("Alpha_Beta", "AA"), ("Unrelated", "KK")])
+        viewer["embedding"]["EMBED_FILE"] = str(partial)
+        self.assertEqual(pathlib.Path(resolve_viewer_document(viewer, self.root)["EMBED_FILE"]), partial)
 
     def test_corrupt_missing_conflicting_provenance(self):
         path, viewer = self.cache_and_viewer()

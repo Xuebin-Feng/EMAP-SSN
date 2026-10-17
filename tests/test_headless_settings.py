@@ -22,6 +22,7 @@ from utilities.Headless_Settings import (
 )
 from desktop.Viewer_State import decode_document
 from tools.tool_helpers.Tool_Pipeline import list_tool_specs
+from tests.embedding_fixtures import write_embedding_file
 from tests.layout_fixtures import HeadlessSettingsFixture, settings_document, write_inputs
 
 
@@ -110,6 +111,39 @@ class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
         self.assertEqual(edited["settings_document"]["physics"]["SPRING_K"], 8.0)
         self.assertEqual(saved.read_bytes(), original)
 
+    def test_viewer_export_carries_the_saved_embedding_unless_an_overlay_sets_it(self):
+        saved = self.saved_config()
+        folder = self.root / "my_embeddings"
+        folder.mkdir()
+        write_embedding_file(folder / "set_[model]_embeddings.h5",
+                             [("Alpha_Beta", "AA"), ("Gamma_Delta", "CC")])
+        saved.update(EMBED_DIR=str(folder), EMBED_FILE="set_[model]_embeddings.h5")
+        (self.root / "viewer_settings.json").write_text(json.dumps(saved))
+        layout = export_config_settings("layout", self.root)["settings_document"]
+        self.assertNotIn("embedding", layout)
+        self.assertNotIn("EMBED_FILE", json.dumps(layout))
+        # A layout ignores the embedding, so a path it could not resolve never
+        # blocks one, as with the MSA.
+        broken = dict(saved, EMBED_FILE="$input_file$broken_embeddings.h5")
+        (self.root / "viewer_settings.json").write_text(json.dumps(broken))
+        self.assertEqual(export_config_settings("layout", self.root)["settings_document"], layout)
+        (self.root / "viewer_settings.json").write_text(json.dumps(saved))
+        self.generate(layout)
+        document = export_config_settings("viewer", self.root)["settings_document"]
+        self.assertEqual(Path(document["embedding"]["EMBED_FILE"]), folder / "set_[model]_embeddings.h5")
+        self.assertEqual(Path(document["directories"]["EMBED_DIR"]), folder)
+        # An overlay that leaves the embedding out keeps the saved one; one that
+        # empties it selects none.
+        overlay = self.root / "overlay.json"
+        overlay.write_text(json.dumps({"schema_version": 2, "kind": "viewer",
+                                       "visualization": {"NODE_SIZE": 5}}))
+        kept = export_config_settings("viewer", self.root, settings_path=overlay)["settings_document"]
+        self.assertEqual(kept["embedding"], document["embedding"])
+        overlay.write_text(json.dumps({"schema_version": 2, "kind": "viewer",
+                                       "embedding": {"EMBED_FILE": ""}}))
+        cleared = export_config_settings("viewer", self.root, settings_path=overlay)["settings_document"]
+        self.assertEqual(cleared["embedding"], {"EMBED_FILE": ""})
+
     def test_viewer_full_snapshot_newest_and_explicit_selection(self):
         self.saved_config()
         with self.assertRaisesRegex(ValueError, "No compatible"):
@@ -120,7 +154,8 @@ class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
         os.utime(first.cache_path, ns=(1_000_000_000, 1_000_000_000))
         exported = export_config_settings("viewer", self.root)
         document = exported["settings_document"]
-        self.assertEqual(set(document), {"schema_version", "kind", "inputs", "alignment", "visualization", "directories"})
+        self.assertEqual(set(document), {"schema_version", "kind", "inputs", "alignment", "embedding", "visualization", "directories"})
+        self.assertEqual(document["embedding"], {"EMBED_FILE": ""})
         self.assertEqual(document["visualization"]["NODE_SIZE"], 13)
         self.assertEqual(document["inputs"]["TARGET_CACHE_PATH"], second.cache_path)
         self.assertEqual(Path(document["inputs"]["TARGET_CACHE_PATH"]).name, "version_01.h5")

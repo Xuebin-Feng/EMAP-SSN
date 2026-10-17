@@ -398,6 +398,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Embedding Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Network Directory:</source>
         <translation type="unfinished"></translation>
     </message>
@@ -516,6 +520,47 @@
     <message>
         <source>Percentage</source>
         <comment>statistics column</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ERROR: The embedding file cannot be used, so the Viewer will not open with it: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>FASTA vs embedding:
+Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequence: {different}</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>WARNING: Embedding coverage is incomplete.
+{summary}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Missing examples: {examples}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Examples with a different sequence: {examples}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Missing nodes, and nodes whose sequence differs, remain plotted but are excluded from embedding-dependent analyses.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>SUCCESS: The embedding covers all FASTA nodes.
+{summary}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding model: {model} (width {width}, {saving_mode}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>NOTE: The network was built with {network}, not {model}. The Viewer accepts this; embedding commands use the embedding&apos;s model.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -657,6 +702,11 @@ Must match sequences present in the selected network edges and multiple alignmen
     <message>
         <source>Multiple sequence alignment file (.fasta, .h5, or _sparse.h5) for the sequence set.
 Used to calculate positional conservation, gaps, and occupancy thresholds during analysis.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Optional protein language model embedding file (.h5) from Generate Embeddings, for commands that analyse embeddings.
+Matched to nodes by header and sequence; the per-residue data stays on disk until a command reads it, so keep the file on this device.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -871,6 +921,11 @@ Populates the MSA dropdown in the Inputs tab.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Directory containing protein language model embedding files (.h5), as the Tools write them.
+Populates the Embedding dropdown in the Inputs tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Directory containing HDF5 pairwise sequence similarity scores and network edge files.
 Populates the Network Edges dropdown in the Inputs tab.</source>
         <translation type="unfinished"></translation>
@@ -974,6 +1029,10 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <source>MSA Input (.fasta / _sparse.h5):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Input (.h5):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3114,6 +3173,26 @@ Command-line usage:
     </message>
     <message>
         <source>Selection cleared.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The embedding file changed after the Viewer loaded it: {path}. Reopen the Viewer to use the new file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Node {index} has no embedding in {file}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding file rejected: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding file could not be read: {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No embedding is loaded.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

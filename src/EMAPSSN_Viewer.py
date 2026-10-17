@@ -859,6 +859,8 @@ class MainViewer:
         self.alignment = None
         self.col_to_label = None  
         self.label_to_col = None  
+        # Embedding Data (optional): the manifest only; rows are read on demand.
+        self.embedding = None
         
         # ---> NEW: Selection & Drag State <---
         self.selected_indices = []
@@ -875,6 +877,7 @@ class MainViewer:
         self.load_and_simulate()
         self.original_pos = self.pos.copy()  # <--- NEW: Backup original layout
         self.load_global_alignment()
+        self.load_embedding()
         
         # --- 3. Setup Window & Canvas ---
         print(f"Building network display: {self.n_nodes} nodes, {len(self.edges)} edges.")
@@ -2011,6 +2014,21 @@ class MainViewer:
             active_reference=self.active_reference,
             alignment_offset=self.alignment_offset,
             reuse=getattr(self, 'alignment', None) if reuse_loaded else None,
+        )
+
+    def load_embedding(self, reuse_loaded=False):
+        """Match the optional embedding file's manifest to the nodes (Embedding_Manager).
+
+        Only the manifest is read here; a command reads the per-residue rows or
+        pooled vectors it needs when it runs. With REUSE_LOADED, the manifest
+        already read is kept when the file is unchanged on disk.
+        """
+        import Embedding_Manager
+        self.embedding = Embedding_Manager.Embedding_Manager(
+            getattr(cfg, 'EMBED_FILE', ''),
+            full_headers=self.full_headers,
+            sequences=getattr(self, 'sequences_map', None),
+            reuse=getattr(self, 'embedding', None) if reuse_loaded else None,
         )
 
 

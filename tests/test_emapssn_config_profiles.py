@@ -140,6 +140,15 @@ class ProfileNormalizationTests(unittest.TestCase):
         directories = self.normalize("directories", {"LOGO_DIR": "logos"})
         self.assertNotIn("LOGO_DIR", directories)
 
+    def test_profiles_saved_before_the_embedding_input_still_load(self):
+        inputs = self.normalize("inputs_outputs", {"MSA_FILE": "msa.fasta"})
+        self.assertEqual(inputs["EMBED_FILE"], "")
+        self.assertEqual(inputs["MSA_FILE"], "msa.fasta")
+        directories = self.normalize("directories", {"MSA_DIR": "alignments"})
+        self.assertEqual(directories["EMBED_DIR"], "Embeddings")
+        chosen = self.normalize("inputs_outputs", {"EMBED_FILE": "Embeddings/set_embeddings.h5"})
+        self.assertEqual(chosen["EMBED_FILE"], "Embeddings/set_embeddings.h5")
+
     def test_custom_settings_fall_back_to_defaults_when_invalid(self):
         window = SimpleNamespace(
             _custom_settings={"NODE_SIZE": "12", "LOW_RESOURCE_MODE": "yes", "DT": "x"}

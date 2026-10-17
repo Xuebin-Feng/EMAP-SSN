@@ -25,6 +25,7 @@ if str(SRC_DIR) not in sys.path:
 
 import EMAPSSN_Config  # noqa: E402
 from tests.config_gui_loader import load_config_namespace  # noqa: E402
+from tests.embedding_fixtures import write_embedding_file  # noqa: E402
 
 _GUI_CLASS = None
 _APP = None
@@ -92,8 +93,8 @@ class _Panel:
         self.message = text
 
 
-class ConsistencyReferenceReportTests(unittest.TestCase):
-    """The report resolves the reference as the Viewer does, over the network headers."""
+class _ReportFixture:
+    """A FASTA, network and MSA in a folder, and the report a Consistency Check gives."""
 
     # Distinct sequences: the canonical FASTA reader drops exact duplicates.
     RECORDS = {
@@ -120,12 +121,13 @@ class ConsistencyReferenceReportTests(unittest.TestCase):
     def tearDown(self):
         self._temp.cleanup()
 
-    def report(self, reference, fasta="nodes.fasta"):
+    def report(self, reference, fasta="nodes.fasta", embedding=""):
         panel = _Panel()
         stand_in = SimpleNamespace(
             cb_fasta=_Choice(fasta),
             cb_hdf5=_Choice("network.h5"),
             cb_msa=_Choice("alignment.fasta"),
+            cb_embed=_Choice(embedding),
             line_ref=_Choice(reference),
             tip_panel=panel,
             _resolved_directory_input=lambda key: self.folder,
@@ -133,6 +135,10 @@ class ConsistencyReferenceReportTests(unittest.TestCase):
         _GUI_CLASS.run_consistency_check(stand_in)
         self.assertNotIn("Error during consistency check", panel.message)
         return panel.message
+
+
+class ConsistencyReferenceReportTests(_ReportFixture, unittest.TestCase):
+    """The report resolves the reference as the Viewer does, over the network headers."""
 
     def test_a_leading_identifier_names_one_header_not_every_substring_match(self):
         message = self.report("WP_0123.1")
@@ -205,6 +211,76 @@ class ConsistencyReferenceReportTests(unittest.TestCase):
             "Missing examples: WP_0123.10_protein_B, Extra_seq\n",
             message,
         )
+
+
+class ConsistencyEmbeddingReportTests(_ReportFixture, unittest.TestCase):
+    """The embedding section matches nodes by header and sequence, as Embedding_Manager does."""
+
+    def embedding_section(self, records, *, model_name="test_model", network_model=None):
+        folder = pathlib.Path(self.folder)
+        write_embedding_file(folder / "set_embeddings.h5", records, model_name=model_name)
+        if network_model is not None:
+            with h5py.File(folder / "network.h5", "a") as hf:
+                hf.attrs["model_name"] = network_model
+        message = self.report("", embedding="set_embeddings.h5")
+        return message.split("\n\n")[-1]
+
+    def test_full_coverage_is_a_success_naming_the_model(self):
+        section = self.embedding_section(list(self.RECORDS.items()))
+        self.assertEqual(
+            section,
+            "SUCCESS: The embedding covers all FASTA nodes.\n"
+            "FASTA vs embedding:\nMatched: 3 of 3 FASTA headers | Missing: 0 | "
+            "Different sequence: 0\n"
+            "Embedding model: test_model (width 3, float16).",
+        )
+
+    def test_missing_and_different_sequences_are_a_warning(self):
+        records = [("WP_0123.1_protein_A", "MKTAYIAK"), ("Other_seq", "MAAAGGG")]
+        section = self.embedding_section(records)
+        self.assertEqual(
+            section,
+            "WARNING: Embedding coverage is incomplete.\n"
+            "FASTA vs embedding:\nMatched: 1 of 3 FASTA headers | Missing: 1 | "
+            "Different sequence: 1\n"
+            "Missing examples: WP_0123.10_protein_B\n"
+            "Examples with a different sequence: Other_seq\n"
+            "Missing nodes, and nodes whose sequence differs, remain plotted but are "
+            "excluded from embedding-dependent analyses.\n"
+            "Embedding model: test_model (width 3, float16).",
+        )
+
+    def test_a_network_built_with_another_model_gets_a_note(self):
+        section = self.embedding_section(
+            list(self.RECORDS.items()), model_name="esmc_6b", network_model="ankh_base"
+        )
+        self.assertIn(
+            "NOTE: The network was built with ankh_base, not esmc_6b. The Viewer accepts "
+            "this; embedding commands use the embedding's model.",
+            section,
+        )
+        same = self.embedding_section(
+            list(self.RECORDS.items()), model_name="esmc_6b", network_model="esmc_6b"
+        )
+        self.assertNotIn("NOTE", same)
+        # A BLAST network was built from no embedding, so there is nothing to compare.
+        blast = self.embedding_section(
+            list(self.RECORDS.items()), model_name="esmc_6b", network_model="BLAST"
+        )
+        self.assertNotIn("NOTE", blast)
+
+    def test_a_file_the_viewer_would_refuse_is_an_error(self):
+        folder = pathlib.Path(self.folder)
+        write_embedding_file(folder / "set_embeddings.h5", list(self.RECORDS.items()),
+                             complete=False)
+        message = self.report("", embedding="set_embeddings.h5")
+        self.assertTrue(message.split("\n\n")[-1].startswith(
+            "ERROR: The embedding file cannot be used, so the Viewer will not open with "
+            "it: Embedding generation is incomplete."
+        ), message)
+
+    def test_no_embedding_adds_no_section(self):
+        self.assertNotIn("embedding", self.report("").lower())
 
 
 if __name__ == "__main__":

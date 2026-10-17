@@ -27,6 +27,7 @@ ANALYSIS_RESULT_ALIAS = "$analysis_result$"
 INPUT_PROFILE_DEFAULTS = {
     "NODE_FASTA_FILE": "",
     "MSA_FILE": "",
+    "EMBED_FILE": "",
     "INPUT_HDF5": "",
     "ALIGNMENT_SCORE": "global",
     "NORM_MODE": "alignment_length",
@@ -78,6 +79,9 @@ DIRECTORY_PROFILE_DEFAULTS = {
     "ANALYSIS_RESULT_DIR": "Analysis_Results",
     "FASTA_DIR": os.path.join(INPUT_FILE_ALIAS, "Sequence_Sets"),
     "MSA_DIR": os.path.join(INPUT_FILE_ALIAS, "Multiple_Alignments"),
+    # Beside Input_Files, not in it: the folder the Tools write embeddings to
+    # (tool_helpers.Tool_Pipeline.DEFAULT_DIRECTORY_PATHS).
+    "EMBED_DIR": "Embeddings",
     "HDF5_DIR": os.path.join(INPUT_FILE_ALIAS, "Networks_EValues"),
     "METADATA_DIR": os.path.join(INPUT_FILE_ALIAS, "Meta_Data"),
     "HEADER_LIST_DIR": os.path.join(INPUT_FILE_ALIAS, "Header_Lists"),
@@ -139,6 +143,7 @@ LAYOUT_SECTIONS = {
 VIEWER_SECTIONS = {
     "inputs": ("TARGET_CACHE_PATH", "NODE_FASTA_FILE", "INPUT_HDF5"),
     "alignment": ("MSA_FILE", "ALIGNMENT_REFERENCE", "FILTER_MIN_OCCUPANCY", "ALIGNMENT_OFFSET"),
+    "embedding": ("EMBED_FILE",),
     "visualization": tuple(VISUAL_PROFILE_DEFAULTS),
     "directories": tuple(DIRECTORY_PROFILE_DEFAULTS),
 }
@@ -148,7 +153,10 @@ VIEWER_SECTIONS = {
 # documents exported before the key existed remain valid.
 OPTIONAL_DOCUMENT_KEYS = {
     "layout": {"LAYOUT_DIMENSIONS": 2, "LAYOUT_SEED": 42, "AUTO_DT": False},
-    "viewer": {},
+    "viewer": {
+        "EMBED_FILE": INPUT_PROFILE_DEFAULTS["EMBED_FILE"],
+        "EMBED_DIR": DIRECTORY_PROFILE_DEFAULTS["EMBED_DIR"],
+    },
 }
 
 
@@ -232,8 +240,11 @@ FILES = {
     "NODE_FASTA_FILE": "FASTA_DIR",
     "INPUT_HDF5": "HDF5_DIR",
     "MSA_FILE": "MSA_DIR",
+    "EMBED_FILE": "EMBED_DIR",
     "TARGET_CACHE_PATH": "SAVED_LAYOUT_DIR",
 }
+# Optional inputs: an empty path selects none.
+OPTIONAL_FILES = frozenset({"MSA_FILE", "EMBED_FILE"})
 
 
 def _flat_viewer_settings_schema():
@@ -265,10 +276,17 @@ def _flat_viewer_settings_schema():
 
 def get_viewer_settings_schema():
     flat = _flat_viewer_settings_schema()["properties"]
+    optional = optional_keys("viewer")
+    # A section whose keys are all optional may be left out, as in documents
+    # exported before it existed.
+    required_sections = [
+        section for section, keys in VIEWER_SECTIONS.items()
+        if any(key not in optional for key in keys)
+    ]
     return {
         "type": "object",
         "additionalProperties": False,
-        "required": ["schema_version", "kind", *VIEWER_SECTIONS],
+        "required": ["schema_version", "kind", *required_sections],
         "properties": {
             "schema_version": {"const": 2},
             "kind": {"const": "viewer"},
@@ -276,7 +294,7 @@ def get_viewer_settings_schema():
                 section: {
                     "type": "object",
                     "additionalProperties": False,
-                    "required": list(keys),
+                    "required": [key for key in keys if key not in optional],
                     "properties": {key: flat[key] for key in keys},
                 }
                 for section, keys in VIEWER_SECTIONS.items()
@@ -379,7 +397,7 @@ def normalize_viewer_paths(values, project_root, *, require_cache=True):
     for key, directory in FILES.items():
         value = result[key].strip()
         if not value:
-            if key != "MSA_FILE" and (key != "TARGET_CACHE_PATH" or require_cache):
+            if key not in OPTIONAL_FILES and (key != "TARGET_CACHE_PATH" or require_cache):
                 raise ViewerSettingsError(f"{key}: required nonempty path.")
             result[key] = ""
             continue
@@ -498,6 +516,15 @@ def _validate_flat_viewer_document(document, project_root):
                     _msa_headers = [line[1:].strip() for line in msa if line.startswith(">")]
         elif result["ALIGNMENT_REFERENCE"]:
             raise ViewerSettingsError("ALIGNMENT_REFERENCE: requires MSA_FILE; use an empty reference when alignment is disabled.")
+        if result["EMBED_FILE"]:
+            # The file's own interface only: its headers, sequences, model and
+            # width. Embedding_Manager matches it to the nodes when it loads,
+            # and partial coverage is allowed, as for the MSA.
+            from Embedding_Manager import read_embedding_summary
+            try:
+                read_embedding_summary(result["EMBED_FILE"])
+            except (OSError, ValueError, KeyError) as error:
+                raise ViewerSettingsError(f"EMBED_FILE: {error}") from error
     except ViewerSettingsError:
         raise
     except Exception as error:
@@ -846,6 +873,7 @@ __all__ = [
     "REQUIRED",
     "ALIASES",
     "FILES",
+    "OPTIONAL_FILES",
     "get_viewer_settings_schema",
     "resolve_cache_settings",
     "resolve_viewer_document",
