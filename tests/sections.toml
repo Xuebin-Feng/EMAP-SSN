@@ -206,6 +206,7 @@ modules = [
 description = "Language option, catalogs, translated pages, untranslated-text checks"
 seconds = 35
 modules = [
+    "test_docs_translation",
     "test_language_option",
     "test_language_packs",
     "test_localization",
@@ -265,6 +266,10 @@ sections = ["plugins", "viewer"]
 
 [[rules]]
 paths = ["src/resources/languages/**", "src/resources/fonts/**"]
+sections = ["language"]
+
+[[rules]]
+paths = ["docs/**"]
 sections = ["language"]
 
 [[rules]]

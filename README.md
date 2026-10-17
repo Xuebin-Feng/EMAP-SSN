@@ -277,6 +277,12 @@ punctuation, and its translated help pages. Adding a language means adding its
 folder. To review a translation, add a language or mark new text for
 translation, see the [translations guide](src/resources/languages/README.md).
 
+The Viewer command reference also exists in Simplified Chinese
+(`docs/zh_CN/list_of_commands.html`). Each page has a language switch that opens
+the other at the same command, and `docs/Docs_Translation.py` tells which
+sections of the Chinese page to update when the English one changes (see the
+translations guide).
+
 ---
 ## 🧬 System Workflow
 
@@ -786,6 +792,9 @@ EMAP-SSN/
 ├── docs/                     # Screenshots, documentation, and metadata template
 │   ├── quickstart.html       # Comprehensive Quick Start Manual & GUI architecture guide
 │   ├── list_of_commands.html # Interactive Viewer command reference
+│   ├── zh_CN/                # Its Simplified Chinese translation (list_of_commands.html)
+│   ├── Docs_Translation.py   # Keeps a translated page in step with its English page
+│   ├── fonts/                # Offline Noto fonts for the pages, with the Chinese subsets
 │   ├── mcp_settings.md      # MCP actions, export workflows, and execution settings
 │   └── web_plugin_development.md # Browser utility extension contract
 │

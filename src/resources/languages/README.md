@@ -211,6 +211,23 @@ The Tools window shows a tab's help from `src/tools/tool_descriptions/<name>.md`
 
 Tools shows the translation in its language while that line matches the English page, and the English page otherwise. So after the English page changes, it shows until its translation is brought up to date. The update command lists such translations, with the first line each needs (`utilities/Help_Pages.py` makes it, as `translation_marker`), and any translation still beside the English pages as `<name>.<language>.md`, where Tools doesn't look; those are notes, not failures. A translation keeps the English page's headings, tool names, setting keys, code and file names, and a tool's heading reads as its card title does in the catalog.
 
+## Documentation pages
+
+The pages in `docs/` are plain files that work offline, apart from the program. `docs/list_of_commands.html`, the Viewer's command reference, has a translation per language at `docs/<language>/list_of_commands.html`, such as `docs/zh_CN/list_of_commands.html` (the quick start manual stays English). A translation is the English page with its readable text translated and nothing else changed: the same ids, links, `<code>` snippets, styles and script logic. What readers type is never translated: code, command names, syntax boxes, example lines and the sidebar's list of commands. Terms follow the language's glossary, and a label of the program's own is written as its catalog has it (`Fold View` is 结构视图).
+
+Each page has a language switch beside its theme button, "English" and "简体中文". It opens the other page at the section being read and keeps the chosen theme, from `file://` too. Chinese is drawn from `docs/fonts/NotoSansSC-Regular.woff2` and `NotoSansSC-Bold.woff2`: the application's Noto Sans SC cut down to exactly the characters the pages use, which `docs/fonts/fonts_zh_CN.css` adds to the pages' Noto Sans family. `docs/fonts/LICENSE.fonts` has their licence and the `pyftsubset` commands that make them again.
+
+`tests/test_docs_translation.py` keeps a translation in step with its English page. It fails, naming what to update, when the English page changes and the translation does not follow, or the two differ in more than text: the same sections (each element with an id beside the `<section>`s, the sidebar, the title and the script), tags, ids and links, the same `<code>` and command text, the same `<style>` and script apart from the script's few messages, a working language switch, and every Chinese character in the font. Each translated section also carries `data-source-sha256`, the fingerprint of its English section's text and code as it was when the translation was reviewed. Tags, classes and styles are left out of it, so restyling the English page makes nothing stale. An update is therefore incremental:
+
+```
+python docs/Docs_Translation.py                  # lists the sections whose English changed
+python docs/Docs_Translation.py show cmd-label   # the English and the translated section
+python docs/Docs_Translation.py stamp cmd-label  # after translating that section (or: stamp --all)
+python docs/Docs_Translation.py characters --out characters.txt   # when a new character needs the font
+```
+
+Translate each listed section in `docs/zh_CN/list_of_commands.html`, then stamp it; `stamp` refuses while the pages differ in more than text. The tool uses only the Python standard library. To add a language, copy the Chinese page into `docs/<language>/`, translate it, add a font stylesheet if the script needs one, and stamp every section; the test checks every folder in `docs/` that holds the page.
+
 ## Find text that is not marked
 
 Start a window in the test-only pseudo-language:

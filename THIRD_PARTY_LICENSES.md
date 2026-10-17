@@ -27,7 +27,7 @@ body is otherwise unchanged.
 | [marked](https://github.com/markedjs/marked) | 18.0.9 | MIT | `src/resources/agent/marked.umd.js` | [`LICENSE.marked`](src/resources/agent/LICENSE.marked) |
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT; the fonts SIL OFL 1.1 (also MIT per the KaTeX repository) | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex); fonts: [`LICENSE.OFL`](src/resources/fonts/LICENSE.OFL) |
 | [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSans/` and `NotoSansMono/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
-| [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc) | 2.004-H2 (Google Fonts), cut down to GB2312 | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSansSC/` | [`LICENSE.Noto`](src/resources/fonts/LICENSE.Noto) |
+| [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc) | 2.004-H2 (Google Fonts), cut down to GB2312; `docs/fonts/NotoSansSC-*.woff2` cut down again to the characters of the Chinese documentation page | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSansSC/` and `docs/fonts/NotoSansSC-Regular.woff2`, `NotoSansSC-Bold.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
 | [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (51 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` and `docs/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
 | [UniProtKB/Swiss-Prot](https://www.uniprot.org/) sequences | Release 2026_03, 952 entries of InterPro IPR001279 | CC BY 4.0 | `src/resources/benchmark/benchmark_sequences.fasta`, `injection_sequences.fasta` | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); attribution in [`README.md`](src/resources/benchmark/README.md) |
 
@@ -101,6 +101,14 @@ body is otherwise unchanged.
   the second so standalone documentation remains self-contained. Each location includes the OFL text in
   `LICENSE.Noto`; the two `fonts.css` files are identical and must be regenerated
   together. The 4.68 MiB desktop core is not duplicated under `docs/`.
+
+  The Simplified Chinese command reference (`docs/zh_CN/list_of_commands.html`)
+  and the language switch of the English one draw Chinese from two more files in
+  `docs/fonts/`, `NotoSansSC-Regular.woff2` and `NotoSansSC-Bold.woff2` (221,164
+  bytes), which `fonts_zh_CN.css` adds to the pages' Noto Sans family. They are the
+  application's Noto Sans SC files cut down again to the 774 characters of those
+  pages; their SHA-256 hashes, the licence statement and the exact `pyftsubset`
+  recipe are in `docs/fonts/LICENSE.fonts`.
 
   The KaTeX fonts are **not** duplicated into `docs/`, because the
   documentation pages do not use KaTeX.

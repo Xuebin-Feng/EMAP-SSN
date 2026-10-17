@@ -25,6 +25,9 @@
          docs/fonts/ rather than src/, so this page is self-contained and does
          not depend on the application source tree. -->
     <link href="fonts/fonts.css" rel="stylesheet">
+    <!-- Noto Sans SC for the Simplified Chinese page and the language switch's
+         label; the browser fetches it only when a Chinese character is drawn. -->
+    <link href="fonts/fonts_zh_CN.css" rel="stylesheet">
     <style>
         :root {
             /* Light theme (default) */
@@ -276,8 +279,54 @@
             padding: 16px 24px;
             border-top: 1px solid var(--border);
             display: flex;
+            flex-wrap: wrap;
             justify-content: space-between;
+            align-items: stretch;
+            gap: 8px;
+        }
+
+        .footer-link {
+            flex: 1 1 100%;
+            justify-content: center;
+            text-decoration: none;
+        }
+
+        /* Language switch: two links in one bordered pill, the current one marked */
+        .lang-switch {
+            display: inline-flex;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            font-size: 0.8rem;
+        }
+
+        .lang-option {
+            display: flex;
             align-items: center;
+            padding: 0 10px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .lang-option + .lang-option {
+            border-left: 1px solid var(--border);
+        }
+
+        a.lang-option:hover {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        a.lang-option:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: -2px;
+        }
+
+        .lang-option.current {
+            background-color: var(--accent-glow);
+            color: var(--accent);
+            font-weight: 600;
         }
 
         .theme-toggle-btn {
@@ -706,7 +755,11 @@
                 <span id="theme-icon">🌙</span>
                 <span id="theme-text">Dark Mode</span>
             </button>
-            <a href="quickstart.html" class="theme-toggle-btn" style="text-decoration: none;" title="Go to Quick Start Manual">
+            <nav class="lang-switch" aria-label="Language">
+                <span class="lang-option current" lang="en" aria-current="page">English</span>
+                <a class="lang-option" lang="zh-CN" hreflang="zh-CN" href="zh_CN/list_of_commands.html" title="Simplified Chinese">简体中文</a>
+            </nav>
+            <a href="quickstart.html" class="theme-toggle-btn footer-link" title="Go to Quick Start Manual">
                 <span>📘 Quick Start</span>
             </a>
         </div>
@@ -1885,6 +1938,42 @@
 
         sections.forEach(section => {
             observer.observe(section);
+        });
+
+        // Language switch: the other language's page opens at the section being read,
+        // the last menu target that has reached the top fifth of the window (or, at the
+        // end of the page, the page's own #anchor when that section is on screen).
+        const languageLinks = document.querySelectorAll('a.lang-option');
+
+        function visibleTarget(id) {
+            const target = document.getElementById(id);
+            return target && target.getClientRects().length > 0 ? target : null;
+        }
+
+        function updateLanguageLinks() {
+            let anchor = '';
+            navMenuItems.forEach(item => {
+                const id = item.getAttribute('data-target');
+                const target = visibleTarget(id);
+                if (target && target.getBoundingClientRect().top <= window.innerHeight * 0.2) {
+                    anchor = id === 'docs-intro' ? '' : '#' + id;
+                }
+            });
+            const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+            const hashTarget = visibleTarget(window.location.hash.slice(1));
+            if (atEnd && hashTarget) {
+                const box = hashTarget.getBoundingClientRect();
+                if (box.bottom > 0 && box.top < window.innerHeight) {
+                    anchor = window.location.hash;
+                }
+            }
+            languageLinks.forEach(link => {
+                link.setAttribute('href', link.getAttribute('href').split('#')[0] + anchor);
+            });
+        }
+
+        ['pointerdown', 'focus', 'click', 'contextmenu'].forEach(type => {
+            languageLinks.forEach(link => link.addEventListener(type, updateLanguageLinks));
         });
 
         // Highlight card when navigating directly via hash

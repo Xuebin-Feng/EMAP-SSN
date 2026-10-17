@@ -1,0 +1,2003 @@
+<!DOCTYPE html>
+<!--
+  Copyright 2026 Xuebin Feng
+  Author affiliation: University of Toronto
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+      http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title data-source-sha256="02ea5c3e27903837ec4d4fabd75c34ca33b6067867f0bb6fabce1d72490dc838">EMAP-SSN 查看器命令参考</title>
+    <!-- Fonts are vendored locally so this page renders offline. They live in
+         docs/fonts/ rather than src/, so this page is self-contained and does
+         not depend on the application source tree. -->
+    <link href="../fonts/fonts.css" rel="stylesheet">
+    <!-- Noto Sans SC for the Simplified Chinese page and the language switch's
+         label; the browser fetches it only when a Chinese character is drawn. -->
+    <link href="../fonts/fonts_zh_CN.css" rel="stylesheet">
+    <style>
+        :root {
+            /* Light theme (default) */
+            --bg-primary: #f8fafc;
+            --bg-secondary: #ffffff;
+            --bg-sidebar: #ffffff;
+            --bg-code: #f1f5f9;
+            --bg-code-inner: #f8fafc;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-muted: #64748b;
+            --accent: #4f46e5;
+            --accent-glow: rgba(79, 70, 229, 0.1);
+            --border: #e2e8f0;
+            --border-hover: #cbd5e1;
+            --syntax-cmd: #0f172a;
+            --syntax-param: #0891b2;
+            --syntax-expr: #b45309;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
+            --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
+            --badge-core-bg: #dbeafe;
+            --badge-core-text: #1e40af;
+            --badge-new-bg: #dcfce7;
+            --badge-new-text: #166534;
+            --badge-ext-bg: #f3e8ff;
+            --badge-ext-text: #6b21a8;
+            --badge-util-bg: #fef3c7;
+            --badge-util-text: #92400e;
+        }
+
+        [data-theme="dark"] {
+            /* Dark theme */
+            --bg-primary: #0b0f19;
+            --bg-secondary: #111827;
+            --bg-sidebar: #111827;
+            --bg-code: #1f2937;
+            --bg-code-inner: #111827;
+            --text-primary: #f9fafb;
+            --text-secondary: #d1d5db;
+            --text-muted: #9ca3af;
+            --accent: #818cf8;
+            --accent-glow: rgba(129, 140, 248, 0.15);
+            --border: #374151;
+            --border-hover: #4b5563;
+            --syntax-cmd: #f9fafb;
+            --syntax-param: #22d3ee;
+            --syntax-expr: #fbbf24;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+            --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+            --badge-core-bg: #1e3a8a;
+            --badge-core-text: #93c5fd;
+            --badge-new-bg: #064e3b;
+            --badge-new-text: #6ee7b7;
+            --badge-ext-bg: #581c87;
+            --badge-ext-text: #d8b4fe;
+            --badge-util-bg: #78350f;
+            --badge-util-text: #fde68a;
+        }
+
+        /* Basic Reset */
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Noto Sans', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            display: flex;
+            min-height: 100vh;
+            line-height: 1.6;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        /* Sidebar Styling */
+        aside {
+            width: 320px;
+            background-color: var(--bg-sidebar);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            position: fixed;
+            top: 0;
+            bottom: 0;
+            left: 0;
+            z-index: 100;
+            overflow: visible !important;
+            transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .sidebar-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .sidebar-title {
+            font-size: 1.15rem;
+            font-weight: 700;
+            margin-bottom: 4px;
+            letter-spacing: -0.025em;
+        }
+
+        .sidebar-subtitle {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+
+        .toggle-sidebar-btn {
+            position: absolute;
+            top: 24px;
+            right: -30px;
+            width: 30px;
+            height: 48px;
+            background-color: var(--bg-sidebar);
+            border: 1px solid var(--border);
+            border-left: none;
+            border-radius: 0 8px 8px 0;
+            color: var(--text-secondary);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 101;
+            box-shadow: 4px 2px 6px -1px rgb(0 0 0 / 0.05);
+            transition: all 0.2s ease, background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .toggle-sidebar-btn:hover {
+            background-color: var(--bg-primary);
+            color: var(--accent);
+            border-color: var(--border-hover);
+        }
+
+        .toggle-sidebar-btn::after {
+            content: "«";
+            font-size: 1.1rem;
+            font-weight: bold;
+        }
+
+        body.sidebar-collapsed .toggle-sidebar-btn::after {
+            content: "»";
+        }
+
+        body.sidebar-collapsed aside {
+            transform: translateX(-100%);
+        }
+
+        body.sidebar-collapsed main {
+            margin-left: 0;
+        }
+
+        body.sidebar-collapsed .expand-sidebar-btn {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .search-container {
+            padding: 16px 24px;
+            border-bottom: 1px solid var(--border);
+            position: relative;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 10px 14px 10px 36px;
+            font-size: 0.9rem;
+            background-color: var(--bg-primary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-family: inherit;
+            outline: none;
+            transition: all 0.2s ease;
+        }
+
+        .search-input:focus {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 2px var(--accent-glow);
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 36px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-muted);
+            pointer-events: none;
+        }
+
+        .sidebar-menu {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px 24px;
+        }
+
+        .menu-category {
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            margin: 18px 0 8px 0;
+        }
+
+        .menu-category:first-of-type {
+            margin-top: 0;
+        }
+
+        .menu-list {
+            list-style: none;
+        }
+
+        .menu-item a {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 12px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            text-decoration: none;
+            border-radius: 6px;
+            margin-bottom: 2px;
+            transition: all 0.2s ease;
+        }
+
+        .menu-item a:hover {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        .menu-item.active a {
+            background-color: var(--accent-glow);
+            color: var(--accent);
+            font-weight: 500;
+        }
+
+        .menu-item-badge {
+            font-size: 0.65rem;
+            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        /* Sidebar Footer Styling */
+        .sidebar-footer {
+            padding: 16px 24px;
+            border-top: 1px solid var(--border);
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: stretch;
+            gap: 8px;
+        }
+
+        .footer-link {
+            flex: 1 1 100%;
+            justify-content: center;
+            text-decoration: none;
+        }
+
+        /* Language switch: two links in one bordered pill, the current one marked */
+        .lang-switch {
+            display: inline-flex;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            font-size: 0.8rem;
+        }
+
+        .lang-option {
+            display: flex;
+            align-items: center;
+            padding: 0 10px;
+            color: var(--text-secondary);
+            text-decoration: none;
+            transition: all 0.2s ease;
+        }
+
+        .lang-option + .lang-option {
+            border-left: 1px solid var(--border);
+        }
+
+        a.lang-option:hover {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+        }
+
+        a.lang-option:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: -2px;
+        }
+
+        .lang-option.current {
+            background-color: var(--accent-glow);
+            color: var(--accent);
+            font-weight: 600;
+        }
+
+        .theme-toggle-btn {
+            background: none;
+            border: 1px solid var(--border);
+            padding: 8px 12px;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-family: inherit;
+            transition: all 0.2s ease;
+        }
+
+        .theme-toggle-btn:hover {
+            border-color: var(--border-hover);
+            color: var(--text-primary);
+            background-color: var(--bg-primary);
+        }
+
+        /* Main Content Styling */
+        main {
+            margin-left: 320px;
+            flex: 1;
+            padding: 40px 60px;
+            display: flex;
+            justify-content: center;
+            transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .content-wrapper {
+            width: 100%;
+            max-width: 960px;
+        }
+
+        header {
+            margin-bottom: 40px;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 24px;
+        }
+
+        h1 {
+            font-size: 2.25rem;
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            margin-bottom: 8px;
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        /* Document Sections */
+        .section-divider {
+            font-size: 1.6rem;
+            font-weight: 800;
+            letter-spacing: -0.025em;
+            margin: 48px 0 24px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid var(--border);
+            color: var(--text-primary);
+        }
+
+        .section-divider:first-of-type {
+            margin-top: 0;
+        }
+
+        /* Command Cards */
+        .command-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 24px 30px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow);
+            transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
+        }
+
+        .command-card:hover {
+            border-color: var(--border-hover);
+            box-shadow: var(--shadow-md);
+        }
+
+        .command-card-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .command-card-title {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            font-size: 1.35rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+
+        .command-card-name {
+            font-family: 'Noto Sans Mono', monospace;
+            background-color: var(--bg-code);
+            padding: 2px 8px;
+            border-radius: 6px;
+            font-size: 1.2rem;
+            color: var(--accent);
+        }
+
+        .command-card-desc-title {
+            color: var(--text-secondary);
+            font-weight: 400;
+        }
+
+        /* Badges */
+        .badge {
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .badge-core { background-color: var(--badge-core-bg); color: var(--badge-core-text); }
+        .badge-new { background-color: var(--badge-new-bg); color: var(--badge-new-text); }
+        .badge-ext { background-color: var(--badge-ext-bg); color: var(--badge-ext-text); }
+        .badge-util { background-color: var(--badge-util-bg); color: var(--badge-util-text); }
+
+        /* Syntax Boxes */
+        .syntax-box {
+            background-color: var(--bg-code);
+            border-left: 4px solid var(--accent);
+            border-radius: 0 8px 8px 0;
+            padding: 14px 20px;
+            margin: 16px 0;
+            font-family: 'Noto Sans Mono', monospace;
+            font-size: 0.9rem;
+            position: relative;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .syntax-content {
+            white-space: pre-wrap;
+            color: var(--syntax-cmd);
+        }
+
+        .copy-btn {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border);
+            color: var(--text-secondary);
+            padding: 4px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        .copy-btn:hover {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            border-color: var(--border-hover);
+        }
+
+        .copy-btn.copied {
+            background-color: var(--badge-new-bg);
+            color: var(--badge-new-text);
+            border-color: transparent;
+        }
+
+        /* Description Elements */
+        p, li {
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+        }
+
+        p strong {
+            color: var(--text-primary);
+        }
+
+        p code, li code {
+            font-family: 'Noto Sans Mono', monospace;
+            background-color: var(--bg-code);
+            padding: 2px 5px;
+            border-radius: 4px;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+
+        /* Subsections (Arguments, Modes, etc.) */
+        .subheading {
+            font-size: 1rem;
+            font-weight: 700;
+            margin: 20px 0 10px 0;
+            color: var(--text-primary);
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 0.05em;
+        }
+
+        ul, ol {
+            margin-left: 20px;
+            margin-bottom: 16px;
+        }
+
+        li {
+            margin-bottom: 6px;
+        }
+
+        /* Callouts / Warnings */
+        .callout {
+            background-color: var(--bg-code);
+            border: 1px dashed var(--border);
+            border-radius: 8px;
+            padding: 16px 20px;
+            margin: 16px 0;
+        }
+
+        .callout-title {
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: var(--text-primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* Examples list styling */
+        .example-list {
+            list-style: none;
+            margin-left: 0;
+            margin-top: 10px;
+        }
+
+        .example-item {
+            background-color: var(--bg-code-inner);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 16px;
+            margin-bottom: 8px;
+            font-family: 'Noto Sans Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        /* Interactive Collapsible / Tab */
+        .collapsible-container {
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }
+
+        .collapsible-header {
+            background-color: var(--bg-code);
+            padding: 12px 20px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            user-select: none;
+        }
+
+        .collapsible-header::after {
+            content: "▼";
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            transition: transform 0.2s ease;
+        }
+
+        .collapsible-container.open .collapsible-header::after {
+            transform: rotate(180deg);
+        }
+
+        .collapsible-content {
+            padding: 16px 20px;
+            background-color: var(--bg-secondary);
+            display: none;
+            border-top: 1px solid var(--border);
+        }
+
+        .collapsible-container.open .collapsible-content {
+            display: block;
+        }
+
+        /* Expression Interpreter Syntax Highlighted Classes */
+        .expr-string { color: var(--syntax-expr); font-weight: 500; }
+        .expr-label { color: var(--accent); font-weight: 500; }
+        .expr-struct { color: var(--syntax-param); font-weight: 500; }
+
+        /* Smooth scroll */
+        html {
+            scroll-behavior: smooth;
+        }
+
+        /* Active highlight styling */
+        .command-card.highlight-card {
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px var(--accent-glow);
+        }
+
+        /* Empty state search */
+        .empty-search-state {
+            display: none;
+            text-align: center;
+            padding: 40px;
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        /* Responsive Layout */
+        @media (max-width: 992px) {
+            body {
+                flex-direction: column;
+            }
+            aside {
+                width: 100%;
+                height: auto;
+                position: relative;
+                border-right: none;
+                border-bottom: 1px solid var(--border);
+            }
+            .sidebar-menu {
+                max-height: 250px;
+            }
+            main {
+                margin-left: 0;
+                padding: 30px 20px;
+            }
+            .toggle-sidebar-btn, .expand-sidebar-btn {
+                display: none !important;
+            }
+            body.sidebar-collapsed aside {
+                transform: none !important;
+            }
+            body.sidebar-collapsed main {
+                margin-left: 0 !important;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <aside data-source-sha256="7fa612b768b3296b090849b451a89f02722742c3887d2714c816f55badead018">
+        <div class="sidebar-header">
+            <div class="sidebar-title">EMAP-SSN 命令参考</div>
+            <div class="sidebar-subtitle">交互式手册与设置指南</div>
+        </div>
+        <div class="search-container">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="search-input" placeholder="搜索命令…">
+        </div>
+        <div class="sidebar-menu">
+            <div class="menu-category">导航</div>
+            <ul class="menu-list">
+                <li class="menu-item active" data-target="docs-intro"><a href="#docs-intro"><span>概述与帮助</span></a></li>
+            </ul>
+
+            <div class="menu-category">表达式解释器</div>
+            <ul class="menu-list">
+                <li class="menu-item" data-target="expr-interpreter"><a href="#expr-interpreter"><span>语法规则</span></a></li>
+                <li class="menu-item" data-target="expr-boolean"><a href="#expr-boolean"><span>布尔运算符</span></a></li>
+            </ul>
+
+            <div class="menu-category">核心命令</div>
+            <ul class="menu-list" id="menu-core-cmds">
+                <li class="menu-item" data-target="cmd-zoom"><a href="#cmd-zoom"><span>zoom</span></a></li>
+                <li class="menu-item" data-target="cmd-save"><a href="#cmd-save"><span>save</span></a></li>
+                <li class="menu-item" data-target="cmd-reset"><a href="#cmd-reset"><span>reset</span></a></li>
+                <li class="menu-item" data-target="cmd-hide"><a href="#cmd-hide"><span>hide</span></a></li>
+                <li class="menu-item" data-target="cmd-undoredo"><a href="#cmd-undoredo"><span>undo &amp; redo</span></a></li>
+                <li class="menu-item" data-target="cmd-run"><a href="#cmd-run"><span>run</span></a></li>
+            </ul>
+
+            <div class="menu-category">比对</div>
+            <ul class="menu-list" id="menu-aln-cmds">
+                <li class="menu-item" data-target="cmd-reference"><a href="#cmd-reference"><span>reference</span></a></li>
+                <li class="menu-item" data-target="cmd-offset"><a href="#cmd-offset"><span>offset</span></a></li>
+                <li class="menu-item" data-target="cmd-alignment"><a href="#cmd-alignment"><span>alignment</span></a></li>
+                <li class="menu-item" data-target="cmd-query"><a href="#cmd-query"><span>query</span></a></li>
+            </ul>
+
+            <div class="menu-category">分析</div>
+            <ul class="menu-list" id="menu-analysis-cmds">
+                <li class="menu-item" data-target="cmd-cluster"><a href="#cmd-cluster"><span>cluster</span></a></li>
+                <li class="menu-item" data-target="cmd-subcluster"><a href="#cmd-subcluster"><span>subcluster</span></a></li>
+                <li class="menu-item" data-target="cmd-color"><a href="#cmd-color"><span>color</span></a></li>
+                <li class="menu-item" data-target="cmd-group"><a href="#cmd-group"><span>group</span></a></li>
+                <li class="menu-item" data-target="cmd-select"><a href="#cmd-select"><span>select</span></a></li>
+                <li class="menu-item" data-target="cmd-label"><a href="#cmd-label"><span>label</span></a></li>
+                <li class="menu-item" data-target="cmd-export"><a href="#cmd-export"><span>export</span></a></li>
+                <li class="menu-item" data-target="cmd-esmfold"><a href="#cmd-esmfold"><span>esmfold</span></a></li>
+            </ul>
+
+            <div class="menu-category">元数据</div>
+            <ul class="menu-list" id="menu-meta-cmds">
+                <li class="menu-item" data-target="cmd-meta"><a href="#cmd-meta"><span>meta</span></a></li>
+                <li class="menu-item" data-target="cmd-spectrum"><a href="#cmd-spectrum"><span>spectrum</span></a></li>
+            </ul>
+
+            <div class="menu-category">图形</div>
+            <ul class="menu-list" id="menu-graphics-cmds">
+                <li class="menu-item" data-target="cmd-print"><a href="#cmd-print"><span>print</span></a></li>
+                <li class="menu-item" data-target="cmd-logo"><a href="#cmd-logo"><span>logo</span></a></li>
+            </ul>
+
+            <div class="menu-category">LLM 智能体</div>
+            <ul class="menu-list" id="menu-agent-cmds">
+                <li class="menu-item" data-target="cmd-agent"><a href="#cmd-agent"><span>agent</span></a></li>
+            </ul>
+        </div>
+        <div class="sidebar-footer">
+            <button class="theme-toggle-btn" id="theme-toggle-btn">
+                <span id="theme-icon">🌙</span>
+                <span id="theme-text">深色模式</span>
+            </button>
+            <nav class="lang-switch" aria-label="语言">
+                <a class="lang-option" lang="en" hreflang="en" href="../list_of_commands.html" title="English">English</a>
+                <span class="lang-option current" lang="zh-CN" aria-current="page">简体中文</span>
+            </nav>
+            <a href="../quickstart.html" class="theme-toggle-btn footer-link" title="前往快速入门手册（仅有英文版）">
+                <span>📘 快速入门</span>
+            </a>
+        </div>
+        <button class="toggle-sidebar-btn" id="toggle-sidebar-btn" title="显示或隐藏侧边栏"></button>
+    </aside>
+
+    <main>
+        <div class="content-wrapper">
+            <header id="docs-intro" data-source-sha256="fe18f98f7cd5fdbf569c3ec34e1fc9bd31887d3cdd7fc1dded1107fb7137328e">
+                <h1>EMAP-SSN 查看器</h1>
+                <div class="subtitle">命令行界面（CLI）手册与参考指南</div>
+                <p style="margin-top: 16px; font-size: 1rem; color: var(--text-secondary);">
+                    本参考文档介绍所有可用的可视化、物理和社区聚类（community clustering）命令。可通过侧边栏动态搜索或筛选命令。核心命令作用于内存中的可视化状态，而外部脚本运行高级生物信息学算法，并把输出结果导出到磁盘。
+                </p>
+                <p style="font-size: 1rem; color: var(--text-secondary);">
+                    <code>COMMAND help</code>、<code>COMMAND -h</code> 或 <code>COMMAND --help</code> 会在终端中打印命令自带的帮助；<code>export</code> 和 <code>label</code> 还接受 <code>-?</code>。<code>label help</code> 不需要比对（alignment）或参考序列（reference sequence）。
+                </p>
+            </header>
+
+
+            <div class="section-divider" id="sec-expression" data-source-sha256="8ac4baedea5ccf5723de95944c94446708729c7a6a76f851047e347b75aaa93d">表达式解释器语法规则</div>
+            <div class="command-card" id="expr-interpreter" data-source-sha256="f84b5d6571d5ebd08d5a27d2b24cbc73bef9d7064adb59ef5b5a737143935ef7">
+                <p><strong>概述：</strong>通用表达式解释器是把文本查询解析为数学选择的底层引擎。<code>color</code>、<code>group</code>、<code>hide</code>、<code>logo</code>、<code>query</code>、<code>select</code> 和 <code>spectrum</code> 都使用它，它支持对网络节点（node）进行复杂的多层定位。</p>
+                <div class="callout">
+                    <div class="callout-title">⚠️ 重要的空格规则</div>
+                    <p>表达式必须连续书写，<strong>中间不能有空格</strong>。空格严格保留，用于分隔不同的命令、参数或属性。</p>
+                </div>
+                
+                <div class="subheading">定位模块</div>
+                <p>解释器识别六种不同的定位语法：</p>
+                
+                <div class="collapsible-container">
+                    <div class="collapsible-header"><span>1. 文本与通配符匹配（<span class="expr-string">"Text"</span>）</span></div>
+                    <div class="collapsible-content">
+                        <p>用双引号括起文本，会在节点的序列标题（FASTA header）中搜索。</p>
+                        <ul>
+                            <li><strong>不区分大小写的子串：</strong><code>"kinase"</code> 会匹配包含 kinase 的任意序列标题，不论字母大小写。</li>
+                            <li><strong>通配符：</strong>支持标准的 glob 模式。<code>"*A5?T*"</code> 会匹配包含“A5”、任意单个字符和“T”的任意序列标题。</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="collapsible-container">
+                    <div class="collapsible-header"><span>2. 属性标签（<span class="expr-label">#Label#</span>）</span></div>
+                    <div class="collapsible-content">
+                        <p>用井号把名称括起来，可选中拓扑簇（topology cluster）、噪声集（noise set）或自定义分组；名称不区分大小写。元数据则改用 <code>{...}</code> 查询来匹配。</p>
+                        <ul>
+                            <li><strong>簇：</strong><code>#cluster_1#</code>、<code>#cluster_2#</code> 等。</li>
+                            <li><strong>噪声：</strong><code>#noise#</code> 用于选中未聚类或被过滤掉的节点（簇 -1）。</li>
+                            <li><strong>自定义分组：</strong><code>#human#</code> 会匹配被手动分组并标记为“human”的节点。</li>
+                            <li><strong>规范解析：</strong>簇标签使用其精确的十进制写法，因此 <code>#cluster_001#</code> 可能指的是某个自定义分组，而不是簇 1。如果一个标签同时是现有簇和自定义分组的名称，则会因有歧义而被拒绝。</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="collapsible-container">
+                    <div class="collapsible-header"><span>3. 序列比对查询（<span class="expr-struct">[AA][Pos]</span>）</span></div>
+                    <div class="collapsible-content">
+                        <p>允许根据多序列比对（MSA）的残基（residue）分布进行定位。</p>
+                        <ul>
+                            <li><strong>指定氨基酸：</strong><code>P106</code> 会选中在显示位置 106 处为脯氨酸（P）的所有节点：该位置为参考序列编号加上会话偏移量，未启用参考序列时则为占有率编号（occupancy numbering）。残基字母不区分大小写。</li>
+                            <li><strong>分组氨基酸：</strong><code>(RHK)71</code> 会选中位置 71 处为 R、H 或 K 的节点。带插入位置或负数位置的分组写法形如 <code>(RHK)71.1</code> 和 <code>(RHK)(-1)</code>。残基集合至少需要两个字母，且不能包含 <code>_</code>；用 <code>|</code> 组合空位（gap），例如 <code>_71|(DE)71</code>。</li>
+                            <li><strong>空位查询：</strong><code>_100</code> 会选中在显示位置 100 处为空位（<code>-</code> 或 <code>.</code>）的所有节点。</li>
+                            <li><strong>负数偏移位置：</strong>负的显示位置必须加括号：用 <code>K(-1)</code> 或 <code>K(-1.1)</code>。<code>K-1</code> 这类不带括号的写法无效，因为 <code>-</code> 要留给将来的表达式函数。</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="collapsible-container">
+                    <div class="collapsible-header"><span>4. 外部文件交叉引用（<code>@Filename@</code>）</span></div>
+                    <div class="collapsible-content">
+                        <p>用 <code>@</code> 符号括住文件名，会把网络与位于 <code>Header_Lists</code> 目录中的文本文件或 FASTA 文件交叉引用。文件名必须是该目录中的纯文件名：含文件夹、<code>..</code>、盘符（如 <code>C:</code>）或网络共享路径的名称会被拒绝，命令不会做任何更改。文件必须是 UTF-8 文本；与任何节点都不匹配的条目会列在终端中。</p>
+                        <ul>
+                            <li><strong>直接匹配：</strong><code>@my_targets.txt@</code> 会选中完整序列标题与文件中某一行匹配的节点，不区分字母大小写；FASTA 文件则提供其中以 <code>&gt;</code> 开头的序列标题行。每一行会先按构建网络时对序列标题的清理（sanitize）方式处理（连续空格变为一个 <code>_</code>，方括号变为圆括号），因此从原始 FASTA 复制的序列标题仍能匹配。<code>.txt</code> 会追加在不以 <code>.txt</code>、<code>.fasta</code>、<code>.fa</code>、<code>.faa</code> 或 <code>.fas</code>（不区分大小写）结尾的文件名之后，因此由 <code>select save hits.fa</code> 写出的文件可用 <code>@hits.fa@</code> 读回。旧版本保存为 <code>hits.fa.txt</code> 的序列标题列表，仍可用 <code>@hits.fa@</code> 读取，前提是不存在名为 <code>hits.fa</code> 的文件（<code>.faa</code> 和 <code>.fas</code> 同理）；两者都存在时，完全相同的文件名优先。</li>
+                            <li><strong>NCBI 提取：</strong><code>@[NCBI]my_targets.txt@</code> 会自动在文本文件中扫描标准的 NCBI accession 编号（如 <code>WP_01234.1</code>），并匹配包含这些编号的网络序列标题，忽略其周围的文本。</li>
+                            <li><strong>PDB 提取：</strong><code>@[PDB]my_targets.txt@</code> 执行同样的提取（extraction），但针对 Protein Data Bank 编号（如 <code>1XYZ</code>）。</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="collapsible-container">
+                    <div class="collapsible-header"><span>5. 界面选择（<code>$sele$</code>）</span></div>
+                    <div class="collapsible-content">
+                        <p>输入 <code>$sele$</code> 会显式传入当前在查看器中用鼠标高亮或选中的节点。</p>
+                    </div>
+                </div>
+
+                <div class="collapsible-container">
+                    <div class="collapsible-header"><span>6. 元数据查询（<code>{KeyOpVal}</code>）</span></div>
+                    <div class="collapsible-content">
+                        <p>根据节点元数据进行定位：生成布局缓存时写入的由 FASTA 派生的数值列 <code>Length</code>、<code>kDa</code>、<code>pI</code> 和 <code>GRAVY</code>（v0.2.0 及更早版本的缓存没有这些列，需重新生成），以及从 Excel 或 CSV 表格上传的字段。大括号内的属性名只能包含字母、数字、<code>_</code>、<code>-</code> 和 <code>.</code>。</p>
+                        <ul>
+                            <li><strong>数值：</strong><code>{Length>500}</code> 会选中序列长度大于 500 的节点。数值属性接受 <code>&gt;</code>、<code>&gt;=</code>、<code>&lt;</code>、<code>&lt;=</code>、<code>=</code>、<code>==</code> 和 <code>!=</code>，还可以用 <code>=</code> 表示闭区间，例如 <code>{Length=300-500}</code>。负的范围边界必须写在括号中，与负的比对位置一样：<code>{GRAVY=(-1)-0}</code> 或 <code>{GRAVY=(-1.5)-(-0.5)}</code>。单个负值则不需要：<code>{GRAVY&gt;=-1}</code>。每个数值比较（包括 <code>!=</code>）都会跳过没有值的节点；<code>!{Length=100}</code> 会选中所有其他节点，包括没有值的节点。</li>
+                            <li><strong>文本：</strong><code>{Organism=coli}</code> 会选中 Organism 值包含“coli”的节点，不区分大小写，因此 <code>=</code> 和 <code>==</code> 测试的是包含关系，而不是完全相等；<code>!=</code> 选中未通过该测试的节点。带有 <code>*</code> 或 <code>?</code> 通配符时，模式必须匹配整个值：<code>{Organism=*coli}</code> 要求值以“coli”结尾。</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="section-divider" id="expr-boolean">布尔逻辑运算符</div>
+                <p>可以用标准布尔逻辑组合上面的任意定位模块（不允许有空格）：</p>
+                <ul>
+                    <li><strong>&amp;（AND）：</strong><code>"Human"&amp;#cluster_1#</code>（必须是 Human 且在簇 1 中）。</li>
+                    <li><strong>|（OR）：</strong><code>P106|A106</code>（位置 106 处必须是脯氨酸或丙氨酸）。</li>
+                    <li><strong>!（NOT）：</strong><code>!#noise#</code>（必须不是噪声）。</li>
+                    <li><strong>^（XOR）：</strong><code>#cluster_1#^P106</code>（异或：位于簇 1 中或在 106 处为脯氨酸，但不能两者同时满足）。</li>
+                    <li><strong>()（括号分组）：</strong>可用括号规定运算顺序，例如 <code>!(#cluster_1#|#cluster_2#)</code>。</li>
+                    <li><strong>优先级：</strong><code>!</code> 的结合最紧，其次是 <code>&amp;</code>，再是 <code>^</code>，最后是 <code>|</code>。混用运算符时请加括号。</li>
+                </ul>
+                <div class="callout">
+                    <div class="callout-title">严格的上下文验证</div>
+                    <p>应用表达式之前，解释器会验证所引用的每个簇、噪声标签、自定义分组、显示的比对位置、元数据属性和序列标题列表文件是否都存在于当前序列相似性网络（SSN）上下文中。元数据比较还必须使用与属性类型兼容的值和运算符。</p>
+                    <p>如果任何引用或条件无效，整条提交的命令都会中止，不会对网络做任何更改。控制台中会显示一条简明的错误，终端则包含该表达式和可用的有效目标。确实存在但恰好匹配零个节点的目标不属于表达式错误。</p>
+                </div>
+            </div>
+
+<div class="section-divider" id="sec-core" data-source-sha256="c175c22301f1c83e5c269ea71faf430518141facb6b84eec8c37fa3320cf6319">核心命令</div>
+
+            <section class="command-card" id="cmd-zoom" data-source-sha256="d0590b7c87a3368f2c06025ac4883c5c3cd476228f016e635a6840e7d2c500f0">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">zoom</span>
+                        <span class="command-card-desc-title">&ndash; 精确的相机控制</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">zoom &lt;width&gt;</div>
+                    <button class="copy-btn" onclick="copyText('zoom', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>把相机矩形设为恰好等于指定的数值宽度，同时保持其当前中心和画布宽高比。宽度必须至少为 0.5，且至多为能显示所有节点（包括隐藏节点）的最宽视图，并向上取整为 100 的倍数；该最宽视图会随节点移动和窗口形状而变化。超出这些限制的宽度会被拒绝，并同时指出两个限制。鼠标滚轮、触控板捏合以及阈值滑块旁的视图宽度框遵守同样的限制。</p>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>zoom 500</span><button class="copy-btn" onclick="copyText('zoom 500', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-save" data-source-sha256="235117ca3cf9a8715122c0aa770eef0708f9f0b331901e450e8b41053a678b31">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">save</span>
+                        <span class="command-card-desc-title">&ndash; 把当前视图保存到缓存</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">save [filename / filename.h5]</div>
+                    <button class="copy-btn" onclick="copyText('save', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>以原子方式把位置、颜色、大小、形状、可见性、持久的节点渲染顺序、簇、分组、元数据、受支持的可缓存节点属性、最新的聚类参数以及缓存清单标识保存到 HDF5 布局缓存。未提供文件名时，会在当前缓存文件夹中创建下一个可用的简单版本名（例如 <code>version_00.h5</code>，然后是 <code>version_01.h5</code>）。提供的名称缺少 <code>.h5</code> 时会自动加上，且必须是安全的基本文件名。</p>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>save</span><button class="copy-btn" onclick="copyText('save', this)">复制</button></li>
+                    <li class="example-item"><span>save session_layout.h5</span><button class="copy-btn" onclick="copyText('save session_layout.h5', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-reset" data-source-sha256="e3f71f5975a42a666b6cbe5fd9d0ee4dca3351634100d0e86b2ddb9afb254d38">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">reset</span>
+                        <span class="command-card-desc-title">&ndash; 把选定的视图重置为初始状态</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">reset &lt;target_1&gt; [target_2] ...</div>
+                    <button class="copy-btn" onclick="copyText('reset', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>把选定的属性重置为初始状态。支持的目标包括：</p>
+                <div class="subheading">支持的目标</div>
+                <ul>
+                    <li><code>color / colors</code>：把所有节点的颜色恢复为配置的初始节点颜色。</li>
+<li><code>size / sizes</code>：把所有节点的大小重置为配置中定义的基准大小。</li>
+<li><code>shape / shapes</code>：把所有节点恢复为标准的圆形 'disc' 形状。</li>
+<li><code>cluster / clusters</code>：清除所有簇标签，移除簇的界面显示，并清除簇的提示框数据。同时还会移除 <code>subcluster_N_M</code> 分组（由 <code>subcluster</code> 命令为这些簇生成）并报告数量；名称相似的自定义分组（如 <code>subcluster_0_2</code>）会保留。</li>
+<li><code>group / groups</code>：清除分配给节点的所有自定义分组标签集合。</li>
+<li><code>hide / hidden</code>：通过把整个可见性掩码重新设为 True，取消隐藏所有被隐藏的节点。</li>
+<li><code>network / networks</code>：把所有节点位置还原为最初的布局坐标（或上次保存的 .h5 文件所加载的状态）。</li>
+<li><code>order / orders / layer / layers</code>：把持久的节点渲染顺序恢复为内部的节点索引顺序。当前选中或点击的节点及其邻居会暂时保持在上层，直到清除焦点。</li>
+                </ul>
+                <p><strong>验证：</strong>无法识别的目标会使整条命令中止：不会重置任何内容，也不会记录撤销步骤。</p>
+                <p><strong>快捷方式：</strong><code>color reset</code>、<code>group reset</code>、<code>hide reset</code> 和 <code>label reset</code> 分别等同于 <code>reset colors</code>、<code>reset groups</code>、<code>reset hidden</code> 和 <code>reset clusters</code>。请注意，<code>label reset</code> 因此会清除所有拓扑簇，而不是运行保守性（conservation）报告。</p>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>reset colors sizes</span><button class="copy-btn" onclick="copyText('reset colors sizes', this)">复制</button></li>
+                    <li class="example-item"><span>reset network hide</span><button class="copy-btn" onclick="copyText('reset network hide', this)">复制</button></li>
+                    <li class="example-item"><span>reset order</span><button class="copy-btn" onclick="copyText('reset order', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-hide" data-source-sha256="c7e16c2aff48e811a0c4fd30180155d105e23bed8d9493605a6471c1e03503fc">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">hide</span>
+                        <span class="command-card-desc-title">&ndash; 从视图中隐藏选中的节点</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">hide [expression | single | free]</div>
+                    <button class="copy-btn" onclick="copyText('hide', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>隐藏匹配的节点及其显示的边（edge），但不会删除节点、坐标、序列、元数据、簇或分组。感知可见性的命令会排除隐藏节点；对已存储的子集或比对行进行运算的分析则保留各自文档中说明的行为。</p>
+                <div class="subheading">参数与模式</div>
+                <ul>
+                    <li><strong>不带参数：</strong>立即隐藏当前所有选中的节点及其相连的边。</li>
+                    <li><strong>带 <code>single</code> 或 <code>free</code>：</strong>隐藏在当前相似性阈值下没有活动边的所有可见节点。与 <code>reset</code> 一样，它们不接受其他参数：后面再跟任何词都会被拒绝。</li>
+                    <li><strong>带 <code>expression</code>：</strong>隐藏匹配该逻辑表达式的所有可见节点（例如 <code>hide #noise#</code>）。表达式必须恰好是一个不含空格的词：多于一个词会被拒绝，因此带空格的带引号序列标题（<code>"node 1"</code>）会被拒绝，而不是什么都匹配不到。</li>
+                </ul>
+                <div class="callout">
+                    <div class="callout-title">💡 取消隐藏节点</div>
+                    <p>要取消隐藏节点并恢复完整可见性，请使用 <code>reset hide</code> 命令。</p>
+                </div>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>hide</span><button class="copy-btn" onclick="copyText('hide', this)">复制</button></li>
+                    <li class="example-item"><span>hide single</span><button class="copy-btn" onclick="copyText('hide single', this)">复制</button></li>
+                    <li class="example-item"><span>hide #noise#</span><button class="copy-btn" onclick="copyText('hide #noise#', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-undoredo" data-source-sha256="286ecda022255083e78eb5213f9babe53eabbc1c57bf0f8ab46d0a480d5bbf85">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">undo &amp; redo</span>
+                        <span class="command-card-desc-title">&ndash; 会话历史导航</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">undo [N]   |   redo [N]</div>
+                    <button class="copy-btn" onclick="copyText('undo', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong><code>undo</code> 恢复到上一个已保存的可视/空间状态；<code>redo</code> 重新应用被撤销的状态。调用查看器状态保存钩子的命令都会参与这一历史记录。状态包括 HUD 显示的是哪个元数据属性（由 <code>meta show</code> 和 <code>spectrum</code> 设置），因此撤销 <code>spectrum</code> 也会把其属性从 HUD 上移除。状态不包括侧边栏：撤销和重做不会改变其按钮及其是否打开。</p>
+                <p>带有 <code>N</code>（正整数）时，<code>undo N</code> 最多恢复 N 个状态，<code>redo N</code> 最多重新应用 N 个被撤销的状态。历史用完时各自会提前停止，并报告完成了多少步。零、负数、非整数或多余的参数都会被拒绝，且不做任何更改。</p>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>undo</span><button class="copy-btn" onclick="copyText('undo', this)">复制</button></li>
+                    <li class="example-item"><span>redo</span><button class="copy-btn" onclick="copyText('redo', this)">复制</button></li>
+                    <li class="example-item"><span>undo 3</span><button class="copy-btn" onclick="copyText('undo 3', this)">复制</button></li>
+                    <li class="example-item"><span>redo 2</span><button class="copy-btn" onclick="copyText('redo 2', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-run" data-source-sha256="2750c25a03c3976a5533dc86fa77758becf9cf4b421ad16b5a03e54b7497f80e">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">run</span>
+                        <span class="command-card-desc-title">&ndash; 执行命令脚本</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">run [stop]</div>
+                    <button class="copy-btn" onclick="copyText('run', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>打开文件资源管理器，选择一个命令脚本文件（<code>.txt</code> 或 <code>.py</code>），并依次执行其中的命令。</p>
+                <div class="subheading">执行详情</div>
+                <ul>
+                    <li><strong>Python 脚本（<code>.py</code>）：</strong>在子进程中使用当前的 Python 环境执行，工作目录为脚本所在文件夹，因此脚本中的相对路径相对于脚本自身解析。子进程在后台运行，查看器保持响应；结束后，其标准输出（stdout）会被读取，并在查看器中逐行执行。同一时间只运行一个脚本：在另一个脚本仍在运行时再运行脚本会被拒绝。</li>
+                    <li><strong>文本文件（<code>.txt</code>）：</strong>逐行读取。<code>//</code> 之后的文本会被移除，因此整行注释和行尾注释都会被忽略。</li>
+                    <li><strong>停止脚本：</strong><code>run stop</code> 会结束查看器正在运行的 Python 脚本及其启动的所有进程，并且不运行它们的任何命令。不会打开文件资源管理器。没有脚本在运行时，命令也会成功并说明这一情况。关闭查看器也会停止这些脚本。</li>
+                    <li><strong>无限循环保护：</strong>脚本内部递归的 <code>run</code> 调用会被自动忽略，以防止查看器卡死。</li>
+                    <li><strong>遇到第一个失败即停止：</strong>命令按顺序运行，第一个失败的命令会结束运行。其后的命令不会运行；控制台会指出失败的命令，并说明有多少条命令被跳过。从自身对话框中取消的命令也会以同样的方式结束运行。</li>
+                    <li><strong>命令数量上限：</strong>一个脚本最多可提供 1000 条命令。更长的脚本会在运行任何命令之前被拒绝。</li>
+                </ul>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>run</span><button class="copy-btn" onclick="copyText('run', this)">复制</button></li>
+                    <li class="example-item"><span>run stop</span><button class="copy-btn" onclick="copyText('run stop', this)">复制</button></li>
+                </ul>
+            </section>
+
+<div class="section-divider" id="sec-alignment" data-source-sha256="1caec69619a437827e92e2a641ed6b1de9ee4bccc55d82e31c8985bfa18f91e5">比对</div>
+
+            <section class="command-card" id="cmd-reference" data-source-sha256="6b09767490de0284455a16fbc5508de2055dd5eb5f2768f05ae9925d0a5c5d09">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">reference</span>
+                        <span class="command-card-desc-title">&ndash; 把参考序列重设为另一条序列</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">reference [target]</div>
+                    <button class="copy-btn" onclick="copyText('reference', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>动态更改用于比对编号的参考序列，并重新加载多序列比对。&lt;target&gt; 可以是完整序列标题、开头的标识符（如 <code>WP_0123.1</code>，即序列标题中以 <code>_</code> 或 <code>|</code> 结尾的开头部分）、不区分大小写的子串，或匹配网络 FASTA 序列标题或其标识符的通配符模式（如 <code>WP_01*</code> 或 <code>*.1</code>）。完全匹配的序列标题或标识符优先，因此 <code>WP_0123.1</code> 选中的是 <code>WP_0123.1_protein_A</code>，而不是 <code>WP_0123.10_protein_B</code>；否则，如果有多个序列标题匹配，则使用第一个在已加载 MSA 中有序列的序列标题，并在警告中指明是哪一个。解析得到的完整序列标题是比对编号的锚点，因此报告的参考序列始终是实际使用的序列。其序列不在已加载 MSA 中的目标会被拒绝：命令失败，之前的参考序列和偏移量保持不变。已配置但无法解析的参考序列（例如加载另一个比对后遗留的参考序列）会保持配置但处于未启用状态，此时 MSA 以无参考的占有率模式使用，位置按顺序编号。不带参数调用 <code>reference</code> 会显示当前生效的参考序列，或在已配置的参考序列无法解析时将其标记为未启用。只接受一个目标：多出的参数会被拒绝，参考序列和偏移量保持不变。</p>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>reference</span><button class="copy-btn" onclick="copyText('reference', this)">复制</button></li>
+                    <li class="example-item"><span>reference E1_RA</span><button class="copy-btn" onclick="copyText('reference E1_RA', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-offset" data-source-sha256="467fb10dc6c6b01c5c377b23b424f5b70dc6a8019f98810f83e92855ca77d84b">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">offset</span>
+                        <span class="command-card-desc-title">&ndash; 比对编号偏移量</span>
+                    </div>
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">offset [integer]</div>
+                    <button class="copy-btn" onclick="copyText('offset', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>报告或更改当前会话中以参考序列为锚的比对编号，而不改变比对列或序列数据。显示的标签遵循 <code>displayed position = reference position + offset</code>；插入位置的标签保留其小数后缀。</p>
+                <div class="subheading">要求与范围</div>
+                <ul>
+                    <li><strong>不带参数：</strong>报告已配置的偏移量，以及参考序列编号是否生效。</li>
+                    <li><strong>带一个整数：</strong>应用正、负或零偏移量。需要已加载的 MSA 和有效且已生效的参考序列。</li>
+                    <li><strong>仅限当前会话：</strong>该命令只改变正在运行的查看器。要为以后的会话设置该值，请在 EMAP-SSN 配置中设置“比对偏移量”。</li>
+                    <li><strong>受影响的命令：</strong>感知位置的 <code>query</code>、<code>label</code>、<code>logo</code>，以及 <code>color</code>、<code>select</code>、<code>group</code>、<code>hide</code> 和 <code>spectrum</code> 所使用的氨基酸表达式。</li>
+                    <li><strong>负的氨基酸位置：</strong>在布尔表达式中，负的显示位置要用括号括起来，例如 <code>K(-1)</code>、<code>K(-1.1)</code> 或 <code>(RHK)(-1)</code>。不要使用 <code>K-1</code> 或 <code>(RHK)-1</code>。</li>
+                </ul>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>offset</span><button class="copy-btn" onclick="copyText('offset', this)">复制</button></li>
+                    <li class="example-item"><span>offset 10</span><button class="copy-btn" onclick="copyText('offset 10', this)">复制</button></li>
+                    <li class="example-item"><span>offset -5</span><button class="copy-btn" onclick="copyText('offset -5', this)">复制</button></li>
+                    <li class="example-item"><span>offset 0</span><button class="copy-btn" onclick="copyText('offset 0', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-alignment" data-source-sha256="f14be4b8f425fee9650bce069a74ace6c15e64e0bbe2881f793a973505f23a98">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">alignment</span>
+                        <span class="command-card-desc-title">&ndash; 切换当前比对（MSA）</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">alignment [filepath]</div>
+                    <button class="copy-btn" onclick="copyText('alignment', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>动态更改查看器使用的当前多序列比对文件（<code>.fasta</code> 或 <code>.h5</code>），并重新加载 MSA 映射。</p>
+                <div class="subheading">参数</div>
+                <ul>
+                    <li><strong>不带参数：</strong>打开文件对话框，手动选择 FASTA 或 H5 MSA 文件。</li>
+                    <li><strong><code>filepath</code>：</strong>指向 MSA 文件的绝对路径或相对路径（如 <code>Input_Files/Multiple_Alignments/SeqSet_alignment.fasta</code>）。</li>
+                </ul>
+                <div class="callout">
+                    <div class="callout-title">⚠️ 加载规则与完整性检查</div>
+<p>MSA 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。覆盖情况按完整序列标题的精确匹配来计算。缺失的节点仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖比对的分析之外。部分加载会在终端中打印红色警告，并给出覆盖率详情；只有无法读取或格式错误的比对文件才会导致回滚。</p>
+<p>对于氨基酸表达式，缺失的比对行视为未知：<code>P106</code> 和 <code>!P106</code> 都不会匹配未比对的节点。独立的序列标题、元数据、簇、分组或文件子句仍可按普通布尔逻辑匹配该节点。</p>
+                </div>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>alignment</span><button class="copy-btn" onclick="copyText('alignment', this)">复制</button></li>
+                    <li class="example-item"><span>alignment Input_Files/Multiple_Alignments/SeqSet_alignment.fasta</span><button class="copy-btn" onclick="copyText('alignment Input_Files/Multiple_Alignments/SeqSet_alignment.fasta', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-query" data-source-sha256="7b08b46b684be9aa55f66756a50f35c36114100aad97cb4ac22aa5a10cdf486e">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">query</span>
+                        <span class="command-card-desc-title">&ndash; 比对位置查询工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">query [expression] &lt;positions | frequency_logic&gt;</div>
+                    <button class="copy-btn" onclick="copyText('query', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>查询明确指定的参考位置上的氨基酸分布，或在所有参考位置中搜索满足残基频率条件的位置。两种模式都可以作用于全局，或作用于由表达式选出的子集。</p>
+                
+                <div class="callout">
+                    <div class="callout-title">📋 前提条件</div>
+                    <p>需要已加载的 MSA，且至少有一行映射到当前网络。有生效的参考序列时，位置使用以参考序列为锚的编号和会话偏移量。没有时，命令仍可在占有率模式下使用，并从 1 开始按顺序给保留的比对列编号；此时偏移量不生效。</p>
+                </div>
+
+                <div class="subheading">定位与回退</div>
+                <ul>
+                    <li><strong>显式表达式：</strong>对匹配该表达式的节点运行查询（例如 <code>#cluster_1#</code>）。</li>
+                    <li><strong>鼠标选择（回退 1）：</strong>省略表达式时，查询查看器中当前选中的节点。</li>
+                    <li><strong>整个网络（回退 2）：</strong>既没有给出表达式也没有选中节点时，查询网络中的所有节点。</li>
+                    <li><strong>无匹配：</strong>没有任何节点匹配的表达式会成功，并附带一条未匹配到序列的提示。匹配的节点若都不在已加载的 MSA 中，则没有可查询的内容，命令失败。</li>
+                </ul>
+
+                <div class="subheading">核心参数</div>
+                <ul>
+                    <li><strong>位置写法：</strong>方括号内的列，支持列表、范围、小数形式的插入位置，以及表示最后一个已映射位置标签的 <code>E</code>/<code>END</code>，该标签可以是插入位置标签或占有率标签（例如 <code>[10,15.1,20-30,250-E]</code>）。每个负的位置或范围端点都必须单独用括号括起来，如 <code>[(-1),(-1.1),0]</code> 或 <code>[(-3)-2]</code>；<code>[-1]</code> 和 <code>[-3--1]</code> 这类不带括号的写法无效。</li>
+                    <li><strong>插入位置（小数）：</strong>插入的残基用小数标记（例如 <code>106.1</code>、<code>106.2</code>）。查询 <code>[106-107]</code> 会按顺序直接打印 106、106.1、106.2 和 107 的统计信息。</li>
+                    <li><strong>频率搜索：</strong>使用残基或空位条件，配合 <code>&gt;</code>、<code>&lt;</code>、<code>&gt;=</code> 或 <code>&lt;=</code>，分数或百分比，以及布尔运算符。频率以选定或全局节点子集映射得到的全部 MSA 行为分母，因此空位会稀释残基的百分比。分组目标会把其残基频率相加，如 <code>[(RHK)&gt;50%]</code>。多条件搜索仍要求每个完整的比较都加括号：<code>[((RHK)&gt;50%)&amp;((DE)&gt;20%)]</code> 或 <code>[((RHK)&gt;50%)&amp;(GAP&lt;20%)]</code>。空位用 <code>GAP</code> 或 <code>_</code> 表示。</li>
+                    <li><strong>输出：</strong>每个位置会先打印其空位百分比，然后打印占比至少为 1% 的每个残基，按从大到小排列；X 以及比对中的任何其他符号都算作残基。占比不足 1% 的残基汇总在额外的一行 <code>other (&lt;1% each)</code> 中，因此不会遗漏任何出现的残基。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>query [10, 15, 20-30]</span><button class="copy-btn" onclick="copyText('query [10, 15, 20-30]', this)">复制</button></li>
+                    <li class="example-item"><span>query [(-1),0,10.1]</span><button class="copy-btn" onclick="copyText('query [(-1),0,10.1]', this)">复制</button></li>
+                    <li class="example-item"><span>query #cluster_1# [(-3)-2]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [(-3)-2]', this)">复制</button></li>
+                    <li class="example-item"><span>query P106 [150-160]</span><button class="copy-btn" onclick="copyText('query P106 [150-160]', this)">复制</button></li>
+                    <li class="example-item"><span>query {Length&gt;500} [10-20]</span><button class="copy-btn" onclick="copyText('query {Length>500} [10-20]', this)">复制</button></li>
+                    <li class="example-item"><span>query [K&gt;10%]</span><button class="copy-btn" onclick="copyText('query [K>10%]', this)">复制</button></li>
+                    <li class="example-item"><span>query [(RHK)&gt;50%]</span><button class="copy-btn" onclick="copyText('query [(RHK)>50%]', this)">复制</button></li>
+                    <li class="example-item"><span>query [((RHK)&gt;50%)&amp;((DE)&gt;20%)]</span><button class="copy-btn" onclick="copyText('query [((RHK)>50%)&amp;((DE)>20%)]', this)">复制</button></li>
+                    <li class="example-item"><span>query #cluster_1# [!(GAP&gt;30%)&amp;(K&gt;5%)]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [!(GAP>30%)&amp;(K>5%)]', this)">复制</button></li>
+                </ul>
+            </section>
+
+<div class="section-divider" id="sec-analysis" data-source-sha256="11d08bd3b5ae42526bc455b04a25f732b753f4911885a431f6328f71cd362068">分析</div>
+
+            <section class="command-card" id="cmd-cluster" data-source-sha256="5f21bee3364a244329ac0b40c86f2041af8631edf8c844bf7a9270f80d887c97">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">cluster</span>
+                        <span class="command-card-desc-title">&ndash; 拓扑聚类工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">cluster [mode] [parameter] [min_size]</div>
+                    <button class="copy-btn" onclick="copyText('cluster', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>cluster 命令把当前加载的序列相似性网络划分为由拓扑得出的社区，这些社区可作为候选亚家族。它会用自定义的 HLS 颜色生成器动态生成视觉上彼此区分的彩色标签（模仿 <code>tab20c</code> 的柔和色调），根据要着色的簇的数量自动调整不同色相和明度级别的数量，并记录这些边界，供下游工具（如子比对和分组提取）使用。</p>
+                
+                <div class="subheading">参数</div>
+                <ul>
+                    <li><strong>MODE：</strong>要使用的聚类算法：<code>leiden</code>、<code>mcl</code> 或 <code>jaccard</code>。默认为 <code>leiden</code>。</li>
+                    <li><strong>PARAMETER：</strong>所选算法的主要调节变量（Leiden 分辨率（resolution）、MCL inflation 或 Jaccard 阈值）。</li>
+                    <li><strong>MIN_SIZE：</strong>至少为 1 的整数，定义形成有效簇所需的最少节点数。更小的社区会被归为噪声（灰色），并被下游工具忽略。默认为 10。没有边的节点在三种模式下都自成一个社区：MIN_SIZE 为 1 时是单节点簇，更大时则为噪声。</li>
+                    <li><strong>多余的参数：</strong>MODE、PARAMETER 和 MIN_SIZE 之后（或 <code>list</code> 之后）的任何内容都会被拒绝，错误信息会指出第一个多余的参数，且不做任何更改。</li>
+                    <li><strong>范围与编号：</strong>聚类使用所有已加载的边和节点，不受相似性阈值滑块或隐藏节点的影响。保留下来的簇按大小编号，因此 <code>cluster_1</code> 是最大的簇。</li>
+                </ul>
+
+                <div class="subheading">算法</div>
+                
+                <div class="collapsible-container">
+                    <div class="collapsible-header">Leiden（默认）</div>
+                    <div class="collapsible-content">
+                        <p><strong>机制：</strong>通过共用的 Leiden 划分辅助函数优化网络的模块度和密度，自动把边的相似性得分用作权重。需要 <code>graspologic-native</code>。</p>
+                        <p><strong>参数：</strong><em>分辨率</em>（默认：1.0）。增大该值会迫使网络分裂成更小、更多的簇。</p>
+                        <p><strong>用法：</strong><code>cluster leiden 1.0 10</code>（或简写为 <code>cluster 1.0 10</code>）</p>
+                    </div>
+                </div>
+
+                <div class="collapsible-container">
+                    <div class="collapsible-header">MCL（马尔可夫聚类）</div>
+                    <div class="collapsible-content">
+                        <p><strong>机制：</strong>模拟网络中的随机游走，假定随机游走者会停留在稠密的簇内，而不会穿过稀疏的边界。把相似性得分用作转移概率。每个节点还会获得一条自环，其权重与它最强的边相同（没有边的节点为 1），因此簇不依赖于得分的尺度：从 0 到 1 的一致性（identity）和 &minus;log<sub>10</sub> 期望值（E-value）的聚类效果相同。需要 <code>markov_clustering</code> 和 <code>networkx</code>。</p>
+                        <p><strong>参数：</strong><em>Inflation</em>（默认：2.0），取值范围为 1.1 到 10.0（含）；超出此范围的值会在做任何更改之前被拒绝。控制边界的粒度。较高的值（如 4.0、6.0）通常会产生更紧密、更多的簇。</p>
+                        <p><strong>用法：</strong> <code>cluster mcl 2.0 10</code></p>
+                    </div>
+                </div>
+
+                <div class="collapsible-container">
+                    <div class="collapsible-header">Jaccard 过滤</div>
+                    <div class="collapsible-content">
+                        <p><strong>机制：</strong>纯拓扑过滤。对每条边计算两个端点的闭邻域的 Jaccard 指数，并切断低于阈值的边。闭邻域是一个节点的邻居加上该节点自身，因此对于两个端点分别有 <em>a</em> 和 <em>b</em> 个邻居、其中 <em>c</em> 个共有的边，其指数为 (<em>c</em> + 2) / (<em>a</em> + <em>b</em> &minus; <em>c</em>)。不在任何三角形内的边得分仍大于 0，孤立的一对节点或团中的任何一条边得分为 1。安装了 <code>numba</code> 时使用它，否则使用较慢的纯 Python 路径。</p>
+                        <p><strong>参数：</strong><em>阈值</em>（默认：0.2）。0.0 到 1.0 之间的浮点数。阈值为 0.2 表示相连的两个节点的闭邻域必须至少重叠其并集的 20%，这条边才会保留。</p>
+                        <p><strong>用法：</strong> <code>cluster jaccard 0.2 10</code></p>
+                    </div>
+                </div>
+
+                <div class="subheading">实用子命令</div>
+                <ul>
+                    <li><code>cluster list</code>：在控制台中打印详细报告，列出各簇的大小、百分比以及噪声总数。</li>
+                </ul>
+
+                <div class="subheading">重要说明</div>
+                <ul>
+                    <li>聚类会改写可视状态（覆盖节点颜色），但可以用 <code>undo</code> 命令还原。</li>
+                    <li>运行 <code>cluster</code> 会替换当前的簇，因此也会移除上一次聚类生成的 <code>subcluster_N_M</code> 分组并报告移除了多少个。名称相似的自定义分组（如 <code>subcluster_0_2</code>）会保留，且 <code>undo</code> 可以把被移除的分组找回来。</li>
+                    <li>聚类参数会被缓存。下游的序列比对工具会自动构造以具体聚类参数命名的输出目录（例如 <code>LEIDEN_1.0_Min10</code>）。</li>
+                    <li>该命令使用在 HLS 色彩空间中工作的动态颜色生成器，根据簇的数量自动调整不同色相和明度的比例，在不需要外部依赖的情况下确保最佳的可读性、清晰的视觉区分和干净的柔和配色。</li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-subcluster" data-source-sha256="bb017151695e52d28ded96d622690f6dd32a2eb7d35c0cd70065c12a0ea8f096">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">subcluster</span>
+                        <span class="command-card-desc-title">&ndash; 簇的子聚类工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">subcluster &lt;cluster_name&gt; [mode] [param_1] [min_size]  |  subcluster clear</div>
+                    <button class="copy-btn" onclick="copyText('subcluster', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>对指定的拓扑簇执行子聚类，创建名为 <code>subcluster_N_M</code> 的自定义分组标签（其中 N 是原始簇 ID，M 是子簇（subcluster）ID）。子簇与簇一样按大小编号，因此 <code>subcluster_N_1</code> 是最大的；大小相同时按其最小成员节点索引排序。主拓扑簇标签会保留，而目标簇中的节点会按子簇重新着色，小于 <code>min_size</code> 的节点着灰色。再次运行 <code>cluster</code> 会移除这些生成的分组，因为它们描述的是被替换的簇。终端报告使用同样高饱和度的子簇调色板。</p>
+                
+                <div class="subheading">参数</div>
+                <ul>
+                    <li><strong>&lt;cluster_name&gt;：</strong>要进行子聚类的簇的名称（如 <code>cluster_2</code>、<code>cluster_5</code>），写法与选择表达式中相同，不带前导零：<code>cluster_01</code> 会被拒绝，错误信息会指出 <code>cluster_1</code>。</li>
+                    <li><strong>clear：</strong>从查看器会话中清除生成的子簇分组标签（<code>subcluster_N_M</code>），并保留名称相似的自定义分组。它不会还原先前子聚类所应用的颜色。</li>
+                    <li><strong>[min_size]：</strong>（可选）要保留的子簇的最小大小，至少为 1（默认：10）。更小的分组被视为噪声。簇内没有边的节点在 min_size 为 1 时（所有模式下）自成一个单节点子簇，更大时则为噪声。当没有任何子簇达到 min_size 时，命令报告成功但不做任何更改：簇保留其颜色和先前的子簇，也不会增加撤销步骤。</li>
+                    <li><strong>多余的参数：</strong>簇名称、mode、param_1 和 min_size 之后（或 <code>clear</code> 之后）的任何内容都会被拒绝，错误信息会指出第一个多余的参数，且不做任何更改。</li>
+                </ul>
+
+                <div class="subheading">模式与参数</div>
+                <ul>
+                    <li><strong><code>leiden</code>（默认）：</strong>Leiden 社区检测。PARAM_1 表示分辨率（默认：1.0）。</li>
+                    <li><strong><code>mcl</code>：</strong>马尔可夫聚类算法。PARAM_1 表示 inflation，取值 1.1 到 10.0（含）（默认：2.0）。</li>
+                    <li><strong><code>jaccard</code>：</strong>拓扑 Jaccard 过滤。PARAM_1 表示阈值（默认：0.2）。</li>
+                </ul>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>subcluster cluster_2</span><button class="copy-btn" onclick="copyText('subcluster cluster_2', this)">复制</button></li>
+                    <li class="example-item"><span>subcluster cluster_2 mcl 2.0 5</span><button class="copy-btn" onclick="copyText('subcluster cluster_2 mcl 2.0 5', this)">复制</button></li>
+                    <li class="example-item"><span>subcluster cluster_5 leiden 1.5</span><button class="copy-btn" onclick="copyText('subcluster cluster_5 leiden 1.5', this)">复制</button></li>
+                    <li class="example-item"><span>subcluster clear</span><button class="copy-btn" onclick="copyText('subcluster clear', this)">复制</button></li>
+                </ul>
+
+                <div class="subheading">重要说明</div>
+                <ul>
+                    <li>子聚类会覆盖目标簇内的颜色，但保留其主簇标签。使用 <code>undo</code> 可恢复之前的状态。<code>subcluster clear</code> 只移除生成的标签，其 N 和 M 都是不带前导零的正整数。名称相似的自定义分组（如 <code>subcluster_0_2</code>、<code>subcluster_001_2</code> 和 <code>subcluster_2_002</code>）会保留，再次对 <code>cluster_2</code> 子聚类时只会替换它生成的标签。该操作不会改动颜色。</li>
+                    <li>终端统计报告使用丰富的高饱和度 HLS 配色（饱和度 0.95，明度 0.35 - 0.65）着色，以便把子簇与主簇使用的柔和颜色区分开。</li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-color" data-source-sha256="bde426daa068aa93f60949ac0b1662e01caee1d1f6e03c4092ab641e33252c33">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">color</span>
+                        <span class="command-card-desc-title">&ndash; 高级节点样式工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">color [expression] [color] [scale] [shape] [&lt;expression_2&gt; ...]</div>
+                    <button class="copy-btn" onclick="copyText('color', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>color 命令用于改变通过表达式解释器或当前鼠标选择选定的可见网络节点的颜色、大小和形状。此命令永远不会改变被隐藏的节点。</p>
+                
+                <div class="subheading">属性</div>
+                <ul>
+                    <li><strong>颜色：</strong>标准颜色名称（<code>red</code>、<code>blue</code>、<code>green</code> 等）或十六进制代码（<code>#ff0000</code>）。</li>
+                    <li><strong>缩放倍数：</strong>以小写 <code>x</code> 结尾的大小倍数（如 <code>2x</code> 表示两倍大小，<code>0.5x</code> 表示一半大小），相对于配置的默认节点大小，而不是累积的。缩放倍数必须是有限的非负数，因此 <code>-2x</code>、<code>nanx</code> 和 <code>infx</code> 会被拒绝。<code>0x</code> 会把节点缩小到零大小但不隐藏它们；可用 <code>reset sizes</code> 恢复，或用 <code>hide</code> 隐藏节点。旧的前缀写法已被移除：<code>x2</code> 现在选中位置 2 处为残基 X 的节点。</li>
+                    <li><strong>形状：</strong>circle、square、triangle、star、diamond、cross、x、vbar（竖条）和 hbar（横条）。</li>
+                    <li><strong>优先级：</strong>构成完整选择表达式的词元总是先被当作表达式读取，然后才会被当作颜色、缩放倍数或形状。<code>C53</code> 选中位置 53 处的半胱氨酸，而不是 Matplotlib 颜色 <code>C53</code>，<code>x2</code> 则选中位置 2 处的残基 X。</li>
+                </ul>
+
+                <div class="subheading">用法机制</div>
+                <ul>
+                    <li><strong>隐式界面定位（快捷方式）：</strong>如果已在查看器中用鼠标选中了节点，则无需书写表达式，直接输入 <code>color red 2x</code> 即可把样式直接应用到所选节点。</li>
+                    <li><strong>链式命令：</strong>可以在一条命令中快速为多个子集设置样式，例如 <code>color #cluster_1# red #cluster_2# blue 1.5x</code>。</li>
+                    <li><strong>属性叠加：</strong>不必同时提供全部三个属性。如果只想缩放，只需传入缩放倍数，例如 <code>color &quot;Mutant&quot; 3x</code>。</li>
+                    <li><strong>渲染顺序：</strong>一次命令调用修改的所有节点会作为一组置于顶层，组内按稳定的节点索引排序。后一次 color 调用的节点会渲染在先前各组之上。</li>
+                    <li><strong>撤销支持：</strong>输入 <code>undo</code> 即可立即还原颜色修改。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>color red 2x triangle</span><button class="copy-btn" onclick="copyText('color red 2x triangle', this)">复制</button></li>
+                    <li class="example-item"><span>color P106 red</span><button class="copy-btn" onclick="copyText('color P106 red', this)">复制</button></li>
+                    <li class="example-item"><span>color #cluster_1# red #noise# 0x</span><button class="copy-btn" onclick="copyText('color #cluster_1# red #noise# 0x', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-group" data-source-sha256="2fc298a6796984bfc5515bfae3636126993a7eedba2bd8116b3becf564e37a9f">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">group</span>
+                        <span class="command-card-desc-title">&ndash; 自定义分组管理工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">group [expression] &lt;group_name&gt; [&lt;expr_2&gt; &lt;name_2&gt; ...]  |  group list  |  group remove|delete &lt;name_1&gt; [name_2 ...]</div>
+                    <button class="copy-btn" onclick="copyText('group', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>cluster 命令依靠数学方法把网络划分为不同的社区，而 group 命令则允许人工手动整理，可以用自定义元数据标签标记特定节点。</p>
+                <p>簇与分组最重要的区别在于排他性。一个节点在同一时间只能属于<em>一个</em>簇，但同一个节点可以同时属于<em>任意多个</em>分组（例如，一个节点可以同时被标记为 #human#、#kinase# 和 #mutant#）。</p>
+                
+                <div class="subheading">分组命名规则</div>
+                <ul>
+                    <li><strong>允许的字符：</strong>分组名称可以包含字母、数字、下划线、连字符和句点，但不能包含空格（例如 <code>active_site</code>）。</li>
+                    <li><strong>不区分大小写：</strong>所有分组名称在内部都会转换为小写，以防止匹配错误。</li>
+                    <li><strong>保留字：</strong>以下不区分大小写的名称是被禁止的：<code>noise</code>、<code>reset</code>、<code>remove</code>、<code>delete</code>、<code>list</code>、<code>help</code>、<code>cluster</code>、<code>group</code>、<code>groups</code> 和 <code>clusters</code>。</li>
+                    <li><strong>生成的标签：</strong>规范的 <code>cluster_N</code> 分组名称在簇 <code>N</code> 当前存在时会被拒绝，包括旧缓存中的簇 0。如果该簇不存在，该名称可以用作自定义分组。<code>cluster_001</code> 这类带前导零的名称始终被解释为自定义分组，而不是簇 1。规范的正整数 ID <code>subcluster_N_M</code> 名称仍属保留；<code>subcluster_0_M</code> 以及 <code>subcluster_001_2</code>、<code>subcluster_1_002</code> 这类带前导零的相似名称仍可用作自定义分组，且 <code>subcluster clear</code> 会保留它们。</li>
+                </ul>
+
+                <div class="subheading">用法机制</div>
+                <ul>
+                    <li><strong>隐式界面定位：</strong>在查看器中用鼠标选中节点后运行 <code>group [NAME]</code>，会把该分组标签直接分配给所选节点。</li>
+                    <li><strong>高级表达式定位：</strong>使用表达式解释器可以立即为数千个节点分配标签。可以链式书写多个表达式和名称，例如 <code>group P106 mutant "Human" human_proteins</code>。</li>
+                    <li><strong>仅限可见节点：</strong>与 <code>color</code>、<code>spectrum</code> 和 <code>select</code> 一样，<code>group</code> 会跳过隐藏节点。表达式和选中节点都可能包含它们，但只有可见节点会获得标签；只匹配隐藏节点的表达式不会给任何节点添加标签，与匹配不到任何节点的表达式一样。节点已有的标签在其被隐藏时会保留。</li>
+                </ul>
+
+                <div class="subheading">管理分组</div>
+                <ul>
+                    <li><strong>查看分组：</strong>输入 <code>group list</code> 可打印统计表，显示当前的自定义分组、节点数和占网络的百分比。</li>
+                    <li><strong>检查节点：</strong>左键点击节点会在提示框标题的第二行显示它所属的自定义分组。</li>
+                    <li><strong>删除分组：</strong>运行 <code>group remove &lt;Group1&gt; [Group2]</code>（或 <code>group delete</code>）可从网络中删除自定义分组。每个指定的分组都必须存在；只要有一个不存在，命令就会失败，且不会删除任何内容。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>group active_site</span><button class="copy-btn" onclick="copyText('group active_site', this)">复制</button></li>
+                    <li class="example-item"><span>group P106 mutant</span><button class="copy-btn" onclick="copyText('group P106 mutant', this)">复制</button></li>
+                    <li class="example-item"><span>group list</span><button class="copy-btn" onclick="copyText('group list', this)">复制</button></li>
+                    <li class="example-item"><span>group remove active_site mutant</span><button class="copy-btn" onclick="copyText('group remove active_site mutant', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-select" data-source-sha256="78d6aab96a0e2ad75c2256e2575049ee30774e48044f51becd304c8b0567c8c0">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">select</span>
+                        <span class="command-card-desc-title">&ndash; 高级选择工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">select [mode] &lt;expression&gt;  |  select &lt;expression&gt; [mode]  |  select invert  |  select save &lt;filename&gt;</div>
+                    <button class="copy-btn" onclick="copyText('select', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>select 命令弥合了视觉直觉与严谨的数学查询之间的差距。虽然始终可以用鼠标右键点击或拖出方框来选择节点，但 select 工具可以借助通用表达式解释器立即高亮数千个特定节点。它提供强大的修饰符，可把数学查询与手动的鼠标选择结合起来，还具备导出功能。</p>
+                <p><em>* 注意：此命令只作用于可见节点，也只选中可见节点。</em></p>
+                <p><em>* 无效的上下文引用会中止而不改变当前选中节点；匹配零个可见节点的有效表达式则保留所选模式的常规行为。</em></p>
+                
+                <div class="subheading">选择模式</div>
+                <ul>
+                    <li><strong>模式位置：</strong>模式可以紧接在表达式之前或之后出现。一条命令中出现两种不同的模式（例如 <code>add</code> 和 <code>subtract</code>）会被拒绝，并指出这两种模式；同一模式出现两次则可以接受。</li>
+                    <li><strong>change（默认）：</strong>清除当前选中节点，只选中匹配该表达式的节点。</li>
+                    <li><strong>add / plus / include：</strong>保留当前选中节点，并把新匹配的节点加入其中。</li>
+                    <li><strong>subtract / minus / remove：</strong>保留当前选中节点，但取消选中匹配该表达式的节点。</li>
+                    <li><strong>filter / keep / intersect：</strong>逐步缩小的过滤。只保留当前选中且匹配该表达式的节点，丢弃其他所有节点。</li>
+                    <li><strong>invert：</strong>特殊的切换模式（不接受表达式）。反转选中节点，高亮所有其他可见节点。</li>
+                </ul>
+
+                <div class="subheading">导出选中节点（<code>select save</code>）</div>
+                <p>把输出列表写入磁盘的简单工具。文件保存到 <code>Input_Files/Header_Lists/</code>，文件名必须是一个词，并且是纯文件名：目录或路径，或第二个词，都会被拒绝。</p>
+                <ul>
+                    <li><strong>保存序列标题（<code>.txt</code>）：</strong>如果提供 <code>.txt</code> 文件名（例如 <code>select save targets.txt</code>），会生成一个文本文件，包含选中节点的完整规范序列标题，与网络和布局缓存存储的一致。任何其他扩展名都会被追加 <code>.txt</code>，因此 <code>hits.csv</code> 会变成 <code>hits.csv.txt</code>。</li>
+                    <li><strong>保存序列（<code>.fasta</code>）：</strong>如果提供 <code>.fasta</code>、<code>.fa</code>、<code>.faa</code> 或 <code>.fas</code> 文件名（不区分大小写，例如 <code>select save targets.fasta</code>），会把选中节点已清理的序列连同相同的序列标题写入一个独立的 FASTA 文件。序列来自查看器已加载并与布局缓存核对过的数据集，而不是重新读取源文件。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>select P106</span><button class="copy-btn" onclick="copyText('select P106', this)">复制</button></li>
+                    <li class="example-item"><span>select add "kinase"</span><button class="copy-btn" onclick="copyText('select add &quot;kinase&quot;', this)">复制</button></li>
+                    <li class="example-item"><span>select remove #noise#</span><button class="copy-btn" onclick="copyText('select remove #noise#', this)">复制</button></li>
+                    <li class="example-item"><span>select keep P106</span><button class="copy-btn" onclick="copyText('select keep P106', this)">复制</button></li>
+                    <li class="example-item"><span>select invert</span><button class="copy-btn" onclick="copyText('select invert', this)">复制</button></li>
+                    <li class="example-item"><span>select save selected_headers.txt</span><button class="copy-btn" onclick="copyText('select save selected_headers.txt', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-label" data-source-sha256="03a30424b0470857f55e3bc4f77bd9448c959360de4085c67fc802a7f073bc26">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">label</span>
+                        <span class="command-card-desc-title">&ndash; 差异标注与 SDP 分析</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">label [cluster|clusters|group|groups] [outside_max] [cluster_min] [identity] [filename]  |  label [cluster|clusters|group|groups] [gmax value] [cmin value] [id value] [filename]</div>
+                    <button class="copy-btn" onclick="copyText('label', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>label 命令执行差异序列分析，旨在识别特异性决定位点（SDP）——在特定簇或分组内高度保守、但在更广泛的蛋白质家族中存在差异的氨基酸。它会导出一份丰富的彩色 Microsoft Excel（.xlsx）报告，详细说明究竟是哪些残基定义了各个亚家族。</p>
+                <p>标注计算和工作簿生成在查看器共用的后台任务队列中运行。命令在提交时会捕获其比对映射、簇/分组成员关系、参考序列编号、参数和输出元数据，因此之后对查看器所做的更改不会影响已排队的报告。label 和 logo 任务按顺序执行；排队和完成的消息会显示在控制台和终端中。</p>
+                
+                <div class="callout">
+                    <div class="callout-title">📋 前提条件</div>
+                    <p>由于此工具分析的是序列数据而不仅仅是网络拓扑，因此需要：<br>1. 在查看器会话中加载有效的比对（MSA）。<br>2. 通过 <code>reference</code> 命令设置参考序列，用它来锚定残基编号。</p>
+                </div>
+
+                <div class="subheading">目标与参数</div>
+                <ul>
+                    <li><strong>TARGET（默认：所有可用结果）：</strong>省略目标时，会同时分析拓扑簇和自定义分组（如果有）。<code>cluster</code>/<code>clusters</code> 只保留拓扑簇的结果；<code>group</code>/<code>groups</code> 只保留自定义分组的结果。</li>
+                    <li><strong>OUTSIDE_MAX (gmax) [默认：40%]：</strong>保守残基在去重并集之外的最大频率，该并集由所有同一氨基酸在同一位置达到 <code>cmin</code> 的被分析子集合并而成。当共同的外部频率低于该值时，会报告每个符合条件的子集。如果某个候选项的排除并集中没有任何外部序列，则不会报告它。</li>
+                    <li><strong>CLUSTER_MIN (cmin) [默认：98%]：</strong>簇或分组内部经空位稀释的氨基酸最低频率。所有频率达到或超过该值的氨基酸都会被评估，而不仅仅是占主导的残基。</li>
+                    <li><strong>IDENTITY (id) [默认：关]：</strong>可选的序列冗余阈值，可写为分数或百分比，如 <code>id 0.9</code>、<code>id 90</code> 或 <code>id 90%</code>。命令会在比对后的 MSA 上一次性计算类似序列标识图（sequence logo）的一致性邻居权重，并把它们一致地应用于全局、子集和外部背景的残基频率与占有率。</li>
+                    <li><strong>FILENAME（可选）：</strong>作为最后一个参数给出的单个纯输出工作簿基本名。省略时会添加 <code>.xlsx</code> 扩展名；不提供名称时，命令使用 <code>Label_Output_YYYYMMDD_HHMMSS.xlsx</code>。纯数字或保留字的文件名必须包含 <code>.xlsx</code>，以便与参数区分。</li>
+                    <li><strong>GLOBAL CONSERVATION（固定为 97%）：</strong>全局频率超过 97% 的残基会被报告为全局保守。该阈值不可由用户配置。</li>
+                    <li><strong>歧义代码：</strong><code>X</code>、<code>B</code>、<code>Z</code> 和 <code>J</code>（以及 <code>*</code>、<code>~</code> 和 <code>_</code>，比对加载器把它们读作 <code>X</code>）从不被报告为保守残基，但仍计为已占据的位置，因此频率和占有率保持相同的分母。<code>U</code> 和 <code>O</code> 会被报告为残基。</li>
+                </ul>
+                <p>阈值是写成分数（<code>0.4</code>）或百分比（<code>40</code> 或 <code>40%</code>）的有限数：末尾的 <code>%</code> 总是表示百分比，因此 <code>0.5%</code> 是百分之零点五，而大于 1 的裸值被视为百分比。前两个位置参数仍然是 <code>gmax</code> 和 <code>cmin</code>；可选的第三个位置参数是一致性（例如 <code>label 0.4 0.9 90%</code>）。使用 <code>id VALUE</code> 可启用一致性加权，同时保留默认的或基于关键字的 <code>gmax</code>/<code>cmin</code>。不要在关键字参数之后混用位置参数。</p>
+
+                <div class="subheading">理解 Excel 输出</div>
+                <p>输出写入已配置的分析结果目录之下（默认为 <code>Analysis_Results/Cluster_Label/</code>），包含三个工作表：</p>
+                <ul>
+                    <li><strong>Meta Data：</strong>记录网络、比对、聚类和标注的参数。紧凑的统计值报告 <code>Aligned N of N | Excluded N | Effective N</code>；没有一致性重新加权时，Effective 等于已比对的数量。</li>
+                    <li><strong>Subset Stats (SDP Matrix)：</strong>行为簇/分组，列为比对位置。显示按空位占有率着色的保守氨基酸。如果多个氨基酸在同一个子集位置上各自独立通过，则单元格按子集频率从高到低的顺序把它们连接起来，例如 <code>Y120 | F120</code>。</li>
+                    <li><strong>Occupancy Stats：</strong>提供每个位置的空位占有率百分比，以绿色突出显示。可用于识别各亚家族之间的插入/缺失差异。</li>
+                </ul>
+                <p>启用一致性加权时，两个统计工作表都会增加一个 <code>Effective N</code> 列。原始计数、百分比和序列长度统计仍不加权。没有一致性值时，工作簿的布局和计算保持其历史行为。</p>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>label</span><button class="copy-btn" onclick="copyText('label', this)">复制</button></li>
+                    <li class="example-item"><span>label 30% 90%</span><button class="copy-btn" onclick="copyText('label 30% 90%', this)">复制</button></li>
+                    <li class="example-item"><span>label id 90%</span><button class="copy-btn" onclick="copyText('label id 90%', this)">复制</button></li>
+                    <li class="example-item"><span>label 0.4 0.9 90% weighted_report</span><button class="copy-btn" onclick="copyText('label 0.4 0.9 90% weighted_report', this)">复制</button></li>
+                    <li class="example-item"><span>label groups cmin 90%</span><button class="copy-btn" onclick="copyText('label groups cmin 90%', this)">复制</button></li>
+                    <li class="example-item"><span>label groups group_report</span><button class="copy-btn" onclick="copyText('label groups group_report', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-export" data-source-sha256="510e16d53d8e75e20754a640f6c1675ce0ebbc4759b03f3dd323b092b123a5e9">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">export</span>
+                        <span class="command-card-desc-title">&ndash; FASTA 序列导出工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">export [target]</div>
+                    <button class="copy-btn" onclick="copyText('export', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>export 命令是可视化网络与本地文件系统之间的桥梁。它可以把序列社区（无论是由数学方法定义的簇，还是手动定义的分组）实际分离出来，并保存为独立的 .fasta 文件。这对于处理海量数据集、通过可视化找到特定的蛋白质家族，并把这些序列提取出来用于下游比对、HMM 生成或结构建模至关重要。</p>
+                
+                <div class="subheading">目标与提取模式</div>
+                <ul>
+                    <li><strong>clusters（默认）：</strong>以 <code>export</code> 或 <code>export clusters</code> 运行。为每个有效的数学簇生成一个单独的 <code>.fasta</code> 文件（例如 <code>Cluster_1.fasta</code>）。为保持数据完整，噪声节点会被跳过。</li>
+                    <li><strong>groups / group：</strong>以 <code>export groups</code> 运行。为会话中当前定义的每个自定义分组标签生成一个单独的 <code>.fasta</code> 文件。</li>
+                    <li><strong>#LABEL#：</strong>导出一个特定的自定义分组、拓扑簇或噪声子集。可按需重复和混用标签目标（例如 <code>export #kinase# #cluster_1# #noise#</code>）；重复的标签会去重。</li>
+                    <li><strong>验证：</strong>所有标签都会在创建任何输出之前解析。“全部目标”模式不能与特定标签混用，有歧义的簇/分组名称会被拒绝，并且不再接受旧的 <code>group:NAME</code> 语法。</li>
+                    <li><strong>输出名称：</strong>分组标签用于命名文件，聚类参数用于命名簇文件夹。如果其中之一会成为路径，或包含 Windows 不允许出现在文件名中的字符（只有手动编辑过的布局缓存才可能带有这类字符），导出会被拒绝，并指出相应的标签或参数，且不会写入任何内容。</li>
+                </ul>
+
+                <div class="subheading">保真度与输出方式</div>
+                <ul>
+                    <li><strong>序列来源：</strong>写入查看器内存中的规范 FASTA 记录（已清理的序列标题和序列），因此输出与构建当前网络所用的记录一致，而不是重新读取可能已更改的源文件。</li>
+                    <li><strong>自动打开：</strong>导出成功后，命令会请求当前桌面平台在文件管理器中打开输出目录。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>export</span><button class="copy-btn" onclick="copyText('export', this)">复制</button></li>
+                    <li class="example-item"><span>export groups</span><button class="copy-btn" onclick="copyText('export groups', this)">复制</button></li>
+                    <li class="example-item"><span>export #human#</span><button class="copy-btn" onclick="copyText('export #human#', this)">复制</button></li>
+                    <li class="example-item"><span>export #cluster_1# #noise#</span><button class="copy-btn" onclick="copyText('export #cluster_1# #noise#', this)">复制</button></li>
+                </ul>
+            </section>
+
+            <section class="command-card" id="cmd-esmfold" data-source-sha256="77a2aea42cc3a4f608e17bbb3a9e89d76b66244da6b4f26ac77e3bb39eef0f99">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">esmfold</span>
+                        <span class="command-card-desc-title">&ndash; 本地或 Biohub ESM3 结构预测</span>
+                        <span class="badge badge-ext">外部</span>
+                    </div>
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">esmfold [large] [multi]  |  esmfold help</div>
+                    <button class="copy-btn" onclick="copyText('esmfold', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>esmfold 命令用 ESM3 预测蛋白质结构，并在基于网页的 Mol* 三维结构查看器中打开。不带 <code>large</code> 修饰符时，它会在本地运行 EvolutionaryScale ESM3 1.4B 开放权重模型（<code>biohub/esm3-sm-open-v1</code>），并写出含 N、C&alpha;、C 以及按几何推断的羰基 O 原子的主链坐标 PDB 文件。加上 <code>large</code> 会把预测发送到为 Biohub 配置的 ESM3 模型——当前为 <code>esm3-large-2024-03</code>（98B）——其当前输出包含侧链重原子坐标。两种模式都不添加氢原子。该命令还会注册“结构视图”侧边栏按钮；该按钮是新添加时侧边栏会打开，之后再运行时会保持上次留下的打开或关闭状态。</p>
+
+                <div class="subheading">核心参数</div>
+                <ul>
+                    <li><strong>不带参数：</strong>用本地的 ESM3 1.4B 预测一个选中的节点，并生成主链坐标 PDB 文件。没有选中节点时，会折叠最后点击的节点并说明这一点（“未选择任何节点，因此将折叠最后点击的节点的结构：&lt;node&gt;。”）；如果也没有点击过任何节点，则注册“结构视图”按钮并打开 Mol*，但不启动预测。如果选中了多个节点，除非给出 <code>multi</code>，否则命令会失败。</li>
+                    <li><strong>multi：</strong>在后台控制台中依次处理当前选中的所有节点。除非与 <code>large</code> 组合，否则使用仅主链的本地模式。</li>
+                    <li><strong>large：</strong>使用 <code>src/resources/Biohub_API.json</code> 中的模型远程预测一个选中的节点，当前为 ESM3 Large 98B。与本地仅主链的输出不同，当前 Biohub 的输出包含侧链重原子。可与 <code>multi</code> 以任意顺序组合，进行依次执行的远程批量预测。</li>
+                    <li><strong>help：</strong>打印命令行帮助和用法说明。</li>
+                </ul>
+
+                <div class="subheading">硬件与系统集成</div>
+                <ul>
+                    <li><strong>本地加速：</strong>本地推理会自动在已安装的运行时所支持的 CUDA/ROCm、Intel XPU、Apple Metal（MPS）和 CPU 设备中进行选择。</li>
+                    <li><strong>Biohub 模式：</strong>远程推理绕过本地硬件选择，把本地和远程的 PDB 文件分开存放，并在首次使用时于工作进程的终端中提示输入隐藏的共享 API 令牌。</li>
+                    <li><strong>工作进程：</strong>作为独立的后台控制台窗口启动，以免桌面查看器卡死。同一时间只运行一个工作进程：已有一个在运行时，<code>esmfold</code> 会拒绝启动另一个，因为那会把第二个模型加载到 GPU 内存中。请等待该工作进程结束，或关闭它的控制台窗口。在没有选中或点击任何节点时打开 Mol* 不会被拒绝。</li>
+                    <li><strong>Mol* 界面：</strong>托管一个 Web 服务器，在丰富的交互式三维查看器中加载预测出的结构。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>esmfold</span><button class="copy-btn" onclick="copyText('esmfold', this)">复制</button></li>
+                    <li class="example-item"><span>esmfold multi</span><button class="copy-btn" onclick="copyText('esmfold multi', this)">复制</button></li>
+                    <li class="example-item"><span>esmfold large</span><button class="copy-btn" onclick="copyText('esmfold large', this)">复制</button></li>
+                    <li class="example-item"><span>esmfold large multi</span><button class="copy-btn" onclick="copyText('esmfold large multi', this)">复制</button></li>
+                    <li class="example-item"><span>esmfold help</span><button class="copy-btn" onclick="copyText('esmfold help', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+<div class="section-divider" id="sec-metadata" data-source-sha256="a5771f22af04af2aed168eb2e2bf305c60e3232a1bdcb969de2746099671aa36">元数据</div>
+
+            <section class="command-card" id="cmd-meta" data-source-sha256="de37a05ff4ebbe834abe69986ed5debce211a95a20e3b7bef1b24506377b581d">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">meta</span>
+                        <span class="command-card-desc-title">&ndash; 节点元数据管理工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt; [filename ...]  |  meta show &lt;property_name&gt;|{property_name}  |  meta download [filename]  |  meta delete|remove|clear &lt;property_name&gt; [property_name ...]</div>
+                    <button class="copy-btn" onclick="copyText('meta', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>打开浏览器中的元数据编辑器，把 Excel/CSV 元数据加载到当前会话，控制点击节点时 HUD 显示的属性，删除元数据列，或导出当前会话的完整元数据。</p>
+                
+                <div class="subheading">子命令与用法</div>
+                <ul>
+                    <li><strong><code>meta</code>（不带参数）：</strong>在默认浏览器中打开查看器的 HTML5 元数据电子表格页面，并注册其侧边栏快捷方式。快捷方式是新添加时侧边栏会打开；再次运行 <code>meta</code> 会保持其打开或关闭状态不变。</li>
+                    <li><strong><code>meta &lt;filename&gt; [filename ...]</code>、<code>meta upload ...</code> 或 <code>meta import ...</code>：</strong>按参数顺序加载并合并一个或多个 <code>.xlsx</code>、<code>.xls</code> 或 <code>.csv</code> 元数据文件。路径可以是绝对路径、相对路径，或已配置的元数据目录中的名称；省略扩展名时会依次尝试受支持的扩展名。输入表格把序列标题放在第一列，属性名称放在第一行，属性类型放在第二行。在文本列中，<code>NA</code>、<code>N/A</code>、<code>None</code>、<code>null</code> 和 <code>NaN</code> 这些词按原样保留，因为它们可能是真实的值（例如 NA 表示北美）；只有空单元格才算空白。在数值列中，它们与任何其他非数字一样被视为缺失。</li>
+                    <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>：</strong>在查看器右下角激活一个 HUD 文本框，在点击节点时显示指定属性的值。属性名可以写在大括号中，就像 <code>spectrum</code> 的写法（<code>meta show {Length}</code>）；写在大括号中的名称始终被视为属性，因此 <code>meta show {off}</code> 显示的是名为 <code>off</code> 的属性。</li>
+                    <li><strong><code>meta show clear</code> / <code>meta show off</code>：</strong>停用并隐藏元数据属性 HUD。撤销和重做会让它保持隐藏，直到下一次 <code>meta show</code> 或 <code>spectrum</code> 再次打开它。</li>
+                    <li><strong><code>meta retrieve|download|export [filename]</code>：</strong>把当前会话的全部元数据导出到已配置的元数据目录。不带文件名时，选择下一个未被占用的 <code>metadata.csv</code>、<code>metadata1.csv</code>，依此类推。显式的文件名必须是纯文件名而不是路径，并以 <code>.csv</code> 或 <code>.xlsx</code> 结尾（不区分大小写）；没有扩展名时默认为 <code>.csv</code>，并会覆盖已有的同名文件。此子命令不接受表达式过滤。</li>
+                    <li><strong><code>meta delete|remove|clear &lt;property_name&gt; [property_name ...]</code>：</strong>以原子方式删除一个或多个元数据列，属性名匹配不区分大小写。重复的名称会被忽略；只要有任何请求的名称不存在、有歧义或受保护，就不会删除任何内容。<code>Node ID</code>/<code>Sequence Header</code> 受保护，而由 FASTA 派生的 <code>Length</code>、<code>kDa</code>、<code>pI</code> 和 <code>GRAVY</code> 列属于可删除的普通元数据。不支持关键字 <code>all</code>。可用 <code>undo</code>/<code>redo</code> 恢复或重新应用删除操作。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>meta</span><button class="copy-btn" onclick="copyText('meta', this)">复制</button></li>
+                    <li class="example-item"><span>meta metadata.xlsx</span><button class="copy-btn" onclick="copyText('meta metadata.xlsx', this)">复制</button></li>
+                    <li class="example-item"><span>meta show Organism</span><button class="copy-btn" onclick="copyText('meta show Organism', this)">复制</button></li>
+                    <li class="example-item"><span>meta show {Length}</span><button class="copy-btn" onclick="copyText('meta show {Length}', this)">复制</button></li>
+                    <li class="example-item"><span>meta show clear</span><button class="copy-btn" onclick="copyText('meta show clear', this)">复制</button></li>
+                    <li class="example-item"><span>meta download</span><button class="copy-btn" onclick="copyText('meta download', this)">复制</button></li>
+                    <li class="example-item"><span>meta export session_metadata.xlsx</span><button class="copy-btn" onclick="copyText('meta export session_metadata.xlsx', this)">复制</button></li>
+                    <li class="example-item"><span>meta delete Organism Host</span><button class="copy-btn" onclick="copyText('meta delete Organism Host', this)">复制</button></li>
+                    <li class="example-item"><span>meta clear Length</span><button class="copy-btn" onclick="copyText('meta clear Length', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-spectrum" data-source-sha256="a86fd70543cd3e5bda9713a73c24db150c6bfd7f36112f404a203b3eac7c9b42">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">spectrum</span>
+                        <span class="command-card-desc-title">&ndash; 渐变色着色工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">spectrum [expression] {&lt;property_name&gt;} [&lt;color_scheme&gt;]</div>
+                    <button class="copy-btn" onclick="copyText('spectrum', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>根据数值属性的值，沿渐变色为可见节点着色，并把该次调用着色的所有节点按稳定的节点索引顺序置于顶层。点击节点时，会自动调用 <code>meta display</code> 命令在 HUD 中显示所选属性；没有元数据 HUD 的查看器（如 VR 查看器）会跳过这一步。</p>
+                
+                <div class="subheading">参数</div>
+                <ul>
+                    <li><strong>{&lt;property_name&gt;}：</strong>必须恰好有一个数值型元数据属性（例如 <code>{Length}</code>）。单独的大括号目标选中的是渐变色属性，而完整的条件（如 <code>{Length&gt;500}</code>）仍是布尔节点表达式。</li>
+                    <li><strong>&lt;color_scheme&gt;：</strong>（可选）一个独立的 Matplotlib 颜色映射名称。默认为 <code>coolwarm</code>。名称不区分大小写（<code>Viridis</code> 即 <code>viridis</code>）；无法识别的名称会报错，且不改变任何颜色。构成完整选择表达式的词元会先被当作表达式读取，然后才会尝试当作颜色映射名称。</li>
+                    <li><strong>[expression]：</strong>（可选）用于选择为哪些可见节点着色的逻辑表达式。省略时，网络中所有可见节点都会着色。属性值缺失、非数值或为无穷大的目标节点会着浅灰色，并被排除在数值的最小/最大范围之外。</li>
+                    <li><strong>顺序：</strong>属性、表达式和配色方案可以按任意顺序出现，因为每个角色都会在执行前先分类。旧的 <code>prop:</code>、<code>property:</code>、<code>scheme:</code> 和 <code>color:</code> 写法不再被接受。</li>
+                </ul>
+
+                <div class="subheading">颜色映射方案</div>
+                <ul>
+                    <li><strong>感知均匀：</strong>viridis, plasma, inferno, magma, cividis</li>
+                    <li><strong>顺序型：</strong>Blues, BuGn, BuPu, GnBu, Greens, Greys, Oranges, OrRd, PuBu, PuBuGn, PuRd, Purples, RdPu, Reds, YlGn, YlGnBu, YlOrBr, YlOrRd</li>
+                    <li><strong>发散型：</strong>coolwarm, bwr, seismic, Spectral, BrBG, PiYG, PRGn, PuOr, RdBu, RdGy, RdYlBu, RdYlGn</li>
+                    <li><strong>循环型：</strong>twilight, twilight_shifted, hsv</li>
+                    <li><strong>定性型：</strong>tab10, tab20, tab20b, tab20c, Pastel1, Pastel2, Paired, Accent, Dark2, Set1, Set2, Set3</li>
+                    <li><strong>其他：</strong>jet, rainbow, turbo, ocean, terrain, cubehelix, gnuplot, gnuplot2, flag, prism, gist_earth, nipy_spectral</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>spectrum {Length}</span><button class="copy-btn" onclick="copyText('spectrum {Length}', this)">复制</button></li>
+                    <li class="example-item"><span>spectrum plasma {Length}</span><button class="copy-btn" onclick="copyText('spectrum plasma {Length}', this)">复制</button></li>
+                    <li class="example-item"><span>spectrum #cluster_1# {Length} coolwarm</span><button class="copy-btn" onclick="copyText('spectrum #cluster_1# {Length} coolwarm', this)">复制</button></li>
+                    <li class="example-item"><span>spectrum {Organism=*coli*} {Length}</span><button class="copy-btn" onclick="copyText('spectrum {Organism=*coli*} {Length}', this)">复制</button></li>
+                </ul>
+            </section>
+
+<div class="section-divider" id="sec-graphics" data-source-sha256="7fe5fed3b72997d936a31056687d854cbec3ccf719bbdd98262fde19901224b3">图形</div>
+
+            <section class="command-card" id="cmd-print" data-source-sha256="40ec13668477c0bcbf5c00f02664e6f98b51c626a6c7fc46c349e8f9a3304fd1">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">print</span>
+                        <span class="command-card-desc-title">&ndash; 图像导出与快照工具</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">print [filename] [modifiers]</div>
+                    <button class="copy-btn" onclick="copyText('print', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>print 命令导出网络视图，同时暂时隐藏交互式浮层，如说明文字、缩放/提示框文字、隐藏节点计数、元数据 HUD 和命令控制台文字。PNG 截取还会略去鼠标下节点的悬停颜色和被点击节点的光晕，它们在之后恢复；选中节点的边框会保留。图像会输出到已配置的分析结果目录之下（默认为 <code>Analysis_Results/Saved_Images/</code>）；文件名必须是一个词，并且是纯文件名而不是路径，缺少 <code>.png</code> 或 <code>.svg</code> 时会自动加上。以 <code>.svg</code> 结尾的名称会像 <code>svg</code> 修饰符一样选择 SVG 格式（因此不能与 <code>transparent</code> 或 <code>full</code> 组合），以 <code>.png</code> 结尾的名称不能与 <code>svg</code> 组合；单独的 <code>.png</code> 或 <code>.svg</code> 不是名称，会被拒绝。不是修饰符的第二个词会被拒绝，因此拼错的修饰符永远不会被当作名称的一部分保存。显式指定的名称会替换已存在的同名文件，并在报告中说明；自动生成的带时间戳的名称则永远不会替换文件。每种 PNG 模式在渲染后都会自动裁掉只有背景的边距，同时在渲染内容周围保留固定的 20 像素边框；SVG 也以同样方式加框，网络按所绘制的样子，周围留出相当于 PNG 的 20 个像素的边框。</p>
+                <p>图像是在命令运行的那一刻截取的：当前视图、<code>full</code> PNG 的每个分块（tile），或 SVG 所绘制的节点和边。随后，PNG 的裁剪（cropping）和编码，或 SVG 的写入，会在查看器共用的后台任务队列中运行（<code>label</code> 和 <code>logo</code> 使用的是同一个队列），因此查看器仍可使用，之后的更改也不会改变文件。队列会在文件保存后报告，并打开其所在文件夹。已排队任务尚未写入的名称会被拒绝，带时间戳的名称会跳过已排队任务占用的名称。</p>
+                
+                <div class="subheading">修饰符</div>
+                <ul>
+                    <li><strong>transparent：</strong>去掉纯色背景，使输出的 PNG 透明。</li>
+                    <li><strong>full：</strong>绕过 OpenGL 相机边缘的剪切。在屏幕外逐块渲染网络而不移动视图，并把这些分块拼接成超大的超高分辨率 PNG。绘制分块期间键盘和鼠标输入会等待，调整窗口大小会取消截取。超过 1000 兆像素的图像（<code>MAX_FULL_IMAGE_MEGAPIXELS</code>，位于 <code>src/commands/print.py</code> 中）会在绘制任何分块之前被拒绝，并指出能容纳的最小 <code>zoom N</code>；生成图像每个像素约需 4 字节内存，带透明度时为 7 字节。可以与透明度组合使用。</li>
+                    <li><strong>svg：</strong>按当前显示的样子写出网络的分层可缩放矢量图形，不会关闭 OpenGL 查看器：包括可见节点和屏幕上显示的边（受相似性阈值和 UMAP 模式过滤的影响），使用已配置的边和节点边框颜色。不包含文字标签。节点大小和线宽跟随当前缩放，因此 SVG 保持屏幕上显示的比例。它绘制的内容与该视图的 PNG 所显示的一致：每个标记的形状与屏幕上相同，节点轮廓（包括选中节点的边框）和边的宽度与屏幕绘制的宽度相同，因此细轮廓约为 1.7 个设备像素宽，边为整数个设备像素；在高 DPI 显示器上，两者在节点旁都会显得更细。不能与 <code>transparent</code> 或 <code>full</code> 组合。</li>
+                    <li><strong>zoom N：</strong>只能与 <code>full</code> 或 <code>svg</code> 一起使用，可出现在修饰符中的任何位置。按 <code>zoom N</code> 所设置的缩放比例绘制，即在当前画布上视图宽 N 个场景单位，且不移动视图；N 必须是视图能够绘制的正宽度，<code>zoom</code> 命令的 0.5 和整个网络的限制不适用。带 <code>full</code> 时，节点大小保持为屏幕像素，N 越小图像越大；最长边小于 1000&nbsp;px 的图像仍会保存，但会给出警告。带 <code>svg</code> 时，节点大小和线宽按宽 N 个单位的视图写出。与普通 PNG 一起使用会被拒绝。<code>zoom</code> 之后的词始终被读作 N，因此名为 zoom 的文件会写成 <code>zoom.png</code>。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>print my_network</span><button class="copy-btn" onclick="copyText('print my_network', this)">复制</button></li>
+                    <li class="example-item"><span>print my_network transparent</span><button class="copy-btn" onclick="copyText('print my_network transparent', this)">复制</button></li>
+                    <li class="example-item"><span>print my_network full transparent</span><button class="copy-btn" onclick="copyText('print my_network full transparent', this)">复制</button></li>
+                    <li class="example-item"><span>print my_network svg</span><button class="copy-btn" onclick="copyText('print my_network svg', this)">复制</button></li>
+                    <li class="example-item"><span>print my_network.svg</span><button class="copy-btn" onclick="copyText('print my_network.svg', this)">复制</button></li>
+                    <li class="example-item"><span>print my_network full zoom 500</span><button class="copy-btn" onclick="copyText('print my_network full zoom 500', this)">复制</button></li>
+                    <li class="example-item"><span>print my_network svg zoom 500</span><button class="copy-btn" onclick="copyText('print my_network svg zoom 500', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-logo" data-source-sha256="8c80d57241b4652d7f8b0a56c991ea870a9e692ac275d64b488394f1bdfc8799">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">logo</span>
+                        <span class="command-card-desc-title">&ndash; 序列标识图生成器</span>
+                    </div>
+                    
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">logo [expression] &lt;positions&gt; [filename] [mode] [gap_mode] [color_scheme] [identity]</div>
+                    <button class="copy-btn" onclick="copyText('logo', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>logo 命令生成可直接用于发表的序列标识图（矢量 .svg 或透明 .png 格式），以可视化方式表示网络特定子集中的氨基酸保守性。把该工具与通用表达式解释器结合使用，可以直接在查看器中立即比较不同蛋白质亚家族的结合基序、活性位点或结构变异。</p>
+                <p>序列标识图的计算和文件生成在查看器共用的后台任务队列中运行，因此查看器保持可交互。所选的比对序列、映射位置、参考序列和渲染选项会在命令提交时被捕获。精确的冗余计算在可用时使用均衡的并行 Numba 内核，否则回退到 NumPy。label 和 logo 任务按顺序执行；排队和完成的消息会显示在控制台和终端中。</p>
+                
+                <div class="callout">
+                    <div class="callout-title">📋 前提条件</div>
+                    <p>需要已加载的 MSA，且至少有一行映射到当前网络。有生效的参考序列时，位置使用以参考序列为锚的编号和会话偏移量。没有时，命令使用从 1 开始按顺序编号的占有率模式标签，其位置与 <code>query</code> 报告的相同，坐标轴显示“occupancy numbering”。</p>
+                </div>
+
+                <div class="subheading">核心参数</div>
+                <ul>
+                    <li><strong>[POSITIONS]（必需）：</strong>方括号中以逗号分隔的参考位置或整数范围（例如 <code>[10-25]</code>）。小数形式的插入位置表示参考序列为空位而被保留的比对列，可以显式列出（例如 <code>[10,10.1,10.2,11]</code>）。每个负的位置或范围端点都必须单独用括号括起来，如 <code>[(-1),0,1]</code> 或 <code>[(-3)-(-1)]</code>；不带括号的负位置无效。整数范围保持仅限整数的行为。逗号后允许有空格（<code>[1, 2]</code>）。每个范围都按从小到大书写（<code>[10-25]</code>，而不是 <code>[25-10]</code>）。</li>
+                    <li><strong>FILENAME：</strong>输出名称，必须以 <code>.svg</code> 或 <code>.png</code> 结尾；不提供时会创建带时间戳的 <code>logo_YYYYMMDD_HHMMSS.svg</code>。保存在已配置的分析结果目录之下（默认为 <code>Analysis_Results/Sequence_Logos/</code>）。最后剩下的、不带该扩展名的词会被当作表达式的一部分，因此拼错的关键字（如 <code>nogap</code>）会被拒绝而不是被用作文件名：请写成 <code>logo $sele$ [10-20] my_logo.svg</code>。</li>
+                    <li><strong>MODE：</strong><code>bits</code>（默认——香农信息量）或 <code>pcts</code>（百分比）。</li>
+                    <li><strong>GAP_MODE：</strong><code>with_gap</code>（默认——按占有率缩放堆叠高度）或 <code>no_gap</code>（忽略空位）。</li>
+                    <li><strong>COLOR_SCHEME：</strong>预设配色方案。默认为 <code>chemistry</code>。预设包括：chemistry, classic, grays, base_pairing, colorblind_safe, charge, hydrophobicity 等。</li>
+                    <li><strong>IDENTITY：</strong>可选的序列冗余阈值。省略时不进行重新加权。<code>0.9</code>、<code>90</code> 和 <code>90%</code> 等价。加权氨基酸频率适用于百分比和 bits 模式；bits 模式还会使用有效样本量进行小样本校正。每个位置上的校正只计入该位置有残基的序列（不计空位），或在使用 IDENTITY 时计入它们的权重之和。</li>
+                </ul>
+
+                <div class="subheading">结果与限制</div>
+                <ul>
+                    <li><strong>无匹配：</strong>没有任何节点匹配的表达式会成功并给出提示，不会排队任何任务。匹配的节点若都不在已加载的 MSA 中，则没有可分析的内容，命令失败。</li>
+                    <li><strong>PNG 大小：</strong>PNG 按一张 600 dpi 的图像绘制，因此位置数超过几百个的 PNG 标识图会在排队之前被拒绝，错误信息会指出确切的上限。请使用没有这一限制的 <code>.svg</code> 文件名，或减少位置数。</li>
+                    <li><strong>坐标轴标签：</strong>x 轴写出位置所依据编号的参考序列标题。对坐标轴来说太长的序列标题会被省略号截短，因此永远不会加宽图像。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>logo [10-20]</span><button class="copy-btn" onclick="copyText('logo [10-20]', this)">复制</button></li>
+                    <li class="example-item"><span>logo [10,10.1,10.2,11]</span><button class="copy-btn" onclick="copyText('logo [10,10.1,10.2,11]', this)">复制</button></li>
+                    <li class="example-item"><span>logo [(-1),0,1]</span><button class="copy-btn" onclick="copyText('logo [(-1),0,1]', this)">复制</button></li>
+                    <li class="example-item"><span>logo #cluster_1# [(-3)-(-1)] pcts</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [(-3)-(-1)] pcts', this)">复制</button></li>
+                    <li class="example-item"><span>logo #cluster_1# [1,5] pcts no_gap</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [1,5] pcts no_gap', this)">复制</button></li>
+                    <li class="example-item"><span>logo [10-20] color=charge</span><button class="copy-btn" onclick="copyText('logo [10-20] color=charge', this)">复制</button></li>
+                    <li class="example-item"><span>logo #cluster_1# [1,5] bits 90%</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [1,5] bits 90%', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <div class="section-divider" id="sec-agent" data-source-sha256="1d33c7924073645ec8b1b9203dfd78ca88b6470c8ac2f1ea4b87bf12e20181b7">LLM 智能体</div>
+            <section class="command-card" id="cmd-agent" data-source-sha256="914731a1b11b065e54f5f72c6de673bc33ead6135aa8d8e43fda362c5e23e8a7">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">agent</span>
+                        <span class="command-card-desc-title">&ndash; LLM 智能体命令行入口</span>
+                        <span class="badge badge-core">核心</span>
+                    </div>
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">agent [&lt;Model Custom Name&gt; / off / deactivate / &quot;&lt;message&gt;&quot;]</div>
+                    <button class="copy-btn" onclick="copyText('agent', this)">复制</button>
+                </div>
+                <p><strong>概述：</strong>agent 命令提供与 LLM 智能体（agent）交互的命令行入口。可以打开智能体基于浏览器的界面，激活或停用模型卡，并从控制台向智能体直接发送查询。</p>
+
+                <div class="subheading">核心参数</div>
+                <ul>
+                    <li><strong>不带参数：</strong>在默认浏览器中打开查看器当前 Web 服务器上的 <code>/agent.html</code>。主机和端口来自正在运行的查看器，而不是固定的 URL。</li>
+                    <li><strong>&lt;Model Custom Name&gt;（必须带尖括号）：</strong>用 <code>&lt;&gt;</code> 括起来，会激活智能体并加载指定的模型自定义名称（例如 <code>agent &lt;Gemini API&gt;</code>）。</li>
+                    <li><strong>off / deactivate：</strong>停用 LLM 智能体并卸载当前模型。</li>
+                    <li><strong>&quot;message&quot; / message：</strong>把查询直接转发给 LLM 智能体。如果智能体尚未开启，会自动加载列表中的第一张模型卡。</li>
+                </ul>
+
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>agent</span><button class="copy-btn" onclick="copyText('agent', this)">复制</button></li>
+                    <li class="example-item"><span>agent &lt;Ollama (Local)&gt;</span><button class="copy-btn" onclick="copyText('agent &lt;Ollama (Local)&gt;', this)">复制</button></li>
+                    <li class="example-item"><span>agent off</span><button class="copy-btn" onclick="copyText('agent off', this)">复制</button></li>
+                    <li class="example-item"><span>agent &quot;make cluster 1 green&quot;</span><button class="copy-btn" onclick="copyText('agent &quot;make cluster 1 green&quot;', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <div class="empty-search-state" id="empty-search-state" data-source-sha256="eb20358de4a357bbbfd49aec6c4924649cc8017ea634862e883065341444bde2">
+                没有匹配的命令。请试试搜索其他词语！
+            </div>
+        </div> <!-- end .content-wrapper -->
+    </main>
+
+    <script data-source-sha256="814503cca2989ad919ea51b9eff8ad26fe0205ba0358a3204393cf341626b769">
+        // Copy to clipboard function
+        function copyText(text, btnElement) {
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = btnElement.innerText;
+                btnElement.innerText = "已复制！";
+                btnElement.classList.add("copied");
+                setTimeout(() => {
+                    btnElement.innerText = originalText;
+                    btnElement.classList.remove("copied");
+                }, 1500);
+            }).catch(err => {
+                console.error('Could not copy text: ', err);
+            });
+        }
+
+        // Collapsible items logic
+        document.querySelectorAll('.collapsible-header').forEach(header => {
+            header.addEventListener('click', () => {
+                const container = header.parentElement;
+                container.classList.toggle('open');
+            });
+        });
+
+        // Search Filter logic
+        const searchInput = document.getElementById('search-input');
+        const cards = document.querySelectorAll('.command-card');
+        const menuItems = document.querySelectorAll('.menu-item');
+        const dividers = document.querySelectorAll('.section-divider');
+        const emptyState = document.getElementById('empty-search-state');
+
+        searchInput.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase().trim();
+            let hasMatches = false;
+
+            cards.forEach(card => {
+                const id = card.id;
+                // Exclude introductory block and only search command cards
+                if (!id.startsWith('cmd-') && id !== 'expr-interpreter') {
+                    return; 
+                }
+
+                const cardText = card.textContent.toLowerCase();
+                const matches = cardText.includes(query);
+
+                if (matches) {
+                    card.style.display = 'block';
+                    hasMatches = true;
+                } else {
+                    card.style.display = 'none';
+                }
+
+                // If this is a command card, toggle its corresponding menu item
+                if (id.startsWith('cmd-')) {
+                    const menuItem = document.querySelector(`.menu-item[data-target="${id}"]`);
+                    if (menuItem) {
+                        menuItem.style.display = matches ? 'block' : 'none';
+                    }
+                }
+            });
+
+            // Handle dividers visibility based on visible child cards
+            dividers.forEach(div => {
+                const targetId = div.id;
+                let visibleChildren = false;
+
+                if (targetId === 'sec-core') {
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run'))
+                        .some(el => el.style.display !== 'none');
+                } else if (targetId === 'sec-alignment') {
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-query'))
+                        .some(el => el.style.display !== 'none');
+                } else if (targetId === 'sec-analysis') {
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-cluster, #cmd-subcluster, #cmd-color, #cmd-group, #cmd-select, #cmd-label, #cmd-export, #cmd-esmfold'))
+                        .some(el => el.style.display !== 'none');
+                } else if (targetId === 'sec-metadata') {
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-meta, #cmd-spectrum'))
+                        .some(el => el.style.display !== 'none');
+                } else if (targetId === 'sec-graphics') {
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-print, #cmd-logo'))
+                        .some(el => el.style.display !== 'none');
+                } else if (targetId === 'sec-agent') {
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-agent'))
+                        .some(el => el.style.display !== 'none');
+                } else if (targetId === 'sec-expression' || targetId === 'expr-boolean') {
+                    const exprCard = document.querySelector('.command-card[id="expr-interpreter"]');
+                    visibleChildren = exprCard && exprCard.style.display !== 'none';
+                }
+
+                div.style.display = visibleChildren ? 'block' : 'none';
+            });
+
+            emptyState.style.display = hasMatches || query === "" ? 'none' : 'block';
+        });
+
+        // Safe localStorage access wrappers for file:// protocol compatibility
+        function safeGetTheme() {
+            try {
+                return localStorage.getItem('theme');
+            } catch (e) {
+                return null;
+            }
+        }
+
+        function safeSetTheme(theme) {
+            try {
+                localStorage.setItem('theme', theme);
+            } catch (e) {
+                // Ignore storage errors in file:// environments
+            }
+        }
+
+        // Theme Toggle Logic
+        const themeBtn = document.getElementById('theme-toggle-btn');
+        const themeIcon = document.getElementById('theme-icon');
+        const themeText = document.getElementById('theme-text');
+        
+        function setTheme(theme) {
+            document.documentElement.setAttribute('data-theme', theme);
+            safeSetTheme(theme);
+            if (theme === 'dark') {
+                themeIcon.innerText = "☀️";
+                themeText.innerText = "浅色模式";
+            } else {
+                themeIcon.innerText = "🌙";
+                themeText.innerText = "深色模式";
+            }
+        }
+
+        // Initialize theme based on local storage or system preference
+        const savedTheme = safeGetTheme();
+        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        
+        if (savedTheme) {
+            setTheme(savedTheme);
+        } else {
+            setTheme(systemPrefersDark ? 'dark' : 'light');
+        }
+
+        // Listen for system theme changes dynamically
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+            if (!safeGetTheme()) {
+                setTheme(e.matches ? 'dark' : 'light');
+            }
+        });
+
+        themeBtn.addEventListener('click', () => {
+            const currentTheme = document.documentElement.getAttribute('data-theme');
+            setTheme(currentTheme === 'dark' ? 'light' : 'dark');
+        });
+
+        // Sidebar active link highlighting and smooth scroll behavior
+        const sections = document.querySelectorAll('section, header, div.section-divider');
+        const navMenuItems = document.querySelectorAll('.menu-item');
+        const options = {
+            root: null,
+            threshold: 0.1,
+            rootMargin: "-10% 0px -70% 0px"
+        };
+
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const id = entry.target.getAttribute('id');
+                    if (id) {
+                        navMenuItems.forEach(item => {
+                            if (item.getAttribute('data-target') === id) {
+                                item.classList.add('active');
+                            } else {
+                                item.classList.remove('active');
+                            }
+                        });
+                    }
+                }
+            });
+        }, options);
+
+        sections.forEach(section => {
+            observer.observe(section);
+        });
+
+        // Language switch: the other language's page opens at the section being read,
+        // the last menu target that has reached the top fifth of the window (or, at the
+        // end of the page, the page's own #anchor when that section is on screen).
+        const languageLinks = document.querySelectorAll('a.lang-option');
+
+        function visibleTarget(id) {
+            const target = document.getElementById(id);
+            return target && target.getClientRects().length > 0 ? target : null;
+        }
+
+        function updateLanguageLinks() {
+            let anchor = '';
+            navMenuItems.forEach(item => {
+                const id = item.getAttribute('data-target');
+                const target = visibleTarget(id);
+                if (target && target.getBoundingClientRect().top <= window.innerHeight * 0.2) {
+                    anchor = id === 'docs-intro' ? '' : '#' + id;
+                }
+            });
+            const atEnd = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 2;
+            const hashTarget = visibleTarget(window.location.hash.slice(1));
+            if (atEnd && hashTarget) {
+                const box = hashTarget.getBoundingClientRect();
+                if (box.bottom > 0 && box.top < window.innerHeight) {
+                    anchor = window.location.hash;
+                }
+            }
+            languageLinks.forEach(link => {
+                link.setAttribute('href', link.getAttribute('href').split('#')[0] + anchor);
+            });
+        }
+
+        ['pointerdown', 'focus', 'click', 'contextmenu'].forEach(type => {
+            languageLinks.forEach(link => link.addEventListener(type, updateLanguageLinks));
+        });
+
+        // Highlight card when navigating directly via hash
+        function highlightTargetCard() {
+            const hash = window.location.hash;
+            if (hash) {
+                const targetCard = document.querySelector(hash);
+                if (targetCard && targetCard.classList.contains('command-card')) {
+                    document.querySelectorAll('.command-card').forEach(c => c.classList.remove('highlight-card'));
+                    targetCard.classList.add('highlight-card');
+                    setTimeout(() => {
+                        targetCard.classList.remove('highlight-card');
+                    }, 3000);
+                }
+            }
+        }
+
+        window.addEventListener('hashchange', highlightTargetCard);
+        window.addEventListener('load', highlightTargetCard);
+
+        // Sidebar Toggle Logic
+        const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
+
+        toggleSidebarBtn.addEventListener('click', () => {
+            document.body.classList.toggle('sidebar-collapsed');
+        });
+    </script>
+</body>
+</html>
