@@ -2092,18 +2092,18 @@ Command-line usage:
     </message>
     <message>
         <location line="+6"/>
-        <location line="+497"/>
+        <location line="+547"/>
         <source>Invalid metadata predicate &apos;{{{predicate}}}&apos;. Use &apos;{{PropertyOperatorValue}}&apos;, for example &apos;{{Length&gt;500}}&apos;.</source>
         <translation type="unfinished">无效的元数据条件“{{{predicate}}}”。请使用 &apos;{{PropertyOperatorValue}}&apos; 的形式，例如 &apos;{{Length&gt;500}}&apos;。</translation>
     </message>
     <message>
-        <location line="-488"/>
-        <location line="+494"/>
+        <location line="-538"/>
+        <location line="+544"/>
         <source>Metadata predicate &apos;{{{predicate}}}&apos; is missing a comparison value.</source>
         <translation type="unfinished">元数据条件“{{{predicate}}}”缺少比较值。</translation>
     </message>
     <message>
-        <location line="-484"/>
+        <location line="-534"/>
         <source>Metadata property &apos;{property}&apos; does not exist in the current SSN.</source>
         <translation type="unfinished">当前 SSN 中不存在元数据属性“{property}”。</translation>
     </message>
@@ -2135,7 +2135,22 @@ Command-line usage:
         <translation type="unfinished">{operation}出错：{error}</translation>
     </message>
     <message>
-        <location line="+168"/>
+        <location line="+108"/>
+        <source>Error: The embedding file failed to load: {reason}</source>
+        <translation type="unfinished">错误：embedding 文件加载失败：{reason}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Error: No embedding loaded in the viewer. Select an embedding file in Config (Embedding Input).</source>
+        <translation type="unfinished">错误：查看器中未加载 embedding。请在配置窗口中选择 embedding 文件（Embedding 输入）。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Error: The selected embedding covers no node of the current network.</source>
+        <translation type="unfinished">错误：所选 embedding 未覆盖当前网络的任何节点。</translation>
+    </message>
+    <message>
+        <location line="+104"/>
         <source>Selection file &apos;{file}&apos; is not UTF-8 text.</source>
         <translation type="unfinished">选择文件“{file}”不是 UTF-8 文本。</translation>
     </message>

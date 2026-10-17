@@ -38,7 +38,7 @@
       "outputs": [
         {"directory": "EMBED_DIR", "name": "<INPUT_FASTA stem>_[<MODEL_NAME>]_embeddings.h5", "existing": "a complete file from the same model, saving mode and sequences is kept and the job ends at once; an incomplete one is resumed; one with another model, SAVING_MODE or changed sequences fails the job unchanged"}
       ],
-      "next": ["align_similarity_matrix", "embedding_msa (with a network)", "embedding_injection", "embedding_extraction", "embedding_cropping", "embedding_pwa", "embedding_ssearch"],
+      "next": ["align_similarity_matrix", "embedding_msa (with a network)", "embedding_injection", "embedding_extraction", "embedding_cropping", "embedding_pwa", "embedding_ssearch", "Viewer settings embedding.EMBED_FILE (optional per-sequence input)"],
       "requirements": "A GPU is strongly recommended. Local models download their weights on first use. esmc_6b runs on a remote API and needs a Biohub token stored beforehand by the user (the job cannot prompt for it). Ankh models need a one-time license acknowledgement made by the user outside MCP: python src/tools/Generate_Embeddings.py --accept-model-license MODEL_ID.",
       "notes": [
         "get_tool_schema lists each model's availability on this machine under model_availability.",
@@ -110,7 +110,7 @@
       "outputs": [
         {"directory": "EMBED_DIR", "name": "<CROPPED_FASTA stem>_[<model of INPUT_EMBED>]_embeddings.h5", "existing": "replaced; INPUT_EMBED itself is never modified"}
       ],
-      "next": ["align_similarity_matrix", "embedding_msa"],
+      "next": ["align_similarity_matrix", "embedding_msa", "Viewer settings embedding.EMBED_FILE (optional per-sequence input)"],
       "requirements": "CPU only; no model is run."
     },
     "embedding_extraction": {
@@ -123,7 +123,7 @@
       "outputs": [
         {"directory": "EMBED_DIR", "name": "<INPUT_FASTA stem>_[<model of INPUT_EMBED>]_embeddings.h5", "existing": "replaced; INPUT_EMBED itself is never modified"}
       ],
-      "next": ["align_similarity_matrix", "embedding_msa"],
+      "next": ["align_similarity_matrix", "embedding_msa", "Viewer settings embedding.EMBED_FILE (optional per-sequence input)"],
       "requirements": "CPU only; no model is run."
     },
     "embedding_injection": {
@@ -136,7 +136,7 @@
       "outputs": [
         {"directory": "EMBED_DIR", "name": "<INPUT_FASTA stem>_[<model of INPUT_EMBED>]_embeddings.h5", "existing": "replaced; INPUT_EMBED itself is never modified (writing over it is refused)"}
       ],
-      "next": ["network_injection", "align_similarity_matrix"],
+      "next": ["network_injection", "align_similarity_matrix", "Viewer settings embedding.EMBED_FILE (optional per-sequence input)"],
       "requirements": "Runs the source model for the new sequences only (GPU recommended).",
       "notes": ["The job fails if a kept header's sequence differs from INPUT_EMBED, so success confirms that the old records match."]
     },

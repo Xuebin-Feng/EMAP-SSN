@@ -293,5 +293,81 @@ class ViewerLoadingTests(EmbeddingFileTestCase):
         self.assertIsNone(viewer.embedding.load_failure)
 
 
+class CommandHelperTests(EmbeddingFileTestCase):
+    """Command_Engine.require_embedding and get_embedding_mapping, for commands that need it."""
+
+    def viewer(self, embedding, headers=("node_a", "node_b", "node_c")):
+        return SimpleNamespace(
+            full_headers=list(headers), embedding=embedding,
+            console_text=SimpleNamespace(text=""),
+        )
+
+    def require(self, viewer):
+        import Command_Engine
+
+        with Command_Engine.recorded_outcome() as outcome, \
+                redirect_stdout(io.StringIO()) as output:
+            result = Command_Engine.require_embedding(viewer)
+        return result, outcome["status"], output.getvalue()
+
+    def test_a_usable_embedding_is_returned_without_a_report(self):
+        manager, _ = load(self.path, ["node_c", "absent"])
+        viewer = self.viewer(manager, ["node_c", "absent"])
+        result, status, output = self.require(viewer)
+        self.assertIs(result, manager)
+        self.assertIsNone(status)
+        self.assertEqual(output, "")
+        self.assertEqual(viewer.console_text.text, "")
+
+    def test_each_reason_the_embedding_is_unusable_fails_the_command(self):
+        no_file, _ = load("", ["node_a"])
+        incomplete = os.path.join(self.directory.name, "incomplete.h5")
+        write_embedding_file(incomplete, RECORDS, complete=False)
+        refused, _ = load(incomplete, ["node_a"])
+        unrelated, _ = load(self.path, ["other_1", "other_2"])
+        cases = (
+            (None, "Error: No embedding loaded in the viewer. Select an embedding file in "
+                   "Config (Embedding Input)."),
+            (no_file, "Error: No embedding loaded in the viewer. Select an embedding file in "
+                      "Config (Embedding Input)."),
+            (refused, "Error: The embedding file failed to load: Embedding file rejected: "
+                      "Embedding generation is incomplete."),
+            (unrelated, "Error: The selected embedding covers no node of the current network."),
+        )
+        for embedding, expected in cases:
+            with self.subTest(expected=expected):
+                viewer = self.viewer(embedding, ["other_1", "other_2"] if embedding is unrelated else ["node_a"])
+                result, status, output = self.require(viewer)
+                self.assertIsNone(result)
+                self.assertEqual(status, "failed")
+                self.assertIn(expected, output)
+                self.assertEqual(viewer.console_text.text, expected)
+
+    def test_a_viewer_without_an_embedding_attribute_fails_too(self):
+        viewer = SimpleNamespace(full_headers=["node_a"], console_text=SimpleNamespace(text=""))
+        result, status, _ = self.require(viewer)
+        self.assertIsNone(result)
+        self.assertEqual(status, "failed")
+
+    def test_the_mapping_names_each_nodes_row_or_minus_one(self):
+        import Command_Engine
+
+        manager, _ = load(self.path, ["node_c", "absent", "node_a"])
+        mapping, embedded = Command_Engine.get_embedding_mapping(
+            self.viewer(manager, ["node_c", "absent", "node_a"])
+        )
+        self.assertEqual(mapping.tolist(), [2, -1, 0])
+        self.assertEqual(embedded.tolist(), [0, 2])
+        for embedding, headers in ((None, ["node_a"]), (load("", ["node_a"])[0], ["node_a"]),
+                                   # A mapping left on a manager with no source,
+                                   # and a stale one of another length.
+                                   (SimpleNamespace(source=None, viewer_to_emb=np.array([0])), ["node_a"]),
+                                   (manager, ["node_c"])):
+            with self.subTest(embedding=embedding, headers=headers):
+                mapping, embedded = Command_Engine.get_embedding_mapping(self.viewer(embedding, headers))
+                self.assertEqual(mapping.tolist(), [-1] * len(headers))
+                self.assertEqual(embedded.size, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

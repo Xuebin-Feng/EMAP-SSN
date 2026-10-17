@@ -522,6 +522,56 @@ def get_alignment_mapping(viewer):
                 viewer_to_aln[i] = seq_map[header]
     return viewer_to_aln, np.flatnonzero(viewer_to_aln >= 0)
 
+
+def get_embedding_mapping(viewer):
+    """Return the network-to-embedding map and the embedded node indices.
+
+    The twin of get_alignment_mapping: entry i is node i's row in the embedding
+    file (Embedding_Manager.viewer_to_emb), or -1 when the embedding does not
+    cover it. With no embedding loaded, every node is -1.
+    """
+    n_nodes = len(getattr(viewer, 'full_headers', []))
+    embedding = getattr(viewer, 'embedding', None)
+    if getattr(embedding, 'source', None) is not None:
+        mapping = np.asarray(getattr(embedding, 'viewer_to_emb', ()), dtype=int)
+        if mapping.shape == (n_nodes,):
+            return mapping, np.flatnonzero(mapping >= 0)
+    viewer_to_emb = np.full(n_nodes, -1, dtype=int)
+    return viewer_to_emb, np.flatnonzero(viewer_to_emb >= 0)
+
+
+def embedding_unavailable_message(viewer):
+    """Why a command that needs the embedding cannot run now, or None when it can."""
+    embedding = getattr(viewer, 'embedding', None)
+    if getattr(embedding, 'source', None) is None:
+        reason = getattr(embedding, 'load_failure', None)
+        if reason is not None:
+            return Message("Error: The embedding file failed to load: {reason}", reason=reason)
+        return Message(
+            "Error: No embedding loaded in the viewer. Select an embedding file in "
+            "Config (Embedding Input)."
+        )
+    if not get_embedding_mapping(viewer)[1].size:
+        return Message("Error: The selected embedding covers no node of the current network.")
+    return None
+
+
+def require_embedding(viewer):
+    """The viewer's Embedding_Manager when a command can use it, else None.
+
+    A command that needs each sequence's embedding calls this after handling
+    its help, as the alignment commands check viewer.alignment. On None the
+    failure has been reported (the command fails, and the terminal and the
+    console line say why), so the command just returns. Declare the need in
+    the command's catalog entry too: desktop.Command_Metadata, requires=('embedding',).
+    """
+    message = embedding_unavailable_message(viewer)
+    if message is not None:
+        command_failed(viewer, message)
+        print_help(viewer, message, report_message=False)
+        return None
+    return viewer.embedding
+
 def _lowercase_all(strings):
     """Each string's str.lower(), lowering them all in one call where that is the same.
 

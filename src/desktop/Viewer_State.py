@@ -270,7 +270,7 @@ def _flat_viewer_settings_schema():
                 "else": {"required": ["SIMILARITY_THRESHOLD", "TOP_EDGE_PERCENT"]},
             },
         ],
-        "description": "Complete Viewer settings. Alignment networks also require ALIGNMENT_SCORE and NORM_MODE. MSA_FILE='' disables alignment. Scientific settings must match the cache manifest. Relative file selectors use their configured directory; paths with directories use project root.",
+        "description": "Complete Viewer settings. Alignment networks also require ALIGNMENT_SCORE and NORM_MODE. MSA_FILE='' disables alignment, and EMBED_FILE='' (the default) the embedding. Scientific settings must match the cache manifest. Relative file selectors use their configured directory; paths with directories use project root.",
     }
 
 
@@ -300,7 +300,7 @@ def get_viewer_settings_schema():
                 for section, keys in VIEWER_SECTIONS.items()
             },
         },
-        "description": "Export first. Viewer preferences only; generation settings are resolved from verified cache provenance. Legacy JSON is rejected.",
+        "description": "Export first. Viewer preferences only; generation settings are resolved from verified cache provenance. Legacy JSON is rejected. alignment.MSA_FILE='' disables alignment. The embedding section and EMBED_DIR may be omitted: embedding.EMBED_FILE='' selects no embedding, and a selected file must be a complete protein language model embedding database (.h5) as the pipeline writes it; it may cover only some nodes.",
     }
 
 

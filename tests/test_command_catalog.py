@@ -109,6 +109,71 @@ reset hide
                       command_catalog('label')['commands'][0]['syntax'])
 
 
+def calls_function(command, name):
+    """Whether the command's source calls NAME, as a bare name or an attribute."""
+    tree = ast.parse((COMMANDS_DIR / (command + '.py')).read_text(encoding='utf-8'))
+    return any(
+        isinstance(node, ast.Call) and (
+            (isinstance(node.func, ast.Name) and node.func.id == name)
+            or (isinstance(node.func, ast.Attribute) and node.func.attr == name)
+        )
+        for node in ast.walk(tree)
+    )
+
+
+def tests_for_missing_alignment_rows(command):
+    """Whether the command's source refuses to run when the alignment has no rows (alignment.aln is None)."""
+    tree = ast.parse((COMMANDS_DIR / (command + '.py')).read_text(encoding='utf-8'))
+    return any(
+        isinstance(node, ast.Compare) and isinstance(node.left, ast.Attribute) and node.left.attr == 'aln'
+        and any(isinstance(op, ast.Is) for op in node.ops)
+        and any(isinstance(value, ast.Constant) and value.value is None for value in node.comparators)
+        for node in ast.walk(tree)
+    )
+
+
+class RequiredInputTests(unittest.TestCase):
+    """`requires` names the optional inputs a command cannot run without."""
+
+    def test_requires_lists_only_known_inputs_and_reaches_the_catalog(self):
+        from desktop.Command_Metadata import REQUIRABLE_INPUTS
+        for entry in command_catalog()['commands']:
+            with self.subTest(command=entry['command']):
+                self.assertIsInstance(entry['requires'], list)
+                self.assertTrue(set(entry['requires']) <= set(REQUIRABLE_INPUTS), entry['requires'])
+                self.assertEqual(len(entry['requires']), len(set(entry['requires'])))
+        self.assertEqual(
+            {name for name, metadata in COMMAND_METADATA.items() if 'alignment' in metadata['requires']},
+            {'label', 'logo', 'query'},
+        )
+
+    def test_the_embedding_is_required_exactly_where_require_embedding_is_called(self):
+        calling = {name for name in COMMAND_METADATA if calls_function(name, 'require_embedding')}
+        declaring = {name for name, metadata in COMMAND_METADATA.items() if 'embedding' in metadata['requires']}
+        self.assertEqual(calling, declaring)
+
+    def test_a_command_requiring_the_alignment_refuses_to_run_without_its_rows(self):
+        for name, metadata in COMMAND_METADATA.items():
+            if 'alignment' in metadata['requires']:
+                with self.subTest(command=name):
+                    self.assertTrue(tests_for_missing_alignment_rows(name))
+
+    def test_the_checks_see_a_call_and_a_test_in_any_form(self):
+        sources = {
+            'bare': 'def run(viewer, args):\n    embedding = require_embedding(viewer)\n',
+            'attribute': 'def run(viewer, args):\n    embedding = Command_Engine.require_embedding(viewer)\n',
+            'mention': 'def run(viewer, args):\n    """Unlike require_embedding, needs nothing."""\n',
+            'rows': 'def run(viewer, args):\n    if viewer.alignment.aln is None:\n        return\n',
+        }
+        with mock.patch.object(Path, 'read_text', autospec=True,
+                               side_effect=lambda path, encoding=None: sources[path.stem]):
+            self.assertTrue(calls_function('bare', 'require_embedding'))
+            self.assertTrue(calls_function('attribute', 'require_embedding'))
+            self.assertFalse(calls_function('mention', 'require_embedding'))
+            self.assertTrue(tests_for_missing_alignment_rows('rows'))
+            self.assertFalse(tests_for_missing_alignment_rows('bare'))
+
+
 class AgentPolicyTests(unittest.TestCase):
     """How a command in an Agent reply is handled; Viewer_Command_Portal applies it."""
 

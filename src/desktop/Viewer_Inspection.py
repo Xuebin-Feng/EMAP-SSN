@@ -73,6 +73,30 @@ def english_window_title(viewer):
     return getattr(viewer, "inspection_window_title", None)
 
 
+def embedding_overview(viewer, node_count):
+    """What a snapshot reports about the Viewer's optional embedding (Embedding_Manager).
+
+    available is whether commands that need it can run: a file is loaded and
+    covers at least one node. Only the manifest is described; no vectors are read.
+    """
+    embedding = getattr(viewer, 'embedding', None)
+    loaded = getattr(embedding, 'source', None) is not None
+    mapping = np.asarray(getattr(embedding, 'viewer_to_emb', ()) if loaded else (), dtype=int)
+    mapped = int((mapping >= 0).sum()) if mapping.shape == (node_count,) else 0
+    failure = getattr(embedding, 'load_failure', None)
+    return {
+        'available': loaded and mapped > 0,
+        'file': json_value(getattr(embedding, 'embed_file', None) or None),
+        'model': json_value(getattr(embedding, 'model_name', None)),
+        'dimension': json_value(getattr(embedding, 'width', None)),
+        'saving_mode': json_value(getattr(embedding, 'saving_mode', None)),
+        'mapped_nodes': mapped,
+        'unmapped_nodes': node_count - mapped,
+        'sequence_mismatches': len(getattr(embedding, 'mismatched_headers', ()) or ()) if loaded else 0,
+        'load_failure': None if failure is None else str(failure),
+    }
+
+
 def encoded(value):
     return json.dumps(value, ensure_ascii=False, allow_nan=False, separators=(',', ':')).encode('utf-8')
 
@@ -151,9 +175,13 @@ class SnapshotStore:
             data['overview'].update(visual_overview(v, service._configuration))
             data['overview']['visual_fields_available'] = list(data.get('visual', {}))
             data['overview']['alignment']['captured'] = include_alignment
-            data['overview']['capabilities'] += ['get_residue_distribution', 'node_projection_v1', 'alignment_snapshots_v1']
+            data['overview']['embedding'] = embedding_overview(v, n)
+            data['overview']['capabilities'] += ['get_residue_distribution', 'node_projection_v1', 'alignment_snapshots_v1', 'embedding_input_v1']
             if alignment is not None:
                 data['overview']['inputs']['msa'] = json_value(getattr(alignment, 'msa_file', None))
+            embedding = getattr(v, 'embedding', None)
+            if getattr(embedding, 'embed_file', None) is not None:
+                data['overview']['inputs']['embedding'] = json_value(embedding.embed_file)
             sid = uuid.uuid4().hex
             self.items[sid] = {'data': data, 'bytes': estimate, 'touched': self.clock(), 'subsets': {}, 'active': 0, 'lock': threading.Lock()}
             return sid
@@ -482,6 +510,7 @@ class ViewerInspectionService:
             ),
             "network_hdf5": json_value(getattr(configuration, "INPUT_HDF5", None)),
             "msa": json_value(getattr(configuration, "MSA_FILE", None)),
+            "embedding": json_value(getattr(configuration, "EMBED_FILE", None)),
             "layout_cache": json_value(layout_cache),
         }
 

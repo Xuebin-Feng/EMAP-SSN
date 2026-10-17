@@ -1656,6 +1656,18 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: The embedding file failed to load: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No embedding loaded in the viewer. Select an embedding file in Config (Embedding Input).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The selected embedding covers no node of the current network.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Selection file &apos;{file}&apos; is not UTF-8 text.</source>
         <translation type="unfinished"></translation>
     </message>

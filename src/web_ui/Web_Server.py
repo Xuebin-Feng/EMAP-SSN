@@ -501,7 +501,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             if clean_path == "/api/mcp/v1/session":
                 payload = {
                     "protocol_version": SESSION_PROTOCOL_VERSION,
-                    "inspection_capabilities": ["snapshots_v1", "commands_v1", "capture_view_v1", "alignment_snapshots_v1", "node_projection_v1"],
+                    "inspection_capabilities": ["snapshots_v1", "commands_v1", "capture_view_v1", "alignment_snapshots_v1", "node_projection_v1", "embedding_input_v1"],
                     "inputs": self.server.inspection_bridge.service._input_paths(),
                     "session_id": self.server.inspection_session_id,
                     "session_alias": self.server.viewer.inspection_session_alias,

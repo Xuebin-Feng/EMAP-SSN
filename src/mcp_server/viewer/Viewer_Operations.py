@@ -68,7 +68,8 @@ async def get_viewer_summary(
     max_bytes: Annotated[int, Field(ge=1024, le=65536)] = 16384,
     include_alignment: bool = False,
 ) -> dict[str, Any]:
-    """Capture an immutable snapshot; opt into alignment for residue analysis. Alignment stays in Viewer memory."""
+    """Capture an immutable snapshot; opt into alignment for residue analysis. Alignment stays in Viewer memory.
+    The summary's embedding block reports the optional embedding's model, width and node coverage, never its vectors."""
     arguments = dict(locals())
     arguments.pop("ctx")
     arguments.pop("session_id")
@@ -262,15 +263,15 @@ async def export_config_settings(
 ) -> dict[str, Any]:
     """Required first step for a new Viewer or layout: export inherited settings.
     Reads viewer_settings.json and preserves the relevant saved preferences:
-    alignment/display for Viewer, generation/simulation/physics for layout.
+    alignment/embedding/display for Viewer, generation/simulation/physics for layout.
     Change only requested fields and dependencies in the exported JSON file,
     then execute the full export; do not rebuild minimal JSON from schema defaults.
     kind selects the contract; settings_path optionally supplies an edited JSON
     overlay, while output_path selects the new export destination.
     Returns settings and cache paths with inherited Config settings.
     Layout exports select the next automatic version (a preview, not a reservation).
-    Viewer exports include only inputs, alignment, visualization and directories,
-    with schema_version=2 and kind=viewer. Layout exports use kind=layout and
+    Viewer exports include only inputs, alignment, embedding, visualization and
+    directories, with schema_version=2 and kind=viewer. Layout exports use kind=layout and
     inputs/network/layout/simulation/physics/packing/output sections. Viewer
     generation settings come from verified cache provenance. Exports select the newest compatible cache
     unless an explicit path is supplied in the optional edited JSON overlay.
@@ -301,7 +302,11 @@ async def validate_viewer_settings(
     warns in its startup log, and uses occupancy numbering with offsets inactive.
     The configured reference and offset are preserved; valid does not guarantee
     reference-based numbering. A nonempty reference still requires MSA_FILE.
-    Next launch with that document. This does not create a Viewer or prove
+    embedding.EMBED_FILE is optional: empty or absent selects no embedding. A
+    selected file must be a complete embedding database the pipeline wrote
+    (only its manifest is checked); covering only some nodes is allowed, and
+    nodes it lacks, or holds with another sequence, are left out of
+    embedding commands. Next launch with that document. This does not create a Viewer or prove
     numerical/scientific correctness of its inputs.
     """
     try:
@@ -468,7 +473,7 @@ async def capture_view(ctx: Context[AppContext], session_id: str | None = None,
 
 async def get_command_catalog(ctx: Context[AppContext], command: str | None = None,
         session_id: str | None = None) -> dict[str, Any]:
-    """List existing commands, syntax and effects, or supply command (for example reset) to read detailed source help. Read-only; execute_commands is not required. Needs no Viewer: with none selected it reads this installation's command sources (source="installation")."""
+    """List existing commands, syntax and effects, or supply command (for example reset) to read detailed source help. Read-only; execute_commands is not required. Needs no Viewer: with none selected it reads this installation's command sources (source="installation"). Each command's requires names the optional inputs (alignment, embedding) it cannot run without; check the snapshot summary's alignment and embedding blocks before running one."""
     if session_id is None and _viewer(ctx).connected_session_id is None:
         # The catalog is parsed from command sources, not live Viewer state; a
         # selected Viewer still answers, since its running code may differ.

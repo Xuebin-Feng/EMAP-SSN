@@ -41,7 +41,7 @@ contents of the `arguments` object, not the complete MCP call.
 
 For a new Viewer use `emapssn_viewer_control(action="export_settings")`; for a
 layout use `emapssn_pipeline(action="export_layout_settings")`. Export merges saved `viewer_settings.json`
-preferences into the output: alignment and visualization preferences for Viewer
+preferences into the output: alignment, embedding and visualization preferences for Viewer
 exports, and generation, simulation, and physics preferences for layout exports.
 Edit only requested fields and necessary dependent inputs, then validate/execute
 the full exported JSON. A Viewer cache-selection overlay can be supplied through
@@ -91,7 +91,10 @@ actions belong to `emapssn_viewer_data`, using its `action` and `arguments` shap
 
 1. `get_summary` captures a fresh snapshot and returns `snapshot_id`, capture time,
    population counts, metadata preview, loaded edge count, alignment coverage and
-   effective reference information. Existing snapshots do not follow Viewer edits.
+   effective reference information, and the embedding block (`available`, `file`,
+   `model`, `dimension`, `saving_mode`, mapped/unmapped node counts,
+   `sequence_mismatches`, `load_failure`; never vectors), with capability
+   `embedding_input_v1`. Existing snapshots do not follow Viewer edits.
 2. `describe_fields` pages field types, valid/missing/invalid counts and provenance
    availability. Historical per-column source information is unavailable.
 3. `create_subset` requires `snapshot_id` and `scope` (`all`, `visible`, `selected`),
@@ -152,7 +155,7 @@ The two Config export actions accept `output_path` and `settings_path`:
 
 - `emapssn_pipeline(action="export_layout_settings")`: generation inputs, filtering, physics/UMAP settings and output
   destination. Visual settings and MSA display settings are excluded.
-- `emapssn_viewer_control(action="export_settings")`: a version 2 snapshot of inputs, alignment, visualization and
+- `emapssn_viewer_control(action="export_settings")`: a version 2 snapshot of inputs, alignment, embedding, visualization and
   directories, with the selected existing cache. Generation settings are cache-derived. This is configuration, not window state.
 
 Config inherits saved `viewer_settings.json`. An optional edited JSON file overlays
@@ -657,12 +660,15 @@ a missing selected session clears the selection immediately. Backend transport
 shutdown also clears the connection and stops its monitor; the independently
 running Viewer is left available for a later connection.
 
-Viewer exports require `schema_version: 2`, `kind: "viewer"`, and four sections:
+Viewer exports require `schema_version: 2`, `kind: "viewer"`, and these sections
+(`embedding`, and `EMBED_DIR` in `directories`, may be omitted, as in documents
+exported before they existed):
 
 | Section | Contents |
 | --- | --- |
 | `inputs` | `TARGET_CACHE_PATH`, `NODE_FASTA_FILE`, `INPUT_HDF5` |
 | `alignment` | `MSA_FILE`, `ALIGNMENT_REFERENCE`, `FILTER_MIN_OCCUPANCY`, `ALIGNMENT_OFFSET` |
+| `embedding` | `EMBED_FILE`, the optional protein language model embedding |
 | `visualization` | All visual-profile node, edge, text, color, and low-resource preferences |
 | `directories` | All directory-profile input-resolution and output directories |
 
@@ -703,7 +709,13 @@ metadata stores basenames and fingerprints, not full source locations. Changing
 an explicit cache uses its provenance even if current saved generation settings differ.
 Missing, tampered, or conflicting provenance is an error; no legacy-cache defaults
 are substituted. `MSA_FILE` accepts FASTA or sparse HDF5; an empty string disables
-alignment, and then `ALIGNMENT_REFERENCE` must also be empty.
+alignment, and then `ALIGNMENT_REFERENCE` must also be empty. `EMBED_FILE` names an
+embedding database (`.h5`) that the embedding tools wrote, relative to `EMBED_DIR`
+(the project's `Embeddings` folder by default); an empty string selects none.
+Validation reads only its manifest and refuses an incomplete or malformed file.
+It may cover some nodes: a node is embedded when the file holds its header with
+the same sanitized sequence, and other nodes stay plotted but are left out of
+embedding commands. Neither input affects cache selection or provenance.
 
 Legacy flat Viewer JSON and script-section layout JSON are rejected: re-export
 through GUI, CLI, or the workflow's export action. Unknown/misplaced fields and
@@ -804,7 +816,10 @@ Older Viewers require restart after upgrade (`commands_v1` capability).
 ### Command discovery and identifier lookup
 
 General `get_command_catalog` entries include `summary`, `arguments` (each with
-`name`, `description`, and `choices`), and existing `syntax`/effect fields.
+`name`, `description`, and `choices`), `requires`, and existing `syntax`/effect fields.
+`requires` lists the optional inputs a command cannot run without: `alignment`
+(`logo`, `query`, `label`) or `embedding`; compare it with the snapshot summary's
+`alignment` and `embedding` blocks before submitting.
 Finite choices contain `value` and `aliases`; an empty choices list denotes an
 open-ended argument such as a filename, expression or number. Descriptions explain
 defaults and prerequisites. This is documentation, not another command parser.

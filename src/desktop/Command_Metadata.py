@@ -18,8 +18,14 @@ def argument(name, description, *choices):
     return {'name': name, 'description': description, 'choices': list(choices)}
 
 
-def entry(summary, *arguments):
-    return {'summary': summary, 'arguments': list(arguments)}
+# Optional inputs a command cannot run without, as `requires`. A command that
+# needs the embedding calls Command_Engine.require_embedding, and one that
+# needs the alignment refuses to run without its rows.
+REQUIRABLE_INPUTS = ('alignment', 'embedding')
+
+
+def entry(summary, *arguments, requires=()):
+    return {'summary': summary, 'arguments': list(arguments), 'requires': list(requires)}
 
 
 EXPRESSION = ('Boolean node selection: quoted headers, #LABEL#, @file@, $sele$, '
@@ -69,7 +75,8 @@ COMMAND_METADATA = {
         argument('target', 'Omit to analyze all available cluster/group results; an explicit target requires its memberships.', choice('clusters', 'cluster'), choice('groups', 'group')),
         argument('keys', 'Each key takes a finite number written as a fraction (0.4) or a percentage (40 or 40%): a trailing % always means percent, and a bare value above 1 is a percentage. gmax defaults to 40%, cmin to 98%, identity reweighting is off by default. The ambiguity codes X, B, Z and J are never reported as conserved but still count as occupied positions. gmin is fixed at 97% and cannot be supplied.', choice('gmax', 'global_max', 'g_max'), choice('cmin', 'cluster_min', 'c_min'), choice('id')),
         argument('numbers', 'Alternatively supply gmax, cmin, then optional identity positionally. Do not put positional numbers after keyword arguments.'),
-        argument('filename', 'Optional final XLSX basename; extension added. Numeric or reserved names must include .xlsx. Explicit filenames overwrite; automatic timestamp names avoid collisions.')),
+        argument('filename', 'Optional final XLSX basename; extension added. Numeric or reserved names must include .xlsx. Explicit filenames overwrite; automatic timestamp names avoid collisions.'),
+        requires=('alignment',)),
     'logo': entry('Queue a sequence-logo image for a selected subset; requires a nonempty MSA and background scheduler.',
         argument('positions', 'Required bracketed displayed positions/ranges, e.g. [1,5-8,10.1] or [(-3)-(-1)]: reference numbering with an active reference, otherwise occupancy numbering as in query. Fractional insertions must be explicit. Spaces after commas are accepted; ranges run from lower to higher.'),
         argument('expression', EXPRESSION + ' Defaults to selected nodes, or all nodes if nothing is selected. An expression that matches no node succeeds with a note and queues nothing; nodes that match but are not in the alignment make the command fail.'),
@@ -78,7 +85,8 @@ COMMAND_METADATA = {
         argument('gap_mode', 'Default with_gap scales height by occupancy.', choice('with_gap', 'with_gaps', 'gaps', 'gap'), choice('no_gap', 'no_gaps')),
         argument('preset', 'Optional standalone color preset, case-insensitive; default chemistry.', *[choice(s) for s in ('chemistry','classic','grays','base_pairing','colorblind_safe','weblogo_protein','skylign_protein','dmslogo_charge','dmslogo_funcgroup','hydrophobicity','charge','NajafabadiEtAl2017')]),
         argument('color_scheme', 'Alternatively color_scheme=NAME, colors=NAME, color=NAME or scheme=NAME passes a scheme to the renderer.'),
-        argument('identity', 'Optional numeric redundancy threshold: 0.9, 90 or 90%; omitted means reweighting off.')),
+        argument('identity', 'Optional numeric redundancy threshold: 0.9, 90 or 90%; omitted means reweighting off.'),
+        requires=('alignment',)),
     'meta': entry('Open the metadata spreadsheet, import/export metadata, or manage columns and the metadata HUD.',
         argument('action', 'Omit to open the spreadsheet. upload accepts files; download writes metadata; delete removes columns; show enables the HUD. A filename without upload also imports it.',
             choice('upload', 'import'), choice('download', 'retrieve', 'export'), choice('delete', 'remove', 'clear'), choice('show', 'display'), choice('--register-only')),
@@ -93,7 +101,8 @@ COMMAND_METADATA = {
         argument('zoom', 'Optional zoom N, only with full or svg, anywhere among the modifiers: draws at the scale of the view zoom N would set (N scene units across the current canvas) without moving the view; N must be a positive width the view can draw; the 0.5 and whole-network limits of the zoom command do not apply. Node sizes stay in screen pixels, so a smaller N gives a larger full PNG. A full PNG whose longest side is under 1000 px is saved with a warning; one of more than 1000 megapixels, with or without zoom N, is refused before any tile is drawn, naming the smallest N that fits (MAX_FULL_IMAGE_MEGAPIXELS in src/commands/print.py).')),
     'query': entry('Print alignment-position distributions or search positions by residue-frequency logic; requires a nonempty MSA.',
         argument('expression', EXPRESSION + ' Defaults to selected nodes, otherwise all nodes. An expression that matches no node succeeds with a note; nodes that match but are not in the alignment make the query fail.'),
-        argument('positions_or_logic', 'Required brackets: positions/ranges (E or END denotes the last displayed position), or comparisons such as [(RHK)>50%]. Combined comparisons need outer parentheses, e.g. [((RHK)>50%)&((DE)>20%)]. GAP or _ denotes gaps. Frequencies divide by all mapped subset sequences, including gaps. Each position prints its gap percentage and each residue of at least 1% (X and other symbols count as residues), then one line, "other (<1% each)", summing the residues under 1%.')),
+        argument('positions_or_logic', 'Required brackets: positions/ranges (E or END denotes the last displayed position), or comparisons such as [(RHK)>50%]. Combined comparisons need outer parentheses, e.g. [((RHK)>50%)&((DE)>20%)]. GAP or _ denotes gaps. Frequencies divide by all mapped subset sequences, including gaps. Each position prints its gap percentage and each residue of at least 1% (X and other symbols count as residues), then one line, "other (<1% each)", summing the residues under 1%.'),
+        requires=('alignment',)),
     'redo': entry('Reapply the last undone state; report a no-op if redo history is empty.',
         argument('steps', 'Optional positive whole number N: reapplies up to N undone states, stopping early when there is nothing left to redo, and reports how many were redone. Omitted, one state is reapplied. Any other argument is refused before anything changes.')),
     'reference': entry('Inspect or change the reference sequence used for alignment mapping.',

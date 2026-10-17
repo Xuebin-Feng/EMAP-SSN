@@ -54,6 +54,7 @@ class ViewerInspectionTests(unittest.TestCase):
         self.assertEqual(summary["visible_node_count"], 3)
         self.assertEqual(summary["selected_node_count"], 2)
         self.assertIsNone(summary["inputs"]["node_fasta"])
+        self.assertIsNone(summary["inputs"]["embedding"])
         self.assertEqual(summary["clusters"]["count"], 2)
         self.assertEqual(summary["groups"]["count"], 2)
         self.assertIsNone(summary["window_title"])
@@ -207,10 +208,40 @@ class SnapshotAdditionalTests(SnapshotFixture, unittest.TestCase):
         self.assertEqual(new['alignment']['unmapped_nodes'],2)
         self.assertEqual(self.call('get_summary')['active_threshold'],.5)
         self.assertEqual(self.call('query_nodes')['rows'][0]['groups'],['a','b'])
+    def test_embedding_overview_describes_the_loaded_manifest(self):
+        self.v.embedding = SimpleNamespace(
+            source=object(), viewer_to_emb=np.array([1, -1, 0, -1]), embed_file='set_embeddings.h5',
+            model_name='esmc_6b', width=2560, saving_mode='float16', mismatched_headers=['x'],
+            load_failure=None)
+        summary = self.store.execute('get_summary', self.service.capture_snapshot())
+        self.assertEqual(summary['embedding'], {
+            'available': True, 'file': 'set_embeddings.h5', 'model': 'esmc_6b', 'dimension': 2560,
+            'saving_mode': 'float16', 'mapped_nodes': 2, 'unmapped_nodes': 2,
+            'sequence_mismatches': 1, 'load_failure': None})
+        self.assertEqual(summary['inputs']['embedding'], 'set_embeddings.h5')
+        self.assertIn('embedding_input_v1', summary['capabilities'])
+        # A file that covers no node is loaded but not available to commands.
+        self.v.embedding.viewer_to_emb = np.array([-1, -1, -1, -1])
+        self.assertFalse(self.store.execute('get_summary', self.service.capture_snapshot())['embedding']['available'])
+        # A refused file reports why.
+        self.v.embedding = SimpleNamespace(source=None, embed_file='bad.h5', load_failure='Embedding file rejected: x')
+        refused = self.store.execute('get_summary', self.service.capture_snapshot())['embedding']
+        self.assertFalse(refused['available'])
+        self.assertEqual(refused['load_failure'], 'Embedding file rejected: x')
+        self.assertEqual(refused['mapped_nodes'], 0)
+    def test_every_input_a_command_can_require_has_a_summary_block(self):
+        # Agents compare a command's catalog `requires` with these blocks.
+        from desktop.Command_Metadata import REQUIRABLE_INPUTS
+        summary = self.call('get_summary')
+        for name in REQUIRABLE_INPUTS:
+            with self.subTest(input=name):
+                self.assertIsInstance(summary[name]['available'], bool)
     def test_empty_snapshot_and_missing_alignment(self):
         v=SimpleNamespace(n_nodes=0,full_headers=[],edges=[],metadata={},selected_indices=[],alignment=SimpleNamespace(aln=None,viewer_to_aln=[]))
         service=ViewerInspectionService(v); sid=service.capture_snapshot()
         self.assertFalse(service.snapshots.execute('get_summary',sid)['alignment']['available'])
+        self.assertFalse(service.snapshots.execute('get_summary',sid)['embedding']['available'])
+        self.assertEqual(service.snapshots.execute('get_summary',sid)['embedding']['file'],None)
         self.assertEqual(service.snapshots.execute('query_nodes',sid)['rows'],[])
         self.assertEqual(service.snapshots.execute('summarize_subset',sid)['rows'],[])
     def test_subset_caps_cross_snapshot_and_lru(self):
