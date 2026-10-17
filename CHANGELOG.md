@@ -41,6 +41,14 @@ still change before version 1.0.0.
   one check, with one message for a missing, failed or non-matching embedding file.
   Viewer snapshots report the embedding's model, width and node coverage (capability
   `embedding_input_v1`), never its vectors.
+- **`embedding` command.** In the Viewer and the VR viewer, `embedding <file>` switches the
+  active embedding for the session, as `alignment` switches the MSA. The file is found as
+  given, then in the Embedding Directory, with `.h5` added if missing; in the desktop
+  Viewer, `embedding` alone opens a file dialog. It reports the nodes embedded, the model
+  and width, the nodes whose sequence differs and, as the Consistency Check does, a
+  network built with another model. A file that is unreadable, incomplete or not an
+  embedding is refused and the previous embedding stays. The switch is not an undo step and
+  does not change Config's Embedding Input.
 - **Command Reference in Simplified Chinese.** `docs/zh_CN/list_of_commands.html` is the
   Viewer Command Reference in Chinese; commands, options and examples stay as typed. Both
   pages switch between English and 简体中文 and keep the section being read. A small subset
