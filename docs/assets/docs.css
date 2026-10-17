@@ -84,10 +84,10 @@
     --font-mono: 'Noto Sans Mono', 'EMAP-SSN Language', Consolas, Monaco, monospace;
     --topbar-height: 52px;
     --sidebar-width: 288px;
-    /* The strong weight. The Chinese pages' Noto Sans SC subsets (docs/fonts/fonts_zh_CN.css)
-       have a Regular and a Bold face, and a browser takes a face by weight before it looks
-       at the characters it covers: 600 would pass over the Bold subset and draw Chinese in a
-       system font. The Latin faces are variable and draw either. */
+    /* The strong weight. The Chinese pages draw Chinese in the language's own font (its language.json,
+       linked as language.css), the application's Noto Sans SC, which has a Regular (400) and a Bold (700)
+       face and nothing between: they ask for 700, which is the Bold face itself, so that no browser has to
+       choose between the two for 600. The Latin faces are variable and draw either. */
     --strong: 600;
 }
 

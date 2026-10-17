@@ -900,10 +900,13 @@ class ControlsCardTests(unittest.TestCase):
         docs = self.root / "docs"
         docs.mkdir()
         (docs / "list_of_commands.html").write_text("<html lang='en'>")
-        translated = docs / "zh_CN"
-        translated.mkdir()
+        # A translation is in its language's folder, <language>/docs/, with the language's other files.
+        languages = self.root / "languages"
+        translated = languages / "zh_CN" / "docs"
+        translated.mkdir(parents=True)
         (translated / "list_of_commands.html").write_text("<html lang='zh'>")
         with mock.patch.object(Help_Pages, "DOCS_DIR", docs), \
+                mock.patch.object(Help_Pages, "TRANSLATIONS_DIR", languages), \
                 mock.patch("desktop.Viewer_Widgets.installed_language", return_value=None) as language, \
                 mock.patch("desktop.Viewer_Widgets.QDesktopServices") as services:
             card = self.open_card()
@@ -924,6 +927,25 @@ class ControlsCardTests(unittest.TestCase):
             # The card stays open and the keyboard where it was.
             self.assertTrue(self.button.card_is_open())
             self.assertIs(QApplication.focusWidget(), focus)
+
+    def test_the_command_list_link_opens_the_pages_that_ship(self):
+        project = Path(__file__).resolve().parents[1]
+        shipped = {
+            None: project / "docs" / "list_of_commands.html",
+            "en": project / "docs" / "list_of_commands.html",
+            "de": project / "docs" / "list_of_commands.html",
+            "zh_CN": project / "src" / "resources" / "languages" / "zh_CN" / "docs" / "list_of_commands.html",
+        }
+        with mock.patch("desktop.Viewer_Widgets.installed_language", return_value=None) as language, \
+                mock.patch("desktop.Viewer_Widgets.QDesktopServices") as services:
+            card = self.open_card()
+            self.assertTrue(card.commands_button.isEnabled())
+            for code, expected in shipped.items():
+                language.return_value = code
+                services.openUrl.reset_mock()
+                self.assertTrue(card.open_command_list())
+                self.assertEqual(Path(services.openUrl.call_args.args[0].toLocalFile()), expected)
+                self.assertTrue(expected.is_file())
 
     def test_without_the_command_list_the_link_is_grey_and_says_why(self):
         empty = self.root / "empty"

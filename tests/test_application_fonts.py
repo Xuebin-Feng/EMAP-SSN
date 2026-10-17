@@ -415,8 +415,10 @@ class ApplicationFontTests(unittest.TestCase):
         self.assertIn('href="/fonts/fonts.css"', meta_html)
         self.assertIn("--font-family: 'Noto Sans'", meta_html)
         # The documentation pages take their fonts from docs/assets/docs.css (the
-        # Studio look shared by both pages and the Chinese copy) and link
-        # docs/fonts/fonts.css; no page sets a font of its own.
+        # Studio look shared by the English pages and the translations in the language
+        # folders) and link docs/fonts/fonts.css; no page sets a font of its own. A
+        # translation also links its language's language.css, which draws the language
+        # in the font its language.json names.
         docs = PROJECT_ROOT / "docs"
         docs_css = (docs / "assets" / "docs.css").read_text(encoding="utf-8")
         self.assertIn("--font-family: 'Noto Sans'", docs_css)
@@ -424,11 +426,12 @@ class ApplicationFontTests(unittest.TestCase):
         self.assertNotIn("Inter", docs_css)
         self.assertNotIn("Fira Code", docs_css)
         docs_html = ""
-        for page in sorted([*docs.glob("*.html"), *docs.glob("*/*.html")]):
+        for page in sorted([*docs.glob("*.html"), *LANGUAGES_DIR.glob("*/docs/*.html")]):
             source = page.read_text(encoding="utf-8")
-            with self.subTest(page=page.relative_to(docs).as_posix()):
-                self.assertRegex(source, r'<link href="(\.\./)?fonts/fonts\.css" rel="stylesheet">')
-                self.assertRegex(source, r'<link href="(\.\./)?assets/docs\.css" rel="stylesheet">')
+            up = "" if page.parent == docs else "(?:\\.\\./)+docs/"
+            with self.subTest(page=page.relative_to(PROJECT_ROOT).as_posix()):
+                self.assertRegex(source, rf'<link href="{up}fonts/fonts\.css" rel="stylesheet">')
+                self.assertRegex(source, rf'<link href="{up}assets/docs\.css" rel="stylesheet">')
                 self.assertNotIn("font-family", source)
             docs_html += source
 
@@ -704,6 +707,13 @@ class SimplifiedChineseFontTests(unittest.TestCase):
         self.assertEqual(len(pages), 5, "the five translated help pages")
         pairs += [
             ((HELP_PAGES_DIR / page.name).read_text(encoding="utf-8"), page.read_text(encoding="utf-8"))
+            for page in pages
+        ]
+        # The translated documentation pages are drawn in the same files (their language.css).
+        pages = sorted((LANGUAGES_DIR / "zh_CN" / "docs").glob("*.html"))
+        self.assertEqual([page.name for page in pages], ["list_of_commands.html", "quickstart.html"])
+        pairs += [
+            ((PROJECT_ROOT / "docs" / page.name).read_text(encoding="utf-8"), page.read_text(encoding="utf-8"))
             for page in pages
         ]
         catalog = characters_added(pairs)

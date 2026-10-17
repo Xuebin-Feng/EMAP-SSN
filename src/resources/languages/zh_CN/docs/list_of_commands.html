@@ -22,20 +22,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
     <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)">
-    <link rel="icon" type="image/png" sizes="64x64" href="../assets/emapssn_logo.png">
+    <link rel="icon" type="image/png" sizes="64x64" href="../../../../../docs/assets/emapssn_logo.png">
     <title data-source-sha256="02ea5c3e27903837ec4d4fabd75c34ca33b6067867f0bb6fabce1d72490dc838">EMAP-SSN 查看器命令参考</title>
     <!-- Fonts are vendored locally so this page renders offline. They live in
          docs/fonts/ rather than src/, so this page is self-contained and does
          not depend on the application source tree. -->
-    <link href="../fonts/fonts.css" rel="stylesheet">
-    <!-- Noto Sans SC for the Simplified Chinese page and the language switch's
-         label; the browser fetches it only when a Chinese character is drawn. -->
-    <link href="../fonts/fonts_zh_CN.css" rel="stylesheet">
-    <link href="../assets/docs.css" rel="stylesheet">
+    <link href="../../../../../docs/fonts/fonts.css" rel="stylesheet">
+    <link href="../../../../../docs/assets/docs.css" rel="stylesheet">
+    <link href="language.css" rel="stylesheet">
     <!-- The shared documentation style (Studio, as the desktop windows and the
          Viewer's web pages), also in docs/assets/. The script sets the theme before
          the page is drawn, so a dark page never shows light first. -->
-    <script src="../assets/docs.js"></script>
+    <script src="../../../../../docs/assets/docs.js"></script>
 </head>
 <body>
 
@@ -53,16 +51,16 @@
     <!-- Top bar, the same on both documentation pages -->
     <header class="topbar" id="topbar" data-source-sha256="d57b3f9bb79c5199a4686a67ce9381fd049eb200abe65504194d580bb922d846">
         <button id="toggle-sidebar-btn" class="btn btn-ghost btn-icon" type="button" title="显示或隐藏侧边栏" aria-label="显示或隐藏侧边栏" aria-controls="sidebar" aria-expanded="true"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg></button>
-        <div class="brand"><img class="brand-logo" src="../assets/emapssn_logo.png" alt="" width="28" height="28"><span>EMAP-SSN</span></div>
+        <div class="brand"><img class="brand-logo" src="../../../../../docs/assets/emapssn_logo.png" alt="" width="28" height="28"><span>EMAP-SSN</span></div>
         <nav class="tabs" aria-label="文档">
-            <a class="tab" href="../quickstart.html" title="前往快速入门手册（仅有英文版）">快速入门</a>
+            <a class="tab" href="quickstart.html" title="前往快速入门手册">快速入门</a>
             <span class="tab" aria-current="page">命令参考</span>
         </nav>
         <div class="topbar-actions">
             <div class="lang-switch">
                 <select class="lang-select" id="lang-select" aria-label="语言" title="语言">
                     <!-- languages:begin -->
-                    <option value="../list_of_commands.html" lang="en" data-lang="en">English</option>
+                    <option value="../../../../../docs/list_of_commands.html" lang="en" data-lang="en">English</option>
                     <option value="list_of_commands.html" lang="zh-CN" data-lang="zh_CN" selected>简体中文</option>
                     <!-- languages:end -->
                 </select>

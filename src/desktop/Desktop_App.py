@@ -71,12 +71,14 @@ from desktop.Studio_Theme import (
 from utilities.App_Settings import AppSettingsError, PROJECT_ROOT, read_app_settings, save_app_setting
 
 from utilities.Language_Packs import (
+    WEB_LANGUAGE_FAMILY,
     LanguageFont,
     ManifestError,
     find_catalog,
     language_codes,
     read_pack,
     read_packs,
+    web_font_css,
 )
 from utilities.Localization import (
     CATALOG_NAME,
@@ -391,10 +393,9 @@ LANGUAGE_FONTS = {code: pack.font for code, pack in _LANGUAGE_PACKS.items() if p
 # font draws only what the core lacks. A family that isn't registered (its
 # language isn't showing) is skipped.
 LANGUAGE_FONT_FAMILIES = tuple(dict.fromkeys(font.family for font in LANGUAGE_FONTS.values()))
-# The family the browser views draw a language's script in. language_web_font_css
-# declares the shown language's bundled font under it, so a page names one family
-# whatever its language; a family of its own never ties with 'Noto Sans'.
-WEB_LANGUAGE_FAMILY = "EMAP-SSN Language"
+# WEB_LANGUAGE_FAMILY (utilities/Language_Packs.py) is the family the browser views draw a
+# language's script in. language_web_font_css declares the shown language's bundled font under
+# it, so a page names one family whatever its language.
 
 _SYSTEM_UI_FAMILIES = (
     "Segoe UI",
@@ -790,15 +791,7 @@ def language_web_font_css(language: str | None, url_prefix: str) -> str:
     url_prefix leads to the desktop font folder: "/fonts/desktop/" on the
     Viewer's web server, or a path relative to a page's base URL.
     """
-    font = LANGUAGE_FONTS.get(language)
-    if font is None or not font.web_range:
-        return ""
-    return "\n".join(
-        f"@font-face {{ font-family: '{WEB_LANGUAGE_FAMILY}'; font-style: normal; font-weight: {weight}; "
-        f"font-display: swap; src: url('{url_prefix}{path}') format('truetype'); "
-        f"unicode-range: {font.web_range}; }}"
-        for weight, path in zip((400, 700), font.files)
-    )
+    return web_font_css(LANGUAGE_FONTS.get(language), url_prefix)
 
 
 # =====================================================================

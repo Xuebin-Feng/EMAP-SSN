@@ -9,6 +9,9 @@
         emapssn_<code>.qm   the compiled catalog, which the program loads
         language.json       optional: the language's name, font and punctuation
         help/<page>.md      optional: translated tool help pages (utilities/Help_Pages.py)
+        docs/<page>.html    optional: translated documentation pages, one for each
+                            docs/<page>.html (Docs_Translation.py), with docs/language.css,
+                            the language's font for them, made from language.json
 
 A folder is a language once its compiled catalog is in it, so adding a
 language means adding its folder. The folder's name is the language's code,
@@ -47,6 +50,11 @@ from utilities.Localization import CATALOG_NAME, LANGUAGES_DIR, Punctuation
 LANGUAGE_CODE = re.compile(r"^[a-z]{2,3}(?:_[A-Z][a-z]{3})?(?:_[A-Z]{2})?$")
 MANIFEST_NAME = "language.json"
 HELP_FOLDER = "help"
+DOCS_FOLDER = "docs"
+# The family the browser views and the translated documentation pages draw a language's
+# script in. web_font_css declares the language's bundled font under it, so a page names
+# one family whatever its language; a family of its own never ties with 'Noto Sans'.
+WEB_LANGUAGE_FAMILY = "EMAP-SSN Language"
 _MANIFEST_KEYS = {"name", "font", "punctuation"}
 _FONT_KEYS = {"family", "vispy_face", "files", "web_range"}
 _PUNCTUATION_KEYS = {"no_space_after", "separators", "separator_script"}
@@ -145,6 +153,29 @@ def find_catalog(code, catalog_name=CATALOG_NAME, suffix=".qm", languages_dir=LA
 def help_folder(code, languages_dir=LANGUAGES_DIR):
     """The folder of a language's translated tool help pages."""
     return Path(languages_dir) / code / HELP_FOLDER
+
+
+def docs_folder(code, languages_dir=LANGUAGES_DIR):
+    """The folder of a language's translated documentation pages."""
+    return Path(languages_dir) / code / DOCS_FOLDER
+
+
+def web_font_css(font, url_prefix):
+    """@font-face rules that let a browser draw the language font, or "" for none.
+
+    They declare font under WEB_LANGUAGE_FAMILY, with its regular (400) and bold
+    (700) faces, for its script's characters (LanguageFont.web_range). url_prefix
+    leads to the desktop font folder: "/fonts/desktop/" on the Viewer's web
+    server, or a path relative to a page's or a stylesheet's address.
+    """
+    if font is None or not font.web_range:
+        return ""
+    return "\n".join(
+        f"@font-face {{ font-family: '{WEB_LANGUAGE_FAMILY}'; font-style: normal; font-weight: {weight}; "
+        f"font-display: swap; src: url('{url_prefix}{path}') format('truetype'); "
+        f"unicode-range: {font.web_range}; }}"
+        for weight, path in zip((400, 700), font.files)
+    )
 
 
 # -- language.json --------------------------------------------------------

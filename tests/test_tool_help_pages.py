@@ -124,24 +124,33 @@ class HelpPageTests(unittest.TestCase):
     def test_the_command_list_is_the_translated_copy_or_the_english_page(self):
         docs = self.folder / "docs"
         docs.mkdir()
+        languages = self.folder / "languages"
+        languages.mkdir()
         english = docs / "list_of_commands.html"
         english.write_text("<html lang='en'>", encoding="utf-8")
 
         def found(language):
-            return Help_Pages.command_list_path(language, docs)
+            return Help_Pages.command_list_path(language, docs, languages)
 
         # English and a language with no copy read the English page; so does no language at all.
         self.assertEqual((found(None), found("en"), found("de")), (english, english, english))
-        # A copy in the language's folder of docs/ is used instead.
-        copy = docs / "de" / "list_of_commands.html"
-        copy.parent.mkdir()
+        # A copy in the language's own folder, <language>/docs/, is used instead.
+        copy = languages / "de" / "docs" / "list_of_commands.html"
+        copy.parent.mkdir(parents=True)
         copy.write_text("<html lang='de'>", encoding="utf-8")
         self.assertEqual((found("de"), found("en"), found("fr")), (copy, english, english))
+        # A copy beside the English pages, where translations used to be, is not used.
+        (docs / "fr").mkdir()
+        (docs / "fr" / "list_of_commands.html").write_text("<html lang='fr'>", encoding="utf-8")
+        self.assertEqual(found("fr"), english)
         # Only under the exact names: Windows and macOS would open DE/ for de/ too.
         self.assertEqual(found("DE"), english)
         copy.rename(copy.with_name("List_Of_Commands.html"))
         self.assertEqual(found("de"), english)
         copy.with_name("List_Of_Commands.html").rename(copy)
+        (languages / "de").rename(languages / "DE")
+        self.assertEqual(found("de"), english)
+        (languages / "DE").rename(languages / "de")
         # A folder of that name is no page.
         copy.unlink()
         copy.mkdir()
@@ -162,6 +171,21 @@ class HelpPageTests(unittest.TestCase):
         self.assertEqual(Help_Pages.DOCS_DIR, Path(__file__).resolve().parents[1] / "docs")
         with mock.patch.object(Help_Pages, "DOCS_DIR", self.folder):
             self.assertIsNone(Help_Pages.command_list_path("en"))
+
+    def test_the_viewer_opens_the_chinese_command_list_from_the_language_folder(self):
+        # The shipped copy is in the language's folder, and the Viewer's info card links to it.
+        chinese = Help_Pages.command_list_path("zh_CN")
+        self.assertEqual(
+            chinese,
+            Path(__file__).resolve().parents[1] / "src" / "resources" / "languages" / "zh_CN" / "docs" / "list_of_commands.html",
+        )
+        self.assertTrue(chinese.is_file())
+        self.assertIn('<html lang="zh-CN">', chinese.read_text(encoding="utf-8"))
+        self.assertEqual(Help_Pages.command_list_path("en"), Help_Pages.DOCS_DIR / "list_of_commands.html")
+        self.assertEqual(Help_Pages.command_list_path("de"), Help_Pages.DOCS_DIR / "list_of_commands.html")
+        # Another folder of the languages' folders is read when called.
+        with mock.patch.object(Help_Pages, "TRANSLATIONS_DIR", self.folder):
+            self.assertEqual(Help_Pages.command_list_path("zh_CN"), Help_Pages.DOCS_DIR / "list_of_commands.html")
 
     def test_the_update_lists_the_pages_tools_shows_in_english(self):
         pages = self.folder / "src" / "tools" / "tool_descriptions"

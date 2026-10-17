@@ -6,7 +6,8 @@
 
 Each language has a folder of its own in src/resources/languages, named by
 its code, which holds its catalog and, optionally, a language.json with its
-name, font and punctuation, and its translated help pages. Names count only
+name, font and punctuation, its translated help pages and its translated
+documentation pages (docs/<page>.html with docs/language.css). Names count only
 as the folder lists them, on every system. These tests use made-up folders,
 and read the Simplified Chinese folder that ships.
 """
@@ -24,8 +25,11 @@ if str(SRC) not in sys.path:
 
 from utilities import Language_Packs  # noqa: E402
 from utilities.Language_Packs import (  # noqa: E402
+    DOCS_FOLDER,
+    WEB_LANGUAGE_FAMILY,
     LanguageFont,
     ManifestError,
+    docs_folder,
     exact_file,
     exact_path,
     find_catalog,
@@ -34,6 +38,7 @@ from utilities.Language_Packs import (  # noqa: E402
     read_pack,
     read_packs,
     unicode_ranges,
+    web_font_css,
 )
 from utilities.Localization import LANGUAGES_DIR, Punctuation  # noqa: E402
 
@@ -208,7 +213,37 @@ class ShippedLanguageTests(unittest.TestCase):
                 if (LANGUAGES_DIR / code / "help").is_dir():
                     self.assertEqual(sorted(p.suffix for p in (LANGUAGES_DIR / code / "help").iterdir()),
                                      [".md"] * len(list((LANGUAGES_DIR / code / "help").iterdir())))
+                # docs/ holds a translation of some of the English pages in the project's docs/, and the
+                # language.css that Docs_Translation.py makes from language.json when it names a font.
+                folder = docs_folder(code, LANGUAGES_DIR)
+                if folder.is_dir():
+                    english = {page.name for page in (SRC.parent / "docs").glob("*.html")}
+                    self.assertEqual(sorted(set(p.name for p in folder.iterdir()) - english - {"language.css"}), [])
+                    self.assertTrue(set(p.name for p in folder.glob("*.html")), "a docs/ folder holds a page")
+                    has_font = pack.font is not None and bool(pack.font.web_range)
+                    self.assertEqual((folder / "language.css").is_file(), has_font, "language.css is made from a font")
         self.assertEqual(Language_Packs.HELP_FOLDER, "help")
+        self.assertEqual(Language_Packs.DOCS_FOLDER, "docs")
+        self.assertEqual(DOCS_FOLDER, "docs")
+
+    def test_the_docs_folder_of_a_language(self):
+        self.assertEqual(docs_folder("zh_CN", LANGUAGES_DIR), LANGUAGES_DIR / "zh_CN" / "docs")
+        self.assertEqual(docs_folder("de", Path("x")), Path("x") / "de" / "docs")
+
+    def test_the_web_font_rules_name_the_language_family_with_both_weights(self):
+        font = read_pack("zh_CN").font
+        css = web_font_css(font, "../../../fonts/desktop/")
+        rules = css.splitlines()
+        self.assertEqual(len(rules), 2)
+        self.assertEqual(WEB_LANGUAGE_FAMILY, "EMAP-SSN Language")  # the family the pages' font stacks name
+        for rule, weight, path in zip(rules, (400, 700), font.files):
+            self.assertIn("font-family: 'EMAP-SSN Language'", rule)
+            self.assertIn(f"font-weight: {weight};", rule)
+            self.assertIn(f"url('../../../fonts/desktop/{path}') format('truetype')", rule)
+            self.assertIn(f"unicode-range: {font.web_range};", rule)
+        # A language without a font, or with a font for no script of its own, has no rules.
+        self.assertEqual(web_font_css(None, "x/"), "")
+        self.assertEqual(web_font_css(LanguageFont("F", "F", ("a.ttf", "b.ttf")), "x/"), "")
 
 
 if __name__ == "__main__":

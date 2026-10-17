@@ -11,7 +11,7 @@ Noto Sans and Noto Sans Mono
   saved locally and remote URLs were replaced by relative paths in fonts.css.
   This directory contains these 15 WOFF2 files, totaling 757,252 bytes, so the
   standalone documentation remains self-contained and makes no network font
-  request. The two Noto Sans SC files below are the only others.
+  request.
 
   SHA-256:
   82ff72b28e6610f2c62de49d0f295c160a157b2718fa814bb6c512ebfdebb31d  NotoSans-cyrillic-ext.woff2
@@ -30,42 +30,13 @@ Noto Sans and Noto Sans Mono
   71f6c22d5dd256eaa9e48347bda6ac2c65f58980dd372ed5780fbdaca1186331  NotoSansMono-latin.woff2
   3075bd69d52719d6f573da7d02a83d881f50801311a13e91dc2931f1fb46d251  NotoSansMono-vietnamese.woff2
 
-Noto Sans SC (the Simplified Chinese page)
-  Copyright 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name
-  'Source'.
-  SIL Open Font License 1.1 - full text in LICENSE.Noto
-
-  NotoSansSC-Regular.woff2 and NotoSansSC-Bold.woff2 (221,164 bytes together)
-  draw the Chinese characters of docs/zh_CN/list_of_commands.html, and of the
-  language switch on docs/list_of_commands.html. fonts_zh_CN.css adds them to the
-  pages' 'Noto Sans' family by unicode-range, so a browser takes Chinese
-  characters from them and everything else from fonts.css; each is fetched only
-  when one of its characters is drawn.
-
-  They are Modified Versions under the OFL: the application's own Noto Sans SC
-  files (src/resources/fonts/desktop/noto/NotoSansSC/, themselves the Regular
-  and Bold instances of Google Fonts' NotoSansSC[wght].ttf 2.004-H2, cut down to
-  GB2312; see src/resources/fonts/desktop/README.md and src/resources/fonts/
-  LICENSE.fonts for that source and its hashes), cut down again to exactly the
-  Chinese characters the pages use, without hinting, and packed as WOFF2.
-  They keep the name Noto Sans SC, which does not use the Reserved Font Name,
-  and the original's copyright, trademark and licence records (name table).
-
-  SHA-256:
-  17e4c2c59a5a217eb4c6d9d990c15819ba8280dd28bdd564f53b07d14f2be577  NotoSansSC-Bold.woff2
-  08d2c2b8ca2bb9e8d603240794da840822eb08e9443ad3acf98699a7f9fe01f5  NotoSansSC-Regular.woff2
-
-  To make them again after the Chinese text changes, run these from the project
-  folder with fontTools and brotli (the project's .venv has both); the same
-  commands give the files above byte for byte. The first lists the characters
-  the pages draw from these files (see Docs_Translation.py), the others cut the
-  two faces. Then update the SHA-256 lines here: tests/test_docs_translation.py
-  fails while a page has a character the files lack, or these lines name other
-  files.
-
-    python docs/Docs_Translation.py characters --out characters.txt
-    pyftsubset src/resources/fonts/desktop/noto/NotoSansSC/NotoSansSC-Regular.ttf --text-file=characters.txt --flavor=woff2 --no-hinting --name-IDs="*" --notdef-outline --no-recalc-timestamp --recalc-bounds --canonical-order --layout-features="locl,kern,ccmp,mark,mkmk" --output-file=docs/fonts/NotoSansSC-Regular.woff2
-    pyftsubset src/resources/fonts/desktop/noto/NotoSansSC/NotoSansSC-Bold.ttf --text-file=characters.txt --flavor=woff2 --no-hinting --name-IDs="*" --notdef-outline --no-recalc-timestamp --recalc-bounds --canonical-order --layout-features="locl,kern,ccmp,mark,mkmk" --output-file=docs/fonts/NotoSansSC-Bold.woff2
-
 The 4,908,576-byte desktop Noto core is not duplicated here. It is stored only
 under src/resources/fonts/desktop/ and is registered privately by Qt.
+
+Chinese (and any other script these Latin files lack) is not in this directory. A
+translated page, which lives in its language's folder under src/resources/languages/,
+draws it in the font that language's language.json names, one of the application's own
+fonts under src/resources/fonts/desktop/ (Noto Sans SC for Simplified Chinese: see
+src/resources/fonts/LICENSE.fonts and LICENSE.Noto there). The page links the
+language.css that `python src/resources/languages/Docs_Translation.py generate` makes
+from language.json.

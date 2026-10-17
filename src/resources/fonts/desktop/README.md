@@ -41,6 +41,11 @@ views use it too: a page served in Simplified Chinese, and the Tools help
 panel, carry @font-face rules declaring it under the page family 'EMAP-SSN
 Language' (`Desktop_App.language_web_font_css`), which their font stacks name
 right after the core family, as the Qt stacks name the language's font.
+The translated documentation pages (`src/resources/languages/<code>/docs/`) draw it
+the same way: each links a `language.css` that
+`src/resources/languages/Docs_Translation.py generate` writes from the same
+`language.json`, with the same rules and family, and points at these files by
+their relative path.
 
 The two files total 4,583,760 bytes (4.37 MiB). They come from Google Fonts'
 variable font `ofl/notosanssc/NotoSansSC[wght].ttf`: version 2.004-H2,

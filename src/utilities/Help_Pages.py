@@ -19,20 +19,30 @@ to date and its first line remade (translation_marker gives it), as a text
 changed in the code shows in English until it is translated again. The
 update command (src/resources/languages/Update_Translations.py) lists the
 translations that are behind. command_list_path finds the Viewer's command
-reference, docs/list_of_commands.html, or its translated copy,
-docs/<language>/list_of_commands.html. Nothing here imports Qt.
+reference, docs/list_of_commands.html, or its translated copy in its
+language's folder, src/resources/languages/<language>/docs/list_of_commands.html.
+Nothing here imports Qt.
 """
 
 import hashlib
 from pathlib import Path
 import re
 
-from utilities.Language_Packs import HELP_FOLDER, LANGUAGE_CODE, exact_file, exact_path, help_folder, language_folders
+from utilities.Language_Packs import (
+    DOCS_FOLDER,
+    HELP_FOLDER,
+    LANGUAGE_CODE,
+    exact_file,
+    exact_path,
+    help_folder,
+    language_folders,
+)
 from utilities.Localization import LANGUAGES_DIR
 
 HELP_PAGES_DIR = Path(__file__).resolve().parents[1] / "tools" / "tool_descriptions"
 # The Viewer's command reference: an HTML page in docs/, which the Viewer's info
-# card links to. A translated copy of it is docs/<language>/list_of_commands.html.
+# card links to. A translated copy of it is in the language's folder, <language>/docs/
+# list_of_commands.html under TRANSLATIONS_DIR.
 DOCS_DIR = Path(__file__).resolve().parents[2] / "docs"
 COMMAND_LIST_NAME = "list_of_commands.html"
 # The folder of the languages' folders, where translations live. The functions
@@ -106,19 +116,19 @@ def help_page_text(page, language=None, languages_dir=None):
     return page.read_text(encoding="utf-8")
 
 
-def command_list_path(language=None, docs_dir=None):
+def command_list_path(language=None, docs_dir=None, languages_dir=None):
     """The Viewer's command reference to open for language: a Path, or None if there is none.
 
-    A translated copy, docs/<language>/list_of_commands.html, is used where
-    one exists; otherwise, and for English, it is the English page
-    docs/list_of_commands.html. None means neither is there, as in an
-    install without docs/. Names count only as the folders list them, so
-    docs/zh_cn/ is no zh_CN, on Windows and macOS too. The folder is read when
-    called, so a test can point it elsewhere.
+    A translated copy, <language>/docs/list_of_commands.html in the language's
+    folder, is used where one exists; otherwise, and for English, it is the
+    English page docs/list_of_commands.html. None means neither is there, as in
+    an install without docs/. Names count only as the folders list them, so
+    zh_cn/ is no zh_CN, on Windows and macOS too. The folders are read when
+    called, so a test can point them elsewhere.
     """
     docs = Path(docs_dir) if docs_dir is not None else DOCS_DIR
     if language:
-        folder = exact_path(docs, language)
+        folder = exact_path(_languages(languages_dir), language, DOCS_FOLDER)
         translated = exact_file(folder, COMMAND_LIST_NAME) if folder is not None else None
         if translated is not None:
             return translated

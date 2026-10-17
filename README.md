@@ -273,15 +273,16 @@ without a Chinese font.
 
 Each language is one folder in `src/resources/languages/`, named by its code
 (`zh_CN/`): its catalog, an optional `language.json` with its name, font and
-punctuation, and its translated help pages. Adding a language means adding its
-folder. To review a translation, add a language or mark new text for
+punctuation, its translated help pages and its translated documentation pages.
+Adding a language means adding its folder. To review a translation, add a language or mark new text for
 translation, see the [translations guide](src/resources/languages/README.md).
 
-The Viewer command reference also exists in Simplified Chinese
-(`docs/zh_CN/list_of_commands.html`). Each page has a language switch that opens
-the other at the same command, and `docs/Docs_Translation.py` tells which
-sections of the Chinese page to update when the English one changes (see the
-translations guide).
+The Quick Start manual and the Viewer command reference also exist in Simplified
+Chinese (`src/resources/languages/zh_CN/docs/`). Each page has a language
+dropdown that opens the other language's page at the same place, and
+`src/resources/languages/Docs_Translation.py` tells which sections of a
+translated page to update when its English page changes (see the translations
+guide).
 
 ---
 ## 🧬 System Workflow
@@ -782,7 +783,9 @@ EMAP-SSN/
 │   ├── desktop/              # Qt integration, Viewer state, snapshots, and settings contracts
 │   ├── mcp_server/           # Workflow dispatch, pipeline jobs, and Viewer session adapters
 │   ├── resources/            # Configuration and system prompts
-│   │   └── benchmark/        # Benchmark script, its public sequence sets and its reports
+│   │   ├── benchmark/        # Benchmark script, its public sequence sets and its reports
+│   │   └── languages/        # One folder per language (catalog, help pages, docs/ pages) and the translation tools
+│   │       └── zh_CN/docs/   # The Simplified Chinese quickstart.html and list_of_commands.html, with language.css
 │   ├── tools/                # Executable processing scripts exposed by EMAPSSN_Tools
 │   │   └── tool_descriptions/ # Markdown documentation displayed by the Tools GUI
 │   ├── utilities/            # Focused cache, network, hardware, alignment, and FASTA helpers
@@ -792,9 +795,8 @@ EMAP-SSN/
 ├── docs/                     # Screenshots, documentation, and metadata template
 │   ├── quickstart.html       # Comprehensive Quick Start Manual & GUI architecture guide
 │   ├── list_of_commands.html # Interactive Viewer command reference
-│   ├── zh_CN/                # Its Simplified Chinese translation (list_of_commands.html)
-│   ├── Docs_Translation.py   # Keeps a translated page in step with its English page
-│   ├── fonts/                # Offline Noto fonts for the pages, with the Chinese subsets
+│   ├── assets/               # Shared style and script, the logo and the figures
+│   ├── fonts/                # Offline Noto fonts for the pages
 │   ├── mcp_settings.md      # MCP actions, export workflows, and execution settings
 │   └── web_plugin_development.md # Browser utility extension contract
 │

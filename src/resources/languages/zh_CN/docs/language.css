@@ -1,0 +1,9 @@
+/* The font of this language's documentation pages: made from the "font" of ../language.json by
+ * `python src/resources/languages/Docs_Translation.py generate`; do not edit it by hand. The rules are
+ * the ones the Viewer's pages get (utilities/Language_Packs.web_font_css), for the same family name,
+ * which docs/assets/docs.css names after 'Noto Sans' in its font stack; the bold face (700) is what
+ * the pages' strong text uses in this language (docs.css --strong).
+ */
+
+@font-face { font-family: 'EMAP-SSN Language'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../../fonts/desktop/noto/NotoSansSC/NotoSansSC-Regular.ttf') format('truetype'); unicode-range: U+3000-303F, U+3040-30FF, U+3100-312F, U+3200-33FF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF; }
+@font-face { font-family: 'EMAP-SSN Language'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../../fonts/desktop/noto/NotoSansSC/NotoSansSC-Bold.ttf') format('truetype'); unicode-range: U+3000-303F, U+3040-30FF, U+3100-312F, U+3200-33FF, U+4E00-9FFF, U+F900-FAFF, U+FF00-FFEF; }

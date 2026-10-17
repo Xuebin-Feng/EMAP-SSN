@@ -7,7 +7,9 @@
 The stylesheet holds the Studio colours of the desktop windows and the Viewer's
 web pages, copied (a static page can't import them), so these tests keep the
 copies equal to desktop.Studio_Theme and to agent.html. The pages themselves must
-link the shared files and stay self-contained: nothing from src/, nothing online.
+link the shared files and stay self-contained: nothing from src/ but the font a
+translation draws in, nothing online. The pages are the English ones in docs/ and the
+translations in the language folders, src/resources/languages/<code>/docs/.
 """
 import os
 from pathlib import Path
@@ -19,7 +21,7 @@ import unittest
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-for folder in (SRC, ROOT / "docs", ROOT / "docs" / "assets"):
+for folder in (SRC, SRC / "resources" / "languages", ROOT / "docs" / "assets"):
     if str(folder) not in sys.path:
         sys.path.insert(0, str(folder))
 
@@ -30,9 +32,15 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from desktop.Studio_Theme import LUCIDE_DIR, theme_tokens, web_page_properties  # noqa: E402
 
 DOCS = ROOT / "docs"
+LANGUAGES = SRC / "resources" / "languages"
 STYLESHEET = DOCS / "assets" / "docs.css"
 SCRIPT = DOCS / "assets" / "docs.js"
-PAGES = ("quickstart.html", "list_of_commands.html", "zh_CN/list_of_commands.html")
+# Pages by their address from the project folder. The Chinese ones live in the language's folder.
+CHINESE_DOCS = "src/resources/languages/zh_CN/docs/"
+PAGES = (
+    "docs/quickstart.html", "docs/list_of_commands.html",
+    CHINESE_DOCS + "quickstart.html", CHINESE_DOCS + "list_of_commands.html",
+)
 DECLARATION = re.compile(r"^\s*(--[a-z0-9-]+)\s*:\s*(.*?);\s*$", re.MULTILINE)
 
 # The custom properties the pages' CSS reads from Studio_Theme.web_page_properties.
@@ -76,8 +84,13 @@ def read(path):
 
 
 def prefix(page):
-    """How a page in docs/ or in a language folder under it reaches docs/'s own files."""
-    return "../" if "/" in page else ""
+    """How a page reaches docs/'s own files: from docs/ itself, or from a language's folder of translations."""
+    return "../../../../../docs/" if page.startswith("src/") else ""
+
+
+def page_name(page):
+    """The page's own name, such as quickstart.html."""
+    return page.rsplit("/", 1)[1]
 
 
 class StyleSheetColourTests(unittest.TestCase):
@@ -134,17 +147,26 @@ class StyleSheetColourTests(unittest.TestCase):
         self.assertEqual(weights, {"400", "var(--strong)"})
         self.assertEqual(stylesheet_block(source, ":root")["--strong"], "600")
 
-    def test_the_chinese_pages_strong_weight_is_the_weight_of_their_bold_subset(self):
+    def test_the_chinese_pages_strong_weight_is_the_weight_of_their_fonts_bold_face(self):
         source = read(STYLESHEET)
         rule = re.search(r":root:lang\(zh-CN\)\s*\{\s*--strong:\s*(\d+);\s*\}", source)
         self.assertIsNotNone(rule)
-        faces = read(DOCS / "fonts" / "fonts_zh_CN.css")
-        self.assertIn(f"font-weight: {rule.group(1)};", faces)
+        # The language font's two faces are the weights 400 and 700, as language.css declares them
+        # (language_web_font_css gives the Viewer's pages the same two), so strong text is its Bold.
+        faces = read(LANGUAGES / "zh_CN" / "docs" / "language.css")
+        self.assertEqual(re.findall(r"font-weight: (\d+);", faces), ["400", rule.group(1)])
+        self.assertEqual(rule.group(1), "700")
 
     def test_the_fonts_are_the_vendored_noto_sets(self):
         source = read(STYLESHEET)
         self.assertIn("--font-family: 'Noto Sans'", source)
         self.assertIn("--font-mono: 'Noto Sans Mono'", source)
+        # The stacks name the language family right after the core one, as the Viewer's pages do, so
+        # a translation's language.css (utilities/Language_Packs.web_font_css) needs no other rule.
+        from utilities.Language_Packs import WEB_LANGUAGE_FAMILY
+
+        self.assertIn(f"--font-family: 'Noto Sans', '{WEB_LANGUAGE_FAMILY}'", source)
+        self.assertIn(f"--font-mono: 'Noto Sans Mono', '{WEB_LANGUAGE_FAMILY}'", source)
         for name in ("Inter", "Fira Code", "fonts.googleapis.com", "fonts.gstatic.com"):
             self.assertNotIn(name, source)
 
@@ -155,7 +177,7 @@ class PageTests(unittest.TestCase):
 
     def pages(self):
         for name in PAGES:
-            yield name, read(DOCS / name)
+            yield name, read(ROOT / name)
 
     def test_each_page_links_the_shared_style_and_script_and_has_none_of_its_own(self):
         for name, html in self.pages():
@@ -164,6 +186,8 @@ class PageTests(unittest.TestCase):
                 self.assertIn(f'<link href="{up}fonts/fonts.css" rel="stylesheet">', html)
                 self.assertIn(f'<link href="{up}assets/docs.css" rel="stylesheet">', html)
                 self.assertIn(f'<script src="{up}assets/docs.js"></script>', html)
+                # A translation also links its language's font, made from its language.json.
+                self.assertEqual('<link href="language.css" rel="stylesheet">' in html, name.startswith("src/"))
                 self.assertNotIn("<style", html)
                 # The theme and its remembered choice are the shared script's.
                 self.assertNotIn("localStorage", html)
@@ -178,7 +202,15 @@ class PageTests(unittest.TestCase):
                 for name_of_file in ("fonts.googleapis.com", "fonts.gstatic.com", "cdn."):
                     self.assertNotIn(name_of_file, html)
                 for target in re.findall(r'<(?:link|script|img)\b[^>]*?(?:src|href)="([^"#?]+)"', html):
-                    self.assertTrue(((DOCS / name).parent / target).is_file(), target)
+                    self.assertTrue(((ROOT / name).parent / target).is_file(), target)
+                # Nothing of src/ is linked but the translation's own folder and the font it draws in.
+                for target in re.findall(r'(?:src|href)="([^"#?]+)"', html):
+                    resolved = ((ROOT / name).parent / target).resolve() if not target.startswith(("http", "mailto")) else None
+                    if resolved is not None and resolved.suffix in (".css", ".js", ".png", ".ttf", ".woff2"):
+                        self.assertTrue(
+                            DOCS in resolved.parents or (name.startswith("src/") and resolved.parent == (ROOT / name).parent.resolve()),
+                            target,
+                        )
         for name in ("docs.css", "docs.js"):
             with self.subTest(file=name):
                 text = read(DOCS / "assets" / name)
@@ -198,10 +230,12 @@ class PageTests(unittest.TestCase):
                     self.assertIn(target, ids)
 
     def test_the_quick_start_keeps_the_anchors_other_pages_link_to(self):
-        ids = set(re.findall(r'\bid="([^"]+)"', read(DOCS / "quickstart.html")))
-        for anchor in ("overview", "workflow", "gui-tools", "gui-config", "gui-viewer",
-                       "hands-on-tutorial", "best-practices", "next-steps"):
-            self.assertIn(anchor, ids)
+        for name in ("docs/quickstart.html", CHINESE_DOCS + "quickstart.html"):
+            ids = set(re.findall(r'\bid="([^"]+)"', read(ROOT / name)))
+            for anchor in ("overview", "workflow", "gui-tools", "gui-config", "gui-viewer",
+                           "hands-on-tutorial", "best-practices", "next-steps"):
+                with self.subTest(page=name, anchor=anchor):
+                    self.assertIn(anchor, ids)
 
     @staticmethod
     def top_bar(html):
@@ -213,7 +247,7 @@ class PageTests(unittest.TestCase):
                 bar = self.top_bar(html)
                 tabs = self.TAB.findall(bar)
                 self.assertEqual(len(tabs), 2)
-                own_page = "quickstart.html" if name == "quickstart.html" else "list_of_commands.html"
+                own_page = page_name(name)
                 other_page = "list_of_commands.html" if own_page == "quickstart.html" else "quickstart.html"
                 # The page's own tab is not a link; the other one reaches the other page.
                 own = [tab for tab in tabs if tab[0] == "span"]
@@ -222,15 +256,17 @@ class PageTests(unittest.TestCase):
                 self.assertIn('aria-current="page"', own[0][1])
                 (link,) = links
                 href = re.search(r'href="([^"]+)"', link[1]).group(1)
-                self.assertEqual(((DOCS / name).parent / href).resolve(), (DOCS / other_page).resolve())
+                # The other tab reaches the other page in the same language: the sibling file.
+                self.assertEqual(((ROOT / name).parent / href).resolve(), ((ROOT / name).parent / other_page).resolve())
+                self.assertTrue(((ROOT / name).parent / other_page).is_file())
                 self.assertEqual(
                     [tab[0] for tab in tabs], ["span", "a"] if own_page == "quickstart.html" else ["a", "span"]
                 )
                 for control in ('id="theme-toggle-btn"', 'id="toggle-sidebar-btn"', "data-label-dark=", "data-label-light="):
                     self.assertIn(control, bar)
                 self.assertIn('id="sidebar"', html)
-                # A page with a translation offers its languages in a dropdown beside the theme button.
-                self.assertEqual('class="lang-switch"' in bar, name != "quickstart.html")
+                # Every page offers its languages in a dropdown beside the theme button.
+                self.assertIn('class="lang-switch"', bar)
 
     def test_every_page_has_the_same_top_bar(self):
         def skeleton(html):
@@ -247,7 +283,7 @@ class PageTests(unittest.TestCase):
             return re.sub(r">[^<]+<", "><", bar)
 
         shapes = {name: skeleton(html) for name, html in self.pages()}
-        first = shapes["quickstart.html"]
+        first = shapes["docs/quickstart.html"]
         for name, shape in shapes.items():
             with self.subTest(page=name):
                 self.assertEqual(shape, first)
@@ -306,7 +342,7 @@ class LogoTests(unittest.TestCase):
     def test_every_page_shows_it_in_the_top_bar_and_as_its_favicon(self):
         for name in PAGES:
             with self.subTest(page=name):
-                html = read(DOCS / name)
+                html = read(ROOT / name)
                 up = prefix(name)
                 self.assertIn(
                     f'<div class="brand"><img class="brand-logo" src="{up}assets/emapssn_logo.png" alt="" width="28" height="28">'
@@ -322,16 +358,16 @@ class NoPictographTests(unittest.TestCase):
     PICTOGRAPHS = re.compile("[\U0001F000-\U0001FAFF☀-➿⌀-⏿⬀-⯿️]")
 
     def pages(self):
-        return sorted([*DOCS.glob("*.html"), *DOCS.glob("*/*.html")])
+        return sorted([*DOCS.glob("*.html"), *LANGUAGES.glob("*/docs/*.html")])
 
     def test_there_are_pages_to_look_at(self):
-        names = [path.relative_to(DOCS).as_posix() for path in self.pages()]
+        names = [path.relative_to(ROOT).as_posix() for path in self.pages()]
         for name in PAGES:
             self.assertIn(name, names)
 
     def test_no_documentation_page_has_an_emoji_or_pictograph(self):
         for path in self.pages():
-            with self.subTest(page=path.relative_to(DOCS).as_posix()):
+            with self.subTest(page=path.relative_to(ROOT).as_posix()):
                 found = [
                     f"U+{ord(char):04X} in {text[max(0, number - 20):number + 20]!r}"
                     for text in [path.read_text(encoding="utf-8")]
@@ -419,7 +455,7 @@ class BrowserTests(unittest.TestCase):
 
     def open(self, name, width=1000):
         self.view.resize(width, 700)
-        self.load(lambda: self.view.load(QUrl.fromLocalFile(str(DOCS / name))))
+        self.load(lambda: self.view.load(QUrl.fromLocalFile(str(ROOT / name))))
         self.js("localStorage.removeItem('emapssn_docs_theme')")
 
     def test_the_theme_button_switches_and_remembers_the_theme(self):
@@ -495,12 +531,27 @@ class BrowserTests(unittest.TestCase):
                 self.js(f"document.documentElement.style.scrollBehavior = 'auto'; document.getElementById('{target}').scrollIntoView(); 1")
                 self.wait_for(f"(document.querySelector('.menu-item.active') || document.body).getAttribute('data-target') === '{target}'")
 
-    def test_the_chinese_page_draws_its_strong_text_with_the_bold_subset(self):
-        # A browser picks a face by weight before it looks at the characters one covers.
-        self.open("zh_CN/list_of_commands.html")
-        self.assertEqual(self.js("getComputedStyle(document.querySelector('h1')).fontWeight"), "700")
-        self.open("list_of_commands.html")
-        self.assertEqual(self.js("getComputedStyle(document.querySelector('h1')).fontWeight"), "600")
+    def loaded_language_faces(self):
+        return self.js(
+            "Array.from(document.fonts).filter(f => f.status === 'loaded' && f.family.indexOf('EMAP-SSN Language') >= 0)"
+            ".map(f => f.weight).sort().join(',')"
+        )
+
+    def test_the_chinese_pages_draw_their_strong_text_with_the_bold_face_of_the_language_font(self):
+        # Chinese strong text asks for 700, the weight of the language font's Bold face (language.css),
+        # and both its faces load from the application's own font files when the page draws Chinese.
+        for name in (CHINESE_DOCS + "list_of_commands.html", CHINESE_DOCS + "quickstart.html"):
+            with self.subTest(page=name):
+                self.open(name)
+                self.assertEqual(self.js("getComputedStyle(document.querySelector('h1')).fontWeight"), "700")
+                self.wait_for("Array.from(document.fonts).filter(f => f.status === 'loaded' && f.weight === '700' && "
+                              "f.family.indexOf('EMAP-SSN Language') >= 0).length === 1")
+                self.assertEqual(self.loaded_language_faces(), "400,700")
+        for name in ("docs/list_of_commands.html", "docs/quickstart.html"):
+            with self.subTest(page=name):
+                self.open(name)
+                self.assertEqual(self.js("getComputedStyle(document.querySelector('h1')).fontWeight"), "600")
+                self.assertEqual(self.loaded_language_faces(), "", "an English page loads no language font")
 
 
 if __name__ == "__main__":
