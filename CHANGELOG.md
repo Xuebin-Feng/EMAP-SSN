@@ -49,12 +49,19 @@ still change before version 1.0.0.
   network built with another model. A file that is unreadable, incomplete or not an
   embedding is refused and the previous embedding stays. The switch is not an undo step and
   does not change Config's Embedding Input.
-- **Command Reference in Simplified Chinese.** `docs/zh_CN/list_of_commands.html` is the
-  Viewer Command Reference in Chinese; commands, options and examples stay as typed. Both
-  pages switch between English and 简体中文 and keep the section being read. A small subset
-  of Noto Sans SC (221 KB) in `docs/fonts` covers the page's characters offline. A test
-  fails when the English page changes and the Chinese one is not updated to match, naming
-  the sections to update; `docs/Docs_Translation.py` lists and re-stamps them.
+- **Quick Start and Command Reference in Simplified Chinese.**
+  - A language's translated documents live in its language folder with the rest of it:
+    `src/resources/languages/zh_CN/docs/quickstart.html` and `list_of_commands.html`.
+  - Commands, options, examples and the English screenshots stay as they are; captions
+    give the Chinese name and the English one shown in the picture.
+  - Each page's language dropdown opens the other language at the section being read, and
+    the Viewer's "List of commands" link opens the copy in the Viewer's language.
+  - The pages use the font the language's `language.json` names.
+  - `src/resources/languages/Docs_Translation.py`:
+    - `generate` rebuilds every page's language dropdown and each language's font
+      stylesheet from the language folders;
+    - a test fails when the English text of a section changes and a translation was not
+      updated, naming the sections; the tool lists and re-stamps them.
 - **Session on the Viewer's info card.** The ⓘ card at the start of the threshold slider
   now opens with a Session section above the mouse and keyboard controls:
   - the nodes and edges on one line, with how many are visible and how many edges show
