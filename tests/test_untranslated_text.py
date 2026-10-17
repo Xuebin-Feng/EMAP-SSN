@@ -328,10 +328,15 @@ class ConfigRunTimeTextTests(WindowTestCase):
         self.write_inputs(["WP_1_alpha", "WP_2_beta"])
         self.window.line_ref.setText("WP_*")
         self.window.run_consistency_check()
+        from tests.consistency_report import parse_report
+
         report = QTextDocumentFragment.fromHtml(self.window.tip_panel.text()).toPlainText()
-        # Every part of the report: the network and MSA checks with their
-        # missing headers, then the reference and the headers it ties with.
-        self.assertEqual(report.count("\n\n"), 2, report)
+        # Every part of the report: a row for the network, the MSA and the
+        # reference, then the missing headers of the network and the MSA and
+        # the headers the reference ties with, a paragraph each below the table.
+        parsed = parse_report(self.window.tip_panel.text())
+        self.assertEqual(len(parsed.rows), 3, report)
+        self.assertEqual(len(parsed.notes), 3, report)
         for header in ("Other", "WP_2_beta", "WP_1_alpha"):
             self.assertIn(header, report)
         self.assert_translated(report)

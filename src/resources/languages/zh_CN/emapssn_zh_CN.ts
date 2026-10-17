@@ -591,23 +591,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3313"/>
+        <location line="+3512"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3312"/>
+        <location line="-3511"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3824"/>
+        <location line="+4023"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3816"/>
+        <location line="-4015"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -630,28 +630,27 @@
         <translation type="obsolete">关闭</translation>
     </message>
     <message>
-        <location line="+542"/>
         <source>ERROR: The embedding file cannot be used, so the Viewer will not open with it: {error}</source>
-        <translation type="unfinished">错误：该 embedding 文件无法使用，查看器不会用它打开：{error}</translation>
+        <translation type="obsolete">错误：该 embedding 文件无法使用，查看器不会用它打开：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+13"/>
         <source>FASTA vs embedding:
 Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequence: {different}</source>
-        <translation type="unfinished">
+        <translation type="obsolete">
             <numerusform>FASTA 与 embedding：
 匹配：{matched} / %n 个 FASTA 序列标题 | 缺失：{missing} | 序列不同：{different}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>WARNING: Embedding coverage is incomplete.
 {summary}</source>
-        <translation type="unfinished">警告：embedding 覆盖不完整。
+        <translation type="obsolete">警告：embedding 覆盖不完整。
 {summary}</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+627"/>
+        <location line="+20"/>
+        <location line="+50"/>
         <source>Missing examples: {examples}</source>
         <translation type="unfinished">缺失示例：{examples}</translation>
     </message>
@@ -666,24 +665,23 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">缺失的节点和序列不同的节点仍会绘制，但不参与依赖 embedding 的分析。</translation>
     </message>
     <message>
-        <location line="+6"/>
         <source>SUCCESS: The embedding covers all FASTA nodes.
 {summary}</source>
-        <translation type="unfinished">成功：embedding 覆盖了所有 FASTA 节点。
+        <translation type="obsolete">成功：embedding 覆盖了所有 FASTA 节点。
 {summary}</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-19"/>
         <source>Embedding model: {model} (width {width}, {saving_mode}).</source>
         <translation type="unfinished">Embedding 模型：{model}（宽度 {width}，{saving_mode}）。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+33"/>
         <source>NOTE: The network was built with {network}, not {model}. The Viewer accepts this; embedding commands use the embedding&apos;s model.</source>
         <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
     </message>
     <message>
-        <location line="+238"/>
+        <location line="+383"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -699,12 +697,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3212"/>
+        <location line="+3140"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3209"/>
+        <location line="-3137"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -745,12 +743,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+221"/>
-        <location line="+2000"/>
+        <location line="+1928"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-1919"/>
+        <location line="-1847"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -767,84 +765,75 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {error}</translation>
     </message>
     <message>
-        <location line="+170"/>
+        <location line="+169"/>
         <source>Running Consistency Check...</source>
         <translation type="unfinished">正在运行一致性检查…</translation>
     </message>
     <message>
-        <location line="+20"/>
         <source>FASTA vs HDF5:
 Matched: {matched} of {total} | Missing: {missing}</source>
-        <translation type="unfinished">FASTA 与 HDF5：
+        <translation type="obsolete">FASTA 与 HDF5：
 匹配：{matched} / {total} | 缺失：{missing}</translation>
     </message>
     <message>
-        <location line="+5"/>
         <source>ERROR: FASTA is NOT a subset of HDF5.
 {summary}
 Missing examples: {examples}</source>
-        <translation type="unfinished">错误：FASTA 不是 HDF5 的子集。
+        <translation type="obsolete">错误：FASTA 不是 HDF5 的子集。
 {summary}
 缺失示例：{examples}</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>SUCCESS: FASTA is a strict subset of HDF5.
 {summary}</source>
-        <translation type="unfinished">成功：FASTA 是 HDF5 的真子集。
+        <translation type="obsolete">成功：FASTA 是 HDF5 的真子集。
 {summary}</translation>
     </message>
     <message numerus="yes">
-        <location line="+13"/>
         <source>FASTA vs MSA:
 Matched: {matched} of %n network header(s) | Missing: {missing}</source>
-        <translation type="unfinished">
+        <translation type="obsolete">
             <numerusform>FASTA 与 MSA：
 匹配：{matched} / %n 个网络序列标题 | 缺失：{missing}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>WARNING: MSA coverage is incomplete.
 {summary}
 Missing examples: {examples}
 Missing nodes remain plotted but are excluded from alignment-dependent analyses.</source>
-        <translation type="unfinished">警告：MSA 覆盖不完整。
+        <translation type="obsolete">警告：MSA 覆盖不完整。
 {summary}
 缺失示例：{examples}
 缺失的节点仍会绘制，但不参与依赖比对的分析。</translation>
     </message>
     <message>
-        <location line="+8"/>
         <source>SUCCESS: MSA covers all FASTA nodes.
 {summary}</source>
-        <translation type="unfinished">成功：MSA 覆盖了所有 FASTA 节点。
+        <translation type="obsolete">成功：MSA 覆盖了所有 FASTA 节点。
 {summary}</translation>
     </message>
     <message>
-        <location line="+22"/>
         <source>WARNING: Reference ID &apos;{reference}&apos; matches no network header, so reference numbering will be inactive.</source>
-        <translation type="unfinished">警告：参考 ID“{reference}”与任何网络序列标题都不匹配，因此参考编号不会生效。</translation>
+        <translation type="obsolete">警告：参考 ID“{reference}”与任何网络序列标题都不匹配，因此参考编号不会生效。</translation>
     </message>
     <message>
-        <location line="+8"/>
         <source>WARNING: Reference ID &apos;{reference}&apos; resolves to {header}, which the MSA lacks, so positions will be numbered by occupancy and the offset ignored.</source>
-        <translation type="unfinished">警告：参考 ID“{reference}”解析为 {header}，但 MSA 中没有该序列，因此位置将按占有率编号，并忽略偏移量。</translation>
+        <translation type="obsolete">警告：参考 ID“{reference}”解析为 {header}，但 MSA 中没有该序列，因此位置将按占有率编号，并忽略偏移量。</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>SUCCESS: Reference ID &apos;{reference}&apos; resolves to {header}.</source>
-        <translation type="unfinished">成功：参考 ID“{reference}”解析为 {header}。</translation>
+        <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="+7"/>
+        <location line="-1126"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+1167"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1482,7 +1471,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-2563"/>
+        <location line="-2760"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1581,7 +1570,7 @@ Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &a
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+1279"/>
+        <location line="+1476"/>
         <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
 Significantly improves responsiveness and reduces rendering latency for large networks.</source>
         <translation type="unfinished">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。
@@ -1695,7 +1684,90 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="-2844"/>
+        <source>{matched} of {total} matched</source>
+        <translation type="unfinished">已匹配 {matched} / {total}</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>FASTA vs HDF5</source>
+        <translation type="unfinished">FASTA 与 HDF5</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>strict subset</source>
+        <translation type="unfinished">真子集</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>NOT a subset: {missing} missing</source>
+        <translation type="unfinished">不是子集：缺失 {missing} 个</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>FASTA vs MSA</source>
+        <translation type="unfinished">FASTA 与 MSA</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <location line="+72"/>
+        <source>covers all FASTA nodes</source>
+        <translation type="unfinished">覆盖所有 FASTA 节点</translation>
+    </message>
+    <message>
+        <location line="-68"/>
+        <source>coverage incomplete: {missing} missing</source>
+        <translation type="unfinished">覆盖不完整：缺失 {missing} 个</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Missing nodes remain plotted but are excluded from alignment-dependent analyses.</source>
+        <translation type="unfinished">缺失的节点仍会绘制，但不参与依赖比对的分析。</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>FASTA vs embedding</source>
+        <translation type="unfinished">FASTA 与 embedding</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>the file cannot be used</source>
+        <translation type="unfinished">该文件无法使用</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The embedding file cannot be used, so the Viewer will not open with it: {error}</source>
+        <translation type="unfinished">该 embedding 文件无法使用，查看器不会用它打开：{error}</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+21"/>
+        <source>coverage incomplete: {missing} missing, %n different sequence(s)</source>
+        <translation type="unfinished">
+            <numerusform>覆盖不完整：缺失 {missing} 个，%n 个序列不同</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+43"/>
+        <source>Reference ID</source>
+        <translation type="unfinished">参考 ID</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>&apos;{reference}&apos; matches no network header, so reference numbering will be inactive.</source>
+        <translation type="unfinished">“{reference}”与任何网络序列标题都不匹配，因此参考编号不会生效。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>The MSA lacks this header, so positions will be numbered by occupancy and the offset ignored.</source>
+        <translation type="unfinished">MSA 中没有该序列标题，因此位置将按占有率编号，并忽略偏移量。</translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>&apos;{reference}&apos; resolves to {header}</source>
+        <translation type="unfinished">“{reference}”解析为 {header}</translation>
+    </message>
+    <message>
+        <location line="+2713"/>
         <source>Low Resource Mode:</source>
         <translation type="unfinished">低资源模式：</translation>
     </message>
@@ -3914,7 +3986,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4149"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4348"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -3956,7 +4028,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1098"/>
+        <location line="+1369"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>

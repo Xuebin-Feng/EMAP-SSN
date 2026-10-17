@@ -2277,7 +2277,10 @@ class TipPanelStatusLockTests(unittest.TestCase):
         with mock.patch.object(window, "_resolved_directory_input", return_value=str(work)):
             window.run_consistency_check()
         result = self.panel()
-        self.assertTrue(result.startswith("SUCCESS: FASTA is a strict subset of HDF5."), result)
+        # The report is a table of rich text, not a plain message.
+        self.assertIn("FASTA vs HDF5", result)
+        self.assertIn("strict subset", result)
+        self.assertIn("<table", self.window.tip_panel.text())
         return result
 
     def save(self):

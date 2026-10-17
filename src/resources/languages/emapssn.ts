@@ -523,24 +523,62 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>ERROR: The embedding file cannot be used, so the Viewer will not open with it: {error}</source>
+        <source>{matched} of {total} matched</source>
         <translation type="unfinished"></translation>
     </message>
-    <message numerus="yes">
-        <source>FASTA vs embedding:
-Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequence: {different}</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
+    <message>
+        <source>FASTA vs HDF5</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>WARNING: Embedding coverage is incomplete.
-{summary}</source>
+        <source>strict subset</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>NOT a subset: {missing} missing</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Missing examples: {examples}</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>FASTA vs MSA</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>covers all FASTA nodes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>coverage incomplete: {missing} missing</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Missing nodes remain plotted but are excluded from alignment-dependent analyses.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>FASTA vs embedding</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the file cannot be used</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The embedding file cannot be used, so the Viewer will not open with it: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding model: {model} (width {width}, {saving_mode}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>coverage incomplete: {missing} missing, %n different sequence(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
         <source>Examples with a different sequence: {examples}</source>
@@ -551,16 +589,29 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>SUCCESS: The embedding covers all FASTA nodes.
-{summary}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Embedding model: {model} (width {width}, {saving_mode}).</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>NOTE: The network was built with {network}, not {model}. The Viewer accepts this; embedding commands use the embedding&apos;s model.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reference ID</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>&apos;{reference}&apos; matches no network header, so reference numbering will be inactive.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The MSA lacks this header, so positions will be numbered by occupancy and the offset ignored.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>&apos;{reference}&apos; resolves to {header}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -631,59 +682,6 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     <message>
         <source>Running Consistency Check...</source>
         <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>FASTA vs HDF5:
-Matched: {matched} of {total} | Missing: {missing}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>ERROR: FASTA is NOT a subset of HDF5.
-{summary}
-Missing examples: {examples}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>SUCCESS: FASTA is a strict subset of HDF5.
-{summary}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message numerus="yes">
-        <source>FASTA vs MSA:
-Matched: {matched} of %n network header(s) | Missing: {missing}</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
-    </message>
-    <message>
-        <source>WARNING: MSA coverage is incomplete.
-{summary}
-Missing examples: {examples}
-Missing nodes remain plotted but are excluded from alignment-dependent analyses.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>SUCCESS: MSA covers all FASTA nodes.
-{summary}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>WARNING: Reference ID &apos;{reference}&apos; matches no network header, so reference numbering will be inactive.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>WARNING: Reference ID &apos;{reference}&apos; resolves to {header}, which the MSA lacks, so positions will be numbered by occupancy and the offset ignored.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>SUCCESS: Reference ID &apos;{reference}&apos; resolves to {header}.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message numerus="yes">
-        <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
     </message>
     <message>
         <source>Error during consistency check: {error}</source>

@@ -659,7 +659,9 @@ if __name__ == "__main__":
         TOKENS,
         CardShadows,
         add_hint_icon,
+        coloured_svg,
         icon_button,
+        icon_svg,
         prepare_tab_widget,
         set_role,
         status_color,
@@ -751,20 +753,148 @@ if __name__ == "__main__":
         )
         return summary, headings
 
-    def embedding_consistency_report(embed_path, fasta_path, fasta_headers, network_path):
-        """The Consistency Check's embedding section, matched as the Viewer matches it.
+    # The Consistency Check's marks, which tell a check's status by shape as
+    # well as by colour (Studio_Theme.status_color kinds): Lucide icons.
+    CONSISTENCY_ICONS = {
+        "success": "check",
+        "warning": "triangle-alert",
+        "danger": "x",
+        "subtle": "info",
+    }
+    CONSISTENCY_MARK_SIZE = 14
+    _consistency_marks = {}
+
+    def consistency_mark(kind):
+        """The icon of a status kind, in its colour, as an <img> that rich text can lay out.
+
+        An icon rather than a glyph such as a check mark, which needs a font
+        that has it. The SVG is drawn at four times its size, so it stays
+        sharp on a high-resolution screen.
+        """
+        import base64
+
+        color = status_color(kind)
+        if (kind, color) not in _consistency_marks:
+            svg = coloured_svg(icon_svg(CONSISTENCY_ICONS[kind]), color)
+            svg = re.sub(
+                r'\b(width|height)="24"',
+                lambda found: f'{found.group(1)}="{4 * CONSISTENCY_MARK_SIZE}"',
+                svg,
+            )
+            data = base64.b64encode(svg.encode("utf-8")).decode("ascii")
+            _consistency_marks[(kind, color)] = (
+                f'<img src="data:image/svg+xml;base64,{data}" '
+                f'width="{CONSISTENCY_MARK_SIZE}" height="{CONSISTENCY_MARK_SIZE}">'
+            )
+        return _consistency_marks[(kind, color)]
+
+    # How many headers a check names as examples of the nodes it misses.
+    CONSISTENCY_EXAMPLES = 5
+
+    class ConsistencyCheck:
+        """One finding of the Consistency Check: a row of its table, and what follows the table.
+
+        status is "success", "warning" or "danger", the colour and mark of the
+        row. result and details are the row's two text cells, in the window's
+        language: details is a list of lines (the first states the verdict),
+        and a row without any lets result take both cells. notes are the
+        sentences that follow the table, each as (kind, text), kind being
+        "warning", "danger" or "subtle" (a remark that changes no status).
+        """
+
+        def __init__(self, status, name, result, details=(), notes=()):
+            self.status = status
+            self.name = name
+            self.result = result
+            self.details = list(details)
+            self.notes = list(notes)
+
+    def _consistency_examples(headers):
+        return ", ".join(headers[:CONSISTENCY_EXAMPLES])
+
+    def wrappable(text):
+        """text with a place to break wherever a long run of characters, such as a header, has none.
+
+        Qt breaks a label's text at spaces and hyphens only, and a word it
+        can't break sets the label's minimum width, so one long header
+        widened the whole window. A zero-width space (U+200B) after each
+        separator of a run of 50 or more characters, and after every 20
+        characters of what is left, lets it wrap. A shorter word stays
+        whole, so an ordinary header moves to the next line as one.
+        """
+        def broken(found):
+            run = re.sub(r"([_|/\\.,:;)\]])", "\\1\u200b", found.group())
+            return re.sub(r"([^\s\u200b]{20})(?=[^\s\u200b])", "\\1\u200b", run)
+
+        return re.sub(r"[^\s\u200b]{50,}", broken, text)
+
+    def _consistency_matched(matched, total):
+        return translate("Config", "{matched} of {total} matched").format(
+            matched=matched, total=total
+        )
+
+    def network_consistency_check(fasta_headers, network_headers):
+        """The Consistency Check's network row: every FASTA header must be a node of the network."""
+        known = set(network_headers)
+        missing = [header for header in fasta_headers if header not in known]
+        name = translate("Config", "FASTA vs HDF5")
+        result = _consistency_matched(len(fasta_headers) - len(missing), len(fasta_headers))
+        if not missing:
+            return ConsistencyCheck(
+                "success", name, result, [translate("Config", "strict subset")]
+            )
+        return ConsistencyCheck(
+            "danger", name, result,
+            [translate("Config", "NOT a subset: {missing} missing").format(missing=len(missing))],
+            [("danger", translate("Config", "Missing examples: {examples}").format(
+                examples=_consistency_examples(missing)
+            ))],
+        )
+
+    def msa_consistency_check(fasta_headers, msa_headers):
+        """The Consistency Check's MSA row: how many FASTA headers the alignment holds."""
+        missing = [header for header in fasta_headers if header not in msa_headers]
+        name = translate("Config", "FASTA vs MSA")
+        result = _consistency_matched(len(fasta_headers) - len(missing), len(fasta_headers))
+        if not missing:
+            return ConsistencyCheck(
+                "success", name, result, [translate("Config", "covers all FASTA nodes")]
+            )
+        return ConsistencyCheck(
+            "warning", name, result,
+            [translate("Config", "coverage incomplete: {missing} missing").format(
+                missing=len(missing)
+            )],
+            [
+                ("warning", translate("Config", "Missing examples: {examples}").format(
+                    examples=_consistency_examples(missing)
+                )),
+                ("warning", translate(
+                    "Config",
+                    "Missing nodes remain plotted but are excluded from "
+                    "alignment-dependent analyses.",
+                )),
+            ],
+        )
+
+    def embedding_consistency_check(embed_path, fasta_path, fasta_headers, network_path):
+        """The Consistency Check's embedding row, matched as the Viewer matches it.
 
         A FASTA node is covered when the embedding file holds its header with
         the same sanitized sequence (Embedding_Manager).
         """
+        name = translate("Config", "FASTA vs embedding")
         try:
             manifest, width = _load_consistency_embedding_manifest(embed_path)
         except (OSError, ValueError, KeyError) as error:
-            return translate(
-                "Config",
-                "ERROR: The embedding file cannot be used, so the Viewer will not "
-                "open with it: {error}",
-            ).format(error=display_text(error))
+            return ConsistencyCheck(
+                "danger", name, translate("Config", "the file cannot be used"),
+                notes=[("danger", translate(
+                    "Config",
+                    "The embedding file cannot be used, so the Viewer will not "
+                    "open with it: {error}",
+                ).format(error=display_text(error)))],
+            )
         stored = manifest.sequence_by_header
         sequences = _load_consistency_fasta_sequences(fasta_path)
         missing = [header for header in fasta_headers if header not in stored]
@@ -773,49 +903,163 @@ if __name__ == "__main__":
             if header in stored and sequences.get(header, stored[header]) != stored[header]
         ]
         matched = len(fasta_headers) - len(missing) - len(different)
-        summary = translate(
-            "Config",
-            "FASTA vs embedding:\nMatched: {matched} of %n FASTA header(s) | "
-            "Missing: {missing} | Different sequence: {different}",
-            None, len(fasta_headers),
-        ).format(matched=matched, missing=len(missing), different=len(different))
+        result = _consistency_matched(matched, len(fasta_headers))
+        model = translate(
+            "Config", "Embedding model: {model} (width {width}, {saving_mode})."
+        ).format(model=manifest.model_name, width=width, saving_mode=manifest.saving_mode)
+        notes = []
         if missing or different:
-            lines = [translate(
+            status = "warning"
+            verdict = translate(
                 "Config",
-                "WARNING: Embedding coverage is incomplete.\n{summary}",
-            ).format(summary=summary)]
+                "coverage incomplete: {missing} missing, %n different sequence(s)",
+                None, len(different),
+            ).format(missing=len(missing))
             if missing:
-                lines.append(translate("Config", "Missing examples: {examples}").format(
-                    examples=", ".join(missing[:5])
-                ))
+                notes.append(("warning", translate("Config", "Missing examples: {examples}").format(
+                    examples=_consistency_examples(missing)
+                )))
             if different:
-                lines.append(translate(
+                notes.append(("warning", translate(
                     "Config", "Examples with a different sequence: {examples}"
-                ).format(examples=", ".join(different[:5])))
-            lines.append(translate(
+                ).format(examples=_consistency_examples(different))))
+            notes.append(("warning", translate(
                 "Config",
                 "Missing nodes, and nodes whose sequence differs, remain plotted "
                 "but are excluded from embedding-dependent analyses.",
-            ))
+            )))
         else:
-            lines = [translate(
-                "Config", "SUCCESS: The embedding covers all FASTA nodes.\n{summary}"
-            ).format(summary=summary)]
-        lines.append(translate(
-            "Config", "Embedding model: {model} (width {width}, {saving_mode})."
-        ).format(model=manifest.model_name, width=width, saving_mode=manifest.saving_mode))
+            status = "success"
+            verdict = translate("Config", "covers all FASTA nodes")
         network = _consistency_network_metadata(network_path)
         if (
             network is not None
             and network.network_type == "alignment"
             and network.model_name != manifest.model_name
         ):
-            lines.append(translate(
+            notes.append(("subtle", translate(
                 "Config",
                 "NOTE: The network was built with {network}, not {model}. The "
                 "Viewer accepts this; embedding commands use the embedding's model.",
-            ).format(network=network.model_name, model=manifest.model_name))
-        return "\n".join(lines)
+            ).format(network=network.model_name, model=manifest.model_name)))
+        return ConsistencyCheck(status, name, result, [verdict, model], notes)
+
+    def reference_consistency_check(reference, candidates, msa_headers):
+        """The Consistency Check's reference row: the header the Viewer resolves reference to.
+
+        It resolves it exactly as the Viewer will: the same rules over the
+        same candidates, the network headers the FASTA keeps, in network
+        order. msa_headers is None when no MSA was checked.
+        """
+        from utilities.Sequence_Utils import reference_header_matches
+
+        name = translate("Config", "Reference ID")
+        matches = reference_header_matches(candidates, reference)
+        if not matches:
+            return ConsistencyCheck(
+                "warning", name,
+                translate(
+                    "Config",
+                    "'{reference}' matches no network header, so reference "
+                    "numbering will be inactive.",
+                ).format(reference=reference),
+            )
+        resolved = matches[0]
+        status, notes = "success", []
+        if msa_headers is not None and resolved not in msa_headers:
+            status = "warning"
+            notes.append(("warning", translate(
+                "Config",
+                "The MSA lacks this header, so positions will be numbered by "
+                "occupancy and the offset ignored.",
+            )))
+        if len(matches) > 1:
+            others = ", ".join(matches[1:4])
+            if len(matches) > 4:
+                others += ", ..."
+            notes.append(("subtle", translate(
+                "Config",
+                "It matches %n header(s) equally; the first in network order "
+                "is used. Others: {others}",
+                None, len(matches),
+            ).format(others=others)))
+        return ConsistencyCheck(
+            status, name,
+            translate("Config", "'{reference}' resolves to {header}").format(
+                reference=reference, header=resolved
+            ),
+            notes=notes,
+        )
+
+    def consistency_report_html(checks):
+        """The Consistency Check's report: one table row per check, then each problem's detail.
+
+        A row reads: a mark in the status colour, the check, its result and
+        its details. The mark, the check and the result stay on one line; the
+        details take the rest of the width and wrap. Below the table, a
+        check's notes (the headers it missed, what that costs, errors) follow
+        in a paragraph that opens with its mark and name. Rich text, like
+        statistics_report_html, is what a QLabel can lay out as a table.
+        """
+        strong, soft, muted, border = (
+            TOKENS[key] for key in ("text", "text_soft", "text_muted", "border")
+        )
+
+        def shown(text):
+            return html.escape(wrappable(text))
+
+        def cell(content, style, span=1, width=None):
+            attributes = (f' colspan="{span}"' if span > 1 else "") + (
+                f' width="{width}"' if width else ""
+            )
+            return f'<td valign="top"{attributes} style="{style}">{content}</td>'
+
+        rows = []
+        for index, check in enumerate(checks):
+            line = f" border-bottom: 1px solid {border};" if index + 1 < len(checks) else ""
+            gap = f"padding: 2px 10px 2px 0px; white-space: nowrap;{line}"
+            flush = f"padding: 2px 0px 2px 0px;{line}"
+            cells = [
+                cell(consistency_mark(check.status), gap),
+                cell(html.escape(check.name), f"{gap} font-weight: 600; color: {strong};"),
+            ]
+            if check.details:
+                verdict, *more = check.details
+                verdict_color = muted if check.status == "success" else status_color(check.status)
+                lines = [f'<span style="color: {verdict_color};">{shown(verdict)}</span>']
+                lines += [f'<span style="color: {muted};">{shown(text)}</span>' for text in more]
+                cells.append(cell(shown(check.result), f"{gap} color: {soft};"))
+                cells.append(cell("<br>".join(lines), flush, width="100%"))
+            else:
+                cells.append(cell(shown(check.result), f"{flush} color: {soft};", span=2))
+            rows.append(f"<tr>{''.join(cells)}</tr>")
+        parts = [
+            '<table width="100%" cellspacing="0" cellpadding="0" style="margin: 0px;">'
+            f"{''.join(rows)}</table>"
+        ]
+        for check in checks:
+            # A check's consecutive notes of one kind share a paragraph.
+            runs = []
+            for kind, sentence in check.notes:
+                if runs and runs[-1][0] == kind:
+                    runs[-1][1].append(sentence)
+                else:
+                    runs.append((kind, [sentence]))
+            for kind, sentences in runs:
+                parts.append(
+                    '<p style="margin: 5px 0px 0px 0px; line-height: 115%; font-size: smaller;">'
+                    f'{consistency_mark(kind)} <span style="font-weight: 600; color: {strong};">'
+                    f'{html.escape(check.name)}</span> '
+                    f'{"<br>".join(shown(text) for text in sentences)}</p>'
+                )
+        return "".join(parts)
+
+    def consistency_error_html(message):
+        """What the Consistency Check shows when it could not run at all: message, with an error mark."""
+        return (
+            '<p style="margin: 0px; line-height: 120%;">'
+            f'{consistency_mark("danger")} {html.escape(wrappable(message))}</p>'
+        )
 
     # --- Custom Widget Classes ---
     class SpacedTipLabel(QLabel):
@@ -823,13 +1067,41 @@ if __name__ == "__main__":
 
         def __init__(self, text="", parent=None):
             super().__init__(parent)
+            self._showing_report = False
             self.setTextFormat(Qt.TextFormat.RichText)
             self.setText(text)
 
         def setText(self, text):
+            self._showing_report = False
+            self.setMinimumHeight(0)
             escaped_text = html.escape(str(text)).replace("\r\n", "\n").replace("\r", "\n")
             escaped_text = escaped_text.replace("\n", "<br>")
             super().setText(f'<div style="line-height: 120%;">{escaped_text}</div>')
+
+        def setReport(self, report_html):
+            """Show a status report, rich text whose own text is already escaped.
+
+            Like any status message, it is not the tip the panel last showed
+            (ConfigGUI._tip_panel_tip_text), so hovering leaves it in place.
+            """
+            self._showing_report = True
+            super().setText(report_html)
+            self._fit_report()
+
+        def _fit_report(self):
+            """Keep the panel as tall as its report is at the panel's width.
+
+            A wrapped label's minimum height is only an estimate (the text laid
+            out at a width that suits its proportions), and the splitter around
+            the panel ignores height-for-width, so a report whose rows wrap
+            more than that was cut off at the bottom.
+            """
+            if self._showing_report and self.wordWrap() and self.width() > 0:
+                self.setMinimumHeight(self.heightForWidth(self.width()))
+
+        def resizeEvent(self, event):
+            super().resizeEvent(event)
+            self._fit_report()
 
     class NoScrollComboBox(SteadyPopupComboBox):
         def __init__(self, *args, **kwargs):
@@ -1809,17 +2081,16 @@ if __name__ == "__main__":
             
         def run_consistency_check(self):
             import h5py
-            from utilities.Sequence_Utils import reference_header_matches
-            
+
             # 1. Define the file names by grabbing them from the UI dropdowns
             fasta_file = self.cb_fasta.currentText()
             hdf5_file = self.cb_hdf5.currentText()
             msa_file = self.cb_msa.currentText()
-            
+
             # 2. Halt if the user hasn't selected the required files
             if not fasta_file or not hdf5_file:
                 return
-            
+
             # 3. Build the paths safely
             fasta_path = os.path.join(
                 self._resolved_directory_input("FASTA_DIR"), fasta_file
@@ -1831,77 +2102,35 @@ if __name__ == "__main__":
                 os.path.join(self._resolved_directory_input("MSA_DIR"), msa_file)
                 if msa_file else None
             )
-                
+
             self.tip_panel.setText(translate("Config", "Running Consistency Check..."))
             from PySide6.QtWidgets import QApplication
             QApplication.processEvents()
-            
+
             try:
                 fasta_headers = _load_consistency_fasta_headers(fasta_path)
-                
+
                 with h5py.File(hdf5_path, "r") as hf:
                     raw_headers = hf['headers'][:]
                     headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
-                    
-                net_headers_set = set(headers)
-                missing_nodes = [
-                    header for header in fasta_headers
-                    if header not in net_headers_set
-                ]
-                
-                num_matched = len(fasta_headers) - len(missing_nodes)
-                num_missing = len(missing_nodes)
-                
-                summary = translate(
-                    "Config", "FASTA vs HDF5:\nMatched: {matched} of {total} | Missing: {missing}"
-                ).format(matched=num_matched, total=len(fasta_headers), missing=num_missing)
-                
-                if missing_nodes:
-                    msg = translate(
-                        "Config", "ERROR: FASTA is NOT a subset of HDF5.\n{summary}\nMissing examples: {examples}"
-                    ).format(summary=summary, examples=", ".join(missing_nodes[:5]))
-                else:
-                    msg = translate(
-                        "Config", "SUCCESS: FASTA is a strict subset of HDF5.\n{summary}"
-                    ).format(summary=summary)
+
+                # One row per check, in the order the Viewer needs them.
+                checks = [network_consistency_check(fasta_headers, headers)]
 
                 msa_headers = None
                 if msa_path and os.path.exists(msa_path):
                     msa_headers = set(_load_consistency_msa_headers(msa_path))
-
-                    msa_missing = [
-                        header for header in fasta_headers if header not in msa_headers
-                    ]
-                    msa_matched = len(fasta_headers) - len(msa_missing)
-                    
-                    msa_summary = translate(
-                        "Config",
-                        "FASTA vs MSA:\nMatched: {matched} of %n network header(s) | Missing: {missing}",
-                        None, len(fasta_headers),
-                    ).format(matched=msa_matched, missing=len(msa_missing))
-                    
-                    if msa_missing:
-                        msg += "\n\n" + translate(
-                            "Config",
-                            "WARNING: MSA coverage is incomplete.\n{summary}\n"
-                            "Missing examples: {examples}\n"
-                            "Missing nodes remain plotted but are excluded from "
-                            "alignment-dependent analyses.",
-                        ).format(summary=msa_summary, examples=", ".join(msa_missing[:5]))
-                    else:
-                        msg += "\n\n" + translate(
-                            "Config", "SUCCESS: MSA covers all FASTA nodes.\n{summary}"
-                        ).format(summary=msa_summary)
+                    checks.append(msa_consistency_check(fasta_headers, msa_headers))
 
                 embed_file = self.cb_embed.currentText()
                 if embed_file:
                     embed_path = os.path.join(
                         self._resolved_directory_input("EMBED_DIR"), embed_file
                     )
-                    msg += "\n\n" + embedding_consistency_report(
+                    checks.append(embedding_consistency_check(
                         embed_path, fasta_path, fasta_headers, hdf5_path
-                    )
-                
+                    ))
+
                 # Check Reference ID if provided. Resolve it exactly as the
                 # Viewer will: the same rules over the same candidates, the
                 # network headers kept by the FASTA, in network order.
@@ -1909,43 +2138,14 @@ if __name__ == "__main__":
                 if ref_id:
                     fasta_set = set(fasta_headers)
                     candidates = [header for header in headers if header in fasta_set]
-                    matched_refs = reference_header_matches(candidates, ref_id)
-                    if not matched_refs:
-                        msg += "\n\n" + translate(
-                            "Config",
-                            "WARNING: Reference ID '{reference}' matches no network "
-                            "header, so reference numbering will be inactive.",
-                        ).format(reference=ref_id)
-                    else:
-                        resolved = matched_refs[0]
-                        if msa_headers is not None and resolved not in msa_headers:
-                            msg += "\n\n" + translate(
-                                "Config",
-                                "WARNING: Reference ID '{reference}' resolves to "
-                                "{header}, which the MSA lacks, so positions will be "
-                                "numbered by occupancy and the offset ignored.",
-                            ).format(reference=ref_id, header=resolved)
-                        else:
-                            msg += "\n\n" + translate(
-                                "Config", "SUCCESS: Reference ID '{reference}' resolves to {header}."
-                            ).format(reference=ref_id, header=resolved)
-                        if len(matched_refs) > 1:
-                            others = ", ".join(matched_refs[1:4])
-                            if len(matched_refs) > 4:
-                                others += ", ..."
-                            msg += "\n" + translate(
-                                "Config",
-                                "It matches %n header(s) equally; the "
-                                "first in network order is used. Others: {others}",
-                                None, len(matched_refs),
-                            ).format(others=others)
-                
-                self.tip_panel.setText(msg)
-            
+                    checks.append(reference_consistency_check(ref_id, candidates, msa_headers))
+
+                self.tip_panel.setReport(consistency_report_html(checks))
+
             except Exception as e:
-                self.tip_panel.setText(
+                self.tip_panel.setReport(consistency_error_html(
                     translate("Config", "Error during consistency check: {error}").format(error=display_text(e))
-                )
+                ))
             
         def eventFilter(self, obj, event):
             from PySide6.QtCore import QEvent
