@@ -682,7 +682,7 @@
 </head>
 <body>
 
-    <aside data-source-sha256="7fa612b768b3296b090849b451a89f02722742c3887d2714c816f55badead018">
+    <aside data-source-sha256="7693014155749fa0863fb22a0660fb5b0a7a009f9730ac055952f2fa1451ac5b">
         <div class="sidebar-header">
             <div class="sidebar-title">EMAP-SSN 命令参考</div>
             <div class="sidebar-subtitle">交互式手册与设置指南</div>
@@ -718,6 +718,7 @@
                 <li class="menu-item" data-target="cmd-reference"><a href="#cmd-reference"><span>reference</span></a></li>
                 <li class="menu-item" data-target="cmd-offset"><a href="#cmd-offset"><span>offset</span></a></li>
                 <li class="menu-item" data-target="cmd-alignment"><a href="#cmd-alignment"><span>alignment</span></a></li>
+                <li class="menu-item" data-target="cmd-embedding"><a href="#cmd-embedding"><span>embedding</span></a></li>
                 <li class="menu-item" data-target="cmd-query"><a href="#cmd-query"><span>query</span></a></li>
             </ul>
 
@@ -1118,6 +1119,37 @@
                 <ul class="example-list">
                     <li class="example-item"><span>alignment</span><button class="copy-btn" onclick="copyText('alignment', this)">复制</button></li>
                     <li class="example-item"><span>alignment Input_Files/Multiple_Alignments/SeqSet_alignment.fasta</span><button class="copy-btn" onclick="copyText('alignment Input_Files/Multiple_Alignments/SeqSet_alignment.fasta', this)">复制</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-embedding" data-source-sha256="e4f5919af31a1efd5674afe17a1b98c89ac9e0eefafbb19e4ed12741b39577dd">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">embedding</span>
+                        <span class="command-card-desc-title">&ndash; 切换当前 embedding</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">embedding [filepath]</div>
+                    <button class="copy-btn" onclick="copyText('embedding', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>动态更改查看器使用的当前蛋白质语言模型 embedding 文件（<code>.h5</code>），并将其与已绘制的节点匹配。只读取文件的清单；需要逐残基 embedding 的命令会在运行时读取这些数据。与 <code>alignment</code> 一样，该切换只改变正在运行的查看器，不是撤销步骤，也不会更改已保存的 Embedding 输入设置：要为以后的会话设置该文件，请在 EMAP-SSN 配置中设置“Embedding 输入”。</p>
+                <div class="subheading">参数</div>
+                <ul>
+                    <li><strong>不带参数：</strong>在 Embedding 目录中打开文件对话框，手动选择 H5 embedding 文件。</li>
+                    <li><strong><code>filepath</code>：</strong>指向 embedding 文件的绝对路径或相对路径，或 Embedding 目录中的文件名；可省略 <code>.h5</code> 扩展名（如 <code>Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5</code>）。</li>
+                </ul>
+                <div class="callout">
+                    <div class="callout-title">⚠️ 加载规则与完整性检查</div>
+<p>embedding 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。只有当文件包含某个节点完整的序列标题且序列完全相同时，该节点才算被覆盖。缺失的节点，以及序列与文件中不同的节点，仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖 embedding 的分析之外。该命令会报告有多少节点具有 embedding，以及 embedding 的模型、宽度和保存模式；部分加载还会在终端中打印红色警告，并给出覆盖率详情。只有无法读取、格式错误或不完整的 embedding 文件才会导致回滚，回滚会恢复之前的 embedding。</p>
+<p>若网络由与该 embedding 不同的模型构建，查看器仍会接受，并给出提示：embedding 命令使用该 embedding 的模型。</p>
+                </div>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>embedding</span><button class="copy-btn" onclick="copyText('embedding', this)">复制</button></li>
+                    <li class="example-item"><span>embedding Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5</span><button class="copy-btn" onclick="copyText('embedding Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5', this)">复制</button></li>
                 </ul>
             </section>
 
@@ -1827,7 +1859,7 @@
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-query'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-analysis') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-cluster, #cmd-subcluster, #cmd-color, #cmd-group, #cmd-select, #cmd-label, #cmd-export, #cmd-esmfold'))

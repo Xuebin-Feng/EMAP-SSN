@@ -718,6 +718,7 @@
                 <li class="menu-item" data-target="cmd-reference"><a href="#cmd-reference"><span>reference</span></a></li>
                 <li class="menu-item" data-target="cmd-offset"><a href="#cmd-offset"><span>offset</span></a></li>
                 <li class="menu-item" data-target="cmd-alignment"><a href="#cmd-alignment"><span>alignment</span></a></li>
+                <li class="menu-item" data-target="cmd-embedding"><a href="#cmd-embedding"><span>embedding</span></a></li>
                 <li class="menu-item" data-target="cmd-query"><a href="#cmd-query"><span>query</span></a></li>
             </ul>
 
@@ -1118,6 +1119,37 @@
                 <ul class="example-list">
                     <li class="example-item"><span>alignment</span><button class="copy-btn" onclick="copyText('alignment', this)">Copy</button></li>
                     <li class="example-item"><span>alignment Input_Files/Multiple_Alignments/SeqSet_alignment.fasta</span><button class="copy-btn" onclick="copyText('alignment Input_Files/Multiple_Alignments/SeqSet_alignment.fasta', this)">Copy</button></li>
+                </ul>
+            </section>
+
+
+            <section class="command-card" id="cmd-embedding">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">embedding</span>
+                        <span class="command-card-desc-title">&ndash; Switch Active Embedding</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">embedding [filepath]</div>
+                    <button class="copy-btn" onclick="copyText('embedding', this)">Copy</button>
+                </div>
+                <p><strong>Function:</strong> Dynamically changes the active protein language model embedding file (<code>.h5</code>) used by the viewer and matches it to the plotted nodes. Only the file's manifest is read; a command that needs per-residue embeddings reads them when it runs. Like <code>alignment</code>, the switch changes the running viewer only, is not an undo step, and leaves the saved Embedding Input setting as it was: configure Embedding Input in EMAP-SSN Configuration to set the file for future sessions.</p>
+                <div class="subheading">Arguments</div>
+                <ul>
+                    <li><strong>Without arguments:</strong> Opens a file dialog explorer in the Embedding Directory to manually select an H5 embedding file.</li>
+                    <li><strong><code>filepath</code>:</strong> A direct absolute or relative file path to an embedding file, or a file name inside the Embedding Directory; the <code>.h5</code> extension may be omitted (e.g. <code>Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5</code>).</li>
+                </ul>
+                <div class="callout">
+                    <div class="callout-title">⚠️ Loading Rules &amp; Integrity Checks</div>
+<p>The embedding may contain all, some, or none of the sequence headers currently plotted in the viewer. A node is covered when the file holds its exact full header with the identical sequence. Missing nodes, and nodes whose sequence differs from the file's, remain visible and usable for topology and metadata operations, but they are excluded from embedding-dependent analyses. The command reports how many nodes are embedded and the embedding's model, width and saving mode; a partial load also prints a red terminal warning with coverage details. Only an unreadable, malformed or incomplete embedding file causes rollback, which restores the previous embedding.</p>
+<p>A network built with another model than the embedding's is accepted, with a note: embedding commands use the embedding's model.</p>
+                </div>
+                <div class="subheading">Examples</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>embedding</span><button class="copy-btn" onclick="copyText('embedding', this)">Copy</button></li>
+                    <li class="example-item"><span>embedding Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5</span><button class="copy-btn" onclick="copyText('embedding Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1829,7 +1861,7 @@
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-query'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-analysis') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-cluster, #cmd-subcluster, #cmd-color, #cmd-group, #cmd-select, #cmd-label, #cmd-export, #cmd-esmfold'))

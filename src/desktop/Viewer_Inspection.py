@@ -689,7 +689,7 @@ def command_catalog(command=None):
         help_text = '\n'.join(dict.fromkeys(help_text))
         entries.append({'command': path.stem, **get_command_metadata(path.stem),
             'writes_files': path.stem in {'export','save','print','select','meta','label','logo','run','esmfold'},
-            'opens_interface': path.stem in {'agent','alignment','run','meta','esmfold','export','print','label','logo'},
+            'opens_interface': path.stem in {'agent','alignment','embedding','run','meta','esmfold','export','print','label','logo'},
             'background_work': path.stem in {'label','logo','esmfold','run'},
             'syntax': _command_syntax(help_text, path.stem),
             'help': help_text if command else None})

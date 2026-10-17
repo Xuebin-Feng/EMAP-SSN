@@ -296,6 +296,51 @@ class Embedding_Manager:
                 lines.append(f"  ... and {len(headers) - len(shown)} more.")
         _print_red_warning("\n".join(lines))
 
+    def describe(self, network_path=None):
+        """What the embedding command reports after the coverage, as a list of Messages.
+
+        The nodes whose sequence differs from the file's, when there are any;
+        the model with its width and saving mode; and, as the Config's
+        Consistency Check notes it, that the network at NETWORK_PATH was built
+        with another model. The Viewer accepts such an embedding, and
+        embedding commands use the embedding's model. Both viewers' commands
+        say the same through this, the desktop's translated and VR's in English.
+        """
+        notes = []
+        if self.mismatched_headers:
+            notes.append(Message(
+                "%n node(s) not embedded: the file holds a different sequence.",
+                n=len(self.mismatched_headers),
+            ))
+        if self.width is None:
+            notes.append(Message(
+                "Embedding model: {model} ({saving_mode}).",
+                model=self.model_name, saving_mode=self.saving_mode,
+            ))
+        else:
+            notes.append(Message(
+                "Embedding model: {model} (width {width}, {saving_mode}).",
+                model=self.model_name, width=self.width, saving_mode=self.saving_mode,
+            ))
+        if network_path:
+            from Cache_Manifest import read_network_metadata
+
+            try:
+                network = read_network_metadata(network_path)
+            except (OSError, ValueError, TypeError):
+                network = None
+            if (
+                network is not None
+                and network.network_type == "alignment"
+                and network.model_name != self.model_name
+            ):
+                notes.append(Message(
+                    "NOTE: The network was built with {network}, not {model}. The "
+                    "Viewer accepts this; embedding commands use the embedding's model.",
+                    network=network.model_name, model=self.model_name,
+                ))
+        return notes
+
     def residues(self, node_index):
         """The node's per-residue embedding as a float32 (length, width) array."""
         return self._require_source().residues(node_index)

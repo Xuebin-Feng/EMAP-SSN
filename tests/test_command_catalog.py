@@ -78,7 +78,7 @@ reset hide
         with mock.patch('Command_Engine.execute_command', side_effect=AssertionError('executed')):
             general = command_catalog()
             detailed = command_catalog('reset')['commands'][0]
-        self.assertEqual(len(general['commands']), 24)
+        self.assertEqual(len(general['commands']), 25)
         self.assertTrue(all(c['help'] is None and isinstance(c['syntax'], list)
                             for c in general['commands']))
         self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['syntax'])
@@ -195,7 +195,7 @@ class AgentPolicyTests(unittest.TestCase):
                     'meta delete GRAVY', 'meta HELP'],
             'approve': ['select save picked.txt', 'SELECT Save picked.fasta', 'save', 'save x.h5', 'print svg',
                         'export clusters', 'logo [1-3]', 'label', 'label clusters 40 98', 'esmfold',
-                        'esmfold large multi', 'run', 'alignment msa.fasta', 'meta upload a.csv',
+                        'esmfold large multi', 'run', 'alignment msa.fasta', 'embedding emb.h5', 'meta upload a.csv',
                         'meta download', 'meta table.csv', 'unknown_command'],
             'refuse': ['agent', 'agent off', 'agent <Local>', 'agent "hello"', 'AGENT help'],
         }

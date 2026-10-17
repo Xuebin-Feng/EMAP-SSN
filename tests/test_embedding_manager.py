@@ -293,6 +293,73 @@ class ViewerLoadingTests(EmbeddingFileTestCase):
         self.assertIsNone(viewer.embedding.load_failure)
 
 
+class DescribeTests(EmbeddingFileTestCase):
+    """Embedding_Manager.describe: what the embedding command reports after the coverage."""
+
+    def network(self, model_name):
+        path = os.path.join(self.directory.name, "network.h5")
+        with h5py.File(path, "w") as handle:
+            handle.attrs["model_name"] = model_name
+        return path
+
+    def sentences(self, manager, network_path=None):
+        return [str(message) for message in manager.describe(network_path)]
+
+    def test_the_model_width_and_saving_mode_are_reported(self):
+        manager, _ = load(self.path, ["node_a", "node_b"])
+        self.assertEqual(self.sentences(manager), ["Embedding model: test_model (width 4, float16)."])
+
+    def test_nodes_whose_sequence_differs_come_first_and_are_counted(self):
+        for differing, expected in ((["node_a"], "1 node not embedded"),
+                                    (["node_a", "node_b"], "2 nodes not embedded")):
+            with self.subTest(differing=differing):
+                sequences = {**SEQUENCES, **dict.fromkeys(differing, "WWW")}
+                manager, _ = load(self.path, ["node_a", "node_b", "node_c"], sequences=sequences)
+                self.assertEqual(self.sentences(manager), [
+                    f"{expected}: the file holds a different sequence.",
+                    "Embedding model: test_model (width 4, float16).",
+                ])
+
+    def test_a_file_without_sequences_has_no_width(self):
+        empty = os.path.join(self.directory.name, "empty.h5")
+        write_embedding_file(empty, [])
+        manager, _ = load(empty, ["node_a"])
+        self.assertEqual(self.sentences(manager), ["Embedding model: test_model (float16)."])
+
+    def test_a_network_built_with_another_model_is_noted(self):
+        manager, _ = load(self.path, ["node_a"])
+        note = ("NOTE: The network was built with esm2_t12_35M_UR50D, not test_model. The Viewer "
+                "accepts this; embedding commands use the embedding's model.")
+        self.assertEqual(self.sentences(manager, self.network("esm2_t12_35M_UR50D"))[-1], note)
+        # None for the same model, a BLAST network, no network and one that cannot be read.
+        for label, path in (
+            ("same model", self.network("test_model")),
+            ("BLAST", self.network("BLAST")),
+            ("none", None),
+            ("empty", ""),
+            ("missing", os.path.join(self.directory.name, "gone.h5")),
+            ("not hdf5", self.path.replace(".h5", ".txt")),
+        ):
+            with self.subTest(label):
+                if label == "not hdf5":
+                    with open(path, "wb") as handle:
+                        handle.write(b"x")
+                self.assertEqual(
+                    self.sentences(manager, path), ["Embedding model: test_model (width 4, float16)."]
+                )
+
+    def test_the_messages_translate_and_keep_their_english(self):
+        from utilities import Localization
+
+        previous = Localization.set_translator(lambda template, n: f"<{template}>")
+        self.addCleanup(Localization.set_translator, previous)
+        manager, _ = load(self.path, ["node_a"])
+        message = manager.describe(self.network("other"))[-2]
+        self.assertEqual(message.display(), "<Embedding model: {model} (width {width}, {saving_mode}).>".format(
+            model="test_model", width=4, saving_mode="float16"))
+        self.assertEqual(str(message), "Embedding model: test_model (width 4, float16).")
+
+
 class CommandHelperTests(EmbeddingFileTestCase):
     """Command_Engine.require_embedding and get_embedding_mapping, for commands that need it."""
 

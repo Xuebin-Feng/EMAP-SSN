@@ -1912,6 +1912,40 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>NOTE: The network was built with {network}, not {model}. The Viewer accepts this; embedding commands use the embedding&apos;s model.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding selection cancelled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Embedding file &apos;{file}&apos; not found (checked absolute, relative, and {folder}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding model: {model} ({saving_mode}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding model: {model} (width {width}, {saving_mode}).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n node(s) not embedded: the file holds a different sequence.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Loaded {file}: {embedded}/{total} embedded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Load failed. Reverted to previous embedding.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Unknown esmfold keyword: {keyword}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6265,6 +6299,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>All Files (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select Embedding File</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding Files (*.h5)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

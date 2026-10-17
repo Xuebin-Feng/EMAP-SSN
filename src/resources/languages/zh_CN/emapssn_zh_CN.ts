@@ -2363,6 +2363,7 @@ Command-line usage:
         <location filename="../../../commands/alignment.py" line="+49"/>
         <location filename="../../../commands/cluster.py" line="+304"/>
         <location filename="../../../commands/color.py" line="+95"/>
+        <location filename="../../../commands/embedding.py" line="+80"/>
         <location filename="../../../commands/esmfold.py" line="-59"/>
         <location filename="../../../commands/export.py" line="+107"/>
         <location filename="../../../commands/group.py" line="+138"/>
@@ -2396,6 +2397,7 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../commands/alignment.py" line="+22"/>
+        <location filename="../../../commands/embedding.py" line="+20"/>
         <location filename="../../../commands/run.py" line="+199"/>
         <source>Error opening file dialog: {error}</source>
         <translation type="unfinished">打开文件对话框出错：{error}</translation>
@@ -2407,6 +2409,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+6"/>
+        <location filename="../../../commands/embedding.py" line="+12"/>
         <location filename="../../../commands/run.py" line="+12"/>
         <source>Error: File &apos;{file}&apos; does not exist.</source>
         <translation type="unfinished">错误：文件“{file}”不存在。</translation>
@@ -2418,6 +2421,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+12"/>
+        <location filename="../../../commands/embedding.py" line="+51"/>
         <source>Loading {file}...</source>
         <translation type="unfinished">正在加载 {file}…</translation>
     </message>
@@ -5992,6 +5996,48 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <source>No embedding is loaded.</source>
         <translation type="unfinished">未加载 embedding。</translation>
     </message>
+    <message>
+        <location filename="../../../commands/embedding.py" line="-103"/>
+        <source>NOTE: The network was built with {network}, not {model}. The Viewer accepts this; embedding commands use the embedding&apos;s model.</source>
+        <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
+    </message>
+    <message>
+        <location line="+46"/>
+        <source>Embedding selection cancelled.</source>
+        <translation type="unfinished">已取消选择 embedding。</translation>
+    </message>
+    <message>
+        <location line="+45"/>
+        <source>Error: Embedding file &apos;{file}&apos; not found (checked absolute, relative, and {folder}).</source>
+        <translation type="unfinished">错误：找不到 embedding 文件“{file}”（已检查绝对路径、相对路径和 {folder}）。</translation>
+    </message>
+    <message>
+        <location line="+42"/>
+        <source>Embedding model: {model} ({saving_mode}).</source>
+        <translation type="unfinished">Embedding 模型：{model}（{saving_mode}）。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Embedding model: {model} (width {width}, {saving_mode}).</source>
+        <translation type="unfinished">Embedding 模型：{model}（宽度 {width}，{saving_mode}）。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+10"/>
+        <source>%n node(s) not embedded: the file holds a different sequence.</source>
+        <translation type="unfinished">
+            <numerusform>%n 个节点没有 embedding：文件中的序列不同。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Loaded {file}: {embedded}/{total} embedded.</source>
+        <translation type="unfinished">已加载 {file}：{embedded}/{total} 个节点有 embedding。</translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>Load failed. Reverted to previous embedding.</source>
+        <translation type="unfinished">加载失败，已恢复为之前的 embedding。</translation>
+    </message>
 </context>
 <context>
     <name>MetadataPage</name>
@@ -8531,6 +8577,7 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+1"/>
+        <location filename="../../../commands/embedding.py" line="-147"/>
         <location filename="../../../commands/run.py" line="-66"/>
         <source>All Files (*)</source>
         <translation type="unfinished">所有文件 (*)</translation>
@@ -8682,6 +8729,16 @@ Fedora / RHEL：
         <location line="+2"/>
         <source>Open Metadata Spreadsheet in browser</source>
         <translation type="unfinished">在浏览器中打开元数据电子表格</translation>
+    </message>
+    <message>
+        <location filename="../../../commands/embedding.py" line="-4"/>
+        <source>Select Embedding File</source>
+        <translation type="unfinished">选择 embedding 文件</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Embedding Files (*.h5)</source>
+        <translation type="unfinished">Embedding 文件 (*.h5)</translation>
     </message>
 </context>
 <context>
