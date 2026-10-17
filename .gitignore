@@ -3,6 +3,8 @@ Analysis_Results/
 Input_Files/
 Embeddings/
 Cache_Files/
+# The VR program's cache folder (opt_vr), beside this one.
+Cache_Files_VR/
 msa_benchmark/
 temp/
 
