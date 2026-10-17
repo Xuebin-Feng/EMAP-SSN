@@ -530,7 +530,7 @@
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="+173"/>
+        <location filename="../../../EMAPSSN_Config.py" line="+175"/>
         <source>Input File Directory:</source>
         <translation type="unfinished">输入文件目录：</translation>
     </message>
@@ -545,7 +545,7 @@
         <translation type="unfinished">分析结果目录：</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>Input FASTA Directory:</source>
         <translation type="unfinished">输入 FASTA 目录：</translation>
     </message>
@@ -555,12 +555,12 @@
         <translation type="unfinished">MSA 目录：</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-2"/>
         <source>Embedding Directory:</source>
         <translation type="unfinished">Embedding 目录：</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+3"/>
         <source>Network Directory:</source>
         <translation type="unfinished">网络目录：</translation>
     </message>
@@ -591,23 +591,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3310"/>
+        <location line="+3313"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3309"/>
+        <location line="-3312"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3820"/>
+        <location line="+3824"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-3812"/>
+        <location line="-3816"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -699,12 +699,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3208"/>
+        <location line="+3212"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3205"/>
+        <location line="-3209"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -745,12 +745,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+221"/>
-        <location line="+1997"/>
+        <location line="+2000"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-1916"/>
+        <location line="-1919"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1178,10 +1178,9 @@ Populates the MSA dropdown in the Inputs tab.</source>
 用于填充“输入与输出”选项卡中的 MSA 下拉列表。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Directory containing protein language model embedding files (.h5), as the Tools write them.
 Populates the Embedding dropdown in the Inputs tab.</source>
-        <translation type="unfinished">存放工具所写的蛋白质语言模型 embedding 文件（.h5）的目录。
+        <translation type="obsolete">存放工具所写的蛋白质语言模型 embedding 文件（.h5）的目录。
 用于填充“输入与输出”选项卡中的 Embedding 下拉列表。</translation>
     </message>
     <message>
@@ -1240,13 +1239,20 @@ Viewer commands place their output subdirectories beneath this location.</source
     </message>
     <message>
         <location line="+1"/>
+        <source>Base directory represented by $embedding$.
+Holds the protein language model embedding files (.h5) the Tools write; the Embedding Input dropdown lists the .h5 files in it.</source>
+        <translation type="unfinished">$embedding$ 所代表的基础目录。
+存放工具所写的蛋白质语言模型 embedding 文件（.h5）；“Embedding 输入”下拉列表会列出其中的 .h5 文件。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Directory containing named per-tab configuration profiles.
 The default uses $cache_file$ and follows the Cache File Directory; custom relative and absolute paths remain supported.</source>
         <translation type="unfinished">存放各选项卡命名配置方案的目录。
 默认使用 $cache_file$，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="+142"/>
+        <location line="+145"/>
         <location line="+257"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
@@ -1476,7 +1482,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-2560"/>
+        <location line="-2563"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1582,7 +1588,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+687"/>
+        <location line="+690"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1792,12 +1798,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
     </message>
     <message>
         <location line="+45"/>
-        <location line="+45"/>
+        <location line="+46"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
     </message>
     <message>
-        <location line="-41"/>
+        <location line="-42"/>
         <source>Saved Config Directory:</source>
         <translation type="unfinished">已保存配置目录：</translation>
     </message>
@@ -1807,7 +1813,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">选择已保存配置目录</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+42"/>
         <source>Select Directory</source>
         <translation type="unfinished">选择目录</translation>
     </message>
@@ -3908,7 +3914,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4145"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4149"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>

@@ -70,14 +70,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 INPUT_FILE_ALIAS = "$input_file$"
 CACHE_FILE_ALIAS = "$cache_file$"
 ANALYSIS_RESULT_ALIAS = "$analysis_result$"
+EMBEDDING_ALIAS = "$embedding$"
 
 INPUT_FILE_DIR = "Input_Files"
 CACHE_FILE_DIR = "Cache_Files"
 ANALYSIS_RESULT_DIR = "Analysis_Results"
+EMBED_DIR = DIRECTORY_PROFILE_DEFAULTS["EMBED_DIR"]
 
 FASTA_DIR = os.path.join(INPUT_FILE_ALIAS, "Sequence_Sets")
 MSA_DIR = os.path.join(INPUT_FILE_ALIAS, "Multiple_Alignments")
-EMBED_DIR = DIRECTORY_PROFILE_DEFAULTS["EMBED_DIR"]
 HDF5_DIR = os.path.join(INPUT_FILE_ALIAS, "Networks_EValues")
 SAVED_LAYOUT_DIR = os.path.join(CACHE_FILE_ALIAS, "Saved_Layouts")
 SETTING_EXPORT_DIR = os.path.join(CACHE_FILE_ALIAS, "Exported_Settings")
@@ -90,6 +91,7 @@ DIRECTORY_PATH_ALIASES = {
     INPUT_FILE_ALIAS: "INPUT_FILE_DIR",
     CACHE_FILE_ALIAS: "CACHE_FILE_DIR",
     ANALYSIS_RESULT_ALIAS: "ANALYSIS_RESULT_DIR",
+    EMBEDDING_ALIAS: "EMBED_DIR",
 }
 DEPRECATED_DIRECTORY_KEYS = frozenset({
     "LOGO_DIR",
@@ -173,9 +175,9 @@ DIRECTORY_LABELS = {
     "INPUT_FILE_DIR": QT_TRANSLATE_NOOP("Config", "Input File Directory:"),
     "CACHE_FILE_DIR": QT_TRANSLATE_NOOP("Config", "Cache File Directory:"),
     "ANALYSIS_RESULT_DIR": QT_TRANSLATE_NOOP("Config", "Analysis Results Directory:"),
+    "EMBED_DIR": QT_TRANSLATE_NOOP("Config", "Embedding Directory:"),
     "FASTA_DIR": QT_TRANSLATE_NOOP("Config", "Input FASTA Directory:"),
     "MSA_DIR": QT_TRANSLATE_NOOP("Config", "MSA Directory:"),
-    "EMBED_DIR": QT_TRANSLATE_NOOP("Config", "Embedding Directory:"),
     "HDF5_DIR": QT_TRANSLATE_NOOP("Config", "Network Directory:"),
     "METADATA_DIR": QT_TRANSLATE_NOOP("Config", "Metadata Directory:"),
     "HEADER_LIST_DIR": QT_TRANSLATE_NOOP("Config", "Header List Directory:"),
@@ -2044,7 +2046,6 @@ if __name__ == "__main__":
                 "UMAP_MIN_DIST": translate("Config", "Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).\nLower values produce tight, dense point clusters; larger values distribute nodes more evenly."),
                 "FASTA_DIR": translate("Config", "Directory containing input FASTA files for sequence sets and subsets.\nPopulates the Sequence Set dropdown in the Inputs tab."),
                 "MSA_DIR": translate("Config", "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).\nPopulates the MSA dropdown in the Inputs tab."),
-                "EMBED_DIR": translate("Config", "Directory containing protein language model embedding files (.h5), as the Tools write them.\nPopulates the Embedding dropdown in the Inputs tab."),
                 "HDF5_DIR": translate("Config", "Directory containing HDF5 pairwise sequence similarity scores and network edge files.\nPopulates the Network Edges dropdown in the Inputs tab."),
                 "SAVED_LAYOUT_DIR": translate("Config", "Directory where calculated 2D layout coordinate files and network metadata (.h5) are saved and loaded.\nServes as the layout cache to avoid recalculating layouts when reopening networks."),
                 "SETTING_EXPORT_DIR": translate("Config", "Directory where command-line layout generation JSON settings are exported."),
@@ -2053,6 +2054,7 @@ if __name__ == "__main__":
                 "INPUT_FILE_DIR": translate("Config", "Base directory represented by $input_file$.\nRelative paths are resolved from the project root; absolute paths remain absolute."),
                 "CACHE_FILE_DIR": translate("Config", "Base directory represented by $cache_file$.\nRelative paths are resolved from the project root; absolute paths remain absolute."),
                 "ANALYSIS_RESULT_DIR": translate("Config", "Base directory represented by $analysis_result$.\nViewer commands place their output subdirectories beneath this location."),
+                "EMBED_DIR": translate("Config", "Base directory represented by $embedding$.\nHolds the protein language model embedding files (.h5) the Tools write; the Embedding Input dropdown lists the .h5 files in it."),
                 "SAVED_CONFIG_DIR": translate("Config", "Directory containing named per-tab configuration profiles.\nThe default uses $cache_file$ and follows the Cache File Directory; custom relative and absolute paths remain supported."),
             }
             
@@ -2127,6 +2129,7 @@ if __name__ == "__main__":
                     "INPUT_FILE_DIR",
                     "CACHE_FILE_DIR",
                     "ANALYSIS_RESULT_DIR",
+                    "EMBED_DIR",
                 )
             }
 
@@ -2152,6 +2155,8 @@ if __name__ == "__main__":
                     self.refresh_combo(combo, key, extensions)
             elif base_key == "CACHE_FILE_DIR":
                 self.update_live_validators()
+            elif base_key == "EMBED_DIR":
+                self.refresh_combo(self.cb_embed, "EMBED_DIR", [".h5"])
 
         def _absolute_project_path(self, value):
             path = Path(self._resolved_directory_value(value)).expanduser()
@@ -3964,8 +3969,9 @@ if __name__ == "__main__":
             keys = [
                 # Reusable roots
                 "INPUT_FILE_DIR", "CACHE_FILE_DIR", "ANALYSIS_RESULT_DIR",
+                "EMBED_DIR",
                 # Input files
-                "FASTA_DIR", "MSA_DIR", "EMBED_DIR", "HDF5_DIR", "METADATA_DIR",
+                "FASTA_DIR", "MSA_DIR", "HDF5_DIR", "METADATA_DIR",
                 "HEADER_LIST_DIR",
                 # Cache files
                 "SAVED_LAYOUT_DIR", "SETTING_EXPORT_DIR",
@@ -4006,7 +4012,7 @@ if __name__ == "__main__":
                 directory_profile_controls.extend((lbl, container))
                 self.labels[key] = lbl
                 self.inputs[key] = le
-                if key == "ANALYSIS_RESULT_DIR":
+                if key == "EMBED_DIR":
                     self.directory_base_separator = self._add_padded_separator(
                         layout, "directory_base_separator"
                     )
@@ -4014,13 +4020,13 @@ if __name__ == "__main__":
             # Bind the text changes to dynamically refresh the dropdowns in Tab 1
             self.inputs["FASTA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_fasta, "FASTA_DIR", ['.fasta']))
             self.inputs["MSA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_msa, "MSA_DIR", ['.fasta', '.h5']))
-            self.inputs["EMBED_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_embed, "EMBED_DIR", ['.h5']))
             self.inputs["HDF5_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_hdf5, "HDF5_DIR", ['.h5']))
             self.inputs["SAVED_LAYOUT_DIR"].textChanged.connect(self.update_live_validators)
             for base_key in (
                 "INPUT_FILE_DIR",
                 "CACHE_FILE_DIR",
                 "ANALYSIS_RESULT_DIR",
+                "EMBED_DIR",
             ):
                 self.inputs[base_key].textChanged.connect(
                     lambda _text, key=base_key: self._base_directory_changed(key)

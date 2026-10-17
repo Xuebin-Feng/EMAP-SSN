@@ -6,8 +6,9 @@
 
 Like the MSA, the embedding is a dropdown of the files in a directory with a
 blank first entry, which selects none. It sits below the MSA row, its folder
-on the Directories tab after the MSA folder, and it is saved, restored,
-profiled and handed to the Viewer as EMBED_FILE.
+on the Directories tab with the reusable roots (the fourth, below the Analysis
+Results Directory), and it is saved, restored, profiled and handed to the
+Viewer as EMBED_FILE.
 """
 
 import io
@@ -71,12 +72,12 @@ class EmbeddingInputTests(unittest.TestCase):
         self.assertIs(embed_layout, msa_layout)
         self.assertEqual(embed_row, msa_row + 1)
 
-    def test_the_folder_row_follows_the_msa_folder_and_refreshes_the_list(self):
+    def test_the_folder_row_follows_the_analysis_results_folder_and_refreshes_the_list(self):
         self.assertEqual(self.window.labels["EMBED_DIR"].text(), "Embedding Directory:")
         self.assertEqual(Path(self.window.inputs["EMBED_DIR"].text()), self.embeddings)
-        dir_layout, msa_dir_row = self.form_row("MSA_DIR")
+        _, results_dir_row = self.form_row("ANALYSIS_RESULT_DIR")
         _, embed_dir_row = self.form_row("EMBED_DIR")
-        self.assertEqual(embed_dir_row, msa_dir_row + 1)
+        self.assertEqual(embed_dir_row, results_dir_row + 1)
         other = self.root / "other_embeddings"
         other.mkdir()
         (other / "subset_[esmc_6b]_embeddings.h5").write_bytes(b"")

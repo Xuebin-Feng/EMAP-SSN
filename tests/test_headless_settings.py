@@ -67,6 +67,31 @@ class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
         fallback = resolve_saved_directory("SAVED_LAYOUT_DIR", other_root)
         self.assertEqual(fallback, str(other_root / "Cache_Files" / "Saved_Layouts"))
 
+    def test_embedding_alias_resolves_to_the_saved_embedding_directory(self):
+        from utilities.Headless_Settings import resolve_directory_value, resolve_saved_directory
+        values = {"EMBED_DIR": "my_embeddings", "HDF5_DIR": "$embedding$/sub",
+                  "FASTA_DIR": r"$embedding$\other", "MSA_DIR": "$embedding$"}
+        for key, expected in (("HDF5_DIR", Path("my_embeddings", "sub")),
+                              ("FASTA_DIR", Path("my_embeddings", "other")),
+                              ("MSA_DIR", Path("my_embeddings"))):
+            with self.subTest(key=key):
+                self.assertEqual(Path(resolve_directory_value(values, key, self.root)),
+                                 self.root / expected)
+        with self.assertRaisesRegex(ValueError, "Circular directory alias: EMBED_DIR"):
+            resolve_directory_value({"EMBED_DIR": "$embedding$/x"}, "EMBED_DIR", self.root)
+        # Saved settings name the folder, and a folder under the alias follows it.
+        saved = self.saved_config()
+        saved.update(EMBED_DIR="saved_embeddings",
+                     SETTING_EXPORT_DIR="$embedding$/exported_settings")
+        (self.root / "viewer_settings.json").write_text(json.dumps(saved))
+        self.assertEqual(Path(resolve_saved_directory("SETTING_EXPORT_DIR", self.root)),
+                         self.root / "saved_embeddings" / "exported_settings")
+        # Settings that store the default folder, as every file so far does, still resolve.
+        saved.update(EMBED_DIR="Embeddings")
+        (self.root / "viewer_settings.json").write_text(json.dumps(saved))
+        self.assertEqual(Path(resolve_saved_directory("SETTING_EXPORT_DIR", self.root)),
+                         self.root / "Embeddings" / "exported_settings")
+
     def test_layout_preview_and_reexport_after_edits(self):
         self.saved_config()
         result = export_config_settings("layout", self.root)

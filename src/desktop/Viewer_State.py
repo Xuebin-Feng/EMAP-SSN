@@ -23,6 +23,7 @@ import Cache_Manifest as cache_manifest
 INPUT_FILE_ALIAS = "$input_file$"
 CACHE_FILE_ALIAS = "$cache_file$"
 ANALYSIS_RESULT_ALIAS = "$analysis_result$"
+EMBEDDING_ALIAS = "$embedding$"
 
 INPUT_PROFILE_DEFAULTS = {
     "NODE_FASTA_FILE": "",
@@ -77,11 +78,11 @@ DIRECTORY_PROFILE_DEFAULTS = {
     "INPUT_FILE_DIR": "Input_Files",
     "CACHE_FILE_DIR": "Cache_Files",
     "ANALYSIS_RESULT_DIR": "Analysis_Results",
+    # A root of its own, beside Input_Files and not in it: the folder the Tools
+    # write embeddings to (tool_helpers.Tool_Pipeline.DEFAULT_DIRECTORY_PATHS).
+    "EMBED_DIR": "Embeddings",
     "FASTA_DIR": os.path.join(INPUT_FILE_ALIAS, "Sequence_Sets"),
     "MSA_DIR": os.path.join(INPUT_FILE_ALIAS, "Multiple_Alignments"),
-    # Beside Input_Files, not in it: the folder the Tools write embeddings to
-    # (tool_helpers.Tool_Pipeline.DEFAULT_DIRECTORY_PATHS).
-    "EMBED_DIR": "Embeddings",
     "HDF5_DIR": os.path.join(INPUT_FILE_ALIAS, "Networks_EValues"),
     "METADATA_DIR": os.path.join(INPUT_FILE_ALIAS, "Meta_Data"),
     "HEADER_LIST_DIR": os.path.join(INPUT_FILE_ALIAS, "Header_Lists"),
@@ -235,6 +236,7 @@ ALIASES = {
     "$input_file$": "INPUT_FILE_DIR",
     "$cache_file$": "CACHE_FILE_DIR",
     "$analysis_result$": "ANALYSIS_RESULT_DIR",
+    "$embedding$": "EMBED_DIR",
 }
 FILES = {
     "NODE_FASTA_FILE": "FASTA_DIR",
@@ -385,7 +387,7 @@ def normalize_viewer_paths(values, project_root, *, require_cache=True):
             if value == alias or value.startswith((alias + "/", alias + "\\")):
                 value = os.path.join(result[key], value[len(alias):].lstrip("/\\"))
                 break
-        if "$input_file$" in value or "$cache_file$" in value or "$analysis_result$" in value:
+        if any(alias in value for alias in ALIASES):
             raise ViewerSettingsError(f"Invalid directory alias: {value}")
         return os.path.abspath(os.path.join(base or root, value))
 
@@ -856,6 +858,7 @@ __all__ = [
     "INPUT_FILE_ALIAS",
     "CACHE_FILE_ALIAS",
     "ANALYSIS_RESULT_ALIAS",
+    "EMBEDDING_ALIAS",
     "INPUT_PROFILE_DEFAULTS",
     "VISUAL_PROFILE_DEFAULTS",
     "PHYSICS_PROFILE_DEFAULTS",

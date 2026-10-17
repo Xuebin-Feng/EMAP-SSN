@@ -390,15 +390,15 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Embedding Directory:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Input FASTA Directory:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>MSA Directory:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Embedding Directory:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -921,11 +921,6 @@ Populates the MSA dropdown in the Inputs tab.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing protein language model embedding files (.h5), as the Tools write them.
-Populates the Embedding dropdown in the Inputs tab.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Directory containing HDF5 pairwise sequence similarity scores and network edge files.
 Populates the Network Edges dropdown in the Inputs tab.</source>
         <translation type="unfinished"></translation>
@@ -962,6 +957,11 @@ Relative paths are resolved from the project root; absolute paths remain absolut
     <message>
         <source>Base directory represented by $analysis_result$.
 Viewer commands place their output subdirectories beneath this location.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Base directory represented by $embedding$.
+Holds the protein language model embedding files (.h5) the Tools write; the Embedding Input dropdown lists the .h5 files in it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

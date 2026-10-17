@@ -75,6 +75,24 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.assertEqual(defaults["INPUT_FILE_DIR"], "Input_Files")
         self.assertEqual(defaults["CACHE_FILE_DIR"], "Cache_Files")
         self.assertEqual(defaults["ANALYSIS_RESULT_DIR"], "Analysis_Results")
+        # The embeddings folder is the fourth reusable root: beside Input_Files,
+        # not in it, and what $embedding$ stands for.
+        self.assertEqual(defaults["EMBED_DIR"], "Embeddings")
+        self.assertEqual(
+            list(defaults)[:4],
+            ["INPUT_FILE_DIR", "CACHE_FILE_DIR", "ANALYSIS_RESULT_DIR", "EMBED_DIR"],
+        )
+        self.assertEqual(
+            self.namespace["DIRECTORY_PATH_ALIASES"],
+            {
+                "$input_file$": "INPUT_FILE_DIR",
+                "$cache_file$": "CACHE_FILE_DIR",
+                "$analysis_result$": "ANALYSIS_RESULT_DIR",
+                "$embedding$": "EMBED_DIR",
+            },
+        )
+        self.assertEqual(self.namespace["EMBEDDING_ALIAS"], "$embedding$")
+        self.assertEqual(self.namespace["EMBED_DIR"], defaults["EMBED_DIR"])
         self.assertEqual(
             defaults["HEADER_LIST_DIR"],
             os.path.join("$input_file$", "Header_Lists"),
@@ -101,11 +119,21 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             "INPUT_FILE_DIR": os.path.join("custom", "inputs"),
             "CACHE_FILE_DIR": os.path.abspath(os.path.join("custom", "cache")),
             "ANALYSIS_RESULT_DIR": os.path.join("custom", "results"),
+            "EMBED_DIR": os.path.join("custom", "embeddings"),
         }
         self.assertEqual(
             resolve(r"$input_file$\Sequence_Sets", bases),
             os.path.normpath(os.path.join("custom", "inputs", "Sequence_Sets")),
         )
+        self.assertEqual(
+            resolve(r"$embedding$\sub", bases),
+            os.path.normpath(os.path.join("custom", "embeddings", "sub")),
+        )
+        self.assertEqual(
+            resolve("$embedding$/sub/deeper", bases),
+            os.path.normpath(os.path.join("custom", "embeddings", "sub", "deeper")),
+        )
+        self.assertEqual(resolve("$embedding$", bases), bases["EMBED_DIR"])
         self.assertEqual(
             resolve("$analysis_result$/Sequence_Logos", bases),
             os.path.normpath(os.path.join("custom", "results", "Sequence_Logos")),
@@ -117,7 +145,9 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         for unchanged in (
             "$unknown$/folder",
             "prefix/$input_file$/folder",
+            "prefix/$embedding$/folder",
             "$input_file$suffix/folder",
+            "$embedding$suffix/folder",
             os.path.abspath(os.path.join("literal", "folder")),
         ):
             with self.subTest(unchanged=unchanged):
@@ -152,6 +182,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             "INPUT_FILE_DIR": "Input File Directory:",
             "CACHE_FILE_DIR": "Cache File Directory:",
             "ANALYSIS_RESULT_DIR": "Analysis Results Directory:",
+            "EMBED_DIR": "Embedding Directory:",
             "FASTA_DIR": "Input FASTA Directory:",
             "SAVED_LAYOUT_DIR": "Layout Directory:",
             "SETTING_EXPORT_DIR": "Setting Export Directory:",
@@ -758,6 +789,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             "INPUT_FILE_DIR",
             "CACHE_FILE_DIR",
             "ANALYSIS_RESULT_DIR",
+            "EMBED_DIR",
             "FASTA_DIR",
             "MSA_DIR",
             "HDF5_DIR",
@@ -815,7 +847,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.app.processEvents()
             tab = self.window.tabs.widget(directory_index).widget()
             separator = self.window.directory_base_separator
-            base_field = self.window.inputs["ANALYSIS_RESULT_DIR"].parentWidget()
+            base_field = self.window.inputs["EMBED_DIR"].parentWidget()
             first_child = self.window.labels["FASTA_DIR"]
             separator_position = separator.mapTo(tab, QPoint(0, 0))
             base_position = base_field.mapTo(tab, QPoint(0, 0))
@@ -838,6 +870,106 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         finally:
             self.window.tabs.setCurrentIndex(original_index)
             self.app.processEvents()
+
+    def test_embedding_directory_is_the_fourth_root_above_the_separator(self):
+        window = self.window
+        roots = ("INPUT_FILE_DIR", "CACHE_FILE_DIR", "ANALYSIS_RESULT_DIR", "EMBED_DIR")
+        form_layout = window.labels["INPUT_FILE_DIR"].parentWidget().layout()
+
+        def row_of(widget):
+            return form_layout.getWidgetPosition(widget)[0]
+
+        root_rows = [row_of(window.labels[key]) for key in roots]
+        separator_row = row_of(window.directory_base_separator.parentWidget())
+        # The four roots are consecutive rows and the separator closes them.
+        self.assertEqual(root_rows, list(range(root_rows[0], root_rows[0] + 4)))
+        self.assertEqual(separator_row, root_rows[-1] + 1)
+        for key in (
+            "FASTA_DIR", "MSA_DIR", "HDF5_DIR", "METADATA_DIR",
+            "HEADER_LIST_DIR", "SAVED_LAYOUT_DIR", "SETTING_EXPORT_DIR",
+        ):
+            with self.subTest(key=key):
+                self.assertGreater(row_of(window.labels[key]), separator_row)
+        # It is a directory row like the other roots: open button, tip and all.
+        self.assertIn("EMBED_DIR", window.directory_open_buttons)
+        for widget in (window.inputs["EMBED_DIR"], window.labels["EMBED_DIR"]):
+            self.assertIn("$embedding$", window.tip_db[widget])
+
+    def test_embedding_alias_follows_the_live_embedding_directory(self):
+        window = self.window
+        original = window.inputs["EMBED_DIR"].text()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            try:
+                window.inputs["EMBED_DIR"].setText(temp_dir)
+                self.assertEqual(window._directory_base_values()["EMBED_DIR"], temp_dir)
+                self.assertEqual(
+                    pathlib.Path(window._resolved_directory_value("$embedding$")),
+                    pathlib.Path(temp_dir),
+                )
+                self.assertEqual(
+                    pathlib.Path(window._resolved_directory_value(r"$embedding$\sub")),
+                    pathlib.Path(temp_dir, "sub"),
+                )
+                self.assertEqual(
+                    pathlib.Path(window._absolute_project_path("$embedding$/sub")),
+                    pathlib.Path(temp_dir, "sub").resolve(),
+                )
+            finally:
+                window.inputs["EMBED_DIR"].setText(original)
+                self.app.processEvents()
+
+    def test_changing_the_embedding_directory_refreshes_its_dropdown_once(self):
+        window = self.window
+        original = window.inputs["EMBED_DIR"].text()
+        original_input = window.inputs["INPUT_FILE_DIR"].text()
+        refreshed = []
+        real_refresh = window.refresh_combo
+
+        def counting_refresh(combo, key, extensions):
+            if combo is window.cb_embed:
+                refreshed.append(key)
+            return real_refresh(combo, key, extensions)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            pathlib.Path(temp_dir, "listed_[model]_embeddings.h5").write_bytes(b"")
+            try:
+                with mock.patch.object(window, "refresh_combo", counting_refresh):
+                    window.inputs["EMBED_DIR"].setText(temp_dir)
+                self.assertEqual(refreshed, ["EMBED_DIR"])
+                self.assertEqual(
+                    [window.cb_embed.itemText(i) for i in range(window.cb_embed.count())],
+                    ["", "listed_[model]_embeddings.h5"],
+                )
+                # A folder written under the input root is re-listed when that
+                # root changes, as before, and just as often.
+                refreshed.clear()
+                with mock.patch.object(window, "refresh_combo", counting_refresh):
+                    window.inputs["INPUT_FILE_DIR"].setText(temp_dir)
+                self.assertEqual(refreshed, ["EMBED_DIR"])
+            finally:
+                window.inputs["INPUT_FILE_DIR"].setText(original_input)
+                window.inputs["EMBED_DIR"].setText(original)
+                self.app.processEvents()
+
+    def test_old_settings_holding_embeddings_as_the_embedding_directory_still_load(self):
+        namespace = self.namespace
+        defaults = namespace["DIRECTORY_PROFILE_DEFAULTS"]
+        # Settings and profiles written before the folder became a root hold
+        # the same value.
+        raw = dict(defaults, EMBED_DIR="Embeddings")
+        self.assertEqual(self.window._normalize_profile_data("directories", raw), raw)
+        # Applying settings resolves aliases in the module's directory globals;
+        # the window shares them, so put every one back.
+        with mock.patch.dict(namespace):
+            namespace["apply_viewer_settings"]({"EMBED_DIR": "Embeddings"})
+            self.assertEqual(namespace["EMBED_DIR"], "Embeddings")
+            # So does a folder an old file wrote under the input root.
+            stored = os.path.join("$input_file$", "Embeddings")
+            namespace["apply_viewer_settings"]({"EMBED_DIR": stored})
+            self.assertEqual(
+                namespace["EMBED_DIR"], namespace["resolve_directory_path"](stored)
+            )
+            self.assertNotIn("$", namespace["EMBED_DIR"])
 
     def test_deprecated_directory_profile_keys_are_ignored_and_pruned(self):
         defaults = self.namespace["DIRECTORY_PROFILE_DEFAULTS"]

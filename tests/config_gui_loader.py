@@ -61,8 +61,8 @@ def load_config_namespace():
 def directory_settings(root):
     """Custom settings whose base directories (and so every derived one) lie in root.
 
-    EMBED_DIR's default is under no base directory (it is the project's
-    Embeddings folder), so it is set in root too.
+    EMBED_DIR is a base directory of its own (the project's Embeddings
+    folder, under none of the others), so it is set in root too.
     """
     root = Path(root)
     return {

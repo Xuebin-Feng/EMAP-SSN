@@ -8,6 +8,7 @@ import hashlib
 import json
 import pathlib
 import sys
+import tempfile
 import unittest
 
 import h5py
@@ -19,11 +20,16 @@ if str(SRC) not in sys.path:
 
 import Cache_Manifest
 from desktop.Viewer_State import (
+    ALIASES,
+    DEFAULTS,
+    DIRECTORY_PROFILE_DEFAULTS,
+    EMBEDDING_ALIAS,
     VIEWER_SECTIONS,
     ViewerSettingsError,
     decode_document,
     encode_document,
     get_viewer_settings_schema,
+    normalize_viewer_paths,
     resolve_viewer_document,
     validate_viewer_document,
 )
@@ -245,6 +251,80 @@ class ViewerSettingsDocumentTests(HeadlessSettingsFixture, unittest.TestCase):
             cache.create_dataset("headers", data=[b"wrong", b"identities"])
         with self.assertRaisesRegex(ViewerSettingsError, "[Hh]eader"):
             validate_viewer_document(viewer, self.root)
+
+
+class EmbeddingRootAliasTests(unittest.TestCase):
+    """$embedding$ is the fourth reusable root, resolved as the other three are."""
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = pathlib.Path(self.temp.name).resolve()
+
+    def resolve(self, **changes):
+        values = copy.deepcopy(DEFAULTS)
+        # Placeholders: the two required inputs, which are not resolved against disk.
+        values.update(NODE_FASTA_FILE="set.fasta", INPUT_HDF5="network.h5", **changes)
+        return normalize_viewer_paths(values, self.root, require_cache=False)
+
+    def test_the_alias_names_the_embedding_directory_and_roots_lead_the_defaults(self):
+        self.assertEqual(EMBEDDING_ALIAS, "$embedding$")
+        self.assertEqual(ALIASES[EMBEDDING_ALIAS], "EMBED_DIR")
+        self.assertEqual(
+            list(DIRECTORY_PROFILE_DEFAULTS)[:len(ALIASES)], list(ALIASES.values())
+        )
+        self.assertEqual(
+            list(ALIASES.values()),
+            ["INPUT_FILE_DIR", "CACHE_FILE_DIR", "ANALYSIS_RESULT_DIR", "EMBED_DIR"],
+        )
+        # The roots are folders of the project, not under one another.
+        self.assertEqual(DIRECTORY_PROFILE_DEFAULTS["EMBED_DIR"], "Embeddings")
+
+    def test_a_folder_or_file_under_the_alias_resolves_under_the_embedding_directory(self):
+        resolved = self.resolve(
+            EMBED_DIR="my_embeddings",
+            HDF5_DIR="$embedding$\\sub",
+            MSA_DIR="$embedding$/other/deeper",
+            EMBED_FILE="$embedding$/set_[model]_embeddings.h5",
+        )
+        folder = self.root / "my_embeddings"
+        self.assertEqual(pathlib.Path(resolved["EMBED_DIR"]), folder)
+        self.assertEqual(pathlib.Path(resolved["HDF5_DIR"]), folder / "sub")
+        self.assertEqual(pathlib.Path(resolved["MSA_DIR"]), folder / "other" / "deeper")
+        self.assertEqual(
+            pathlib.Path(resolved["EMBED_FILE"]), folder / "set_[model]_embeddings.h5"
+        )
+        # A bare file name is looked up in the embedding directory, as before.
+        bare = self.resolve(EMBED_DIR="my_embeddings", EMBED_FILE="set_[model]_embeddings.h5")
+        self.assertEqual(
+            pathlib.Path(bare["EMBED_FILE"]), folder / "set_[model]_embeddings.h5"
+        )
+        # An absolute embedding directory stays where it is.
+        elsewhere = self.root / "elsewhere"
+        resolved = self.resolve(EMBED_DIR=str(elsewhere), HDF5_DIR="$embedding$/sub")
+        self.assertEqual(pathlib.Path(resolved["EMBED_DIR"]), elsewhere)
+        self.assertEqual(pathlib.Path(resolved["HDF5_DIR"]), elsewhere / "sub")
+
+    def test_old_settings_still_resolve(self):
+        # The default, as every settings file written so far stores it.
+        resolved = self.resolve(EMBED_DIR="Embeddings")
+        self.assertEqual(pathlib.Path(resolved["EMBED_DIR"]), self.root / "Embeddings")
+        # A folder an old file placed under the input root.
+        resolved = self.resolve(
+            INPUT_FILE_DIR="inputs", EMBED_DIR="$input_file$/Embeddings"
+        )
+        self.assertEqual(
+            pathlib.Path(resolved["EMBED_DIR"]), self.root / "inputs" / "Embeddings"
+        )
+
+    def test_every_alias_is_refused_anywhere_but_at_the_front(self):
+        for alias, key in ALIASES.items():
+            with self.subTest(alias=alias):
+                with self.assertRaisesRegex(ViewerSettingsError, "Invalid directory alias"):
+                    self.resolve(HEADER_LIST_DIR=f"prefix/{alias}/folder")
+                # A root that names itself is circular, and so refused too.
+                with self.assertRaisesRegex(ViewerSettingsError, "Invalid directory alias"):
+                    self.resolve(**{key: f"{alias}/folder"})
 
 
 if __name__ == "__main__":
