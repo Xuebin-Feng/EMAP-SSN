@@ -14,9 +14,10 @@ still change before version 1.0.0.
   reads). A passing import test is now recorded in `.venv/ssn_esm_stack.json` with a
   fingerprint of the interpreter and the installed packages, and skipped until a package,
   the interpreter or the test changes; deleting the file runs it again. A warm Config
-  launch takes about 8 s instead of 15 s.
-- Windows hardware detection at launch runs its four PowerShell queries at the same time,
-  about 1.4 s instead of 2.5 s, with the same result.
+  launch takes about 7 s instead of 15 s.
+- Windows hardware detection at launch runs its four PowerShell queries at the same time
+  and asks for the processor name alone, about 0.55 s instead of 2.5 s, with the same
+  result.
 
 ### Fixed
 
