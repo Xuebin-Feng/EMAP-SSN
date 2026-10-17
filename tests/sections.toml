@@ -220,6 +220,7 @@ description = "Studio theme, theme colours, fonts, text-sized controls"
 seconds = 45
 modules = [
     "test_application_fonts",
+    "test_docs_style",
     "test_studio_theme",
     "test_text_sized_buttons",
     "test_theme_colors",
@@ -271,7 +272,7 @@ paths = ["src/resources/languages/*/help/**", "src/tools/tool_descriptions/**"]
 sections = ["tools"]
 
 [[rules]]
-paths = ["src/resources/icons/**", "src/resources/fonts/**"]
+paths = ["src/resources/icons/**", "src/resources/fonts/**", "docs/**"]
 sections = ["theme"]
 
 [[rules]]

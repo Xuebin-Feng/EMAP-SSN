@@ -28,7 +28,7 @@ body is otherwise unchanged.
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT; the fonts SIL OFL 1.1 (also MIT per the KaTeX repository) | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex); fonts: [`LICENSE.OFL`](src/resources/fonts/LICENSE.OFL) |
 | [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSans/` and `NotoSansMono/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
 | [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc) | 2.004-H2 (Google Fonts), cut down to GB2312 | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSansSC/` | [`LICENSE.Noto`](src/resources/fonts/LICENSE.Noto) |
-| [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (51 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
+| [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (51 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` and `docs/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
 | [UniProtKB/Swiss-Prot](https://www.uniprot.org/) sequences | Release 2026_03, 952 entries of InterPro IPR001279 | CC BY 4.0 | `src/resources/benchmark/benchmark_sequences.fasta`, `injection_sequences.fasta` | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); attribution in [`README.md`](src/resources/benchmark/README.md) |
 
 - Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15 from
@@ -119,7 +119,8 @@ body is otherwise unchanged.
   version. `src/resources/icons/Update_Icons.py` copies the listed icons
   unchanged and refuses any SVG holding more than plain shapes; the `qss/`
   copies have a theme colour written in place of `currentColor`, and the web
-  pages inline the same markup. See `src/resources/icons/README.md`.
+  pages and the documentation pages (`docs/*.html`) inline the same markup. See
+  `src/resources/icons/README.md`.
 - UniProtKB/Swiss-Prot: the benchmark's two sequence sets, made on 2026-10-09
   from UniProt release 2026_03 (released 2 September 2026) by the UniProt
   Consortium. The download held the 1,094 reviewed entries that InterPro entry
