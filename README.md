@@ -525,6 +525,13 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
   saved state. Physical GPU addresses, device enumeration order, and driver
   updates that remain within the same CUDA compatibility profile do not force
   PyTorch to be reinstalled; the existing build is validated and reused.
+- The check that every launch runs ends with a test that imports the ESM and
+  Transformers packages, which can take about 20 seconds when the files are not
+  cached (antivirus scans each one it opens). A pass is recorded in
+  `.venv/ssn_esm_stack.json` with a fingerprint of the installed packages and the
+  interpreter, and the test is skipped while that fingerprint is unchanged.
+  Installing, upgrading or removing a package, or deleting that file, runs it
+  again.
 - The packages the installer names are pinned to the versions this release
   was tested with: the base requirements in `src/requirements.txt`, the ESM
   runtime dependencies in `src/esm_runtime_requirements.txt`, PyTorch,

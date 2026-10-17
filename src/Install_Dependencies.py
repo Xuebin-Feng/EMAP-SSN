@@ -58,6 +58,16 @@ ESM_OMITTED_REQUIREMENTS = frozenset({
     "cuequivariance-torch", "cuequivariance-ops-torch-cu13",
 })
 STATE_FILENAME = "ssn_backend.json"
+# The ESM/Transformers import smoke test takes 6-7 s warm and about 20 s on a
+# cold start, where Windows Defender scans every one of the thousands of files it
+# opens. Nothing it exercises changes unless a package is installed, upgraded or
+# removed, so a pass is recorded with a stat-only fingerprint of the environment
+# and the test is skipped while the fingerprint still matches. The record is a
+# file of its own rather than a field of STATE_FILENAME: writing that file
+# rewrites the whole backend state, and a state file saved before this record
+# existed must keep counting as current.
+ESM_STACK_RECORD_FILENAME = "ssn_esm_stack.json"
+ESM_STACK_RECORD_SCHEMA = 1
 # Schema 6 drops the bundled-wheel checksum fields and collapses the four ROCm
 # profiles into one, so schema-5 state is not comparable and must be rebuilt.
 STATE_SCHEMA = 6
@@ -711,6 +721,161 @@ def validate_esm_stack(python: Path) -> bool:
     return False
 
 
+def _site_packages_directories(venv: Path) -> list[Path]:
+    """The venv's site-packages folder(s): Lib/ on Windows, lib/pythonX.Y/ on POSIX."""
+    candidates = [venv / "Lib" / "site-packages"]
+    try:
+        candidates += sorted((venv / "lib").glob("python*/site-packages"))
+    except OSError:
+        pass
+    found: list[Path] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if not candidate.is_dir():
+            continue
+        key = os.path.normcase(os.path.realpath(candidate))
+        if key not in seen:
+            seen.add(key)
+            found.append(candidate)
+    return found
+
+
+def _stat_pair(path: str | os.PathLike[str]) -> list[int] | None:
+    try:
+        status = os.stat(path)
+    except OSError:
+        return None
+    return [status.st_size, status.st_mtime_ns]
+
+
+def _interpreter_facts(venv: Path, python: Path) -> dict[str, Any]:
+    """The venv's interpreter: its own file, its pyvenv.cfg and the Python it runs on."""
+    # normcase: Windows paths differ only in letter case between launchers.
+    facts: dict[str, Any] = {"path": os.path.normcase(str(python)), "file": _stat_pair(python)}
+    try:
+        config = (venv / "pyvenv.cfg").read_bytes()
+    except OSError:
+        return facts
+    facts["config_sha256"] = hashlib.sha256(config).hexdigest()
+    home = None
+    for line in config.decode("utf-8", errors="replace").splitlines():
+        key, separator, value = line.partition("=")
+        if separator and key.strip().lower() == "home":
+            home = value.strip()
+    if home:
+        # A Python upgraded in place changes this file, not the venv's own.
+        for name in ("python.exe", "python3", "python"):
+            pair = _stat_pair(os.path.join(home, name))
+            if pair is not None:
+                facts["base_python"] = [name] + pair
+                break
+    return facts
+
+
+def esm_stack_fingerprint(venv: Path, python: Path) -> str | None:
+    """Fingerprint everything the ESM/Transformers import smoke test depends on.
+
+    It covers the interpreter, the pins and text of the smoke test itself, and
+    every entry of site-packages: each installed distribution by its
+    <name>-<version>.dist-info folder, with the size and modification time of
+    its RECORD file, and every other entry by name (plus size and time for a
+    file). A package that is installed, upgraded or removed changes it. It uses
+    stat calls only: it imports nothing and opens no package file, which is what
+    keeps it to milliseconds where antivirus scans every file a program opens.
+    Folders other than dist-info ones are listed by name only, as a __pycache__
+    appearing inside a package is not a change. None means it could not be
+    computed, which callers treat as "unknown".
+    """
+    directories = _site_packages_directories(venv)
+    if not directories:
+        return None
+    entries: list[list[Any]] = []
+    try:
+        for directory in directories:
+            with os.scandir(directory) as scan:
+                for entry in scan:
+                    name = entry.name
+                    if name == "__pycache__":
+                        continue
+                    try:
+                        status = entry.stat()
+                        is_dir = entry.is_dir()
+                    except OSError:
+                        entries.append([name, "unreadable"])
+                        continue
+                    if name.endswith((".dist-info", ".egg-info")):
+                        record = _stat_pair(os.path.join(entry.path, "RECORD")) if is_dir else None
+                        entries.append([name, status.st_mtime_ns, record])
+                    elif is_dir:
+                        entries.append([name, "dir"])
+                    else:
+                        entries.append([name, status.st_size, status.st_mtime_ns])
+    except OSError:
+        return None
+    entries.sort(key=lambda item: item[0])
+    return _stable_hash({
+        "schema": ESM_STACK_RECORD_SCHEMA,
+        "interpreter": _interpreter_facts(venv, python),
+        "pins": {"esm": ESM_VERSION, "transformers": TRANSFORMERS_VERSION},
+        "program_sha256": hashlib.sha256(_esm_stack_program().encode("utf-8")).hexdigest(),
+        "site_packages": entries,
+    })
+
+
+def esm_stack_validation_is_current(venv: Path, python: Path) -> bool:
+    """True when the environment is the one the last passing smoke test recorded."""
+    try:
+        record = json.loads((venv / ESM_STACK_RECORD_FILENAME).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(record, dict) or record.get("schema") != ESM_STACK_RECORD_SCHEMA:
+        return False
+    recorded = record.get("fingerprint")
+    if not isinstance(recorded, str):
+        return False
+    return recorded == esm_stack_fingerprint(venv, python)
+
+
+def forget_esm_stack_validation(venv: Path) -> None:
+    try:
+        (venv / ESM_STACK_RECORD_FILENAME).unlink()
+    except OSError:
+        pass
+
+
+def record_esm_stack_validation(venv: Path, python: Path) -> None:
+    """Record that the smoke test just passed here. Never raises: no record, only a rerun."""
+    path = venv / ESM_STACK_RECORD_FILENAME
+    fingerprint = esm_stack_fingerprint(venv, python)
+    if fingerprint is None:
+        forget_esm_stack_validation(venv)
+        return
+    payload = {
+        "schema": ESM_STACK_RECORD_SCHEMA,
+        "fingerprint": fingerprint,
+        "esm_version": ESM_VERSION,
+        "transformers_version": TRANSFORMERS_VERSION,
+    }
+    temporary = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        os.replace(temporary, path)
+    except OSError:
+        try:
+            temporary.unlink()
+        except OSError:
+            pass
+
+
+def _validate_esm_stack_and_record(venv: Path, python: Path) -> bool:
+    """Run the smoke test, keeping the record of a pass and dropping that of a failure."""
+    if validate_esm_stack(python):
+        record_esm_stack_validation(venv, python)
+        return True
+    forget_esm_stack_validation(venv)
+    return False
+
+
 # "The package `esm` requires `torch>=2.11.0,<2.12.0`, but `2.12.0+cu132` is installed"
 _PIP_CHECK_PROBLEM = re.compile(
     r"The package `(?P<package>[^`]+)` requires `(?P<requirement>[^`]+)`, "
@@ -1005,7 +1170,7 @@ def install(
         and not esm_fields.intersection(mismatches)
         and _installed_version(python, "transformers") == TRANSFORMERS_VERSION
         and _installed_version(python, "esm") == ESM_VERSION
-        and validate_esm_stack(python)
+        and _validate_esm_stack_and_record(venv, python)
     )
     if not esm_ready:
         if _run(transformers_command).returncode != 0:
@@ -1019,7 +1184,7 @@ def install(
             return 1
     if not validate_package_consistency(uv_executable, python):
         return 1
-    if not validate_esm_stack(python):
+    if not _validate_esm_stack_and_record(venv, python):
         return 1
 
     active_devices = validation.get("validated_devices", [])
@@ -1064,7 +1229,11 @@ def install(
 def environment_is_ready(
     *, project_root: Path, venv: Path, uv_executable: str
 ) -> bool:
-    """Check launcher readiness without installing or changing the environment."""
+    """Check launcher readiness without installing or changing the environment.
+
+    The one thing it writes is the small ESM_STACK_RECORD_FILENAME record of a
+    passing import smoke test, which is not part of the environment's packages.
+    """
     python = venv_python(venv)
     requirements = project_root / "src" / "requirements.txt"
     runtime_requirements = _esm_runtime_requirements_path(project_root)
@@ -1149,10 +1318,13 @@ def environment_is_ready(
         if not validate_package_consistency(uv_executable, python):
             print("Environment is not ready: installed packages are inconsistent.", file=sys.stderr)
             return False
-        if not validate_esm_stack(python):
-            print("Environment is not ready: ESM import validation failed.", file=sys.stderr)
-            return False
-        print("ESM/Transformers import validation: passed")
+        if esm_stack_validation_is_current(venv, python):
+            print("ESM/Transformers import validation: unchanged since the last check (skipped)")
+        else:
+            if not _validate_esm_stack_and_record(venv, python):
+                print("Environment is not ready: ESM import validation failed.", file=sys.stderr)
+                return False
+            print("ESM/Transformers import validation: passed")
     except (FileNotFoundError, ValueError, OSError) as error:
         print(f"Environment readiness check failed: {error}", file=sys.stderr)
         return False
