@@ -93,6 +93,19 @@ still change before version 1.0.0.
   sequences that differ, a different embedding model or an unreadable file. A long
   report is no longer cut off at the bottom of its panel, and a long header no longer
   widens the window.
+- Every field's tip in Config, VR Config and Tools is laid out by one shared tip panel
+  (`desktop.Tip_Panel`) instead of plain lines of text:
+  - each tip has the field's name as a title, a short summary and its details;
+  - a dropdown's choices are listed as a table, and memory or hardware cautions and notes
+    carry a warning or info icon;
+  - typed values, file types and keys show as code;
+  - a footer gives the default, the range and the settings key, read from the field
+    itself;
+  - live notes show what applies now, for example a swatch of the colour typed, the folder
+    a directory resolves to, the free disk space, the logical CPUs, the memory AUTO would
+    use, and the devices found.
+  A status message replaces the panel's corner ⓘ with its own icon, and the Consistency
+  Check report shows its worst result there. The panel grows to fit a tip, as before.
 - The Quick Start manual and the Command Reference share the look of the windows and the
   Viewer's web pages: their colours in light and dark, Noto Sans, cards, tabs, buttons and
   Lucide icons in place of every emoji, which a test now keeps out of the docs.
