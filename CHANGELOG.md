@@ -41,6 +41,12 @@ still change before version 1.0.0.
   one check, with one message for a missing, failed or non-matching embedding file.
   Viewer snapshots report the embedding's model, width and node coverage (capability
   `embedding_input_v1`), never its vectors.
+- **Command Reference in Simplified Chinese.** `docs/zh_CN/list_of_commands.html` is the
+  Viewer Command Reference in Chinese; commands, options and examples stay as typed. Both
+  pages switch between English and 简体中文 and keep the section being read. A small subset
+  of Noto Sans SC (221 KB) in `docs/fonts` covers the page's characters offline. A test
+  fails when the English page changes and the Chinese one is not updated to match, naming
+  the sections to update; `docs/Docs_Translation.py` lists and re-stamps them.
 - **Session on the Viewer's info card.** The ⓘ card at the start of the threshold slider,
   now titled "Session and controls", lists the number of nodes and edges, with how many
   are visible and how many edges show at the current threshold, and the sequence set,
