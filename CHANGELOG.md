@@ -6,6 +6,18 @@ still change before version 1.0.0.
 
 ## [Unreleased]
 
+### Changed
+
+- Config, Tools and VR Config start faster. The launcher's check imported the ESM and
+  Transformers packages at every launch, which took about 6.5 s, or about 20 s when the
+  programs had not been opened for a while (Windows Defender scans every file the import
+  reads). A passing import test is now recorded in `.venv/ssn_esm_stack.json` with a
+  fingerprint of the interpreter and the installed packages, and skipped until a package,
+  the interpreter or the test changes; deleting the file runs it again. A warm Config
+  launch takes about 8 s instead of 15 s.
+- Windows hardware detection at launch runs its four PowerShell queries at the same time,
+  about 1.4 s instead of 2.5 s, with the same result.
+
 ### Fixed
 
 - A long dropdown list in Config, Tools or VR Config scrolled by itself while the mouse
