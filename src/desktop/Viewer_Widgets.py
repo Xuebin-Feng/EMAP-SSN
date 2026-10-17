@@ -2,17 +2,23 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Widgets of the Viewer's window: its controls card, and its sidebar's card and buttons.
+"""Widgets of the Viewer's window: its info card, and its sidebar's card and buttons.
 
-* The controls. The Viewer lists its mouse and keyboard actions in one
+* The info card. The Viewer lists its mouse and keyboard actions in one
   translated text, "[ENTER] Command | [LeftClick] Highlight | ...": the
   actions are separated by " | ", and each gives its keys in brackets, joined
   by " + ", then what they do. controls_rows() reads that text into rows.
-  ControlsCard shows the rows as key caps beside what they do, on a card in a
-  light tint of the theme colour. ControlsButton, at the start of the
-  threshold slider, opens the card above itself. A click outside the card,
-  Esc, the card's × or the button again closes it. The button never takes
-  the keyboard, so [ENTER] still opens the command line.
+  ControlsCard shows the session, then the rows as key caps beside what they
+  do, on a card in a light tint of the theme colour. The session is the
+  network's nodes and edges and its files, each in the form of the Config's
+  Directories tab: a label, a read-only field holding the path, and a button
+  that opens the file's folder (never making one). ControlsButton, at the
+  start of the threshold slider, opens the card above itself.
+  The card is a child of the canvas, so the network, the sliders, the View
+  Width box and the sidebar work as usual while it is open: it closes only
+  by its × or by the button again, never by a click elsewhere, and it never
+  takes the keyboard, so [ENTER] still opens the command line. Mouse events
+  on the card stop at the card.
 * The sidebar. SidebarPanel is the panel over the canvas's right edge, drawn
   as a card with round corners, SIDEBAR_INSET clear of the canvas's top,
   right and bottom edges. SidebarButton is one of its buttons: the icon at
@@ -31,19 +37,28 @@ keyboard only when clicked.
 from __future__ import annotations
 
 import math
+import os
 import re
-import sys
 
 from PySide6 import QtCore
-from PySide6.QtCore import QRect, QRectF, QSize, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPalette, QPen
+from PySide6.QtCore import QT_TRANSLATE_NOOP, QRect, QRectF, QSize, Qt, QUrl
+from PySide6.QtGui import (
+    QColor,
+    QDesktopServices,
+    QIcon,
+    QPainter,
+    QPalette,
+    QPen,
+)
 from PySide6.QtWidgets import (
-    QApplication,
     QDoubleSpinBox,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
+    QScrollArea,
     QStyle,
     QStyleOptionButton,
     QStylePainter,
@@ -51,8 +66,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from desktop.Desktop_App import button_icon_room
-from desktop.Studio_Theme import TOKENS, studio_icon
+from desktop.Desktop_App import button_icon_room, installed_language
+from desktop.Studio_Theme import TOKENS, icon_button, studio_icon
+from utilities.Help_Pages import command_list_path
 
 # What separates the actions in the Viewer's text, and the keys of one action.
 ACTION_SEPARATOR = " | "
@@ -80,43 +96,135 @@ def controls_rows(text):
     return rows
 
 
-class ControlsCard(QWidget):
-    """The Viewer's actions on a card that pops up: key caps beside what they do.
+# The session card's files, in its order: the key of ViewerInspectionService.session_overview()'s
+# "inputs", and the label of its row, as the Config's Directories tab labels a folder.
+SESSION_FILES = (
+    ("node_fasta", QT_TRANSLATE_NOOP("ViewerControls", "Sequence Set:")),
+    ("network_hdf5", QT_TRANSLATE_NOOP("ViewerControls", "Network:")),
+    ("msa", QT_TRANSLATE_NOOP("ViewerControls", "Alignment:")),
+    ("embedding", QT_TRANSLATE_NOOP("ViewerControls", "Embedding:")),
+    ("layout_cache", QT_TRANSLATE_NOOP("ViewerControls", "Layout Cache:")),
+)
 
-    title heads the card; text is the Viewer's list of actions (controls_rows).
-    anchor is the button that opened it: a press on it closes the card without
-    reaching the button, so a second click closes the card instead of opening
-    it again.
+
+def display_path(value):
+    """A file's path as the card shows it: absolute and normalised, or "" for none.
+
+    The Viewer's settings hold every input already resolved (a $input_file$
+    alias is expanded, desktop.Viewer_State.normalize_viewer_paths), so this
+    only tidies; an empty setting, such as no alignment, is no path.
+    """
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text or text == "None":
+        return ""
+    return os.path.normpath(os.path.abspath(text))
+
+
+class PathField(QLineEdit):
+    """A path in a read-only field: it can be selected and copied, never takes the keyboard.
+
+    The mouse selects (a drag, a double or triple click) and the right-click
+    menu copies, as in any field; Ctrl+C is not taken for it, since the
+    command line copies its own text with it. The field starts at the end of
+    the path, where the file's name is. The wheel over it scrolls a path too
+    long for the field, and the tooltip is the whole path. An empty field
+    shows its placeholder, muted.
+    """
+
+    WHEEL_STEP = 4   # characters a notch of the wheel scrolls
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("controlsPath")
+        self.setReadOnly(True)
+        # The keyboard stays with the network, so [ENTER] still opens the
+        # command line; the mouse still selects, and the context menu copies.
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._scroll = 0
+        self.setPlaceholderText(QtCore.QCoreApplication.translate("ViewerControls", "None"))
+
+    def show_path(self, path):
+        """Show path, scrolled to its end."""
+        self.setText(path)
+        self.setToolTip(path)
+        self.scroll_to(len(path))
+
+    def scroll_to(self, index):
+        """Scroll so character ``index`` is the first shown, or as near the end as the field allows."""
+        self._scroll = max(0, min(len(self.text()), index))
+        # The line edit scrolls only as far as keeps its cursor in view: go to
+        # the end, where the least is hidden, then back to the character.
+        self.setCursorPosition(len(self.text()))
+        self.setCursorPosition(self._scroll)
+
+    def wheelEvent(self, event):
+        delta = event.angleDelta()
+        notches = (delta.y() or delta.x()) / 120.0
+        if notches and self.text():
+            self.scroll_to(self._scroll - round(notches * self.WHEEL_STEP))
+        event.accept()
+
+
+class ControlsCard(QWidget):
+    """The Viewer's session and controls on a card over the canvas.
+
+    title heads the card. The session section, when ``session`` is given,
+    lists the network's nodes and edges and the files it was built from in
+    the form of the Config's Directories tab: a label, a read-only field
+    holding the path, and a button that opens the file's folder. ``session``
+    is a function returning ViewerInspectionService.session_overview()'s
+    dictionary; refresh() reads it again, and does only the work what changed
+    needs. The controls section, headed controls_title, is text, the Viewer's
+    list of actions (controls_rows): key caps beside what they do.
+
+    The card is a child of the canvas, not a window of its own, so it leaves
+    the network, the sliders and the sidebar working under the mouse and the
+    keyboard with the canvas. It closes only by its × or by the button that
+    opened it (anchor). Every mouse event on the card itself stops at it, so
+    none reaches the canvas, and nothing in it takes the keyboard. place() puts it above
+    the anchor inside area, a function returning the rectangle, in the
+    canvas's pixels, it must stay in; a card taller than the room scrolls.
     """
 
     PAD = 14          # inside the card
     RADIUS = 12       # the card's corners, a card's
     ROW_GAP = 8       # between rows
     COLUMN_GAP = 16   # between the keys and what they do
+    FIELD_GAP = 8     # between a label, its field and the button after it
     KEY_GAP = 4       # between a key cap and the "+" beside it
     CLOSE_SIZE = 22   # the × button
+    OPEN_WIDTH = 30   # the Open Folder button, as the Config's
+    PATH_WIDTH = 260  # the least room a path's field is asked for
     ANCHOR_GAP = 16   # between the card and the button it opens from, clear of the slider
-    # Where the window system composes translucent windows, the card has round
-    # corners and paints its own shadow in this margin; elsewhere it fills the
-    # window (as Desktop_App.ThemeColorPalette).
+    MIN_HEIGHT = 120  # the least a card shrinks to in a short window
+    EDGE = 8          # clear of the canvas's edges when the owner gives no area
+    # The card paints its own shadow in this margin around it.
     SHADOW = 8
 
-    def __init__(self, title, text, anchor=None, parent=None):
-        super().__init__(parent, Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint
-                         | Qt.WindowType.NoDropShadowWindowHint)
+    def __init__(self, title, text, anchor=None, parent=None, *, session=None, controls_title=None,
+                 area=None):
+        super().__init__(parent)
         self.setObjectName("viewerControlsCard")
         self.anchor = anchor
-        self._translucent = (sys.platform in ("win32", "darwin")
-                             or QApplication.platformName() in ("wayland", "offscreen"))
-        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, self._translucent)
+        self.session = session
+        self.area = area
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
+        self.setMouseTracking(True)
         self.setAccessibleName(title)
         self.rows = controls_rows(text)
+        self.path_fields = {}
+        self.open_buttons = {}
+        self.file_labels = {}
+        self.count_labels = {}
+        self._paths = {}
+        self._natural = None
 
-        margin = self.SHADOW if self._translucent else 0
+        margin = self.SHADOW
         layout = QVBoxLayout(self)
         # The shadow falls a little below the card, so the card sits a little higher.
-        top = margin - 2 if self._translucent else 0
+        top = margin - 2
         layout.setContentsMargins(margin + self.PAD, top + self.PAD - 4,
                                   margin + self.PAD - 6, 2 * margin - top + self.PAD)
         layout.setSpacing(10)
@@ -132,7 +240,6 @@ class ControlsCard(QWidget):
         self.close_button.setIcon(studio_icon("x", TOKENS["text_muted"]))
         self.close_button.setIconSize(QSize(14, 14))
         self.close_button.setFixedSize(self.CLOSE_SIZE, self.CLOSE_SIZE)
-        self.close_button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.close_button.setCursor(Qt.CursorShape.PointingHandCursor)
         close_text = QtCore.QCoreApplication.translate("ViewerControls", "Close")
         self.close_button.setToolTip(close_text)
@@ -141,8 +248,128 @@ class ControlsCard(QWidget):
         header.addWidget(self.close_button)
         layout.addLayout(header)
 
+        # The sections scroll as one when the window leaves no room for them.
+        self.body = QWidget()
+        self.body.setObjectName("controlsBody")
+        body_layout = QVBoxLayout(self.body)
+        body_layout.setContentsMargins(0, 0, 6, 0)
+        body_layout.setSpacing(10)
+        if session is not None:
+            body_layout.addLayout(self._session_section())
+            separator = QFrame()
+            separator.setObjectName("controlsSeparator")
+            separator.setFixedHeight(TOKENS["separator_thickness"])
+            body_layout.addWidget(separator)
+        body_layout.addLayout(self._controls_section(controls_title if session is not None else None))
+        self.scroll = _BodyScroll()
+        self.scroll.setObjectName("controlsScroll")
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.scroll.setWidget(self.body)
+        layout.addWidget(self.scroll, 1)
+
+        t = TOKENS
+        self.setStyleSheet(f"""
+            QLabel#controlsTitle {{ font-weight: 600; color: {t['text']}; padding: 0px; }}
+            QLabel#controlsSection {{ font-weight: 600; color: {t['text_muted']}; padding: 0px; }}
+            QLabel#controlsLabel {{ color: {t['text_soft']}; }}
+            QLabel#controlsValue {{ color: {t['text']}; }}
+            QLabel#controlsDescription {{ color: {t['text_soft']}; }}
+            QLabel#controlsPlus {{ color: {t['text_subtle']}; }}
+            QLabel#controlsKey {{
+                background: {t['surface']}; color: {t['text']};
+                border: 1px solid {t['field_border']}; border-bottom: 2px solid {t['field_border_hover']};
+                border-radius: 5px; padding: 0px 6px;
+            }}
+            QLineEdit#controlsPath {{
+                background: {t['field']}; color: {t['text']};
+                border: 1px solid {t['field_border']}; border-radius: {t['radius']}px;
+                padding: 3px 8px; min-height: 20px;
+                selection-background-color: {t['accent_soft']}; selection-color: {t['text']};
+            }}
+            QLineEdit#controlsPath:hover {{ border-color: {t['field_border_hover']}; }}
+            QPushButton#controlsLink {{
+                background: transparent; border: none; border-radius: 6px; color: {t['accent_text']};
+                font-weight: 600; text-align: left; padding: 3px 8px 3px 4px; min-height: 0px;
+            }}
+            QPushButton#controlsLink:hover {{ background: {t['tint_hover']}; }}
+            QPushButton#controlsLink:pressed {{ background: {t['separator']}; }}
+            QPushButton#controlsLink:disabled {{ color: {t['text_disabled']}; }}
+            QFrame#controlsSeparator {{ background: {t['separator']}; border: none; }}
+            QPushButton#controlsClose {{
+                background: transparent; border: none; border-radius: 6px; padding: 0px;
+                min-width: {self.CLOSE_SIZE}px; max-width: {self.CLOSE_SIZE}px;
+                min-height: {self.CLOSE_SIZE}px; max-height: {self.CLOSE_SIZE}px;
+            }}
+            QPushButton#controlsClose:hover {{ background: {t['tint_hover']}; }}
+            QPushButton#controlsClose:pressed {{ background: {t['separator']}; }}
+            QScrollArea#controlsScroll, QWidget#controlsBody {{ background: transparent; border: none; }}
+            QScrollArea#controlsScroll > QWidget#qt_scrollarea_viewport {{ background: transparent; }}
+        """)
+        # Nothing here takes the keyboard: [ENTER] still opens the command line.
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        for child in self.findChildren(QWidget):
+            child.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        if session is not None:
+            self.refresh(check_folders=True)
+        self.fit(1 << 16, 1 << 16)
+
+    def _session_section(self):
+        """The nodes and edges, and a row for each file: label, path field, Open Folder."""
+        section = QVBoxLayout()
+        section.setContentsMargins(0, 0, 0, 0)
+        section.setSpacing(self.ROW_GAP)
+        heading = QLabel(QtCore.QCoreApplication.translate("ViewerControls", "Session"))
+        heading.setObjectName("controlsSection")
+        section.addWidget(heading)
         grid = QGridLayout()
-        grid.setContentsMargins(0, 0, 6, 0)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(self.FIELD_GAP)
+        grid.setVerticalSpacing(self.ROW_GAP)
+        grid.setColumnMinimumWidth(1, self.PATH_WIDTH)
+        grid.setColumnStretch(1, 1)
+        row = 0
+        for key, label_text in (("nodes", QtCore.QCoreApplication.translate("ViewerControls", "Nodes:")),
+                                ("edges", QtCore.QCoreApplication.translate("ViewerControls", "Edges:"))):
+            label = QLabel(label_text)
+            label.setObjectName("controlsLabel")
+            value = QLabel()
+            value.setObjectName("controlsValue")
+            self.count_labels[key] = value
+            grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            grid.addWidget(value, row, 1, 1, 2, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            row += 1
+        open_text = QtCore.QCoreApplication.translate("ViewerControls", "Open Folder")
+        for key, label_text in SESSION_FILES:
+            label = QLabel(QtCore.QCoreApplication.translate("ViewerControls", label_text))
+            label.setObjectName("controlsLabel")
+            field = PathField()
+            button = icon_button("folder-open", open_text)
+            button.setFixedWidth(self.OPEN_WIDTH)
+            button.setEnabled(False)
+            button.clicked.connect(lambda checked=False, name=key: self.open_folder(name))
+            self.file_labels[key], self.path_fields[key], self.open_buttons[key] = label, field, button
+            self._paths[key] = None
+            grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+            grid.addWidget(field, row, 1)
+            grid.addWidget(button, row, 2)
+            row += 1
+        section.addLayout(grid)
+        return section
+
+    def _controls_section(self, heading_text):
+        """The actions as key caps beside what they do, under heading_text when there is one."""
+        section = QVBoxLayout()
+        section.setContentsMargins(0, 0, 0, 0)
+        section.setSpacing(self.ROW_GAP)
+        if heading_text:
+            heading = QLabel(heading_text)
+            heading.setObjectName("controlsSection")
+            section.addWidget(heading)
+        grid = QGridLayout()
+        grid.setContentsMargins(0, 0, 0, 0)
         grid.setHorizontalSpacing(self.COLUMN_GAP)
         grid.setVerticalSpacing(self.ROW_GAP)
         self.key_caps = []
@@ -154,26 +381,16 @@ class ControlsCard(QWidget):
             self.descriptions.append(label)
             grid.addWidget(label, row, 1, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
         grid.setColumnStretch(1, 1)
-        layout.addLayout(grid)
-
-        t = TOKENS
-        self.setStyleSheet(f"""
-            QLabel#controlsTitle {{ font-weight: 600; color: {t['text']}; padding: 0px; }}
-            QLabel#controlsDescription {{ color: {t['text_soft']}; }}
-            QLabel#controlsPlus {{ color: {t['text_subtle']}; }}
-            QLabel#controlsKey {{
-                background: {t['surface']}; color: {t['text']};
-                border: 1px solid {t['field_border']}; border-bottom: 2px solid {t['field_border_hover']};
-                border-radius: 5px; padding: 0px 6px;
-            }}
-            QPushButton#controlsClose {{
-                background: transparent; border: none; border-radius: 6px; padding: 0px; min-height: 0px;
-            }}
-            QPushButton#controlsClose:hover {{ background: {t['tint_hover']}; }}
-            QPushButton#controlsClose:pressed {{ background: {t['separator']}; }}
-        """)
-        self.adjustSize()
-        self.setFixedSize(self.sizeHint())
+        section.addLayout(grid)
+        self.commands_button = QPushButton(QtCore.QCoreApplication.translate("ViewerControls", "List of commands"))
+        self.commands_button.setObjectName("controlsLink")
+        self.commands_button.setIcon(studio_icon("file-text", TOKENS["accent_text"]))
+        self.commands_button.setIconSize(QSize(16, 16))
+        self.commands_button.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.commands_button.clicked.connect(self.open_command_list)
+        self.show_command_list_availability()
+        section.addWidget(self.commands_button, 0, Qt.AlignmentFlag.AlignLeft)
+        return section
 
     def _keys_widget(self, keys):
         """The key caps of one action, a "+" between each two."""
@@ -194,71 +411,234 @@ class ControlsCard(QWidget):
             row.addWidget(cap)
         return holder
 
+    # ---- the session's values ----
+
+    def refresh(self, check_folders=False):
+        """Show the session as it is now.
+
+        It sets only what changed, so it is cheap to call after every
+        threshold step: nothing is looked up on disk unless a path changed,
+        or check_folders asks for every folder to be looked at again.
+        """
+        if self.session is None:
+            return
+        info = self.session() or {}
+        total, visible = with_separators(info.get("node_count", 0), info.get("visible_node_count"))
+        self._show(self.count_labels["nodes"], total if visible is None else QtCore.QCoreApplication.translate(
+            "ViewerControls", "{total} ({visible} visible)").format(total=total, visible=visible))
+        total, shown = with_separators(info.get("edge_count", 0), info.get("shown_edge_count"))
+        self._show(self.count_labels["edges"], total if shown is None else QtCore.QCoreApplication.translate(
+            "ViewerControls", "{total} ({shown} shown)").format(total=total, shown=shown))
+        inputs = info.get("inputs") or {}
+        for key, _label in SESSION_FILES:
+            path = display_path(inputs.get(key))
+            if path == self._paths[key] and not check_folders:
+                continue
+            if path != self._paths[key]:
+                self._paths[key] = path
+                self.path_fields[key].show_path(path)
+            self.open_buttons[key].setEnabled(bool(self.folder_of(path)))
+
+    @staticmethod
+    def _show(label, text):
+        if label.text() != text:
+            label.setText(text)
+
+    @staticmethod
+    def folder_of(path):
+        """The folder that holds ``path`` if it exists, else ""; nothing is created."""
+        folder = os.path.dirname(path) if path else ""
+        return folder if folder and os.path.isdir(folder) else ""
+
+    def open_folder(self, key):
+        """Open the folder that holds a file in the file manager; returns whether it did.
+
+        A folder that is gone is not made: the button goes grey instead.
+        """
+        folder = self.folder_of(self._paths.get(key) or "")
+        if not folder:
+            self.open_buttons[key].setEnabled(False)
+            return False
+        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+        return True
+
+    def show_command_list_availability(self):
+        """Enable the command list's link when its page is there, else grey it with the reason."""
+        found = command_list_path(installed_language()) is not None
+        self.commands_button.setEnabled(found)
+        self.commands_button.setToolTip(
+            QtCore.QCoreApplication.translate("ViewerControls", "Open the list of commands in your web browser")
+            if found else
+            QtCore.QCoreApplication.translate(
+                "ViewerControls", "The list of commands is not installed: docs/list_of_commands.html is missing."))
+
+    def open_command_list(self):
+        """Open the list of commands, in the Viewer's language where it is translated, in the web browser.
+
+        The card stays open and the keyboard stays with the canvas. Returns
+        whether a page was opened.
+        """
+        page = command_list_path(installed_language())
+        if page is None:
+            self.show_command_list_availability()
+            return False
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(page)))
+        return True
+
+    # ---- size, place and paint ----
+
     def card_rect(self):
-        """Where the card is, inside the shadow's margin when there is one."""
-        if not self._translucent:
-            return QRectF(self.rect())
+        """Where the card is, inside the shadow's margin."""
         margin = self.SHADOW
         return QRectF(margin, margin - 2, self.width() - 2 * margin, self.height() - 2 * margin)
+
+    def natural_size(self):
+        """The size the card takes when nothing is clipped; measured once, then kept."""
+        if self._natural is None:
+            # The theme's stylesheet pads a field and a button only once it has
+            # polished them, and a widget not shown yet does not tell its
+            # layout when its hint changes: polish, then drop every cached hint.
+            for widget in (self, *self.findChildren(QWidget)):
+                widget.ensurePolished()
+            self.scroll.updateGeometry()
+            for layout in (self.layout(), self.body.layout()):
+                _invalidate(layout)
+            hint = self.layout().sizeHint()
+            self._natural = QSize(hint.width(), hint.height())
+        return self._natural
+
+    def fit(self, max_width, max_height):
+        """Size the widget to its sections, or to max_width by max_height where they would not fit.
+
+        A card too tall scrolls its sections, and takes the room for the bar.
+        """
+        natural = self.natural_size()
+        width, height = natural.width(), natural.height()
+        if height > max_height:
+            height = max_height
+            width += self.scroll.verticalScrollBar().sizeHint().width() + 4
+        self.setFixedSize(max(1, min(width, max_width)), max(1, height))
+
+    def place(self):
+        """Fit the card to its room and put it above its anchor, their left edges lined up.
+
+        The room is the area the owner gives, the canvas's by default; the
+        card is moved in if it would leave it.
+        """
+        host = self.parentWidget()
+        if host is None:
+            return
+        room = self.area() if self.area is not None else host.rect().adjusted(
+            self.EDGE, self.EDGE, -self.EDGE, -self.EDGE)
+        corner = self.anchor.mapTo(host, QtCore.QPoint(0, 0)) if self.anchor is not None else room.bottomLeft()
+        above = corner.y() - self.ANCHOR_GAP - room.top()
+        self.fit(room.width() + 2 * self.SHADOW, max(above, self.MIN_HEIGHT) + 2 * self.SHADOW)
+        card = self.card_rect()
+        x = corner.x() - round(card.left())
+        y = corner.y() - self.ANCHOR_GAP - round(card.bottom())
+        right = room.left() + room.width()
+        x = max(room.left() - round(card.left()), min(x, right - round(card.right())))
+        y = max(y, room.top() - round(card.top()))
+        self.move(x, y)
+
+    def open(self):
+        """Show the card, placed, over everything in the canvas; returns it."""
+        self.place()
+        self.show()
+        self.raise_()
+        return self
 
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         card = self.card_rect()
-        radius = self.RADIUS if self._translucent else 0
-        if self._translucent:
-            painter.setPen(Qt.PenStyle.NoPen)
-            for grow, alpha in ((7.0, 4), (5.0, 6), (3.0, 9), (1.5, 12)):
-                painter.setBrush(QColor(9, 9, 11, alpha))
-                painter.drawRoundedRect(card.adjusted(-grow, -grow + 2, grow, grow + 2),
-                                        radius + grow, radius + grow)
+        painter.setPen(Qt.PenStyle.NoPen)
+        for grow, alpha in ((7.0, 4), (5.0, 6), (3.0, 9), (1.5, 12)):
+            painter.setBrush(QColor(9, 9, 11, alpha))
+            painter.drawRoundedRect(card.adjusted(-grow, -grow + 2, grow, grow + 2),
+                                    self.RADIUS + grow, self.RADIUS + grow)
         painter.setPen(QPen(QColor(TOKENS["tint_hover"]), 1.0))
         painter.setBrush(QColor(TOKENS["tint"]))
-        painter.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), radius, radius)
+        painter.drawRoundedRect(card.adjusted(0.5, 0.5, -0.5, -0.5), self.RADIUS, self.RADIUS)
         painter.end()
 
-    def open_above(self, anchor_widget, gap=ANCHOR_GAP):
-        """Show the card above anchor_widget, their left edges lined up, or below it
-        where the screen has no room above; returns the card."""
-        card = self.card_rect()
-        corner = anchor_widget.mapToGlobal(QtCore.QPoint(0, 0))
-        x = corner.x() - round(card.left())
-        y = corner.y() - gap - round(card.bottom())
-        screen = anchor_widget.screen().availableGeometry()
-        if y + card.top() < screen.top():
-            y = corner.y() + anchor_widget.height() + gap - round(card.top())
-        self.move(max(screen.left(), min(x, screen.right() - self.width())), y)
-        self.show()
-        self.setFocus()
-        return self
+    # The card sits over the canvas, a parent that turns the mouse into the
+    # network's clicks, drags and zooms: every mouse event on the card is the
+    # card's, accepted here when no widget in it took it. The shadow's margin
+    # is not the card, so a click there goes through to the canvas.
+
+    def _take(self, event, position):
+        if self.card_rect().contains(position):
+            event.accept()
+        else:
+            event.ignore()
 
     def mousePressEvent(self, event):
-        if self.card_rect().contains(event.position()):
-            super().mousePressEvent(event)
-            return
-        anchor = self.anchor
-        if anchor is not None and anchor.isVisible() and anchor.rect().contains(
-                anchor.mapFromGlobal(event.globalPosition().toPoint())):
-            # The press would reach the button once the card closes and open it
-            # again; the button's press only closes it.
-            self.setAttribute(Qt.WidgetAttribute.WA_NoMouseReplay, True)
-        self.close()
+        self._take(event, event.position())
+
+    def mouseReleaseEvent(self, event):
+        self._take(event, event.position())
+
+    def mouseDoubleClickEvent(self, event):
+        self._take(event, event.position())
+
+    def mouseMoveEvent(self, event):
+        self._take(event, event.position())
+
+    def wheelEvent(self, event):
+        self._take(event, event.position())
+
+    def contextMenuEvent(self, event):
+        self._take(event, QtCore.QPointF(event.pos()))
+
+
+def _invalidate(item):
+    """Drop the cached size hints of a layout item and of everything in it."""
+    item.invalidate()
+    layout = item.layout()
+    if layout is not None:
+        for index in range(layout.count()):
+            _invalidate(layout.itemAt(index))
+
+
+class _BodyScroll(QScrollArea):
+    """The card's scrolling sections: as large as they are, so the card can size itself to them."""
+
+    def sizeHint(self):
+        widget = self.widget()
+        return widget.sizeHint() if widget is not None else QSize(0, 0)
+
+    def minimumSizeHint(self):
+        return QSize(0, 0)
+
+
+def with_separators(total, part):
+    """A count and its part with thousands separators; the part is None when it is the whole."""
+    return f"{total:,}", (None if part is None or part == total else f"{part:,}")
 
 
 class ControlsButton(QPushButton):
-    """The info button that opens the Viewer's controls card above itself.
+    """The info button that opens the session and controls card above itself.
 
-    title is the card's heading and the button's tooltip; text the Viewer's
-    list of actions. A click while the card is open closes it.
+    title is the button's tooltip and the card's heading; text the Viewer's
+    list of actions, headed controls_title next to the session. session and
+    area are the card's (ControlsCard). The card is a child of host, the
+    canvas, which is the button's parent by default. A click while the card
+    is open closes it; so does its ×, and nothing else does.
     """
 
     SIZE = 28   # as tall as a field
 
-    def __init__(self, title, text, parent=None):
+    def __init__(self, title, text, parent=None, *, host=None, session=None, controls_title=None,
+                 area=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsButton")
         self.title = title
         self.text_source = text
+        self.host = host
+        self.session = session
+        self.controls_title = controls_title
+        self.area = area
         self.card = None
         self.setIcon(studio_icon("info", TOKENS["text_muted"]))
         self.setIconSize(QSize(16, 16))
@@ -286,17 +666,31 @@ class ControlsButton(QPushButton):
     def card_is_open(self):
         card = self.card
         try:
-            return card is not None and card.isVisible()
+            # Not isVisible(): a card in a window not shown yet is open all the same.
+            return card is not None and not card.isHidden()
         except RuntimeError:  # deleted on close
             return False
 
     def toggle_card(self):
-        """Open the controls card above the button, or close it if it is open; returns it or None."""
+        """Open the card above the button, or close it if it is open; returns it or None."""
         if self.card_is_open():
             self.card.close()
             return None
-        self.card = ControlsCard(self.title, self.text_source, anchor=self, parent=self)
-        return self.card.open_above(self)
+        host = self.host or self.parentWidget() or self.window()
+        self.card = ControlsCard(self.title, self.text_source, anchor=self, parent=host,
+                                 session=self.session, controls_title=self.controls_title,
+                                 area=self.area)
+        return self.card.open()
+
+    def refresh_card(self):
+        """Bring an open card's session up to date; nothing happens while it is closed."""
+        if self.card_is_open():
+            self.card.refresh()
+
+    def place_card(self):
+        """Put an open card where the canvas's size and the button now leave it."""
+        if self.card_is_open():
+            self.card.place()
 
 
 # =====================================================================
@@ -553,6 +947,8 @@ __all__ = [
     "CanvasSpinBox",
     "ControlsButton",
     "ControlsCard",
+    "PathField",
+    "SESSION_FILES",
     "SIDEBAR_INSET",
     "SidebarButton",
     "SidebarPanel",
@@ -563,4 +959,5 @@ __all__ = [
     "ViewWidthBox",
     "ViewWidthSpinBox",
     "controls_rows",
+    "display_path",
 ]

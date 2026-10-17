@@ -472,14 +472,26 @@ class ViewerInspectionService:
             return max(0, int(count))
         return len(getattr(viewer, "full_headers", ()))
 
-    def _visible_flags(self, node_count):
+    def _visible_count(self, node_count):
+        """How many of the first ``node_count`` nodes are visible; a node past the end of the mask is not."""
         values = getattr(self._viewer, "visible_mask", None)
         if values is None:
-            return [True] * node_count
-        return [
-            bool(values[index]) if index < len(values) else False
-            for index in range(node_count)
-        ]
+            return node_count
+        if isinstance(values, np.ndarray):
+            return int(np.count_nonzero(values[:node_count]))
+        return sum(bool(value) for value in values[:node_count])
+
+    def _edge_count(self):
+        try:
+            return len(getattr(self._viewer, "edges", ()))
+        except TypeError:
+            return 0
+
+    def _shown_edge_count(self):
+        """How many edges the edge layer draws now (the threshold's, or the selection's): the count it kept, no scan."""
+        layer = getattr(self._viewer, "edge_layer", None)
+        shown = getattr(layer, "drawn_edge_count", None)
+        return 0 if shown is None else max(0, int(shown))
 
     def _selected_indices(self, node_count):
         selected = getattr(self._viewer, "selected_indices", ()) or ()
@@ -514,19 +526,30 @@ class ViewerInspectionService:
             "layout_cache": json_value(layout_cache),
         }
 
+    def session_overview(self):
+        """The counts and input files the Viewer's info card shows.
+
+        It is read while the card is open, after every threshold step and
+        visibility change, so it costs no more than a count over the
+        visibility mask: the edge counts are the lengths the Viewer already
+        holds.
+        """
+        node_count = self._node_count()
+        return {
+            "node_count": node_count,
+            "visible_node_count": self._visible_count(node_count),
+            "edge_count": self._edge_count(),
+            "shown_edge_count": self._shown_edge_count(),
+            "inputs": self._input_paths(),
+        }
+
     def get_summary(self):
         """Return a compact description of the current Viewer state."""
         viewer = self._viewer
         node_count = self._node_count()
-        visible = self._visible_flags(node_count)
         selected = self._selected_indices(node_count)
         metadata = self._metadata()
-
-        edges = getattr(viewer, "edges", ())
-        try:
-            edge_count = len(edges)
-        except TypeError:
-            edge_count = 0
+        edge_count = self._edge_count()
 
         clusters = getattr(viewer, "cluster_labels", None)
         cluster_values = set()
@@ -554,7 +577,7 @@ class ViewerInspectionService:
             "window_title": english_window_title(viewer),
             "node_count": node_count,
             "edge_count": edge_count,
-            "visible_node_count": sum(visible),
+            "visible_node_count": self._visible_count(node_count),
             "selected_node_count": len(selected),
             "active_threshold": json_value(threshold),
             "metadata_columns": [

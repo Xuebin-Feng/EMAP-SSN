@@ -6300,11 +6300,15 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Mouse and keyboard controls</source>
+        <source>Session and controls</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mouse and keyboard controls</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6371,7 +6375,67 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 <context>
     <name>ViewerControls</name>
     <message>
+        <source>Sequence Set:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Alignment:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Embedding:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Layout Cache:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>None</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Close</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Session</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nodes:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Edges:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open Folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>List of commands</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{total} ({visible} visible)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{total} ({shown} shown)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open the list of commands in your web browser</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The list of commands is not installed: docs/list_of_commands.html is missing.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

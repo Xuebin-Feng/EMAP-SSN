@@ -9,8 +9,10 @@ buttons centre their labels after their icons. In a shown window it slides
 open and closed, its toggle, the slider and the HUD following it at each
 frame; a hidden or headless window switches it at once, and the toggle turns
 a slide around where it is. The info button at the threshold slider's start
-opens the mouse and keyboard controls, and the threshold box between them
-and the slider follows it and moves it.
+opens the session and controls card, a child of the canvas that stays in the
+room the sidebar leaves it and follows the threshold, hidden nodes and undo
+while it is open; the threshold box between the button and the slider
+follows the slider and moves it.
 """
 
 import os
@@ -20,6 +22,8 @@ import time
 from types import SimpleNamespace
 import unittest
 from unittest import mock
+
+import numpy as np
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -286,7 +290,7 @@ class SliderOverlayTests(unittest.TestCase):
                          [viewer.controls_button, viewer.threshold_box, viewer.slider])
         button = viewer.controls_button
         self.assertIsInstance(button, ControlsButton)
-        self.assertEqual(button.toolTip(), "Mouse and keyboard controls")
+        self.assertEqual(button.toolTip(), "Session and controls")
         self.assertTrue(button.text_source.startswith("[ENTER] Command | "))
         self.assertEqual(viewer.threshold_box.text(), "3.740")
         # The box starts well clear of the button, so the button doesn't
@@ -295,6 +299,118 @@ class SliderOverlayTests(unittest.TestCase):
         gap = viewer.threshold_box.x() - (button.x() + button.width())
         self.assertGreaterEqual(gap, 24)
         self.assertLessEqual(gap, 40)
+
+    # ---- the info card ----
+
+    def make_card_viewer(self, edges=6, nodes=5):
+        """A slider row over a canvas with a network of ``nodes`` nodes and ``edges`` edges.
+
+        update_edges is the Viewer's own; its edge layer is a stand-in that
+        draws the edges scoring at least the threshold, 10 of them at 0.
+        """
+        viewer = self.make_viewer(low=0.0, high=10.0, current=0.0)
+        del viewer.update_edges
+        viewer.canvas.native.resize(*CANVAS_SIZE)
+        viewer.canvas.native.show()
+        viewer.n_nodes = nodes
+        viewer.visible_mask = np.ones(nodes, dtype=bool)
+        viewer.edges = np.zeros((edges, 2), dtype=np.int32)
+        viewer.pos = np.zeros((nodes, 2), dtype=np.float32)
+        scores = np.linspace(10.0, 1.0, edges)
+
+        def show_threshold(_positions, mask, threshold):
+            viewer.edge_layer.drawn_edge_count = int(np.count_nonzero(scores >= threshold))
+            return viewer.edge_layer.drawn_edge_count
+
+        viewer.edge_layer = SimpleNamespace(drawn_edge_count=edges, show_threshold=show_threshold, visible=True)
+        viewer.viewer_inspection = EMAPSSN_Viewer.ViewerInspectionService(
+            viewer, SimpleNamespace(NODE_FASTA_FILE="set.fasta", INPUT_HDF5="", MSA_FILE="", TARGET_CACHE_PATH=None))
+        self.app.processEvents()
+        return viewer
+
+    def test_the_info_card_is_a_child_of_the_canvas_with_the_sessions_counts_and_files(self):
+        viewer = self.make_card_viewer()
+        button = viewer.controls_button
+        self.assertIs(button.host, viewer.canvas.native)
+        card = button.toggle_card()
+        self.app.processEvents()
+        self.assertIs(card.parentWidget(), viewer.canvas.native)
+        self.assertEqual(card.count_labels["nodes"].text(), "5")
+        self.assertEqual(card.count_labels["edges"].text(), "6")
+        self.assertEqual(card.path_fields["node_fasta"].text(), os.path.abspath("set.fasta"))
+        self.assertEqual(card.path_fields["network_hdf5"].text(), "")
+        self.assertFalse(card.open_buttons["msa"].isEnabled())
+
+    def test_the_info_card_follows_the_threshold_and_hidden_nodes_while_open(self):
+        viewer = self.make_card_viewer()
+        card = viewer.controls_button.toggle_card()
+        # The threshold: the slider, and the box, redraw the edges, so the shown count follows.
+        viewer.slider.setValue(viewer.threshold_box.position_of(5.5))
+        self.assertEqual(card.count_labels["edges"].text(), "6 (3 shown)")
+        viewer._set_threshold_from_box(8.5)
+        self.assertEqual(card.count_labels["edges"].text(), "6 (1 shown)")
+        # A hide: nodes change, and the HUD update that follows shows it.
+        viewer.visible_mask[:2] = False
+        viewer.view = SimpleNamespace(camera=SimpleNamespace(rect=SimpleNamespace(width=100.0)))
+        viewer.update_console_background = lambda: None
+        viewer.hud_displays = {}
+        viewer.canvas.update = lambda: None
+        with mock.patch("commands.zoom.view_width_limits", return_value=(0.5, 1000.0)):
+            viewer._update_hud_elements()
+        self.assertEqual(card.count_labels["nodes"].text(), "5 (3 visible)")
+        # Undo restores them and redraws the edges.
+        viewer.visible_mask[:] = True
+        viewer.update_edges()
+        self.assertEqual(card.count_labels["nodes"].text(), "5")
+
+    def test_the_info_card_costs_nothing_while_closed_and_no_edge_work_while_open(self):
+        viewer = self.make_card_viewer(edges=200000, nodes=5)
+        calls = []
+        viewer.viewer_inspection.session_overview = lambda: calls.append(1) or {}
+        for threshold in (1.0, 2.0, 3.0):
+            viewer._set_threshold_from_box(threshold)
+        self.assertEqual(calls, [])
+        card = viewer.controls_button.toggle_card()
+        calls.clear()
+        # An edge list this long is never scanned or copied for the card.
+        viewer.edges = mock.MagicMock(wraps=viewer.edges)
+        viewer.edges.__len__.return_value = 200000
+        viewer._set_threshold_from_box(4.0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(viewer.edges.method_calls, [])
+        self.assertTrue(card.isVisible())
+
+    def test_the_info_card_stays_in_the_room_the_sidebar_leaves(self):
+        viewer = self.make_card_viewer()
+        card = viewer.controls_button.toggle_card()
+        self.app.processEvents()
+        for room in (0, 160, 0):
+            with self.subTest(sidebar=room), mock.patch.object(EMAPSSN_Viewer, "_sidebar_room", return_value=room):
+                viewer.position_slider_overlay()
+                rect = card.card_rect().translated(card.pos().toPointF())
+                self.assertLessEqual(rect.right(), CANVAS_SIZE[0] - room - EMAPSSN_Viewer.SESSION_CARD_MARGIN)
+                self.assertGreaterEqual(rect.left(), EMAPSSN_Viewer.SESSION_CARD_MARGIN)
+                # Clear of the command line along the top (its box ends about 60 px down), and above the slider row.
+                self.assertGreaterEqual(EMAPSSN_Viewer.SESSION_CARD_TOP, 70)
+                self.assertGreaterEqual(rect.top(), EMAPSSN_Viewer.SESSION_CARD_TOP)
+                self.assertLess(rect.bottom(), viewer.slider_overlay.geometry().top())
+        # A canvas too short for the card scrolls it instead.
+        viewer.canvas.size = (900, 420)
+        viewer.canvas.native.resize(900, 420)
+        viewer.position_slider_overlay()
+        rect = card.card_rect().translated(card.pos().toPointF())
+        self.assertGreaterEqual(rect.top(), EMAPSSN_Viewer.SESSION_CARD_TOP)
+        self.assertGreater(card.scroll.verticalScrollBar().maximum(), 0)
+
+    def test_the_viewers_overview_reads_the_edge_layers_count_and_the_settings_paths(self):
+        viewer = self.make_card_viewer()
+        overview = viewer._session_overview()
+        self.assertEqual({key: value for key, value in overview.items() if key != "inputs"},
+                         {"node_count": 5, "visible_node_count": 5, "edge_count": 6, "shown_edge_count": 6})
+        self.assertEqual(overview["inputs"]["node_fasta"], "set.fasta")
+        # Before the Viewer builds its inspection service, the card builds one on demand.
+        del viewer.viewer_inspection
+        self.assertEqual(viewer._session_overview()["node_count"], 5)
 
     def test_the_threshold_box_and_the_slider_follow_each_other(self):
         viewer = self.make_viewer(low=0.0, high=100.0, current=0.0)

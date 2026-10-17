@@ -591,23 +591,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3512"/>
+        <location line="+3516"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3511"/>
+        <location line="-3515"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4023"/>
+        <location line="+4027"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4015"/>
+        <location line="-4019"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -648,7 +648,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+627"/>
+        <location line="+628"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -681,7 +681,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
     </message>
     <message>
-        <location line="+383"/>
+        <location line="+386"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -826,14 +826,14 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1126"/>
+        <location line="-1129"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1167"/>
+        <location line="+1170"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1471,7 +1471,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-2760"/>
+        <location line="-2764"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1570,7 +1570,7 @@ Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &a
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+1476"/>
+        <location line="+1480"/>
         <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
 Significantly improves responsiveness and reduces rendering latency for large networks.</source>
         <translation type="unfinished">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。
@@ -1684,7 +1684,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-2844"/>
+        <location line="-2847"/>
         <source>{matched} of {total} matched</source>
         <translation type="unfinished">已匹配 {matched} / {total}</translation>
     </message>
@@ -1767,7 +1767,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+2713"/>
+        <location line="+2716"/>
         <source>Low Resource Mode:</source>
         <translation type="unfinished">低资源模式：</translation>
     </message>
@@ -3986,7 +3986,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4348"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4352"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -4028,7 +4028,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1369"/>
+        <location line="+1373"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -4088,7 +4088,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1245"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1284"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -4115,7 +4115,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+734"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+741"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -4156,7 +4156,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+337"/>
+        <location line="+340"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -8578,7 +8578,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2322"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2332"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -8587,22 +8587,27 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-124"/>
+        <location line="-152"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-3"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="-1"/>
+        <source>Session and controls</source>
+        <translation type="unfinished">会话与操作</translation>
+    </message>
+    <message>
+        <location line="+46"/>
         <source>View Width: {width}</source>
         <translation type="unfinished">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1739"/>
+        <location line="+1774"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -8682,9 +8687,84 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+137"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+102"/>
+        <source>Sequence Set:</source>
+        <translation type="unfinished">序列集：</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Network:</source>
+        <translation type="unfinished">网络：</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Alignment:</source>
+        <translation type="unfinished">比对：</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Embedding:</source>
+        <translation type="unfinished">Embedding：</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Layout Cache:</source>
+        <translation type="unfinished">布局缓存：</translation>
+    </message>
+    <message>
+        <location line="+40"/>
+        <source>None</source>
+        <translation type="unfinished">无</translation>
+    </message>
+    <message>
+        <location line="+98"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
+    </message>
+    <message>
+        <location line="+80"/>
+        <source>Session</source>
+        <translation type="unfinished">会话</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Nodes:</source>
+        <translation type="unfinished">节点：</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Edges:</source>
+        <translation type="unfinished">边：</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Open Folder</source>
+        <translation type="unfinished">打开文件夹</translation>
+    </message>
+    <message>
+        <location line="+41"/>
+        <source>List of commands</source>
+        <translation type="unfinished">命令列表</translation>
+    </message>
+    <message>
+        <location line="+42"/>
+        <source>{total} ({visible} visible)</source>
+        <translation type="unfinished">{total}（可见 {visible}）</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>{total} ({shown} shown)</source>
+        <translation type="unfinished">{total}（显示 {shown}）</translation>
+    </message>
+    <message>
+        <location line="+40"/>
+        <source>Open the list of commands in your web browser</source>
+        <translation type="unfinished">在网页浏览器中打开命令列表</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The list of commands is not installed: docs/list_of_commands.html is missing.</source>
+        <translation type="unfinished">未安装命令列表：缺少 docs/list_of_commands.html。</translation>
     </message>
 </context>
 </TS>

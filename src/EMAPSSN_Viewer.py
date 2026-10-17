@@ -257,6 +257,11 @@ SLIDER_ROW_HEIGHT = 45
 SLIDER_ROW_BOTTOM = 15
 SLIDER_ROW_LEFT = 20
 SLIDER_BOX_GAP = 20  # between the slider's end and the View Width box
+# The info card over the canvas stays this far (px) from its left, right and
+# bottom edges, and starts this far down: clear of the command line and the
+# background-job status text under it.
+SESSION_CARD_MARGIN = 8
+SESSION_CARD_TOP = 96
 
 
 def _slider_row_centre(canvas_height):
@@ -1098,11 +1103,17 @@ class MainViewer:
         overlay_layout.setContentsMargins(5, 5, 5, 5)
         overlay_layout.setSpacing(10)
 
-        # The info button at the slider's start opens the mouse and keyboard
-        # controls on a card above it.
+        # The info button at the slider's start opens the session (the nodes,
+        # edges and files) and the mouse and keyboard controls on a card above
+        # it. The card is a child of the canvas, so it stays open while the
+        # network is used; _refresh_session_card keeps it current.
         self.controls_button = ControlsButton(
-            translate("Viewer", "Mouse and keyboard controls"),
+            translate("Viewer", "Session and controls"),
             translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes"),
+            host=self.canvas.native,
+            session=self._session_overview,
+            controls_title=translate("Viewer", "Mouse and keyboard controls"),
+            area=self._session_card_area,
         )
         overlay_layout.addWidget(self.controls_button)
         overlay_layout.addSpacing(SLIDER_INFO_GAP - overlay_layout.spacing())
@@ -1162,6 +1173,34 @@ class MainViewer:
         self.position_slider_overlay()
         self.slider_overlay.show()
         self.view_width_box.show()
+
+    def _session_overview(self):
+        """The counts and files the info card lists (ViewerInspectionService.session_overview)."""
+        service = getattr(self, 'viewer_inspection', None)
+        if service is None:  # The card is built before the service is.
+            service = ViewerInspectionService(self, cfg)
+        return service.session_overview()
+
+    def _session_card_area(self):
+        """Where the info card may be, in canvas px: the canvas less the sidebar's
+        room, a margin all round, and clear of the command line at the top."""
+        width, height = self.canvas.size
+        right = width - _sidebar_room(self) - SESSION_CARD_MARGIN
+        return QtCore.QRect(
+            SESSION_CARD_MARGIN, SESSION_CARD_TOP,
+            max(0, right - SESSION_CARD_MARGIN), max(0, height - SESSION_CARD_TOP - SESSION_CARD_MARGIN),
+        )
+
+    def _refresh_session_card(self):
+        """Bring the info card up to date, if it is open: at no cost when it is not.
+
+        update_edges (the threshold, hide and undo) and _update_hud_elements
+        (every change to the nodes) call it. It reads counts the Viewer
+        already holds, so it adds no work per edge.
+        """
+        button = getattr(self, 'controls_button', None)
+        if button is not None:
+            button.refresh_card()
 
     def _zoom_to_box_width(self, width):
         """Zoom to the width set in the View Width box, as `zoom` does (commands.zoom.set_view_width)."""
@@ -2110,6 +2149,11 @@ class MainViewer:
             overlay_w = max(100, round(right - box_room - SLIDER_ROW_LEFT))
             overlay_y = canvas_h - SLIDER_ROW_HEIGHT - SLIDER_ROW_BOTTOM
             self.slider_overlay.setGeometry(SLIDER_ROW_LEFT, overlay_y, overlay_w, SLIDER_ROW_HEIGHT)
+            # The info card, if open, stays above its button inside the canvas.
+            button = getattr(self, 'controls_button', None)
+            if button is not None and button.card_is_open():
+                self.slider_overlay.layout().activate()
+                button.place_card()
 
     def on_slider_value_changed(self, value):
         self.current_slider_threshold = self.threshold_box.value_at(value)
@@ -2141,6 +2185,7 @@ class MainViewer:
         from Viewer_Visual_State import edge_stages, edges_follow_selection
         edge_layer = getattr(self, 'edge_layer', None)
         if edge_layer is None:
+            self._refresh_session_card()
             return
         # The edge layer re-sends only what changed: the node positions (a
         # small texture), the visible edges, or the selection's edge list. A
@@ -2157,6 +2202,7 @@ class MainViewer:
                 self.pos, getattr(self, 'visible_mask', None), threshold,
             )
         edge_layer.visible = drawn > 0
+        self._refresh_session_card()
 
     def promote_nodes(self, indices):
         """Move one node group to the top of the persistent render order."""
@@ -2900,7 +2946,10 @@ class MainViewer:
         for display in self.hud_displays.values():
             if getattr(display, 'update_position', None):
                 display.update_position()
-            
+
+        # 5. The info card's counts, if it is open
+        self._refresh_session_card()
+
         self.canvas.update()
 
     def _initialize_display_tracking(self):

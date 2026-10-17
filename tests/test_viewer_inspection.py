@@ -59,6 +59,44 @@ class ViewerInspectionTests(unittest.TestCase):
         self.assertEqual(summary["groups"]["count"], 2)
         self.assertIsNone(summary["window_title"])
 
+    def test_the_session_overview_gives_the_counts_and_files_the_info_card_lists(self):
+        self.config.NODE_FASTA_FILE = "set.fasta"
+        self.config.EMBED_FILE = "embeddings.h5"
+        self.config.TARGET_CACHE_PATH = "cache/version_00.h5"
+        overview = self.service.session_overview()
+        self.assertEqual(
+            {key: value for key, value in overview.items() if key != "inputs"},
+            {"node_count": 4, "visible_node_count": 3, "edge_count": 2, "shown_edge_count": 0},
+        )
+        self.assertEqual(overview["inputs"], {
+            "node_fasta": "set.fasta", "network_hdf5": "network.h5", "msa": "",
+            "embedding": "embeddings.h5", "layout_cache": "cache/version_00.h5",
+        })
+        # It agrees with the summary agents read.
+        summary = self.service.get_summary()
+        self.assertEqual((overview["node_count"], overview["visible_node_count"], overview["edge_count"]),
+                         (summary["node_count"], summary["visible_node_count"], summary["edge_count"]))
+        self.assertEqual(overview["inputs"], summary["inputs"])
+
+    def test_the_overview_counts_a_mask_of_any_kind_and_the_edge_layers_drawn_edges(self):
+        for mask, expected in (
+                (np.array([True, False, True, True]), 3), ([True, False, True, True], 3),
+                (np.array([True, True]), 2),            # a mask shorter than the nodes: the rest are not visible
+                (np.array([False, True, True, True, True, True]), 3),  # longer: only the nodes count
+                (None, 4)):
+            with self.subTest(mask=mask):
+                self.viewer.visible_mask = mask
+                self.assertEqual(self.service.session_overview()["visible_node_count"], expected)
+                self.assertEqual(self.service.get_summary()["visible_node_count"], expected)
+        self.viewer.edge_layer = SimpleNamespace(drawn_edge_count=np.int64(7))
+        overview = self.service.session_overview()
+        self.assertEqual((overview["shown_edge_count"], type(overview["shown_edge_count"])), (7, int))
+        # A Viewer with no edges has neither edges nor a layer, and no list is copied for the count.
+        self.viewer.edges = None
+        del self.viewer.edge_layer
+        overview = self.service.session_overview()
+        self.assertEqual((overview["edge_count"], overview["shown_edge_count"]), (0, 0))
+
     def test_the_window_title_is_reported_in_english(self):
         # The window shows its title in the chosen language; MCP clients read it in English.
         self.viewer.main_window = SimpleNamespace(windowTitle=lambda: "EMAP-SSN 查看器 [3FA9C1D2]")
