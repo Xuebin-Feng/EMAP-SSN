@@ -19,8 +19,9 @@ import unittest
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--disable-gpu")
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
-if str(SRC) not in sys.path:
-    sys.path.insert(0, str(SRC))
+for folder in (SRC, ROOT / "docs"):
+    if str(folder) not in sys.path:
+        sys.path.insert(0, str(folder))
 
 from PySide6.QtCore import QUrl  # noqa: E402
 from PySide6.QtWebEngineWidgets import QWebEngineView  # noqa: E402
@@ -31,7 +32,7 @@ from desktop.Studio_Theme import LUCIDE_DIR, theme_tokens, web_page_properties  
 DOCS = ROOT / "docs"
 STYLESHEET = DOCS / "assets" / "docs.css"
 SCRIPT = DOCS / "assets" / "docs.js"
-PAGES = ("quickstart.html",)
+PAGES = ("quickstart.html", "list_of_commands.html", "zh_CN/list_of_commands.html")
 DECLARATION = re.compile(r"^\s*(--[a-z0-9-]+)\s*:\s*(.*?);\s*$", re.MULTILINE)
 
 # The custom properties the pages' CSS reads from Studio_Theme.web_page_properties.
@@ -74,6 +75,11 @@ def read(path):
     return Path(path).read_text(encoding="utf-8")
 
 
+def prefix(page):
+    """How a page in docs/ or in a language folder under it reaches docs/'s own files."""
+    return "../" if "/" in page else ""
+
+
 class StyleSheetColourTests(unittest.TestCase):
     BLOCKS = ((":root", False), ('[data-theme="dark"]', True))
 
@@ -112,7 +118,7 @@ class StyleSheetColourTests(unittest.TestCase):
         dark = stylesheet_block(read(STYLESHEET), '[data-theme="dark"]')
         # Only what the light block has, besides sizes and fonts, may be missing from dark.
         shared_only_in_light = {"--radius", "--radius-card", "--font-family", "--font-mono",
-                                "--topbar-height", "--sidebar-width"}
+                                "--topbar-height", "--sidebar-width", "--strong"}
         self.assertEqual(sorted(set(light) - set(dark) - shared_only_in_light), [])
 
     def test_every_colour_the_rules_read_is_declared(self):
@@ -123,8 +129,17 @@ class StyleSheetColourTests(unittest.TestCase):
 
     def test_only_the_weights_the_windows_use_are_set(self):
         # The bundled language fonts have no Medium face, so 500 would draw as bold.
-        weights = set(re.findall(r"font-weight:\s*(\d+)", read(STYLESHEET)))
-        self.assertLessEqual(weights, {"400", "600"})
+        source = read(STYLESHEET)
+        weights = set(re.findall(r"font-weight:\s*([^;]+);", source))
+        self.assertEqual(weights, {"400", "var(--strong)"})
+        self.assertEqual(stylesheet_block(source, ":root")["--strong"], "600")
+
+    def test_the_chinese_pages_strong_weight_is_the_weight_of_their_bold_subset(self):
+        source = read(STYLESHEET)
+        rule = re.search(r":root:lang\(zh-CN\)\s*\{\s*--strong:\s*(\d+);\s*\}", source)
+        self.assertIsNotNone(rule)
+        faces = read(DOCS / "fonts" / "fonts_zh_CN.css")
+        self.assertIn(f"font-weight: {rule.group(1)};", faces)
 
     def test_the_fonts_are_the_vendored_noto_sets(self):
         source = read(STYLESHEET)
@@ -136,6 +151,7 @@ class StyleSheetColourTests(unittest.TestCase):
 
 class PageTests(unittest.TestCase):
     EXTERNAL = re.compile(r"""(?:src|href|action)\s*=\s*["']?\s*(?:https?:)?//|url\(\s*["']?\s*(?:https?:)?//|@import""", re.I)
+    TAB = re.compile(r'<(a|span) class="tab"([^>]*)>([^<]+)</\1>')
 
     def pages(self):
         for name in PAGES:
@@ -144,12 +160,14 @@ class PageTests(unittest.TestCase):
     def test_each_page_links_the_shared_style_and_script_and_has_none_of_its_own(self):
         for name, html in self.pages():
             with self.subTest(page=name):
-                self.assertIn('<link href="fonts/fonts.css" rel="stylesheet">', html)
-                self.assertIn('<link href="assets/docs.css" rel="stylesheet">', html)
-                self.assertIn('<script src="assets/docs.js"></script>', html)
+                up = prefix(name)
+                self.assertIn(f'<link href="{up}fonts/fonts.css" rel="stylesheet">', html)
+                self.assertIn(f'<link href="{up}assets/docs.css" rel="stylesheet">', html)
+                self.assertIn(f'<script src="{up}assets/docs.js"></script>', html)
                 self.assertNotIn("<style", html)
                 # The theme and its remembered choice are the shared script's.
                 self.assertNotIn("localStorage", html)
+                self.assertNotIn("setTheme", html)
                 self.assertIn('name="viewport"', html)
                 self.assertEqual(len(re.findall(r'<meta name="theme-color"', html)), 2)
 
@@ -160,22 +178,23 @@ class PageTests(unittest.TestCase):
                 for name_of_file in ("fonts.googleapis.com", "fonts.gstatic.com", "cdn."):
                     self.assertNotIn(name_of_file, html)
                 for target in re.findall(r'<(?:link|script|img)\b[^>]*?(?:src|href)="([^"#?]+)"', html):
-                    self.assertTrue((DOCS / target).is_file(), target)
+                    self.assertTrue(((DOCS / name).parent / target).is_file(), target)
         for name in ("docs.css", "docs.js"):
             with self.subTest(file=name):
                 text = read(DOCS / "assets" / name)
                 self.assertIsNone(self.EXTERNAL.search(text))
-                # Only data: URLs and the vendored fonts' own sheet are loaded from a stylesheet.
+                # Only data: URLs are loaded from a stylesheet; the fonts are the pages' own link.
                 for url in re.findall(r"url\(\s*[\"']?([^\"')]+)", text):
                     self.assertTrue(url.startswith("data:"), url)
 
     def test_every_in_page_link_has_a_target(self):
         for name, html in self.pages():
             with self.subTest(page=name):
-                ids = set(re.findall(r'\bid="([^"]+)"', html))
-                for anchor in re.findall(r'href="#([^"]+)"', html):
+                markup = re.sub(r"<script\b.*?</script>", "", html, flags=re.S)
+                ids = set(re.findall(r'\bid="([^"]+)"', markup))
+                for anchor in re.findall(r'href="#([^"]+)"', markup):
                     self.assertIn(anchor, ids)
-                for target in re.findall(r'data-target="([^"]+)"', html):
+                for target in re.findall(r'data-target="([^"]+)"', markup):
                     self.assertIn(target, ids)
 
     def test_the_quick_start_keeps_the_anchors_other_pages_link_to(self):
@@ -184,16 +203,54 @@ class PageTests(unittest.TestCase):
                        "hands-on-tutorial", "best-practices", "next-steps"):
             self.assertIn(anchor, ids)
 
+    @staticmethod
+    def top_bar(html):
+        return html[html.index('<header class="topbar"'):html.index("</header>")]
+
     def test_the_top_bar_names_both_pages_and_marks_the_one_shown(self):
         for name, html in self.pages():
             with self.subTest(page=name):
-                bar = html[html.index('<header class="topbar">'):html.index("</header>")]
-                tabs = re.findall(r'<a class="tab" href="([^"]+)"( aria-current="page")?>([^<]+)</a>', bar)
-                self.assertEqual([tab[0] for tab in tabs], ["quickstart.html", "list_of_commands.html"])
-                self.assertEqual([tab[0] for tab in tabs if tab[1]], [name])
-                self.assertIn('id="theme-toggle-btn"', bar)
-                self.assertIn('id="toggle-sidebar-btn"', bar)
+                bar = self.top_bar(html)
+                tabs = self.TAB.findall(bar)
+                self.assertEqual(len(tabs), 2)
+                own_page = "quickstart.html" if name == "quickstart.html" else "list_of_commands.html"
+                other_page = "list_of_commands.html" if own_page == "quickstart.html" else "quickstart.html"
+                # The page's own tab is not a link; the other one reaches the other page.
+                own = [tab for tab in tabs if tab[0] == "span"]
+                links = [tab for tab in tabs if tab[0] == "a"]
+                self.assertEqual(len(own), 1)
+                self.assertIn('aria-current="page"', own[0][1])
+                (link,) = links
+                href = re.search(r'href="([^"]+)"', link[1]).group(1)
+                self.assertEqual(((DOCS / name).parent / href).resolve(), (DOCS / other_page).resolve())
+                self.assertEqual(
+                    [tab[0] for tab in tabs], ["span", "a"] if own_page == "quickstart.html" else ["a", "span"]
+                )
+                for control in ('id="theme-toggle-btn"', 'id="toggle-sidebar-btn"', "data-label-dark=", "data-label-light="):
+                    self.assertIn(control, bar)
                 self.assertIn('id="sidebar"', html)
+                # A page with a translation says so in a switch beside the theme button.
+                self.assertEqual('<nav class="lang-switch"' in bar, name != "quickstart.html")
+
+    def test_every_page_has_the_same_top_bar(self):
+        def skeleton(html):
+            bar = re.sub(r'<nav class="lang-switch".*?</nav>', "", self.top_bar(html), flags=re.S)
+            bar = re.sub(r'<(?:a|span) class="tab"[^>]*>', "<tab>", bar)
+            bar = re.sub(r"</(?:a|span)>(?=\s*(?:<tab>|</nav>))", "</tab>", bar)
+
+            def keep(match):
+                tag, attributes = match.group(1), match.group(2)
+                kept = re.findall(r'\b(class|id)="([^"]*)"', attributes)
+                return "<%s %s>" % (tag, " ".join("%s=%s" % pair for pair in kept))
+
+            bar = re.sub(r"<(\w+)([^>]*)>", keep, bar)
+            return re.sub(r">[^<]+<", "><", bar)
+
+        shapes = {name: skeleton(html) for name, html in self.pages()}
+        first = shapes["quickstart.html"]
+        for name, shape in shapes.items():
+            with self.subTest(page=name):
+                self.assertEqual(shape, first)
 
     def test_each_inline_icon_is_the_bundled_lucide_icon(self):
         for name, html in self.pages():
@@ -213,6 +270,39 @@ class PageTests(unittest.TestCase):
                         self.assertIn(f'href="#i-{icon}"', html, icon)
 
 
+class NoPictographTests(unittest.TestCase):
+    """The pages draw their icons from the Lucide set, as the windows do, not with emoji."""
+
+    PICTOGRAPHS = re.compile("[\U0001F000-\U0001FAFF☀-➿⌀-⏿⬀-⯿️]")
+
+    def pages(self):
+        return sorted([*DOCS.glob("*.html"), *DOCS.glob("*/*.html")])
+
+    def test_there_are_pages_to_look_at(self):
+        names = [path.relative_to(DOCS).as_posix() for path in self.pages()]
+        for name in PAGES:
+            self.assertIn(name, names)
+
+    def test_no_documentation_page_has_an_emoji_or_pictograph(self):
+        for path in self.pages():
+            with self.subTest(page=path.relative_to(DOCS).as_posix()):
+                found = [
+                    f"U+{ord(char):04X} in {text[max(0, number - 20):number + 20]!r}"
+                    for text in [path.read_text(encoding="utf-8")]
+                    for number, char in enumerate(text)
+                    if self.PICTOGRAPHS.match(char)
+                ]
+                self.assertEqual(found, [], "Use an inline Lucide icon (src/resources/icons/lucide) instead.")
+
+    def test_a_pictograph_in_every_range_would_be_found(self):
+        for char in ("\U0001F4D8", "\U0001FA84", "⚠", "✅", "⌘", "⏰", "⭐", "️"):
+            with self.subTest(char=f"U+{ord(char):04X}"):
+                self.assertIsNotNone(self.PICTOGRAPHS.search(f"A {char} B"))
+        for char in ("–", "→", "×", "。", "，", "、", "“", "中"):
+            with self.subTest(char=f"U+{ord(char):04X}"):
+                self.assertIsNone(self.PICTOGRAPHS.search(f"A {char} B"))
+
+
 class ScriptTests(unittest.TestCase):
     def test_the_remembered_theme_key_and_its_guard(self):
         source = read(SCRIPT)
@@ -224,9 +314,19 @@ class ScriptTests(unittest.TestCase):
         for number in accesses:
             self.assertTrue("try" in " ".join(lines[max(0, number - 1):number + 1]), lines[number])
 
+    def test_the_labels_the_script_shows_are_the_ones_the_translation_check_lists(self):
+        import Docs_Translation
+
+        source = read(SCRIPT)
+        for name in Docs_Translation.TRANSLATED_ATTRIBUTES:
+            self.assertIn(f'"{name}"', source)
+        # No other text of the pages' languages is written into the script.
+        self.assertNotIn("Dark Mode", source)
+        self.assertNotIn("Light Mode", source)
+
 
 class BrowserTests(unittest.TestCase):
-    """The quick start in Qt WebEngine: the theme, the sidebar and the narrow layout."""
+    """Each page in Qt WebEngine: the theme, the sidebar and the narrow layout."""
 
     @classmethod
     def setUpClass(cls):
@@ -251,72 +351,6 @@ class BrowserTests(unittest.TestCase):
         self.assertTrue(result, source)
         return result[0]
 
-    def open(self, width=1000):
-        self.view.resize(width, 700)
-        loaded = []
-        callback = loaded.append
-        self.view.loadFinished.connect(callback)
-        self.view.load(QUrl.fromLocalFile(str(DOCS / "quickstart.html")))
-        deadline = time.monotonic() + 15
-        while not loaded and time.monotonic() < deadline:
-            self.app.processEvents()
-            time.sleep(0.01)
-        self.view.loadFinished.disconnect(callback)
-        self.assertEqual(loaded, [True])
-        self.js("localStorage.removeItem('emapssn_docs_theme')")
-
-    def test_the_theme_button_switches_and_remembers_the_theme(self):
-        self.open()
-        first = self.js("document.documentElement.getAttribute('data-theme')")
-        self.assertIn(first, ("light", "dark"))
-        other = "dark" if first == "light" else "light"
-        self.js("document.getElementById('theme-toggle-btn').click(); 1")
-        self.assertEqual(self.js("document.documentElement.getAttribute('data-theme')"), other)
-        self.assertEqual(self.js("localStorage.getItem('emapssn_docs_theme')"), other)
-        # The button names the theme a click switches to, with its icon.
-        label = self.js("document.querySelector('#theme-toggle-btn .theme-label').textContent")
-        self.assertEqual(label, "Light Mode" if other == "dark" else "Dark Mode")
-        self.assertEqual(
-            self.js("document.querySelector('#theme-toggle-btn use').getAttribute('href')"),
-            "#i-sun" if other == "dark" else "#i-moon",
-        )
-        # The page paints with the theme's colours.
-        painted = self.js("getComputedStyle(document.body).backgroundColor")
-        self.assertEqual(painted, "rgb(9, 9, 11)" if other == "dark" else "rgb(250, 250, 250)")
-        # A reload keeps the choice.
-        self.open_keeping_storage()
-        self.assertEqual(self.js("document.documentElement.getAttribute('data-theme')"), other)
-
-    def open_keeping_storage(self):
-        loaded = []
-        callback = loaded.append
-        self.view.loadFinished.connect(callback)
-        self.view.reload()
-        deadline = time.monotonic() + 15
-        while not loaded and time.monotonic() < deadline:
-            self.app.processEvents()
-            time.sleep(0.01)
-        self.view.loadFinished.disconnect(callback)
-        self.assertEqual(loaded, [True])
-
-    def test_a_phone_has_no_horizontal_scroll_and_a_sidebar_drawer(self):
-        for width in (320, 390, 768):
-            with self.subTest(width=width):
-                self.open(width)
-                self.assertLessEqual(
-                    self.js("document.documentElement.scrollWidth - document.documentElement.clientWidth"), 0
-                )
-        self.open(390)
-        right = "Math.round(document.getElementById('sidebar').getBoundingClientRect().right)"
-        self.assertEqual(self.js(right), 0)
-        self.js("document.getElementById('toggle-sidebar-btn').click(); 1")
-        self.wait_for(f"{right} > 200")
-        self.assertEqual(self.js("document.getElementById('toggle-sidebar-btn').getAttribute('aria-expanded')"), "true")
-        # Choosing a section closes the drawer.
-        self.js("document.querySelector('.menu-item a').click(); 1")
-        self.assertEqual(self.js("document.body.classList.contains('sidebar-open')"), False)
-        self.wait_for(f"{right} === 0")
-
     def wait_for(self, expression, seconds=5):
         deadline = time.monotonic() + seconds
         while time.monotonic() < deadline:
@@ -325,10 +359,102 @@ class BrowserTests(unittest.TestCase):
             time.sleep(0.03)
         self.fail("Timed out: " + expression)
 
+    def load(self, action):
+        loaded = []
+        callback = loaded.append
+        self.view.loadFinished.connect(callback)
+        action()
+        deadline = time.monotonic() + 15
+        while not loaded and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.view.loadFinished.disconnect(callback)
+        self.assertEqual(loaded, [True])
+
+    def open(self, name, width=1000):
+        self.view.resize(width, 700)
+        self.load(lambda: self.view.load(QUrl.fromLocalFile(str(DOCS / name))))
+        self.js("localStorage.removeItem('emapssn_docs_theme')")
+
+    def test_the_theme_button_switches_and_remembers_the_theme(self):
+        for name in PAGES:
+            with self.subTest(page=name):
+                self.open(name)
+                first = self.js("document.documentElement.getAttribute('data-theme')")
+                self.assertIn(first, ("light", "dark"))
+                other = "dark" if first == "light" else "light"
+                self.js("document.getElementById('theme-toggle-btn').click(); 1")
+                self.assertEqual(self.js("document.documentElement.getAttribute('data-theme')"), other)
+                self.assertEqual(self.js("localStorage.getItem('emapssn_docs_theme')"), other)
+                # The button names the theme a click switches to, in the page's language and with its icon.
+                attribute = "data-label-light" if other == "dark" else "data-label-dark"
+                self.assertEqual(
+                    self.js("document.querySelector('#theme-toggle-btn .theme-label').textContent"),
+                    self.js(f"document.getElementById('theme-toggle-btn').getAttribute('{attribute}')"),
+                )
+                self.assertEqual(
+                    self.js("document.querySelector('#theme-toggle-btn use').getAttribute('href')"),
+                    "#i-sun" if other == "dark" else "#i-moon",
+                )
+                # The page paints with the theme's colours.
+                painted = self.js("getComputedStyle(document.body).backgroundColor")
+                self.assertEqual(painted, "rgb(9, 9, 11)" if other == "dark" else "rgb(250, 250, 250)")
+                # A reload keeps the choice.
+                self.load(self.view.reload)
+                self.assertEqual(self.js("document.documentElement.getAttribute('data-theme')"), other)
+
+    def test_a_phone_has_no_horizontal_scroll(self):
+        for name in PAGES:
+            for width in (320, 390, 768):
+                with self.subTest(page=name, width=width):
+                    self.open(name, width)
+                    self.assertLessEqual(
+                        self.js("document.documentElement.scrollWidth - document.documentElement.clientWidth"), 0
+                    )
+
+    def test_a_phone_has_a_sidebar_drawer(self):
+        for name in PAGES:
+            with self.subTest(page=name):
+                self.open(name, 390)
+                right = "Math.round(document.getElementById('sidebar').getBoundingClientRect().right)"
+                self.assertEqual(self.js(right), 0)
+                self.js("document.getElementById('toggle-sidebar-btn').click(); 1")
+                self.wait_for(f"{right} > 200")
+                self.assertEqual(self.js("document.getElementById('toggle-sidebar-btn').getAttribute('aria-expanded')"), "true")
+                # Choosing a section closes the drawer.
+                self.js("document.querySelector('.menu-item a').click(); 1")
+                self.assertEqual(self.js("document.body.classList.contains('sidebar-open')"), False)
+                self.wait_for(f"{right} === 0")
+
+    def test_the_top_bar_stays_in_one_or_two_rows_on_a_phone(self):
+        for name in PAGES:
+            with self.subTest(page=name):
+                self.open(name, 320)
+                height = self.js("Math.round(document.querySelector('.topbar').getBoundingClientRect().height)")
+                self.assertLessEqual(height, 90)
+                # Nothing of the bar sticks out of it.
+                self.assertEqual(
+                    self.js(
+                        "Array.from(document.querySelectorAll('.topbar *')).filter(e => e.getBoundingClientRect().width > 0 && "
+                        "e.getBoundingClientRect().right > document.documentElement.clientWidth + 1).length"
+                    ),
+                    0,
+                )
+
     def test_the_sidebar_highlights_the_section_being_read(self):
-        self.open(1000)
-        self.js("document.documentElement.style.scrollBehavior = 'auto'; document.getElementById('gui-config').scrollIntoView(); 1")
-        self.wait_for("(document.querySelector('.menu-item.active') || document.body).getAttribute('data-target') === 'gui-config'")
+        for name in PAGES:
+            with self.subTest(page=name):
+                self.open(name, 1000)
+                target = self.js("document.querySelectorAll('.menu-item')[3].getAttribute('data-target')")
+                self.js(f"document.documentElement.style.scrollBehavior = 'auto'; document.getElementById('{target}').scrollIntoView(); 1")
+                self.wait_for(f"(document.querySelector('.menu-item.active') || document.body).getAttribute('data-target') === '{target}'")
+
+    def test_the_chinese_page_draws_its_strong_text_with_the_bold_subset(self):
+        # A browser picks a face by weight before it looks at the characters one covers.
+        self.open("zh_CN/list_of_commands.html")
+        self.assertEqual(self.js("getComputedStyle(document.querySelector('h1')).fontWeight"), "700")
+        self.open("list_of_commands.html")
+        self.assertEqual(self.js("getComputedStyle(document.querySelector('h1')).fontWeight"), "600")
 
 
 if __name__ == "__main__":

@@ -62,7 +62,7 @@ class RealPagesTests(unittest.TestCase):
         self.assertEqual(page.problems, [])
         keys = page.keys
         self.assertEqual(len(keys), len(set(keys)))
-        for key in ("title", "aside", "docs-intro", "expr-interpreter", "cmd-zoom", "cmd-agent", "empty-search-state", "script"):
+        for key in ("title", "icons", "topbar", "sidebar", "docs-intro", "expr-interpreter", "cmd-zoom", "cmd-agent", "empty-search-state", "script"):
             self.assertIn(key, keys)
         self.assertGreaterEqual(sum(1 for key, element in page.units if element.tag == "section"), 20)
 
@@ -101,7 +101,12 @@ class RealPagesTests(unittest.TestCase):
                 hrefs = [e.attrs["href"] for e in page.head.walk() if e.tag == "link" and e.attrs.get("rel") == "stylesheet"]
                 resolved = [(page.path.parent / href).resolve() for href in hrefs]
                 self.assertEqual(
-                    resolved, [(DOCS / "fonts" / "fonts.css").resolve(), (DOCS / "fonts" / "fonts_zh_CN.css").resolve()]
+                    resolved,
+                    [
+                        (DOCS / "fonts" / "fonts.css").resolve(),
+                        (DOCS / "fonts" / "fonts_zh_CN.css").resolve(),
+                        (DOCS / "assets" / "docs.css").resolve(),
+                    ],
                 )
                 for path in resolved:
                     self.assertTrue(path.is_file(), path)
@@ -230,8 +235,19 @@ class EnglishChangesTests(TemporaryPages):
         self.edit(self.english, 'title="Toggle Sidebar"', 'title="Toggle the sidebar"')
         self.edit(self.english, '"Copied!"', '"Copied to clipboard!"')
         report = self.check()
-        self.assertEqual(sorted(report.stale), ["aside", "script"])
+        self.assertEqual(sorted(report.stale), ["script", "topbar"])
         self.assertIn("TRANSLATED_SCRIPT_STRINGS", "\n".join(report.problems))
+
+    def test_a_changed_english_theme_label_makes_the_top_bar_stale(self):
+        self.edit(self.english, 'data-label-dark="Dark Mode"', 'data-label-dark="Night Mode"')
+        report = self.check()
+        self.assertEqual((report.problems, report.stale), ([], ["topbar"]))
+
+    def test_a_theme_label_attribute_the_english_page_lost_is_named(self):
+        for path in (self.english, self.chinese):
+            text = path.read_bytes().decode("utf-8")
+            path.write_bytes(re.sub(r' data-label-dark="[^"]*"', "", text).encode("utf-8"))
+        self.assertIn("TRANSLATED_ATTRIBUTES in docs/Docs_Translation.py lists 'data-label-dark'", self.problems())
 
     def test_re_indenting_and_rewrapping_the_english_page_changes_nothing(self):
         self.edit(self.english, "Sets the camera rectangle to exactly", "Sets the   camera\r\n      rectangle   to\r\n  exactly")
@@ -247,25 +263,24 @@ class EnglishChangesTests(TemporaryPages):
         self.assertEqual((report.problems, report.stale, report.unstamped), ([], [], []))
 
     def test_restyling_only_the_english_page_is_noticed_without_making_text_stale(self):
-        self.edit(self.english, "--accent: #4f46e5;", "--accent: #0f766e;")
+        self.edit(self.english, 'href="assets/docs.css"', 'href="assets/docs-teal.css"')
         report = self.check()
         self.assertEqual(report.stale, [])
         self.assertIn("<style>", "\n".join(report.problems))
         self.assertIn("stylesheet link", "\n".join(report.problems))
 
-    def test_a_shared_stylesheet_for_both_pages_passes(self):
-        for path, href in ((self.english, "list_of_commands.css"), (self.chinese, "../list_of_commands.css")):
-            text = path.read_bytes().decode("utf-8")
-            style = re.search(r"<style>(.*?)</style>", text, re.S)
-            (self.docs / "list_of_commands.css").write_text(style.group(1), encoding="utf-8")
-            path.write_bytes(text.replace(style.group(0), '<link href="%s" rel="stylesheet">' % href).encode("utf-8"))
+    def test_a_shared_stylesheet_is_compared_by_the_file_each_page_names(self):
+        self.edit(self.english, 'href="assets/docs.css"', 'href="./assets/docs.css"')
+        self.edit(self.chinese, 'href="../assets/docs.css"', 'href="../zh_CN/../assets/docs.css"')
         report = self.check()
         self.assertEqual((report.problems, report.stale, report.unstamped), ([], [], []))
 
     def test_a_shared_stylesheet_the_translation_does_not_link_is_noticed(self):
-        text = self.english.read_bytes().decode("utf-8")
-        style = re.search(r"<style>(.*?)</style>", text, re.S)
-        self.english.write_bytes(text.replace(style.group(0), '<link href="list_of_commands.css" rel="stylesheet">').encode("utf-8"))
+        self.edit(self.chinese, '<link href="../assets/docs.css" rel="stylesheet">', "")
+        self.assertIn("outside its sections", self.problems())
+
+    def test_a_shared_script_the_translation_does_not_load_is_noticed(self):
+        self.edit(self.chinese, '<script src="../assets/docs.js"></script>', "")
         self.assertIn("outside its sections", self.problems())
 
     def test_a_renamed_class_the_rules_rely_on_is_named(self):
@@ -300,7 +315,7 @@ class TranslationChangesTests(TemporaryPages):
 
     def test_a_translated_command_in_the_sidebar_list_is_noticed(self):
         self.edit(self.chinese, '<a href="#cmd-zoom"><span>zoom</span></a>', '<a href="#cmd-zoom"><span>缩放</span></a>')
-        self.assertIn("Section 'aside'", self.problems())
+        self.assertIn("Section 'sidebar'", self.problems())
 
     def test_a_changed_id_class_or_link_is_noticed(self):
         self.edit(self.chinese, 'id="cmd-undoredo"', 'id="cmd-undo"')
@@ -310,9 +325,9 @@ class TranslationChangesTests(TemporaryPages):
 
     def test_a_changed_class_or_link_target_is_noticed(self):
         self.edit(self.chinese, '<a href="#cmd-zoom">', '<a href="#cmd-zoom2">')
-        self.sub(self.chinese, r'<div class="callout">', '<div class="callout warn">', count=1)
+        self.sub(self.chinese, r'<div class="callout callout-warn">', '<div class="callout callout-warn extra">', count=1)
         problems = self.problems()
-        self.assertIn("Section 'aside'", problems)
+        self.assertIn("Section 'sidebar'", problems)
         self.assertIn("Section 'expr-interpreter'", problems)
 
     def test_sections_in_another_order_are_noticed(self):
@@ -321,8 +336,8 @@ class TranslationChangesTests(TemporaryPages):
         self.edit(self.chinese, 'id="cmd-tmp"', 'id="cmd-save"')
         self.assertIn("another order", self.problems())
 
-    def test_a_changed_style_or_head_is_noticed(self):
-        self.edit(self.chinese, "--accent: #4f46e5;", "--accent: #4f46e6;")
+    def test_a_changed_head_is_noticed(self):
+        self.edit(self.chinese, '<meta name="theme-color" content="#18181b"', '<meta name="theme-color" content="#18181c"')
         self.assertIn("outside its sections", self.problems())
 
     def test_a_missing_stylesheet_link_is_noticed(self):
@@ -339,6 +354,18 @@ class TranslationChangesTests(TemporaryPages):
         self.edit(self.chinese, '"已复制！"', '"Copied!"')
         self.assertIn("still English", self.problems())
 
+    def test_a_theme_label_left_in_english_is_noticed(self):
+        self.edit(self.chinese, 'data-label-dark="深色模式"', 'data-label-dark="Dark Mode"')
+        self.assertIn('data-label-dark="Dark Mode" is shown to readers by docs/assets/docs.js but is still English', self.problems())
+        self.edit(self.chinese, 'data-label-light="浅色模式"', 'data-label-light="Light Mode"')
+        self.assertIn('data-label-light="Light Mode" is shown to readers', self.problems())
+
+    def test_a_missing_theme_label_is_noticed(self):
+        self.edit(self.chinese, ' data-label-light="浅色模式"', "")
+        problems = self.problems()
+        self.assertIn("Section 'topbar'", problems)
+        self.assertIn("the tags differ", problems)
+
     def test_a_script_string_changed_that_is_not_for_readers_is_noticed(self):
         self.edit(self.chinese, "'highlight-card'", "'highlight-card2'", count=3)
         self.assertIn("add it to TRANSLATED_SCRIPT_STRINGS", self.problems())
@@ -351,7 +378,7 @@ class TranslationChangesTests(TemporaryPages):
         self.edit(self.chinese, 'placeholder="搜索命令…"', 'placeholder="找命令"')
         self.assertTrue(self.check().ok, self.check().format())
         self.edit(self.chinese, ' placeholder="找命令"', "")
-        self.assertIn("Section 'aside'", self.problems())
+        self.assertIn("Section 'sidebar'", self.problems())
 
     def test_a_missing_fingerprint_is_listed(self):
         self.sub(self.chinese, r'(<section class="command-card" id="cmd-run") data-source-sha256="[0-9a-f]{64}"', r"\1")
@@ -419,8 +446,10 @@ class UpdateWorkflowTests(TemporaryPages):
         self.assertEqual(self.chinese.read_bytes(), before)
 
     def test_stamping_adds_a_fingerprint_to_a_section_that_has_none(self):
-        self.sub(self.chinese, r' data-source-sha256="[0-9a-f]{64}"', "", count=36)
-        self.assertEqual(len(self.check().unstamped), 36)
+        stamped = len(re.findall(r' data-source-sha256="[0-9a-f]{64}"', self.chinese.read_text(encoding="utf-8")))
+        self.assertGreater(stamped, 30)
+        self.sub(self.chinese, r' data-source-sha256="[0-9a-f]{64}"', "", count=stamped)
+        self.assertEqual(len(self.check().unstamped), stamped)
         T.stamp_sections(self.english, self.chinese, self.check().unstamped)
         self.assertTrue(self.check().ok, self.check().format())
 
@@ -590,15 +619,25 @@ class BrowserTests(unittest.TestCase):
         self.pump(300)
         self.assertEqual(self.switch_link(), "../list_of_commands.html#cmd-agent")
 
+    def choose_theme(self, theme):
+        """Presses the page's theme button until the page shows `theme`."""
+        if self.facts()["theme"] != theme:
+            self.run_js("document.getElementById('theme-toggle-btn').click()")
+        self.assertEqual(self.facts()["theme"], theme)
+
     def test_the_chosen_theme_goes_with_the_reader(self):
         self.open(ENGLISH)
-        self.run_js("setTheme('dark')")
+        self.choose_theme("dark")
         self.follow_switch()
-        self.assertEqual(self.facts()["theme"], "dark")
-        self.run_js("setTheme('light')")
+        facts = self.facts()
+        self.assertEqual((facts["lang"], facts["theme"]), ("zh-CN", "dark"))
+        # The button speaks the page's own language.
+        self.assertEqual(self.run_js("document.querySelector('#theme-toggle-btn .theme-label').textContent"), "浅色模式")
+        self.choose_theme("light")
         self.follow_switch()
         facts = self.facts()
         self.assertEqual((facts["lang"], facts["theme"]), ("en", "light"))
+        self.assertEqual(self.run_js("document.querySelector('#theme-toggle-btn .theme-label').textContent"), "Dark Mode")
 
     def test_the_search_finds_chinese_text_and_says_so_when_nothing_matches(self):
         self.open(CHINESE)

@@ -7,7 +7,8 @@
  * (src/desktop/Studio_Theme.py) and of the Viewer's web pages
  * (src/web_ui/agent.html, meta.html). Zinc greys, hairline borders, 8 px
  * controls on 12 px cards, one theme colour for the primary button, links,
- * focus rings and selection, and only the weights 400 and 600.
+ * focus rings and selection, and two weights: 400 and a strong one (600, or 700
+ * on the Chinese pages: see --strong).
  *
  * Colours are custom properties for light and dark, named as the web pages
  * name them. The values copied from Studio_Theme (WEB_PAGE_PROPERTIES, and
@@ -83,7 +84,14 @@
     --font-mono: 'Noto Sans Mono', 'EMAP-SSN Language', Consolas, Monaco, monospace;
     --topbar-height: 52px;
     --sidebar-width: 288px;
+    /* The strong weight. The Chinese pages' Noto Sans SC subsets (docs/fonts/fonts_zh_CN.css)
+       have a Regular and a Bold face, and a browser takes a face by weight before it looks
+       at the characters it covers: 600 would pass over the Bold subset and draw Chinese in a
+       system font. The Latin faces are variable and draw either. */
+    --strong: 600;
 }
+
+:root:lang(zh-CN) { --strong: 700; }
 
 [data-theme="dark"] {
     color-scheme: dark;
@@ -162,7 +170,7 @@ body {
 
 ::selection { background: var(--selection); }
 
-b, strong { font-weight: 600; }
+b, strong { font-weight: var(--strong); }
 
 a {
     color: var(--accent);
@@ -210,7 +218,7 @@ button { font-family: inherit; }
     align-items: center;
     gap: 8px;
     font-size: 0.9375rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     color: var(--text-primary);
     white-space: nowrap;
 }
@@ -251,6 +259,33 @@ button { font-family: inherit; }
     margin-left: auto;
 }
 
+/* The language switch of a translated page: a small tab bar, the page's own language raised */
+.lang-switch {
+    display: inline-flex;
+    padding: 2px;
+    background: var(--track);
+    border-radius: 8px;
+}
+.lang-option {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 9px;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--text-secondary);
+    text-decoration: none;
+    white-space: nowrap;
+}
+a.lang-option:hover { color: var(--text-primary); text-decoration: none; }
+.lang-option.current {
+    background: var(--tab-selected);
+    color: var(--text-primary);
+    border-color: var(--border-color);
+    border-bottom-color: var(--field-border-hover);
+}
+
 /* ── Buttons: outline unless a variant says otherwise ─────── */
 .btn {
     display: inline-flex;
@@ -280,7 +315,7 @@ button { font-family: inherit; }
     background-color: var(--primary);
     border-color: var(--primary);
     color: var(--primary-text);
-    font-weight: 600;
+    font-weight: var(--strong);
 }
 .btn-primary:hover { background-color: var(--primary-hover); border-color: var(--primary-hover); }
 .btn-primary:active { background-color: var(--primary-pressed); }
@@ -314,7 +349,7 @@ aside {
 .sidebar-header { padding: 16px 20px 12px; }
 .sidebar-title {
     font-size: 0.875rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     line-height: 1.35;
     color: var(--text-primary);
 }
@@ -375,7 +410,7 @@ aside {
 .menu-category {
     margin: 16px 0 4px 8px;
     font-size: 0.6875rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: var(--text-subtle);
@@ -401,7 +436,7 @@ aside {
 .menu-item.active a {
     background-color: var(--accent-soft);
     color: var(--text-primary);
-    font-weight: 600;
+    font-weight: var(--strong);
 }
 
 .sidebar-scrim {
@@ -438,13 +473,14 @@ body.sidebar-collapsed main { margin-left: 0; }
 h1 {
     margin: 0 0 8px;
     font-size: 1.75rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     line-height: 1.25;
     letter-spacing: -0.02em;
     color: var(--text-primary);
 }
 .subtitle {
     max-width: 820px;
+    margin: 0 0 14px;
     font-size: 1.0625rem;
     line-height: 1.55;
     color: var(--text-secondary);
@@ -457,7 +493,7 @@ h1 {
     border: 1px solid var(--text-badge-border);
     border-radius: 9999px;
     font-size: 0.78rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     line-height: 1.4;
     color: var(--text-badge-text);
 }
@@ -494,7 +530,7 @@ h1 {
     padding-bottom: 10px;
     border-bottom: 2px solid var(--separator);
     font-size: 1.3125rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     line-height: 1.35;
     letter-spacing: -0.01em;
     color: var(--text-primary);
@@ -503,7 +539,7 @@ h1 {
 
 h2, h3, h4 {
     margin: 26px 0 10px;
-    font-weight: 600;
+    font-weight: var(--strong);
     line-height: 1.4;
     color: var(--text-primary);
 }
@@ -529,7 +565,7 @@ li::marker { color: var(--text-subtle); }
 .subheading {
     margin: 20px 0 8px;
     font-size: 0.75rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     text-transform: uppercase;
     letter-spacing: 0.05em;
     color: var(--text-subtle);
@@ -565,7 +601,7 @@ li::marker { color: var(--text-subtle); }
     flex-wrap: wrap;
     gap: 4px 10px;
     font-size: 1.0625rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     line-height: 1.4;
     color: var(--text-primary);
 }
@@ -578,7 +614,7 @@ li::marker { color: var(--text-subtle); }
     border-radius: 6px;
     font-family: var(--font-mono);
     font-size: 0.9375rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     color: var(--text-badge-text);
 }
 .command-card-desc-title { font-weight: 400; color: var(--text-secondary); }
@@ -598,7 +634,7 @@ li::marker { color: var(--text-subtle); }
     border: 1px solid;
     border-radius: 9999px;
     font-size: 0.6875rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     line-height: 1.4;
     letter-spacing: 0.03em;
     text-transform: uppercase;
@@ -662,7 +698,7 @@ li::marker { color: var(--text-subtle); }
     gap: 8px;
     margin-bottom: 6px;
     font-size: 0.9375rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     color: var(--text-primary);
 }
 .callout-title .icon { color: var(--text-badge-text); }
@@ -691,7 +727,7 @@ th {
     padding: 10px 14px;
     background-color: var(--bg-inset);
     border-bottom: 1px solid var(--border-color);
-    font-weight: 600;
+    font-weight: var(--strong);
     color: var(--text-soft);
 }
 td {
@@ -771,7 +807,7 @@ pre code {
     background-color: var(--primary);
     border-radius: 50%;
     font-size: 0.875rem;
-    font-weight: 600;
+    font-weight: var(--strong);
     color: var(--primary-text);
 }
 .step-content {
@@ -895,7 +931,7 @@ pre code {
     gap: 12px;
     padding: 9px 14px;
     background-color: var(--bg-inset);
-    font-weight: 600;
+    font-weight: var(--strong);
     color: var(--text-primary);
     cursor: pointer;
     user-select: none;
@@ -918,9 +954,9 @@ pre code {
 }
 .collapsible-container.open .collapsible-content { display: block; }
 
-.expr-string { color: var(--warning); font-weight: 600; }
-.expr-label { color: var(--accent); font-weight: 600; }
-.expr-struct { color: var(--success); font-weight: 600; }
+.expr-string { color: var(--warning); font-weight: var(--strong); }
+.expr-label { color: var(--accent); font-weight: var(--strong); }
+.expr-struct { color: var(--success); font-weight: var(--strong); }
 
 .empty-search-state {
     display: none;
@@ -952,11 +988,13 @@ footer p { margin-bottom: 4px; color: inherit; }
     body.sidebar-open.sidebar-collapsed aside { transform: translateX(0); }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
     .brand span { display: none; }
-    .topbar { gap: 8px; padding: 0 10px 0 8px; }
     .theme-label { display: none; }
     #theme-toggle-btn { width: 30px; padding: 0; }
+}
+
+@media (max-width: 640px) {
     h1 { font-size: 1.5rem; }
     .section-divider { font-size: 1.1875rem; margin-top: 36px; }
     .manual-card, .command-card { padding: 16px; }
@@ -967,14 +1005,17 @@ footer p { margin-bottom: 4px; color: inherit; }
     .figure-img-wrap { padding: 10px; }
 }
 
-@media (max-width: 400px) {
-    .tab { padding: 4px 9px; }
-}
-
-@media (max-width: 360px) {
-    .brand { display: none; }
-    .topbar { gap: 4px; padding: 0 6px; }
-    .tab { padding: 4px 6px; font-size: 0.75rem; }
+/* A phone: the page tabs take a second row of the top bar */
+@media (max-width: 540px) {
+    :root { --topbar-height: 82px; }
+    .topbar {
+        flex-wrap: wrap;
+        align-content: center;
+        gap: 6px 8px;
+        padding: 0 10px 0 8px;
+    }
+    .tabs { order: 3; flex: 1 0 100%; }
+    .tab { flex: 1; justify-content: center; }
 }
 
 @media print {

@@ -45,7 +45,9 @@ What `check` compares, apart from the fingerprints:
   - the same <style> or the same stylesheet link (the two pages are compared
     with each other, never with fixed contents), and the same script apart from
     the strings shown to readers (TRANSLATED_SCRIPT_STRINGS), each of which
-    must be translated;
+    must be translated; the theme and sidebar code is the shared assets/docs.js,
+    which shows the labels its button carries (TRANSLATED_ATTRIBUTES), and those
+    too must be translated;
   - the language switch: the current language is marked, the other one links
     to the sibling page, and that file exists.
 The translatable attributes (title, placeholder, aria-label) must be present
@@ -69,10 +71,16 @@ STAMP = "data-source-sha256"
 # Strings in the page's script that readers see: they differ between the pages,
 # and the translated page must not keep the English one. Any other string in the
 # script is code and must be the same.
-TRANSLATED_SCRIPT_STRINGS = ("Copied!", "Light Mode", "Dark Mode")
+TRANSLATED_SCRIPT_STRINGS = ("Copied!",)
+
+# Attributes whose text docs/assets/docs.js shows to readers: the theme button's label for
+# each mode, which the shared script reads from the page, so each page writes it in its
+# own language. They differ between the pages, and the translated page must not keep the
+# English text.
+TRANSLATED_ATTRIBUTES = ("data-label-dark", "data-label-light")
 
 # Attributes whose text is for readers: present on both pages, free to differ.
-TRANSLATABLE_ATTRIBUTES = ("title", "placeholder", "aria-label", "alt")
+TRANSLATABLE_ATTRIBUTES = ("title", "placeholder", "aria-label", "alt") + TRANSLATED_ATTRIBUTES
 
 # The characters that docs/fonts/fonts_zh_CN.css takes from the Noto Sans SC subsets: its
 # unicode-range. Everything else on a page comes from the Latin faces or the system.
@@ -670,6 +678,22 @@ def check_page(english_path, translated_path, language=DEFAULT_LANGUAGE):
                 "TRANSLATED_SCRIPT_STRINGS in docs/Docs_Translation.py lists '%s', which the English page's script no "
                 "longer has. List the strings the script shows to readers now." % text
             )
+
+    for name in TRANSLATED_ATTRIBUTES:
+        english_values = [e.attrs[name] for e in english.root.walk() if name in e.attrs]
+        translated_values = [e.attrs[name] for e in translated.root.walk() if name in e.attrs]
+        if not english_values:
+            report.problems.append(
+                "TRANSLATED_ATTRIBUTES in docs/Docs_Translation.py lists '%s', which no element of the English page has "
+                "any more. List the attributes the shared script shows to readers now." % name
+            )
+        elif len(english_values) == len(translated_values):
+            for english_value, translated_value in zip(english_values, translated_values):
+                if collapse(english_value) == collapse(translated_value):
+                    report.problems.append(
+                        "The attribute %s=\"%s\" is shown to readers by docs/assets/docs.js but is still English in the "
+                        "translation; translate it." % (name, english_value)
+                    )
 
     expected_lang = language_attribute(language)
     if english.html is not None and english.html.attrs.get("lang") != "en":

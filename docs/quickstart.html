@@ -35,7 +35,7 @@
 </head>
 <body>
     <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
-    <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+    <svg class="icon-sprite" id="icons" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
         <symbol id="i-dna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></symbol>
         <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></symbol>
         <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
@@ -57,11 +57,11 @@
     </svg>
 
     <!-- Top bar, the same on both documentation pages -->
-    <header class="topbar">
+    <header class="topbar" id="topbar">
         <button id="toggle-sidebar-btn" class="btn btn-ghost btn-icon" type="button" title="Toggle Sidebar" aria-label="Toggle Sidebar" aria-controls="sidebar" aria-expanded="true"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg></button>
         <div class="brand"><svg class="icon" aria-hidden="true"><use href="#i-dna"/></svg><span>EMAP-SSN</span></div>
         <nav class="tabs" aria-label="Documentation">
-            <a class="tab" href="quickstart.html" aria-current="page">Quick Start</a>
+            <span class="tab" aria-current="page">Quick Start</span>
             <a class="tab" href="list_of_commands.html">Command Reference</a>
         </nav>
         <div class="topbar-actions">

@@ -414,15 +414,25 @@ class ApplicationFontTests(unittest.TestCase):
         meta_html = (SRC_DIR / "web_ui" / "meta.html").read_text(encoding="utf-8")
         self.assertIn('href="/fonts/fonts.css"', meta_html)
         self.assertIn("--font-family: 'Noto Sans'", meta_html)
-        docs_html = (PROJECT_ROOT / "docs" / "list_of_commands.html").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("font-family: 'Noto Sans'", docs_html)
-        self.assertIn("font-family: 'Noto Sans Mono'", docs_html)
-        self.assertNotIn("font-family: 'Inter'", docs_html)
-        self.assertNotIn("font-family: 'Fira Code'", docs_html)
+        # The documentation pages take their fonts from docs/assets/docs.css (the
+        # Studio look shared by both pages and the Chinese copy) and link
+        # docs/fonts/fonts.css; no page sets a font of its own.
+        docs = PROJECT_ROOT / "docs"
+        docs_css = (docs / "assets" / "docs.css").read_text(encoding="utf-8")
+        self.assertIn("--font-family: 'Noto Sans'", docs_css)
+        self.assertIn("--font-mono: 'Noto Sans Mono'", docs_css)
+        self.assertNotIn("Inter", docs_css)
+        self.assertNotIn("Fira Code", docs_css)
+        docs_html = ""
+        for page in sorted([*docs.glob("*.html"), *docs.glob("*/*.html")]):
+            source = page.read_text(encoding="utf-8")
+            with self.subTest(page=page.relative_to(docs).as_posix()):
+                self.assertRegex(source, r'<link href="(\.\./)?fonts/fonts\.css" rel="stylesheet">')
+                self.assertRegex(source, r'<link href="(\.\./)?assets/docs\.css" rel="stylesheet">')
+                self.assertNotIn("font-family", source)
+            docs_html += source
 
-        embedded_sources = tools_source + agent_html + meta_html + docs_html
+        embedded_sources = tools_source + agent_html + meta_html + docs_css + docs_html
         self.assertNotIn("fonts.googleapis.com", embedded_sources)
         self.assertNotIn("fonts.gstatic.com", embedded_sources)
 

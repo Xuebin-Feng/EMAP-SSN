@@ -20,6 +20,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)">
     <title>EMAP-SSN Viewer Command Reference</title>
     <!-- Fonts are vendored locally so this page renders offline. They live in
          docs/fonts/ rather than src/, so this page is self-contained and does
@@ -28,668 +30,51 @@
     <!-- Noto Sans SC for the Simplified Chinese page and the language switch's
          label; the browser fetches it only when a Chinese character is drawn. -->
     <link href="fonts/fonts_zh_CN.css" rel="stylesheet">
-    <style>
-        :root {
-            /* Light theme (default) */
-            --bg-primary: #f8fafc;
-            --bg-secondary: #ffffff;
-            --bg-sidebar: #ffffff;
-            --bg-code: #f1f5f9;
-            --bg-code-inner: #f8fafc;
-            --text-primary: #0f172a;
-            --text-secondary: #475569;
-            --text-muted: #64748b;
-            --accent: #4f46e5;
-            --accent-glow: rgba(79, 70, 229, 0.1);
-            --border: #e2e8f0;
-            --border-hover: #cbd5e1;
-            --syntax-cmd: #0f172a;
-            --syntax-param: #0891b2;
-            --syntax-expr: #b45309;
-            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.05), 0 2px 4px -2px rgb(0 0 0 / 0.05);
-            --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
-            --badge-core-bg: #dbeafe;
-            --badge-core-text: #1e40af;
-            --badge-new-bg: #dcfce7;
-            --badge-new-text: #166534;
-            --badge-ext-bg: #f3e8ff;
-            --badge-ext-text: #6b21a8;
-            --badge-util-bg: #fef3c7;
-            --badge-util-text: #92400e;
-        }
-
-        [data-theme="dark"] {
-            /* Dark theme */
-            --bg-primary: #0b0f19;
-            --bg-secondary: #111827;
-            --bg-sidebar: #111827;
-            --bg-code: #1f2937;
-            --bg-code-inner: #111827;
-            --text-primary: #f9fafb;
-            --text-secondary: #d1d5db;
-            --text-muted: #9ca3af;
-            --accent: #818cf8;
-            --accent-glow: rgba(129, 140, 248, 0.15);
-            --border: #374151;
-            --border-hover: #4b5563;
-            --syntax-cmd: #f9fafb;
-            --syntax-param: #22d3ee;
-            --syntax-expr: #fbbf24;
-            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.3), 0 2px 4px -2px rgb(0 0 0 / 0.3);
-            --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.3), 0 4px 6px -4px rgb(0 0 0 / 0.3);
-            --badge-core-bg: #1e3a8a;
-            --badge-core-text: #93c5fd;
-            --badge-new-bg: #064e3b;
-            --badge-new-text: #6ee7b7;
-            --badge-ext-bg: #581c87;
-            --badge-ext-text: #d8b4fe;
-            --badge-util-bg: #78350f;
-            --badge-util-text: #fde68a;
-        }
-
-        /* Basic Reset */
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: 'Noto Sans', system-ui, -apple-system, sans-serif;
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            display: flex;
-            min-height: 100vh;
-            line-height: 1.6;
-            transition: background-color 0.3s ease, color 0.3s ease;
-        }
-
-        /* Sidebar Styling */
-        aside {
-            width: 320px;
-            background-color: var(--bg-sidebar);
-            border-right: 1px solid var(--border);
-            display: flex;
-            flex-direction: column;
-            position: fixed;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            z-index: 100;
-            overflow: visible !important;
-            transition: background-color 0.3s ease, border-color 0.3s ease, transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .sidebar-header {
-            padding: 24px;
-            border-bottom: 1px solid var(--border);
-        }
-
-        .sidebar-title {
-            font-size: 1.15rem;
-            font-weight: 700;
-            margin-bottom: 4px;
-            letter-spacing: -0.025em;
-        }
-
-        .sidebar-subtitle {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-        }
-
-        .toggle-sidebar-btn {
-            position: absolute;
-            top: 24px;
-            right: -30px;
-            width: 30px;
-            height: 48px;
-            background-color: var(--bg-sidebar);
-            border: 1px solid var(--border);
-            border-left: none;
-            border-radius: 0 8px 8px 0;
-            color: var(--text-secondary);
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 101;
-            box-shadow: 4px 2px 6px -1px rgb(0 0 0 / 0.05);
-            transition: all 0.2s ease, background-color 0.3s ease, border-color 0.3s ease;
-        }
-
-        .toggle-sidebar-btn:hover {
-            background-color: var(--bg-primary);
-            color: var(--accent);
-            border-color: var(--border-hover);
-        }
-
-        .toggle-sidebar-btn::after {
-            content: "«";
-            font-size: 1.1rem;
-            font-weight: bold;
-        }
-
-        body.sidebar-collapsed .toggle-sidebar-btn::after {
-            content: "»";
-        }
-
-        body.sidebar-collapsed aside {
-            transform: translateX(-100%);
-        }
-
-        body.sidebar-collapsed main {
-            margin-left: 0;
-        }
-
-        body.sidebar-collapsed .expand-sidebar-btn {
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        .search-container {
-            padding: 16px 24px;
-            border-bottom: 1px solid var(--border);
-            position: relative;
-        }
-
-        .search-input {
-            width: 100%;
-            padding: 10px 14px 10px 36px;
-            font-size: 0.9rem;
-            background-color: var(--bg-primary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            color: var(--text-primary);
-            font-family: inherit;
-            outline: none;
-            transition: all 0.2s ease;
-        }
-
-        .search-input:focus {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 2px var(--accent-glow);
-        }
-
-        .search-icon {
-            position: absolute;
-            left: 36px;
-            top: 50%;
-            transform: translateY(-50%);
-            color: var(--text-muted);
-            pointer-events: none;
-        }
-
-        .sidebar-menu {
-            flex: 1;
-            overflow-y: auto;
-            padding: 20px 24px;
-        }
-
-        .menu-category {
-            font-size: 0.75rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            margin: 18px 0 8px 0;
-        }
-
-        .menu-category:first-of-type {
-            margin-top: 0;
-        }
-
-        .menu-list {
-            list-style: none;
-        }
-
-        .menu-item a {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 8px 12px;
-            font-size: 0.9rem;
-            color: var(--text-secondary);
-            text-decoration: none;
-            border-radius: 6px;
-            margin-bottom: 2px;
-            transition: all 0.2s ease;
-        }
-
-        .menu-item a:hover {
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-        }
-
-        .menu-item.active a {
-            background-color: var(--accent-glow);
-            color: var(--accent);
-            font-weight: 500;
-        }
-
-        .menu-item-badge {
-            font-size: 0.65rem;
-            font-weight: 700;
-            padding: 2px 6px;
-            border-radius: 4px;
-            text-transform: uppercase;
-        }
-
-        /* Sidebar Footer Styling */
-        .sidebar-footer {
-            padding: 16px 24px;
-            border-top: 1px solid var(--border);
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: space-between;
-            align-items: stretch;
-            gap: 8px;
-        }
-
-        .footer-link {
-            flex: 1 1 100%;
-            justify-content: center;
-            text-decoration: none;
-        }
-
-        /* Language switch: two links in one bordered pill, the current one marked */
-        .lang-switch {
-            display: inline-flex;
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            overflow: hidden;
-            font-size: 0.8rem;
-        }
-
-        .lang-option {
-            display: flex;
-            align-items: center;
-            padding: 0 10px;
-            color: var(--text-secondary);
-            text-decoration: none;
-            transition: all 0.2s ease;
-        }
-
-        .lang-option + .lang-option {
-            border-left: 1px solid var(--border);
-        }
-
-        a.lang-option:hover {
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-        }
-
-        a.lang-option:focus-visible {
-            outline: 2px solid var(--accent);
-            outline-offset: -2px;
-        }
-
-        .lang-option.current {
-            background-color: var(--accent-glow);
-            color: var(--accent);
-            font-weight: 600;
-        }
-
-        .theme-toggle-btn {
-            background: none;
-            border: 1px solid var(--border);
-            padding: 8px 12px;
-            border-radius: 6px;
-            color: var(--text-secondary);
-            font-size: 0.85rem;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            font-family: inherit;
-            transition: all 0.2s ease;
-        }
-
-        .theme-toggle-btn:hover {
-            border-color: var(--border-hover);
-            color: var(--text-primary);
-            background-color: var(--bg-primary);
-        }
-
-        /* Main Content Styling */
-        main {
-            margin-left: 320px;
-            flex: 1;
-            padding: 40px 60px;
-            display: flex;
-            justify-content: center;
-            transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .content-wrapper {
-            width: 100%;
-            max-width: 960px;
-        }
-
-        header {
-            margin-bottom: 40px;
-            border-bottom: 1px solid var(--border);
-            padding-bottom: 24px;
-        }
-
-        h1 {
-            font-size: 2.25rem;
-            font-weight: 800;
-            letter-spacing: -0.03em;
-            margin-bottom: 8px;
-        }
-
-        .subtitle {
-            font-size: 1.1rem;
-            color: var(--text-secondary);
-            font-weight: 400;
-        }
-
-        /* Document Sections */
-        .section-divider {
-            font-size: 1.6rem;
-            font-weight: 800;
-            letter-spacing: -0.025em;
-            margin: 48px 0 24px 0;
-            padding-bottom: 8px;
-            border-bottom: 2px solid var(--border);
-            color: var(--text-primary);
-        }
-
-        .section-divider:first-of-type {
-            margin-top: 0;
-        }
-
-        /* Command Cards */
-        .command-card {
-            background-color: var(--bg-secondary);
-            border: 1px solid var(--border);
-            border-radius: 12px;
-            padding: 24px 30px;
-            margin-bottom: 24px;
-            box-shadow: var(--shadow);
-            transition: border-color 0.3s ease, box-shadow 0.3s ease, background-color 0.3s ease;
-        }
-
-        .command-card:hover {
-            border-color: var(--border-hover);
-            box-shadow: var(--shadow-md);
-        }
-
-        .command-card-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 16px;
-        }
-
-        .command-card-title {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-size: 1.35rem;
-            font-weight: 700;
-            letter-spacing: -0.02em;
-        }
-
-        .command-card-name {
-            font-family: 'Noto Sans Mono', monospace;
-            background-color: var(--bg-code);
-            padding: 2px 8px;
-            border-radius: 6px;
-            font-size: 1.2rem;
-            color: var(--accent);
-        }
-
-        .command-card-desc-title {
-            color: var(--text-secondary);
-            font-weight: 400;
-        }
-
-        /* Badges */
-        .badge {
-            font-size: 0.7rem;
-            font-weight: 700;
-            padding: 4px 10px;
-            border-radius: 9999px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-        }
-
-        .badge-core { background-color: var(--badge-core-bg); color: var(--badge-core-text); }
-        .badge-new { background-color: var(--badge-new-bg); color: var(--badge-new-text); }
-        .badge-ext { background-color: var(--badge-ext-bg); color: var(--badge-ext-text); }
-        .badge-util { background-color: var(--badge-util-bg); color: var(--badge-util-text); }
-
-        /* Syntax Boxes */
-        .syntax-box {
-            background-color: var(--bg-code);
-            border-left: 4px solid var(--accent);
-            border-radius: 0 8px 8px 0;
-            padding: 14px 20px;
-            margin: 16px 0;
-            font-family: 'Noto Sans Mono', monospace;
-            font-size: 0.9rem;
-            position: relative;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .syntax-content {
-            white-space: pre-wrap;
-            color: var(--syntax-cmd);
-        }
-
-        .copy-btn {
-            background-color: var(--bg-secondary);
-            border: 1px solid var(--border);
-            color: var(--text-secondary);
-            padding: 4px 10px;
-            border-radius: 6px;
-            font-size: 0.75rem;
-            cursor: pointer;
-            transition: all 0.2s ease;
-            font-family: inherit;
-        }
-
-        .copy-btn:hover {
-            background-color: var(--bg-primary);
-            color: var(--text-primary);
-            border-color: var(--border-hover);
-        }
-
-        .copy-btn.copied {
-            background-color: var(--badge-new-bg);
-            color: var(--badge-new-text);
-            border-color: transparent;
-        }
-
-        /* Description Elements */
-        p, li {
-            font-size: 0.95rem;
-            color: var(--text-secondary);
-            margin-bottom: 12px;
-        }
-
-        p strong {
-            color: var(--text-primary);
-        }
-
-        p code, li code {
-            font-family: 'Noto Sans Mono', monospace;
-            background-color: var(--bg-code);
-            padding: 2px 5px;
-            border-radius: 4px;
-            font-size: 0.85rem;
-            color: var(--text-primary);
-        }
-
-        /* Subsections (Arguments, Modes, etc.) */
-        .subheading {
-            font-size: 1rem;
-            font-weight: 700;
-            margin: 20px 0 10px 0;
-            color: var(--text-primary);
-            text-transform: uppercase;
-            font-size: 0.85rem;
-            letter-spacing: 0.05em;
-        }
-
-        ul, ol {
-            margin-left: 20px;
-            margin-bottom: 16px;
-        }
-
-        li {
-            margin-bottom: 6px;
-        }
-
-        /* Callouts / Warnings */
-        .callout {
-            background-color: var(--bg-code);
-            border: 1px dashed var(--border);
-            border-radius: 8px;
-            padding: 16px 20px;
-            margin: 16px 0;
-        }
-
-        .callout-title {
-            font-weight: 600;
-            margin-bottom: 6px;
-            color: var(--text-primary);
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        /* Examples list styling */
-        .example-list {
-            list-style: none;
-            margin-left: 0;
-            margin-top: 10px;
-        }
-
-        .example-item {
-            background-color: var(--bg-code-inner);
-            border: 1px solid var(--border);
-            border-radius: 6px;
-            padding: 8px 16px;
-            margin-bottom: 8px;
-            font-family: 'Noto Sans Mono', monospace;
-            font-size: 0.85rem;
-            color: var(--text-primary);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        /* Interactive Collapsible / Tab */
-        .collapsible-container {
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            margin-bottom: 12px;
-            overflow: hidden;
-        }
-
-        .collapsible-header {
-            background-color: var(--bg-code);
-            padding: 12px 20px;
-            font-weight: 600;
-            cursor: pointer;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            user-select: none;
-        }
-
-        .collapsible-header::after {
-            content: "▼";
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            transition: transform 0.2s ease;
-        }
-
-        .collapsible-container.open .collapsible-header::after {
-            transform: rotate(180deg);
-        }
-
-        .collapsible-content {
-            padding: 16px 20px;
-            background-color: var(--bg-secondary);
-            display: none;
-            border-top: 1px solid var(--border);
-        }
-
-        .collapsible-container.open .collapsible-content {
-            display: block;
-        }
-
-        /* Expression Interpreter Syntax Highlighted Classes */
-        .expr-string { color: var(--syntax-expr); font-weight: 500; }
-        .expr-label { color: var(--accent); font-weight: 500; }
-        .expr-struct { color: var(--syntax-param); font-weight: 500; }
-
-        /* Smooth scroll */
-        html {
-            scroll-behavior: smooth;
-        }
-
-        /* Active highlight styling */
-        .command-card.highlight-card {
-            border-color: var(--accent);
-            box-shadow: 0 0 0 3px var(--accent-glow);
-        }
-
-        /* Empty state search */
-        .empty-search-state {
-            display: none;
-            text-align: center;
-            padding: 40px;
-            color: var(--text-muted);
-            font-size: 1.1rem;
-        }
-
-        /* Responsive Layout */
-        @media (max-width: 992px) {
-            body {
-                flex-direction: column;
-            }
-            aside {
-                width: 100%;
-                height: auto;
-                position: relative;
-                border-right: none;
-                border-bottom: 1px solid var(--border);
-            }
-            .sidebar-menu {
-                max-height: 250px;
-            }
-            main {
-                margin-left: 0;
-                padding: 30px 20px;
-            }
-            .toggle-sidebar-btn, .expand-sidebar-btn {
-                display: none !important;
-            }
-            body.sidebar-collapsed aside {
-                transform: none !important;
-            }
-            body.sidebar-collapsed main {
-                margin-left: 0 !important;
-            }
-        }
-    </style>
+    <link href="assets/docs.css" rel="stylesheet">
+    <!-- The shared documentation style (Studio, as the desktop windows and the
+         Viewer's web pages), also in docs/assets/. The script sets the theme before
+         the page is drawn, so a dark page never shows light first. -->
+    <script src="assets/docs.js"></script>
 </head>
 <body>
 
-    <aside>
+    <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
+    <svg class="icon-sprite" id="icons" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+        <symbol id="i-dna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></symbol>
+        <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16"/><path d="M4 12h16"/><path d="M4 19h16"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
+        <symbol id="i-search" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+        <symbol id="i-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+        <symbol id="i-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11.017 2.814a1 1 0 0 1 1.966 0l1.051 5.558a2 2 0 0 0 1.594 1.594l5.558 1.051a1 1 0 0 1 0 1.966l-5.558 1.051a2 2 0 0 0-1.594 1.594l-1.051 5.558a1 1 0 0 1-1.966 0l-1.051-5.558a2 2 0 0 0-1.594-1.594l-5.558-1.051a1 1 0 0 1 0-1.966l5.558-1.051a2 2 0 0 0 1.594-1.594z"/><path d="M20 2v4"/><path d="M22 4h-4"/><circle cx="4" cy="20" r="2"/></symbol>
+    </svg>
+
+    <!-- Top bar, the same on both documentation pages -->
+    <header class="topbar" id="topbar">
+        <button id="toggle-sidebar-btn" class="btn btn-ghost btn-icon" type="button" title="Toggle Sidebar" aria-label="Toggle Sidebar" aria-controls="sidebar" aria-expanded="true"><svg class="icon" aria-hidden="true"><use href="#i-menu"/></svg></button>
+        <div class="brand"><svg class="icon" aria-hidden="true"><use href="#i-dna"/></svg><span>EMAP-SSN</span></div>
+        <nav class="tabs" aria-label="Documentation">
+            <a class="tab" href="quickstart.html" title="Go to Quick Start Manual">Quick Start</a>
+            <span class="tab" aria-current="page">Command Reference</span>
+        </nav>
+        <div class="topbar-actions">
+            <nav class="lang-switch" aria-label="Language">
+                <span class="lang-option current" lang="en" aria-current="page">English</span>
+                <a class="lang-option" lang="zh-CN" hreflang="zh-CN" href="zh_CN/list_of_commands.html" title="Simplified Chinese">简体中文</a>
+            </nav>
+            <button id="theme-toggle-btn" class="btn btn-ghost" type="button" title="Toggle Dark/Light Mode" data-label-dark="Dark Mode" data-label-light="Light Mode"><svg class="icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="theme-label">Dark Mode</span></button>
+        </div>
+    </header>
+
+    <aside id="sidebar">
         <div class="sidebar-header">
             <div class="sidebar-title">EMAP-SSN Command Reference</div>
             <div class="sidebar-subtitle">Interactive Manual &amp; Setup Guide</div>
         </div>
         <div class="search-container">
-            <span class="search-icon">🔍</span>
-            <input type="text" class="search-input" id="search-input" placeholder="Search commands...">
+            <svg class="icon search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+            <input type="text" class="search-input" id="search-input" placeholder="Search commands..." aria-label="Search commands">
         </div>
         <div class="sidebar-menu">
             <div class="menu-category">Navigation</div>
@@ -751,31 +136,17 @@
                 <li class="menu-item" data-target="cmd-agent"><a href="#cmd-agent"><span>agent</span></a></li>
             </ul>
         </div>
-        <div class="sidebar-footer">
-            <button class="theme-toggle-btn" id="theme-toggle-btn">
-                <span id="theme-icon">🌙</span>
-                <span id="theme-text">Dark Mode</span>
-            </button>
-            <nav class="lang-switch" aria-label="Language">
-                <span class="lang-option current" lang="en" aria-current="page">English</span>
-                <a class="lang-option" lang="zh-CN" hreflang="zh-CN" href="zh_CN/list_of_commands.html" title="Simplified Chinese">简体中文</a>
-            </nav>
-            <a href="quickstart.html" class="theme-toggle-btn footer-link" title="Go to Quick Start Manual">
-                <span>📘 Quick Start</span>
-            </a>
-        </div>
-        <button class="toggle-sidebar-btn" id="toggle-sidebar-btn" title="Toggle Sidebar"></button>
     </aside>
 
     <main>
         <div class="content-wrapper">
-            <header id="docs-intro">
+            <header class="page-header" id="docs-intro">
                 <h1>EMAP-SSN Viewer</h1>
                 <div class="subtitle">Command Line Interface (CLI) Manual &amp; Reference Guide</div>
-                <p style="margin-top: 16px; font-size: 1rem; color: var(--text-secondary);">
+                <p>
                     This reference documents all available visual, physical, and community-clustering commands. Use the sidebar to search or filter commands dynamically. Core commands operate on the visual state in memory, while external scripts execute advanced bioinformatics algorithms and export outputs to the disk.
                 </p>
-                <p style="font-size: 1rem; color: var(--text-secondary);">
+                <p>
                     <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the terminal; <code>export</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference.
                 </p>
             </header>
@@ -784,8 +155,8 @@
             <div class="section-divider" id="sec-expression">Expression Interpreter Syntax Rules</div>
             <div class="command-card" id="expr-interpreter">
                 <p><strong>Overview:</strong> The Common Expression Interpreter is the underlying engine that parses text queries into mathematical selections. It is used by <code>color</code>, <code>group</code>, <code>hide</code>, <code>logo</code>, <code>query</code>, <code>select</code>, and <code>spectrum</code>, and allows complex, multi-layered targeting of network nodes.</p>
-                <div class="callout">
-                    <div class="callout-title">⚠️ Important Space Rule</div>
+                <div class="callout callout-warn">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Important Space Rule</div>
                     <p>Expressions must be written continuously <strong>without spaces</strong>. Spaces are strictly reserved to separate different commands, parameters, or attributes.</p>
                 </div>
                 
@@ -869,8 +240,8 @@
                     <li><strong>() (Grouping):</strong> Parentheses can be used to enforce order of operations, e.g., <code>!(#cluster_1#|#cluster_2#)</code>.</li>
                     <li><strong>Precedence:</strong> <code>!</code> binds tightest, then <code>&amp;</code>, then <code>^</code>, then <code>|</code>. Parenthesize when mixing operators.</li>
                 </ul>
-                <div class="callout">
-                    <div class="callout-title">Strict Context Validation</div>
+                <div class="callout callout-note">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Strict Context Validation</div>
                     <p>Before an expression is applied, the interpreter verifies that every referenced cluster, noise label, custom group, displayed alignment position, metadata property, and header-list file exists in the current SSN context. Metadata comparisons must also use a value and operator compatible with the property type.</p>
                     <p>If any reference or predicate is invalid, the entire submitted command is aborted and no network changes are applied. A concise error appears in the command overlay, while the terminal includes the expression and available valid targets. An existing target that legitimately matches zero nodes is not an expression error.</p>
                 </div>
@@ -973,8 +344,8 @@
                     <li><strong>With <code>single</code> or <code>free</code>:</strong> Hides all visible nodes that have no active edges at the current similarity threshold. These, like <code>reset</code>, take no other arguments: a word after one is refused.</li>
                     <li><strong>With <code>expression</code>:</strong> Hides all visible nodes matching the logical expression (e.g. <code>hide #noise#</code>). The expression is exactly one word without spaces: more words are refused, so a quoted header with a space (<code>"node 1"</code>) is refused rather than matching nothing.</li>
                 </ul>
-                <div class="callout">
-                    <div class="callout-title">💡 Unhiding Nodes</div>
+                <div class="callout callout-tip">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-sparkles"/></svg>Unhiding Nodes</div>
                     <p>To unhide nodes and restore full visibility, use the <code>reset hide</code> command.</p>
                 </div>
                 <div class="subheading">Examples</div>
@@ -1110,8 +481,8 @@
                     <li><strong>Without arguments:</strong> Opens a file dialog explorer to manually select a FASTA or H5 MSA file.</li>
                     <li><strong><code>filepath</code>:</strong> A direct absolute or relative file path to an MSA file (e.g. <code>Input_Files/Multiple_Alignments/SeqSet_alignment.fasta</code>).</li>
                 </ul>
-                <div class="callout">
-                    <div class="callout-title">⚠️ Loading Rules &amp; Integrity Checks</div>
+                <div class="callout callout-warn">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Loading Rules &amp; Integrity Checks</div>
 <p>The MSA may contain all, some, or none of the sequence headers currently plotted in the viewer. Coverage is matched by exact full headers. Missing nodes remain visible and usable for topology and metadata operations, but they are excluded from alignment-dependent analyses. A partial load prints a red terminal warning with coverage details; only unreadable or malformed alignment files cause rollback.</p>
 <p>For amino-acid expressions, a missing alignment row is treated as unknown: neither <code>P106</code> nor <code>!P106</code> matches an unaligned node. Independent header, metadata, cluster, group, or file clauses can still match that node through normal Boolean logic.</p>
                 </div>
@@ -1141,8 +512,8 @@
                     <li><strong>Without arguments:</strong> Opens a file dialog explorer in the Embedding Directory to manually select an H5 embedding file.</li>
                     <li><strong><code>filepath</code>:</strong> A direct absolute or relative file path to an embedding file, or a file name inside the Embedding Directory; the <code>.h5</code> extension may be omitted (e.g. <code>Embeddings/SeqSet_[esm2_t12_35M_UR50D]_embeddings.h5</code>).</li>
                 </ul>
-                <div class="callout">
-                    <div class="callout-title">⚠️ Loading Rules &amp; Integrity Checks</div>
+                <div class="callout callout-warn">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Loading Rules &amp; Integrity Checks</div>
 <p>The embedding may contain all, some, or none of the sequence headers currently plotted in the viewer. A node is covered when the file holds its exact full header with the identical sequence. Missing nodes, and nodes whose sequence differs from the file's, remain visible and usable for topology and metadata operations, but they are excluded from embedding-dependent analyses. The command reports how many nodes are embedded and the embedding's model, width and saving mode; a partial load also prints a red terminal warning with coverage details. Only an unreadable, malformed or incomplete embedding file causes rollback, which restores the previous embedding.</p>
 <p>A network built with another model than the embedding's is accepted, with a note: embedding commands use the embedding's model.</p>
                 </div>
@@ -1168,8 +539,8 @@
                 </div>
                 <p><strong>Overview:</strong> Queries amino-acid distributions at explicit reference positions or searches all reference positions for residue-frequency criteria. Both modes can operate globally or on an expression-selected subset.</p>
                 
-                <div class="callout">
-                    <div class="callout-title">📋 Prerequisites</div>
+                <div class="callout callout-note">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Prerequisites</div>
                     <p>Requires a loaded MSA with at least one row mapped to the current network. With an active reference, positions use reference-anchored numbering and the session offset. Without one, the command remains available in occupancy mode and labels retained alignment columns sequentially from 1; the offset is inactive.</p>
                 </div>
 
@@ -1463,8 +834,8 @@
                 <p><strong>Overview:</strong> The label command performs Differential Sequence Analysis. It is designed to identify Specificity-Determining Positions (SDPs)—amino acids that are highly conserved within a specific cluster or group, but vary across the broader protein family. It exports a rich, color-coded Microsoft Excel (.xlsx) report detailing exactly which residues define your sub-families.</p>
                 <p>Label calculation and workbook generation run in the viewer's shared background-job queue. The command captures its alignment mapping, cluster/group memberships, reference numbering, parameters, and output metadata when submitted, so later viewer changes do not alter a queued report. Label and logo jobs execute sequentially; queue and completion messages are shown in the command overlay and terminal.</p>
                 
-                <div class="callout">
-                    <div class="callout-title">📋 Prerequisites</div>
+                <div class="callout callout-note">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Prerequisites</div>
                     <p>Because this tool analyzes sequence data rather than just network topology, it requires:
                     <br>1. An active alignment (MSA) loaded in the viewer session.
                     <br>2. A reference sequence set via the <code>reference</code> command, which anchors residue numbers.</p>
@@ -1717,8 +1088,8 @@
                 <p><strong>Overview:</strong> The logo command generates publication-ready sequence logos (in vector .svg or transparent .png format) to visually represent amino acid conservation across a specific subset of your network. By combining this tool with the Common Expression Interpreter, you can instantly compare the binding motifs, active sites, or structural variations of different protein sub-families directly from the viewer.</p>
                 <p>Logo calculation and file generation run in the viewer's shared background-job queue so the viewer remains interactive. The selected aligned sequences, mapped positions, reference, and rendering options are captured when the command is submitted. Exact redundancy calculations use a balanced parallel Numba kernel when available and fall back to NumPy otherwise. Label and logo jobs execute sequentially; queue and completion messages are shown in the command overlay and terminal.</p>
                 
-                <div class="callout">
-                    <div class="callout-title">📋 Prerequisites</div>
+                <div class="callout callout-note">
+                    <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Prerequisites</div>
                     <p>Requires a loaded MSA with at least one row mapped to the current network. With an active reference, positions use reference-anchored numbering and the session offset. Without one, the command uses the occupancy-mode labels numbered sequentially from 1, the same positions <code>query</code> reports, and the axis reads &ldquo;occupancy numbering&rdquo;.</p>
                 </div>
 
@@ -1791,6 +1162,8 @@
         </div> <!-- end .content-wrapper -->
     </main>
 
+    <!-- The theme, the sidebar and the highlight of the section being read are in
+         assets/docs.js. -->
     <script>
         // Copy to clipboard function
         function copyText(text, btnElement) {
@@ -1883,94 +1256,19 @@
                 div.style.display = visibleChildren ? 'block' : 'none';
             });
 
+            // A category with no command left under it goes too.
+            document.querySelectorAll('.sidebar-menu .menu-list').forEach(list => {
+                const category = list.previousElementSibling;
+                if (category && category.classList.contains('menu-category')) {
+                    const any = Array.from(list.children).some(item => item.style.display !== 'none');
+                    category.style.display = any ? '' : 'none';
+                }
+            });
+
             emptyState.style.display = hasMatches || query === "" ? 'none' : 'block';
         });
 
-        // Safe localStorage access wrappers for file:// protocol compatibility
-        function safeGetTheme() {
-            try {
-                return localStorage.getItem('theme');
-            } catch (e) {
-                return null;
-            }
-        }
-
-        function safeSetTheme(theme) {
-            try {
-                localStorage.setItem('theme', theme);
-            } catch (e) {
-                // Ignore storage errors in file:// environments
-            }
-        }
-
-        // Theme Toggle Logic
-        const themeBtn = document.getElementById('theme-toggle-btn');
-        const themeIcon = document.getElementById('theme-icon');
-        const themeText = document.getElementById('theme-text');
-        
-        function setTheme(theme) {
-            document.documentElement.setAttribute('data-theme', theme);
-            safeSetTheme(theme);
-            if (theme === 'dark') {
-                themeIcon.innerText = "☀️";
-                themeText.innerText = "Light Mode";
-            } else {
-                themeIcon.innerText = "🌙";
-                themeText.innerText = "Dark Mode";
-            }
-        }
-
-        // Initialize theme based on local storage or system preference
-        const savedTheme = safeGetTheme();
-        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        
-        if (savedTheme) {
-            setTheme(savedTheme);
-        } else {
-            setTheme(systemPrefersDark ? 'dark' : 'light');
-        }
-
-        // Listen for system theme changes dynamically
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-            if (!safeGetTheme()) {
-                setTheme(e.matches ? 'dark' : 'light');
-            }
-        });
-
-        themeBtn.addEventListener('click', () => {
-            const currentTheme = document.documentElement.getAttribute('data-theme');
-            setTheme(currentTheme === 'dark' ? 'light' : 'dark');
-        });
-
-        // Sidebar active link highlighting and smooth scroll behavior
-        const sections = document.querySelectorAll('section, header, div.section-divider');
         const navMenuItems = document.querySelectorAll('.menu-item');
-        const options = {
-            root: null,
-            threshold: 0.1,
-            rootMargin: "-10% 0px -70% 0px"
-        };
-
-        const observer = new IntersectionObserver((entries) => {
-            entries.forEach(entry => {
-                if (entry.isIntersecting) {
-                    const id = entry.target.getAttribute('id');
-                    if (id) {
-                        navMenuItems.forEach(item => {
-                            if (item.getAttribute('data-target') === id) {
-                                item.classList.add('active');
-                            } else {
-                                item.classList.remove('active');
-                            }
-                        });
-                    }
-                }
-            });
-        }, options);
-
-        sections.forEach(section => {
-            observer.observe(section);
-        });
 
         // Language switch: the other language's page opens at the section being read,
         // the last menu target that has reached the top fifth of the window (or, at the
@@ -2025,13 +1323,6 @@
 
         window.addEventListener('hashchange', highlightTargetCard);
         window.addEventListener('load', highlightTargetCard);
-
-        // Sidebar Toggle Logic
-        const toggleSidebarBtn = document.getElementById('toggle-sidebar-btn');
-
-        toggleSidebarBtn.addEventListener('click', () => {
-            document.body.classList.toggle('sidebar-collapsed');
-        });
     </script>
 </body>
 </html>
