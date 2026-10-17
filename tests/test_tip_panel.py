@@ -44,11 +44,13 @@ from PySide6.QtWidgets import (  # noqa: E402
     QWidget,
 )
 
-from desktop.Desktop_App import MONOSPACE_QSS_FONT_STACK, ToggleSwitch  # noqa: E402
+from desktop.Desktop_App import MONOSPACE_QSS_FONT_STACK, NAME_ITEM_ROLE, ToggleSwitch  # noqa: E402
 from desktop.Studio_Theme import TOKENS, add_hint_icon, status_color  # noqa: E402
 from desktop.Tip_Panel import (  # noqa: E402
     MISSING,
+    UNBOUNDED,
     Code,
+    CodeList,
     Field,
     FieldTip,
     LiveNote,
@@ -58,8 +60,10 @@ from desktop.Tip_Panel import (  # noqa: E402
     TipOption,
     change_signal,
     chip,
+    free_bytes,
     is_whole,
     model_html,
+    nearest_existing_folder,
     plain,
     resolve,
     rich,
@@ -67,6 +71,8 @@ from desktop.Tip_Panel import (  # noqa: E402
     swatch_mark,
     tip_html,
     tip_plain,
+    tooltip_text,
+    with_note,
     wrappable,
 )
 from tests.config_gui_loader import load_config_namespace, open_config_window  # noqa: E402
@@ -189,6 +195,16 @@ class InlineTextTests(WithApplication):
         self.assertEqual(plain_text(shown), f"Now: {hostile}")
         self.assertEqual(chips(rich("Now: {value}", {"value": Code(hostile)})), [hostile])
 
+    def test_a_list_of_codes_is_several_chips_in_a_row(self):
+        names = CodeList(["NVIDIA A100", "<b>CPU</b>"])
+        shown = rich("Detected devices: {devices}.", {"devices": names})
+        self.assertEqual(chips(shown), ["NVIDIA A100", "<b>CPU</b>"])
+        self.assertEqual(plain_text(shown), "Detected devices: NVIDIA A100, <b>CPU</b>.")
+        self.assertEqual(plain("Detected devices: {devices}.", {"devices": names}), plain_text(shown))
+        # One name is one chip, none is nothing.
+        self.assertEqual(chips(rich("{devices}", {"devices": CodeList(["Only"])})), ["Only"])
+        self.assertEqual(chips(rich("{devices}", {"devices": CodeList()})), [])
+
     def test_a_placeholder_takes_a_format_spec_and_an_unknown_one_stays(self):
         self.assertEqual(plain("{count:,} of {total}", {"count": 12345}), "12,345 of {total}")
 
@@ -300,6 +316,63 @@ class ResolveTests(WithApplication):
         )
         self.assertNotIn("Range", dict(resolve(FieldTip(Tip("x"), Field(widget=QLineEdit()))).facts))
 
+    def test_a_bound_that_means_no_limit_is_left_out_and_the_programs_own_limits_win(self):
+        def range_of(field):
+            return dict(resolve(FieldTip(Tip("x"), field)).facts).get("Range")
+
+        wide = QSpinBox()
+        wide.setRange(-999999, 999999)
+        self.assertIsNone(range_of(Field(widget=wide)))
+        self.assertEqual(range_of(Field(widget=wide, limits=(0, 10))), "0 – 10")
+        # Without a spin box the limits are shown as numbers.
+        self.assertEqual(range_of(Field(limits=(0.5, 2))), "0.5 – 2")
+        self.assertEqual(range_of(Field(limits=(0, UNBOUNDED - 1))), f"0 – {UNBOUNDED - 1}")
+        self.assertIsNone(range_of(Field(limits=(0, UNBOUNDED))))
+        self.assertIsNone(range_of(Field(limits=(-UNBOUNDED, 5))))
+        # None says the program has no limits, whatever the spin box could take.
+        narrow = QSpinBox()
+        narrow.setRange(1, 5)
+        self.assertEqual(range_of(Field(widget=narrow)), "1 – 5")
+        self.assertIsNone(range_of(Field(widget=narrow, limits=None)))
+
+    def test_a_file_dropdown_and_an_unset_dropdown_show_no_default(self):
+        def default_of(field):
+            return dict(resolve(FieldTip(Tip("x"), field)).facts).get("Default")
+
+        files = combo_of(("a_embeddings.h5", "a_embeddings.h5"))
+        folder_and_files = QWidget()
+        folder_and_files.combo = files  # a file dropdown with its folder button
+        self.assertIsNone(default_of(Field(widget=folder_and_files, default="Sample_[E1_RA]_embeddings.h5")))
+        self.assertIsNone(default_of(Field(widget=files, default="")))
+        self.assertIsNone(default_of(Field(widget=files, default=None)))
+        # A text field's empty default is still a fact, and so is a dropdown's real choice.
+        self.assertEqual(default_of(Field(widget=QLineEdit(), default="")), "(empty)")
+        self.assertEqual(default_of(Field(widget=files, default="a_embeddings.h5")), "a_embeddings.h5")
+
+    def test_a_switch_names_its_options_by_its_own_words_for_the_states(self):
+        tip = Tip("x", options=(TipOption(True, "Picks it."), TipOption(False, "Leaves it.")))
+        self.assertEqual(
+            resolve(FieldTip(tip, Field(widget=ToggleSwitch("AUTO ON", "AUTO OFF")))).options,
+            [("AUTO ON", "Picks it."), ("AUTO OFF", "Leaves it.")],
+        )
+        # Without a switch a state is named as it is stored.
+        self.assertEqual(resolve(FieldTip(tip, Field())).options, [("True", "Picks it."), ("False", "Leaves it.")])
+        # A dropdown holding a bool names it as it lists it.
+        combo = combo_of(("Yes", True), ("No", False))
+        self.assertEqual(
+            [label for label, _ in resolve(FieldTip(tip, Field(widget=combo))).options], ["Yes", "No"]
+        )
+
+    def test_a_tip_without_a_summary_is_its_title_and_facts(self):
+        entry = FieldTip(Tip(""), Field(key="SOME_KEY", label=QLabel("Some Field:"), default=3))
+        model = resolve(entry)
+        self.assertEqual((model.title, model.summary, model.details, model.options), ("Some Field", "", [], []))
+        self.assertEqual(model.facts, [("Default", "3"), ("Setting", "SOME_KEY")])
+        shown = tip_html(entry)
+        self.assertEqual(re.sub(r"\s+", " ", plain_text(shown)), "Some Field Default 3 Setting SOME_KEY")
+        self.assertEqual(chips(shown), ["3", "SOME_KEY"])
+        self.assertEqual(tip_plain(entry), "Some Field\nDefault: 3. Setting: SOME_KEY.")
+
     def test_the_settings_key_is_a_fact_and_facts_can_be_left_out(self):
         field = Field(key="ALIGNMENT_REFERENCE", default="")
         self.assertEqual(
@@ -313,10 +386,15 @@ class ResolveTests(WithApplication):
         line = QLineEdit("grey")
         tip = Tip("x", live=lambda field: LiveNote("Now {value}", {"value": field.widget.text()}))
         entry = FieldTip(tip, Field(widget=line))
-        self.assertEqual(resolve(entry).live.values, {"value": "grey"})
+        self.assertEqual([note.values for note in resolve(entry).live], [{"value": "grey"}])
         line.setText("red")
-        self.assertEqual(resolve(entry).live.values, {"value": "red"})
-        self.assertIsNone(resolve(FieldTip(Tip("x"), Field())).live)
+        self.assertEqual([note.values for note in resolve(entry).live], [{"value": "red"}])
+        self.assertEqual(resolve(FieldTip(Tip("x"), Field())).live, [])
+        # A hook may give several notes, or none.
+        several = Tip("x", live=lambda field: [LiveNote("one"), None, LiveNote("two")])
+        self.assertEqual([note.text for note in resolve(FieldTip(several, Field())).live], ["one", "two"])
+        nothing = Tip("x", live=lambda field: None)
+        self.assertEqual(resolve(FieldTip(nothing, Field())).live, [])
 
     def test_a_tip_lists_every_text_it_holds(self):
         tip = Tip(
@@ -324,6 +402,53 @@ class ResolveTests(WithApplication):
             notes=(TipNote("info", "note"),),
         )
         self.assertEqual(tip.texts(), ["summary", "detail", "option", "note"])
+
+
+class FolderAndNoteHelperTests(WithApplication):
+    def test_the_nearest_existing_folder_is_the_folder_itself_or_its_nearest_parent(self):
+        with tempfile.TemporaryDirectory() as root:
+            folder = os.path.abspath(root)
+            os.makedirs(os.path.join(folder, "made"))
+            self.assertEqual(nearest_existing_folder(os.path.join(folder, "made")), os.path.join(folder, "made"))
+            self.assertEqual(nearest_existing_folder(os.path.join(folder, "not", "yet", "there")), folder)
+            # A file is not a folder: the folder it is in.
+            file_path = os.path.join(folder, "made", "file.txt")
+            pathlib.Path(file_path).write_text("x", encoding="utf-8")
+            self.assertEqual(nearest_existing_folder(file_path), os.path.join(folder, "made"))
+            # A path that starts with ~ is the user's.
+            self.assertEqual(
+                nearest_existing_folder("~"), os.path.abspath(os.path.expanduser("~")),
+            )
+
+    def test_free_bytes_reads_the_drive_of_a_folder_that_does_not_exist_yet(self):
+        with tempfile.TemporaryDirectory() as root:
+            free = free_bytes(os.path.join(root, "not", "yet"))
+            self.assertIsInstance(free, int)
+            self.assertGreater(free, 0)
+            with mock.patch("shutil.disk_usage", side_effect=OSError("gone")):
+                self.assertIsNone(free_bytes(root))
+        with mock.patch("desktop.Tip_Panel.nearest_existing_folder", return_value=None):
+            self.assertIsNone(free_bytes("anything"))
+
+    def test_a_note_on_a_state_is_added_to_a_tip_a_field_tip_or_a_plain_text(self):
+        base = Tip("Summary.", notes=(TipNote("info", "First."),))
+        noted = with_note(base, "warning", "Unavailable now.")
+        self.assertEqual(noted.notes, (TipNote("info", "First."), TipNote("warning", "Unavailable now.")))
+        self.assertEqual(base.notes, (TipNote("info", "First."),))  # the tip itself is untouched
+        field = Field(key="K", label=QLabel("Label:"))
+        entry = with_note(FieldTip(base, field), "info", "More.")
+        self.assertIsInstance(entry, FieldTip)
+        self.assertIs(entry.field, field)
+        self.assertEqual([text for _, text in resolve(entry).notes], ["First.", "More."])
+        self.assertEqual(with_note("Plain tip.", "info", "More."), "Plain tip.\nMore.")
+
+    def test_the_tooltip_of_an_entry_is_its_plain_text(self):
+        entry = FieldTip(Tip("Summary with `chip`."), Field(key="K", label=QLabel("Label:")))
+        self.assertEqual(tooltip_text(entry), tip_plain(entry))
+        self.assertIn("Summary with chip.", tooltip_text(entry))
+        self.assertNotIn("`", tooltip_text(entry))
+        self.assertEqual(tooltip_text(Tip("x")), tip_plain(Tip("x")))
+        self.assertEqual(tooltip_text("As it was."), "As it was.")
 
 
 # ---------------------------------------------------------------------
@@ -702,14 +827,13 @@ class ConfigWindowTipTests(WithApplication):
     def click(self, widget):
         self.app.sendEvent(widget, left_press())
 
-    def test_the_converted_tips_are_tips_and_the_rest_stay_plain_text(self):
-        keys = self.window.tip_db_keys
-        for key in ("SAVED_CONFIG", "ALIGNMENT_REFERENCE", "TEXT_COLOR"):
-            self.assertIsInstance(keys[key], Tip, key)
-        self.assertIsInstance(keys["NODE_FASTA_FILE"], str)
-        # A plain tip is shown exactly as before.
-        self.click(self.window.labels["NODE_FASTA_FILE"])
-        self.assertEqual(self.panel.text(), SpacedTipLabel(keys["NODE_FASTA_FILE"]).text())
+    def test_every_tip_is_laid_out_and_a_native_tooltip_still_shows_as_plain_text(self):
+        for key, tip in self.window.tip_db_keys.items():
+            self.assertIsInstance(tip, Tip, key)
+        # A native tooltip (the Clear button's) goes to the panel as plain text, exactly as before.
+        button = self.window.btn_clear_top_edge
+        self.window.eventFilter(button, left_press())
+        self.assertEqual(self.panel.text(), SpacedTipLabel(button.toolTip()).text())
 
     def test_every_widget_of_a_field_shares_one_entry_with_its_field(self):
         db = self.window.tip_db
@@ -736,6 +860,109 @@ class ConfigWindowTipTests(WithApplication):
         # It is still the tip on display: hovering another field replaces it.
         self.hover(self.window.labels["ALIGNMENT_OFFSET"])
         self.assertIn("Integer offset", plain_text(self.panel.text()))
+
+    def test_every_colour_field_shows_a_swatch_of_the_colour_typed_and_none_for_a_blank_field(self):
+        keys = ("TEXT_COLOR", "INITIAL_NODE_COLOR", "HOVER_COLOR", "CONNECTED_NODE_COLOR",
+                "EDGE_COLOR", "NODE_BOUNDARY_COLOR")
+        for key in keys:
+            with self.subTest(key=key):
+                self.assertIsNotNone(self.window.tip_db_keys[key].live, key)
+                self.window.inputs[key].setText("#123456")
+                self.click(self.window.labels[key])
+                self.assertTrue(
+                    any('fill="#123456"' in svg_of(name) for name in images(self.panel.text())), key
+                )
+                self.assertIn("#123456", chips(self.panel.text()))
+                self.assertIn("Current color", plain_text(self.panel.text()))
+                self.window.inputs[key].setText("")
+                self.assertFalse(
+                    any('fill="#123456"' in svg_of(name) for name in images(self.panel.text())), key
+                )
+                self.assertNotIn("Current color", plain_text(self.panel.text()))
+
+    def test_a_directory_field_says_where_it_resolves_and_the_export_folder_how_much_room_is_free(self):
+        gib = 1024 ** 3
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        base = os.path.join(home.name, "inputs")
+        self.window.inputs["INPUT_FILE_DIR"].setText(base)
+        self.window.inputs["FASTA_DIR"].setText("$input_file$/fasta")
+        self.window.inputs["SETTING_EXPORT_DIR"].setText(os.path.join(home.name, "exports"))
+
+        def resolved(key):
+            self.click(self.window.labels[key])
+            text = re.sub(r"\s+", " ", plain_text(self.panel.text()))
+            shown = chips(self.panel.text())
+            return text, shown
+
+        with mock.patch.dict(self.namespace, {"free_bytes": lambda path: 12.5 * gib}):
+            text, shown = resolved("FASTA_DIR")
+            self.assertIn("Resolves to", text)
+            self.assertIn(os.path.normcase(os.path.join(base, "fasta")),
+                          [os.path.normcase(os.path.normpath(chip_text)) for chip_text in shown])
+            self.assertNotIn("free on its drive", text)  # only the folders that get large files say so
+            text, shown = resolved("SETTING_EXPORT_DIR")
+            self.assertIn("Resolves to", text)
+            self.assertIn("12.5 GiB free on its drive.", text)
+            self.assertIn("12.5 GiB", shown)
+            # A drive that can't be read says nothing about room.
+            with mock.patch.dict(self.namespace, {"free_bytes": lambda path: None}):
+                text, _ = resolved("SETTING_EXPORT_DIR")
+                self.assertIn("Resolves to", text)
+                self.assertNotIn("free on its drive", text)
+        # An empty field resolves to nothing, so it says nothing.
+        self.window.inputs["FASTA_DIR"].setText("")
+        text, _ = resolved("FASTA_DIR")
+        self.assertNotIn("Resolves to", text)
+
+    def test_the_resolved_folder_follows_what_is_typed_while_the_tip_is_on_display(self):
+        home = tempfile.TemporaryDirectory()
+        self.addCleanup(home.cleanup)
+        field = self.window.inputs["METADATA_DIR"]
+        self.click(self.window.labels["METADATA_DIR"])
+        first = os.path.join(home.name, "first")
+        field.setText(first)
+        self.assertIn(os.path.normcase(first),
+                      [os.path.normcase(os.path.normpath(chip_text)) for chip_text in chips(self.panel.text())])
+        second = os.path.join(home.name, "second")
+        field.setText(second)
+        shown = [os.path.normcase(os.path.normpath(chip_text)) for chip_text in chips(self.panel.text())]
+        self.assertIn(os.path.normcase(second), shown)
+        self.assertNotIn(os.path.normcase(first), shown)
+
+    def test_the_layout_device_tip_lists_the_devices_found_by_name(self):
+        combo = self.window.inputs["LAYOUT_DEVICE_SELECTION"]
+        for index in reversed(range(combo.count())):
+            combo.removeItem(index)
+        combo.addItem("Automatic", "auto")
+        self.click(self.window.labels["LAYOUT_DEVICE_SELECTION"])
+        # Only items that show a device's own name count: no device, no note.
+        self.assertNotIn("Detected devices", plain_text(self.panel.text()))
+        for name, value in (("NVIDIA A100-SXM4-40GB", "cuda:0"), ("AMD Radeon RX 7900 XTX", "cuda:1")):
+            combo.addItem(name, value)
+            combo.setItemData(combo.count() - 1, True, NAME_ITEM_ROLE)
+        self.click(self.window.labels["LAYOUT_DEVICE_SELECTION"])
+        self.assertIn("Detected devices: NVIDIA A100-SXM4-40GB, AMD Radeon RX 7900 XTX",
+                      plain_text(self.panel.text()))
+        self.assertEqual(
+            [name for name in chips(self.panel.text()) if "NVIDIA" in name or "AMD" in name],
+            ["NVIDIA A100-SXM4-40GB", "AMD Radeon RX 7900 XTX"],
+        )
+
+    def test_a_range_the_program_gives_replaces_a_spin_box_that_takes_any_number(self):
+        spin_box = self.window.inputs["ALIGNMENT_OFFSET"]
+        entry = self.window.tip_db[spin_box]
+        self.assertEqual(entry.field.limits, self.namespace["PROFILE_RANGES"].get("ALIGNMENT_OFFSET"))
+        for key, (low, high) in self.namespace["PROFILE_RANGES"].items():
+            widget = self.window.inputs.get(key)
+            if widget is None or key not in self.window.tip_db_keys:
+                continue
+            with self.subTest(key=key):
+                shown = dict(resolve(self.window.tip_db[widget]).facts).get("Range")
+                if abs(low) >= UNBOUNDED or abs(high) >= UNBOUNDED:
+                    self.assertIsNone(shown)
+                else:
+                    self.assertIsNotNone(shown)
 
     def test_an_invalid_colour_shows_no_swatch_and_typing_never_replaces_a_status(self):
         line = self.window.inputs["TEXT_COLOR"]
@@ -847,17 +1074,16 @@ class ToolsWindowTipTests(WithApplication):
     def shown(self):
         return self.panel.text()
 
-    def test_the_converted_tips_are_tips_and_the_others_are_still_text(self):
-        tips = self.window.SCRIPT_TIPS
-        for script, key in (
-            ("Align_Similarity_Matrix.py", "EXECUTION_MODE"),
-            ("Align_Similarity_Matrix.py", "ACCELERATOR_PRECISION"),
-            ("Align_Similarity_Matrix.py", "WORKERS"),
-            ("Align_Similarity_Matrix.py", "HOST_CACHE_GB"),
-            ("Embedding_MSA.py", "WORKERS"),
-        ):
-            self.assertIsInstance(tips[script][key], Tip, (script, key))
-        self.assertIsInstance(tips["Align_Similarity_Matrix.py"]["INPUT_HDF5"], str)
+    def test_every_tool_tip_is_laid_out(self):
+        for script, tips in self.window.SCRIPT_TIPS.items():
+            for key, tip in tips.items():
+                self.assertIsInstance(tip, Tip, (script, key))
+        # ...and every field's entry holds the field it describes, whether or not it has a tip of its own.
+        for path, data in self.window.script_data.items():
+            for variable, info in data["inputs"].items():
+                entry = self.window.tip_db[info["widget"]]
+                self.assertIsInstance(entry, FieldTip, (path, variable))
+                self.assertEqual(entry.field.key, variable)
 
     def test_a_field_gets_its_tip_with_its_field_and_a_plain_tooltip(self):
         combo = self.widget("Align_Similarity_Matrix.py", "EXECUTION_MODE")
@@ -868,9 +1094,9 @@ class ToolsWindowTipTests(WithApplication):
         # The widget's accessible description is the tip as plain text.
         self.assertEqual(combo.toolTip(), tip_plain(entry))
         self.assertIn("scalar: Processes one pairwise score matrix at a time.", combo.toolTip())
-        # A plain tip keeps its text as the tooltip.
-        plain_field = self.widget("Align_Similarity_Matrix.py", "BATCH_SIZE")
-        self.assertEqual(plain_field.toolTip(), self.window.SCRIPT_TIPS["Align_Similarity_Matrix.py"]["BATCH_SIZE"])
+        batch = self.widget("Align_Similarity_Matrix.py", "BATCH_SIZE")
+        self.assertEqual(batch.toolTip(), tip_plain(self.window.tip_db[batch]))
+        self.assertIn("Warning: Larger values improve throughput but require more RAM.", batch.toolTip())
 
     def test_the_options_follow_the_dropdown(self):
         combo = self.widget("Align_Similarity_Matrix.py", "EXECUTION_MODE")
@@ -934,6 +1160,209 @@ class ToolsWindowTipTests(WithApplication):
         self.assertIn(f"Range 0.0 – {self.tools.HOST_CACHE_MAX_GB:.1f} GiB", text)
         self.assertIn("Default auto", text)
         self.assertIn(f"up to {self.tools.HOST_CACHE_MAX_GB:g} GiB", text)
+
+    WORKER_FIELDS = (
+        ("Align_Similarity_Matrix.py", "WORKERS"),
+        ("Align_Substitution_Matrix.py", "NUM_THREADS"),
+        ("Embedding_MSA.py", "WORKERS"),
+        ("Network_Injection.py", "WORKERS"),
+        ("Embedding_SSEARCH.py", "WORKERS"),
+    )
+    DEVICE_FIELDS = (
+        "Generate_Embeddings.py", "Align_Similarity_Matrix.py", "Embedding_MSA.py",
+        "Network_Injection.py", "Embedding_SSEARCH.py",
+    )
+
+    def test_every_cpu_worker_field_says_how_many_logical_cpus_this_computer_has(self):
+        for script, variable in self.WORKER_FIELDS:
+            for cores in (self.tools.MAX_CORES, 3, 1):
+                with self.subTest(script=script, variable=variable, cores=cores), \
+                        mock.patch.object(self.tools, "MAX_CORES", cores):
+                    self.enter(self.widget(script, variable))
+                    text = re.sub(r"\s+", " ", plain_text(self.shown()))
+                    self.assertIn(f"This computer has {cores} logical CPU", text)
+                    # The count is worked out when the tip is shown, not when the window opened.
+                    self.assertEqual(
+                        text.count("This computer has"), 1,
+                    )
+
+    def test_the_host_cache_tip_of_both_tools_that_have_one_says_what_auto_picks_now(self):
+        gib = self.tools.GIB
+        for script in ("Align_Similarity_Matrix.py", "Network_Injection.py"):
+            for budget, available in ((8, 24), (2, 5)):
+                with self.subTest(script=script, budget=budget), \
+                        mock.patch.object(self.tools, "resolve_host_cache_bytes", return_value=budget * gib), \
+                        mock.patch.object(self.tools, "system_memory_bytes", return_value=(64 * gib, available * gib)):
+                    self.enter(self.widget(script, "HOST_CACHE_GB"))
+                    text = re.sub(r"\s+", " ", plain_text(self.shown()))
+                    self.assertIn(
+                        f"AUTO would use {budget:.1f} GiB now, with {available:.1f} GiB of memory available.", text
+                    )
+                    self.assertIn(f"{budget:.1f} GiB", chips(self.shown()))
+                    self.assertIn("HOST_CACHE_GB", text)
+
+    def test_every_device_field_lists_the_devices_found_by_name_and_says_nothing_without_one(self):
+        for script in self.DEVICE_FIELDS:
+            with self.subTest(script=script):
+                combo = self.widget(script, "DEVICE_SELECTION")
+                for index in reversed(range(combo.count())):
+                    if combo.itemData(index, NAME_ITEM_ROLE):
+                        combo.removeItem(index)
+                self.enter(combo)
+                self.assertNotIn("Detected devices", plain_text(self.shown()))
+                for name, value in (("NVIDIA A100-SXM4-40GB", "cuda:0"), ("Apple M3 Max", "mps")):
+                    combo.addItem(name, value)
+                    combo.setItemData(combo.count() - 1, True, NAME_ITEM_ROLE)
+                self.enter(combo)
+                self.assertIn("Detected devices: NVIDIA A100-SXM4-40GB, Apple M3 Max", plain_text(self.shown()))
+                self.assertEqual(
+                    [name for name in chips(self.shown()) if name in ("NVIDIA A100-SXM4-40GB", "Apple M3 Max")],
+                    ["NVIDIA A100-SXM4-40GB", "Apple M3 Max"],
+                )
+
+    def test_a_directory_tip_says_where_the_folder_is_and_two_of_them_how_much_room_is_free(self):
+        gib = self.tools.GIB
+        project = pathlib.Path(self.tools._PROJECT_ROOT)
+        absolute = os.path.join(tempfile.gettempdir(), "tip_panel_probe")
+        for key, typed, folder, with_room in (
+            ("FASTA_DIR", "Input_Files/fasta", str(project / "Input_Files" / "fasta"), False),
+            ("MSA_DIR", absolute, absolute, False),
+            ("EMBED_DIR", absolute, absolute, False),
+            ("NETWORK_DIR", absolute, absolute, False),
+            ("REPORT_DIR", absolute, absolute, True),
+            ("SETTING_EXPORT_DIR", "Exports", str(project / "Exports"), True),
+        ):
+            with self.subTest(key=key), mock.patch.object(self.tools, "free_bytes", return_value=7.5 * gib) as free:
+                field = self.window.dir_inputs[key]
+                field.setText(typed)
+                self.enter(field)
+                text = re.sub(r"\s+", " ", plain_text(self.shown()))
+                self.assertIn("Resolves to", text)
+                self.assertIn(
+                    os.path.normcase(os.path.normpath(folder)),
+                    [os.path.normcase(os.path.normpath(shown)) for shown in chips(self.shown())],
+                )
+                self.assertEqual("7.5 GiB free on its drive." in text, with_room)
+                self.assertEqual(free.called, with_room)
+                self.assertIn(key, text)
+        # An empty field resolves to nothing: no note, and no disk is asked.
+        with mock.patch.object(self.tools, "free_bytes") as free:
+            self.window.dir_inputs["REPORT_DIR"].setText("   ")
+            self.enter(self.window.dir_inputs["REPORT_DIR"])
+            text = plain_text(self.shown())
+            self.assertNotIn("Resolves to", text)
+            self.assertNotIn("free on its drive", text)
+            free.assert_not_called()
+        # A drive that can't be read says nothing about room, but still names the folder.
+        with mock.patch.object(self.tools, "free_bytes", return_value=None):
+            self.window.dir_inputs["REPORT_DIR"].setText(absolute)
+            self.enter(self.window.dir_inputs["REPORT_DIR"])
+            text = plain_text(self.shown())
+            self.assertIn("Resolves to", text)
+            self.assertNotIn("free on its drive", text)
+
+    def test_the_directory_tips_show_the_labels_title_and_the_key_and_the_default(self):
+        for key, field in self.window.dir_inputs.items():
+            with self.subTest(key=key):
+                entry = self.window.tip_db[field]
+                self.assertIsInstance(entry, FieldTip)
+                self.assertEqual(entry.field.key, key)
+                self.assertEqual(self.window.tip_db[field.parentWidget()], entry)
+                self.assertEqual(field.parentWidget().toolTip(), tip_plain(entry))
+                self.enter(field)
+                text = re.sub(r"\s+", " ", plain_text(self.shown()))
+                self.assertTrue(text.startswith(entry.field.title()), text)
+                self.assertIn("Default", text)
+                self.assertIn(key, chips(self.shown()))
+
+    def test_a_tool_setting_without_a_tip_of_its_own_still_shows_its_title_default_and_key(self):
+        entry = self.tools.tool_tip_entry(None, "SOME_SETTING", QLabel("Some Setting:"), QSpinBox(), 4)
+        self.assertIsInstance(entry, FieldTip)
+        self.assertEqual(entry.tip.summary, "")
+        self.assertEqual(
+            re.sub(r"\s+", " ", plain_text(tip_html(entry))), "Some Setting Default 4 Range 0 – 99 Setting SOME_SETTING"
+        )
+        # A plain-text tip stays as it was.
+        self.assertEqual(self.tools.tool_tip_entry("Plain.", "K", QLabel("L:"), QSpinBox()), "Plain.")
+
+    def test_a_message_about_a_fields_state_is_a_note_on_its_tip_and_goes_with_the_state(self):
+        from types import SimpleNamespace
+
+        from Cache_Manifest import NetworkCompletenessInfo
+
+        incomplete = NetworkCompletenessInfo(
+            status="incomplete", sequence_count=10, edge_count=20, expected_edge_count=45,
+        )
+        complete = NetworkCompletenessInfo(
+            status="complete", sequence_count=10, edge_count=45, expected_edge_count=45,
+        )
+        network = self.widget("Embedding_MSA.py", "INPUT_NETWORK").combo
+        switch = self.widget("Embedding_MSA.py", "SHOW_REGRESSION_PLOT")
+        network_type = SimpleNamespace(network_type="embedding")
+        with mock.patch.object(self.tools, "validate_network_schema", return_value=network_type), \
+                mock.patch.object(self.tools, "inspect_network_completeness", return_value=incomplete) as inspect:
+            network.addItem("sparse.h5")
+            network.setCurrentText("sparse.h5")
+            self.assertTrue(switch.isEnabled())
+            self.enter(switch)
+            text = re.sub(r"\s+", " ", plain_text(self.shown()))
+            self.assertIn("Incomplete network: 10 sequences and 20/45 observed pairs", text)
+            # The state's note joins the tip's own text; the tooltip is that tip as plain text.
+            self.assertIn("Displays a diagnostic scatter plot for sparse networks.", text)
+            self.assertEqual(switch.toolTip(), tip_plain(self.window.tip_db[switch]))
+            self.assertEqual(switch.property("registeredTooltip"), switch.toolTip())
+            self.assertEqual(
+                [mark_colour(name) for name in images(self.shown())][-1], status_color("subtle"),
+            )
+            inspect.return_value = complete
+            network.addItem("complete.h5")
+            network.setCurrentText("complete.h5")
+            self.assertFalse(switch.isEnabled())
+            self.enter(switch)
+            text = re.sub(r"\s+", " ", plain_text(self.shown()))
+            self.assertIn("Complete network: 10 sequences", text)
+            self.assertNotIn("Incomplete network", text)  # one state at a time, not a pile of notes
+            self.assertEqual(text.count("Complete network"), 1)
+            self.assertEqual(
+                [mark_colour(name) for name in images(self.shown())][-1], status_color("warning"),
+            )
+        # A network that can't be read: a warning, and the base tip is what it was.
+        with mock.patch.object(self.tools, "validate_network_schema", side_effect=ValueError("not a network")):
+            network.addItem("broken.h5")
+            network.setCurrentText("broken.h5")
+            self.enter(switch)
+            text = re.sub(r"\s+", " ", plain_text(self.shown()))
+            self.assertIn("Unable to determine network type: not a network", text)
+            self.assertEqual(text.count("Unable to determine network type"), 1)
+        for combo in (self.widget("Embedding_MSA.py", "ALIGNMENT_SCORE"), self.widget("Embedding_MSA.py", "NORMALIZATION_MODE")):
+            self.enter(combo)
+            self.assertIn("Unable to determine network type", plain_text(self.shown()))
+        # Back to a network that can be read, the earlier states' notes are gone, not kept under it.
+        with mock.patch.object(self.tools, "validate_network_schema", return_value=network_type), \
+                mock.patch.object(self.tools, "inspect_network_completeness", return_value=incomplete):
+            network.setCurrentText("sparse.h5")
+            self.enter(switch)
+            text = re.sub(r"\s+", " ", plain_text(self.shown()))
+            self.assertIn("Incomplete network", text)
+            for message in ("Unable to determine", "Complete network:"):
+                self.assertNotIn(message, text)
+
+    def test_a_tooltip_changed_after_the_tip_was_registered_shows_instead_of_the_tip(self):
+        combo = self.widget("Align_Similarity_Matrix.py", "EXECUTION_MODE")
+        self.assertEqual(combo.property("registeredTooltip"), tip_plain(self.window.tip_db[combo]))
+        self.enter(combo)
+        self.assertIn("Execution Mode", plain_text(self.shown()))
+        combo.setToolTip("Something is wrong with this device.")
+        self.enter(combo)
+        self.assertEqual(self.shown(), SpacedTipLabel("Something is wrong with this device.").text())
+        # Cleared (as a widget with no message has it), the field's own tip shows again.
+        combo.setToolTip("")
+        self.enter(combo)
+        self.assertIn("Execution Mode", plain_text(self.shown()))
+        # Back to what was registered: the same.
+        combo.setToolTip(combo.property("registeredTooltip"))
+        self.enter(combo)
+        self.assertIn("Execution Mode", plain_text(self.shown()))
 
     def test_hovering_a_child_widget_of_a_field_shows_the_same_tip(self):
         control = self.widget("Align_Similarity_Matrix.py", "HOST_CACHE_GB")

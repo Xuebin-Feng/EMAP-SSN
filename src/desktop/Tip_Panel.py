@@ -37,7 +37,7 @@ import base64
 import html
 import re
 import unicodedata
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass, field as dataclass_field, replace
 from typing import Callable, Optional
 
 from PySide6.QtCore import QCoreApplication, Qt
@@ -144,6 +144,10 @@ class Code(str):
     """A value that shows as a code chip wherever a placeholder takes it."""
 
 
+class CodeList(tuple):
+    """Values that show as code chips, in a row, wherever a placeholder takes them."""
+
+
 # A chip up to this long keeps together, in a table cell of its own too; a
 # longer one, such as a device's full name, may wrap, so it never widens the
 # panel. A wide character (Chinese, say) counts for two.
@@ -200,7 +204,12 @@ def _pieces(text, values):
             )))
         elif found.group(2) in values:
             value = values[found.group(2)]
-            pieces.append(("code" if isinstance(value, Code) else "text", _filled(value, found.group(3))))
+            if isinstance(value, CodeList):
+                for number, item in enumerate(value):
+                    pieces.append(("text", ", ") if number else ("text", ""))
+                    pieces.append(("code", str(item)))
+            else:
+                pieces.append(("code" if isinstance(value, Code) else "text", _filled(value, found.group(3))))
         else:
             pieces.append(("text", found.group()))
     if end < len(text):
@@ -277,12 +286,15 @@ class Field:
     tip's title. widget gives the options of a dropdown and the range of a spin
     box (the widget itself or one inside it). default is the value the program
     starts with, when it has one (MISSING when it has none worth showing).
+    limits is the (lowest, highest) the setting takes where the program
+    defines them, None when it has none; MISSING reads the spin box's own range.
     """
 
     key: Optional[str] = None
     label: object = None
     widget: Optional[QWidget] = None
     default: object = MISSING
+    limits: object = MISSING
 
     def title(self):
         text = self.label.text() if isinstance(self.label, QLabel) else (self.label or "")
@@ -342,6 +354,11 @@ def _combo(widget):
     return None
 
 
+def _is_dropdown(widget):
+    """A dropdown, or a widget that holds one as .combo (a file dropdown with its folder button)."""
+    return isinstance(widget, QComboBox) or isinstance(getattr(widget, "combo", None), QComboBox)
+
+
 def _number(value):
     return isinstance(value, (int, float)) and not isinstance(value, bool)
 
@@ -351,12 +368,16 @@ def _shown_default(field, unit):
     value = field.default
     if value is MISSING:
         return None
+    if isinstance(getattr(field.widget, "combo", None), QComboBox):
+        return None  # a file dropdown: its default is a sample file, not a choice
     combo = _combo(field.widget)
     if combo is not None:
         index = combo.findData(value)
         if index >= 0:
             return combo.itemText(index)
     if value is None or (isinstance(value, str) and not value.strip()):
+        if _is_dropdown(field.widget):
+            return None  # nothing is chosen at first: not a fact worth showing
         return QCoreApplication.translate("TipPanel", "(empty)")
     if isinstance(value, bool):
         texts = getattr(field.widget, "state_texts", None)
@@ -369,13 +390,22 @@ def _shown_default(field, unit):
     return text
 
 
+# A bound this large is "no limit" in practice (a spin box that takes any number), not a fact.
+UNBOUNDED = 100000
+
+
 def _shown_range(field, unit):
     box = _spin_box(field.widget)
-    if box is None:
+    limits = field.limits
+    if limits is MISSING:
+        if box is None:
+            return None
+        limits = (box.minimum(), box.maximum())
+    if limits is None or any(abs(bound) >= UNBOUNDED for bound in limits):
         return None
-    lowest, highest = box.textFromValue(box.minimum()), box.textFromValue(box.maximum())
-    suffix = box.suffix() or (f" {unit}" if unit else "")
-    return f"{lowest} \u2013 {highest}{suffix}"
+    show = box.textFromValue if box is not None else (lambda value: f"{value:g}")
+    suffix = (box.suffix() if box is not None else "") or (f" {unit}" if unit else "")
+    return f"{show(limits[0])} \u2013 {show(limits[1])}{suffix}"
 
 
 def _facts(tip, field):
@@ -397,16 +427,55 @@ def _facts(tip, field):
 def _options(tip, field):
     """The options table's (chip text, text) rows: those the field's dropdown holds, as it names them."""
     combo = _combo(field.widget)
+    states = getattr(field.widget, "state_texts", None)
     rows = []
     for option in tip.options:
         label = option.label
-        if combo is not None and option.label is None:
+        if label is None and states is not None and isinstance(option.value, bool):
+            label = states()[option.value]  # a switch's own words for the state
+        elif combo is not None and option.label is None:
             index = combo.findData(option.value)
             if index < 0:
                 continue
             label = combo.itemText(index)
         rows.append((str(option.value) if label is None else label, option.text))
     return rows
+
+
+def _live_notes(tip, field):
+    """The live notes of a tip as a list: its function may give one LiveNote, a list of them, or None."""
+    if tip.live is None:
+        return []
+    found = tip.live(field)
+    if found is None:
+        return []
+    return [found] if isinstance(found, LiveNote) else [note for note in found if note is not None]
+
+
+def nearest_existing_folder(path):
+    """The folder a path is in, or the nearest of its parents that exists, or None."""
+    import os
+
+    folder = os.path.abspath(os.path.expanduser(str(path)))
+    while folder and not os.path.isdir(folder):
+        parent = os.path.dirname(folder)
+        if parent == folder:
+            return None
+        folder = parent
+    return folder or None
+
+
+def free_bytes(path):
+    """The free space on the drive a folder is (or would be) on, or None when it can't be read."""
+    import shutil
+
+    folder = nearest_existing_folder(path)
+    if folder is None:
+        return None
+    try:
+        return shutil.disk_usage(folder).free
+    except OSError:
+        return None
 
 
 @dataclass
@@ -418,7 +487,7 @@ class TipModel:
     details: list
     options: list
     notes: list
-    live: Optional[LiveNote]
+    live: list
     facts: list
 
 
@@ -433,7 +502,7 @@ def resolve(entry):
         details=list(tip.details),
         options=_options(tip, field),
         notes=[(note.kind, note.text) for note in tip.notes],
-        live=tip.live(field) if tip.live is not None else None,
+        live=_live_notes(tip, field),
         facts=_facts(tip, field),
     )
 
@@ -499,9 +568,10 @@ def model_html(model):
             f'<span style="font-weight: 600; color: {TOKENS["text"]};">'
             f"{html.escape(wrappable(model.title))}</span>", 0,
         ))
-    parts.append(_paragraph(
-        f'<span style="color: {soft};">{rich(model.summary)}</span>', 2 if model.title else 0,
-    ))
+    if model.summary:
+        parts.append(_paragraph(
+            f'<span style="color: {soft};">{rich(model.summary)}</span>', 2 if model.title else 0,
+        ))
     if model.options:
         parts.append(_row_table(
             [(chip(label), f'<span style="color: {muted};">{rich(text)}</span>', is_whole(label))
@@ -512,9 +582,9 @@ def model_html(model):
     if model.notes or model.live:
         rows = [(status_mark(kind), f'<span style="color: {soft};">{rich(text)}</span>')
                 for kind, text in model.notes]
-        if model.live:
-            mark = (swatch_mark(model.live.swatch) if model.live.swatch else "") or status_mark(model.live.kind)
-            rows.append((mark, f'<span style="color: {soft};">{rich(model.live.text, model.live.values)}</span>'))
+        for note in model.live:
+            mark = (swatch_mark(note.swatch) if note.swatch else "") or status_mark(note.kind)
+            rows.append((mark, f'<span style="color: {soft};">{rich(note.text, note.values)}</span>'))
         parts.append(_row_table(rows, 5))
     if model.facts:
         items = "&nbsp;&nbsp; ".join(
@@ -532,7 +602,8 @@ def model_html(model):
 def model_plain(model):
     """A TipModel as plain text, for a screen reader: the icons become words."""
     lines = [model.title] if model.title else []
-    lines.append(plain(model.summary))
+    if model.summary:
+        lines.append(plain(model.summary))
     lines += [
         QCoreApplication.translate("TipPanel", "{option}: {text}").format(option=label, text=plain(text))
         for label, text in model.options
@@ -540,8 +611,7 @@ def model_plain(model):
     lines += [plain(detail) for detail in model.details]
     kinds = {"warning": QCoreApplication.translate("TipPanel", "Warning:"), "info": QCoreApplication.translate("TipPanel", "Note:")}
     lines += [f"{kinds.get(kind, kinds['info'])} {plain(text)}" for kind, text in model.notes]
-    if model.live:
-        lines.append(plain(model.live.text, model.live.values))
+    lines += [plain(note.text, note.values) for note in model.live]
     if model.facts:
         lines.append(" ".join(
             QCoreApplication.translate("TipPanel", "{label}: {value}.", "a field's fact, such as its default")
@@ -559,6 +629,20 @@ def tip_html(entry):
 def tip_plain(entry):
     """The plain text of a Tip or FieldTip, the field's accessible description."""
     return model_plain(resolve(entry))
+
+
+def tooltip_text(entry):
+    """The plain text of a tip_db entry (a string, or a tip), for a widget's tooltip."""
+    return tip_plain(entry) if isinstance(entry, (Tip, FieldTip)) else entry
+
+
+def with_note(entry, kind, note):
+    """entry with a note added, as a message about its field's state: a TipNote on a tip, a line of plain text."""
+    if isinstance(entry, FieldTip):
+        return FieldTip(replace(entry.tip, notes=(*entry.tip.notes, TipNote(kind, note))), entry.field)
+    if isinstance(entry, Tip):
+        return replace(entry, notes=(*entry.notes, TipNote(kind, note)))
+    return f"{entry}\n{note}"
 
 
 # =====================================================================
@@ -691,6 +775,7 @@ class SpacedTipLabel(QLabel):
 
 __all__ = [
     "Code",
+    "CodeList",
     "Field",
     "FieldTip",
     "LiveNote",
@@ -698,11 +783,14 @@ __all__ = [
     "SpacedTipLabel",
     "Tip",
     "TipModel",
+    "UNBOUNDED",
     "TipNote",
     "TipOption",
     "change_signal",
     "chip",
+    "free_bytes",
     "model_html",
+    "nearest_existing_folder",
     "model_plain",
     "plain",
     "resolve",
@@ -713,5 +801,7 @@ __all__ = [
     "swatch_mark",
     "tip_html",
     "tip_plain",
+    "tooltip_text",
+    "with_note",
     "wrappable",
 ]

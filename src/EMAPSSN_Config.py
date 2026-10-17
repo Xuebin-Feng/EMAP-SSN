@@ -641,6 +641,7 @@ if __name__ == "__main__":
         language_selector_row,
         LanguageFollower,
         LanguageSelector,
+        NAME_ITEM_ROLE,
         mark_name_item,
         open_color_picker,
         qt_monospace_font,
@@ -667,6 +668,7 @@ if __name__ == "__main__":
     )
     from desktop.Tip_Panel import (
         Code,
+        CodeList,
         Field,
         FieldTip,
         LiveNote,
@@ -676,6 +678,7 @@ if __name__ == "__main__":
         TipNote,
         TipOption,
         change_signal,
+        free_bytes,
         status_mark,
         wrappable,
     )
@@ -783,6 +786,17 @@ if __name__ == "__main__":
         return LiveNote(
             translate("Config", "Current color: {value}"), {"value": Code(value)}, swatch=value
         )
+
+    def _detected_devices_note(field):
+        """The live note of a device dropdown: the devices it found on this computer, by name."""
+        combo = field.widget
+        names = [
+            combo.itemText(index) for index in range(combo.count())
+            if combo.itemData(index, NAME_ITEM_ROLE)
+        ]
+        if not names:
+            return None
+        return LiveNote(translate("Config", "Detected devices: {devices}"), {"devices": CodeList(names)})
 
     # The Consistency Check's marks, which tell a check's status by shape as
     # well as by colour (Studio_Theme.status_color kinds): Lucide icons, the
@@ -2142,6 +2156,23 @@ if __name__ == "__main__":
                     self.tip_db[target] = tip
                     target.installEventFilter(self)
 
+        def _folder_note(self, key, *, space=False):
+            """The live notes of a directory field: the folder it resolves to now, and with space the room free there."""
+            def notes(field):
+                folder = self._resolved_directory_input(key)
+                if not folder:
+                    return None
+                found = [LiveNote(translate("Config", "Resolves to {folder}."), {"folder": Code(folder)})]
+                free = free_bytes(folder) if space else None
+                if free is not None:
+                    found.append(LiveNote(
+                        translate("Config", "{free} free on its drive."),
+                        {"free": Code(f"{free / 1024 ** 3:.1f} GiB")},
+                    ))
+                return found
+
+            return notes
+
         def _field_tip(self, key, tip):
             """What tip_db holds for the field key: plain text as it is, a Tip with its field.
 
@@ -2157,6 +2188,7 @@ if __name__ == "__main__":
                     label=self.labels.get(key),
                     widget=self.inputs.get(key),
                     default=_profile_default(key),
+                    limits=PROFILE_RANGES.get(key),
                 ))
                 if tip.live is not None:
                     signal = change_signal(entry.field.widget)
@@ -2184,27 +2216,97 @@ if __name__ == "__main__":
                     ),
                     facts=False,
                 ),
-                "NODE_FASTA_FILE": translate("Config", "Primary FASTA file containing sequences visualized as nodes in the SSN.\nMust match sequences present in the selected network edges and multiple alignments."),
-                "MSA_FILE": translate("Config", "Multiple sequence alignment file (.fasta, .h5, or _sparse.h5) for the sequence set.\nUsed to calculate positional conservation, gaps, and occupancy thresholds during analysis."),
-                "EMBED_FILE": translate("Config", "Optional protein language model embedding file (.h5) from Generate Embeddings, for commands that analyse embeddings.\nMatched to nodes by header and sequence; the per-residue data stays on disk until a command reads it, so keep the file on this device."),
-                "INPUT_HDF5": translate("Config", "Network or similarity matrix file (.h5) containing pairwise sequence similarity scores and edge coordinates.\nMust contain alignment metrics for at least all sequences present in the active sequence set."),
-                "ALIGNMENT_SCORE": translate("Config", "(For embedding SSNs) Specifies whether to use global (Needleman-Wunsch) or local (Smith-Waterman) scores.\nLocal alignment is recommended for multi-domain proteins; global alignment is best for full-length comparisons."),
-                "NORM_MODE": translate("Config", "(For embedding SSNs) Normalization strategy for pairwise sequence alignment scores.\nNormalizes by alignment length, shorter sequence, longer sequence, or average sequence length to reduce length bias."),
+                "NODE_FASTA_FILE": Tip(
+                    translate("Config", "Primary FASTA file containing sequences visualized as nodes in the SSN."),
+                    details=(translate("Config", "Must match sequences present in the selected network edges and multiple alignments."),),
+                ),
+                "MSA_FILE": Tip(
+                    translate("Config", "Multiple sequence alignment file (`.fasta`, `.h5`, or `_sparse.h5`) for the sequence set."),
+                    details=(translate("Config", "Used to calculate positional conservation, gaps, and occupancy thresholds during analysis."),),
+                ),
+                "EMBED_FILE": Tip(
+                    translate("Config", "Optional protein language model embedding file (`.h5`) from Generate Embeddings, for commands that analyse embeddings."),
+                    details=(translate("Config", "Matched to nodes by header and sequence; the per-residue data stays on disk until a command reads it."),),
+                    notes=(
+                        TipNote("info", translate("Config", "Keep the file on this device.")),
+                    ),
+                ),
+                "INPUT_HDF5": Tip(
+                    translate("Config", "Network or similarity matrix file (`.h5`) containing pairwise sequence similarity scores and edge coordinates."),
+                    details=(translate("Config", "Must contain alignment metrics for at least all sequences present in the active sequence set."),),
+                ),
+                "ALIGNMENT_SCORE": Tip(
+                    translate("Config", "(For embedding SSNs) Specifies whether to use global (Needleman-Wunsch) or local (Smith-Waterman) scores."),
+                    options=(
+                        TipOption("global", translate("Config", "Best for full-length comparisons.")),
+                        TipOption("local", translate("Config", "Recommended for multi-domain proteins.")),
+                    ),
+                ),
+                "NORM_MODE": Tip(
+                    translate("Config", "(For embedding SSNs) Normalization strategy for pairwise sequence alignment scores."),
+                    details=(translate("Config", "Reduces length bias."),),
+                    options=(
+                        TipOption("alignment_length", translate("Config", "Divides the score by the alignment length.")),
+                        TipOption("shorter_sequence", translate("Config", "Divides the score by the length of the shorter sequence.")),
+                        TipOption("longer_sequence", translate("Config", "Divides the score by the length of the longer sequence.")),
+                        TipOption("average_sequence", translate("Config", "Divides the score by the average length of the two sequences.")),
+                    ),
+                ),
                 "ALIGNMENT_REFERENCE": Tip(
                     translate("Config", "Full header, leading identifier (e.g. `WP_0123.1`), substring, or wildcard (e.g. `WP_01*`) naming the reference sequence; an exact header or identifier takes priority."),
                     details=(translate("Config", "Used to anchor absolute relative residue numbering and mapping offsets across the entire network."),),
                 ),
-                "ALIGNMENT_OFFSET": translate("Config", "Integer offset added to reference-anchored alignment residue positions (e.g. +10 shifts position 1 to 11).\nApplied only when the Alignment Reference ID resolves successfully in the alignment."),
-                "SIMILARITY_THRESHOLD": translate("Config", "Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge.\nEdges below this cutoff are filtered out and excluded from physics simulation and rendering."),
-                "TOP_EDGE_PERCENT": translate("Config", "Alternative edge filter that retains only the top N% highest-scoring edges in the network.\nMaintains consistent network connectivity and density without manually tuning raw score cutoffs (overrides threshold)."),
-                "FILTER_MIN_OCCUPANCY": translate("Config", "Minimum percentage of non-gap characters required at an alignment column to retain it in residue analyses.\nColumns with occupancy below this percentage are excluded from logo and conservation calculations."),
-                "TARGET_CACHE": translate("Config", "Target Cache: Compatibility-specific folder for layout cache files matching the selected sequence set and network.\nThe status reports whether a compatible target folder is available; the folder button opens the layout-cache root."),
-                "TARGET_CACHE_FILE": translate("Config", "Selects a pre-computed 2D layout coordinate cache file (.h5) from the cache directory.\nInstantly restores previously computed node positions to bypass physics simulation."),
-                "NEW_CACHE_NAME": translate("Config", "Specifies a custom filename when saving a new layout configuration iteration.\nOnly editable when Selected Cache File is set to '(New Layout Cache)'."),
-                "NODE_SIZE": translate("Config", "Visual rendering diameter (in pixels) for each sequence node in the network plot.\nAdjust to optimize visual density; smaller node sizes are recommended for large networks."),
-                "EDGE_WIDTH": translate("Config", "Line thickness (in pixels) of connection lines drawn between related sequence nodes.\nThinner lines reduce visual clutter in dense networks; thicker lines highlight strong relationships."),
-                "EDGE_ALPHA": translate("Config", "Opacity of network edge lines, ranging from 0.0 (fully transparent) to 1.0 (opaque).\nLower opacity reveals underlying node clustering and density in highly connected graphs."),
-                "TEXT_SIZE": translate("Config", "Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.\nAdjust to ensure labels remain legible without obstructing structural network features."),
+                "ALIGNMENT_OFFSET": Tip(
+                    translate("Config", "Integer offset added to reference-anchored alignment residue positions (e.g. `+10` shifts position 1 to 11)."),
+                    notes=(
+                        TipNote("info", translate("Config", "Applied only when the Alignment Reference ID resolves successfully in the alignment.")),
+                    ),
+                ),
+                "SIMILARITY_THRESHOLD": Tip(
+                    translate("Config", "Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge."),
+                    details=(translate("Config", "Edges below this cutoff are filtered out and excluded from physics simulation and rendering."),),
+                ),
+                "TOP_EDGE_PERCENT": Tip(
+                    translate("Config", "Alternative edge filter that retains only the top N% highest-scoring edges in the network."),
+                    details=(translate("Config", "Maintains consistent network connectivity and density without manually tuning raw score cutoffs (overrides threshold)."),),
+                ),
+                "FILTER_MIN_OCCUPANCY": Tip(
+                    translate("Config", "Minimum percentage of non-gap characters required at an alignment column to retain it in residue analyses."),
+                    details=(translate("Config", "Columns with occupancy below this percentage are excluded from logo and conservation calculations."),),
+                ),
+                "TARGET_CACHE": Tip(
+                    translate("Config", "Compatibility-specific folder for layout cache files matching the selected sequence set and network."),
+                    details=(translate("Config", "The status reports whether a compatible target folder is available; the folder button opens the layout-cache root."),),
+                    facts=False,
+                ),
+                "TARGET_CACHE_FILE": Tip(
+                    translate("Config", "Selects a pre-computed 2D layout coordinate cache file (`.h5`) from the cache directory."),
+                    details=(translate("Config", "Instantly restores previously computed node positions to bypass physics simulation."),),
+                ),
+                "NEW_CACHE_NAME": Tip(
+                    translate("Config", "Specifies a custom filename when saving a new layout configuration iteration."),
+                    details=(translate("Config", "Only editable when Selected Cache File is set to `{entry}`.").format(
+                        entry=translate("Config", "(New Layout Cache)")
+                    ),),
+                ),
+                "NODE_SIZE": Tip(
+                    translate("Config", "Visual rendering diameter (in pixels) for each sequence node in the network plot."),
+                    details=(translate("Config", "Adjust to optimize visual density; smaller node sizes are recommended for large networks."),),
+                    unit="px",
+                ),
+                "EDGE_WIDTH": Tip(
+                    translate("Config", "Line thickness (in pixels) of connection lines drawn between related sequence nodes."),
+                    details=(translate("Config", "Thinner lines reduce visual clutter in dense networks; thicker lines highlight strong relationships."),),
+                    unit="px",
+                ),
+                "EDGE_ALPHA": Tip(
+                    translate("Config", "Opacity of network edge lines, ranging from `0.0` (fully transparent) to `1.0` (opaque)."),
+                    details=(translate("Config", "Lower opacity reveals underlying node clustering and density in highly connected graphs."),),
+                ),
+                "TEXT_SIZE": Tip(
+                    translate("Config", "Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer."),
+                    details=(translate("Config", "Adjust to ensure labels remain legible without obstructing structural network features."),),
+                ),
                 "TEXT_COLOR": Tip(
                     translate("Config", "Color of viewer HUD text and control labels."),
                     details=(
@@ -2213,42 +2315,175 @@ if __name__ == "__main__":
                     ),
                     live=_current_color_note,
                 ),
-                "INITIAL_NODE_COLOR": translate("Config", "Baseline fill color applied to all nodes when the network is first loaded.\nServes as the default background color before custom cluster or metadata coloring is applied."),
-                "HOVER_COLOR": translate("Config", "Highlight color applied to a node and its adjacent connections on hover or selection.\nProvides high-contrast interactive visual feedback in the viewer."),
-                "CONNECTED_NODE_COLOR": translate("Config", "Border highlight color applied to neighboring nodes directly connected to the currently selected node.\nSet it to the same rendered RGBA color as Node Boundary Color to disable connected-node identification, border highlighting, and render promotion."),
-                "EDGE_COLOR": translate("Config", "Color of connection lines (edges) drawn between similar nodes in the network.\nLighter or neutral colors reduce edge dominance in dense network clusters."),
-                "NODE_BOUNDARY_COLOR": translate("Config", "Color of the outer border ring outline drawn around each sequence node.\nProvides visual contrast to cleanly separate adjacent and overlapping nodes."),
-                "NODE_BOUNDARY_WIDTH": translate("Config", "Stroke width (in pixels) of the outer border ring outline drawn around each node.\nSetting a non-zero width helps distinguish overlapping nodes in dense clusters."),
-                "LOW_RESOURCE_MODE": translate("Config", "Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.\nSignificantly improves responsiveness and reduces rendering latency for large networks."),
-                "LAYOUT_DEVICE_SELECTION": translate("Config", "Selects the compute device used for SSN layout generation (CPU, CUDA, XPU, MPS).\nAuto Benchmark measures representative workloads and may choose a different backend for each component-size class."),
-                "SPRING_K": translate("Config", "Attractive Hookean spring constant pulling nodes joined by retained network edges closer together.\nEvery retained edge has the same spring strength; its similarity score determines filtering, not attraction strength."),
-                "COULOMB_K": translate("Config", "Repulsive constant controlling the electrostatic-like force between nodes in the same connected component.\nLarger values spread nearby nodes apart; disconnected components are positioned later by component packing."),
-                "COULOMB_CUTOFF": translate("Config", "Maximum spatial distance threshold beyond which node repulsive forces drop to zero.\nLower cutoffs accelerate computation and prevent distant clusters from exerting unnecessary forces."),
-                "DAMPING": translate("Config", "Frictional resistance coefficient applied to node velocities during layout simulation.\nHigher values dissipate kinetic energy and suppress oscillatory motion more quickly."),
-                "DT": translate("Config", "Timestep size for each numerical integration step of the physics simulation.\nSmaller timesteps increase stability and precision; larger timesteps speed up convergence but may jitter."),
-                "AUTO_DT": translate("Config", "When ON, each simulation stage uses the largest step size that keeps it stable, worked out from its springs and repulsion, and the Step Size field is ignored.\nMax Steps, RMSD Threshold and RMSD Window still count steps of whatever size each stage uses."),
-                "MAX_STEPS": translate("Config", "Maximum number of physics iterations the simulation engine will run before terminating.\nEnsure this is large enough to allow node positions to settle into a stable configuration."),
-                "RMSD_THRESHOLD": translate("Config", "Root-Mean-Square Deviation convergence threshold for early simulation termination.\nIf average node displacement between consecutive steps falls below this value, layout halts as converged."),
-                "PERCENTAGE_DROP_THRESHOLD": translate("Config", "Early termination threshold based on the rate of RMSD change over the moving window.\nTerminates simulation when layout change plateaus (set to 0 to disable)."),
-                "RMSD_WINDOW": translate("Config", "Number of simulation steps over which moving-average RMSD is calculated for plateau detection.\nSmoothes transient velocity spikes to ensure early termination triggers only on true convergence."),
-                "ENABLE_PROGRESSIVE_SIMULATION": translate("Config", "Progressively lowers the similarity threshold in stages for massive connected components.\nHelps resolve fine-grained sub-clusters and prevents gridlock in large, dense components."),
-                "PACKING_GEOMETRY": translate("Config", "Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components.\nControls how independent clusters are organized in the overall visualization window."),
-                "PACKING_GRID_SIZE": translate("Config", "Cell size of the grid on which disconnected components are packed around the largest one.\nSmaller cells pack components more tightly but take longer; the clearance kept between components does not change."),
-                "UMAP_MODE": translate("Config", "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.\nProvides fast non-linear dimensionality reduction as an alternative to iterative physics simulations."),
-                "UMAP_NEIGHBORS": translate("Config", "Maximum number of other nodes in each UMAP neighborhood (K excludes self).\nK=15 supplies up to 15 neighbors plus self to UMAP.\nSmaller values emphasize local sub-clusters; larger values preserve broad global relationships."),
-                "UMAP_MIN_DIST": translate("Config", "Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).\nLower values produce tight, dense point clusters; larger values distribute nodes more evenly."),
-                "FASTA_DIR": translate("Config", "Directory containing input FASTA files for sequence sets and subsets.\nPopulates the Sequence Set dropdown in the Inputs tab."),
-                "MSA_DIR": translate("Config", "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).\nPopulates the MSA dropdown in the Inputs tab."),
-                "HDF5_DIR": translate("Config", "Directory containing HDF5 pairwise sequence similarity scores and network edge files.\nPopulates the Network Edges dropdown in the Inputs tab."),
-                "SAVED_LAYOUT_DIR": translate("Config", "Directory where calculated 2D layout coordinate files and network metadata (.h5) are saved and loaded.\nServes as the layout cache to avoid recalculating layouts when reopening networks."),
-                "SETTING_EXPORT_DIR": translate("Config", "Directory where command-line layout generation JSON settings are exported."),
-                "METADATA_DIR": translate("Config", "Directory where uploaded node metadata spreadsheets and CSV files are stored and loaded.\nUsed for custom node coloring, categorization, and annotation in the visualizer."),
-                "HEADER_LIST_DIR": translate("Config", "Directory containing text files with lists of sequence headers matching network query criteria.\nUsed to store and track sequence cohorts identified in the visualizer."),
-                "INPUT_FILE_DIR": translate("Config", "Base directory represented by $input_file$.\nRelative paths are resolved from the project root; absolute paths remain absolute."),
-                "CACHE_FILE_DIR": translate("Config", "Base directory represented by $cache_file$.\nRelative paths are resolved from the project root; absolute paths remain absolute."),
-                "ANALYSIS_RESULT_DIR": translate("Config", "Base directory represented by $analysis_result$.\nViewer commands place their output subdirectories beneath this location."),
-                "EMBED_DIR": translate("Config", "Base directory represented by $embedding$.\nHolds the protein language model embedding files (.h5) the Tools write; the Embedding Input dropdown lists the .h5 files in it."),
-                "SAVED_CONFIG_DIR": translate("Config", "Directory containing named per-tab configuration profiles.\nThe default uses $cache_file$ and follows the Cache File Directory; custom relative and absolute paths remain supported."),
+                "INITIAL_NODE_COLOR": Tip(
+                    translate("Config", "Baseline fill color applied to all nodes when the network is first loaded."),
+                    details=(translate("Config", "Serves as the default background color before custom cluster or metadata coloring is applied."),),
+                    live=_current_color_note,
+                ),
+                "HOVER_COLOR": Tip(
+                    translate("Config", "Highlight color applied to a node and its adjacent connections on hover or selection."),
+                    details=(translate("Config", "Provides high-contrast interactive visual feedback in the viewer."),),
+                    live=_current_color_note,
+                ),
+                "CONNECTED_NODE_COLOR": Tip(
+                    translate("Config", "Border highlight color applied to neighboring nodes directly connected to the currently selected node."),
+                    notes=(
+                        TipNote("info", translate("Config", "Set it to the same rendered RGBA color as Node Boundary Color to disable connected-node identification, border highlighting, and render promotion.")),
+                    ),
+                    live=_current_color_note,
+                ),
+                "EDGE_COLOR": Tip(
+                    translate("Config", "Color of connection lines (edges) drawn between similar nodes in the network."),
+                    details=(translate("Config", "Lighter or neutral colors reduce edge dominance in dense network clusters."),),
+                    live=_current_color_note,
+                ),
+                "NODE_BOUNDARY_COLOR": Tip(
+                    translate("Config", "Color of the outer border ring outline drawn around each sequence node."),
+                    details=(translate("Config", "Provides visual contrast to cleanly separate adjacent and overlapping nodes."),),
+                    live=_current_color_note,
+                ),
+                "NODE_BOUNDARY_WIDTH": Tip(
+                    translate("Config", "Stroke width (in pixels) of the outer border ring outline drawn around each node."),
+                    details=(translate("Config", "Setting a non-zero width helps distinguish overlapping nodes in dense clusters."),),
+                    unit="px",
+                ),
+                "LOW_RESOURCE_MODE": Tip(
+                    translate("Config", "Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions."),
+                    details=(translate("Config", "Significantly improves responsiveness and reduces rendering latency for large networks."),),
+                    notes=(
+                        TipNote("info", translate("Config", "The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.")),
+                    ),
+                ),
+                "LAYOUT_DEVICE_SELECTION": Tip(
+                    translate("Config", "Selects the compute device used for SSN layout generation (CPU, CUDA, XPU, MPS)."),
+                    options=(
+                        TipOption("auto", translate("Config", "Measures representative workloads and may choose a different backend for each component-size class.")),
+                    ),
+                    live=_detected_devices_note,
+                ),
+                "SPRING_K": Tip(
+                    translate("Config", "Attractive Hookean spring constant pulling nodes joined by retained network edges closer together."),
+                    details=(translate("Config", "Every retained edge has the same spring strength; its similarity score determines filtering, not attraction strength."),),
+                ),
+                "COULOMB_K": Tip(
+                    translate("Config", "Repulsive constant controlling the electrostatic-like force between nodes in the same connected component."),
+                    details=(translate("Config", "Larger values spread nearby nodes apart; disconnected components are positioned later by component packing."),),
+                ),
+                "COULOMB_CUTOFF": Tip(
+                    translate("Config", "Maximum spatial distance threshold beyond which node repulsive forces drop to zero."),
+                    details=(translate("Config", "Lower cutoffs accelerate computation and prevent distant clusters from exerting unnecessary forces."),),
+                ),
+                "DAMPING": Tip(
+                    translate("Config", "Frictional resistance coefficient applied to node velocities during layout simulation."),
+                    details=(translate("Config", "Higher values dissipate kinetic energy and suppress oscillatory motion more quickly."),),
+                ),
+                "DT": Tip(
+                    translate("Config", "Timestep size for each numerical integration step of the physics simulation."),
+                    details=(translate("Config", "Smaller timesteps increase stability and precision; larger timesteps speed up convergence but may jitter."),),
+                ),
+                "AUTO_DT": Tip(
+                    translate("Config", "When ON, each simulation stage uses the largest step size that keeps it stable, worked out from its springs and repulsion, and the Step Size field is ignored."),
+                    details=(translate("Config", "Max Steps, RMSD Threshold and RMSD Window still count steps of whatever size each stage uses."),),
+                ),
+                "MAX_STEPS": Tip(
+                    translate("Config", "Maximum number of physics iterations the simulation engine will run before terminating."),
+                    details=(translate("Config", "Ensure this is large enough to allow node positions to settle into a stable configuration."),),
+                ),
+                "RMSD_THRESHOLD": Tip(
+                    translate("Config", "Root-Mean-Square Deviation convergence threshold for early simulation termination."),
+                    details=(translate("Config", "If average node displacement between consecutive steps falls below this value, layout halts as converged."),),
+                ),
+                "PERCENTAGE_DROP_THRESHOLD": Tip(
+                    translate("Config", "Early termination threshold based on the rate of RMSD change over the moving window."),
+                    details=(translate("Config", "Terminates simulation when layout change plateaus (set to `0` to disable)."),),
+                ),
+                "RMSD_WINDOW": Tip(
+                    translate("Config", "Number of simulation steps over which moving-average RMSD is calculated for plateau detection."),
+                    details=(translate("Config", "Smoothes transient velocity spikes to ensure early termination triggers only on true convergence."),),
+                ),
+                "ENABLE_PROGRESSIVE_SIMULATION": Tip(
+                    translate("Config", "Progressively lowers the similarity threshold in stages for massive connected components."),
+                    details=(translate("Config", "Helps resolve fine-grained sub-clusters and prevents gridlock in large, dense components."),),
+                ),
+                "PACKING_GEOMETRY": Tip(
+                    translate("Config", "Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components."),
+                    details=(translate("Config", "Controls how independent clusters are organized in the overall visualization window."),),
+                ),
+                "PACKING_GRID_SIZE": Tip(
+                    translate("Config", "Cell size of the grid on which disconnected components are packed around the largest one."),
+                    details=(translate("Config", "Smaller cells pack components more tightly but take longer; the clearance kept between components does not change."),),
+                ),
+                "UMAP_MODE": Tip(
+                    translate("Config", "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances."),
+                    details=(translate("Config", "Provides fast non-linear dimensionality reduction as an alternative to iterative physics simulations."),),
+                ),
+                "UMAP_NEIGHBORS": Tip(
+                    translate("Config", "Maximum number of other nodes in each UMAP neighborhood (K excludes self)."),
+                    details=(translate("Config", "`K=15` supplies up to 15 neighbors plus self to UMAP."), translate("Config", "Smaller values emphasize local sub-clusters; larger values preserve broad global relationships.")),
+                ),
+                "UMAP_MIN_DIST": Tip(
+                    translate("Config", "Minimum distance between points in low-dimensional UMAP space (`0.0` to `1.0`)."),
+                    details=(translate("Config", "Lower values produce tight, dense point clusters; larger values distribute nodes more evenly."),),
+                ),
+                "FASTA_DIR": Tip(
+                    translate("Config", "Directory containing input FASTA files for sequence sets and subsets."),
+                    details=(translate("Config", "Populates the Sequence Set dropdown in the Inputs tab."),),
+                    live=self._folder_note("FASTA_DIR"),
+                ),
+                "MSA_DIR": Tip(
+                    translate("Config", "Directory containing multiple sequence alignment files (`.fasta`, `.h5`, or `_sparse.h5`)."),
+                    details=(translate("Config", "Populates the MSA dropdown in the Inputs tab."),),
+                    live=self._folder_note("MSA_DIR"),
+                ),
+                "HDF5_DIR": Tip(
+                    translate("Config", "Directory containing HDF5 pairwise sequence similarity scores and network edge files."),
+                    details=(translate("Config", "Populates the Network Edges dropdown in the Inputs tab."),),
+                    live=self._folder_note("HDF5_DIR"),
+                ),
+                "SAVED_LAYOUT_DIR": Tip(
+                    translate("Config", "Directory where calculated 2D layout coordinate files and network metadata (`.h5`) are saved and loaded."),
+                    details=(translate("Config", "Serves as the layout cache to avoid recalculating layouts when reopening networks."),),
+                    live=self._folder_note("SAVED_LAYOUT_DIR"),
+                ),
+                "SETTING_EXPORT_DIR": Tip(
+                    translate("Config", "Directory where command-line layout generation JSON settings are exported."),
+                    live=self._folder_note("SETTING_EXPORT_DIR", space=True),
+                ),
+                "METADATA_DIR": Tip(
+                    translate("Config", "Directory where uploaded node metadata spreadsheets and CSV files are stored and loaded."),
+                    details=(translate("Config", "Used for custom node coloring, categorization, and annotation in the visualizer."),),
+                    live=self._folder_note("METADATA_DIR"),
+                ),
+                "HEADER_LIST_DIR": Tip(
+                    translate("Config", "Directory containing text files with lists of sequence headers matching network query criteria."),
+                    details=(translate("Config", "Used to store and track sequence cohorts identified in the visualizer."),),
+                    live=self._folder_note("HEADER_LIST_DIR"),
+                ),
+                "INPUT_FILE_DIR": Tip(
+                    translate("Config", "Base directory represented by `$input_file$`."),
+                    details=(translate("Config", "Relative paths are resolved from the project root; absolute paths remain absolute."),),
+                    live=self._folder_note("INPUT_FILE_DIR"),
+                ),
+                "CACHE_FILE_DIR": Tip(
+                    translate("Config", "Base directory represented by `$cache_file$`."),
+                    details=(translate("Config", "Relative paths are resolved from the project root; absolute paths remain absolute."),),
+                    live=self._folder_note("CACHE_FILE_DIR"),
+                ),
+                "ANALYSIS_RESULT_DIR": Tip(
+                    translate("Config", "Base directory represented by `$analysis_result$`."),
+                    details=(translate("Config", "Viewer commands place their output subdirectories beneath this location."),),
+                    live=self._folder_note("ANALYSIS_RESULT_DIR"),
+                ),
+                "EMBED_DIR": Tip(
+                    translate("Config", "Base directory represented by `$embedding$`."),
+                    details=(translate("Config", "Holds the protein language model embedding files (`.h5`) the Tools write; the Embedding Input dropdown lists the `.h5` files in it."),),
+                    live=self._folder_note("EMBED_DIR"),
+                ),
+                "SAVED_CONFIG_DIR": Tip(
+                    translate("Config", "Directory containing named per-tab configuration profiles."),
+                    details=(translate("Config", "The default uses `$cache_file$` and follows the Cache File Directory; custom relative and absolute paths remain supported."),),
+                    live=self._folder_note("SAVED_CONFIG_DIR"),
+                ),
             }
             
             self.tip_db = {}
@@ -2278,7 +2513,7 @@ if __name__ == "__main__":
                 self._register_tip_targets(self.profile_labels.get(tab_id), entry)
                 self._register_tip_targets(selector.parentWidget(), entry)
 
-            target_cache_tip = self.tip_db_keys["TARGET_CACHE"]
+            target_cache_tip = self._field_tip("TARGET_CACHE", self.tip_db_keys["TARGET_CACHE"])
             self._register_tip_targets(
                 self.labels.get("TARGET_CACHE"), target_cache_tip
             )

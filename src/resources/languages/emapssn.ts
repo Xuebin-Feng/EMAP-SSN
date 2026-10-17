@@ -527,6 +527,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Detected devices: {devices}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{matched} of {total} matched</source>
         <translation type="unfinished"></translation>
     </message>
@@ -692,6 +696,14 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Resolves to {folder}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{free} free on its drive.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Selects the settings profile used for this tab.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -712,33 +724,75 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Primary FASTA file containing sequences visualized as nodes in the SSN.
-Must match sequences present in the selected network edges and multiple alignments.</source>
+        <source>Primary FASTA file containing sequences visualized as nodes in the SSN.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Multiple sequence alignment file (.fasta, .h5, or _sparse.h5) for the sequence set.
-Used to calculate positional conservation, gaps, and occupancy thresholds during analysis.</source>
+        <source>Must match sequences present in the selected network edges and multiple alignments.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Optional protein language model embedding file (.h5) from Generate Embeddings, for commands that analyse embeddings.
-Matched to nodes by header and sequence; the per-residue data stays on disk until a command reads it, so keep the file on this device.</source>
+        <source>Multiple sequence alignment file (`.fasta`, `.h5`, or `_sparse.h5`) for the sequence set.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Network or similarity matrix file (.h5) containing pairwise sequence similarity scores and edge coordinates.
-Must contain alignment metrics for at least all sequences present in the active sequence set.</source>
+        <source>Used to calculate positional conservation, gaps, and occupancy thresholds during analysis.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>(For embedding SSNs) Specifies whether to use global (Needleman-Wunsch) or local (Smith-Waterman) scores.
-Local alignment is recommended for multi-domain proteins; global alignment is best for full-length comparisons.</source>
+        <source>Optional protein language model embedding file (`.h5`) from Generate Embeddings, for commands that analyse embeddings.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>(For embedding SSNs) Normalization strategy for pairwise sequence alignment scores.
-Normalizes by alignment length, shorter sequence, longer sequence, or average sequence length to reduce length bias.</source>
+        <source>Matched to nodes by header and sequence; the per-residue data stays on disk until a command reads it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keep the file on this device.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Network or similarity matrix file (`.h5`) containing pairwise sequence similarity scores and edge coordinates.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Must contain alignment metrics for at least all sequences present in the active sequence set.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>(For embedding SSNs) Specifies whether to use global (Needleman-Wunsch) or local (Smith-Waterman) scores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Best for full-length comparisons.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Recommended for multi-domain proteins.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>(For embedding SSNs) Normalization strategy for pairwise sequence alignment scores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reduces length bias.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Divides the score by the alignment length.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Divides the score by the length of the shorter sequence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Divides the score by the length of the longer sequence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Divides the score by the average length of the two sequences.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -750,58 +804,95 @@ Normalizes by alignment length, shorter sequence, longer sequence, or average se
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Integer offset added to reference-anchored alignment residue positions (e.g. +10 shifts position 1 to 11).
-Applied only when the Alignment Reference ID resolves successfully in the alignment.</source>
+        <source>Integer offset added to reference-anchored alignment residue positions (e.g. `+10` shifts position 1 to 11).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge.
-Edges below this cutoff are filtered out and excluded from physics simulation and rendering.</source>
+        <source>Applied only when the Alignment Reference ID resolves successfully in the alignment.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Alternative edge filter that retains only the top N% highest-scoring edges in the network.
-Maintains consistent network connectivity and density without manually tuning raw score cutoffs (overrides threshold).</source>
+        <source>Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Minimum percentage of non-gap characters required at an alignment column to retain it in residue analyses.
-Columns with occupancy below this percentage are excluded from logo and conservation calculations.</source>
+        <source>Edges below this cutoff are filtered out and excluded from physics simulation and rendering.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Target Cache: Compatibility-specific folder for layout cache files matching the selected sequence set and network.
-The status reports whether a compatible target folder is available; the folder button opens the layout-cache root.</source>
+        <source>Alternative edge filter that retains only the top N% highest-scoring edges in the network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Selects a pre-computed 2D layout coordinate cache file (.h5) from the cache directory.
-Instantly restores previously computed node positions to bypass physics simulation.</source>
+        <source>Maintains consistent network connectivity and density without manually tuning raw score cutoffs (overrides threshold).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Specifies a custom filename when saving a new layout configuration iteration.
-Only editable when Selected Cache File is set to &apos;(New Layout Cache)&apos;.</source>
+        <source>Minimum percentage of non-gap characters required at an alignment column to retain it in residue analyses.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Visual rendering diameter (in pixels) for each sequence node in the network plot.
-Adjust to optimize visual density; smaller node sizes are recommended for large networks.</source>
+        <source>Columns with occupancy below this percentage are excluded from logo and conservation calculations.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Line thickness (in pixels) of connection lines drawn between related sequence nodes.
-Thinner lines reduce visual clutter in dense networks; thicker lines highlight strong relationships.</source>
+        <source>Compatibility-specific folder for layout cache files matching the selected sequence set and network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Opacity of network edge lines, ranging from 0.0 (fully transparent) to 1.0 (opaque).
-Lower opacity reveals underlying node clustering and density in highly connected graphs.</source>
+        <source>The status reports whether a compatible target folder is available; the folder button opens the layout-cache root.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.
-Adjust to ensure labels remain legible without obstructing structural network features.</source>
+        <source>Selects a pre-computed 2D layout coordinate cache file (`.h5`) from the cache directory.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Instantly restores previously computed node positions to bypass physics simulation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Specifies a custom filename when saving a new layout configuration iteration.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Only editable when Selected Cache File is set to `{entry}`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>(New Layout Cache)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Visual rendering diameter (in pixels) for each sequence node in the network plot.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Adjust to optimize visual density; smaller node sizes are recommended for large networks.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Line thickness (in pixels) of connection lines drawn between related sequence nodes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Thinner lines reduce visual clutter in dense networks; thicker lines highlight strong relationships.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opacity of network edge lines, ranging from `0.0` (fully transparent) to `1.0` (opaque).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lower opacity reveals underlying node clustering and density in highly connected graphs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Adjust to ensure labels remain legible without obstructing structural network features.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -817,144 +908,235 @@ Adjust to ensure labels remain legible without obstructing structural network fe
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Baseline fill color applied to all nodes when the network is first loaded.
-Serves as the default background color before custom cluster or metadata coloring is applied.</source>
+        <source>Baseline fill color applied to all nodes when the network is first loaded.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Highlight color applied to a node and its adjacent connections on hover or selection.
-Provides high-contrast interactive visual feedback in the viewer.</source>
+        <source>Serves as the default background color before custom cluster or metadata coloring is applied.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Border highlight color applied to neighboring nodes directly connected to the currently selected node.
-Set it to the same rendered RGBA color as Node Boundary Color to disable connected-node identification, border highlighting, and render promotion.</source>
+        <source>Highlight color applied to a node and its adjacent connections on hover or selection.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Color of connection lines (edges) drawn between similar nodes in the network.
-Lighter or neutral colors reduce edge dominance in dense network clusters.</source>
+        <source>Provides high-contrast interactive visual feedback in the viewer.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Color of the outer border ring outline drawn around each sequence node.
-Provides visual contrast to cleanly separate adjacent and overlapping nodes.</source>
+        <source>Border highlight color applied to neighboring nodes directly connected to the currently selected node.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Stroke width (in pixels) of the outer border ring outline drawn around each node.
-Setting a non-zero width helps distinguish overlapping nodes in dense clusters.</source>
+        <source>Set it to the same rendered RGBA color as Node Boundary Color to disable connected-node identification, border highlighting, and render promotion.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
-Significantly improves responsiveness and reduces rendering latency for large networks.</source>
+        <source>Color of connection lines (edges) drawn between similar nodes in the network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Selects the compute device used for SSN layout generation (CPU, CUDA, XPU, MPS).
-Auto Benchmark measures representative workloads and may choose a different backend for each component-size class.</source>
+        <source>Lighter or neutral colors reduce edge dominance in dense network clusters.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Attractive Hookean spring constant pulling nodes joined by retained network edges closer together.
-Every retained edge has the same spring strength; its similarity score determines filtering, not attraction strength.</source>
+        <source>Color of the outer border ring outline drawn around each sequence node.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Repulsive constant controlling the electrostatic-like force between nodes in the same connected component.
-Larger values spread nearby nodes apart; disconnected components are positioned later by component packing.</source>
+        <source>Provides visual contrast to cleanly separate adjacent and overlapping nodes.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Maximum spatial distance threshold beyond which node repulsive forces drop to zero.
-Lower cutoffs accelerate computation and prevent distant clusters from exerting unnecessary forces.</source>
+        <source>Stroke width (in pixels) of the outer border ring outline drawn around each node.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Frictional resistance coefficient applied to node velocities during layout simulation.
-Higher values dissipate kinetic energy and suppress oscillatory motion more quickly.</source>
+        <source>Setting a non-zero width helps distinguish overlapping nodes in dense clusters.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Timestep size for each numerical integration step of the physics simulation.
-Smaller timesteps increase stability and precision; larger timesteps speed up convergence but may jitter.</source>
+        <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>When ON, each simulation stage uses the largest step size that keeps it stable, worked out from its springs and repulsion, and the Step Size field is ignored.
-Max Steps, RMSD Threshold and RMSD Window still count steps of whatever size each stage uses.</source>
+        <source>Significantly improves responsiveness and reduces rendering latency for large networks.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Maximum number of physics iterations the simulation engine will run before terminating.
-Ensure this is large enough to allow node positions to settle into a stable configuration.</source>
+        <source>The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Root-Mean-Square Deviation convergence threshold for early simulation termination.
-If average node displacement between consecutive steps falls below this value, layout halts as converged.</source>
+        <source>Selects the compute device used for SSN layout generation (CPU, CUDA, XPU, MPS).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Early termination threshold based on the rate of RMSD change over the moving window.
-Terminates simulation when layout change plateaus (set to 0 to disable).</source>
+        <source>Measures representative workloads and may choose a different backend for each component-size class.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Number of simulation steps over which moving-average RMSD is calculated for plateau detection.
-Smoothes transient velocity spikes to ensure early termination triggers only on true convergence.</source>
+        <source>Attractive Hookean spring constant pulling nodes joined by retained network edges closer together.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Progressively lowers the similarity threshold in stages for massive connected components.
-Helps resolve fine-grained sub-clusters and prevents gridlock in large, dense components.</source>
+        <source>Every retained edge has the same spring strength; its similarity score determines filtering, not attraction strength.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components.
-Controls how independent clusters are organized in the overall visualization window.</source>
+        <source>Repulsive constant controlling the electrostatic-like force between nodes in the same connected component.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Cell size of the grid on which disconnected components are packed around the largest one.
-Smaller cells pack components more tightly but take longer; the clearance kept between components does not change.</source>
+        <source>Larger values spread nearby nodes apart; disconnected components are positioned later by component packing.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.
-Provides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.</source>
+        <source>Maximum spatial distance threshold beyond which node repulsive forces drop to zero.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Maximum number of other nodes in each UMAP neighborhood (K excludes self).
-K=15 supplies up to 15 neighbors plus self to UMAP.
-Smaller values emphasize local sub-clusters; larger values preserve broad global relationships.</source>
+        <source>Lower cutoffs accelerate computation and prevent distant clusters from exerting unnecessary forces.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Minimum distance between points in low-dimensional UMAP space (0.0 to 1.0).
-Lower values produce tight, dense point clusters; larger values distribute nodes more evenly.</source>
+        <source>Frictional resistance coefficient applied to node velocities during layout simulation.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing input FASTA files for sequence sets and subsets.
-Populates the Sequence Set dropdown in the Inputs tab.</source>
+        <source>Higher values dissipate kinetic energy and suppress oscillatory motion more quickly.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).
-Populates the MSA dropdown in the Inputs tab.</source>
+        <source>Timestep size for each numerical integration step of the physics simulation.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing HDF5 pairwise sequence similarity scores and network edge files.
-Populates the Network Edges dropdown in the Inputs tab.</source>
+        <source>Smaller timesteps increase stability and precision; larger timesteps speed up convergence but may jitter.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory where calculated 2D layout coordinate files and network metadata (.h5) are saved and loaded.
-Serves as the layout cache to avoid recalculating layouts when reopening networks.</source>
+        <source>When ON, each simulation stage uses the largest step size that keeps it stable, worked out from its springs and repulsion, and the Step Size field is ignored.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Max Steps, RMSD Threshold and RMSD Window still count steps of whatever size each stage uses.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Maximum number of physics iterations the simulation engine will run before terminating.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ensure this is large enough to allow node positions to settle into a stable configuration.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Root-Mean-Square Deviation convergence threshold for early simulation termination.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>If average node displacement between consecutive steps falls below this value, layout halts as converged.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Early termination threshold based on the rate of RMSD change over the moving window.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Terminates simulation when layout change plateaus (set to `0` to disable).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Number of simulation steps over which moving-average RMSD is calculated for plateau detection.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Smoothes transient velocity spikes to ensure early termination triggers only on true convergence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Progressively lowers the similarity threshold in stages for massive connected components.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Helps resolve fine-grained sub-clusters and prevents gridlock in large, dense components.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Macro-level boundary packing geometry (Square or Circle) used to arrange disconnected components.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controls how independent clusters are organized in the overall visualization window.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cell size of the grid on which disconnected components are packed around the largest one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Smaller cells pack components more tightly but take longer; the clearance kept between components does not change.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Provides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Maximum number of other nodes in each UMAP neighborhood (K excludes self).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>`K=15` supplies up to 15 neighbors plus self to UMAP.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Smaller values emphasize local sub-clusters; larger values preserve broad global relationships.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Minimum distance between points in low-dimensional UMAP space (`0.0` to `1.0`).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lower values produce tight, dense point clusters; larger values distribute nodes more evenly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory containing input FASTA files for sequence sets and subsets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Populates the Sequence Set dropdown in the Inputs tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory containing multiple sequence alignment files (`.fasta`, `.h5`, or `_sparse.h5`).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Populates the MSA dropdown in the Inputs tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory containing HDF5 pairwise sequence similarity scores and network edge files.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Populates the Network Edges dropdown in the Inputs tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory where calculated 2D layout coordinate files and network metadata (`.h5`) are saved and loaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Serves as the layout cache to avoid recalculating layouts when reopening networks.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -962,42 +1144,55 @@ Serves as the layout cache to avoid recalculating layouts when reopening network
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory where uploaded node metadata spreadsheets and CSV files are stored and loaded.
-Used for custom node coloring, categorization, and annotation in the visualizer.</source>
+        <source>Directory where uploaded node metadata spreadsheets and CSV files are stored and loaded.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing text files with lists of sequence headers matching network query criteria.
-Used to store and track sequence cohorts identified in the visualizer.</source>
+        <source>Used for custom node coloring, categorization, and annotation in the visualizer.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Base directory represented by $input_file$.
-Relative paths are resolved from the project root; absolute paths remain absolute.</source>
+        <source>Directory containing text files with lists of sequence headers matching network query criteria.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Base directory represented by $cache_file$.
-Relative paths are resolved from the project root; absolute paths remain absolute.</source>
+        <source>Used to store and track sequence cohorts identified in the visualizer.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Base directory represented by $analysis_result$.
-Viewer commands place their output subdirectories beneath this location.</source>
+        <source>Base directory represented by `$input_file$`.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Base directory represented by $embedding$.
-Holds the protein language model embedding files (.h5) the Tools write; the Embedding Input dropdown lists the .h5 files in it.</source>
+        <source>Relative paths are resolved from the project root; absolute paths remain absolute.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing named per-tab configuration profiles.
-The default uses $cache_file$ and follows the Cache File Directory; custom relative and absolute paths remain supported.</source>
+        <source>Base directory represented by `$cache_file$`.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>(New Layout Cache)</source>
+        <source>Base directory represented by `$analysis_result$`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Viewer commands place their output subdirectories beneath this location.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Base directory represented by `$embedding$`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Holds the protein language model embedding files (`.h5`) the Tools write; the Embedding Input dropdown lists the `.h5` files in it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Directory containing named per-tab configuration profiles.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The default uses `$cache_file$` and follows the Cache File Directory; custom relative and absolute paths remain supported.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5097,6 +5292,11 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
+Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Isotonic regression plots are unavailable for BLAST networks.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5106,11 +5306,6 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>Complete network: {sequences:,} sequences and {observed:,}/{expected:,} observed pairs. All pairs are already observed, so isotonic regression and diagnostic plots are only available for sparse networks.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
-Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5166,6 +5361,18 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Detected devices: {devices}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Resolves to {folder}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{free} free on its drive.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>AUTO ON</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5190,83 +5397,139 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Sequence Set (.fasta): The raw FASTA sequence database to clean.
-Uppercases residues, trims terminal non-residues, masks invalid characters with &apos;X&apos;, and deduplicates headers.</source>
+        <source>The raw FASTA sequence database to clean.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Enable Length Filter: Toggle to filter sequences by amino acid length.
-When enabled, only sequences within the minimum and maximum length bounds will be retained.</source>
+        <source>Uppercases residues, trims terminal non-residues, masks invalid characters with `X`, and deduplicates headers.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Show Length Histogram: Displays the length histogram of the sanitized sequences when the run ends.
-A run from a settings file (CLI or MCP) prints the same bins as a table instead. Turn off to skip both.</source>
+        <source>Toggle to filter sequences by amino acid length.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Overwrite Original File: If ON, replaces the input FASTA file with sanitized sequences.
-If OFF, creates a new file named &lt;input_name&gt;_sanitized.fasta to preserve the original file.</source>
+        <source>When enabled, only sequences within the minimum and maximum length bounds will be retained.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Remove Header Substring: Case-sensitive substring filter on raw headers.
-Sequences containing this exact text (e.g. &apos;fragment&apos;, &apos;partial&apos;) are discarded. Leave blank to disable.</source>
+        <source>Displays the length histogram of the sanitized sequences when the run ends.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Minimum Sequence Length: Lower length bound (inclusive) in amino acids.
-Sequences shorter than this threshold will be discarded during sanitization.</source>
+        <source>A run from a settings file (CLI or MCP) prints the same bins as a table instead. Turn off to skip both.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Maximum Sequence Length: Upper length bound (inclusive) in amino acids.
-Sequences longer than this threshold will be discarded during sanitization.</source>
+        <source>Chooses whether the sanitized sequences replace the input FASTA file or go to a new file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Sequence Set (.fasta): FASTA sequence database to embed.
-Records are sanitized in memory (uppercased, invalid residues masked, duplicates merged) before model inference.</source>
+        <source>Replaces the input FASTA file with the sanitized sequences.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Model Name: Protein language model (pLM) architecture used to generate residue embeddings.
-Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key).</source>
+        <source>Creates a new file named `&lt;input_name&gt;_sanitized.fasta` to preserve the original file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Saving Mode: Floating-point precision for storing embedding tensors in HDF5.
-Float16 saves 50% disk space and RAM with minimal precision loss; float32 retains full precision.</source>
+        <source>Case-sensitive substring filter on raw headers.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Device: Hardware compute device used for neural network inference.
-Auto Benchmark profiles CPU and available local accelerators (CUDA, XPU, MPS) on representative sequences.</source>
+        <source>Sequences containing this exact text (e.g. `fragment`, `partial`) are discarded. Leave blank to disable.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Full Embedding Set (.h5): Pre-computed HDF5 database containing embeddings of full-length sequences.
-Contextual residue embeddings for cropped segments are sliced directly from these full-context tensors.</source>
+        <source>Lower length bound (inclusive) in amino acids.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Cropped Sequence Set (.fasta): FASTA file containing partial/cropped sequence segments.
-Headers and sequences must match exact contiguous substrings within the full embedding database.</source>
+        <source>Sequences shorter than this threshold will be discarded during sanitization.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Embedding Set (.h5): HDF5 database containing dense residue embeddings.
-Vectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores.</source>
+        <source>Upper length bound (inclusive) in amino acids.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.
-Skips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation.</source>
+        <source>Sequences longer than this threshold will be discarded during sanitization.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Strength (%): Percentage of candidate sequence pairs with lowest cosine similarity to discard.
-Higher percentages speed up calculations by performing residue alignments on only the most promising pairs.</source>
+        <source>FASTA sequence database to embed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Records are sanitized in memory (uppercased, invalid residues masked, duplicates merged) before model inference.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Protein language model (pLM) architecture used to generate residue embeddings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `esmc_6b` with API key).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Floating-point precision for storing embedding tensors in HDF5.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saves 50% disk space and RAM with minimal precision loss.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Retains full precision.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hardware compute device used for neural network inference.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Profiles CPU and available local accelerators (CUDA, XPU, MPS) on representative sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pre-computed HDF5 database containing embeddings of full-length sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Contextual residue embeddings for cropped segments are sliced directly from these full-context tensors.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>FASTA file containing partial/cropped sequence segments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Headers and sequences must match exact contiguous substrings within the full embedding database.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>HDF5 database containing dense residue embeddings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Vectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pre-filters sequence pairs using cosine similarity of global pooled embeddings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Skips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Percentage of candidate sequence pairs with lowest cosine similarity to discard.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Higher percentages speed up calculations by performing residue alignments on only the most promising pairs.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5278,23 +5541,43 @@ Higher percentages speed up calculations by performing residue alignments on onl
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.
-More negative values penalize gap insertions and extensions, resulting in fewer gaps.</source>
+        <source>Gap penalty applied in Smith-Waterman local alignment.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.
-Controls gap insertion penalties across end-to-end full-length alignments.</source>
+        <source>More negative values penalize gap insertions and extensions, resulting in fewer gaps.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.
-Larger values improve throughput but require more RAM. Enter an integer or &apos;auto&apos;.</source>
+        <source>Gap penalty applied in Needleman-Wunsch global alignment.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Device: Hardware compute device used for pairwise residue score matrix calculation.
-Auto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU.</source>
+        <source>Controls gap insertion penalties across end-to-end full-length alignments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Number of sequence pairs processed in a single chunk before writing to HDF5.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Enter an integer or `auto`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Larger values improve throughput but require more RAM.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hardware compute device used for pairwise residue score matrix calculation.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Benchmarks CPU and accelerators.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dynamic programming alignment scoring always runs on CPU.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5350,93 +5633,183 @@ Auto benchmarks CPU and accelerators; dynamic programming alignment scoring alwa
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Sequence Set (.fasta): FASTA sequence database to align with BLASTP.
-Records undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment.</source>
+        <source>FASTA sequence database to align with BLASTP.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Substitution Matrix: Amino acid substitution matrix (e.g. BLOSUM62, PAM250) used for scoring.
-Select based on the expected evolutionary distance of the sequence set.</source>
+        <source>Records undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>CPU Workers: Number of parallel CPU threads allocated for BLASTP execution and parsing.
-Increasing threads accelerates all-vs-all search across multi-core systems.</source>
+        <source>Amino acid substitution matrix (e.g. `BLOSUM62`, `PAM250`) used for scoring.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Batch Size: Maximum number of parsed alignment edges buffered per chunk during HDF5 writing.
-Tuning this parameter controls RAM usage and optimizes disk write performance.</source>
+        <source>Select based on the expected evolutionary distance of the sequence set.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>BLASTP Directory: Directory containing local blastp and makeblastdb executable binaries.
-If left blank, standard system PATH and default platform installation locations are searched.</source>
+        <source>Number of parallel CPU threads allocated for BLASTP execution and parsing.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Use Sequence Filter: Toggle to restrict alignment to sequences in an explicit FASTA file.
-When OFF, aligns all sequences present in the intersection of the embedding and network databases.</source>
+        <source>Increasing threads accelerates all-vs-all search across multi-core systems.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Sequence Set (.fasta): FASTA file used to filter sequences when Sequence Filter is ON.
-Ignored and blanked out when Use Sequence Filter is disabled.</source>
+        <source>Maximum number of parsed alignment edges buffered per chunk during HDF5 writing.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Embedding Set (.h5): HDF5 embedding database containing dense residue embeddings.
-Used to weight progressive profile-profile alignments along evolutionary guide tree nodes.</source>
+        <source>Tuning this parameter controls RAM usage and optimizes disk write performance.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.
-For sparse networks, missing edge scores are automatically imputed using isotonic regression.</source>
+        <source>Directory containing local `blastp` and `makeblastdb` executable binaries.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Tree Building Method: Algorithm used to construct the evolutionary guide tree.
-UPGMA (Fast) uses average linkage; Neighbor-joining (Slow) accounts for unequal evolutionary rates.</source>
+        <source>If left blank, standard system PATH and default platform installation locations are searched.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Score Mode: Selects whether to weight guide tree branches using &apos;global&apos; or &apos;local&apos; network scores.
-Determines the hierarchical branching and progressive alignment order.</source>
+        <source>Toggle to restrict alignment to sequences in an explicit FASTA file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Normalization Mode: Formula used to normalize network scores by sequence or alignment length.
-Corrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST).</source>
+        <source>When OFF, aligns all sequences present in the intersection of the embedding and network databases.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Noise-Perturbed Trees: Toggle to average guide trees across randomly perturbed distance replicates.
-Assesses tree sensitivity to distance fluctuations; disabling this runs a single deterministic tree.</source>
+        <source>FASTA file used to filter sequences when Sequence Filter is ON.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Number of Perturbed Trees: Number of noise-perturbed replicate trees used to build consensus.
-Higher values yield a more stable consensus guide tree but increase computation time.</source>
+        <source>Ignored and blanked out when Use Sequence Filter is disabled.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;
-ON replaces all pairs with replicate-averaged cophenetic distances. Imputed pairs participate in all replicate trees.</source>
+        <source>HDF5 embedding database containing dense residue embeddings.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Normalized Noise Scale: Gaussian standard deviation expressed as a fraction of max distance (e.g. 0.02 = 2%).
-Applies additive noise across all observed and regression-imputed distances, clamped to valid bounds.</source>
+        <source>Used to weight progressive profile-profile alignments along evolutionary guide tree nodes.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.
-More negative values penalize gap initiation, yielding fewer overall gap regions.</source>
+        <source>Pairwise similarity network (`.h5`) used to construct the guide tree.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.
-More negative values shorten gap lengths.</source>
+        <source>For sparse networks, missing edge scores are automatically imputed using isotonic regression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Displays a diagnostic scatter plot for sparse networks.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Algorithm used to construct the evolutionary guide tree.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Uses average linkage.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Accounts for unequal evolutionary rates.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selects whether to weight guide tree branches using global or local network scores.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Determines the hierarchical branching and progressive alignment order.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Formula used to normalize network scores by sequence or alignment length.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Corrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Divides the score by the alignment length.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Divides the score by the length of the shorter sequence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Divides the score by the length of the longer sequence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Divides the score by the average length of the two sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle to average guide trees across randomly perturbed distance replicates.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Assesses tree sensitivity to distance fluctuations; disabling this runs a single deterministic tree.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Number of noise-perturbed replicate trees used to build consensus.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Higher values yield a more stable consensus guide tree but increase computation time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>For incomplete networks, chooses the distances the final consensus uses.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Imputed pairs participate in all replicate trees.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Replaces all pairs with replicate-averaged cophenetic distances.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Retains baseline imputed distances.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Gaussian standard deviation expressed as a fraction of max distance (e.g. `0.02` = 2%).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Applies additive noise across all observed and regression-imputed distances, clamped to valid bounds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Penalty score applied for opening a new gap in profile alignments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>More negative values penalize gap initiation, yielding fewer overall gap regions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Penalty score applied for extending an existing gap in profile alignments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>More negative values shorten gap lengths.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5456,249 +5829,407 @@ More negative values shorten gap lengths.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Device: Hardware used for sequential profile score-matrix construction.
-Auto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU.</source>
+        <source>Hardware used for sequential profile score-matrix construction.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Temporary Working Directory: Directory for caching intermediate files and memory-mapped matrices.
-Ensures large guide tree and distance matrix calculations do not exceed system RAM.</source>
+        <source>Compares CPU and available accelerators on three representative leaf merges.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Convert All Alignments: If ON, converts all FASTA MSA files in the alignment directory to sparse HDF5 format.
-If OFF, converts only the selected FASTA alignment file.</source>
+        <source>Guide-tree calculations and dynamic-programming traceback remain on CPU.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Input MSA (.fasta): Standard FASTA multiple sequence alignment file to convert.
-Compresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing file size by up to 95%.</source>
+        <source>Directory for caching intermediate files and memory-mapped matrices.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>BLAST Results: Tab-delimited BLASTP or DIAMOND blastp output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.
-Run DIAMOND with -k 0 so no query&apos;s hits are truncated, and with --header verbose to record its version and command.</source>
+        <source>Ensures large guide tree and distance matrix calculations do not exceed system RAM.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers.</source>
+        <source>Converts FASTA alignments to sparse HDF5 format.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below.</source>
+        <source>Converts all FASTA MSA files in the alignment directory.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Query Column: One-based full query-header column used only for Custom Columns.</source>
+        <source>Converts only the selected FASTA alignment file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Subject Column: One-based full subject-header column used only for Custom Columns.</source>
+        <source>Standard FASTA multiple sequence alignment file to convert.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>E-Value Column: One-based E-value column used only for Custom Columns.</source>
+        <source>Compresses alignment residues into a SciPy CSR sparse matrix (`.h5`), reducing file size by up to 95%.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Input Embedding Set (.h5): Master HDF5 embedding database to receive new sequences.
-Existing sequence embeddings are preserved and reused without recalculation.</source>
+        <source>Tab-delimited BLASTP or DIAMOND blastp output in standard `outfmt 6`, metadata-bearing `outfmt 7`, or an explicitly mapped custom layout.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Input Sequence Set (.fasta): FASTA file containing existing sequences plus newly added targets.
-Embeddings are computed only for the newly introduced sequences to optimize compute time.</source>
+        <source>Run DIAMOND with `-k 0` so no query&apos;s hits are truncated, and with `--header verbose` to record its version and command.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Input Embedding Set (.h5): Master HDF5 embedding database from which subset embeddings are extracted.
-Extracts matching residue embedding datasets without re-running language model inference.</source>
+        <source>Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Input Sequence Set (.fasta): FASTA file or text list defining the whitelist of sequence headers to extract.
-Only embeddings matching these headers are saved to the new HDF5 database.</source>
+        <source>How the columns of the BLAST tabular file are read.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Input Network Edges (.h5): Pre-existing HDF5 similarity network file.
-Pre-computed alignment scores between existing sequence pairs are reused directly.</source>
+        <source>Standard `outfmt 6` requires exactly 12 columns.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Input Embedding Set (.h5): Updated HDF5 embedding database containing all sequence embeddings.
-Newly introduced sequence pairs are aligned and injected into the updated network file.</source>
+        <source>`outfmt 7` reads the full query from `# Query` and subject/E-value positions from `# Fields`.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.
-Distributes alignment of newly added sequence pairs across CPU cores.</source>
+        <source>Uses the three one-based column settings below.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Batch Size: Number of sequence alignments calculated and buffered per write block.
-Tuning this parameter controls RAM usage and optimizes file write performance.</source>
+        <source>One-based full query-header column used only for Custom Columns.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.</source>
+        <source>One-based full subject-header column used only for Custom Columns.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Execution Mode: &apos;auto&apos; benchmarks scalar and tiled plans where supported.
-&apos;scalar&apos; processes one pairwise score matrix at a time; &apos;tiled&apos; uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator.</source>
+        <source>One-based E-value column used only for Custom Columns.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. AUTO ON selects a safe budget up to {cap:g} GiB; turn it OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox.</source>
+        <source>Master HDF5 embedding database to receive new sequences.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Input Network Edges (.h5): Master HDF5 network file containing pairwise similarity scores or E-values.
-Edges connecting sequences outside the whitelist are filtered out.</source>
+        <source>Existing sequence embeddings are preserved and reused without recalculation.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Input Sequence Set (.fasta): Whitelist FASTA file defining the subset of sequence nodes to retain.
-Only edges connecting two whitelist sequences are extracted and re-indexed into the sub-network.</source>
+        <source>FASTA file containing existing sequences plus newly added targets.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Embedding Set (.h5): HDF5 database containing pre-computed sequences and residue embeddings.
-Supplies stored sequences and models whenever a manual sequence switch is OFF.</source>
+        <source>Embeddings are computed only for the newly introduced sequences to optimize compute time.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Reference Header: Header of the reference sequence in the embedding database.
-Typed text is sanitized before lookup; if left blank, the first database sequence is used.</source>
+        <source>Master HDF5 embedding database from which subset embeddings are extracted.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Manual Ref Seq: Toggle to enter a raw reference sequence manually.
-When OFF, the reference sequence and embedding are loaded from the database by header.</source>
+        <source>Extracts matching residue embedding datasets without re-running language model inference.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Ref Sequence (Optional): Raw amino acid sequence for the reference protein.
-Used only when Manual Ref Seq is ON; sanitized and embedded on the fly.</source>
+        <source>FASTA file or text list defining the whitelist of sequence headers to extract.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Target Header: Header of the target sequence in the embedding database.
-Typed text is sanitized before lookup; if left blank, the second database sequence is used.</source>
+        <source>Only embeddings matching these headers are saved to the new HDF5 database.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Manual Tar Seq: Toggle to enter a raw target sequence manually.
-When OFF, the target sequence and embedding are loaded from the database by header.</source>
+        <source>Pre-existing HDF5 similarity network file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Tar Sequence (Optional): Raw amino acid sequence for the target protein.
-Used only when Manual Tar Seq is ON; sanitized and embedded on the fly.</source>
+        <source>Pre-computed alignment scores between existing sequence pairs are reused directly.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Highlight Pos (e.g. 1, 4-6): Comma-separated 1-indexed residue positions or ranges in the reference.
-Tracked through the alignment and highlighted directly on target sequence positions.</source>
+        <source>Updated HDF5 embedding database containing all sequence embeddings.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Embedding Model: Protein language model used when both sequences are entered manually.
-When either sequence is selected from an embedding database, that database&apos;s model is used instead.</source>
+        <source>Newly introduced sequence pairs are aligned and injected into the updated network file.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.
-Calculates dynamic programming alignment based on residue embedding cosine similarities.</source>
+        <source>Number of parallel CPU worker processes allocated for dynamic programming alignments.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.
-More negative values penalize gap insertions within local alignments.</source>
+        <source>Distributes alignment of newly added sequence pairs across CPU cores.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.
-More negative values penalize gap insertions across full-length alignments.</source>
+        <source>Number of sequence alignments calculated and buffered per write block.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Generate Report: Toggle to save an interactive, color-coded HTML alignment report.
-Outputs a formatted report with highlighted residue mappings to the report directory.</source>
+        <source>Tuning this parameter controls RAM usage and optimizes file write performance.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Embedding Set (.h5): Master HDF5 database containing pre-computed sequence embeddings.
-Database sequences are scanned against the query sequence using parallelized dynamic programming.</source>
+        <source>Hardware used for new residue score matrices.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Query Header: Header of a sequence in the embedding database used as the search query.
-Sanitized before lookup when Manual Query Seq is OFF.</source>
+        <source>TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Manual Query Seq: Toggle to provide a custom query sequence manually.
-When OFF, the query sequence and embedding are loaded from the database by header.</source>
+        <source>Uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Query Sequence (Optional): Raw amino acid sequence for the query protein.
-Used only when Manual Query Seq is ON; embedded on the fly using the database model.</source>
+        <source>Tiled mode is hidden when MPS is selected or is the only available accelerator.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Output Name: Custom prefix for exported report files (.txt, .xlsx, .fasta).
-If left blank, defaults to the sanitized query header.</source>
+        <source>RAM cap for retaining packed embeddings across injection batches.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Top K Hits: Maximum number of highest-scoring database matches to export in results.
-Controls the output hit list size in summary tables and reports.</source>
+        <source>Choose 0 to {cap:g} GiB with the linear slider or spinbox.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Norm Score Cutoff: Minimum normalized similarity score threshold for database hits.
-Hits scoring below this cutoff are excluded from results. Set to &apos;None&apos; to disable.</source>
+        <source>Master HDF5 network file containing pairwise similarity scores or E-values.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.
-Compares database sequence embeddings against the query using dynamic programming.</source>
+        <source>Edges connecting sequences outside the whitelist are filtered out.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Normalization Mode: Formula used to normalize alignment scores by sequence or alignment length.
-Prevents score bias toward longer or shorter sequences.</source>
+        <source>Whitelist FASTA file defining the subset of sequence nodes to retain.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Local Align Gap Penalty: Gap penalty applied during local (Smith-Waterman) database search.
-More negative values penalize gap insertions.</source>
+        <source>Only edges connecting two whitelist sequences are extracted and re-indexed into the sub-network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Global Align Gap Penalty: Gap penalty applied during global (Needleman-Wunsch) database search.
-More negative values penalize gap insertions across full sequences.</source>
+        <source>HDF5 database containing pre-computed sequences and residue embeddings.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>CPU Workers: Number of parallel CPU worker processes allocated for database search.
-Running with more workers speeds up database scanning on multi-core systems.</source>
+        <source>Supplies stored sequences and models whenever a manual sequence switch is OFF.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.
-Outputs the query sequence followed by ranked matching sequences.</source>
+        <source>Header of the reference sequence in the embedding database.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.</source>
+        <source>Typed text is sanitized before lookup; if left blank, the first database sequence is used.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Accelerator Precision: Automatic 32-bit considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets). BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative targets; finite numerical differences never block execution.</source>
+        <source>Toggle to enter a raw reference sequence manually.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>When OFF, the reference sequence and embedding are loaded from the database by header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Raw amino acid sequence for the reference protein.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Used only when Manual Ref Seq is ON; sanitized and embedded on the fly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Header of the target sequence in the embedding database.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Typed text is sanitized before lookup; if left blank, the second database sequence is used.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle to enter a raw target sequence manually.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>When OFF, the target sequence and embedding are loaded from the database by header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Raw amino acid sequence for the target protein.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Used only when Manual Tar Seq is ON; sanitized and embedded on the fly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Comma-separated 1-indexed residue positions or ranges in the reference.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tracked through the alignment and highlighted directly on target sequence positions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Protein language model used when both sequences are entered manually.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>When either sequence is selected from an embedding database, that database&apos;s model is used instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Calculates dynamic programming alignment based on residue embedding cosine similarities.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aligns the sequences end to end.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aligns their best-matching regions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>More negative values penalize gap insertions within local alignments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>More negative values penalize gap insertions across full-length alignments.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle to save an interactive, color-coded HTML alignment report.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Outputs a formatted report with highlighted residue mappings to the report directory.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Master HDF5 database containing pre-computed sequence embeddings.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Database sequences are scanned against the query sequence using parallelized dynamic programming.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Header of a sequence in the embedding database used as the search query.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sanitized before lookup when Manual Query Seq is OFF.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle to provide a custom query sequence manually.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>When OFF, the query sequence and embedding are loaded from the database by header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Raw amino acid sequence for the query protein.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Used only when Manual Query Seq is ON; embedded on the fly using the database model.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Custom prefix for exported report files (`.txt`, `.xlsx`, `.fasta`).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>If left blank, defaults to the sanitized query header.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Maximum number of highest-scoring database matches to export in results.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Controls the output hit list size in summary tables and reports.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Minimum normalized similarity score threshold for database hits.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hits scoring below this cutoff are excluded from results. Set to `None` to disable.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Compares database sequence embeddings against the query using dynamic programming.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Formula used to normalize alignment scores by sequence or alignment length.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Prevents score bias toward longer or shorter sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Gap penalty applied during local (Smith-Waterman) database search.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>More negative values penalize gap insertions.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Gap penalty applied during global (Needleman-Wunsch) database search.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>More negative values penalize gap insertions across full sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Number of parallel CPU worker processes allocated for database search.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Running with more workers speeds up database scanning on multi-core systems.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Toggle to export a FASTA file containing top hit sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Outputs the query sequence followed by ranked matching sequences.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hardware used for residue score matrices.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative targets; finite numerical differences never block execution.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6080,19 +6611,19 @@ The window shows the default values, and the file was left unchanged. Saving dir
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing unaligned FASTA sequence files (.fasta) for sequence sets and subsets.</source>
+        <source>Directory containing unaligned FASTA sequence files (`.fasta`) for sequence sets and subsets.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5).</source>
+        <source>Directory containing multiple sequence alignment files (`.fasta`, `.h5`, or `_sparse.h5`).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing pre-computed protein language model embedding databases (.h5).</source>
+        <source>Directory containing pre-computed protein language model embedding databases (`.h5`).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (.h5, .tabular).</source>
+        <source>Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (`.h5`, `.tabular`).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6199,18 +6730,6 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Edge Prefiltering</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Strength (%)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Enable Length Filter</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Unavailable saved model [{model}]</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6220,10 +6739,6 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     </message>
     <message>
         <source>Unavailable saved device [{device}]</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Setting: {name}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

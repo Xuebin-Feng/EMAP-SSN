@@ -649,10 +649,17 @@ class ConsistencyReportWindowTests(unittest.TestCase):
     def test_a_tip_gives_the_panel_back_its_ordinary_size(self):
         window, panel = self.window, self.window.tip_panel
         self.run_check(self.long_headers(), "WP_005", msa_lacks=5)
-        self.assertGreater(panel.minimumHeight(), 0)
+        report_height = panel.minimumHeight()
+        self.assertGreater(report_height, 0)
         window.eventFilter(window.labels["NODE_FASTA_FILE"], _left_press())
-        self.assertEqual(panel.minimumHeight(), 0)
         self.assertIn("Primary FASTA file", panel.text())
+        # The panel is as tall as the tip is, no longer as tall as the long report was.
+        held = panel.minimumHeight()
+        panel.setMinimumHeight(0)
+        needed = panel.heightForWidth(panel.width())
+        panel.setMinimumHeight(held)
+        self.assertEqual(held, needed)
+        self.assertLess(held, report_height)
 
     def test_one_long_header_does_not_widen_the_window(self):
         window = self.window

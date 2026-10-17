@@ -113,6 +113,7 @@ from desktop.Desktop_App import (
     configure_linux_qt_desktop_identity,
     fit_buttons_to_text,
     instance_handover_message,
+    NAME_ITEM_ROLE,
     mark_name_item,
     show_window_in_front,
     # The Tools window files its texts under one context, "Tools".
@@ -396,6 +397,19 @@ def imputed_consensus_switch_state(network_info, noise_trees_active, checked):
 
 def isotonic_regression_switch_state(network_info, is_blast, default_tip=None):
     """Return the enabled state and explanatory tooltip for the isotonic regression plot switch."""
+    enabled, note = isotonic_regression_switch_note(network_info, is_blast)
+    if not enabled:
+        return False, note
+    fallback = translate(
+        "Tools",
+        "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\n"
+        "Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.",
+    )
+    return True, " ".join([note, default_tip or fallback])
+
+
+def isotonic_regression_switch_note(network_info, is_blast):
+    """Return the enabled state of the isotonic regression plot switch and what its tip says of the network."""
     if is_blast:
         return False, translate("Tools", "Isotonic regression plots are unavailable for BLAST networks.")
 
@@ -420,12 +434,7 @@ def isotonic_regression_switch_state(network_info, is_blast, default_tip=None):
             expected=network_info.expected_edge_count,
         )
 
-    fallback = translate(
-        "Tools",
-        "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\n"
-        "Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.",
-    )
-    return True, " ".join([_incomplete_network_summary(network_info), default_tip or fallback])
+    return True, _incomplete_network_summary(network_info)
 
 def get_tool_titles():
     """Map tool script filenames to their display titles in the Markdown descriptions.
@@ -549,6 +558,7 @@ from desktop.Desktop_App import (
 from desktop.Tip_Panel import (
     MISSING,
     Code,
+    CodeList,
     Field,
     FieldTip,
     LiveNote,
@@ -556,7 +566,10 @@ from desktop.Tip_Panel import (
     Tip,
     TipNote,
     TipOption,
+    free_bytes,
     tip_plain,
+    tooltip_text,
+    with_note,
 )
 from desktop.Studio_Theme import (
     TOKENS,
@@ -1061,6 +1074,73 @@ def _host_cache_note(field):
     )
 
 
+def _detected_devices_note(field):
+    """The live note of a device dropdown: the devices it found on this computer, by name."""
+    combo = field.widget
+    names = [
+        combo.itemText(index) for index in range(combo.count())
+        if combo.itemData(index, NAME_ITEM_ROLE)
+    ]
+    if not names:
+        return None
+    return LiveNote(translate("Tools", "Detected devices: {devices}"), {"devices": CodeList(names)})
+
+
+def _field_folder(field):
+    """The absolute folder a directory field names now (relative paths start at the project root), or ""."""
+    widget = field.widget
+    edit = widget if isinstance(widget, QLineEdit) else getattr(widget, "line_edit", None)
+    typed = edit.text().strip() if edit is not None else ""
+    if not typed:
+        return ""
+    folder = os.path.expanduser(typed)
+    if not os.path.isabs(folder):
+        folder = os.path.join(_PROJECT_ROOT, folder)
+    return os.path.abspath(folder)
+
+
+def _folder_note(field):
+    """The live note of a directory field: the folder it resolves to now."""
+    folder = _field_folder(field)
+    if not folder:
+        return None
+    return LiveNote(translate("Tools", "Resolves to {folder}."), {"folder": Code(folder)})
+
+
+def _folder_space_note(field):
+    """The live notes of a directory that gets large files: its folder, and the room free on its drive."""
+    notes = [_folder_note(field)]
+    free = free_bytes(_field_folder(field)) if notes[0] is not None else None
+    if free is not None:
+        notes.append(LiveNote(
+            translate("Tools", "{free} free on its drive."), {"free": Code(f"{free / GIB:.1f} GiB")}
+        ))
+    return notes
+
+
+def tool_tip_entry(tip, key, label, widget, default=MISSING):
+    """What tip_db holds for a tool setting: plain text as it is, a Tip with the field it describes.
+
+    A setting with no tip of its own still shows its title, default, range and key.
+    """
+    if tip is None:
+        tip = Tip("")
+    if isinstance(tip, Tip):
+        return FieldTip(tip, Field(key=key, label=label, widget=widget, default=default))
+    return tip
+
+
+def set_tip_tooltip(widget, entry):
+    """Give widget the plain text of a tip_db entry as its tooltip, and remember it was the entry's.
+
+    A tooltip changed afterwards (a message about the widget's state) then shows
+    in the panel instead of the entry.
+    """
+    text = tooltip_text(entry)
+    widget.setToolTip(text)
+    widget.setProperty("registeredTooltip", text)
+
+
 class HostCacheControl(QWidget):
     """Auto/manual host-cache selector with a linear GiB slider."""
 
@@ -1479,37 +1559,117 @@ class ToolsGUI(QMainWindow):
         # --- CENTRALIZED SCRIPT TIPS DICTIONARY ---
         self.SCRIPT_TIPS = {
             "Sanitize_Sequences.py": {
-                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): The raw FASTA sequence database to clean.\nUppercases residues, trims terminal non-residues, masks invalid characters with 'X', and deduplicates headers."),
-                "ENABLE_LENGTH_FILTER": translate("Tools", "Enable Length Filter: Toggle to filter sequences by amino acid length.\nWhen enabled, only sequences within the minimum and maximum length bounds will be retained."),
-                "SHOW_LENGTH_HISTOGRAM": translate("Tools", "Show Length Histogram: Displays the length histogram of the sanitized sequences when the run ends.\nA run from a settings file (CLI or MCP) prints the same bins as a table instead. Turn off to skip both."),
-                "OVER_WRITE": translate("Tools", "Overwrite Original File: If ON, replaces the input FASTA file with sanitized sequences.\nIf OFF, creates a new file named <input_name>_sanitized.fasta to preserve the original file."),
-                "REMOVE_BY_HEADER_STRING": translate("Tools", "Remove Header Substring: Case-sensitive substring filter on raw headers.\nSequences containing this exact text (e.g. 'fragment', 'partial') are discarded. Leave blank to disable."),
-                "MIN_SEQ_LENGTH": translate("Tools", "Minimum Sequence Length: Lower length bound (inclusive) in amino acids.\nSequences shorter than this threshold will be discarded during sanitization."),
-                "MAX_SEQ_LENGTH": translate("Tools", "Maximum Sequence Length: Upper length bound (inclusive) in amino acids.\nSequences longer than this threshold will be discarded during sanitization.")
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "The raw FASTA sequence database to clean."),
+                    details=(translate("Tools", "Uppercases residues, trims terminal non-residues, masks invalid characters with `X`, and deduplicates headers."),),
+                ),
+                "ENABLE_LENGTH_FILTER": Tip(
+                    translate("Tools", "Toggle to filter sequences by amino acid length."),
+                    details=(translate("Tools", "When enabled, only sequences within the minimum and maximum length bounds will be retained."),),
+                ),
+                "SHOW_LENGTH_HISTOGRAM": Tip(
+                    translate("Tools", "Displays the length histogram of the sanitized sequences when the run ends."),
+                    notes=(
+                        TipNote("info", translate("Tools", "A run from a settings file (CLI or MCP) prints the same bins as a table instead. Turn off to skip both.")),
+                    ),
+                ),
+                "OVER_WRITE": Tip(
+                    translate("Tools", "Chooses whether the sanitized sequences replace the input FASTA file or go to a new file."),
+                    options=(
+                        TipOption(True, translate("Tools", "Replaces the input FASTA file with the sanitized sequences.")),
+                        TipOption(False, translate("Tools", "Creates a new file named `<input_name>_sanitized.fasta` to preserve the original file.")),
+                    ),
+                ),
+                "REMOVE_BY_HEADER_STRING": Tip(
+                    translate("Tools", "Case-sensitive substring filter on raw headers."),
+                    details=(translate("Tools", "Sequences containing this exact text (e.g. `fragment`, `partial`) are discarded. Leave blank to disable."),),
+                ),
+                "MIN_SEQ_LENGTH": Tip(
+                    translate("Tools", "Lower length bound (inclusive) in amino acids."),
+                    details=(translate("Tools", "Sequences shorter than this threshold will be discarded during sanitization."),),
+                ),
+                "MAX_SEQ_LENGTH": Tip(
+                    translate("Tools", "Upper length bound (inclusive) in amino acids."),
+                    details=(translate("Tools", "Sequences longer than this threshold will be discarded during sanitization."),),
+                ),
             },
             "Generate_Embeddings.py": {
-                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): FASTA sequence database to embed.\nRecords are sanitized in memory (uppercased, invalid residues masked, duplicates merged) before model inference."),
-                "MODEL_NAME": translate("Tools", "Model Name: Protein language model (pLM) architecture used to generate residue embeddings.\nSupports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. esmc_6b with API key)."),
-                "SAVING_MODE": translate("Tools", "Saving Mode: Floating-point precision for storing embedding tensors in HDF5.\nFloat16 saves 50% disk space and RAM with minimal precision loss; float32 retains full precision."),
-                "DEVICE_SELECTION": translate("Tools", "Device: Hardware compute device used for neural network inference.\nAuto Benchmark profiles CPU and available local accelerators (CUDA, XPU, MPS) on representative sequences.")
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "FASTA sequence database to embed."),
+                    details=(translate("Tools", "Records are sanitized in memory (uppercased, invalid residues masked, duplicates merged) before model inference."),),
+                ),
+                "MODEL_NAME": Tip(
+                    translate("Tools", "Protein language model (pLM) architecture used to generate residue embeddings."),
+                    details=(translate("Tools", "Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `esmc_6b` with API key)."),),
+                ),
+                "SAVING_MODE": Tip(
+                    translate("Tools", "Floating-point precision for storing embedding tensors in HDF5."),
+                    options=(
+                        TipOption("float16", translate("Tools", "Saves 50% disk space and RAM with minimal precision loss.")),
+                        TipOption("float32", translate("Tools", "Retains full precision.")),
+                    ),
+                ),
+                "DEVICE_SELECTION": Tip(
+                    translate("Tools", "Hardware compute device used for neural network inference."),
+                    options=(
+                        TipOption("auto", translate("Tools", "Profiles CPU and available local accelerators (CUDA, XPU, MPS) on representative sequences.")),
+                    ),
+                    live=_detected_devices_note,
+                ),
             },
             "Embedding_Cropping.py": {
-                "INPUT_EMBED": translate("Tools", "Full Embedding Set (.h5): Pre-computed HDF5 database containing embeddings of full-length sequences.\nContextual residue embeddings for cropped segments are sliced directly from these full-context tensors."),
-                "CROPPED_FASTA": translate("Tools", "Cropped Sequence Set (.fasta): FASTA file containing partial/cropped sequence segments.\nHeaders and sequences must match exact contiguous substrings within the full embedding database.")
+                "INPUT_EMBED": Tip(
+                    translate("Tools", "Pre-computed HDF5 database containing embeddings of full-length sequences."),
+                    details=(translate("Tools", "Contextual residue embeddings for cropped segments are sliced directly from these full-context tensors."),),
+                ),
+                "CROPPED_FASTA": Tip(
+                    translate("Tools", "FASTA file containing partial/cropped sequence segments."),
+                    details=(translate("Tools", "Headers and sequences must match exact contiguous substrings within the full embedding database."),),
+                ),
             },
             "Align_Similarity_Matrix.py": {
-                "INPUT_HDF5": translate("Tools", "Embedding Set (.h5): HDF5 database containing dense residue embeddings.\nVectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores."),
-                "EDGE_PREFILTERING": translate("Tools", "Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.\nSkips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation."),
-                "PREFILTER_STRENGTH": translate("Tools", "Strength (%): Percentage of candidate sequence pairs with lowest cosine similarity to discard.\nHigher percentages speed up calculations by performing residue alignments on only the most promising pairs."),
+                "INPUT_HDF5": Tip(
+                    translate("Tools", "HDF5 database containing dense residue embeddings."),
+                    details=(translate("Tools", "Vectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores."),),
+                ),
+                "EDGE_PREFILTERING": Tip(
+                    translate("Tools", "Pre-filters sequence pairs using cosine similarity of global pooled embeddings."),
+                    details=(translate("Tools", "Skips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation."),),
+                ),
+                "PREFILTER_STRENGTH": Tip(
+                    translate("Tools", "Percentage of candidate sequence pairs with lowest cosine similarity to discard."),
+                    details=(translate("Tools", "Higher percentages speed up calculations by performing residue alignments on only the most promising pairs."),),
+                ),
                 "WORKERS": Tip(
                     translate("Tools", "Number of parallel CPU worker processes allocated for sequence alignment calculations."),
                     details=(translate("Tools", "Increasing workers speeds up alignment of large datasets across multiple CPU cores."),),
                     live=_logical_cpu_note,
                 ),
-                "LOCAL_GAP_P": translate("Tools", "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions and extensions, resulting in fewer gaps."),
-                "GLOBAL_GAP_P": translate("Tools", "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments."),
-                "BATCH_SIZE": translate("Tools", "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter an integer or 'auto'."),
-                "DEVICE_SELECTION": translate("Tools", "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU."),
+                "LOCAL_GAP_P": Tip(
+                    translate("Tools", "Gap penalty applied in Smith-Waterman local alignment."),
+                    details=(translate("Tools", "More negative values penalize gap insertions and extensions, resulting in fewer gaps."),),
+                ),
+                "GLOBAL_GAP_P": Tip(
+                    translate("Tools", "Gap penalty applied in Needleman-Wunsch global alignment."),
+                    details=(translate("Tools", "Controls gap insertion penalties across end-to-end full-length alignments."),),
+                ),
+                "BATCH_SIZE": Tip(
+                    translate("Tools", "Number of sequence pairs processed in a single chunk before writing to HDF5."),
+                    details=(translate("Tools", "Enter an integer or `auto`."),),
+                    notes=(
+                        TipNote("warning", translate("Tools", "Larger values improve throughput but require more RAM.")),
+                    ),
+                ),
+                "DEVICE_SELECTION": Tip(
+                    translate("Tools", "Hardware compute device used for pairwise residue score matrix calculation."),
+                    options=(
+                        TipOption("auto", translate("Tools", "Benchmarks CPU and accelerators.")),
+                    ),
+                    notes=(
+                        TipNote("info", translate("Tools", "Dynamic programming alignment scoring always runs on CPU.")),
+                    ),
+                    live=_detected_devices_note,
+                ),
                 "EXECUTION_MODE": Tip(
                     translate("Tools", "How the pairwise score matrices are processed."),
                     options=(
@@ -1541,27 +1701,98 @@ class ToolsGUI(QMainWindow):
                 ),
             },
             "Align_Substitution_Matrix.py": {
-                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): FASTA sequence database to align with BLASTP.\nRecords undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment."),
-                "MATRIX": translate("Tools", "Substitution Matrix: Amino acid substitution matrix (e.g. BLOSUM62, PAM250) used for scoring.\nSelect based on the expected evolutionary distance of the sequence set."),
-                "NUM_THREADS": translate("Tools", "CPU Workers: Number of parallel CPU threads allocated for BLASTP execution and parsing.\nIncreasing threads accelerates all-vs-all search across multi-core systems."),
-                "BATCH_SIZE": translate("Tools", "Batch Size: Maximum number of parsed alignment edges buffered per chunk during HDF5 writing.\nTuning this parameter controls RAM usage and optimizes disk write performance."),
-                "BLASTP_DIR": translate("Tools", "BLASTP Directory: Directory containing local blastp and makeblastdb executable binaries.\nIf left blank, standard system PATH and default platform installation locations are searched.")
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "FASTA sequence database to align with BLASTP."),
+                    details=(translate("Tools", "Records undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment."),),
+                ),
+                "MATRIX": Tip(
+                    translate("Tools", "Amino acid substitution matrix (e.g. `BLOSUM62`, `PAM250`) used for scoring."),
+                    details=(translate("Tools", "Select based on the expected evolutionary distance of the sequence set."),),
+                ),
+                "NUM_THREADS": Tip(
+                    translate("Tools", "Number of parallel CPU threads allocated for BLASTP execution and parsing."),
+                    details=(translate("Tools", "Increasing threads accelerates all-vs-all search across multi-core systems."),),
+                    live=_logical_cpu_note,
+                ),
+                "BATCH_SIZE": Tip(
+                    translate("Tools", "Maximum number of parsed alignment edges buffered per chunk during HDF5 writing."),
+                    details=(translate("Tools", "Tuning this parameter controls RAM usage and optimizes disk write performance."),),
+                ),
+                "BLASTP_DIR": Tip(
+                    translate("Tools", "Directory containing local `blastp` and `makeblastdb` executable binaries."),
+                    details=(translate("Tools", "If left blank, standard system PATH and default platform installation locations are searched."),),
+                ),
             },
             "Embedding_MSA.py": {
-                "USE_SEQUENCE_FILTER": translate("Tools", "Use Sequence Filter: Toggle to restrict alignment to sequences in an explicit FASTA file.\nWhen OFF, aligns all sequences present in the intersection of the embedding and network databases."),
-                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): FASTA file used to filter sequences when Sequence Filter is ON.\nIgnored and blanked out when Use Sequence Filter is disabled."),
-                "INPUT_EMBED": translate("Tools", "Embedding Set (.h5): HDF5 embedding database containing dense residue embeddings.\nUsed to weight progressive profile-profile alignments along evolutionary guide tree nodes."),
-                "INPUT_NETWORK": translate("Tools", "Network File (.h5): Pairwise similarity network (.h5) used to construct the guide tree.\nFor sparse networks, missing edge scores are automatically imputed using isotonic regression."),
-                "SHOW_REGRESSION_PLOT": translate("Tools", "Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.\nVisualizes the isotonic regression fit between mean embedding cosine distances and network scores."),
-                "TREE_METHOD": translate("Tools", "Tree Building Method: Algorithm used to construct the evolutionary guide tree.\nUPGMA (Fast) uses average linkage; Neighbor-joining (Slow) accounts for unequal evolutionary rates."),
-                "ALIGNMENT_SCORE": translate("Tools", "Score Mode: Selects whether to weight guide tree branches using 'global' or 'local' network scores.\nDetermines the hierarchical branching and progressive alignment order."),
-                "NORMALIZATION_MODE": translate("Tools", "Normalization Mode: Formula used to normalize network scores by sequence or alignment length.\nCorrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST)."),
-                "BOOTSTRAP_TREE": translate("Tools", "Noise-Perturbed Trees: Toggle to average guide trees across randomly perturbed distance replicates.\nAssesses tree sensitivity to distance fluctuations; disabling this runs a single deterministic tree."),
-                "NUM_TREES": translate("Tools", "Number of Perturbed Trees: Number of noise-perturbed replicate trees used to build consensus.\nHigher values yield a more stable consensus guide tree but increase computation time."),
-                "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": translate("Tools", "Include Imputed Pairs in Final Consensus: For incomplete networks, OFF retains baseline imputed distances;\nON replaces all pairs with replicate-averaged cophenetic distances. Imputed pairs participate in all replicate trees."),
-                "NOISE_SCALE": translate("Tools", "Normalized Noise Scale: Gaussian standard deviation expressed as a fraction of max distance (e.g. 0.02 = 2%).\nApplies additive noise across all observed and regression-imputed distances, clamped to valid bounds."),
-                "GAP_OPEN": translate("Tools", "Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.\nMore negative values penalize gap initiation, yielding fewer overall gap regions."),
-                "GAP_EXTEND": translate("Tools", "Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.\nMore negative values shorten gap lengths."),
+                "USE_SEQUENCE_FILTER": Tip(
+                    translate("Tools", "Toggle to restrict alignment to sequences in an explicit FASTA file."),
+                    details=(translate("Tools", "When OFF, aligns all sequences present in the intersection of the embedding and network databases."),),
+                ),
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "FASTA file used to filter sequences when Sequence Filter is ON."),
+                    details=(translate("Tools", "Ignored and blanked out when Use Sequence Filter is disabled."),),
+                ),
+                "INPUT_EMBED": Tip(
+                    translate("Tools", "HDF5 embedding database containing dense residue embeddings."),
+                    details=(translate("Tools", "Used to weight progressive profile-profile alignments along evolutionary guide tree nodes."),),
+                ),
+                "INPUT_NETWORK": Tip(
+                    translate("Tools", "Pairwise similarity network (`.h5`) used to construct the guide tree."),
+                    details=(translate("Tools", "For sparse networks, missing edge scores are automatically imputed using isotonic regression."),),
+                ),
+                "SHOW_REGRESSION_PLOT": Tip(
+                    translate("Tools", "Displays a diagnostic scatter plot for sparse networks."),
+                    details=(translate("Tools", "Visualizes the isotonic regression fit between mean embedding cosine distances and network scores."),),
+                ),
+                "TREE_METHOD": Tip(
+                    translate("Tools", "Algorithm used to construct the evolutionary guide tree."),
+                    options=(
+                        TipOption("UPGMA (Fast)", translate("Tools", "Uses average linkage.")),
+                        TipOption(NEIGHBOR_JOINING_TREE_METHOD, translate("Tools", "Accounts for unequal evolutionary rates.")),
+                    ),
+                ),
+                "ALIGNMENT_SCORE": Tip(
+                    translate("Tools", "Selects whether to weight guide tree branches using global or local network scores."),
+                    details=(translate("Tools", "Determines the hierarchical branching and progressive alignment order."),),
+                ),
+                "NORMALIZATION_MODE": Tip(
+                    translate("Tools", "Formula used to normalize network scores by sequence or alignment length."),
+                    details=(translate("Tools", "Corrects for sequence length discrepancies before distance matrix conversion (disabled for BLAST)."),),
+                    options=(
+                        TipOption("alignment_length", translate("Tools", "Divides the score by the alignment length.")),
+                        TipOption("shorter_sequence", translate("Tools", "Divides the score by the length of the shorter sequence.")),
+                        TipOption("longer_sequence", translate("Tools", "Divides the score by the length of the longer sequence.")),
+                        TipOption("average_sequence", translate("Tools", "Divides the score by the average length of the two sequences.")),
+                    ),
+                ),
+                "BOOTSTRAP_TREE": Tip(
+                    translate("Tools", "Toggle to average guide trees across randomly perturbed distance replicates."),
+                    details=(translate("Tools", "Assesses tree sensitivity to distance fluctuations; disabling this runs a single deterministic tree."),),
+                ),
+                "NUM_TREES": Tip(
+                    translate("Tools", "Number of noise-perturbed replicate trees used to build consensus."),
+                    details=(translate("Tools", "Higher values yield a more stable consensus guide tree but increase computation time."),),
+                ),
+                "INCLUDE_IMPUTED_PAIRS_IN_CONSENSUS": Tip(
+                    translate("Tools", "For incomplete networks, chooses the distances the final consensus uses."),
+                    details=(translate("Tools", "Imputed pairs participate in all replicate trees."),),
+                    options=(
+                        TipOption(True, translate("Tools", "Replaces all pairs with replicate-averaged cophenetic distances.")),
+                        TipOption(False, translate("Tools", "Retains baseline imputed distances.")),
+                    ),
+                ),
+                "NOISE_SCALE": Tip(
+                    translate("Tools", "Gaussian standard deviation expressed as a fraction of max distance (e.g. `0.02` = 2%)."),
+                    details=(translate("Tools", "Applies additive noise across all observed and regression-imputed distances, clamped to valid bounds."),),
+                ),
+                "GAP_OPEN": Tip(
+                    translate("Tools", "Penalty score applied for opening a new gap in profile alignments."),
+                    details=(translate("Tools", "More negative values penalize gap initiation, yielding fewer overall gap regions."),),
+                ),
+                "GAP_EXTEND": Tip(
+                    translate("Tools", "Penalty score applied for extending an existing gap in profile alignments."),
+                    details=(translate("Tools", "More negative values shorten gap lengths."),),
+                ),
                 "WORKERS": Tip(
                     translate("Tools", "Number of CPU worker processes allocated for parallel guide-tree replicate calculations."),
                     details=(translate("Tools", "Increasing workers accelerates consensus tree generation on multi-core systems."),),
@@ -1571,73 +1802,275 @@ class ToolsGUI(QMainWindow):
                     ),
                     live=_logical_cpu_note,
                 ),
-                "DEVICE_SELECTION": translate("Tools", "Device: Hardware used for sequential profile score-matrix construction.\nAuto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU."),
-                "SAFE_TEMP_DIR": translate("Tools", "Temporary Working Directory: Directory for caching intermediate files and memory-mapped matrices.\nEnsures large guide tree and distance matrix calculations do not exceed system RAM.")
+                "DEVICE_SELECTION": Tip(
+                    translate("Tools", "Hardware used for sequential profile score-matrix construction."),
+                    options=(
+                        TipOption("auto", translate("Tools", "Compares CPU and available accelerators on three representative leaf merges.")),
+                    ),
+                    notes=(
+                        TipNote("info", translate("Tools", "Guide-tree calculations and dynamic-programming traceback remain on CPU.")),
+                    ),
+                    live=_detected_devices_note,
+                ),
+                "SAFE_TEMP_DIR": Tip(
+                    translate("Tools", "Directory for caching intermediate files and memory-mapped matrices."),
+                    details=(translate("Tools", "Ensures large guide tree and distance matrix calculations do not exceed system RAM."),),
+                ),
             },
             "Sparse_MSA_Converter.py": {
-                "CONVERT_ALL": translate("Tools", "Convert All Alignments: If ON, converts all FASTA MSA files in the alignment directory to sparse HDF5 format.\nIf OFF, converts only the selected FASTA alignment file."),
-                "INPUT_FASTA": translate("Tools", "Input MSA (.fasta): Standard FASTA multiple sequence alignment file to convert.\nCompresses alignment residues into a SciPy CSR sparse matrix (.h5), reducing file size by up to 95%.")
+                "CONVERT_ALL": Tip(
+                    translate("Tools", "Converts FASTA alignments to sparse HDF5 format."),
+                    options=(
+                        TipOption(True, translate("Tools", "Converts all FASTA MSA files in the alignment directory.")),
+                        TipOption(False, translate("Tools", "Converts only the selected FASTA alignment file.")),
+                    ),
+                ),
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "Standard FASTA multiple sequence alignment file to convert."),
+                    details=(translate("Tools", "Compresses alignment residues into a SciPy CSR sparse matrix (`.h5`), reducing file size by up to 95%."),),
+                ),
             },
             "Parse_BLAST_Output.py": {
-                "INPUT_BLAST_TABULAR": translate("Tools", "BLAST Results: Tab-delimited BLASTP or DIAMOND blastp output in standard outfmt 6, metadata-bearing outfmt 7, or an explicitly mapped custom layout.\nRun DIAMOND with -k 0 so no query's hits are truncated, and with --header verbose to record its version and command."),
-                "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers."),
-                "BLAST_LAYOUT": translate("Tools", "BLAST Layout: Standard outfmt 6 requires exactly 12 columns. Outfmt 7 reads the full query from # Query and subject/E-value positions from # Fields. Custom Columns uses the three one-based column settings below."),
-                "QUERY_COLUMN": translate("Tools", "Query Column: One-based full query-header column used only for Custom Columns."),
-                "SUBJECT_COLUMN": translate("Tools", "Subject Column: One-based full subject-header column used only for Custom Columns."),
-                "EVALUE_COLUMN": translate("Tools", "E-Value Column: One-based E-value column used only for Custom Columns.")
+                "INPUT_BLAST_TABULAR": Tip(
+                    translate("Tools", "Tab-delimited BLASTP or DIAMOND blastp output in standard `outfmt 6`, metadata-bearing `outfmt 7`, or an explicitly mapped custom layout."),
+                    details=(translate("Tools", "Run DIAMOND with `-k 0` so no query's hits are truncated, and with `--header verbose` to record its version and command."),),
+                ),
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "Original FASTA used for the BLAST search. Full headers are sanitized without changing or deduplicating sequences and become the viewer node headers."),
+                ),
+                "BLAST_LAYOUT": Tip(
+                    translate("Tools", "How the columns of the BLAST tabular file are read."),
+                    options=(
+                        TipOption("standard_outfmt6", translate("Tools", "Standard `outfmt 6` requires exactly 12 columns.")),
+                        TipOption("outfmt7_fields", translate("Tools", "`outfmt 7` reads the full query from `# Query` and subject/E-value positions from `# Fields`.")),
+                        TipOption("custom_columns", translate("Tools", "Uses the three one-based column settings below.")),
+                    ),
+                ),
+                "QUERY_COLUMN": Tip(
+                    translate("Tools", "One-based full query-header column used only for Custom Columns."),
+                ),
+                "SUBJECT_COLUMN": Tip(
+                    translate("Tools", "One-based full subject-header column used only for Custom Columns."),
+                ),
+                "EVALUE_COLUMN": Tip(
+                    translate("Tools", "One-based E-value column used only for Custom Columns."),
+                ),
             },
             "Embedding_Injection.py": {
-                "INPUT_EMBED": translate("Tools", "Input Embedding Set (.h5): Master HDF5 embedding database to receive new sequences.\nExisting sequence embeddings are preserved and reused without recalculation."),
-                "INPUT_FASTA": translate("Tools", "Input Sequence Set (.fasta): FASTA file containing existing sequences plus newly added targets.\nEmbeddings are computed only for the newly introduced sequences to optimize compute time.")
+                "INPUT_EMBED": Tip(
+                    translate("Tools", "Master HDF5 embedding database to receive new sequences."),
+                    details=(translate("Tools", "Existing sequence embeddings are preserved and reused without recalculation."),),
+                ),
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "FASTA file containing existing sequences plus newly added targets."),
+                    details=(translate("Tools", "Embeddings are computed only for the newly introduced sequences to optimize compute time."),),
+                ),
             },
             "Embedding_Extraction.py": {
-                "INPUT_EMBED": translate("Tools", "Input Embedding Set (.h5): Master HDF5 embedding database from which subset embeddings are extracted.\nExtracts matching residue embedding datasets without re-running language model inference."),
-                "INPUT_FASTA": translate("Tools", "Input Sequence Set (.fasta): FASTA file or text list defining the whitelist of sequence headers to extract.\nOnly embeddings matching these headers are saved to the new HDF5 database.")
+                "INPUT_EMBED": Tip(
+                    translate("Tools", "Master HDF5 embedding database from which subset embeddings are extracted."),
+                    details=(translate("Tools", "Extracts matching residue embedding datasets without re-running language model inference."),),
+                ),
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "FASTA file or text list defining the whitelist of sequence headers to extract."),
+                    details=(translate("Tools", "Only embeddings matching these headers are saved to the new HDF5 database."),),
+                ),
             },
             "Network_Injection.py": {
-                "OLD_NETWORK": translate("Tools", "Input Network Edges (.h5): Pre-existing HDF5 similarity network file.\nPre-computed alignment scores between existing sequence pairs are reused directly."),
-                "NEW_EMBEDDINGS": translate("Tools", "Input Embedding Set (.h5): Updated HDF5 embedding database containing all sequence embeddings.\nNewly introduced sequence pairs are aligned and injected into the updated network file."),
-                "WORKERS": translate("Tools", "CPU Workers: Number of parallel CPU worker processes allocated for dynamic programming alignments.\nDistributes alignment of newly added sequence pairs across CPU cores."),
-                "BATCH_SIZE": translate("Tools", "Batch Size: Number of sequence alignments calculated and buffered per write block.\nTuning this parameter controls RAM usage and optimizes file write performance."),
-                "DEVICE_SELECTION": translate("Tools", "Device: Hardware used for new residue score matrices. TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU."),
-                "EXECUTION_MODE": translate("Tools", "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU. Tiled mode is hidden when MPS is selected or is the only available accelerator."),
-                "HOST_CACHE_GB": translate("Tools", "Host Cache (GiB): RAM cap for retaining packed embeddings across injection batches. AUTO ON selects a safe budget up to {cap:g} GiB; turn it OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox.").format(cap=HOST_CACHE_MAX_GB)
+                "OLD_NETWORK": Tip(
+                    translate("Tools", "Pre-existing HDF5 similarity network file."),
+                    details=(translate("Tools", "Pre-computed alignment scores between existing sequence pairs are reused directly."),),
+                ),
+                "NEW_EMBEDDINGS": Tip(
+                    translate("Tools", "Updated HDF5 embedding database containing all sequence embeddings."),
+                    details=(translate("Tools", "Newly introduced sequence pairs are aligned and injected into the updated network file."),),
+                ),
+                "WORKERS": Tip(
+                    translate("Tools", "Number of parallel CPU worker processes allocated for dynamic programming alignments."),
+                    details=(translate("Tools", "Distributes alignment of newly added sequence pairs across CPU cores."),),
+                    live=_logical_cpu_note,
+                ),
+                "BATCH_SIZE": Tip(
+                    translate("Tools", "Number of sequence alignments calculated and buffered per write block."),
+                    details=(translate("Tools", "Tuning this parameter controls RAM usage and optimizes file write performance."),),
+                ),
+                "DEVICE_SELECTION": Tip(
+                    translate("Tools", "Hardware used for new residue score matrices."),
+                    notes=(
+                        TipNote("info", translate("Tools", "TF32 source networks require NVIDIA CUDA; dynamic programming remains on CPU.")),
+                    ),
+                    live=_detected_devices_note,
+                ),
+                "EXECUTION_MODE": Tip(
+                    translate("Tools", "How the pairwise score matrices are processed."),
+                    options=(
+                        TipOption("auto", translate("Tools", "Benchmarks the scalar and tiled plans where they are supported.")),
+                        TipOption("scalar", translate("Tools", "Processes one pairwise score matrix at a time.")),
+                        TipOption("tiled", translate("Tools", "Uses accelerator embedding tiles and padded microbatches on CUDA/ROCm or XPU.")),
+                    ),
+                    notes=(
+                        TipNote("info", translate("Tools", "Tiled mode is hidden when MPS is selected or is the only available accelerator.")),
+                    ),
+                ),
+                "HOST_CACHE_GB": Tip(
+                    translate("Tools", "RAM cap for retaining packed embeddings across injection batches."),
+                    options=(
+                        TipOption(None, translate("Tools", "Selects a safe system-memory budget up to {cap:g} GiB.").format(cap=HOST_CACHE_MAX_GB), label=translate("Tools", "AUTO ON")),
+                        TipOption(None, translate("Tools", "Choose 0 to {cap:g} GiB with the linear slider or spinbox.").format(cap=HOST_CACHE_MAX_GB), label=translate("Tools", "AUTO OFF")),
+                    ),
+                    live=_host_cache_note,
+                    unit="GiB",
+                ),
             },
             "Network_Extraction.py": {
-                "INPUT_NET": translate("Tools", "Input Network Edges (.h5): Master HDF5 network file containing pairwise similarity scores or E-values.\nEdges connecting sequences outside the whitelist are filtered out."),
-                "INPUT_FASTA": translate("Tools", "Input Sequence Set (.fasta): Whitelist FASTA file defining the subset of sequence nodes to retain.\nOnly edges connecting two whitelist sequences are extracted and re-indexed into the sub-network.")
+                "INPUT_NET": Tip(
+                    translate("Tools", "Master HDF5 network file containing pairwise similarity scores or E-values."),
+                    details=(translate("Tools", "Edges connecting sequences outside the whitelist are filtered out."),),
+                ),
+                "INPUT_FASTA": Tip(
+                    translate("Tools", "Whitelist FASTA file defining the subset of sequence nodes to retain."),
+                    details=(translate("Tools", "Only edges connecting two whitelist sequences are extracted and re-indexed into the sub-network."),),
+                ),
             },
             "Embedding_PWA.py": {
-                "INPUT_EMBED": translate("Tools", "Embedding Set (.h5): HDF5 database containing pre-computed sequences and residue embeddings.\nSupplies stored sequences and models whenever a manual sequence switch is OFF."),
-                "REF_HEADER": translate("Tools", "Reference Header: Header of the reference sequence in the embedding database.\nTyped text is sanitized before lookup; if left blank, the first database sequence is used."),
-                "MANUAL_REF_SEQ": translate("Tools", "Manual Ref Seq: Toggle to enter a raw reference sequence manually.\nWhen OFF, the reference sequence and embedding are loaded from the database by header."),
-                "REF_SEQUENCE": translate("Tools", "Ref Sequence (Optional): Raw amino acid sequence for the reference protein.\nUsed only when Manual Ref Seq is ON; sanitized and embedded on the fly."),
-                "TAR_HEADER": translate("Tools", "Target Header: Header of the target sequence in the embedding database.\nTyped text is sanitized before lookup; if left blank, the second database sequence is used."),
-                "MANUAL_TAR_SEQ": translate("Tools", "Manual Tar Seq: Toggle to enter a raw target sequence manually.\nWhen OFF, the target sequence and embedding are loaded from the database by header."),
-                "TAR_SEQUENCE": translate("Tools", "Tar Sequence (Optional): Raw amino acid sequence for the target protein.\nUsed only when Manual Tar Seq is ON; sanitized and embedded on the fly."),
-                "HIGHLIGHT_POSITIONS": translate("Tools", "Highlight Pos (e.g. 1, 4-6): Comma-separated 1-indexed residue positions or ranges in the reference.\nTracked through the alignment and highlighted directly on target sequence positions."),
-                "EMBEDDING_MODEL": translate("Tools", "Embedding Model: Protein language model used when both sequences are entered manually.\nWhen either sequence is selected from an embedding database, that database's model is used instead."),
-                "ALIGNMENT_MODE": translate("Tools", "Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.\nCalculates dynamic programming alignment based on residue embedding cosine similarities."),
-                "LOCAL_GAP_P": translate("Tools", "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions within local alignments."),
-                "GLOBAL_GAP_P": translate("Tools", "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nMore negative values penalize gap insertions across full-length alignments."),
-                "GENERATE_REPORT": translate("Tools", "Generate Report: Toggle to save an interactive, color-coded HTML alignment report.\nOutputs a formatted report with highlighted residue mappings to the report directory.")
+                "INPUT_EMBED": Tip(
+                    translate("Tools", "HDF5 database containing pre-computed sequences and residue embeddings."),
+                    details=(translate("Tools", "Supplies stored sequences and models whenever a manual sequence switch is OFF."),),
+                ),
+                "REF_HEADER": Tip(
+                    translate("Tools", "Header of the reference sequence in the embedding database."),
+                    details=(translate("Tools", "Typed text is sanitized before lookup; if left blank, the first database sequence is used."),),
+                ),
+                "MANUAL_REF_SEQ": Tip(
+                    translate("Tools", "Toggle to enter a raw reference sequence manually."),
+                    details=(translate("Tools", "When OFF, the reference sequence and embedding are loaded from the database by header."),),
+                ),
+                "REF_SEQUENCE": Tip(
+                    translate("Tools", "Raw amino acid sequence for the reference protein."),
+                    details=(translate("Tools", "Used only when Manual Ref Seq is ON; sanitized and embedded on the fly."),),
+                ),
+                "TAR_HEADER": Tip(
+                    translate("Tools", "Header of the target sequence in the embedding database."),
+                    details=(translate("Tools", "Typed text is sanitized before lookup; if left blank, the second database sequence is used."),),
+                ),
+                "MANUAL_TAR_SEQ": Tip(
+                    translate("Tools", "Toggle to enter a raw target sequence manually."),
+                    details=(translate("Tools", "When OFF, the target sequence and embedding are loaded from the database by header."),),
+                ),
+                "TAR_SEQUENCE": Tip(
+                    translate("Tools", "Raw amino acid sequence for the target protein."),
+                    details=(translate("Tools", "Used only when Manual Tar Seq is ON; sanitized and embedded on the fly."),),
+                ),
+                "HIGHLIGHT_POSITIONS": Tip(
+                    translate("Tools", "Comma-separated 1-indexed residue positions or ranges in the reference."),
+                    details=(translate("Tools", "Tracked through the alignment and highlighted directly on target sequence positions."),),
+                ),
+                "EMBEDDING_MODEL": Tip(
+                    translate("Tools", "Protein language model used when both sequences are entered manually."),
+                    details=(translate("Tools", "When either sequence is selected from an embedding database, that database's model is used instead."),),
+                ),
+                "ALIGNMENT_MODE": Tip(
+                    translate("Tools", "Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment."),
+                    details=(translate("Tools", "Calculates dynamic programming alignment based on residue embedding cosine similarities."),),
+                    options=(
+                        TipOption("global", translate("Tools", "Aligns the sequences end to end.")),
+                        TipOption("local", translate("Tools", "Aligns their best-matching regions.")),
+                    ),
+                ),
+                "LOCAL_GAP_P": Tip(
+                    translate("Tools", "Gap penalty applied in Smith-Waterman local alignment."),
+                    details=(translate("Tools", "More negative values penalize gap insertions within local alignments."),),
+                ),
+                "GLOBAL_GAP_P": Tip(
+                    translate("Tools", "Gap penalty applied in Needleman-Wunsch global alignment."),
+                    details=(translate("Tools", "More negative values penalize gap insertions across full-length alignments."),),
+                ),
+                "GENERATE_REPORT": Tip(
+                    translate("Tools", "Toggle to save an interactive, color-coded HTML alignment report."),
+                    details=(translate("Tools", "Outputs a formatted report with highlighted residue mappings to the report directory."),),
+                ),
             },
             "Embedding_SSEARCH.py": {
-                "INPUT_EMBED": translate("Tools", "Embedding Set (.h5): Master HDF5 database containing pre-computed sequence embeddings.\nDatabase sequences are scanned against the query sequence using parallelized dynamic programming."),
-                "QUERY_HEADER": translate("Tools", "Query Header: Header of a sequence in the embedding database used as the search query.\nSanitized before lookup when Manual Query Seq is OFF."),
-                "MANUAL_QUERY_SEQ": translate("Tools", "Manual Query Seq: Toggle to provide a custom query sequence manually.\nWhen OFF, the query sequence and embedding are loaded from the database by header."),
-                "QUERY_SEQUENCE": translate("Tools", "Query Sequence (Optional): Raw amino acid sequence for the query protein.\nUsed only when Manual Query Seq is ON; embedded on the fly using the database model."),
-                "OUTPUT_NAME": translate("Tools", "Output Name: Custom prefix for exported report files (.txt, .xlsx, .fasta).\nIf left blank, defaults to the sanitized query header."),
-                "TOP_K": translate("Tools", "Top K Hits: Maximum number of highest-scoring database matches to export in results.\nControls the output hit list size in summary tables and reports."),
-                "NORM_THRESHOLD": translate("Tools", "Norm Score Cutoff: Minimum normalized similarity score threshold for database hits.\nHits scoring below this cutoff are excluded from results. Set to 'None' to disable."),
-                "ALIGNMENT_MODE": translate("Tools", "Alignment Mode: Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment.\nCompares database sequence embeddings against the query using dynamic programming."),
-                "NORM_MODE": translate("Tools", "Normalization Mode: Formula used to normalize alignment scores by sequence or alignment length.\nPrevents score bias toward longer or shorter sequences."),
-                "LOCAL_GAP_P": translate("Tools", "Local Align Gap Penalty: Gap penalty applied during local (Smith-Waterman) database search.\nMore negative values penalize gap insertions."),
-                "GLOBAL_GAP_P": translate("Tools", "Global Align Gap Penalty: Gap penalty applied during global (Needleman-Wunsch) database search.\nMore negative values penalize gap insertions across full sequences."),
-                "WORKERS": translate("Tools", "CPU Workers: Number of parallel CPU worker processes allocated for database search.\nRunning with more workers speeds up database scanning on multi-core systems."),
-                "GENERATE_FASTA": translate("Tools", "Generate FASTA File: Toggle to export a FASTA file containing top hit sequences.\nOutputs the query sequence followed by ranked matching sequences."),
-                "DEVICE_SELECTION": translate("Tools", "Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets."),
-                "ACCELERATOR_PRECISION": translate("Tools", "Accelerator Precision: Automatic 32-bit considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets). BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative targets; finite numerical differences never block execution.")
+                "INPUT_EMBED": Tip(
+                    translate("Tools", "Master HDF5 database containing pre-computed sequence embeddings."),
+                    details=(translate("Tools", "Database sequences are scanned against the query sequence using parallelized dynamic programming."),),
+                ),
+                "QUERY_HEADER": Tip(
+                    translate("Tools", "Header of a sequence in the embedding database used as the search query."),
+                    details=(translate("Tools", "Sanitized before lookup when Manual Query Seq is OFF."),),
+                ),
+                "MANUAL_QUERY_SEQ": Tip(
+                    translate("Tools", "Toggle to provide a custom query sequence manually."),
+                    details=(translate("Tools", "When OFF, the query sequence and embedding are loaded from the database by header."),),
+                ),
+                "QUERY_SEQUENCE": Tip(
+                    translate("Tools", "Raw amino acid sequence for the query protein."),
+                    details=(translate("Tools", "Used only when Manual Query Seq is ON; embedded on the fly using the database model."),),
+                ),
+                "OUTPUT_NAME": Tip(
+                    translate("Tools", "Custom prefix for exported report files (`.txt`, `.xlsx`, `.fasta`)."),
+                    details=(translate("Tools", "If left blank, defaults to the sanitized query header."),),
+                ),
+                "TOP_K": Tip(
+                    translate("Tools", "Maximum number of highest-scoring database matches to export in results."),
+                    details=(translate("Tools", "Controls the output hit list size in summary tables and reports."),),
+                ),
+                "NORM_THRESHOLD": Tip(
+                    translate("Tools", "Minimum normalized similarity score threshold for database hits."),
+                    details=(translate("Tools", "Hits scoring below this cutoff are excluded from results. Set to `None` to disable."),),
+                ),
+                "ALIGNMENT_MODE": Tip(
+                    translate("Tools", "Selects global (Needleman-Wunsch) or local (Smith-Waterman) alignment."),
+                    details=(translate("Tools", "Compares database sequence embeddings against the query using dynamic programming."),),
+                    options=(
+                        TipOption("global", translate("Tools", "Aligns the sequences end to end.")),
+                        TipOption("local", translate("Tools", "Aligns their best-matching regions.")),
+                    ),
+                ),
+                "NORM_MODE": Tip(
+                    translate("Tools", "Formula used to normalize alignment scores by sequence or alignment length."),
+                    details=(translate("Tools", "Prevents score bias toward longer or shorter sequences."),),
+                    options=(
+                        TipOption("alignment_length", translate("Tools", "Divides the score by the alignment length.")),
+                        TipOption("shorter_sequence", translate("Tools", "Divides the score by the length of the shorter sequence.")),
+                        TipOption("longer_sequence", translate("Tools", "Divides the score by the length of the longer sequence.")),
+                        TipOption("average_sequence", translate("Tools", "Divides the score by the average length of the two sequences.")),
+                    ),
+                ),
+                "LOCAL_GAP_P": Tip(
+                    translate("Tools", "Gap penalty applied during local (Smith-Waterman) database search."),
+                    details=(translate("Tools", "More negative values penalize gap insertions."),),
+                ),
+                "GLOBAL_GAP_P": Tip(
+                    translate("Tools", "Gap penalty applied during global (Needleman-Wunsch) database search."),
+                    details=(translate("Tools", "More negative values penalize gap insertions across full sequences."),),
+                ),
+                "WORKERS": Tip(
+                    translate("Tools", "Number of parallel CPU worker processes allocated for database search."),
+                    details=(translate("Tools", "Running with more workers speeds up database scanning on multi-core systems."),),
+                    live=_logical_cpu_note,
+                ),
+                "GENERATE_FASTA": Tip(
+                    translate("Tools", "Toggle to export a FASTA file containing top hit sequences."),
+                    details=(translate("Tools", "Outputs the query sequence followed by ranked matching sequences."),),
+                ),
+                "DEVICE_SELECTION": Tip(
+                    translate("Tools", "Hardware used for residue score matrices."),
+                    notes=(
+                        TipNote("info", translate("Tools", "Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.")),
+                    ),
+                    live=_detected_devices_note,
+                ),
+                "ACCELERATOR_PRECISION": Tip(
+                    translate("Tools", "Numeric format the accelerator uses for the score matrices."),
+                    options=(
+                        TipOption("automatic_32bit", translate("Tools", "Considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets).")),
+                        TipOption("bf16", translate("Tools", "Low precision; explicit and never automatic.")),
+                    ),
+                    notes=(
+                        TipNote("warning", translate("Tools", "BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative targets; finite numerical differences never block execution.")),
+                    ),
+                ),
             }
         }
         
@@ -2579,6 +3012,14 @@ class ToolsGUI(QMainWindow):
             self.central_widget, [self.tabs.findChild(QStackedWidget), self.script_desc_text]
         )
 
+    def _set_state_tip(self, widgets, base, note=None, kind="info"):
+        """Show base on widgets with a note about their state added (base itself without one)."""
+        entry = with_note(base, kind, note) if note else base
+        for widget in widgets:
+            set_tip_tooltip(widget, entry)
+            self.tip_db[widget] = entry
+            widget.installEventFilter(self)
+
     def _route_native_tooltips_to_tip_panel(self):
         """Route every native widget tooltip through the shared help panel."""
         for widget in self.findChildren(QWidget):
@@ -2632,13 +3073,14 @@ class ToolsGUI(QMainWindow):
                 if key in saved_directories:
                     dir_defaults[key] = saved_directories[key]
 
+        # Each shows the folder it names now; the two that get large files also the room free there.
         dir_tips = {
-            "FASTA_DIR": translate("Tools", "Directory containing unaligned FASTA sequence files (.fasta) for sequence sets and subsets."),
-            "MSA_DIR": translate("Tools", "Directory containing multiple sequence alignment files (.fasta, .h5, or _sparse.h5)."),
-            "EMBED_DIR": translate("Tools", "Directory containing pre-computed protein language model embedding databases (.h5)."),
-            "NETWORK_DIR": translate("Tools", "Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (.h5, .tabular)."),
-            "REPORT_DIR": translate("Tools", "Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved."),
-            "SETTING_EXPORT_DIR": translate("Tools", "Directory where per-tool JSON settings files are exported for command-line execution.")
+            "FASTA_DIR": Tip(translate("Tools", "Directory containing unaligned FASTA sequence files (`.fasta`) for sequence sets and subsets."), live=_folder_note),
+            "MSA_DIR": Tip(translate("Tools", "Directory containing multiple sequence alignment files (`.fasta`, `.h5`, or `_sparse.h5`)."), live=_folder_note),
+            "EMBED_DIR": Tip(translate("Tools", "Directory containing pre-computed protein language model embedding databases (`.h5`)."), live=_folder_note),
+            "NETWORK_DIR": Tip(translate("Tools", "Directory containing pairwise similarity networks, E-value matrices, and BLAST tabular files (`.h5`, `.tabular`)."), live=_folder_note),
+            "REPORT_DIR": Tip(translate("Tools", "Directory where generated pairwise alignment HTML reports and SSEARCH result files are saved."), live=_folder_space_note),
+            "SETTING_EXPORT_DIR": Tip(translate("Tools", "Directory where per-tool JSON settings files are exported for command-line execution."), live=_folder_space_note),
         }
         dir_labels = {
             "EMBED_DIR": translate("Tools", "Embedding Directory:"),
@@ -2697,8 +3139,8 @@ class ToolsGUI(QMainWindow):
             layout.addRow(lbl, ui_element)
             self.dir_inputs[key] = le
             
-            tip = dir_tips.get(key, "")
-            ui_element.setToolTip(tip)
+            tip = tool_tip_entry(dir_tips.get(key), key, lbl, le, DEFAULT_DIRECTORY_PATHS.get(key, MISSING))
+            set_tip_tooltip(ui_element, tip)
             self.tip_db[ui_element] = tip
             self.tip_db[lbl] = tip
             self.tip_db[le] = tip
@@ -2940,11 +3382,13 @@ class ToolsGUI(QMainWindow):
                 switch_btn = ToggleSwitch()
                 switch_btn.setChecked(bool(actual_val))
                 
-                # Get tooltip for prefiltering
-                prefilter_tip = self.SCRIPT_TIPS.get(script_name, {}).get(
-                    "EDGE_PREFILTERING", translate("Tools", "Edge Prefiltering")
+                # The row's label comes first: a tip's title is its label's words.
+                label = QLabel(s_def['display'])
+                prefilter_tip = tool_tip_entry(
+                    self.SCRIPT_TIPS.get(script_name, {}).get("EDGE_PREFILTERING"),
+                    "EDGE_PREFILTERING", label, switch_btn, setting["default"] if setting else MISSING,
                 )
-                switch_btn.setToolTip(prefilter_tip)
+                set_tip_tooltip(switch_btn, prefilter_tip)
                 self.tip_db[switch_btn] = prefilter_tip
                 switch_btn.installEventFilter(self)
                 
@@ -2985,18 +3429,20 @@ class ToolsGUI(QMainWindow):
                     strength_lay.addWidget(box)
                     strength_widget.slider = sl
                     
-                    strength_tip = self.SCRIPT_TIPS.get(script_name, {}).get(
-                        "PREFILTER_STRENGTH", translate("Tools", "Strength (%)")
+                    strength_lbl = QLabel(translate("Tools", "Strength (%):"))
+                    strength_tip = tool_tip_entry(
+                        self.SCRIPT_TIPS.get(script_name, {}).get("PREFILTER_STRENGTH"),
+                        "PREFILTER_STRENGTH", strength_lbl, strength_widget, strength_setting["default"],
                     )
-                    strength_widget.setToolTip(strength_tip)
+                    set_tip_tooltip(strength_widget, strength_tip)
                     self.tip_db[strength_widget] = strength_tip
                     strength_widget.installEventFilter(self)
                     
-                    sl.setToolTip(strength_tip)
+                    set_tip_tooltip(sl, strength_tip)
                     self.tip_db[sl] = strength_tip
                     sl.installEventFilter(self)
                     
-                    box.setToolTip(strength_tip)
+                    set_tip_tooltip(box, strength_tip)
                     self.tip_db[box] = strength_tip
                     box.installEventFilter(self)
                 else:
@@ -3006,10 +3452,8 @@ class ToolsGUI(QMainWindow):
                 compound_widget = QWidget()
                 
                 if strength_widget:
-                    strength_lbl = QLabel(translate("Tools", "Strength (%):"))
-                    
                     # Tooltip for the label
-                    strength_lbl.setToolTip(strength_tip)
+                    set_tip_tooltip(strength_lbl, strength_tip)
                     self.tip_db[strength_lbl] = strength_tip
                     strength_lbl.installEventFilter(self)
                     
@@ -3036,9 +3480,8 @@ class ToolsGUI(QMainWindow):
                     # Register strength in inputs
                     inputs["PREFILTER_STRENGTH"] = {'widget': strength_widget, 'type': 'slider'}
                 
-                # Create label for the row
-                label = QLabel(s_def['display'])
-                label.setToolTip(prefilter_tip)
+                # The row's label, made above
+                set_tip_tooltip(label, prefilter_tip)
                 self.tip_db[label] = prefilter_tip
                 label.installEventFilter(self)
                 
@@ -3061,16 +3504,17 @@ class ToolsGUI(QMainWindow):
                 filter_btn = ToggleSwitch()
                 filter_btn.setChecked(bool(actual_val))
                 
-                filter_tip = self.SCRIPT_TIPS.get(script_name, {}).get(
-                    "ENABLE_LENGTH_FILTER", translate("Tools", "Enable Length Filter")
+                label = QLabel(s_def['display'])
+                filter_tip = tool_tip_entry(
+                    self.SCRIPT_TIPS.get(script_name, {}).get("ENABLE_LENGTH_FILTER"),
+                    "ENABLE_LENGTH_FILTER", label, filter_btn, setting["default"] if setting else MISSING,
                 )
-                filter_btn.setToolTip(filter_tip)
+                set_tip_tooltip(filter_btn, filter_tip)
                 self.tip_db[filter_btn] = filter_tip
                 filter_btn.installEventFilter(self)
                 
-                # Create label for the row
-                label = QLabel(s_def['display'])
-                label.setToolTip(filter_tip)
+                # The row's label, made above
+                set_tip_tooltip(label, filter_tip)
                 self.tip_db[label] = filter_tip
                 label.installEventFilter(self)
                 
@@ -3324,16 +3768,14 @@ class ToolsGUI(QMainWindow):
                 ui_element = QLineEdit(str(actual_val))
             
             label = QLabel(s_def['display'])
-            script_dict = self.SCRIPT_TIPS.get(script_name, {})
-            tip = script_dict.get(var_name) or translate("Tools", "Setting: {name}").format(name=var_name)
-            if isinstance(tip, Tip):
-                # The panel reads the title, options, range and default from the field.
-                tip = FieldTip(tip, Field(
-                    key=var_name, label=label, widget=ui_element, default=setting['default']
-                ))
+            # The panel reads the title, options, range and default from the field.
+            tip = tool_tip_entry(
+                self.SCRIPT_TIPS.get(script_name, {}).get(var_name),
+                var_name, label, ui_element, setting['default'],
+            )
                 
             # The tooltip is the plain text, which is the widget's accessible description.
-            ui_element.setToolTip(tip_plain(tip) if isinstance(tip, FieldTip) else tip)
+            set_tip_tooltip(ui_element, tip)
             self.tip_db[ui_element] = tip
             ui_element.installEventFilter(self)
             
@@ -3454,8 +3896,7 @@ class ToolsGUI(QMainWindow):
                             )
                             device_combo.setCurrentIndex(max(0, restore_index))
                         device_combo.setEnabled(True)
-                        tip = self.SCRIPT_TIPS[script_name]["DEVICE_SELECTION"]
-                        device_combo.setToolTip(tip)
+                        set_tip_tooltip(device_combo, self.tip_db[device_combo])
 
                 model_combo.currentIndexChanged.connect(
                     lambda index: update_embedding_device(selected_model_name())
@@ -3528,20 +3969,19 @@ class ToolsGUI(QMainWindow):
                 show_plot_label = row_widgets.get(
                     "SHOW_REGRESSION_PLOT", (None, None)
                 )[0]
-                score_default_tip = score_combo.toolTip()
-                norm_default_tip = norm_combo.toolTip()
-                show_plot_default_tip = show_plot_switch.toolTip()
+                # What each says of the network is added to its tip as a note.
+                score_base_tip = self.tip_db[score_combo]
+                norm_base_tip = self.tip_db[norm_combo]
+                show_plot_base_tip = self.tip_db[show_plot_switch]
 
-                def update_show_plot_control(enabled, tip):
+                def update_show_plot_control(enabled, note):
                     if not enabled:
                         show_plot_switch.setChecked(False)
                     show_plot_switch.setEnabled(enabled)
-                    show_plot_switch.setToolTip(tip)
-                    self.tip_db[show_plot_switch] = tip
+                    self._set_state_tip([show_plot_switch], show_plot_base_tip, note, "info" if enabled else "warning")
                     if show_plot_label is not None:
                         show_plot_label.setEnabled(enabled)
-                        show_plot_label.setToolTip(tip)
-                        self.tip_db[show_plot_label] = tip
+                        self._set_state_tip([show_plot_label], show_plot_base_tip, note, "info" if enabled else "warning")
                 
                 def sync_local_norm_mode():
                     if not score_combo.isEnabled():
@@ -3576,8 +4016,8 @@ class ToolsGUI(QMainWindow):
                         error_tip = translate("Tools", "Unable to determine network type: {error}").format(error=error)
                         score_combo.setEnabled(False)
                         norm_combo.setEnabled(False)
-                        score_combo.setToolTip(error_tip)
-                        norm_combo.setToolTip(error_tip)
+                        self._set_state_tip([score_combo], score_base_tip, error_tip, "warning")
+                        self._set_state_tip([norm_combo], norm_base_tip, error_tip, "warning")
                         update_show_plot_control(False, error_tip)
                         score_combo.blockSignals(True)
                         norm_combo.blockSignals(True)
@@ -3588,14 +4028,12 @@ class ToolsGUI(QMainWindow):
                         return
 
                     is_blast = network_metadata.network_type == "blast"
-                    score_combo.setToolTip(score_default_tip)
-                    norm_combo.setToolTip(norm_default_tip)
+                    self._set_state_tip([score_combo], score_base_tip)
+                    self._set_state_tip([norm_combo], norm_base_tip)
 
                     network_info = cached_network_completeness()
-                    plot_enabled, plot_tip = isotonic_regression_switch_state(
-                        network_info, is_blast, show_plot_default_tip
-                    )
-                    update_show_plot_control(plot_enabled, plot_tip)
+                    plot_enabled, plot_note = isotonic_regression_switch_note(network_info, is_blast)
+                    update_show_plot_control(plot_enabled, plot_note)
                     
                     score_combo.setEnabled(not is_blast)
                     norm_combo.setEnabled(not is_blast)
@@ -3654,6 +4092,7 @@ class ToolsGUI(QMainWindow):
                 tree_method_combo = (
                     tree_method_input['widget'] if tree_method_input else None
                 )
+                imputed_consensus_base_tip = self.tip_db[imputed_consensus_switch]
                 imputed_consensus_switch.setProperty(
                     "incomplete_network_preference", imputed_consensus_switch.isChecked()
                 )
@@ -3689,12 +4128,10 @@ class ToolsGUI(QMainWindow):
                         imputed_consensus_switch.isChecked(),
                     )
                     imputed_consensus_switch.setEnabled(enabled)
-                    imputed_consensus_switch.setToolTip(tip)
-                    self.tip_db[imputed_consensus_switch] = tip
+                    self._set_state_tip([imputed_consensus_switch], imputed_consensus_base_tip, tip, "info")
                     if imputed_consensus_label is not None:
                         imputed_consensus_label.setEnabled(enabled)
-                        imputed_consensus_label.setToolTip(tip)
-                        self.tip_db[imputed_consensus_label] = tip
+                        self._set_state_tip([imputed_consensus_label], imputed_consensus_base_tip, tip, "info")
 
                 net_combo.currentTextChanged.connect(update_imputed_consensus_toggle)
                 bootstrap_switch.toggled.connect(update_imputed_consensus_toggle)
@@ -4366,11 +4803,11 @@ class ToolsGUI(QMainWindow):
         )
         if event_type in routed_events:
             entry = self.tip_db.get(obj, "")
-            if isinstance(entry, FieldTip):
+            tooltip = obj.toolTip() if isinstance(obj, QWidget) else ""
+            if isinstance(entry, FieldTip) and tooltip in ("", obj.property("registeredTooltip")):
                 tip = entry  # laid out by the panel; its tooltip is only the plain text
             else:
-                tip = obj.toolTip() if isinstance(obj, QWidget) else ""
-                tip = tip or entry
+                tip = tooltip or entry  # a message about the widget's state, say
             if tip:
                 self.tip_panel.setTip(tip)
                 if event_type == QEvent.Type.ToolTip:

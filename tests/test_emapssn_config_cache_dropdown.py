@@ -893,7 +893,9 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         # It is a directory row like the other roots: open button, tip and all.
         self.assertIn("EMBED_DIR", window.directory_open_buttons)
         for widget in (window.inputs["EMBED_DIR"], window.labels["EMBED_DIR"]):
-            self.assertIn("$embedding$", window.tip_db[widget])
+            from desktop.Tip_Panel import tip_plain
+
+            self.assertIn("$embedding$", tip_plain(window.tip_db[widget]))
 
     def test_embedding_alias_follows_the_live_embedding_directory(self):
         window = self.window
@@ -1312,9 +1314,9 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             )
         cases.extend(
             (
-                (self.window.labels["TARGET_CACHE"], "Target Cache:"),
-                (self.window.lbl_cache_tracker, "Target Cache:"),
-                (self.window.btn_open_cache, "Target Cache:"),
+                (self.window.labels["TARGET_CACHE"], "Compatibility-specific folder"),
+                (self.window.lbl_cache_tracker, "Compatibility-specific folder"),
+                (self.window.btn_open_cache, "Compatibility-specific folder"),
             )
         )
         try:
@@ -1347,7 +1349,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             )
 
             self.assertTrue(handled)
-            self.assertIn("Target Cache:", self.window.tip_panel.text())
+            self.assertIn("Compatibility-specific folder", self.window.tip_panel.text())
         finally:
             self.window.tip_panel.setText(original_tip)
 
