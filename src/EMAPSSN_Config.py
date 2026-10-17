@@ -1097,6 +1097,9 @@ if __name__ == "__main__":
             more than that was cut off at the bottom.
             """
             if self._showing_report and self.wordWrap() and self.width() > 0:
+                # heightForWidth never goes below the minimum already set, so
+                # clear it first, or the panel could only grow as it narrows.
+                self.setMinimumHeight(0)
                 self.setMinimumHeight(self.heightForWidth(self.width()))
 
         def resizeEvent(self, event):

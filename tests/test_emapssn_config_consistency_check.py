@@ -548,6 +548,47 @@ class ConsistencyReportWindowTests(unittest.TestCase):
                 self.assertGreaterEqual(panel.height(), panel.heightForWidth(panel.width()))
                 self.assertGreaterEqual(panel.minimumHeight(), panel.heightForWidth(panel.width()))
 
+    def test_the_panel_gives_its_height_back_when_the_window_widens_again(self):
+        from PySide6.QtCore import QEvent, QObject
+
+        class Resizes(QObject):
+            count = 0
+
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Type.Resize:
+                    self.count += 1
+                return False
+
+        window, panel = self.window, self.window.tip_panel
+        self.run_check(self.long_headers(), "WP_005", msa_lacks=5)
+        narrow_width = window.minimumSizeHint().width()
+        window.resize(1000, 650)
+        self.flush()
+        wide_minimum = panel.minimumHeight()
+        resizes = Resizes(panel)
+        panel.installEventFilter(resizes)
+        counts = []
+        for _ in range(3):
+            resizes.count = 0
+            window.resize(narrow_width, 650)
+            self.flush()
+            narrow_minimum, narrow_height = panel.minimumHeight(), panel.height()
+            # A narrower panel wraps more, so the report needs more height...
+            self.assertGreater(narrow_minimum, wide_minimum)
+            self.assertGreaterEqual(narrow_height, panel.heightForWidth(panel.width()))
+            window.resize(1000, 650)
+            self.flush()
+            # ...and the panel gives it back (heightForWidth never goes below the
+            # minimum already set, so the minimum has to be cleared to measure).
+            self.assertEqual(panel.minimumHeight(), wide_minimum)
+            self.assertLess(panel.height(), narrow_height)
+            self.assertGreaterEqual(panel.height(), panel.heightForWidth(panel.width()))
+            counts.append(resizes.count)
+        # Fitting the panel does not feed back into more resizing: each cycle takes the
+        # same few resize events, the width's and the pane's height following it.
+        self.assertEqual(len(set(counts)), 1, counts)
+        self.assertLessEqual(counts[0], 6, counts)
+
     def test_a_tip_gives_the_panel_back_its_ordinary_size(self):
         window, panel = self.window, self.window.tip_panel
         self.run_check(self.long_headers(), "WP_005", msa_lacks=5)
