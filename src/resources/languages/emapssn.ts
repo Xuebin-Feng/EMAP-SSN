@@ -523,6 +523,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Current color: {value}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{matched} of {total} matched</source>
         <translation type="unfinished"></translation>
     </message>
@@ -688,8 +692,23 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Saved Config: Selects the settings profile used for this tab.
-(custom) uses the current viewer_settings.json values; (default) uses read-only built-in defaults; (new) creates a named profile; named entries load profiles from the Saved Config Directory.</source>
+        <source>Selects the settings profile used for this tab.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A named entry loads that profile from the Saved Config Directory.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Uses the current values in `{file}`.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Uses the built-in defaults, which are read-only.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Creates a named profile.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -723,8 +742,11 @@ Normalizes by alignment length, shorter sequence, longer sequence, or average se
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Full header, leading identifier (e.g. WP_0123.1), substring, or wildcard (e.g. WP_01*) naming the reference sequence; an exact header or identifier takes priority.
-Used to anchor absolute relative residue numbering and mapping offsets across the entire network.</source>
+        <source>Full header, leading identifier (e.g. `WP_0123.1`), substring, or wildcard (e.g. `WP_01*`) naming the reference sequence; an exact header or identifier takes priority.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Used to anchor absolute relative residue numbering and mapping offsets across the entire network.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -783,8 +805,15 @@ Adjust to ensure labels remain legible without obstructing structural network fe
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Color of viewer HUD text and control labels. A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead.
-Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &apos;#333333&apos;).</source>
+        <source>Color of viewer HUD text and control labels.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Can be specified as a standard color name or hex code (e.g. `grey`, `#333333`).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4840,6 +4869,52 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
 </context>
 <context>
+    <name>TipPanel</name>
+    <message>
+        <source>(empty)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>on</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>off</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Default</source>
+        <comment>a field&apos;s default value</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Range</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Setting</source>
+        <comment>the name of a settings entry</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{option}: {text}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Warning:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Note:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{label}: {value}.</source>
+        <comment>a field&apos;s fact, such as its default</comment>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>ToggleSwitch</name>
     <message>
         <source>ON</source>
@@ -5080,6 +5155,16 @@ The first line above names the exact library that failed to load; if it is not
 covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>This computer has %n logical CPU(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>AUTO would use {budget} now, with {available} of memory available.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message>
         <source>AUTO ON</source>
         <translation type="unfinished"></translation>
@@ -5185,8 +5270,11 @@ Higher percentages speed up calculations by performing residue alignments on onl
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>CPU Workers: Number of parallel CPU worker processes allocated for sequence alignment calculations.
-Increasing workers speeds up alignment of large datasets across multiple CPU cores.</source>
+        <source>Number of parallel CPU worker processes allocated for sequence alignment calculations.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Increasing workers speeds up alignment of large datasets across multiple CPU cores.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5210,18 +5298,55 @@ Auto benchmarks CPU and accelerators; dynamic programming alignment scoring alwa
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Execution Mode: &apos;auto&apos; benchmarks scalar and tiled plans where supported.
-&apos;scalar&apos; processes one pairwise score matrix at a time; &apos;tiled&apos; uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
+        <source>How the pairwise score matrices are processed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.
-AUTO ON selects a safe system-memory budget up to {cap:g} GiB. Turn AUTO OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
+        <source>Benchmarks the scalar and tiled plans where they are supported.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.
-float32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
+        <source>Processes one pairwise score matrix at a time.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Selects a safe system-memory budget up to {cap:g} GiB.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Numeric format the accelerator uses for the score matrices.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Forces IEEE FP32.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>NVIDIA only.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Low precision; explicit and never automatic.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5315,8 +5440,19 @@ More negative values shorten gap lengths.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.
-Increasing workers accelerates consensus tree generation on multi-core systems. Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences). Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores.</source>
+        <source>Number of CPU worker processes allocated for parallel guide-tree replicate calculations.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Increasing workers accelerates consensus tree generation on multi-core systems.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

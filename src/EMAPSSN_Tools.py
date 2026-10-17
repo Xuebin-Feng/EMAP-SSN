@@ -75,6 +75,8 @@ from Embedding_Alignment_Engine import (
     is_nvidia_cuda,
     normalize_execution_mode,
     normalize_precision_setting,
+    resolve_host_cache_bytes,
+    system_memory_bytes,
     tiled_accelerator_support,
 )
 from utilities import Help_Pages
@@ -544,6 +546,18 @@ from desktop.Desktop_App import (
     ThemeColorButton,
     TOOLS_THEME_SETTING,
 )
+from desktop.Tip_Panel import (
+    MISSING,
+    Code,
+    Field,
+    FieldTip,
+    LiveNote,
+    SpacedTipLabel,
+    Tip,
+    TipNote,
+    TipOption,
+    tip_plain,
+)
 from desktop.Studio_Theme import (
     TOKENS,
     CardShadows,
@@ -985,20 +999,6 @@ class ResponsiveTextBrowser(QWebEngineView):
             baseUrl = QUrl.fromLocalFile(resources_dir + os.sep)
         super().setHtml(full_html, baseUrl)
 
-class SpacedTipLabel(QLabel):
-    """Help-panel label with proportional multiline spacing."""
-
-    def __init__(self, text="", parent=None):
-        super().__init__(parent)
-        self.setTextFormat(Qt.TextFormat.RichText)
-        self.setText(text)
-
-    def setText(self, text):
-        escaped_text = html.escape(str(text)).replace("\r\n", "\n").replace("\r", "\n")
-        escaped_text = escaped_text.replace("\n", "<br>")
-        super().setText(f'<div style="line-height: 120%;">{escaped_text}</div>')
-
-
 class NoScrollComboBox(SteadyPopupComboBox):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1044,6 +1044,21 @@ class NoScrollDoubleSpinBox(QDoubleSpinBox):
         self.setMinimumHeight(28)
     def wheelEvent(self, e):
         e.ignore()
+
+
+def _logical_cpu_note(field):
+    """What this computer offers a CPU Workers field: its logical CPUs."""
+    return LiveNote(translate("Tools", "This computer has %n logical CPU(s).", None, MAX_CORES))
+
+
+def _host_cache_note(field):
+    """What AUTO would give a Host Cache field now: the same budget a run resolves for it."""
+    budget = resolve_host_cache_bytes("auto") / GIB
+    available = system_memory_bytes()[1] / GIB
+    return LiveNote(
+        translate("Tools", "AUTO would use {budget} now, with {available} of memory available."),
+        {"budget": Code(f"{budget:.1f} GiB"), "available": Code(f"{available:.1f} GiB")},
+    )
 
 
 class HostCacheControl(QWidget):
@@ -1486,14 +1501,44 @@ class ToolsGUI(QMainWindow):
                 "INPUT_HDF5": translate("Tools", "Embedding Set (.h5): HDF5 database containing dense residue embeddings.\nVectors are used to compute pairwise residue similarity matrices and dynamic programming alignment scores."),
                 "EDGE_PREFILTERING": translate("Tools", "Edge Prefiltering: Pre-filters sequence pairs using cosine similarity of global pooled embeddings.\nSkips full residue-level dynamic programming for highly dissimilar pairs to accelerate calculation."),
                 "PREFILTER_STRENGTH": translate("Tools", "Strength (%): Percentage of candidate sequence pairs with lowest cosine similarity to discard.\nHigher percentages speed up calculations by performing residue alignments on only the most promising pairs."),
-                "WORKERS": translate("Tools", "CPU Workers: Number of parallel CPU worker processes allocated for sequence alignment calculations.\nIncreasing workers speeds up alignment of large datasets across multiple CPU cores."),
+                "WORKERS": Tip(
+                    translate("Tools", "Number of parallel CPU worker processes allocated for sequence alignment calculations."),
+                    details=(translate("Tools", "Increasing workers speeds up alignment of large datasets across multiple CPU cores."),),
+                    live=_logical_cpu_note,
+                ),
                 "LOCAL_GAP_P": translate("Tools", "Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.\nMore negative values penalize gap insertions and extensions, resulting in fewer gaps."),
                 "GLOBAL_GAP_P": translate("Tools", "Global Align Gap Penalty: Gap penalty applied in Needleman-Wunsch global alignment.\nControls gap insertion penalties across end-to-end full-length alignments."),
                 "BATCH_SIZE": translate("Tools", "Batch Size: Number of sequence pairs processed in a single chunk before writing to HDF5.\nLarger values improve throughput but require more RAM. Enter an integer or 'auto'."),
                 "DEVICE_SELECTION": translate("Tools", "Device: Hardware compute device used for pairwise residue score matrix calculation.\nAuto benchmarks CPU and accelerators; dynamic programming alignment scoring always runs on CPU."),
-                "EXECUTION_MODE": translate("Tools", "Execution Mode: 'auto' benchmarks scalar and tiled plans where supported.\n'scalar' processes one pairwise score matrix at a time; 'tiled' uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes."),
-                "HOST_CACHE_GB": translate("Tools", "Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.\nAUTO ON selects a safe system-memory budget up to {cap:g} GiB. Turn AUTO OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.").format(cap=HOST_CACHE_MAX_GB),
-                "ACCELERATOR_PRECISION": translate("Tools", "Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.\nfloat32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.")
+                "EXECUTION_MODE": Tip(
+                    translate("Tools", "How the pairwise score matrices are processed."),
+                    options=(
+                        TipOption("auto", translate("Tools", "Benchmarks the scalar and tiled plans where they are supported.")),
+                        TipOption("scalar", translate("Tools", "Processes one pairwise score matrix at a time.")),
+                        TipOption("tiled", translate("Tools", "Uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.")),
+                    ),
+                ),
+                "HOST_CACHE_GB": Tip(
+                    translate("Tools", "Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads."),
+                    options=(
+                        TipOption(None, translate("Tools", "Selects a safe system-memory budget up to {cap:g} GiB.").format(cap=HOST_CACHE_MAX_GB), label=translate("Tools", "AUTO ON")),
+                        TipOption(None, translate("Tools", "Choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.").format(cap=HOST_CACHE_MAX_GB), label=translate("Tools", "AUTO OFF")),
+                    ),
+                    live=_host_cache_note,
+                    unit="GiB",
+                ),
+                "ACCELERATOR_PRECISION": Tip(
+                    translate("Tools", "Numeric format the accelerator uses for the score matrices."),
+                    options=(
+                        TipOption("automatic_32bit", translate("Tools", "Tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.")),
+                        TipOption("float32", translate("Tools", "Forces IEEE FP32.")),
+                        TipOption("tf32", translate("Tools", "NVIDIA only.")),
+                        TipOption("bf16", translate("Tools", "Low precision; explicit and never automatic.")),
+                    ),
+                    notes=(
+                        TipNote("warning", translate("Tools", "BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.")),
+                    ),
+                ),
             },
             "Align_Substitution_Matrix.py": {
                 "INPUT_FASTA": translate("Tools", "Sequence Set (.fasta): FASTA sequence database to align with BLASTP.\nRecords undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment."),
@@ -1517,7 +1562,15 @@ class ToolsGUI(QMainWindow):
                 "NOISE_SCALE": translate("Tools", "Normalized Noise Scale: Gaussian standard deviation expressed as a fraction of max distance (e.g. 0.02 = 2%).\nApplies additive noise across all observed and regression-imputed distances, clamped to valid bounds."),
                 "GAP_OPEN": translate("Tools", "Gap Open Penalty: Penalty score applied for opening a new gap in profile alignments.\nMore negative values penalize gap initiation, yielding fewer overall gap regions."),
                 "GAP_EXTEND": translate("Tools", "Gap Extend Penalty: Penalty score applied for extending an existing gap in profile alignments.\nMore negative values shorten gap lengths."),
-                "WORKERS": translate("Tools", "CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.\nIncreasing workers accelerates consensus tree generation on multi-core systems. Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences). Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores."),
+                "WORKERS": Tip(
+                    translate("Tools", "Number of CPU worker processes allocated for parallel guide-tree replicate calculations."),
+                    details=(translate("Tools", "Increasing workers accelerates consensus tree generation on multi-core systems."),),
+                    notes=(
+                        TipNote("warning", translate("Tools", "Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences).")),
+                        TipNote("info", translate("Tools", "Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores.")),
+                    ),
+                    live=_logical_cpu_note,
+                ),
                 "DEVICE_SELECTION": translate("Tools", "Device: Hardware used for sequential profile score-matrix construction.\nAuto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU."),
                 "SAFE_TEMP_DIR": translate("Tools", "Temporary Working Directory: Directory for caching intermediate files and memory-mapped matrices.\nEnsures large guide tree and distance matrix calculations do not exceed system RAM.")
             },
@@ -2809,8 +2862,10 @@ class ToolsGUI(QMainWindow):
                         # First get the hardcoded default via AST
                         try:
                             default_val = ast.literal_eval(node.value)
+                            shown_default = default_val
                         except Exception:
                             default_val = val_str.strip("\"'")
+                            shown_default = MISSING  # an expression: nothing fixed to show
                             
                         actual_val = default_val
                         
@@ -2858,6 +2913,7 @@ class ToolsGUI(QMainWindow):
                             
                         settings.append({
                             'name': target.id, 'value': val_str, 'actual_val': actual_val,
+                            'default': shown_default,
                             'lineno': node.lineno, 'node': node, 'def': defined_vars[target.id]
                         })
                         
@@ -3267,14 +3323,20 @@ class ToolsGUI(QMainWindow):
             else:
                 ui_element = QLineEdit(str(actual_val))
             
+            label = QLabel(s_def['display'])
             script_dict = self.SCRIPT_TIPS.get(script_name, {})
             tip = script_dict.get(var_name) or translate("Tools", "Setting: {name}").format(name=var_name)
+            if isinstance(tip, Tip):
+                # The panel reads the title, options, range and default from the field.
+                tip = FieldTip(tip, Field(
+                    key=var_name, label=label, widget=ui_element, default=setting['default']
+                ))
                 
-            ui_element.setToolTip(tip)
+            # The tooltip is the plain text, which is the widget's accessible description.
+            ui_element.setToolTip(tip_plain(tip) if isinstance(tip, FieldTip) else tip)
             self.tip_db[ui_element] = tip
             ui_element.installEventFilter(self)
             
-            label = QLabel(s_def['display'])
             self.tip_db[label] = tip
             label.installEventFilter(self)
             
@@ -4303,10 +4365,14 @@ class ToolsGUI(QMainWindow):
             QEvent.Type.ToolTip,
         )
         if event_type in routed_events:
-            tip = obj.toolTip() if isinstance(obj, QWidget) else ""
-            tip = tip or self.tip_db.get(obj, "")
+            entry = self.tip_db.get(obj, "")
+            if isinstance(entry, FieldTip):
+                tip = entry  # laid out by the panel; its tooltip is only the plain text
+            else:
+                tip = obj.toolTip() if isinstance(obj, QWidget) else ""
+                tip = tip or entry
             if tip:
-                self.tip_panel.setText(tip)
+                self.tip_panel.setTip(tip)
                 if event_type == QEvent.Type.ToolTip:
                     return True
         return super().eventFilter(obj, event)

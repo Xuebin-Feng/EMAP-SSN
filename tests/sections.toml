@@ -186,6 +186,7 @@ modules = [
     "test_emapssn_config_responsive_layout",
     "test_emapssn_config_score_mode",
     "test_statistics_report",
+    "test_tip_panel",
 ]
 
 [sections.tools]

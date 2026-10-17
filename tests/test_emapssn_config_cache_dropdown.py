@@ -1304,10 +1304,10 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         for tab_id in self.window.profile_selectors:
             cases.extend(
                 (
-                    (self.window.profile_labels[tab_id], "Saved Config:"),
-                    (self.window.profile_selectors[tab_id], "Saved Config:"),
-                    (self.window.profile_name_inputs[tab_id], "Saved Config:"),
-                    (self.window.profile_folder_buttons[tab_id], "Saved Config:"),
+                    (self.window.profile_labels[tab_id], "Selects the settings profile"),
+                    (self.window.profile_selectors[tab_id], "Selects the settings profile"),
+                    (self.window.profile_name_inputs[tab_id], "Selects the settings profile"),
+                    (self.window.profile_folder_buttons[tab_id], "Selects the settings profile"),
                 )
             )
         cases.extend(
@@ -2230,10 +2230,28 @@ class TipPanelStatusLockTests(unittest.TestCase):
 
     def panel(self):
         from PySide6.QtGui import QTextDocumentFragment
-        return QTextDocumentFragment.fromHtml(self.window.tip_panel.text()).toPlainText()
+        text = QTextDocumentFragment.fromHtml(self.window.tip_panel.text()).toPlainText()
+        # A status message's icon is an image: one object-replacement character.
+        return text.replace("\ufffc", "").strip()
 
     def assert_panel_shows_tip(self, key):
-        self.assertEqual(self.panel(), self.tips[key])
+        """The panel shows the tip of key: a plain tip as it is, a rich tip with every text it holds."""
+        from desktop.Tip_Panel import Tip, plain
+
+        tip = self.tips[key]
+        if not isinstance(tip, Tip):
+            self.assertEqual(self.panel(), tip)
+            return
+        shown = self.panel()
+
+        def squashed(text):
+            # A chip pads its text with spaces, which are not in the tip's own text.
+            return "".join(text.split())
+
+        for text in tip.texts():
+            self.assertIn(squashed(plain(text)), squashed(shown))
+        # The title is the field's own label, without its colon.
+        self.assertTrue(shown.startswith(self.labels[key].text().rstrip(":")), shown)
 
     def hover(self, widget):
         from PySide6.QtCore import QEvent, QPoint

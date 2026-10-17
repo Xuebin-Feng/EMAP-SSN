@@ -118,6 +118,7 @@ A translation must keep these parts exactly as the English text has them:
 
 - placeholders such as `{count}`, `%n` and `%1`
 - markup such as `<b>`
+- text in backticks, such as `grey` or `-k 0`: a value the user types, which a tip shows as a code chip (keep it, and its backticks, as written)
 - file patterns such as `*.fasta`
 
 The update reports any translation that changes a placeholder.

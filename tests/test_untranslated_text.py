@@ -276,10 +276,34 @@ class ConfigRunTimeTextTests(WindowTestCase):
         self.assertEqual(outside_the_catalog(text), "", text)
 
     def test_every_tip(self):
+        from desktop.Tip_Panel import Tip
+
         self.assertGreater(len(self.window.tip_db_keys), 50)
         for key, tip in self.window.tip_db_keys.items():
-            with self.subTest(key=key):
-                self.assertTrue(is_pseudo_translated(tip), tip)
+            # A tip the panel lays out holds several texts, each translated by itself.
+            for text in (tip.texts() if isinstance(tip, Tip) else [tip]):
+                with self.subTest(key=key, text=text[:40]):
+                    self.assertTrue(is_pseudo_translated(text), text)
+
+    def test_the_words_the_tip_panel_adds(self):
+        from PySide6.QtWidgets import QSpinBox
+        from desktop.Tip_Panel import Field, FieldTip, Tip, TipNote, model_plain, resolve
+
+        entry = FieldTip(
+            Tip("x", notes=(TipNote("warning", "w"), TipNote("info", "i"))),
+            Field(key="KEY", widget=QSpinBox(), default=""),
+        )
+        model = resolve(entry)
+        # The labels of the facts, and the word for an empty default.
+        self.assertEqual(len(model.facts), 3)
+        for word in [label for label, _ in model.facts] + [model.facts[0][1]]:
+            with self.subTest(word=word):
+                self.assertTrue(is_pseudo_translated(word), word)
+        # The words read for the warning and note icons, before each note's text.
+        lines = model_plain(model).splitlines()
+        for line in lines[1:3]:
+            with self.subTest(line=line):
+                self.assertTrue(is_pseudo_translated(line.rsplit(" ", 1)[0]), line)
 
     def test_the_save_message(self):
         self.assert_translated(self.window._save_success_message(
@@ -377,8 +401,12 @@ class ToolsRunTimeTextTests(WindowTestCase):
         self.assertEqual(outside_the_catalog(text), "", text)
 
     def test_every_tool_tip(self):
-        tips = [tip for script in self.window.SCRIPT_TIPS.values() for tip in script.values()]
-        self.assertGreater(len(tips), 90)
+        from desktop.Tip_Panel import Tip
+
+        entries = [tip for script in self.window.SCRIPT_TIPS.values() for tip in script.values()]
+        self.assertGreater(len(entries), 90)
+        # A tip the panel lays out holds several texts, each translated by itself.
+        tips = [text for entry in entries for text in (entry.texts() if isinstance(entry, Tip) else [entry])]
         for tip in tips:
             with self.subTest(tip=tip[:40]):
                 self.assertTrue(is_pseudo_translated(tip), tip)

@@ -659,13 +659,25 @@ if __name__ == "__main__":
         TOKENS,
         CardShadows,
         add_hint_icon,
-        coloured_svg,
         icon_button,
-        icon_svg,
         prepare_tab_widget,
         set_role,
         status_color,
         theme_color,
+    )
+    from desktop.Tip_Panel import (
+        Code,
+        Field,
+        FieldTip,
+        LiveNote,
+        MISSING,
+        SpacedTipLabel,
+        Tip,
+        TipNote,
+        TipOption,
+        change_signal,
+        status_mark,
+        wrappable,
     )
     from PySide6.QtCore import Qt, QSize, QUrl, QThread, QTimer, Signal
     from PySide6.QtGui import (
@@ -753,40 +765,29 @@ if __name__ == "__main__":
         )
         return summary, headings
 
+    def _profile_default(key):
+        """The value a settings key starts with in a profile (the program's own default), or MISSING."""
+        for defaults in (
+            INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS,
+            DIRECTORY_PROFILE_DEFAULTS,
+        ):
+            if key in defaults:
+                return defaults[key]
+        return MISSING
+
+    def _current_color_note(field):
+        """The live note of a colour field: a swatch of the colour now typed, and its name."""
+        value = field.widget.text().strip()
+        if not value or not QColor(value).isValid():
+            return None
+        return LiveNote(
+            translate("Config", "Current color: {value}"), {"value": Code(value)}, swatch=value
+        )
+
     # The Consistency Check's marks, which tell a check's status by shape as
-    # well as by colour (Studio_Theme.status_color kinds): Lucide icons.
-    CONSISTENCY_ICONS = {
-        "success": "check",
-        "warning": "triangle-alert",
-        "danger": "x",
-        "subtle": "info",
-    }
-    CONSISTENCY_MARK_SIZE = 14
-    _consistency_marks = {}
-
-    def consistency_mark(kind):
-        """The icon of a status kind, in its colour, as an <img> that rich text can lay out.
-
-        An icon rather than a glyph such as a check mark, which needs a font
-        that has it. The SVG is drawn at four times its size, so it stays
-        sharp on a high-resolution screen.
-        """
-        import base64
-
-        color = status_color(kind)
-        if (kind, color) not in _consistency_marks:
-            svg = coloured_svg(icon_svg(CONSISTENCY_ICONS[kind]), color)
-            svg = re.sub(
-                r'\b(width|height)="24"',
-                lambda found: f'{found.group(1)}="{4 * CONSISTENCY_MARK_SIZE}"',
-                svg,
-            )
-            data = base64.b64encode(svg.encode("utf-8")).decode("ascii")
-            _consistency_marks[(kind, color)] = (
-                f'<img src="data:image/svg+xml;base64,{data}" '
-                f'width="{CONSISTENCY_MARK_SIZE}" height="{CONSISTENCY_MARK_SIZE}">'
-            )
-        return _consistency_marks[(kind, color)]
+    # well as by colour (Studio_Theme.status_color kinds): Lucide icons, the
+    # tip panel's own (desktop.Tip_Panel).
+    consistency_mark = status_mark
 
     # How many headers a check names as examples of the nodes it misses.
     CONSISTENCY_EXAMPLES = 5
@@ -811,22 +812,6 @@ if __name__ == "__main__":
 
     def _consistency_examples(headers):
         return ", ".join(headers[:CONSISTENCY_EXAMPLES])
-
-    def wrappable(text):
-        """text with a place to break wherever a long run of characters, such as a header, has none.
-
-        Qt breaks a label's text at spaces and hyphens only, and a word it
-        can't break sets the label's minimum width, so one long header
-        widened the whole window. A zero-width space (U+200B) after each
-        separator of a run of 50 or more characters, and after every 20
-        characters of what is left, lets it wrap. A shorter word stays
-        whole, so an ordinary header moves to the next line as one.
-        """
-        def broken(found):
-            run = re.sub(r"([_|/\\.,:;)\]])", "\\1\u200b", found.group())
-            return re.sub(r"([^\s\u200b]{20})(?=[^\s\u200b])", "\\1\u200b", run)
-
-        return re.sub(r"[^\s\u200b]{50,}", broken, text)
 
     def _consistency_matched(matched, total):
         return translate("Config", "{matched} of {total} matched").format(
@@ -1062,50 +1047,7 @@ if __name__ == "__main__":
         )
 
     # --- Custom Widget Classes ---
-    class SpacedTipLabel(QLabel):
-        """Help-panel label with proportional multiline spacing."""
-
-        def __init__(self, text="", parent=None):
-            super().__init__(parent)
-            self._showing_report = False
-            self.setTextFormat(Qt.TextFormat.RichText)
-            self.setText(text)
-
-        def setText(self, text):
-            self._showing_report = False
-            self.setMinimumHeight(0)
-            escaped_text = html.escape(str(text)).replace("\r\n", "\n").replace("\r", "\n")
-            escaped_text = escaped_text.replace("\n", "<br>")
-            super().setText(f'<div style="line-height: 120%;">{escaped_text}</div>')
-
-        def setReport(self, report_html):
-            """Show a status report, rich text whose own text is already escaped.
-
-            Like any status message, it is not the tip the panel last showed
-            (ConfigGUI._tip_panel_tip_text), so hovering leaves it in place.
-            """
-            self._showing_report = True
-            super().setText(report_html)
-            self._fit_report()
-
-        def _fit_report(self):
-            """Keep the panel as tall as its report is at the panel's width.
-
-            A wrapped label's minimum height is only an estimate (the text laid
-            out at a width that suits its proportions), and the splitter around
-            the panel ignores height-for-width, so a report whose rows wrap
-            more than that was cut off at the bottom.
-            """
-            if self._showing_report and self.wordWrap() and self.width() > 0:
-                # heightForWidth never goes below the minimum already set, so
-                # clear it first, or the panel could only grow as it narrows.
-                self.setMinimumHeight(0)
-                self.setMinimumHeight(self.heightForWidth(self.width()))
-
-        def resizeEvent(self, event):
-            super().resizeEvent(event)
-            self._fit_report()
-
+    # SpacedTipLabel, the tip panel's label, is in desktop.Tip_Panel.
     class NoScrollComboBox(SteadyPopupComboBox):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
@@ -2171,7 +2113,7 @@ if __name__ == "__main__":
                             self.tip_panel.text() == self._tip_panel_tip_text
                             or self._picks_tip_target(event)
                         ):
-                            self.tip_panel.setText(tip)
+                            self.tip_panel.setTip(tip)
                             self._tip_panel_tip_text = self.tip_panel.text()
                         if event_type == QEvent.Type.ToolTip:
                             return True
@@ -2201,16 +2143,58 @@ if __name__ == "__main__":
                     self.tip_db[target] = tip
                     target.installEventFilter(self)
 
+        def _field_tip(self, key, tip):
+            """What tip_db holds for the field key: plain text as it is, a Tip with its field.
+
+            The panel reads the title, the options, the range and the default
+            from the field when the tip is shown.
+            """
+            if not isinstance(tip, Tip):
+                return tip
+            entry = self._field_tips.get(key)
+            if entry is None:
+                entry = self._field_tips[key] = FieldTip(tip, Field(
+                    key=key,
+                    label=self.labels.get(key),
+                    widget=self.inputs.get(key),
+                    default=_profile_default(key),
+                ))
+                if tip.live is not None:
+                    signal = change_signal(entry.field.widget)
+                    if signal is not None:
+                        signal.connect(self._live_tip_changed)
+            return entry
+
+        def _live_tip_changed(self, *_):
+            """A field with a live note changed: the tip on display shows what holds now."""
+            if self.tip_panel.refresh():
+                self._tip_panel_tip_text = self.tip_panel.text()
+
         def setup_tips(self):
+            self._field_tips = {}
             self.tip_db_keys = {
-                "SAVED_CONFIG": translate("Config", "Saved Config: Selects the settings profile used for this tab.\n(custom) uses the current viewer_settings.json values; (default) uses read-only built-in defaults; (new) creates a named profile; named entries load profiles from the Saved Config Directory."),
+                "SAVED_CONFIG": Tip(
+                    translate("Config", "Selects the settings profile used for this tab."),
+                    details=(translate("Config", "A named entry loads that profile from the Saved Config Directory."),),
+                    options=(
+                        TipOption("(custom)", translate("Config", "Uses the current values in `{file}`.").format(
+                            file=os.path.basename(DEFAULT_SETTINGS_FILE)
+                        )),
+                        TipOption("(default)", translate("Config", "Uses the built-in defaults, which are read-only.")),
+                        TipOption("(new)", translate("Config", "Creates a named profile.")),
+                    ),
+                    facts=False,
+                ),
                 "NODE_FASTA_FILE": translate("Config", "Primary FASTA file containing sequences visualized as nodes in the SSN.\nMust match sequences present in the selected network edges and multiple alignments."),
                 "MSA_FILE": translate("Config", "Multiple sequence alignment file (.fasta, .h5, or _sparse.h5) for the sequence set.\nUsed to calculate positional conservation, gaps, and occupancy thresholds during analysis."),
                 "EMBED_FILE": translate("Config", "Optional protein language model embedding file (.h5) from Generate Embeddings, for commands that analyse embeddings.\nMatched to nodes by header and sequence; the per-residue data stays on disk until a command reads it, so keep the file on this device."),
                 "INPUT_HDF5": translate("Config", "Network or similarity matrix file (.h5) containing pairwise sequence similarity scores and edge coordinates.\nMust contain alignment metrics for at least all sequences present in the active sequence set."),
                 "ALIGNMENT_SCORE": translate("Config", "(For embedding SSNs) Specifies whether to use global (Needleman-Wunsch) or local (Smith-Waterman) scores.\nLocal alignment is recommended for multi-domain proteins; global alignment is best for full-length comparisons."),
                 "NORM_MODE": translate("Config", "(For embedding SSNs) Normalization strategy for pairwise sequence alignment scores.\nNormalizes by alignment length, shorter sequence, longer sequence, or average sequence length to reduce length bias."),
-                "ALIGNMENT_REFERENCE": translate("Config", "Full header, leading identifier (e.g. WP_0123.1), substring, or wildcard (e.g. WP_01*) naming the reference sequence; an exact header or identifier takes priority.\nUsed to anchor absolute relative residue numbering and mapping offsets across the entire network."),
+                "ALIGNMENT_REFERENCE": Tip(
+                    translate("Config", "Full header, leading identifier (e.g. `WP_0123.1`), substring, or wildcard (e.g. `WP_01*`) naming the reference sequence; an exact header or identifier takes priority."),
+                    details=(translate("Config", "Used to anchor absolute relative residue numbering and mapping offsets across the entire network."),),
+                ),
                 "ALIGNMENT_OFFSET": translate("Config", "Integer offset added to reference-anchored alignment residue positions (e.g. +10 shifts position 1 to 11).\nApplied only when the Alignment Reference ID resolves successfully in the alignment."),
                 "SIMILARITY_THRESHOLD": translate("Config", "Minimum similarity score threshold (identity fraction, normalized score, or -Log10 E-Value) to retain an edge.\nEdges below this cutoff are filtered out and excluded from physics simulation and rendering."),
                 "TOP_EDGE_PERCENT": translate("Config", "Alternative edge filter that retains only the top N% highest-scoring edges in the network.\nMaintains consistent network connectivity and density without manually tuning raw score cutoffs (overrides threshold)."),
@@ -2222,7 +2206,14 @@ if __name__ == "__main__":
                 "EDGE_WIDTH": translate("Config", "Line thickness (in pixels) of connection lines drawn between related sequence nodes.\nThinner lines reduce visual clutter in dense networks; thicker lines highlight strong relationships."),
                 "EDGE_ALPHA": translate("Config", "Opacity of network edge lines, ranging from 0.0 (fully transparent) to 1.0 (opaque).\nLower opacity reveals underlying node clustering and density in highly connected graphs."),
                 "TEXT_SIZE": translate("Config", "Font size used for rendering cluster annotations, node labels, and sequence IDs in the visualizer.\nAdjust to ensure labels remain legible without obstructing structural network features."),
-                "TEXT_COLOR": translate("Config", "Color of viewer HUD text and control labels. A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead.\nCan be specified as a standard color name or hex code (e.g. 'grey', '#333333')."),
+                "TEXT_COLOR": Tip(
+                    translate("Config", "Color of viewer HUD text and control labels."),
+                    details=(
+                        translate("Config", "A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead."),
+                        translate("Config", "Can be specified as a standard color name or hex code (e.g. `grey`, `#333333`)."),
+                    ),
+                    live=_current_color_note,
+                ),
                 "INITIAL_NODE_COLOR": translate("Config", "Baseline fill color applied to all nodes when the network is first loaded.\nServes as the default background color before custom cluster or metadata coloring is applied."),
                 "HOVER_COLOR": translate("Config", "Highlight color applied to a node and its adjacent connections on hover or selection.\nProvides high-contrast interactive visual feedback in the viewer."),
                 "CONNECTED_NODE_COLOR": translate("Config", "Border highlight color applied to neighboring nodes directly connected to the currently selected node.\nSet it to the same rendered RGBA color as Node Boundary Color to disable connected-node identification, border highlighting, and render promotion."),
@@ -2263,27 +2254,30 @@ if __name__ == "__main__":
             
             self.tip_db = {}
             for key, tip in self.tip_db_keys.items():
+                entry = self._field_tip(key, tip)
                 if key in self.labels:
-                    self._register_tip_targets(self.labels[key], tip)
+                    self._register_tip_targets(self.labels[key], entry)
                 
                 if key in self.inputs:
-                    self._register_tip_targets(self.inputs[key], tip)
+                    self._register_tip_targets(self.inputs[key], entry)
                     
             for key, tip in self.tip_db_keys.items():
                 if key in self.inputs:
                     widget = self.inputs[key]
                     parent = widget.parentWidget()
                     if parent and parent.objectName() == "wrapper":
-                        self._register_tip_targets(parent, tip, overwrite=False)
+                        self._register_tip_targets(
+                            parent, self._field_tip(key, tip), overwrite=False
+                        )
 
             saved_config_tip = self.tip_db_keys["SAVED_CONFIG"]
             for tab_id, selector in self.profile_selectors.items():
-                self._register_tip_targets(
-                    self.profile_labels.get(tab_id), saved_config_tip
-                )
-                self._register_tip_targets(
-                    selector.parentWidget(), saved_config_tip
-                )
+                # Each tab's selector lists its own entries ((default) is not on every tab).
+                entry = FieldTip(saved_config_tip, Field(
+                    label=self.profile_labels.get(tab_id), widget=selector
+                ))
+                self._register_tip_targets(self.profile_labels.get(tab_id), entry)
+                self._register_tip_targets(selector.parentWidget(), entry)
 
             target_cache_tip = self.tip_db_keys["TARGET_CACHE"]
             self._register_tip_targets(
@@ -3529,10 +3523,10 @@ if __name__ == "__main__":
                     "mean": float(avg_score),
                     "rows": rows,
                 })
-                self.tip_panel.setText(translate("Config", "Network statistics computed successfully."))
+                self.tip_panel.setStatus("success", translate("Config", "Network statistics computed successfully."))
 
             except Exception as e:
-                self.tip_panel.setText(translate(
+                self.tip_panel.setStatus("danger", translate(
                     "Config", "Error during network statistics calculation: {error}"
                 ).format(error=display_text(e)))
 

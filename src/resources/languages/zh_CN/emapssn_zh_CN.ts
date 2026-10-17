@@ -591,23 +591,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3516"/>
+        <location line="+3510"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3515"/>
+        <location line="-3509"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4027"/>
+        <location line="+4021"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4019"/>
+        <location line="-4013"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -648,7 +648,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+628"/>
+        <location line="+613"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -681,7 +681,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
     </message>
     <message>
-        <location line="+386"/>
+        <location line="+343"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -697,12 +697,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3140"/>
+        <location line="+3192"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3137"/>
+        <location line="-3189"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -743,12 +743,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+221"/>
-        <location line="+1928"/>
+        <location line="+1980"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-1847"/>
+        <location line="-1899"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -826,26 +826,25 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1129"/>
+        <location line="-1086"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1170"/>
+        <location line="+1127"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
     <message>
-        <location line="+56"/>
         <source>Saved Config: Selects the settings profile used for this tab.
 (custom) uses the current viewer_settings.json values; (default) uses read-only built-in defaults; (new) creates a named profile; named entries load profiles from the Saved Config Directory.</source>
-        <translation type="unfinished">已保存配置：选择此选项卡使用的配置方案。
+        <translation type="obsolete">已保存配置：选择此选项卡使用的配置方案。
 （自定义）使用当前 viewer_settings.json 中的值；（默认）使用只读的内置默认值；（新建）创建一个命名的配置方案；其他命名条目从已保存配置目录加载配置方案。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+96"/>
         <source>Primary FASTA file containing sequences visualized as nodes in the SSN.
 Must match sequences present in the selected network edges and multiple alignments.</source>
         <translation type="unfinished">主 FASTA 文件，其中的序列在 SSN 中显示为节点（node）。
@@ -887,14 +886,13 @@ Normalizes by alignment length, shorter sequence, longer sequence, or average se
 按比对长度、较短序列、较长序列或平均序列长度归一化，以减少长度偏差。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Full header, leading identifier (e.g. WP_0123.1), substring, or wildcard (e.g. WP_01*) naming the reference sequence; an exact header or identifier takes priority.
 Used to anchor absolute relative residue numbering and mapping offsets across the entire network.</source>
-        <translation type="unfinished">指定参考序列（reference sequence）的完整序列标题（FASTA header）、开头的标识符（如 WP_0123.1）、子串或通配符（如 WP_01*）；完全匹配的序列标题或标识符优先。
+        <translation type="obsolete">指定参考序列（reference sequence）的完整序列标题（FASTA header）、开头的标识符（如 WP_0123.1）、子串或通配符（如 WP_01*）；完全匹配的序列标题或标识符优先。
 用于为整个网络锚定绝对与相对残基（residue）编号及映射偏移量。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+5"/>
         <source>Integer offset added to reference-anchored alignment residue positions (e.g. +10 shifts position 1 to 11).
 Applied only when the Alignment Reference ID resolves successfully in the alignment.</source>
         <translation type="unfinished">加到以参考序列为锚的比对残基位置上的整数偏移量（如 +10 会把位置 1 移到 11）。
@@ -971,10 +969,9 @@ Adjust to ensure labels remain legible without obstructing structural network fe
 调整它可确保标签清晰可读，同时不遮挡网络的结构特征。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Color of viewer HUD text and control labels. A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead.
 Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &apos;#333333&apos;).</source>
-        <translation type="unfinished">查看器 HUD 文字和控件标签的颜色。非零的隐藏节点计数改用主题色的深色调显示。
+        <translation type="obsolete">查看器 HUD 文字和控件标签的颜色。非零的隐藏节点计数改用主题色的深色调显示。
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
@@ -984,7 +981,7 @@ Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &a
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+9"/>
         <source>Baseline fill color applied to all nodes when the network is first loaded.
 Serves as the default background color before custom cluster or metadata coloring is applied.</source>
         <translation type="unfinished">首次加载网络时应用于所有节点的基础填充色。
@@ -1241,7 +1238,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
 默认使用 $cache_file$，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="+145"/>
+        <location line="+148"/>
         <location line="+257"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
@@ -1471,7 +1468,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-2764"/>
+        <location line="-2746"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1570,14 +1567,14 @@ Can be specified as a standard color name or hex code (e.g. &apos;grey&apos;, &a
 可指定为标准颜色名称或十六进制代码（如 &apos;grey&apos;、&apos;#333333&apos;）。</translation>
     </message>
     <message>
-        <location line="+1480"/>
+        <location line="+1459"/>
         <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions. The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.
 Significantly improves responsiveness and reduces rendering latency for large networks.</source>
         <translation type="unfinished">性能模式：在平移、缩放和拖动时简化图形并隐藏边线。滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+690"/>
+        <location line="+693"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1684,7 +1681,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-2847"/>
+        <location line="-2889"/>
+        <source>Current color: {value}</source>
+        <translation type="unfinished">当前颜色：{value}</translation>
+    </message>
+    <message>
+        <location line="+33"/>
         <source>{matched} of {total} matched</source>
         <translation type="unfinished">已匹配 {matched} / {total}</translation>
     </message>
@@ -1767,7 +1769,57 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+2716"/>
+        <location line="+1204"/>
+        <source>Selects the settings profile used for this tab.</source>
+        <translation type="unfinished">选择此选项卡使用的配置方案。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>A named entry loads that profile from the Saved Config Directory.</source>
+        <translation type="unfinished">命名条目会从已保存配置目录加载该配置方案。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Uses the current values in `{file}`.</source>
+        <translation type="unfinished">使用 `{file}` 中的当前值。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Uses the built-in defaults, which are read-only.</source>
+        <translation type="unfinished">使用只读的内置默认值。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Creates a named profile.</source>
+        <translation type="unfinished">创建一个命名的配置方案。</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Full header, leading identifier (e.g. `WP_0123.1`), substring, or wildcard (e.g. `WP_01*`) naming the reference sequence; an exact header or identifier takes priority.</source>
+        <translation type="unfinished">指定参考序列（reference sequence）的完整序列标题（FASTA header）、开头的标识符（如 `WP_0123.1`）、子串或通配符（如 `WP_01*`）；完全匹配的序列标题或标识符优先。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Used to anchor absolute relative residue numbering and mapping offsets across the entire network.</source>
+        <translation type="unfinished">用于为整个网络锚定绝对与相对残基（residue）编号及映射偏移量。</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Color of viewer HUD text and control labels.</source>
+        <translation type="unfinished">查看器 HUD 文字和控件标签的颜色。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>A nonzero Hidden Nodes count is shown in a dark shade of the theme color instead.</source>
+        <translation type="unfinished">非零的隐藏节点计数改用主题色的深色调显示。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Can be specified as a standard color name or hex code (e.g. `grey`, `#333333`).</source>
+        <translation type="unfinished">可指定为标准颜色名称或十六进制代码（如 `grey`、`#333333`）。</translation>
+    </message>
+    <message>
+        <location line="+1485"/>
         <source>Low Resource Mode:</source>
         <translation type="unfinished">低资源模式：</translation>
     </message>
@@ -3990,7 +4042,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4352"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4346"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -4032,7 +4084,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1373"/>
+        <location line="+1315"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -6481,9 +6533,65 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
 </context>
 <context>
+    <name>TipPanel</name>
+    <message>
+        <location filename="../../../desktop/Tip_Panel.py" line="+360"/>
+        <source>(empty)</source>
+        <translation type="unfinished">（空）</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>on</source>
+        <translation type="unfinished">开</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>off</source>
+        <translation type="unfinished">关</translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Default</source>
+        <comment>a field&apos;s default value</comment>
+        <translation type="unfinished">默认值</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Range</source>
+        <translation type="unfinished">范围</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Setting</source>
+        <comment>the name of a settings entry</comment>
+        <translation type="unfinished">设置项</translation>
+    </message>
+    <message>
+        <location line="+134"/>
+        <source>{option}: {text}</source>
+        <translation type="unfinished">{option}：{text}</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Warning:</source>
+        <translation type="unfinished">警告：</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Note:</source>
+        <translation type="unfinished">注意：</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>{label}: {value}.</source>
+        <comment>a field&apos;s fact, such as its default</comment>
+        <translation type="unfinished">{label}：{value}。</translation>
+    </message>
+</context>
+<context>
     <name>ToggleSwitch</name>
     <message>
-        <location line="-783"/>
+        <location filename="../../../desktop/Desktop_App.py" line="-783"/>
         <source>ON</source>
         <translation type="unfinished">开</translation>
     </message>
@@ -6501,7 +6609,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Tools.py" line="+127"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+129"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>
@@ -6705,14 +6813,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location line="+10"/>
-        <location line="+1089"/>
+        <location line="+1132"/>
         <source>Show Isotonic Regression Plot: Displays a diagnostic scatter plot for sparse networks.
 Visualizes the isotonic regression fit between mean embedding cosine distances and network scores.</source>
         <translation type="unfinished">显示保序回归图：为稀疏网络显示诊断散点图。
 展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="-938"/>
+        <location line="-969"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -6778,17 +6886,19 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+476"/>
+        <location line="+477"/>
+        <location line="+451"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="-451"/>
+        <location line="+452"/>
         <source>AUTO OFF</source>
         <translation type="unfinished">自动：关</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-450"/>
         <source>Automatic host cache</source>
         <translation type="unfinished">自动主机缓存</translation>
     </message>
@@ -6920,14 +7030,13 @@ Higher percentages speed up calculations by performing residue alignments on onl
 百分比越高，只对最有希望的序列对做残基比对（alignment），计算越快。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>CPU Workers: Number of parallel CPU worker processes allocated for sequence alignment calculations.
 Increasing workers speeds up alignment of large datasets across multiple CPU cores.</source>
-        <translation type="unfinished">CPU 工作进程数：分配给序列比对计算的并行 CPU 工作进程数。
+        <translation type="obsolete">CPU 工作进程数：分配给序列比对计算的并行 CPU 工作进程数。
 增加进程数可利用多个 CPU 核心加快大型数据集的比对。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+6"/>
         <source>Local Align Gap Penalty: Gap penalty applied in Smith-Waterman local alignment.
 More negative values penalize gap insertions and extensions, resulting in fewer gaps.</source>
         <translation type="unfinished">局部比对空位罚分：Smith-Waterman 局部比对（local alignment）中使用的空位罚分（gap penalty）。
@@ -6955,28 +7064,25 @@ Auto benchmarks CPU and accelerators; dynamic programming alignment scoring alwa
 “自动”会对 CPU 和加速器进行基准测试；动态规划比对评分始终在 CPU 上运行。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Execution Mode: &apos;auto&apos; benchmarks scalar and tiled plans where supported.
 &apos;scalar&apos; processes one pairwise score matrix at a time; &apos;tiled&apos; uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
-        <translation type="unfinished">执行模式：“自动”会在支持时对标量和分块（tile）方案进行基准测试。
+        <translation type="obsolete">执行模式：“自动”会在支持时对标量和分块（tile）方案进行基准测试。
 “标量”一次处理一个两两得分矩阵；“分块”在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的 embedding 分块和填充后的微批次（microbatch）。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Host Cache (GiB): Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.
 AUTO ON selects a safe system-memory budget up to {cap:g} GiB. Turn AUTO OFF to choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
-        <translation type="unfinished">主机缓存（GiB）：用于保留打包 embedding、减少重复读取 HDF5 的最大内存。
+        <translation type="obsolete">主机缓存（GiB）：用于保留打包 embedding、减少重复读取 HDF5 的最大内存。
 “自动：开”会选择最多 {cap:g} GiB 的安全系统内存预算。切换为“自动：关”后，可用线性滑块或数值框选择 0 到 {cap:g} GiB；0 表示停用持久缓存。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Accelerator Precision: Automatic 32-bit tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.
 float32 forces IEEE FP32. TF32 is NVIDIA-only. BF16 (Low Precision) is explicit and never automatic. BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
-        <translation type="unfinished">加速器精度：“自动 32 位”只测试 IEEE FP32 和 TF32，验证比对长度和得分，并要求最佳方案下 TF32 至少加速 10%。
+        <translation type="obsolete">加速器精度：“自动 32 位”只测试 IEEE FP32 和 TF32，验证比对长度和得分，并要求最佳方案下 TF32 至少加速 10%。
 float32 强制使用 IEEE FP32。TF32 仅限 NVIDIA。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的样例上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+32"/>
         <source>Sequence Set (.fasta): FASTA sequence database to align with BLASTP.
 Records undergo canonical header sanitization, residue masking, and duplicate deduplication before alignment.</source>
         <translation type="unfinished">序列集（.fasta）：要用 BLASTP 比对的 FASTA 序列库。
@@ -7102,14 +7208,13 @@ More negative values shorten gap lengths.</source>
 数值越负，空位越短。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>CPU Workers: Number of CPU worker processes allocated for parallel guide-tree replicate calculations.
 Increasing workers accelerates consensus tree generation on multi-core systems. Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences). Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores.</source>
-        <translation type="unfinished">CPU 工作进程数：分配给并行计算引导树重复的 CPU 工作进程数。
+        <translation type="obsolete">CPU 工作进程数：分配给并行计算引导树重复的 CPU 工作进程数。
 在多核系统上，增加进程数可加快一致树的生成。每个 UPGMA 工作进程每个序列对约占 16 字节（44,000 条序列约 16 GB）。邻接法（Neighbor-Joining）的工作进程还会以线程方式共用除两个以外的所有逻辑 CPU，因此单个工作进程就已使用多个核心。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+10"/>
         <source>Device: Hardware used for sequential profile score-matrix construction.
 Auto Benchmark compares CPU and available accelerators on three representative leaf merges; guide-tree calculations and dynamic-programming traceback remain on CPU.</source>
         <translation type="unfinished">设备：依次构建 profile 得分矩阵时使用的硬件。
@@ -7475,8 +7580,115 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <source>Overwrite Original File:</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
+    <message numerus="yes">
+        <location line="-622"/>
+        <source>This computer has %n logical CPU(s).</source>
+        <translation type="unfinished">
+            <numerusform>这台计算机有 %n 个逻辑 CPU。</numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+5"/>
+        <location line="+8"/>
+        <source>AUTO would use {budget} now, with {available} of memory available.</source>
+        <translation type="unfinished">“自动”此刻会使用 {budget}，当前可用内存为 {available}。</translation>
+    </message>
+    <message>
+        <location line="+446"/>
+        <source>Number of parallel CPU worker processes allocated for sequence alignment calculations.</source>
+        <translation type="unfinished">分配给序列比对计算的并行 CPU 工作进程数。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Increasing workers speeds up alignment of large datasets across multiple CPU cores.</source>
+        <translation type="unfinished">增加进程数可利用多个 CPU 核心加快大型数据集的比对。</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>How the pairwise score matrices are processed.</source>
+        <translation type="unfinished">两两得分矩阵的处理方式。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Benchmarks the scalar and tiled plans where they are supported.</source>
+        <translation type="unfinished">在支持时对标量和分块（tile）方案进行基准测试。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Processes one pairwise score matrix at a time.</source>
+        <translation type="unfinished">一次处理一个两两得分矩阵。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Uses memory-bounded embedding tiles and padded microbatches on CUDA/ROCm, XPU, or supported Apple MPS runtimes.</source>
+        <translation type="unfinished">在 CUDA/ROCm、XPU 或受支持的 Apple MPS 运行时上使用内存受限的 embedding 分块和填充后的微批次（microbatch）。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Maximum RAM used to retain packed embeddings and reduce repeated HDF5 reads.</source>
+        <translation type="unfinished">用于保留打包 embedding、减少重复读取 HDF5 的最大内存。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Selects a safe system-memory budget up to {cap:g} GiB.</source>
+        <translation type="unfinished">选择最多 {cap:g} GiB 的安全系统内存预算。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Choose 0 to {cap:g} GiB with the linear slider or spinbox; 0 disables persistent caching.</source>
+        <translation type="unfinished">可用线性滑块或数值框选择 0 到 {cap:g} GiB；0 表示停用持久缓存。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Numeric format the accelerator uses for the score matrices.</source>
+        <translation type="unfinished">加速器用于得分矩阵的数值格式。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Tests IEEE FP32 and TF32 only, validates alignment lengths and scores, and requires at least a 10% best-plan TF32 speedup.</source>
+        <translation type="unfinished">只测试 IEEE FP32 和 TF32，验证比对长度和得分，并要求最佳方案下 TF32 至少加速 10%。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Forces IEEE FP32.</source>
+        <translation type="unfinished">强制使用 IEEE FP32。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>NVIDIA only.</source>
+        <translation type="unfinished">仅限 NVIDIA。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Low precision; explicit and never automatic.</source>
+        <translation type="unfinished">低精度；只能手动选择，绝不会自动选用。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>BF16 prints a low-precision warning and an informational FP32 comparison report on up to 2,048 representative cases; finite numerical differences never block execution.</source>
+        <translation type="unfinished">BF16 会打印低精度警告，并在最多 2,048 个有代表性的样例上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Number of CPU worker processes allocated for parallel guide-tree replicate calculations.</source>
+        <translation type="unfinished">分配给并行计算引导树重复的 CPU 工作进程数。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Increasing workers accelerates consensus tree generation on multi-core systems.</source>
+        <translation type="unfinished">在多核系统上，增加进程数可加快一致树的生成。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Each UPGMA worker holds about 16 bytes per sequence pair (about 16 GB for 44,000 sequences).</source>
+        <translation type="unfinished">每个 UPGMA 工作进程每个序列对约占 16 字节（44,000 条序列约 16 GB）。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Neighbor-joining workers also share all but two logical CPUs as threads, so a single worker already uses several cores.</source>
+        <translation type="unfinished">邻接法（Neighbor-Joining）的工作进程还会以线程方式共用除两个以外的所有逻辑 CPU，因此单个工作进程就已使用多个核心。</translation>
+    </message>
+    <message>
+        <location line="+108"/>
         <source>Remove Header Substring:</source>
         <translation type="unfinished">按标题子串移除：</translation>
     </message>
@@ -7550,12 +7762,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1221"/>
+        <location line="+1224"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1216"/>
+        <location line="-1219"/>
         <location line="+265"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
@@ -8016,25 +8228,25 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <location line="+10"/>
-        <location line="+527"/>
-        <location line="+1070"/>
+        <location line="+530"/>
+        <location line="+1076"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1594"/>
-        <location line="+642"/>
+        <location line="-1603"/>
+        <location line="+645"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
     </message>
     <message>
-        <location line="-619"/>
-        <location line="+623"/>
+        <location line="-622"/>
+        <location line="+626"/>
         <source>Select Directory</source>
         <translation type="unfinished">选择目录</translation>
     </message>
     <message>
-        <location line="-595"/>
+        <location line="-598"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
@@ -8055,14 +8267,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1550"/>
-        <location line="+448"/>
+        <location line="+1559"/>
+        <location line="+452"/>
         <location line="+26"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2036"/>
+        <location line="-2049"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -8107,7 +8319,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">要添加文档，请在以下位置创建一个 Markdown 文件：</translation>
     </message>
     <message>
-        <location line="+108"/>
+        <location line="+111"/>
         <source>Edge Prefiltering</source>
         <translation type="unfinished">边预过滤</translation>
     </message>
@@ -8137,12 +8349,12 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="+180"/>
+        <location line="+181"/>
         <source>Setting: {name}</source>
         <translation type="unfinished">设置：{name}</translation>
     </message>
     <message>
-        <location line="+105"/>
+        <location line="+110"/>
         <location line="+7"/>
         <source>Remote API — local device not applicable</source>
         <translation type="unfinished">远程 API——本地设备不适用</translation>
@@ -8221,7 +8433,7 @@ Start the benchmark?</source>
 是否开始基准测试？</translation>
     </message>
     <message>
-        <location line="+149"/>
+        <location line="+153"/>
         <source>Enter a name for the exported settings file.</source>
         <translation type="unfinished">请输入导出设置文件的名称。</translation>
     </message>
@@ -8383,15 +8595,15 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="obsolete">已将配置保存到 JSON 并启动 {tool}。</translation>
     </message>
     <message>
-        <location line="-448"/>
-        <location line="+474"/>
+        <location line="-452"/>
+        <location line="+478"/>
         <source>Failed to run {path}:
 {error}</source>
         <translation type="unfinished">无法运行 {path}：
 {error}</translation>
     </message>
     <message>
-        <location line="-4478"/>
+        <location line="-4542"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -8473,7 +8685,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">局部（Smith-Waterman）</translation>
     </message>
     <message>
-        <location line="+397"/>
+        <location line="+409"/>
         <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
@@ -8521,19 +8733,19 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+1838"/>
+        <location line="+1877"/>
         <location line="+176"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>
     </message>
     <message>
         <location line="+32"/>
-        <location line="+1416"/>
+        <location line="+1425"/>
         <source>Benchmark</source>
         <translation type="unfinished">基准测试</translation>
     </message>
     <message>
-        <location line="-1401"/>
+        <location line="-1410"/>
         <source>Internal Documentation</source>
         <translation type="unfinished">内部文档</translation>
     </message>
@@ -8543,7 +8755,7 @@ Fedora / RHEL：
         <translation type="unfinished">缺少文档</translation>
     </message>
     <message>
-        <location line="+1969"/>
+        <location line="+1982"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>
