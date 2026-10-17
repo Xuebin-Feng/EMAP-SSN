@@ -41,6 +41,13 @@ still change before version 1.0.0.
   one check, with one message for a missing, failed or non-matching embedding file.
   Viewer snapshots report the embedding's model, width and node coverage (capability
   `embedding_input_v1`), never its vectors.
+- **Session on the Viewer's info card.** The ⓘ card at the start of the threshold slider,
+  now titled "Session and controls", lists the number of nodes and edges, with how many
+  are visible and how many edges show at the current threshold, and the sequence set,
+  network, alignment, embedding and layout cache the Viewer opened, each with an Open
+  Folder button. The values follow the threshold and commands while the card is open.
+  Below the mouse and keyboard controls, a link opens the list of commands in the
+  Viewer's language, or in English if that language has no translated copy.
 
 ### Changed
 
@@ -67,6 +74,9 @@ still change before version 1.0.0.
   sequences that differ, a different embedding model or an unreadable file. A long
   report is no longer cut off at the bottom of its panel, and a long header no longer
   widens the window.
+- The Viewer's info card stays open while you click, drag or scroll on the network, and
+  those actions work as usual. Only its × or the ⓘ button closes it. Before, any click
+  closed the card, and that click did nothing else.
 
 ### Fixed
 
