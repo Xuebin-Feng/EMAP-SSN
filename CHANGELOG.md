@@ -74,6 +74,12 @@ still change before version 1.0.0.
   sequences that differ, a different embedding model or an unreadable file. A long
   report is no longer cut off at the bottom of its panel, and a long header no longer
   widens the window.
+- The Quick Start manual (`docs/quickstart.html`) has the look of the windows and the
+  Viewer's web pages: their colours in light and dark, Noto Sans, cards, tabs, buttons and
+  Lucide icons in place of emoji. A top bar switches between the Quick Start and the
+  Command Reference, and the sidebar folds into a drawer on a phone. The style lives in
+  `docs/assets/docs.css` and `docs.js`, which keep the theme choice for both pages; a test
+  fails if the colours there drift from the windows' theme. Text and anchors are unchanged.
 - The Viewer's info card stays open while you click, drag or scroll on the network, and
   those actions work as usual. Only its × or the ⓘ button closes it. Before, any click
   closed the card, and that click did nothing else.
