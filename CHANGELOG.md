@@ -4,6 +4,15 @@ All notable changes to EMAP-SSN are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/); interfaces and persisted formats may
 still change before version 1.0.0.
 
+## [Unreleased]
+
+### Fixed
+
+- A long dropdown list in Config, Tools or VR Config scrolled by itself while the mouse
+  rested on its partly visible last row, and a click after a drag to that row picked a
+  row further down than the one pointed at. An open list now scrolls only with the mouse
+  wheel, the scroll bar or the keyboard, and a click selects the row under the pointer.
+
 ## [0.4.0] - 2026-10-16
 
 ### Highlights
@@ -2053,6 +2062,7 @@ still change before version 1.0.0.
 - Distributed as GitHub-generated source archives. Native executables and model
   weights are not included.
 
+[Unreleased]: https://github.com/Xuebin-Feng/EMAP-SSN/compare/v0.4.0...HEAD
 [0.4.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.2.0
