@@ -68,6 +68,10 @@ still change before version 1.0.0.
   rested on its partly visible last row, and a click after a drag to that row picked a
   row further down than the one pointed at. An open list now scrolls only with the mouse
   wheel, the scroll bar or the keyboard, and a click selects the row under the pointer.
+- VR's `meta` command created the metadata folder at every use, even for `help`, `show`
+  or `delete`, so a VR session left on the default folders, and the VR tests, left an
+  empty `Input_Files/Meta_Data` behind. Like the desktop's, it now creates the folder
+  only when it downloads metadata.
 
 ## [0.4.0] - 2026-10-16
 
