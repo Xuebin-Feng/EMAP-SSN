@@ -272,10 +272,20 @@ def _json_result(result: subprocess.CompletedProcess[str] | None) -> list[dict[s
     return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
 
 
-def _windows_cim(class_name: str, properties: Iterable[str]) -> list[dict[str, Any]]:
+def _windows_cim(
+    class_name: str, properties: Iterable[str], *, fetch_only_properties: bool = False
+) -> list[dict[str, Any]]:
+    """Query one CIM class and return the chosen properties of every instance as dicts.
+
+    `fetch_only_properties` also asks WMI for just those properties
+    (Get-CimInstance -Property). The rows are the same, but WMI skips computing
+    the rest, which for Win32_Processor (load percentage and clock speed) is most
+    of the 1.3 s the query otherwise takes.
+    """
     selected = ",".join(properties)
+    fetch = f" -Property {selected}" if fetch_only_properties else ""
     script = (
-        f"$items = @(Get-CimInstance {class_name} | Select-Object {selected}); "
+        f"$items = @(Get-CimInstance {class_name}{fetch} | Select-Object {selected}); "
         "ConvertTo-Json -InputObject $items -Compress"
     )
     return _json_result(_run(["powershell", "-NoProfile", "-Command", script], timeout=8))
@@ -286,9 +296,13 @@ def _windows_os() -> dict[str, Any]:
     return values[0] if values else {}
 
 
-def _windows_names(class_name: str) -> list[str]:
-    """Compatibility wrapper returning CIM object names."""
-    return [str(row.get("Name")) for row in _windows_cim(class_name, ("Name",)) if row.get("Name")]
+def _windows_names(class_name: str, *, fetch_only_name: bool = False) -> list[str]:
+    """Compatibility wrapper returning CIM object names, one per instance (per CPU socket)."""
+    if fetch_only_name:
+        rows = _windows_cim(class_name, ("Name",), fetch_only_properties=True)
+    else:
+        rows = _windows_cim(class_name, ("Name",))
+    return [str(row.get("Name")) for row in rows if row.get("Name")]
 
 
 def _amd_accelerator_line(line: str) -> bool:
@@ -1103,11 +1117,12 @@ def _windows_probes(system: str) -> tuple[list[str], list[str], dict[str, Any], 
 
     They are independent and each spends nearly all its time in a PowerShell
     start-up and a WMI call, so run one after another they added up to about
-    2.4 s, against the 1.3 s of the slowest alone.
+    2.4 s. The processor query asks WMI for its Name alone, which takes 0.25 s
+    where the full instance takes 1.3 s.
     """
     controller_names, processors, os_row, video_rows = _call_concurrently((
         lambda: _controller_names(system),
-        lambda: _windows_names("Win32_Processor"),
+        lambda: _windows_names("Win32_Processor", fetch_only_name=True),
         _windows_os,
         _windows_video_rows,
     ))

@@ -1764,12 +1764,14 @@ class WindowsProbeConcurrencyTests(unittest.TestCase):
         failures = failures or {}
         timeouts = list(timeouts or ())
         calls = []
+        self.scripts = {}
 
         def run(command, **kwargs):
             if command[0] != "powershell":
                 raise FileNotFoundError(command[0])  # no nvidia-smi on the fake host
             query = self._query_of(command)
             calls.append((query, kwargs.get("timeout")))
+            self.scripts[query] = command[-1]
             if query in timeouts:
                 raise subprocess.TimeoutExpired(command, kwargs.get("timeout"))
             if query in failures:
@@ -1802,7 +1804,7 @@ class WindowsProbeConcurrencyTests(unittest.TestCase):
         names = {"controllers": ["NVIDIA GeForce RTX 4070"], "processors": ["cpu"], "os": {"BuildNumber": "26300"}, "rows": []}
 
         def meet(value):
-            def probe(*_args):
+            def probe(*_args, **_kwargs):
                 barrier.wait()
                 return value
             return probe
@@ -1822,6 +1824,11 @@ class WindowsProbeConcurrencyTests(unittest.TestCase):
         ]))
         self.assertEqual(report["processors"], ["13th Gen Intel(R) Core(TM) i5-13600K"])
         self.assertEqual(report["windows_build"], 26300)
+        # Only the processor query asks WMI for its Name alone.
+        self.assertEqual(
+            {query for query, script in self.scripts.items() if "-Property" in script},
+            {"Win32_Processor"},
+        )
         self.assertEqual(
             [device["name"] for device in report["devices"]],
             ["NVIDIA GeForce RTX 4070", "Intel(R) UHD Graphics 770"],
@@ -1854,6 +1861,95 @@ class WindowsProbeConcurrencyTests(unittest.TestCase):
                     Install_Dependencies.hardware_fingerprint(concurrent),
                     Install_Dependencies.hardware_fingerprint(sequential),
                 )
+
+    def test_the_processor_query_asks_wmi_for_the_name_alone(self):
+        # Win32_Processor spends 1.3 s computing load and clock speed that nobody
+        # reads; -Property Name takes 0.25 s and returns the same Name rows.
+        with mock.patch.object(Detect_GPU, "_run", return_value=completed(
+            json.dumps(self.ROWS["Win32_Processor"])
+        )) as run:
+            names = Detect_GPU._windows_names("Win32_Processor", fetch_only_name=True)
+        run.assert_called_once_with(
+            [
+                "powershell",
+                "-NoProfile",
+                "-Command",
+                "$items = @(Get-CimInstance Win32_Processor -Property Name | Select-Object Name); "
+                "ConvertTo-Json -InputObject $items -Compress",
+            ],
+            timeout=8,
+        )
+        self.assertEqual(names, ["13th Gen Intel(R) Core(TM) i5-13600K"])
+
+    def test_the_other_queries_are_sent_exactly_as_before(self):
+        sent = {}
+
+        def fake_run(command, timeout=5):
+            sent[len(sent)] = (command[-1], timeout)
+            return completed("[]")
+
+        with mock.patch.object(Detect_GPU, "_run", side_effect=fake_run):
+            Detect_GPU._windows_names("Win32_VideoController")
+            Detect_GPU._windows_os()
+            Detect_GPU._windows_video_rows()
+        self.assertEqual(list(sent.values()), [
+            (
+                "$items = @(Get-CimInstance Win32_VideoController | Select-Object Name); "
+                "ConvertTo-Json -InputObject $items -Compress",
+                8,
+            ),
+            (
+                "$items = @(Get-CimInstance Win32_OperatingSystem | Select-Object Caption,Version,BuildNumber); "
+                "ConvertTo-Json -InputObject $items -Compress",
+                8,
+            ),
+            (
+                "$items = @(Get-CimInstance Win32_VideoController | Select-Object "
+                "Name,PNPDeviceID,DriverVersion,AdapterCompatibility,VideoProcessor,AdapterRAM); "
+                "ConvertTo-Json -InputObject $items -Compress",
+                8,
+            ),
+        ])
+
+    def test_every_cpu_socket_is_returned_by_the_name_only_query(self):
+        # A multi-socket machine gives several rows (PowerShell emits a JSON array)
+        # and one row may have no name; every named CPU comes back, in order.
+        sockets = [
+            {"Name": "Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz"},
+            {"Name": "Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz"},
+            {"Name": None},
+            {"Name": "AMD EPYC 9654 96-Core Processor"},
+        ]
+        for label, output in (
+            ("an array", json.dumps(sockets)),
+            ("an array with a byte-order mark", "\ufeff" + json.dumps(sockets) + "\r\n"),
+        ):
+            with self.subTest(output=label), mock.patch.object(
+                Detect_GPU, "_run", return_value=completed(output)
+            ):
+                self.assertEqual(
+                    Detect_GPU._windows_names("Win32_Processor", fetch_only_name=True),
+                    [
+                        "Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz",
+                        "Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz",
+                        "AMD EPYC 9654 96-Core Processor",
+                    ],
+                )
+        with mock.patch.object(Detect_GPU, "_run", return_value=completed(json.dumps(sockets[0]))):
+            self.assertEqual(
+                Detect_GPU._windows_names("Win32_Processor", fetch_only_name=True),
+                ["Intel(R) Xeon(R) Gold 6338 CPU @ 2.00GHz"],
+            )
+        # A failed or timed-out query still gives no names, as before.
+        for result in (None, completed("", returncode=1), completed("not json")):
+            with self.subTest(result=result), mock.patch.object(Detect_GPU, "_run", return_value=result):
+                self.assertEqual(Detect_GPU._windows_names("Win32_Processor", fetch_only_name=True), [])
+
+    def test_a_two_socket_machine_reports_both_processors(self):
+        sockets = [{"Name": "Intel(R) Xeon(R) Gold 6338"}, {"Name": "Intel(R) Xeon(R) Gold 6338"}]
+        with mock.patch.dict(self.ROWS, {"Win32_Processor": sockets}):
+            report = self._detect(self._fake_subprocess()[0])
+        self.assertEqual(report["processors"], ["Intel(R) Xeon(R) Gold 6338", "Intel(R) Xeon(R) Gold 6338"])
 
     def test_a_timed_out_query_degrades_as_it_always_did(self):
         report = self._detect(self._fake_subprocess(timeouts=["controllers"])[0])
