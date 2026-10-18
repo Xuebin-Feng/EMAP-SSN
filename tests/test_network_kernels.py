@@ -265,6 +265,14 @@ class AlignmentScoreKernelTests(unittest.TestCase):
             global_local_scores,
         )
         self.assertIs(
+            similarity_matrix.global_local_pair_scores,
+            network_kernels.global_local_pair_scores,
+        )
+        self.assertIs(
+            network_injection.global_local_pair_scores,
+            network_kernels.global_local_pair_scores,
+        )
+        self.assertIs(
             embedding_ssearch.search_batch_scores,
             network_kernels.search_batch_scores,
         )

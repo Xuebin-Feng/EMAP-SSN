@@ -109,7 +109,12 @@ from Embedding_Alignment_Engine import (
     run_tiled_cuda_pipeline,
     tiled_accelerator_support,
 )
-from utilities.Network_Kernels import align_microbatch, global_local_scores
+# global_local_scores is the reference kernel the per-pair path is checked against.
+from utilities.Network_Kernels import (
+    align_microbatch,
+    global_local_pair_scores,
+    global_local_scores,
+)
 from utilities.HDF5_Storage import read_embedding_manifest
 
 # ==========================================
@@ -444,7 +449,7 @@ def calculate_alignment_data(args):
     """
     idx_i, idx_j, matrix = args
 
-    g_raw, g_len, l_raw, l_len = global_local_scores(
+    g_raw, g_len, l_raw, l_len = global_local_pair_scores(
         matrix,
         GLOBAL_GAP_P,
         LOCAL_GAP_P,

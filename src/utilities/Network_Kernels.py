@@ -696,6 +696,32 @@ def alignment_batch_scores(
     return global_scores, global_lengths, local_scores, local_lengths
 
 
+def global_local_pair_scores(matrix, global_gap_penalty, local_gap_penalty):
+    """
+    ``global_local_scores`` for one score matrix, through the batched dispatcher.
+
+    Returns ``(global_score, global_length, local_score, local_length)`` as the
+    same Python numbers, bit for bit. Gaps for which float32 is exact (see
+    ``float32_exact_local_bound``) run the faster float32 kernel, with the
+    reference kernel for a pair whose local score reaches the bound; every
+    other gap, and any matrix that is not float32, runs the reference kernel.
+    """
+    if matrix.dtype != np.float32:
+        return global_local_scores(matrix, global_gap_penalty, local_gap_penalty)
+    global_scores, global_lengths, local_scores, local_lengths = alignment_batch_scores(
+        matrix[np.newaxis],
+        [matrix.shape[1]],
+        global_gap_penalty,
+        local_gap_penalty,
+    )
+    return (
+        global_scores.tolist()[0],
+        global_lengths.tolist()[0],
+        local_scores.tolist()[0],
+        local_lengths.tolist()[0],
+    )
+
+
 def align_microbatch(
     matrices,
     row_index,
@@ -1717,6 +1743,7 @@ __all__ = [
     "global_local_scores_batch",
     "float32_exact_local_bound",
     "alignment_batch_scores",
+    "global_local_pair_scores",
     "align_microbatch",
     "float32_exact_global_gap",
     "search_batch_scores",

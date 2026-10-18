@@ -82,7 +82,12 @@ from multiprocessing import Pool, set_start_method
 from tqdm import tqdm
 from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
-from utilities.Network_Kernels import align_microbatch, global_local_scores
+# global_local_scores is the reference kernel the per-pair path is checked against.
+from utilities.Network_Kernels import (
+    align_microbatch,
+    global_local_pair_scores,
+    global_local_scores,
+)
 from Embedding_Alignment_Engine import (
     BenchmarkTrial,
     BENCHMARK_TRIAL_SECONDS,
@@ -323,7 +328,7 @@ def init_worker(h5_path, gap_penalties):
 # ==========================================
 def calculate_alignment_data(args):
     idx_i, idx_j, matrix = args
-    g_raw, g_len, l_raw, l_len = global_local_scores(
+    g_raw, g_len, l_raw, l_len = global_local_pair_scores(
         matrix,
         GLOBAL_GAP_P,
         LOCAL_GAP_P,

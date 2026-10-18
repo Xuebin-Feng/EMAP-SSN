@@ -422,6 +422,75 @@ class SearchKernelTests(unittest.TestCase):
             kernels.search_batch_scores("semi", matrices, [2], 0.0, codes, codes[np.newaxis])
 
 
+class GlobalLocalPairScoresTests(unittest.TestCase):
+    """The per-pair path (scalar accelerator and CPU pool) gives the reference kernel's numbers exactly."""
+
+    def matrices(self):
+        for batch, lengths in padded_batches(23, 15):
+            for pair, columns in enumerate(lengths):
+                yield np.ascontiguousarray(batch[pair, :, :columns])
+        rng = np.random.default_rng(31)
+        for _ in range(6):  # dense and positive-leaning, like real alignments
+            rows, columns = int(rng.integers(2, 60)), int(rng.integers(2, 60))
+            yield (rng.random((rows, columns)) * 3.0).astype(np.float32)
+
+    def assert_same(self, matrix, global_gap, local_gap):
+        want = kernels.global_local_scores(matrix, global_gap, local_gap)
+        got = kernels.global_local_pair_scores(matrix, global_gap, local_gap)
+        self.assertEqual(got, want, (global_gap, local_gap))
+        self.assertEqual([type(value) for value in got], [type(value) for value in want])
+
+    def test_every_gap_gives_the_reference_numbers_and_python_types(self):
+        for global_gap, local_gap in EXACT_GAPS + REFERENCE_GAPS:
+            with self.subTest(gaps=(global_gap, local_gap)):
+                for matrix in self.matrices():
+                    self.assert_same(matrix, global_gap, local_gap)
+
+    def test_float32_kernels_run_only_for_exact_gaps(self):
+        matrix = next(iter(self.matrices()))
+        with mock.patch.object(
+            kernels, "_float32_global_local_scores_batch",
+            wraps=kernels._float32_global_local_scores_batch,
+        ) as fast, mock.patch.object(
+            kernels, "global_local_scores_batch",
+            side_effect=AssertionError("the reference batch kernel ran"),
+        ):
+            kernels.global_local_pair_scores(matrix, 0.0, -2.0)
+        self.assertEqual(fast.call_count, 1)
+        with mock.patch.object(
+            kernels, "_float32_global_local_scores_batch",
+            side_effect=AssertionError("the float32 kernel ran"),
+        ):
+            for gaps in ((-1.0, -2.0), (0.0, -0.7), (-0.5, -0.5)):
+                self.assert_same(matrix, *gaps)
+
+    def test_a_matrix_that_is_not_float32_runs_the_reference_kernel(self):
+        matrix = next(iter(self.matrices())).astype(np.float64)
+        with mock.patch.object(
+            kernels, "alignment_batch_scores", side_effect=AssertionError("the batch dispatcher ran")
+        ):
+            got = kernels.global_local_pair_scores(matrix, 0.0, -2.0)
+        self.assertEqual(got, kernels.global_local_scores(matrix, 0.0, -2.0))
+
+    def test_a_matrix_that_is_a_view_of_a_padded_batch_is_scored_like_its_copy(self):
+        batch = padded_batches(5, 1)[0][0]
+        view = batch[0, :, : max(1, batch.shape[2] - 1)]
+        self.assertEqual(
+            kernels.global_local_pair_scores(view, 0.0, -2.0),
+            kernels.global_local_scores(np.ascontiguousarray(view), 0.0, -2.0),
+        )
+
+    def test_a_score_past_the_float32_bound_is_run_again_with_the_reference(self):
+        rng = np.random.default_rng(204)
+        rows, columns = int(rng.integers(3, 12)), int(rng.integers(3, 12))
+        matrix = (
+            np.round(rng.random((rows, columns)) * 3) * 1.6e7 / 3 + rng.integers(0, 9, size=(rows, columns))
+        ).astype(np.float32)
+        self.assert_same(matrix, 0.0, -2.0)
+        small = (rng.standard_normal((rows, columns)) * 2).astype(np.float32)
+        self.assert_same(small, 0.0, -2.0)
+
+
 class ToolBatchCallbackTests(unittest.TestCase):
     def test_tool_batch_callbacks_match_their_per_pair_callbacks(self):
         batches = padded_batches(59, 24)
@@ -457,6 +526,35 @@ class ToolBatchCallbackTests(unittest.TestCase):
                                     np.float64(got[index]).tobytes(),
                                     np.float64(want[index]).tobytes(),
                                 )
+
+    def test_per_pair_callbacks_give_the_reference_kernels_numbers(self):
+        # The scalar accelerator and the CPU pool call calculate_alignment_data once per pair.
+        rng = np.random.default_rng(3)
+        matrices = [
+            (rng.integers(-3, 4, size=(9, 14)) * 0.5).astype(np.float32),
+            (rng.random((20, 17)) * 3.0).astype(np.float32),
+            (rng.standard_normal((6, 30)) * 1e-3).astype(np.float32),
+        ]
+        for tool in (similarity_matrix, network_injection):
+            for global_gap, local_gap in ((0.0, -2.0), (0.0, 0.0), (0.0, -4.0), (-1.0, -0.7), (-0.3, -2.0)):
+                with self.subTest(tool=tool.__name__, gaps=(global_gap, local_gap)),                         mock.patch.object(tool, "GLOBAL_GAP_P", global_gap),                         mock.patch.object(tool, "LOCAL_GAP_P", local_gap):
+                    for matrix in matrices:
+                        g_raw, g_len, l_raw, l_len = kernels.global_local_scores(matrix, global_gap, local_gap)
+                        got = tool.calculate_alignment_data((4, 9, matrix))
+                        self.assertEqual(got, (4, 9, l_raw, l_len, g_raw, g_len))
+                        self.assertEqual(
+                            [type(value) for value in got], [type(value) for value in (4, 9, l_raw, l_len, g_raw, g_len)]
+                        )
+
+    def test_per_pair_callbacks_use_the_float32_kernel_where_it_is_exact(self):
+        matrix = (np.random.default_rng(8).random((12, 15)) * 3.0).astype(np.float32)
+        for tool in (similarity_matrix, network_injection):
+            with self.subTest(tool=tool.__name__),                     mock.patch.object(tool, "GLOBAL_GAP_P", 0.0), mock.patch.object(tool, "LOCAL_GAP_P", -2.0),                     mock.patch.object(
+                        kernels, "_float32_global_local_scores_batch",
+                        wraps=kernels._float32_global_local_scores_batch,
+                    ) as fast:
+                tool.calculate_alignment_data((0, 1, matrix))
+            self.assertEqual(fast.call_count, 1)
 
 
 if __name__ == "__main__":
