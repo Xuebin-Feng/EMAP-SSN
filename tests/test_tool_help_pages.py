@@ -368,6 +368,88 @@ class HelpHeadingIconTests(unittest.TestCase):
                 self.assertEqual(shown.count('class="heading-icon"'), len(major), major)
 
 
+    def test_a_fenced_block_under_a_list_item_is_a_code_block(self):
+        # As GitHub shows it; the converter alone made one inline code span of it, "text >A MN".
+        for label, page in (
+            ("tight", "*   **Structure**:\n    ```text\n    >A <b>x</b> $a$ $b$\n      MN\n    ```\n*   Next\n"),
+            ("loose", "*   **Structure**:\n\n    ```text\n    >A <b>x</b> $a$ $b$\n      MN\n    ```\n\n*   Next\n"),
+            ("crlf", "*   **Structure**:\r\n    ```text\r\n    >A <b>x</b> $a$ $b$\r\n      MN\r\n    ```\r\n*   Next\r\n"),
+        ):
+            with self.subTest(page=label):
+                html = self.tools.render_markdown_with_math(page)
+                self.assertIn(
+                    '<pre><code class="language-text">&gt;A &lt;b&gt;x&lt;/b&gt; $a$ $b$\n  MN\n</code></pre>', html)
+                self.assertNotIn("```", html)
+                self.assertNotIn("FENCE", html)
+                self.assertNotIn("<p><pre", html)
+                self.assertNotIn("<code>text", html)
+                self.assertRegex(html, r"<strong>Structure</strong>:\s*(</p>\s*)?<pre>")
+                self.assertRegex(html, r"</pre>\s*(</li>\s*<li>(<p>)?Next|</li>\s*<li>\s*<p>Next)")
+
+    def test_a_fence_at_the_margin_is_left_to_the_converter_and_so_is_what_it_holds(self):
+        stash = Help_Pages.stash_indented_fences
+        margin = "Text\n\n```text\n  ```not a fence\n    ```\n```\n\nafter\n"
+        self.assertEqual(stash(margin), (margin, []))
+        # Nor is a line inside it that only looks like the end of one (the converter ends it at the margin).
+        inside = "```text\n  ```\n- x\n  ```py\n  y\n  ```\n```\n"
+        self.assertEqual(stash(inside), (inside, []))
+        # Indented under a list item: set aside, unindented, with its info string, whatever its fence.
+        text, blocks = stash("- a\n\t~~~~ py\n\tx\n\t  y\n\t~~~~~\n- b\n  ```\n  z\n  ```\n")
+        self.assertEqual(blocks, ["~~~~ py\nx\n  y\n~~~~", "```\nz\n```"])
+        self.assertEqual(text, "- a\n\t<!--FENCE_0-->\n- b\n  <!--FENCE_1-->\n")
+        # One never closed, or "```code``` after" opening a line, is plain text.
+        for plain in ("- a\n  ```text\n  never closed\n", "- a\n  ```code``` after\n  text\n  ```\n"):
+            self.assertEqual(stash(plain), (plain, []))
+        # A page read with Windows line ends comes out the same.
+        self.assertEqual(stash("- a\r\n  ```py\r\n  x\r\n  ```\r\n"), ("- a\n  <!--FENCE_0-->\n", ["```py\nx\n```"]))
+        # An indented block closes on a fence as long as its own, within three columns of it.
+        text, blocks = stash("- a\n  ````\n  x\n  ```\n          ````\n  y\n  ````\n")
+        self.assertEqual(blocks, ["````\nx\n```\n        ````\ny\n````"])
+        self.assertEqual(text, "- a\n  <!--FENCE_0-->\n")
+
+    def test_a_fence_four_columns_in_is_a_code_block_unless_a_list_item_holds_it(self):
+        stash = Help_Pages.stash_indented_fences
+        # Outside a list, four columns make an indented code block that shows its lines as they are.
+        code = "Text\n\n    ```text\n    x\n    ```\n\nafter\n"
+        self.assertEqual(stash(code), (code, []))
+        self.assertEqual(stash(code.replace("    ", "   ")), ("Text\n\n   <!--FENCE_0-->\n\nafter\n", ["```text\nx\n```"]))
+        html = self.tools.render_markdown_with_math(code)
+        self.assertIn("<pre><code>```text\nx\n```\n</code></pre>", html)
+        # In a list item, at any depth, it is the item's own block; once the list ends, it is not.
+        nested = "1. a\n    - b\n        ```\n        x\n        ```\n\nText\n\n    ```\n    y\n    ```\n"
+        text, blocks = stash(nested)
+        self.assertEqual(blocks, ["```\nx\n```"])
+        self.assertEqual(text, "1. a\n    - b\n        <!--FENCE_0-->\n\nText\n\n    ```\n    y\n    ```\n")
+        # Text at the margin ends the list, however many items there were.
+        ended = "- a\n- b\nText\n    ```\n    y\n    ```\n"
+        self.assertEqual(stash(ended), (ended, []))
+
+    def test_a_block_beside_a_paragraph_leaves_no_stray_paragraph_end(self):
+        html = self.tools.render_markdown_with_math("Text\n  ```\n  x\n  ```\nafter\n")
+        self.assertIn("<pre><code>x\n</code></pre>", html)
+        self.assertNotIn("</pre></p>", html)
+        self.assertNotIn("FENCE", html)
+
+    def test_every_fenced_block_of_every_page_is_a_code_block_in_every_language(self):
+        checked = 0
+        for label, text in shipped_help_pages():
+            html = self.tools.render_markdown_with_math(text)
+            with self.subTest(page=label):
+                self.assertNotIn("```", html)
+                self.assertNotIn("FENCE", html)
+                self.assertNotIn("<code>text", html)
+                self.assertEqual(html.count("<pre>"), text.count("```") // 2)
+                checked += html.count("<pre>")
+        self.assertGreaterEqual(checked, 3)
+
+    def test_the_sanitize_pages_fasta_structure_is_its_own_block(self):
+        page = (Help_Pages.HELP_PAGES_DIR / "Sequence_and_Embedding_Preparation.md").read_text(encoding="utf-8")
+        for text in (page, Help_Pages.help_page_text(Help_Pages.HELP_PAGES_DIR / "Sequence_and_Embedding_Preparation.md", "zh_CN")):
+            html = self.tools.render_markdown_with_math(text)
+            self.assertIn(
+                '<pre><code class="language-text">&gt;Sequence_Header_1 [Optional Description]\n'
+                "MNSGVSRRQ...\n&gt;Sequence_Header_2\nMKVLLVSDA...\n</code></pre>", html)
+
     def test_a_help_page_wraps_to_the_pane_and_a_wide_table_scrolls_on_its_own(self):
         html = self.tools.render_markdown_with_math(
             "Text.\n\n| Parameter | Description |\n|---|---|\n| `INPUT_FASTA` | A long description |\n"
@@ -676,6 +758,21 @@ class HelpPanelPageTests(unittest.TestCase):
                 self.assertIn(f"color: {TOKENS['accent']};", summary)
                 icon = re.search(r"\.heading-icon \{(.*?)\}", shown, re.S).group(1)
                 self.assertIn(f"color: {TOKENS['text_subtle']};", icon)
+
+    def test_code_chips_are_rounded_as_much_as_their_text_is_large(self):
+        import EMAPSSN_Tools
+
+        shown = EMAPSSN_Tools.ResponsiveTextBrowser.page_html("<h1><code>Sanitize_Sequences.py</code></h1>", None)
+        chip = re.search(r"^\s*code \{(.*?)\}", shown, re.S | re.M).group(1)
+        # The corners and the sides both follow the chip's own font size (em), so the
+        # title's big chip and a table cell's small one are both clearly rounded;
+        # the corners never go below 6 px.
+        self.assertIn("border-radius: max(6px, 0.6em);", chip)
+        self.assertIn("padding: 2px 0.4em;", chip)
+        # A block's code is not a chip: its box is the block's, with no padding of its own.
+        block = re.search(r"^\s*pre code \{(.*?)\}", shown, re.S | re.M).group(1)
+        self.assertIn("padding: 0;", block)
+        self.assertIn("background-color: transparent;", block)
 
     def test_the_panel_shows_its_page_in_the_windows_language(self):
         import EMAPSSN_Tools

@@ -880,8 +880,8 @@ class ResponsiveTextBrowser(QWebEngineView):
             font-family: __MONOSPACE_FONT_STACK__;
             font-size: 85%;
             background-color: __SURFACE_MUTED__;
-            padding: 2px 4px;
-            border-radius: 4px;
+            padding: 2px 0.4em;
+            border-radius: max(6px, 0.6em);
             color: __TEXT__;
             overflow-wrap: anywhere;
         }
@@ -1337,6 +1337,8 @@ def bind_custom_blast_column_controls(inputs, row_widgets):
     sync_custom_blast_columns()
 
 def render_markdown_with_math(text):
+    # The parser misses a fenced block indented under a list item: set it aside, and put it back below (Help_Pages)
+    text, fenced_blocks = Help_Pages.stash_indented_fences(text)
     # Temporarily hide display math ($$ ... $$) and inline math ($ ... $) from the markdown parser
     block_math = []
     inline_math = []
@@ -1370,6 +1372,11 @@ def render_markdown_with_math(text):
     # Restore display math
     for i, math_str in enumerate(block_math):
         html = html.replace(f"<!--BLOCK_MATH_{i}-->", math_str)
+
+    # Each set-aside block is a code block again, taking the place of its marker and of a paragraph end the marker may have left
+    for i, block in enumerate(fenced_blocks):
+        code = markdown.markdown(block, extensions=['fenced_code'])
+        html = re.sub(rf"(?:<p>)?<!--FENCE_{i}-->(?:</p>)?", lambda _match: code, html)
 
     return html
 

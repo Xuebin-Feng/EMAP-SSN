@@ -210,3 +210,100 @@ def parameter_table_css(tokens):
             .parameters td:first-child {{ background-color: {tokens['window']}; color: {tokens['text']}; }}
         }}
         """
+
+
+# A fenced code block indented under a list item, as GitHub shows it:
+#
+#     *   **Structure**:
+#         ```text
+#         >Header
+#         ```
+#
+# Python-Markdown's fenced_code only sees a fence at the start of a line, so it
+# takes this one for an inline code span ("text >Header ..." on one line).
+# stash_indented_fences takes such blocks out of the page before it is
+# converted, and the caller puts each back as the block it is. The pages stay
+# plain Markdown, which GitHub and the MCP agents read as it is.
+_FENCE_OPEN = re.compile(r"^(?P<indent>[ \t]*)(?P<fence>`{3,}|~{3,})(?P<info>.*)$")
+_LIST_ITEM = re.compile(r"^[ \t]*(?:[*+-]|\d+[.)])[ \t]+\S")
+# Four columns of indentation make a code block of a line that no list item holds.
+CODE_BLOCK_INDENT = 4
+
+
+def _fence_opening(line):
+    """The match of a line that opens a fenced block (its indent, fence and info string), or None."""
+    opening = _FENCE_OPEN.match(line)
+    if opening is None or (opening["fence"][0] == "`" and "`" in opening["info"]):
+        return None
+    return opening
+
+
+def _closes_fence(line, opening):
+    """Whether line closes the fenced block that opening (a _fence_opening match) opens.
+
+    A block at the start of a line is closed as the converter closes it, by
+    the same fence at the start of a line. An indented block, by a line of
+    only a fence of its character at least as long, indented no more than
+    three characters beyond its own fence.
+    """
+    fence, indent = opening["fence"], opening["indent"]
+    if not indent:
+        return line.rstrip(" ") == fence
+    stripped = line.strip()
+    margin = len(line) - len(line.lstrip(" \t"))
+    return margin <= len(indent) + 3 and stripped.startswith(fence) and not stripped.strip(fence[0])
+
+
+def _unindent(line, width):
+    cut = 0
+    while cut < width and cut < len(line) and line[cut] in " \t":
+        cut += 1
+    return line[cut:]
+
+
+def _columns(line):
+    """How far in, tabs as four columns, a line's text starts."""
+    expanded = line.expandtabs(CODE_BLOCK_INDENT)
+    return len(expanded) - len(expanded.lstrip())
+
+
+def stash_indented_fences(text, marker="<!--FENCE_{}-->"):
+    """(text with each indented fenced block replaced by marker, the blocks), each block fenced at column 0.
+
+    The marker's {} is the block's number in the list. A fence at the start
+    of a line is left to the converter, as is everything inside one; so is
+    an indented fence that is never closed, and a fence of four columns or
+    more that no list item holds, which is a code block showing its lines.
+    """
+    lines = text.replace("\r\n", "\n").split("\n")
+    kept, blocks = [], []
+    items = []  # the columns of the list items the line being read is inside
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        if line.strip():
+            columns = _columns(line)
+            while items and items[-1] >= columns:
+                items.pop()
+            if _LIST_ITEM.match(line):
+                items.append(columns)
+        opening = _fence_opening(line)
+        closing = None
+        if opening is not None and (items or _columns(line) < CODE_BLOCK_INDENT):
+            closing = next(
+                (end for end in range(index + 1, len(lines)) if _closes_fence(lines[end], opening)),
+                None,
+            )
+        if closing is None:
+            kept.append(line)
+            index += 1
+        elif not opening["indent"]:
+            kept.extend(lines[index:closing + 1])
+            index = closing + 1
+        else:
+            width = len(opening["indent"])
+            body = [_unindent(body_line, width) for body_line in lines[index + 1:closing]]
+            blocks.append("\n".join([opening["fence"] + opening["info"].rstrip(), *body, opening["fence"]]))
+            kept.append(opening["indent"] + marker.format(len(blocks) - 1))
+            index = closing + 1
+    return "\n".join(kept), blocks
