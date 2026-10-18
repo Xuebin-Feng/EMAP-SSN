@@ -737,6 +737,412 @@ def align_microbatch(
 
 
 # ---------------------------------------------------------------------------
+# Database-search kernels: score, path length and identities
+# ---------------------------------------------------------------------------
+
+# Without 'nsz', LLVM may not exchange +0.0 and -0.0 when it turns the
+# strict-greater selections into max instructions.
+@njit(nogil=True, fastmath={"nnan", "ninf"}, cache=True)
+def _float32_global_length_identity(
+    score_matrix,
+    gap,
+    query_codes,
+    target_codes,
+    previous_scores,
+    current_scores,
+    previous_lengths,
+    current_lengths,
+    previous_identities,
+    current_identities,
+):
+    """
+    Float32 ``global_score_length_identity`` for a zero global gap.
+
+    Each cell evaluates the same candidates in the same order with the same
+    strict ``>`` ties, so the path, its length and its identities are those of
+    the reference kernel. Neighbours stay in registers and the selections are
+    branch-free, which removes the float32/float64 conversion chain that
+    limits the reference kernel (about 3 times faster on real embeddings).
+    """
+    num_rows, num_cols = score_matrix.shape
+    for col in range(num_cols + 1):
+        previous_scores[col] = np.float32(col) * gap
+        previous_lengths[col] = col
+        previous_identities[col] = 0
+
+    for row in range(1, num_rows + 1):
+        left_score = np.float32(row) * gap
+        left_length = np.int64(row)
+        left_identities = np.int64(0)
+        current_scores[0] = left_score
+        current_lengths[0] = row
+        current_identities[0] = 0
+        diagonal_score = previous_scores[0]
+        diagonal_length = np.int64(previous_lengths[0])
+        diagonal_identities = np.int64(previous_identities[0])
+        query_code = query_codes[row - 1]
+
+        for col in range(1, num_cols + 1):
+            cell = score_matrix[row - 1, col - 1]
+            up_score = previous_scores[col]
+            up_length = np.int64(previous_lengths[col])
+            up_identities = np.int64(previous_identities[col])
+
+            best_score = diagonal_score + cell
+            best_length = diagonal_length + 1
+            best_identities = diagonal_identities + np.int64(
+                query_code == target_codes[col - 1]
+            )
+            delete = up_score + gap
+            insert = left_score + gap
+            take = delete > best_score
+            best_score = delete if take else best_score
+            best_length = up_length + 1 if take else best_length
+            best_identities = up_identities if take else best_identities
+            take = insert > best_score
+            best_score = insert if take else best_score
+            best_length = left_length + 1 if take else best_length
+            best_identities = left_identities if take else best_identities
+
+            current_scores[col] = best_score
+            current_lengths[col] = best_length
+            current_identities[col] = best_identities
+
+            diagonal_score = up_score
+            diagonal_length = up_length
+            diagonal_identities = up_identities
+            left_score = best_score
+            left_length = best_length
+            left_identities = best_identities
+
+        previous_scores, current_scores = current_scores, previous_scores
+        previous_lengths, current_lengths = current_lengths, previous_lengths
+        previous_identities, current_identities = (
+            current_identities,
+            previous_identities,
+        )
+
+    return (
+        previous_scores[num_cols],
+        previous_lengths[num_cols],
+        previous_identities[num_cols],
+    )
+
+
+@njit(nogil=True, cache=True)
+def _float32_global_length_identity_batch(
+    matrices,
+    column_lengths,
+    gap,
+    query_codes,
+    target_codes,
+    scores,
+    lengths,
+    identities,
+):
+    batch = matrices.shape[0]
+    max_columns = matrices.shape[2]
+    previous_scores = np.empty(max_columns + 1, dtype=np.float32)
+    current_scores = np.empty(max_columns + 1, dtype=np.float32)
+    previous_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    current_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    previous_identities = np.empty(max_columns + 1, dtype=np.uint32)
+    current_identities = np.empty(max_columns + 1, dtype=np.uint32)
+    for index in range(batch):
+        columns = column_lengths[index]
+        score, length, identity = _float32_global_length_identity(
+            matrices[index, :, :columns],
+            gap,
+            query_codes,
+            target_codes[index, :columns],
+            previous_scores,
+            current_scores,
+            previous_lengths,
+            current_lengths,
+            previous_identities,
+            current_identities,
+        )
+        scores[index] = score
+        lengths[index] = length
+        identities[index] = identity
+
+
+@njit(nogil=True, fastmath={"nnan", "ninf"}, cache=True)
+def _float32_local_length_identity(
+    score_matrix,
+    gap,
+    score_shift,
+    query_codes,
+    target_codes,
+    previous_scores,
+    current_scores,
+    previous_lengths,
+    current_lengths,
+    previous_identities,
+    current_identities,
+):
+    """
+    Float32 ``local_score_length_identity`` for gaps accepted by
+    ``float32_exact_local_bound``, below that bound.
+
+    Each cell evaluates the same candidates in the same order with the same
+    strict ``>`` ties as the reference kernel, so the best cell's score, path
+    length and identities are the reference's.
+    """
+    num_rows, num_cols = score_matrix.shape
+    zero = np.float32(0.0)
+    for col in range(num_cols + 1):
+        previous_scores[col] = zero
+        previous_lengths[col] = 0
+        previous_identities[col] = 0
+
+    max_score = zero
+    max_length = np.int64(0)
+    max_identities = np.int64(0)
+    for row in range(1, num_rows + 1):
+        left_score = zero
+        left_length = np.int64(0)
+        left_identities = np.int64(0)
+        current_scores[0] = zero
+        current_lengths[0] = 0
+        current_identities[0] = 0
+        diagonal_score = previous_scores[0]
+        diagonal_length = np.int64(previous_lengths[0])
+        diagonal_identities = np.int64(previous_identities[0])
+        query_code = query_codes[row - 1]
+
+        for col in range(1, num_cols + 1):
+            cell = score_matrix[row - 1, col - 1]
+            up_score = previous_scores[col]
+            up_length = np.int64(previous_lengths[col])
+            up_identities = np.int64(previous_identities[col])
+
+            match = diagonal_score + (cell - score_shift)
+            delete = up_score + gap
+            insert = left_score + gap
+            take = match > zero
+            best_score = match if take else zero
+            best_length = diagonal_length + 1 if take else np.int64(0)
+            best_identities = (
+                diagonal_identities + np.int64(query_code == target_codes[col - 1])
+                if take else np.int64(0)
+            )
+            take = delete > best_score
+            best_score = delete if take else best_score
+            best_length = up_length + 1 if take else best_length
+            best_identities = up_identities if take else best_identities
+            take = insert > best_score
+            best_score = insert if take else best_score
+            best_length = left_length + 1 if take else best_length
+            best_identities = left_identities if take else best_identities
+
+            current_scores[col] = best_score
+            current_lengths[col] = best_length
+            current_identities[col] = best_identities
+
+            take = best_score > max_score
+            max_score = best_score if take else max_score
+            max_length = best_length if take else max_length
+            max_identities = best_identities if take else max_identities
+
+            diagonal_score = up_score
+            diagonal_length = up_length
+            diagonal_identities = up_identities
+            left_score = best_score
+            left_length = best_length
+            left_identities = best_identities
+
+        previous_scores, current_scores = current_scores, previous_scores
+        previous_lengths, current_lengths = current_lengths, previous_lengths
+        previous_identities, current_identities = (
+            current_identities,
+            previous_identities,
+        )
+
+    return max_score, max_length, max_identities
+
+
+@njit(nogil=True, cache=True)
+def _float32_local_length_identity_batch(
+    matrices,
+    column_lengths,
+    gap,
+    bound,
+    reference_gap,
+    query_codes,
+    target_codes,
+    scores,
+    lengths,
+    identities,
+):
+    batch = matrices.shape[0]
+    max_columns = matrices.shape[2]
+    previous_scores = np.empty(max_columns + 1, dtype=np.float32)
+    current_scores = np.empty(max_columns + 1, dtype=np.float32)
+    previous_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    current_lengths = np.empty(max_columns + 1, dtype=np.uint32)
+    previous_identities = np.empty(max_columns + 1, dtype=np.uint32)
+    current_identities = np.empty(max_columns + 1, dtype=np.uint32)
+    score_shift = np.float32(2.0)
+    for index in range(batch):
+        columns = column_lengths[index]
+        matrix = matrices[index, :, :columns]
+        codes = target_codes[index, :columns]
+        score, length, identity = _float32_local_length_identity(
+            matrix,
+            gap,
+            score_shift,
+            query_codes,
+            codes,
+            previous_scores,
+            current_scores,
+            previous_lengths,
+            current_lengths,
+            previous_identities,
+            current_identities,
+        )
+        if score >= bound:
+            # Outside the range where float32 is proven exact.
+            reference_score, length, identity = local_score_length_identity(
+                matrix, reference_gap, query_codes, codes
+            )
+            scores[index] = reference_score
+        else:
+            scores[index] = score
+        lengths[index] = length
+        identities[index] = identity
+
+
+@njit(nogil=True, cache=True)
+def _reference_global_length_identity_batch(
+    matrices,
+    column_lengths,
+    gap,
+    query_codes,
+    target_codes,
+    scores,
+    lengths,
+    identities,
+):
+    for index in range(matrices.shape[0]):
+        columns = column_lengths[index]
+        score, length, identity = global_score_length_identity(
+            matrices[index, :, :columns],
+            gap,
+            query_codes,
+            target_codes[index, :columns],
+        )
+        scores[index] = score
+        lengths[index] = length
+        identities[index] = identity
+
+
+@njit(nogil=True, cache=True)
+def _reference_local_length_identity_batch(
+    matrices,
+    column_lengths,
+    gap,
+    query_codes,
+    target_codes,
+    scores,
+    lengths,
+    identities,
+):
+    for index in range(matrices.shape[0]):
+        columns = column_lengths[index]
+        score, length, identity = local_score_length_identity(
+            matrices[index, :, :columns],
+            gap,
+            query_codes,
+            target_codes[index, :columns],
+        )
+        scores[index] = score
+        lengths[index] = length
+        identities[index] = identity
+
+
+def float32_exact_global_gap(gap_penalty):
+    """
+    Whether float32 reproduces the reference global kernel for this gap.
+
+    The reference kernel adds a float64 gap to float32 scores. With a zero gap
+    every compared value is already a float32, so the two agree exactly; any
+    other gap rounds differently.
+    """
+    return float(gap_penalty) == 0.0
+
+
+def search_batch_scores(
+    mode,
+    matrices,
+    column_lengths,
+    gap_penalty,
+    query_codes,
+    target_codes,
+):
+    """
+    Return ``(scores, lengths, identities)`` for one padded batch of searches.
+
+    ``matrices`` is ``(batch, rows, padded_columns)``; target ``b`` uses its
+    first ``column_lengths[b]`` columns and the first as many entries of row
+    ``b`` of ``target_codes`` (``(batch, padded_columns)``). ``query_codes`` holds
+    the query's residue codes. The arrays are the reference kernels' results for
+    each unpadded matrix, bit for bit: ``scores`` float64 for ``"local"`` and
+    float32 for ``"global"``, ``lengths`` and ``identities`` uint32. The faster
+    float32 kernels run where they are exact: a global search with a zero gap,
+    and a local search with a gap of 0 or -2**k (see ``float32_exact_local_bound``),
+    where a pair whose score reaches the bound is run again with the reference
+    kernel. Every other gap runs the reference kernel.
+    """
+    column_lengths = np.asarray(column_lengths, dtype=np.int64)
+    batch = len(column_lengths)
+    lengths = np.empty(batch, dtype=np.uint32)
+    identities = np.empty(batch, dtype=np.uint32)
+    gap = float(gap_penalty)
+    if mode == "local":
+        scores = np.empty(batch, dtype=np.float64)
+        bound = float32_exact_local_bound(0.0, gap)
+        if bound is None:
+            _reference_local_length_identity_batch(
+                matrices, column_lengths, gap, query_codes, target_codes,
+                scores, lengths, identities,
+            )
+        else:
+            _float32_local_length_identity_batch(
+                matrices, column_lengths, np.float32(gap), np.float32(bound), gap,
+                query_codes, target_codes, scores, lengths, identities,
+            )
+    elif mode == "global":
+        scores = np.empty(batch, dtype=np.float32)
+        if float32_exact_global_gap(gap):
+            _float32_global_length_identity_batch(
+                matrices, column_lengths, np.float32(gap), query_codes,
+                target_codes, scores, lengths, identities,
+            )
+        else:
+            _reference_global_length_identity_batch(
+                matrices, column_lengths, gap, query_codes, target_codes,
+                scores, lengths, identities,
+            )
+    else:
+        raise ValueError(f"Unknown alignment mode {mode!r}; choose global or local.")
+    return scores, lengths, identities
+
+
+def search_pair_scores(mode, matrix, gap_penalty, query_codes, target_codes):
+    """``search_batch_scores`` for one matrix, as ``(score, length, identities)`` Python numbers."""
+    scores, lengths, identities = search_batch_scores(
+        mode,
+        matrix[np.newaxis],
+        [matrix.shape[1]],
+        gap_penalty,
+        query_codes,
+        target_codes[np.newaxis],
+    )
+    return scores.tolist()[0], lengths.tolist()[0], identities.tolist()[0]
+
+
+# ---------------------------------------------------------------------------
 # Network Topology Filtering and Community Detection (Clustering)
 # ---------------------------------------------------------------------------
 
@@ -1310,6 +1716,9 @@ __all__ = [
     "float32_exact_local_bound",
     "alignment_batch_scores",
     "align_microbatch",
+    "float32_exact_global_gap",
+    "search_batch_scores",
+    "search_pair_scores",
     "leiden_partition",
     "sorted_neighbour_csr",
     "jaccard_partition",

@@ -245,6 +245,183 @@ class BatchKernelIdentityTests(unittest.TestCase):
                 )
 
 
+def residue_codes(rng, rows, batch, columns):
+    """Query codes and padded target codes, with the unmatched codes 0 and 1 among the residues."""
+    query = rng.integers(0, 6, size=rows).astype(np.uint8)
+    targets = rng.integers(0, 6, size=(batch, columns)).astype(np.uint8)
+    return query, targets
+
+
+def reference_search(mode, matrices, lengths, gap, query, targets):
+    kernel = (
+        kernels.local_score_length_identity if mode == "local"
+        else kernels.global_score_length_identity
+    )
+    results = [
+        kernel(
+            np.ascontiguousarray(matrices[pair, :, :columns]),
+            gap,
+            query,
+            np.ascontiguousarray(targets[pair, :columns]),
+        )
+        for pair, columns in enumerate(lengths)
+    ]
+    return (
+        [result[0] for result in results],
+        [int(result[1]) for result in results],
+        [int(result[2]) for result in results],
+    )
+
+
+class SearchKernelTests(unittest.TestCase):
+    """The database search's kernels: score, path length and identities, bit for bit."""
+
+    def batches(self, seed=7, count=12):
+        rng = np.random.default_rng(seed)
+        for matrices, lengths in padded_batches(seed, count):
+            query, targets = residue_codes(rng, matrices.shape[1], len(lengths), matrices.shape[2])
+            yield matrices, lengths, query, targets
+        # Dense, positive-leaning matrices like real alignments: long paths, many identities.
+        for _ in range(3):
+            shape = (int(rng.integers(2, 9)), int(rng.integers(5, 60)), int(rng.integers(5, 60)))
+            matrices = (rng.random(shape) * 3.0).astype(np.float32)
+            lengths = rng.integers(1, shape[2] + 1, size=shape[0]).astype(np.int64)
+            query, targets = residue_codes(rng, shape[1], shape[0], shape[2])
+            yield matrices, lengths, query, targets
+
+    def assert_search_equals_reference(self, mode, gap):
+        for matrices, lengths, query, targets in self.batches():
+            scores, path_lengths, identities = kernels.search_batch_scores(
+                mode, matrices, lengths, gap, query, targets
+            )
+            expected = reference_search(mode, matrices, lengths, gap, query, targets)
+            self.assertEqual(scores.dtype, np.float64 if mode == "local" else np.float32)
+            self.assertEqual(path_lengths.dtype, np.uint32)
+            self.assertEqual(identities.dtype, np.uint32)
+            # Equal as Python numbers, which is what the result rows hold.
+            self.assertEqual(scores.tolist(), expected[0], (mode, gap))
+            self.assertEqual(path_lengths.tolist(), expected[1], (mode, gap))
+            self.assertEqual(identities.tolist(), expected[2], (mode, gap))
+
+    def test_global_float32_kernel_matches_the_reference_for_a_zero_gap(self):
+        for gap in (0.0, -0.0, np.float32(0.0), 0):
+            with self.subTest(gap=gap), mock.patch.object(
+                kernels,
+                "_float32_global_length_identity_batch",
+                wraps=kernels._float32_global_length_identity_batch,
+            ) as fast, mock.patch.object(
+                kernels,
+                "_reference_global_length_identity_batch",
+                side_effect=AssertionError("the reference kernel ran"),
+            ):
+                self.assert_search_equals_reference("global", gap)
+            self.assertTrue(fast.called)
+
+    def test_any_other_global_gap_runs_the_reference_kernel(self):
+        for gap in (-1.0, -0.7, -2.5, 0.1):
+            with self.subTest(gap=gap), mock.patch.object(
+                kernels,
+                "_float32_global_length_identity_batch",
+                side_effect=AssertionError("the float32 kernel ran"),
+            ):
+                self.assert_search_equals_reference("global", gap)
+
+    def test_local_float32_kernel_matches_the_reference_for_exact_gaps(self):
+        for gap in (-2.0, 0.0, -1.0, -0.5, -4.0, -0.25):
+            with self.subTest(gap=gap), mock.patch.object(
+                kernels,
+                "_float32_local_length_identity_batch",
+                wraps=kernels._float32_local_length_identity_batch,
+            ) as fast, mock.patch.object(
+                kernels,
+                "_reference_local_length_identity_batch",
+                side_effect=AssertionError("the reference kernel ran"),
+            ):
+                self.assert_search_equals_reference("local", gap)
+            self.assertTrue(fast.called)
+
+    def test_any_other_local_gap_runs_the_reference_kernel(self):
+        for gap in (-0.7, -3.0, -2.5, 0.5, -1.5):
+            with self.subTest(gap=gap), mock.patch.object(
+                kernels,
+                "_float32_local_length_identity_batch",
+                side_effect=AssertionError("the float32 kernel ran"),
+            ):
+                self.assert_search_equals_reference("local", gap)
+
+    def test_a_pair_reaching_the_score_bound_is_run_again_with_the_reference(self):
+        # With a gap of -2 float32 is proven exact below 2**23. This pair scores 8e7: there a float32
+        # candidate that the reference keeps unrounded can tie, and the path's identities differ.
+        bound = kernels.float32_exact_local_bound(0.0, -2.0)
+        self.assertEqual(bound, 2.0 ** 23)
+        rng = np.random.default_rng(204)
+        rows, columns = int(rng.integers(3, 12)), int(rng.integers(3, 12))
+        matrix = (
+            np.round(rng.random((rows, columns)) * 3) * 1.6e7 / 3 + rng.integers(0, 9, size=(rows, columns))
+        ).astype(np.float32)
+        query = rng.integers(0, 4, size=rows).astype(np.uint8)
+        target = rng.integers(0, 4, size=columns).astype(np.uint8)
+        want = kernels.local_score_length_identity(matrix, -2.0, query, target)
+        scratch = [np.empty(columns + 1, dtype) for dtype in (np.float32,) * 2 + (np.uint32,) * 4]
+        fast = kernels._float32_local_length_identity(
+            matrix, np.float32(-2.0), np.float32(2.0), query, target, *scratch
+        )
+        self.assertGreaterEqual(fast[0], bound)
+        self.assertNotEqual((float(fast[0]), int(fast[1]), int(fast[2])), (want[0], int(want[1]), int(want[2])))
+        # A batch holding it and a small pair: both equal the reference.
+        small = (rng.standard_normal((rows, columns)) * 2).astype(np.float32)
+        matrices = np.stack([matrix, small])
+        targets = np.stack([target, target])
+        scores, path_lengths, identities = kernels.search_batch_scores(
+            "local", matrices, [columns, columns], -2.0, query, targets
+        )
+        expected = reference_search("local", matrices, [columns, columns], -2.0, query, targets)
+        self.assertEqual(scores.tolist(), expected[0])
+        self.assertEqual(path_lengths.tolist(), expected[1])
+        self.assertEqual(identities.tolist(), expected[2])
+
+    def test_which_global_gaps_float32_is_exact_for(self):
+        for gap in (0.0, -0.0, np.float32(0.0), 0):
+            self.assertTrue(kernels.float32_exact_global_gap(gap), gap)
+        for gap in (-1.0, 0.5, -1e-30, np.float32(-0.25)):
+            self.assertFalse(kernels.float32_exact_global_gap(gap), gap)
+
+    def test_padding_columns_and_codes_are_ignored(self):
+        rng = np.random.default_rng(3)
+        matrices = (rng.standard_normal((2, 6, 9)) * 2).astype(np.float32)
+        lengths = np.array([9, 4])
+        query, targets = residue_codes(rng, 6, 2, 9)
+        for mode, gap in (("global", 0.0), ("local", -2.0)):
+            first = kernels.search_batch_scores(mode, matrices, lengths, gap, query, targets)
+            noisy = matrices.copy()
+            noisy[1, :, 4:] = 1e6
+            other = targets.copy()
+            other[1, 4:] = 5
+            second = kernels.search_batch_scores(mode, noisy, lengths, gap, query, other)
+            for want, got in zip(first, second):
+                self.assertEqual(want.tolist(), got.tolist())
+
+    def test_one_pair_gives_the_python_numbers_the_reference_gives(self):
+        rng = np.random.default_rng(11)
+        matrix = (rng.standard_normal((20, 31)) * 2).astype(np.float32)
+        query, targets = residue_codes(rng, 20, 1, 31)
+        for mode, gap in (("local", -2.0), ("global", 0.0), ("global", -0.5)):
+            kernel = (
+                kernels.local_score_length_identity if mode == "local"
+                else kernels.global_score_length_identity
+            )
+            want = kernel(matrix, gap, query, targets[0])
+            got = kernels.search_pair_scores(mode, matrix, gap, query, targets[0])
+            self.assertEqual(tuple(got), tuple(want))
+            self.assertEqual([type(value) for value in got], [type(value) for value in want])
+
+    def test_an_unknown_mode_is_refused(self):
+        matrices = np.zeros((1, 2, 2), np.float32)
+        codes = np.zeros(2, np.uint8)
+        with self.assertRaisesRegex(ValueError, "Unknown alignment mode"):
+            kernels.search_batch_scores("semi", matrices, [2], 0.0, codes, codes[np.newaxis])
+
+
 class ToolBatchCallbackTests(unittest.TestCase):
     def test_tool_batch_callbacks_match_their_per_pair_callbacks(self):
         batches = padded_batches(59, 24)
