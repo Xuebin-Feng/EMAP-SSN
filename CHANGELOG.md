@@ -112,7 +112,10 @@ still change before version 1.0.0.
     a directory resolves to, the free disk space, the logical CPUs, the memory AUTO would
     use, and the devices found.
   A status message replaces the panel's corner ⓘ with its own icon, and the Consistency
-  Check report shows its worst result there. The panel grows to fit a tip, as before.
+  Check report shows its worst result there. The panel keeps one height, set when the
+  window opens (seven and a half lines of its font), and scrolls a longer tip or report,
+  so the fields above it no longer move as the tips change. Code shows as chips with
+  rounded corners.
 - The Quick Start manual and the Command Reference share the look of the windows and the
   Viewer's web pages: their colours in light and dark, Noto Sans, cards, tabs, buttons and
   Lucide icons in place of every emoji, which a test now keeps out of the docs.
