@@ -24,6 +24,7 @@ if SRC_DIR not in sys.path:
 import Command_Engine
 import EMAPSSN_Config as cfg
 from EMAPSSN_Viewer import MainViewer, _topmost_nearest_visible_node_index
+from desktop.Viewer_Markers import MarkerPicker, symbol_codes_of
 from commands import color as color_command
 from commands import spectrum as spectrum_command
 
@@ -45,6 +46,20 @@ class FakeMarkers:
 
     def set_gl_state(self, *args, **kwargs):
         pass
+
+
+class ScreenTransforms:
+    """A TransformSystem whose scene, canvas and framebuffer coordinates are one."""
+
+    @staticmethod
+    def _map(points):
+        points = np.asarray(points, dtype=float)
+        flat = np.atleast_2d(points)[:, :2]
+        mapped = np.column_stack([flat, np.zeros(len(flat)), np.ones(len(flat))])
+        return mapped[0] if points.ndim == 1 else mapped
+
+    def get_transform(self, map_from, map_to):
+        return SimpleNamespace(map=self._map, imap=self._map)
 
 
 class IdentityTransform:
@@ -670,6 +685,13 @@ class ClicksWhileTypingTests(unittest.TestCase):
             update=mock.Mock(),
         )
         viewer.view = SimpleNamespace(scene=object())
+        # The hover pick, on discs 10 pixels across where the scene is the screen.
+        viewer.canvas.pixel_scale = 1.0
+        viewer.markers = SimpleNamespace(visible=True, transforms=ScreenTransforms())
+        viewer._marker_picker = MarkerPicker(
+            np.arange(3), np.zeros(3, dtype=bool), viewer.pos, np.full(3, 10.0), np.full(3, 0.5),
+            symbol_codes_of(["disc"] * 3), 1.0,
+        )
         viewer._hud_timer = mock.Mock()
         for name in ("_save_state", "update_selection_visual", "update_nodes",
                      "update_console_background", "broadcast_event", "process_command"):

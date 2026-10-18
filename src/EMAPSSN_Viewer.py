@@ -182,7 +182,7 @@ from desktop.Viewer_State import (
 )
 from desktop.Viewer_Inspection import ViewerInspectionService
 from desktop.Viewer_Edges import ViewerEdges
-from desktop.Viewer_Markers import HoverMarkers, uniform_symbol
+from desktop.Viewer_Markers import HoverMarkers, MarkerPicker, symbol_codes_of, uniform_symbol
 from web_ui.Browser_Page import open_browser_page
 
 
@@ -2439,6 +2439,7 @@ class MainViewer:
         )
         self._submitted_visible_node_order = draw_order.copy()
         self._hover_markers = None
+        previous_picker, self._marker_picker = getattr(self, '_marker_picker', None), None
         if len(draw_order) == 0:
             self._submitted_marker_node_order = np.empty(0, dtype=np.int32)
             self._submitted_marker_ring_mask = np.empty(0, dtype=bool)
@@ -2498,6 +2499,18 @@ class MainViewer:
                 self, self.current_colors, sizes, shapes, (edge_colors, edge_widths),
                 identify_connected, self._left_click_node_indices(),
                 marker_node_order, marker_ring_mask,
+            )
+            # Which node the cursor is on, as these markers are drawn (pick_hovered_node).
+            if symbol is not None:
+                codes = symbol_codes_of([symbol] * marker_count)
+            elif self._hover_markers.problem is None:
+                codes = self.markers._data['a_symbol'].astype(np.int64)
+            else:
+                codes = symbol_codes_of(marker_shapes.tolist())
+            self._marker_picker = MarkerPicker(
+                marker_node_order, marker_ring_mask, self.pos,
+                marker_sizes, marker_edge_widths, codes, getattr(self.markers, 'antialias', 1.0),
+                previous=previous_picker,
             )
         self.markers.set_gl_state('translucent', depth_test=False)
 
@@ -3548,26 +3561,21 @@ class MainViewer:
 
         # ---> 4. HOVER EFFECT <---
         if not event.buttons:
-            nearest_idx = _topmost_nearest_visible_node_index(
-                self.pos,
-                self.visible_mask,
-                mouse_world,
-                getattr(self, '_submitted_visible_node_order', None),
-            )
-            screen_dist = np.inf
-            if nearest_idx is not None:
-                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
-            
             previous = getattr(self, 'hovered_node_idx', None)
-            if screen_dist < (cfg.NODE_SIZE / 1.5):
-                if previous != nearest_idx:
-                    self.hovered_node_idx = nearest_idx
-                    self._show_hover_change(previous)
-            else:
-                if previous is not None:
-                    self.hovered_node_idx = None
-                    self._show_hover_change(previous)
+            hovered = self.pick_hovered_node(event.pos)
+            if hovered != previous:
+                self.hovered_node_idx = hovered
+                self._show_hover_change(previous)
+
+    def pick_hovered_node(self, cursor):
+        """The node a cursor at canvas position cursor hovers: the topmost one
+        whose drawn shape covers the pixel under it, or, over no node, the
+        one drawn within a pixel of it (desktop.Viewer_Markers.MarkerPicker)."""
+        picker = getattr(self, '_marker_picker', None)
+        markers = getattr(self, 'markers', None)
+        if picker is None or markers is None or not markers.visible:
+            return None
+        return picker.pick(markers.transforms, cursor, self.canvas.pixel_scale)
 
     def _show_hover_change(self, previous):
         """Show hovered_node_idx, the hover having left node previous.

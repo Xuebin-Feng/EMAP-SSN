@@ -759,7 +759,8 @@ class EdgeGenerationTests(unittest.TestCase):
         viewer.current_colors = np.zeros((viewer.n_nodes, 4), dtype=np.float32)
         viewer.current_sizes = np.ones(viewer.n_nodes, dtype=np.float32)
         viewer.current_shapes = np.full(viewer.n_nodes, "disc", dtype=object)
-        viewer.markers = mock.Mock()
+        from vispy import scene
+        viewer.markers = scene.visuals.Markers()
         viewer.canvas = SimpleNamespace(update=mock.Mock())
         viewer._update_hud_elements = mock.Mock()
         viewer._refresh_session_card = mock.Mock()

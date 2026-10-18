@@ -225,18 +225,180 @@ class HoverMarkersTests(unittest.TestCase):
 
     def test_mouse_moves_over_nodes_go_through_the_hover_path(self):
         viewer = self.viewer
-        viewer.canvas = SimpleNamespace(update=mock.Mock(), scene=None)
-        node = int(viewer._submitted_visible_node_order[-1])
-        transform = SimpleNamespace(map=lambda point: np.asarray(point, float)[:2],
-                                    inverse=SimpleNamespace(map=lambda point: np.asarray(point, float)[:2]))
-        viewer.canvas.scene = SimpleNamespace(node_transform=lambda _scene: transform)
+        transform = SimpleNamespace(map=lambda point: np.asarray(point, float)[:2])
+        viewer.canvas = SimpleNamespace(update=mock.Mock(),
+                                        scene=SimpleNamespace(node_transform=lambda _scene: transform))
         viewer.view = SimpleNamespace(scene=None)
         viewer.is_multi_dragging = viewer.is_box_selecting = False
-        with mock.patch.object(viewer, "_show_hover_change") as shown:
-            viewer.on_mouse_move(SimpleNamespace(pos=viewer.pos[node].astype(float), buttons=[],
-                                                 modifiers=(), handled=False))
+
+        def move():
+            viewer.on_mouse_move(SimpleNamespace(pos=np.zeros(2), buttons=[], modifiers=(), handled=False))
+        with mock.patch.object(viewer, "_show_hover_change") as shown, \
+                mock.patch.object(viewer, "pick_hovered_node", return_value=6):
+            move()
             shown.assert_called_once_with(None)
-            self.assertEqual(viewer.hovered_node_idx, node)
+            self.assertEqual(viewer.hovered_node_idx, 6)
+            move()                                  # still on node 6: nothing to show
+            shown.assert_called_once()
+        with mock.patch.object(viewer, "_show_hover_change") as shown, \
+                mock.patch.object(viewer, "pick_hovered_node", return_value=None):
+            move()
+            shown.assert_called_once_with(6)
+            self.assertIsNone(viewer.hovered_node_idx)
+
+
+class FakeTransforms:
+    """A TransformSystem whose visual coordinates are framebuffer pixels
+    divided by scale, y up, and canvas pixels framebuffer pixels divided by
+    pixel_scale, y down, on a framebuffer height pixels tall."""
+
+    def __init__(self, scale=1.0, pixel_scale=1.0, height=400.0):
+        self.scale, self.pixel_scale, self.height = scale, pixel_scale, height
+
+    def get_transform(self, map_from, map_to):
+        if (map_from, map_to) == ("visual", "framebuffer"):
+            return SimpleNamespace(map=self._visual_to_fb, imap=self._fb_to_visual)
+        if (map_from, map_to) == ("canvas", "framebuffer"):
+            return SimpleNamespace(map=lambda p: np.array(
+                [p[0] * self.pixel_scale, self.height - p[1] * self.pixel_scale, 0.0, 1.0]))
+        raise AssertionError((map_from, map_to))
+
+    def _visual_to_fb(self, points):
+        points = np.atleast_2d(np.asarray(points, float))
+        return np.column_stack([points[:, :2] * self.scale, np.zeros(len(points)), np.ones(len(points))])
+
+    def _fb_to_visual(self, point):
+        return np.array([point[0] / self.scale, point[1] / self.scale, 0.0, 1.0])
+
+
+class MarkerPickerTests(unittest.TestCase):
+    """The pick against the markers' drawn shapes (desktop.Viewer_Markers.MarkerPicker)."""
+
+    def picker(self, nodes, positions, sizes, shapes, outlines=None, rings=None, antialias=1.0):
+        count = len(nodes)
+        node_positions = np.zeros((max(nodes, default=-1) + 1, 2), np.float32)
+        for node, position in zip(nodes, positions):
+            node_positions[node] = position
+        return Viewer_Markers.MarkerPicker(
+            np.array(nodes, dtype=np.int64), np.zeros(count, bool) if rings is None else np.array(rings),
+            node_positions, np.array(sizes, np.float32),
+            np.full(count, 0.0, np.float32) if outlines is None else np.array(outlines, np.float32),
+            Viewer_Markers.symbol_codes_of(shapes), antialias)
+
+    def pick(self, picker, x, y, pixel_scale=1.0, height=400.0):
+        """Pick at framebuffer pixel (x, y), y up, as a cursor at that pixel's centre."""
+        transforms = FakeTransforms(pixel_scale=pixel_scale, height=height)
+        cursor = ((x + 0.5) / pixel_scale, (height - y - 0.5) / pixel_scale)
+        return picker.pick(transforms, cursor, pixel_scale)
+
+    def test_the_topmost_covering_node_wins_over_a_nearer_centre(self):
+        # Node 1, small, sits under node 2, big and drawn later, near its centre.
+        picker = self.picker([1, 2], [(100, 100), (110, 100)], [6, 40], ["disc", "disc"])
+        self.assertEqual(self.pick(picker, 100, 100), 2)
+        # Drawn the other way round, the small one is on top where it is drawn.
+        picker = self.picker([2, 1], [(110, 100), (100, 100)], [40, 6], ["disc", "disc"])
+        self.assertEqual(self.pick(picker, 100, 100), 1)
+        self.assertEqual(self.pick(picker, 106, 100), 2)
+
+    def test_the_reach_is_the_drawn_shape_and_its_outline(self):
+        # A disc 20 across with a 4-pixel outline draws out to 10 + 2 + 1 (antialias).
+        picker = self.picker([7], [(100, 100)], [20], ["disc"], outlines=[4])
+        self.assertEqual(self.pick(picker, 112, 100), 7)       # centre 112.5: 12.5 out
+        margin = Viewer_Markers.HOVER_MARGIN_PX
+        self.assertEqual(self.pick(picker, 113, 100), 7)       # 13.5: within the margin
+        self.assertIsNone(self.pick(picker, 100 + int(13 + margin) + 1, 100))
+        # At display scale 2 the same node is twice as many pixels across:
+        # 20 + 4 + 1 out, and the margin is twice as wide too.
+        self.assertEqual(self.pick(picker, 124, 100, pixel_scale=2.0), 7)
+        self.assertEqual(self.pick(picker, 126, 100, pixel_scale=2.0), 7)
+        self.assertIsNone(self.pick(picker, 100 + int(25 + 2 * margin) + 1, 100, pixel_scale=2.0))
+
+    def test_shapes_cover_what_they_draw(self):
+        # A square's corner is drawn, a disc's is not; a ring's hole is not.
+        square = self.picker([3], [(100, 100)], [20], ["square"])
+        disc = self.picker([3], [(100, 100)], [20], ["disc"])
+        ring = self.picker([4, 3], [(100, 100), (100, 100)], [6, 40], ["disc", "ring"])
+        self.assertEqual(self.pick(square, 110, 110), 3)
+        self.assertIsNone(self.pick(disc, 110, 110))
+        self.assertEqual(self.pick(ring, 100, 100), 4)          # through the hole, the node below
+        self.assertEqual(self.pick(ring, 115, 100), 3)          # on the band
+        # A triangle points up (framebuffer y points up): its base corners are
+        # drawn, the same offsets above its centre are not.
+        triangle = self.picker([5], [(100, 100)], [30], ["triangle_up"])
+        self.assertEqual(self.pick(triangle, 112, 88), 5)
+        self.assertIsNone(self.pick(triangle, 112, 112))
+        down = self.picker([5], [(100, 100)], [30], ["triangle_down"])
+        self.assertIsNone(self.pick(down, 112, 88))
+        self.assertEqual(self.pick(down, 112, 111), 5)
+
+    def test_a_whole_pixel_cursor_names_the_pixel_below_and_right_of_it(self):
+        # A square 4 pixels across, centred on framebuffer (100, 100), y up:
+        # its rows are framebuffer y 98..101, canvas rows 298..301 (y down).
+        for scale in (1.0, 2.0):
+            with self.subTest(display_scale=scale):
+                picker = self.picker([3], [(100, 100)], [4 / scale], ["square"], antialias=0.0)
+                transforms = FakeTransforms(pixel_scale=scale, height=400.0)
+                with mock.patch.object(Viewer_Markers, "HOVER_MARGIN_PX", 0.0):
+                    top = picker.pick(transforms, (100 / scale, 298 / scale), scale)
+                    above = picker.pick(transforms, (100 / scale, 297 / scale), scale)
+                    bottom = picker.pick(transforms, (100 / scale, 301 / scale), scale)
+                    below = picker.pick(transforms, (100 / scale, 302 / scale), scale)
+                self.assertEqual((top, above, bottom, below), (3, None, 3, None))
+
+    def test_click_rings_are_not_nodes(self):
+        picker = self.picker([8, 8, 9], [(100, 100), (100, 100), (130, 100)], [60, 30, 10],
+                             ["disc", "disc", "disc"], rings=[True, False, False])
+        self.assertEqual(self.pick(picker, 100, 100), 8)
+        self.assertIsNone(self.pick(picker, 125, 100 + 20))     # on the ring alone
+        self.assertEqual(self.pick(picker, 128, 100), 9)
+
+    def test_the_tree_outlives_changes_that_move_no_node(self):
+        first = self.picker([1, 2], [(100, 100), (110, 100)], [6, 40], ["disc", "disc"])
+        self.assertEqual(self.pick(first, 100, 100), 2)
+        # The same positions drawn in another order (a selection raised node 1).
+        again = Viewer_Markers.MarkerPicker(np.array([2, 1]), np.zeros(2, bool), first.node_positions,
+                                            np.array([40, 6], np.float32), np.zeros(2, np.float32),
+                                            first.codes, 1.0, previous=first)
+        self.assertIs(again._tree, first._tree)
+        self.assertEqual(self.pick(again, 100, 100), 1)
+        moved = first.node_positions.copy()
+        moved[1, 0] += 50
+        after = Viewer_Markers.MarkerPicker(np.array([2, 1]), np.zeros(2, bool), moved,
+                                            np.array([40, 6], np.float32), np.zeros(2, np.float32),
+                                            first.codes, 1.0, previous=again)
+        self.assertIsNone(after._tree)
+        self.assertEqual(self.pick(after, 100, 100), 2)
+        self.assertEqual(self.pick(after, 150, 100), 1)
+
+    def test_hidden_nodes_are_never_picked(self):
+        # Node 0 is hidden: it has a position but no marker.
+        picker = Viewer_Markers.MarkerPicker(np.array([1]), np.zeros(1, bool),
+                                             np.array([[100, 100], [140, 100]], np.float32),
+                                             np.array([20.0], np.float32), np.zeros(1, np.float32),
+                                             Viewer_Markers.symbol_codes_of(["disc"]), 1.0)
+        self.assertIsNone(self.pick(picker, 100, 100))
+        self.assertEqual(self.pick(picker, 140, 100), 1)
+
+    def test_no_markers_pick_nothing(self):
+        self.assertIsNone(self.pick(self.picker([], np.zeros((0, 2)), [], []), 1, 1))
+
+    def test_the_viewer_picks_with_its_markers(self):
+        with distinct_outlines():
+            viewer = make_viewer()
+            viewer.update_nodes()
+        picker = viewer._marker_picker
+        np.testing.assert_array_equal(picker.nodes, viewer._submitted_marker_node_order[
+            ~viewer._submitted_marker_ring_mask])
+        np.testing.assert_array_equal(picker.positions, viewer.markers._data["a_position"][
+            ~viewer._submitted_marker_ring_mask, :2])
+        np.testing.assert_array_equal(picker.codes, viewer.markers._data["a_symbol"][
+            ~viewer._submitted_marker_ring_mask].astype(np.int64))
+        viewer.canvas = SimpleNamespace(pixel_scale=2.0)
+        with mock.patch.object(picker, "pick", return_value=3) as pick:
+            self.assertEqual(viewer.pick_hovered_node((1.0, 2.0)), 3)
+        self.assertEqual(pick.call_args.args[1:], ((1.0, 2.0), 2.0))
+        viewer.markers.visible = False
+        self.assertIsNone(viewer.pick_hovered_node((1.0, 2.0)))
 
 
 _HOVER_SCRIPT = textwrap.dedent(
@@ -329,6 +491,125 @@ _HOVER_SCRIPT = textwrap.dedent(
 )
 
 
+_PICK_SCRIPT = textwrap.dedent(
+    """
+    import os
+    import sys
+    import numpy as np
+    sys.path.insert(0, sys.argv[1])
+    os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
+    import matplotlib.colors as mcolors
+    from vispy import app, scene
+    app.use_app("pyside6")
+    import EMAPSSN_Viewer as V
+    from desktop import Viewer_Markers as VM
+    cfg = V.cfg
+    cfg.NODE_SIZE, cfg.NODE_BOUNDARY_WIDTH = 15, 2.0
+    cfg.CONNECTED_NODE_COLOR, cfg.NODE_BOUNDARY_COLOR = "red", "black"
+    shapes = ["disc", "square", "diamond", "triangle_up", "triangle_down", "star", "ring", "cross",
+              "x", "vbar", "hbar", "arrow", "tailed_arrow", "clobber", "cross_lines"]
+    contexts = []
+
+    def scene_viewer(kind):
+        rng = np.random.default_rng(42)
+        n = 60
+        v = V.MainViewer.__new__(V.MainViewer)
+        v.n_nodes = n
+        v.pos = (rng.normal(0, 1, (n, 2)) * 6).astype(np.float32)
+        v.edges = np.array([[5, 6], [9, 10]], dtype=np.int32)
+        v.current_colors = np.tile(mcolors.to_rgba(cfg.INITIAL_NODE_COLOR), (n, 1)).astype(np.float32)
+        if kind == "mixed":
+            v.current_sizes = rng.choice([6.0, 10.0, 15.0, 22.0, 30.0], n).astype(np.float32)
+            v.current_shapes = np.array([shapes[i % len(shapes)] if i % 3 else "disc" for i in range(n)], dtype=object)
+        else:
+            v.current_sizes = np.full(n, 15.0, dtype=np.float32)
+            v.current_shapes = np.full(n, "disc", dtype=object)
+        v.visible_mask = np.ones(n, dtype=bool)
+        v.visible_mask[[3, 17]] = False
+        v.node_render_order = rng.permutation(n).astype(np.int32)
+        v.selected_indices = [5, 9, 40]
+        v.hovered_node_idx = None
+        v.selected_node_idx = 12
+        v.left_click_highlight_indices = None
+        v.canvas = scene.SceneCanvas(size=(300, 240), bgcolor="white", show=False, config=dict(stencil_size=8))
+        contexts.append(v.canvas)
+        v.view = v.canvas.central_widget.add_view()
+        v.view.camera = scene.PanZoomCamera(aspect=1)
+        v._update_hud_elements = lambda *args, **kwargs: None
+        v.markers = scene.visuals.Markers(parent=v.view.scene)
+        v.update_nodes()
+        v.view.camera.rect = (-20, -16, 40, 32)
+        return v
+
+    def id_image(v):
+        # The same markers, face and outline in each node's ID colour, blending
+        # off: each pixel holds the topmost node whose drawn shape covers it.
+        data = v.markers._data
+        keep = ~np.asarray(v._submitted_marker_ring_mask)
+        ids = np.asarray(v._submitted_marker_node_order)[keep] + 1
+        rgba = np.stack([(ids & 255) / 255.0, ((ids >> 8) & 255) / 255.0, np.zeros(len(ids)), np.ones(len(ids))], axis=1)
+        marks = scene.visuals.Markers(parent=v.view.scene)
+        marks.set_data(pos=data["a_position"][keep, :2], face_color=rgba, edge_color=rgba,
+                       size=data["a_size"][keep], edge_width=data["a_edgewidth"][keep],
+                       symbol=[v.current_shapes[i] for i in np.asarray(v._submitted_marker_node_order)[keep]])
+        marks.set_gl_state(blend=False, depth_test=False)
+        v.markers.visible = False
+        image = v.canvas.render()
+        v.markers.visible, marks.visible = True, False
+        under = image[..., 0].astype(int) + (image[..., 1].astype(int) << 8) - 1
+        under[image[..., 2] != 0] = -1
+        return under
+
+    def excess(v, node, pixel):
+        picker = v._marker_picker
+        i = int(np.flatnonzero(picker.nodes == node)[0])
+        to_fb = v.markers.transforms.get_transform("visual", "framebuffer")
+        centre = np.asarray(to_fb.map(picker.positions[i:i + 1]))[0, :2]
+        scale = v.canvas.pixel_scale
+        r = VM.marker_distance([picker.codes[i]], [pixel[0] - centre[0]], [centre[1] - pixel[1]],
+                               [picker.sizes[i] * scale])[0]
+        return r - (0.5 * picker.edge_widths[i] * scale + picker.antialias)
+
+    first = True
+    for kind in ("mixed", "discs"):
+        v = scene_viewer(kind)
+        if first:
+            if (v.canvas.render()[..., 0] < 250).sum() == 0:
+                sys.exit(3)
+            print("CONTEXT OK", flush=True)
+            print("SCALE", v.canvas.pixel_scale, flush=True)
+            first = False
+        scale = v.canvas.pixel_scale
+        under = id_image(v)
+        height, width = under.shape
+        rows, cols = np.nonzero(under >= 0)
+        c2f = v.markers.transforms.get_transform("canvas", "framebuffer")
+        reach = int(np.ceil(VM.HOVER_MARGIN_PX * scale)) + 1
+        points = on_nodes = wrong = ties = background_picks = background_far = 0
+        step = int(2 * scale)
+        for py in range(max(0, rows.min() - 10), min(height, rows.max() + 10), step):
+            for px in range(max(0, cols.min() - 10), min(width, cols.max() + 10), step):
+                truth = int(under[py, px])
+                picked = v.pick_hovered_node(((px + 0.5) / scale, (py + 0.5) / scale))
+                picked = -1 if picked is None else picked
+                points += 1
+                if truth >= 0:
+                    on_nodes += 1
+                    if picked != truth:
+                        pixel = np.floor(np.asarray(c2f.map(np.array([(px + 0.5) / scale, (py + 0.5) / scale])))[:2]) + 0.5
+                        if min(abs(excess(v, node, pixel)) for node in (truth, picked) if node >= 0) < 0.01:
+                            ties += 1
+                        else:
+                            wrong += 1
+                elif picked >= 0:
+                    background_picks += 1
+                    window = under[max(0, py - reach):py + reach + 1, max(0, px - reach):px + reach + 1]
+                    background_far += not (window == picked).any()
+        print("GRID", kind, points, on_nodes, wrong, ties, background_picks, background_far, flush=True)
+    """
+)
+
+
 def run_gl_script(test, script, scale):
     environment = dict(os.environ)
     environment.pop("QT_QPA_PLATFORM", None)
@@ -364,6 +645,33 @@ class HoverPixelTests(unittest.TestCase):
                 self.assertEqual(patched, 9, output)
                 self.assertEqual(differing, 0, output)
                 self.assertEqual(pictures, 0, output)
+
+
+class PickPixelTests(unittest.TestCase):
+    """The hover pick against what is drawn, at display scales 1 and 2.
+
+    Overlapping nodes of five sizes, fifteen shapes and two outline widths,
+    a click ring, raised selected nodes and hidden nodes, then plain discs, are
+    drawn once more as an ID image (each pixel holding the topmost node whose
+    drawn shape covers it). On a grid of cursor positions, over a node the pick
+    is that node, but where the pixel's centre lies on a shape's very edge
+    (within 0.01 px, where the GPU's float32 and NumPy's float64 can differ);
+    over no node it is no node or one drawn within the hover margin.
+    """
+
+    def test_the_pick_is_the_topmost_node_drawn_under_the_cursor(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                output = run_gl_script(self, _PICK_SCRIPT, scale)
+                self.assertIn(f"SCALE {float(scale)}", output)
+                grids = [line.split()[1:] for line in output.splitlines() if line.startswith("GRID ")]
+                self.assertEqual([grid[0] for grid in grids], ["mixed", "discs"], output)
+                for kind, points, on_nodes, wrong, ties, background_picks, far in grids:
+                    with self.subTest(scene=kind):
+                        self.assertGreater(int(on_nodes), 1000, output)
+                        self.assertEqual(int(wrong), 0, output)
+                        self.assertLessEqual(int(ties), int(on_nodes) // 1000, output)
+                        self.assertEqual(int(far), 0, output)
 
 
 if __name__ == "__main__":
