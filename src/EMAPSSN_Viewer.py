@@ -1117,6 +1117,8 @@ class MainViewer:
             area=self._session_card_area,
             # The card's pick buttons type "alignment" and "embedding": the same command path.
             command=self.process_command,
+            # Ctrl+C copies a selected path of the card, unless the command line is open: it copies its own text.
+            command_line_open=lambda: getattr(self, 'console_mode', False),
         )
         overlay_layout.addWidget(self.controls_button)
         overlay_layout.addSpacing(SLIDER_INFO_GAP - overlay_layout.spacing())

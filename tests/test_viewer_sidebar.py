@@ -35,14 +35,43 @@ if str(SRC) not in sys.path:
 import EMAPSSN_Viewer  # noqa: E402
 from EMAPSSN_Viewer import SIDEBAR_SLIDE_MS, MainViewer, _sidebar_room  # noqa: E402
 from PySide6 import QtWidgets  # noqa: E402
-from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtCore import QPoint, Qt  # noqa: E402
+from PySide6.QtGui import QGuiApplication  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
+from vispy.util import keys as vispy_keys  # noqa: E402
 
 from desktop.Viewer_Widgets import SIDEBAR_INSET, ControlsButton, SidebarButton, SidebarPanel  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 
 CANVAS_SIZE = (1200, 800)
+
+
+class VispyLikeCanvas(QWidget):
+    """Stands in for the VisPy canvas: a Qt key press goes to ``on_key_press`` as a VisPy key event, as VisPy's Qt backend sends it."""
+
+    SPECIAL = {Qt.Key.Key_Return: vispy_keys.ENTER, Qt.Key.Key_Escape: vispy_keys.ESCAPE}
+
+    def __init__(self):
+        super().__init__()
+        self.on_key_press = None
+        self.setFocusPolicy(Qt.FocusPolicy.WheelFocus)
+
+    def keyPressEvent(self, event):
+        key = int(event.key())
+        if event.key() in self.SPECIAL:
+            vispy_key = self.SPECIAL[event.key()]
+        elif 32 <= key <= 127:
+            vispy_key = vispy_keys.Key(chr(key))
+        else:
+            vispy_key = None
+        modifiers = tuple(vispy_modifier for qt_modifier, vispy_modifier in (
+            (Qt.KeyboardModifier.ShiftModifier, vispy_keys.SHIFT), (Qt.KeyboardModifier.ControlModifier, vispy_keys.CONTROL),
+            (Qt.KeyboardModifier.AltModifier, vispy_keys.ALT), (Qt.KeyboardModifier.MetaModifier, vispy_keys.META))
+            if event.modifiers() & qt_modifier)
+        vispy_event = SimpleNamespace(native=event, key=vispy_key, text=event.text(), modifiers=modifiers, handled=False)
+        self.on_key_press(vispy_event)
+        event.accept()
 
 
 class SidebarSlideTests(unittest.TestCase):
@@ -205,9 +234,9 @@ class SliderOverlayTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme_for_class(cls, cls.app)
 
-    def make_viewer(self, low=0.0, high=9.6, current=None):
+    def make_viewer(self, low=0.0, high=9.6, current=None, native=None):
         viewer = MainViewer.__new__(MainViewer)
-        viewer.canvas = SimpleNamespace(native=QWidget(), size=CANVAS_SIZE)
+        viewer.canvas = SimpleNamespace(native=QWidget() if native is None else native, size=CANVAS_SIZE)
         self.addCleanup(viewer.canvas.native.deleteLater)
         viewer.hud_layout = {"status_x_offset": 10.0, "status_line_spacing": 38.0}
         viewer._hud_timer = mock.Mock()
@@ -305,13 +334,13 @@ class SliderOverlayTests(unittest.TestCase):
 
     # ---- the info card ----
 
-    def make_card_viewer(self, edges=6, nodes=5):
+    def make_card_viewer(self, edges=6, nodes=5, native=None):
         """A slider row over a canvas with a network of ``nodes`` nodes and ``edges`` edges.
 
         update_edges is the Viewer's own; its edge layer is a stand-in that
         draws the edges scoring at least the threshold, 10 of them at 0.
         """
-        viewer = self.make_viewer(low=0.0, high=10.0, current=0.0)
+        viewer = self.make_viewer(low=0.0, high=10.0, current=0.0, native=native)
         del viewer.update_edges
         viewer.canvas.native.resize(*CANVAS_SIZE)
         viewer.canvas.native.show()
@@ -393,6 +422,62 @@ class SliderOverlayTests(unittest.TestCase):
         viewer.visible_mask[:] = True
         viewer.update_edges()
         self.assertEqual(card.count_labels["nodes"].text(), "5")
+
+    def test_copy_copies_a_selected_path_of_the_card_unless_the_command_line_is_open(self):
+        canvas = VispyLikeCanvas()
+        viewer = self.make_card_viewer(native=canvas)
+        # The Viewer's own key handler, through the same VisPy-style event it gets from the canvas.
+        received = []
+        canvas.on_key_press = lambda event: (received.append(getattr(event.key, "name", None)),
+                                             MainViewer.on_key_press(viewer, event))
+        viewer.console_mode = False
+        viewer.input_buffer, viewer.cursor_pos = "alignment x", 11
+        viewer._do_undo, viewer._do_redo = mock.Mock(), mock.Mock()
+        card = viewer.controls_button.toggle_card()
+        self.app.processEvents()
+        field = card.path_fields["node_fasta"]
+        y = field.height() // 2
+        QTest.mousePress(field, Qt.MouseButton.LeftButton, pos=QPoint(8, y))
+        QTest.mouseMove(field, QPoint(field.width() - 8, y))
+        QTest.mouseRelease(field, Qt.MouseButton.LeftButton, pos=QPoint(field.width() - 8, y))
+        selected = field.selectedText()
+        self.assertTrue(selected)
+        clipboard = QGuiApplication.clipboard()
+        control = Qt.KeyboardModifier.ControlModifier
+
+        # The command line closed: Ctrl+C copies the selection, and the Viewer's key handler never sees the C.
+        clipboard.setText("before")
+        QTest.keyClick(canvas, Qt.Key.Key_C, control)
+        self.assertEqual(clipboard.text(), selected)
+        self.assertNotIn("C", received)
+
+        # The shortcuts the Viewer has go on working with the card open and a selection made.
+        QTest.keyClick(canvas, Qt.Key.Key_Z, control)
+        QTest.keyClick(canvas, Qt.Key.Key_Y, control)
+        viewer._do_undo.assert_called_once_with()
+        viewer._do_redo.assert_called_once_with()
+        self.assertEqual(clipboard.text(), selected)
+
+        # The command line open: Ctrl+C is the Viewer's own copy of the command, the selection left as it is.
+        viewer.console_mode = True
+        with mock.patch("builtins.print"):
+            QTest.keyClick(canvas, Qt.Key.Key_C, control)
+        self.assertEqual(clipboard.text(), "alignment x")
+        self.assertIn("C", received)
+        self.assertEqual(field.selectedText(), selected)
+
+        # Closed again: the card's.
+        viewer.console_mode = False
+        QTest.keyClick(canvas, Qt.Key.Key_C, control)
+        self.assertEqual(clipboard.text(), selected)
+
+        # Nothing selected: the Viewer's key handler gets the key, and nothing is copied.
+        field.deselect()
+        received.clear()
+        clipboard.setText("before")
+        QTest.keyClick(canvas, Qt.Key.Key_C, control)
+        self.assertIn("C", received)
+        self.assertEqual(clipboard.text(), "before")
 
     def test_the_info_card_costs_nothing_while_closed_and_no_edge_work_while_open(self):
         viewer = self.make_card_viewer(edges=200000, nodes=5)

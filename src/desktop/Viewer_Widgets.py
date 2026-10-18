@@ -25,7 +25,11 @@
   Width box and the sidebar work as usual while it is open: it closes only
   by its × or by the button again, never by a click elsewhere, and it never
   takes the keyboard, so [ENTER] still opens the command line. Mouse events
-  on the card stop at the card.
+  on the card stop at the card. The fields have no keyboard focus to receive
+  Copy and Select All, so the card hears those two keys on the canvas, which
+  has the keyboard, and answers them for the field that has the selection
+  (ControlsCard.eventFilter); every other key, and those two while the
+  command line is open, go on to the canvas as before.
 * The sidebar. SidebarPanel is the panel over the canvas's right edge, drawn
   as a card with round corners, SIDEBAR_INSET clear of the canvas's top,
   right and bottom edges. SidebarButton is one of its buttons: the icon at
@@ -48,11 +52,12 @@ import os
 import re
 
 from PySide6 import QtCore
-from PySide6.QtCore import QT_TRANSLATE_NOOP, QRect, QRectF, QSize, Qt, QUrl
+from PySide6.QtCore import QT_TRANSLATE_NOOP, QEvent, QRect, QRectF, QSize, Qt, QUrl
 from PySide6.QtGui import (
     QColor,
     QDesktopServices,
     QIcon,
+    QKeySequence,
     QPainter,
     QPalette,
     QPen,
@@ -144,17 +149,21 @@ class PathField(QLineEdit):
     """A path in a read-only field: it can be selected and copied, never takes the keyboard.
 
     The mouse selects (a drag, a double or triple click) and the right-click
-    menu copies, as in any field; Ctrl+C is not taken for it, since the
-    command line copies its own text with it. The field starts at the start of
-    its text, as the Config's fields do. The wheel over it scrolls a text too
-    long for the field, and the tooltip is the whole path, which may be
-    written in full when the field shows it with an alias, and then a note.
-    An empty field shows its placeholder, muted. A ``fixed`` field, one the
-    user cannot change, is drawn quieter (its "fixed" property, for the
-    card's stylesheet) but selects and copies the same.
+    menu copies, as in any field. The standard Copy and Select All keys reach
+    the field's selection through its card (ControlsCard.eventFilter), not
+    through the field, which never has the keyboard to receive them. The
+    field starts at the start of its text, as the Config's fields do. The
+    wheel over it scrolls a text too long for the field, and the tooltip is
+    the whole path, which may be written in full when the field shows it with
+    an alias, and then a note. An empty field shows its placeholder, muted. A
+    ``fixed`` field, one the user cannot change, is drawn quieter (its
+    "fixed" property, for the card's stylesheet) but selects and copies the
+    same. ``pressed`` is sent after every mouse press on the field.
     """
 
     WHEEL_STEP = 4   # characters a notch of the wheel scrolls
+
+    pressed = QtCore.Signal()
 
     def __init__(self, parent=None, *, fixed=False):
         super().__init__(parent)
@@ -167,6 +176,10 @@ class PathField(QLineEdit):
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._scroll = 0
         self.setPlaceholderText(QtCore.QCoreApplication.translate("ViewerControls", "None"))
+
+    def mousePressEvent(self, event):
+        super().mousePressEvent(event)
+        self.pressed.emit()
 
     def show_path(self, path, shown=None, note=None):
         """Show ``shown`` (the path itself when there is none) from its start; the tooltip is the path, then ``note``."""
@@ -223,6 +236,20 @@ class ControlsCard(QWidget):
     none reaches the canvas, and nothing in it takes the keyboard. place() puts it above
     the anchor inside area, a function returning the rectangle, in the
     canvas's pixels, it must stay in; a card taller than the room scrolls.
+
+    The standard Copy key (QKeySequence.Copy: Ctrl+C, or Cmd+C on macOS)
+    copies the selected text of whichever path field has a selection, and
+    Select All selects all of the field last clicked or selected in. The
+    fields cannot take those keys themselves, having no focus, and a QShortcut
+    would take them from the canvas, whose command line copies its own text
+    with Copy. So the card listens, through an event filter on its parent, to
+    the key presses the canvas receives. It consumes a Copy only when a field
+    has a selection, and a Select All only when a field has been clicked in;
+    every other key, and those two when there is nothing for them to do or
+    when ``command_line_open`` (a function returning whether the command line
+    is being typed in) says it is open, go on to the canvas unchanged. Only one
+    field shows a selection at a time, as in a window, where only the field
+    with the keyboard does: selecting in one clears the others.
     """
 
     PAD = 14          # inside the card
@@ -243,17 +270,19 @@ class ControlsCard(QWidget):
     SHADOW = 8
 
     def __init__(self, title, text, anchor=None, parent=None, *, session=None, controls_title=None,
-                 area=None, command=None):
+                 area=None, command=None, command_line_open=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsCard")
         self.anchor = anchor
         self.session = session
         self.area = area
         self.command = command
+        self.command_line_open = command_line_open
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setMouseTracking(True)
         self.setAccessibleName(title)
         self.rows = controls_rows(text)
+        self._current = None   # the field Select All selects in: the last one clicked or selected in
         self.path_fields = {}
         self.pick_buttons = {}
         self.file_labels = {}
@@ -367,6 +396,10 @@ class ControlsCard(QWidget):
         if session is not None:
             self.refresh()
         self.fit(1 << 16, 1 << 16)
+        if parent is not None:
+            # The key presses the canvas receives, for Copy and Select All (eventFilter); the filter
+            # ends with the card, as Qt keeps a filter by pointer.
+            parent.installEventFilter(self)
 
     def _session_section(self):
         """The nodes and edges on one line, and a row for each file: label, path field, and for a file that can be changed a pick button."""
@@ -406,6 +439,8 @@ class ControlsCard(QWidget):
             label = QLabel(QtCore.QCoreApplication.translate("ViewerControls", label_text))
             label.setObjectName("controlsLabel")
             field = PathField(fixed=not changeable)
+            field.pressed.connect(lambda field=field: self._field_touched(field))
+            field.selectionChanged.connect(lambda field=field: self._field_selected(field))
             self.file_labels[key], self.path_fields[key] = label, field
             self._paths[key] = None
             grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
@@ -556,6 +591,60 @@ class ControlsCard(QWidget):
         if host is not None:
             host.setFocus()
         return True
+
+    # ---- the keyboard: Copy and Select All for the path fields ----
+
+    def _field_touched(self, field):
+        """A mouse press on ``field``: Select All now selects in it."""
+        self._current = field
+
+    def _field_selected(self, field):
+        """``field``'s selection changed: when it holds one, it is the only field that does."""
+        if not field.hasSelectedText():
+            return
+        self._current = field
+        for other in self.path_fields.values():
+            if other is not field and other.hasSelectedText():
+                other.deselect()
+
+    def selected_field(self):
+        """The path field with a selection, or None when none has one."""
+        fields = (self._current, *self.path_fields.values())
+        return next((field for field in fields if field is not None and field.hasSelectedText()), None)
+
+    def copy_selection(self):
+        """Copy the selected text of the field that has a selection, as its right-click menu does; returns whether one was copied."""
+        field = self.selected_field()
+        if field is None:
+            return False
+        field.copy()
+        return True
+
+    def select_all(self):
+        """Select all the text of the field last clicked or selected in; returns whether it had any."""
+        field = self._current
+        if field is None or not field.text():
+            return False
+        field.selectAll()
+        return True
+
+    def eventFilter(self, watched, event):
+        """Answer Copy and Select All, which the canvas receives since no field has the keyboard.
+
+        Only a key press that matches the standard key (QKeySequence.Copy,
+        QKeySequence.SelectAll), when the card is open and the command line is
+        not being typed in, and the card has something to do with it, is
+        consumed; everything else returns False and reaches the canvas as it
+        did before the card was there.
+        """
+        if (event.type() == QEvent.Type.KeyPress and watched is self.parentWidget()
+                and not self.isHidden()
+                and not (self.command_line_open is not None and self.command_line_open())):
+            if event.matches(QKeySequence.StandardKey.Copy):
+                return self.copy_selection()
+            if event.matches(QKeySequence.StandardKey.SelectAll):
+                return self.select_all()
+        return False
 
     def show_command_list_availability(self):
         """Enable the command list's link when its page is there, else grey it with the reason."""
@@ -718,8 +807,8 @@ class ControlsButton(QPushButton):
 
     title is the button's tooltip and the card's accessible name, which the
     card does not show; text the Viewer's list of actions, headed
-    controls_title next to the session. session, area and command
-    are the card's (ControlsCard). The card is a child of host, the
+    controls_title next to the session. session, area, command and
+    command_line_open are the card's (ControlsCard). The card is a child of host, the
     canvas, which is the button's parent by default. A click while the card
     is open closes it; so does its ×, and nothing else does.
     """
@@ -727,7 +816,7 @@ class ControlsButton(QPushButton):
     SIZE = 28   # as tall as a field
 
     def __init__(self, title, text, parent=None, *, host=None, session=None, controls_title=None,
-                 area=None, command=None):
+                 area=None, command=None, command_line_open=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsButton")
         self.title = title
@@ -737,6 +826,7 @@ class ControlsButton(QPushButton):
         self.controls_title = controls_title
         self.area = area
         self.command = command
+        self.command_line_open = command_line_open
         self.card = None
         self.setIcon(studio_icon("info", TOKENS["text_muted"]))
         self.setIconSize(QSize(16, 16))
@@ -777,7 +867,8 @@ class ControlsButton(QPushButton):
         host = self.host or self.parentWidget() or self.window()
         self.card = ControlsCard(self.title, self.text_source, anchor=self, parent=host,
                                  session=self.session, controls_title=self.controls_title,
-                                 area=self.area, command=self.command)
+                                 area=self.area, command=self.command,
+                                 command_line_open=self.command_line_open)
         return self.card.open()
 
     def refresh_card(self):

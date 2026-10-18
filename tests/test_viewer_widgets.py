@@ -36,9 +36,12 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtCore import QCoreApplication, QPoint, QPointF, QRect, QSize, Qt, QTranslator  # noqa: E402
+from PySide6.QtCore import (  # noqa: E402
+    QCoreApplication, QKeyCombination, QPoint, QPointF, QRect, QSize, Qt, QTranslator,
+)
 from PySide6.QtGui import (  # noqa: E402
-    QColor, QContextMenuEvent, QFontMetrics, QGuiApplication, QImage, QPainter, QRegion, QShortcut, QWheelEvent,
+    QColor, QContextMenuEvent, QFontMetrics, QGuiApplication, QImage, QKeySequence, QPainter, QRegion, QShortcut,
+    QWheelEvent,
 )
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget  # noqa: E402
@@ -123,11 +126,18 @@ class ControlsRowsTests(unittest.TestCase):
 
 
 class RecordingCanvas(QWidget):
-    """Stands in for the VisPy canvas the card sits on: it keeps every mouse and key event it is sent."""
+    """Stands in for the VisPy canvas the card sits on: it keeps every mouse and key event it is sent.
+
+    ``keys`` are the Qt keys pressed on it, and ``on_copy``, when set, is
+    called for each Copy key press it receives, as the Viewer's command line
+    copies its own text when it is open.
+    """
 
     def __init__(self):
         super().__init__()
         self.seen = []
+        self.keys = []
+        self.on_copy = None
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
@@ -154,7 +164,29 @@ class RecordingCanvas(QWidget):
         self._keep("context", event)
 
     def keyPressEvent(self, event):
+        self.keys.append(event.key())
+        if self.on_copy is not None and event.matches(QKeySequence.StandardKey.Copy):
+            self.on_copy()
         self._keep("key", event)
+
+
+CTRL = Qt.KeyboardModifier.ControlModifier
+NO_MODIFIER = Qt.KeyboardModifier.NoModifier
+
+
+def chords(standard_key):
+    """Every key chord the platform binds to a standard key, as (key, modifiers).
+
+    For Copy that is Ctrl+C (Qt's Control is the Command key on macOS), the
+    Ctrl+Insert of Windows and Linux, and a Copy key where there is one.
+    """
+    return [(sequence[0].key(), sequence[0].keyboardModifiers())
+            for sequence in QKeySequence.keyBindings(standard_key)]
+
+
+def chord_name(chord):
+    """A key chord as text, for a failure's message."""
+    return QKeySequence(QKeyCombination(chord[1], chord[0])).toString()
 
 
 def send_wheel(widget, delta=-120, position=None):
@@ -245,6 +277,8 @@ class ControlsCardTests(unittest.TestCase):
         }
         self.session_calls = 0
         self.area = None
+        # Whether the Viewer's command line is being typed in, which the card asks when a key comes.
+        self.command_line_open = False
         # What the pick buttons type; no test runs a command or opens a dialog.
         self.command = mock.Mock()
         # No click in these tests may open a real browser.
@@ -259,7 +293,7 @@ class ControlsCardTests(unittest.TestCase):
         self.button = ControlsButton(
             "Session and controls", shipped_actions(), self.host, host=self.host, session=self.read_session,
             controls_title="Mouse and keyboard controls", area=lambda: self.area or self.host.rect().adjusted(8, 8, -8, -8),
-            command=self.command)
+            command=self.command, command_line_open=lambda: self.command_line_open)
         self.button.move(20, 700)
         self.host.show()
         flush(self.app)
@@ -281,6 +315,24 @@ class ControlsCardTests(unittest.TestCase):
 
     def card_rect_in_host(self, card):
         return card.card_rect().translated(card.pos().toPointF())
+
+    def select_in(self, field):
+        """Select in a field with the mouse, as a user does: press near its start, drag to its end, release."""
+        y = field.height() // 2
+        QTest.mousePress(field, Qt.MouseButton.LeftButton, pos=QPoint(10, y))
+        QTest.mouseMove(field, QPoint(field.width() - 10, y))
+        QTest.mouseRelease(field, Qt.MouseButton.LeftButton, pos=QPoint(field.width() - 10, y))
+        self.assertTrue(field.hasSelectedText())
+
+    def press(self, key, modifiers=NO_MODIFIER):
+        """A key press as the keyboard delivers it, to the canvas that has the keyboard; returns the keys the canvas saw.
+
+        Not to a field: no field has the keyboard, and a key sent straight to
+        one is copied by the field itself, however the card is wired.
+        """
+        self.host.keys.clear()
+        QTest.keyClick(self.host, key, modifiers)
+        return list(self.host.keys)
 
     def test_the_button_names_the_card_and_leaves_the_keyboard_with_the_canvas(self):
         self.assertEqual(self.button.toolTip(), "Session and controls")
@@ -656,8 +708,180 @@ class ControlsCardTests(unittest.TestCase):
         copy.trigger()
         self.assertEqual(QGuiApplication.clipboard().text(), field.selectedText())
         menu.close()
-        # No shortcut is taken from the canvas: its command line copies its own text with Ctrl+C.
+        # No shortcut is taken from the canvas, whose command line copies its own text with Copy: the card
+        # answers the Copy key through the key presses the canvas receives (the tests below).
         self.assertEqual(card.findChildren(QShortcut), [])
+
+    def test_the_copy_keys_copy_the_selection_of_whichever_field_has_it(self):
+        card = self.open_card()
+        clipboard = QGuiApplication.clipboard()
+        copy_chords = chords(QKeySequence.StandardKey.Copy)
+        self.assertIn((Qt.Key.Key_C, CTRL), copy_chords)
+        command_line = mock.Mock()
+        self.host.on_copy = command_line
+        for key, _label in SESSION_FILES:
+            field = card.path_fields[key]
+            for chord in copy_chords:
+                with self.subTest(field=key, chord=chord_name(chord)):
+                    self.select_in(field)
+                    clipboard.setText("before")
+                    seen = self.press(*chord)
+                    # The selected text, as the right-click menu copies it.
+                    self.assertEqual(clipboard.text(), field.selectedText())
+                    self.assertNotEqual(clipboard.text(), "before")
+                    # The card took the Copy key: it never reached the canvas, so nothing there acted on it.
+                    self.assertNotIn(chord[0], seen)
+                    command_line.assert_not_called()
+                    # The selection stays, as after any copy.
+                    self.assertTrue(field.hasSelectedText())
+
+    def test_every_other_key_and_a_copy_with_nothing_selected_go_on_to_the_canvas(self):
+        card = self.open_card()
+        clipboard = QGuiApplication.clipboard()
+        field = card.path_fields["node_fasta"]
+        shift = Qt.KeyboardModifier.ShiftModifier
+        taken = set(chords(QKeySequence.StandardKey.Copy) + chords(QKeySequence.StandardKey.SelectAll))
+        others = [chord for chord in (
+            (Qt.Key.Key_Z, CTRL), (Qt.Key.Key_Y, CTRL),                   # undo and redo
+            (Qt.Key.Key_Return, NO_MODIFIER), (Qt.Key.Key_Enter, NO_MODIFIER), (Qt.Key.Key_Escape, NO_MODIFIER),
+            (Qt.Key.Key_Backspace, NO_MODIFIER), (Qt.Key.Key_Left, NO_MODIFIER), (Qt.Key.Key_Up, NO_MODIFIER),
+            (Qt.Key.Key_C, CTRL | shift), (Qt.Key.Key_C, NO_MODIFIER),
+            (Qt.Key.Key_A, NO_MODIFIER), (Qt.Key.Key_A, CTRL | shift),
+            (Qt.Key.Key_X, CTRL), (Qt.Key.Key_V, CTRL), (Qt.Key.Key_Insert, shift),
+        ) if chord not in taken]
+        self.assertGreaterEqual(len(others), 12)
+        self.select_in(field)
+        selected = field.selectedText()
+        clipboard.setText("before")
+        for key, modifiers in others:
+            with self.subTest(key=chord_name((key, modifiers))):
+                self.assertIn(key, self.press(key, modifiers))
+                self.assertEqual(clipboard.text(), "before")
+                self.assertEqual(field.selectedText(), selected)
+        # A Copy with nothing selected is the canvas's, as it was before the card could copy: its command line copies.
+        field.deselect()
+        self.assertIsNone(card.selected_field())
+        command_line = mock.Mock()
+        self.host.on_copy = command_line
+        copy_chords = chords(QKeySequence.StandardKey.Copy)
+        for chord in copy_chords:
+            self.assertIn(chord[0], self.press(*chord))
+        self.assertEqual(command_line.call_count, len(copy_chords))
+        self.assertEqual(clipboard.text(), "before")
+
+    def test_while_the_command_line_is_open_copy_and_select_all_stay_the_canvas(self):
+        card = self.open_card()
+        clipboard = QGuiApplication.clipboard()
+        command_line = mock.Mock(side_effect=lambda: clipboard.setText("the command"))
+        self.host.on_copy = command_line
+        field = card.path_fields["msa"]
+        self.select_in(field)
+        selected = field.selectedText()
+        self.command_line_open = True
+        clipboard.setText("before")
+        # Copy is the command line's own: it copies the command, and the field's selection is left as it is.
+        self.assertIn(Qt.Key.Key_C, self.press(Qt.Key.Key_C, CTRL))
+        command_line.assert_called_once_with()
+        self.assertEqual(clipboard.text(), "the command")
+        self.assertEqual(field.selectedText(), selected)
+        # Select All is not taken either, even in a field just clicked in.
+        QTest.mouseClick(card.path_fields["network_hdf5"], Qt.MouseButton.LeftButton)
+        for chord in chords(QKeySequence.StandardKey.SelectAll):
+            self.assertIn(chord[0], self.press(*chord))
+        self.assertFalse(card.path_fields["network_hdf5"].hasSelectedText())
+        # Once the command line is closed, Copy is the card's again.
+        self.command_line_open = False
+        command_line.reset_mock()
+        clipboard.setText("before")
+        self.assertNotIn(Qt.Key.Key_C, self.press(Qt.Key.Key_C, CTRL))
+        command_line.assert_not_called()
+        self.assertEqual(clipboard.text(), selected)
+
+    def test_select_all_selects_the_field_last_clicked_in_and_copy_then_copies_it(self):
+        card = self.open_card()
+        clipboard = QGuiApplication.clipboard()
+        first, second = card.path_fields["network_hdf5"], card.path_fields["msa"]
+        select_all_chords = chords(QKeySequence.StandardKey.SelectAll)
+        self.assertIn((Qt.Key.Key_A, CTRL), select_all_chords)
+        # No field clicked in yet: Select All has nowhere to go, so it is the canvas's.
+        for chord in select_all_chords:
+            self.assertIn(chord[0], self.press(*chord))
+        self.assertIsNone(card.selected_field())
+        for chord in select_all_chords:
+            for field, other in ((first, second), (second, first)):
+                with self.subTest(chord=chord_name(chord), field=field.text()):
+                    self.select_in(other)
+                    # A plain click makes it the field Select All works on, and the other's selection stays.
+                    QTest.mouseClick(field, Qt.MouseButton.LeftButton)
+                    self.assertNotIn(chord[0], self.press(*chord))
+                    self.assertEqual(field.selectedText(), field.text())
+                    self.assertGreater(len(field.text()), 0)
+                    # Only one field shows a selection: the other's went when this one took it.
+                    self.assertFalse(other.hasSelectedText())
+                    # Copy then takes all of it.
+                    clipboard.setText("before")
+                    self.press(Qt.Key.Key_C, CTRL)
+                    self.assertEqual(clipboard.text(), field.text())
+                    field.deselect()
+        # A field with no text, the embedding not loaded, has nothing to select: the key goes on.
+        self.info["inputs"]["embedding"] = None
+        card.refresh()
+        empty = card.path_fields["embedding"]
+        self.assertEqual(empty.text(), "")
+        QTest.mouseClick(empty, Qt.MouseButton.LeftButton)
+        for chord in select_all_chords:
+            self.assertIn(chord[0], self.press(*chord))
+        self.assertIsNone(card.selected_field())
+
+    def test_only_one_field_shows_a_selection_and_copy_copies_that_one(self):
+        card = self.open_card()
+        clipboard = QGuiApplication.clipboard()
+        first, second = card.path_fields["node_fasta"], card.path_fields["embedding"]
+        self.select_in(first)
+        self.select_in(second)
+        self.assertFalse(first.hasSelectedText())
+        self.assertIs(card.selected_field(), second)
+        self.press(Qt.Key.Key_C, CTRL)
+        self.assertEqual(clipboard.text(), second.selectedText())
+        self.select_in(first)
+        self.assertFalse(second.hasSelectedText())
+        self.assertIs(card.selected_field(), first)
+        self.press(Qt.Key.Key_C, CTRL)
+        self.assertEqual(clipboard.text(), first.selectedText())
+        # A path that changes loses its selection, as a text that is replaced does, so nothing stale is copied.
+        self.info["inputs"]["node_fasta"] = str(self.files["node_fasta"].with_name("other.fasta"))
+        card.refresh()
+        self.assertFalse(first.hasSelectedText())
+        clipboard.setText("before")
+        self.assertIn(Qt.Key.Key_C, self.press(Qt.Key.Key_C, CTRL))
+        self.assertEqual(clipboard.text(), "before")
+
+    def test_a_card_that_is_closed_or_hidden_takes_no_key(self):
+        card = self.open_card()
+        clipboard = QGuiApplication.clipboard()
+        self.select_in(card.path_fields["node_fasta"])
+        card.hide()
+        clipboard.setText("before")
+        self.assertIn(Qt.Key.Key_C, self.press(Qt.Key.Key_C, CTRL))
+        self.assertEqual(clipboard.text(), "before")
+        card.show()
+        self.assertNotIn(Qt.Key.Key_C, self.press(Qt.Key.Key_C, CTRL))
+        self.assertNotEqual(clipboard.text(), "before")
+        # Closed by its cross: the card and its filter are gone, and the canvas has every key.
+        QTest.mouseClick(card.close_button, Qt.MouseButton.LeftButton)
+        flush(self.app)
+        self.assertFalse(self.button.card_is_open())
+        clipboard.setText("before")
+        for chord in chords(QKeySequence.StandardKey.Copy) + chords(QKeySequence.StandardKey.SelectAll):
+            self.assertIn(chord[0], self.press(*chord))
+        self.assertEqual(clipboard.text(), "before")
+
+    def test_the_button_hands_its_command_line_state_to_the_card(self):
+        card = self.open_card()
+        self.assertIs(card.command_line_open, self.button.command_line_open)
+        self.assertFalse(card.command_line_open())
+        self.command_line_open = True
+        self.assertTrue(card.command_line_open())
 
     def test_a_path_too_long_for_its_field_starts_at_its_start_and_scrolls_with_the_wheel(self):
         long_name = "x" * 120 + ".fasta"
