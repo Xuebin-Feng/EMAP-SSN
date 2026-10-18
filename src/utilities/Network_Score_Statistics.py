@@ -343,22 +343,82 @@ def run_pass(function, ranges, *, workers=None, cancelled=None, progress=None):
 # --- The Config window's statistics ---------------------------------------------------
 
 
-def report_thresholds(is_blast, min_score, max_score):
+# The most rows the report's threshold table has. A table is made for people to choose a cutoff
+# from; the steps it has always used (0.1, or 1 then 5 for E-value scores) give some 10 to 150
+# rows for real networks, and they are kept up to this many rows (scores up to 20 above the
+# lowest, or -log10(E) up to about 595). Scores that range further, from a network with lengths
+# of zero or with huge scores, would have hundreds of millions of rows, so the table takes the
+# smallest step of 1, 2 or 5 times a power of ten that fits.
+MAX_REPORT_ROWS = 200
+
+
+def _default_row_count(is_blast, min_score, max_score):
+    """How many rows the report's usual steps would make, counted without making them."""
+    if is_blast:
+        count = max(0, min(100, int(math.ceil(max_score))) + 1 - int(math.floor(min_score)))
+        if max_score > 100:
+            count += max(0, -((105 - (int(math.ceil(max_score)) + 5)) // 5))
+        return count
+    start_val = math.floor(min_score * 10) / 10.0
+    return int(math.ceil((float(max_score + 0.1) - start_val) / 0.1))
+
+
+def _nice_steps(smallest):
+    """1, 2, 5, 10, 20, 50, ... times a power of ten, as (digit, exponent), above ``smallest``."""
+    exponent = math.floor(math.log10(smallest))
+    while True:
+        for digit in (1, 2, 5):
+            if digit * 10.0 ** exponent > smallest * (1 + 1e-9):
+                yield digit, exponent
+        exponent += 1
+
+
+def _coarse_thresholds(is_blast, min_score, max_score, limit):
+    """Evenly spaced thresholds from just below the minimum to just above the maximum, in at most ``limit`` rows.
+
+    The step is 1, 2 or 5 times a power of ten; each threshold is the float64 nearest to its
+    decimal value (E-value scores take whole numbers, as the usual steps do).
+    """
+    low, high = float(min_score), float(max_score)
+    for digit, exponent in _nice_steps(1.0 if is_blast else 0.1):
+        if is_blast and exponent < 0:
+            continue
+        step = digit * 10.0 ** exponent
+        first = math.floor(low / step)
+        last = math.ceil((high + step) / step) - 1  # the thresholds below high + step, as np.arange makes
+        if last - first + 1 > limit:
+            continue
+        indices = np.arange(first, last + 1, dtype=np.int64) * digit
+        if is_blast:
+            return indices * np.int64(10 ** exponent)
+        return indices / 10.0 ** -exponent if exponent < 0 else indices * 10.0 ** exponent
+    raise ValueError("No threshold table fits these scores.")
+
+
+def report_thresholds(is_blast, min_score, max_score, limit=MAX_REPORT_ROWS):
     """The thresholds the report lists. min_score and max_score are numpy float32 scalars.
 
-    The expressions are the ones the report always used; they stay on numpy scalars
-    because ``min_score * 10`` and ``max_score + 0.1`` follow numpy's float32 rules.
+    The expressions are the ones the report always used, which stay on numpy scalars because
+    ``min_score * 10`` and ``max_score + 0.1`` follow numpy's float32 rules; they give the table
+    whenever it has at most ``limit`` rows. A wider range gets coarser steps instead (see
+    MAX_REPORT_ROWS).
     """
-    if is_blast:
-        start_val = int(math.floor(min_score))
-        limit_step_1 = min(100, int(math.ceil(max_score)))
-        thresh_low = np.arange(start_val, limit_step_1 + 1, 1)
-        if max_score > 100:
-            thresh_high = np.arange(105, int(math.ceil(max_score)) + 5, 5)
-            return np.concatenate([thresh_low, thresh_high])
-        return thresh_low
-    start_val = math.floor(min_score * 10) / 10.0
-    return np.arange(start_val, max_score + 0.1, 0.1)
+    if not (math.isfinite(float(min_score)) and math.isfinite(float(max_score))):
+        raise ValueError("The scores are not all finite, so no threshold table can be made.")
+    if _default_row_count(is_blast, min_score, max_score) <= limit:
+        if is_blast:
+            start_val = int(math.floor(min_score))
+            limit_step_1 = min(100, int(math.ceil(max_score)))
+            thresh_low = np.arange(start_val, limit_step_1 + 1, 1)
+            if max_score > 100:
+                thresh_high = np.arange(105, int(math.ceil(max_score)) + 5, 5)
+                return np.concatenate([thresh_low, thresh_high])
+            return thresh_low
+        start_val = math.floor(min_score * 10) / 10.0
+        thresholds = np.arange(start_val, max_score + 0.1, 0.1)
+        if len(thresholds) <= limit:
+            return thresholds
+    return _coarse_thresholds(is_blast, min_score, max_score, limit)
 
 
 class ScoreStatistics:

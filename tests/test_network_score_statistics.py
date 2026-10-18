@@ -43,8 +43,11 @@ from utilities import Network_Score_Statistics as stats  # noqa: E402
 # --- The code as it was, frozen ---------------------------------------------------------
 
 
-def legacy_statistics_report(network_path, fasta_path, score_mode, norm_mode):
-    """ConfigGUI.run_statistics' numbers, from whole columns, as at 85bb43e. None: no edges."""
+def legacy_statistics_report(network_path, fasta_path, score_mode, norm_mode, keep_scores=False):
+    """ConfigGUI.run_statistics' numbers, from whole columns, as at 85bb43e. None: no edges.
+
+    keep_scores adds the sorted scores under "_sorted_scores", for tests of rows the old code made but the new one caps.
+    """
     from Bio import SeqIO
 
     with h5py.File(network_path, "r") as hf:
@@ -145,7 +148,7 @@ def legacy_statistics_report(network_path, fasta_path, score_mode, norm_mode):
         pct = (count / theoretical_max_edges) * 100.0 if theoretical_max_edges > 0 else 0
         value = f"{int(thresh)}" if is_blast else f"{thresh:.1f}"
         rows.append((value, f"{count}", f"{pct:.2f}%"))
-    return {
+    report = {
         "model": metadata.model_name,
         "fasta": os.path.basename(fasta_path),
         "nodes": int(total_nodes),
@@ -159,6 +162,9 @@ def legacy_statistics_report(network_path, fasta_path, score_mode, norm_mode):
         "mean": float(avg_score),
         "rows": rows,
     }
+    if keep_scores:
+        report["_sorted_scores"] = sorted_scores
+    return report
 
 
 def new_statistics_report(network_path, fasta_path, score_mode, norm_mode, *, workers, chunk_edges):
@@ -469,7 +475,10 @@ class ChunkedStatisticsAreExact(unittest.TestCase):
         if old is None:
             return
         for key in old:
-            if key == "mean":
+            if key in ("mean", "_sorted_scores"):
+                continue
+            if key == "rows" and len(old[key]) > ROW_CAP:
+                self.assert_capped_rows(label, old["_sorted_scores"], new[key])
                 continue
             self.assertEqual(old[key], new[key], f"{label}: {key}")
         if mean_exact:
@@ -478,14 +487,25 @@ class ChunkedStatisticsAreExact(unittest.TestCase):
             self.assertLess(abs(old["mean"] - new["mean"]), 1e-6 * max(1.0, abs(old["mean"])), label)
             self.assertEqual(f"{old['mean']:.4f}", f"{new['mean']:.4f}", label)
 
+    def assert_capped_rows(self, label, sorted_scores, rows):
+        """The old code made more rows than the table now has: the new rows are fewer, and every count is right."""
+        self.assertLessEqual(len(rows), ROW_CAP, label)
+        scores = sorted_scores.astype(np.float64)
+        for value, shown, _percent in rows:
+            self.assertEqual(int(shown), int(np.count_nonzero(scores >= float(value))), f"{label}: row {value}")
+
     def test_every_case_at_every_chunk_size_and_worker_count(self):
         # 1_000_000 reads each network in one chunk; 997 and 64 cut it in many odd pieces.
+        capped = 0
         for label, path, fasta, score, norm in self.networks.cases:
-            old = legacy_statistics_report(path, str(fasta), score, norm)
+            old = legacy_statistics_report(path, str(fasta), score, norm, keep_scores=True)
+            capped += old is not None and len(old["rows"]) > ROW_CAP
             for chunk, workers in ((1_000_000, 1), (997, 1), (64, 4), (997, 3)):
                 with self.subTest(case=label, chunk=chunk, workers=workers):
                     new = new_statistics_report(path, str(fasta), score, norm, workers=workers, chunk_edges=chunk)
                     self.assert_same(label, old, new)
+        # Some cases make more rows than the table now has, so the capped branch is exercised.
+        self.assertGreater(capped, 3)
 
     def test_the_cases_really_put_scores_on_the_threshold_grid(self):
         # The tie networks must be able to tell a threshold rounded to the nearest float32 from one
@@ -742,6 +762,137 @@ class McpSummaryIsUnchanged(unittest.TestCase):
                 mcp_statistics.summarize_network(str(path))
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaisesRegex(IndexError, "exceed the header count"):
                 legacy_summarize_network(str(path))
+
+
+def legacy_thresholds(is_blast, min_score, max_score):
+    """The threshold list the report always made, with no limit on its length."""
+    if is_blast:
+        start_val = int(math.floor(min_score))
+        limit_step_1 = min(100, int(math.ceil(max_score)))
+        thresh_low = np.arange(start_val, limit_step_1 + 1, 1)
+        if max_score > 100:
+            thresh_high = np.arange(105, int(math.ceil(max_score)) + 5, 5)
+            return np.concatenate([thresh_low, thresh_high])
+        return thresh_low
+    start_val = math.floor(min_score * 10) / 10.0
+    return np.arange(start_val, max_score + 0.1, 0.1)
+
+
+# The table's limit, written out so a change to it is a decision: 200 keeps every usual table
+# (a few dozen rows for alignment scores, about 140 for E-values) and fits the report panel.
+ROW_CAP = 200
+
+
+def is_nice(step):
+    """Whether step is 1, 2 or 5 times a power of ten."""
+    digit = step / 10.0 ** math.floor(math.log10(step))
+    return any(abs(digit - wanted) < 1e-6 for wanted in (1.0, 2.0, 5.0))
+
+
+class ThresholdTableTests(unittest.TestCase):
+    """The report's threshold table has at most MAX_REPORT_ROWS rows, and its usual rows when that is enough."""
+
+    def test_the_limit_is_the_two_hundred_rows_the_report_panel_shows_well(self):
+        self.assertEqual(stats.MAX_REPORT_ROWS, ROW_CAP)
+
+    def table(self, is_blast, low, high):
+        return stats.report_thresholds(is_blast, np.float32(low), np.float32(high))
+
+    def test_tables_that_fit_are_exactly_what_they_always_were(self):
+        rng = np.random.default_rng(6)
+        cases = [(False, 0.05, 0.936), (False, 0.0, 1.0), (False, -1.2, 0.95), (False, 0.3, 19.7), (True, 0.0, 300.0),
+                 (True, 3.7, 120.2), (True, -5.0, 80.0), (True, 0.0, 100.0), (True, 0.0, 100.5), (True, 50.0, 594.0)]
+        cases += [(False, float(lo), float(lo + width)) for lo, width in zip(rng.uniform(-3, 3, 60), rng.uniform(0.0, 19.9, 60))]
+        cases += [(True, float(lo), float(lo + width)) for lo, width in zip(rng.uniform(-10, 80, 60), rng.uniform(0.0, 520, 60))]
+        fitted = 0
+        for is_blast, low, high in cases:
+            expected = legacy_thresholds(is_blast, np.float32(low), np.float32(high))
+            if len(expected) > ROW_CAP:
+                continue
+            fitted += 1
+            with self.subTest(blast=is_blast, low=low, high=high):
+                got = self.table(is_blast, low, high)
+                self.assertEqual(got.dtype, expected.dtype)
+                self.assertEqual(got.tolist(), expected.tolist())
+        self.assertGreater(fitted, 100)
+
+    def test_the_usual_steps_hold_up_to_the_limit_and_no_further(self):
+        # 200 rows of 0.1 reach 19.9 above the lowest; a table to 20.0 would have 201.
+        self.assertEqual(len(self.table(False, 0.0, 19.8)), 199)
+        self.assertEqual(len(legacy_thresholds(False, np.float32(0.0), np.float32(20.0))), 201)
+        self.assertLessEqual(len(self.table(False, 0.0, 20.0)), ROW_CAP)
+        self.assertEqual(len(self.table(True, 0.0, 595.0)), ROW_CAP)
+        self.assertLessEqual(len(self.table(True, 0.0, 600.0)), ROW_CAP)
+
+    def test_a_wide_range_gets_the_smallest_nice_step_that_fits(self):
+        for is_blast, low, high in ((False, 0.0, 5000.0), (False, -3.0, 2.5e4), (False, 0.05, 3.0e7), (False, -5.0e5, 1.2e6),
+                                    (True, 0.0, 2000.0), (True, 2.0, 1.0e9), (True, -40.0, 9.0e3)):
+            with self.subTest(blast=is_blast, low=low, high=high):
+                table = self.table(is_blast, low, high)
+                self.assertLessEqual(len(table), ROW_CAP)
+                steps = np.diff(table.astype(np.float64))
+                step = float(steps[0])
+                self.assertTrue(np.allclose(steps, step, rtol=1e-9))
+                self.assertTrue(is_nice(step), step)
+                # from just below the minimum to just above the maximum
+                low32, high32 = float(np.float32(low)), float(np.float32(high))
+                self.assertLessEqual(float(table[0]), low32)
+                self.assertGreater(float(table[0]) + step, low32 - 1e-9)
+                # the last threshold reaches the maximum, as the usual table's does (its count may be 0)
+                self.assertGreaterEqual(float(table[-1]), high32 - 1e-9 * max(1.0, abs(high32)))
+                self.assertLess(float(table[-1]), high32 + step)
+                # the next smaller nice step would not fit
+                for candidate in (step / 2.5, step / 2.0, step / 5.0 * 2.0):
+                    if candidate > 0.1 * (1 + 1e-9) and is_nice(candidate) and not (is_blast and candidate < 1):
+                        rows = math.ceil((high32 + candidate) / candidate) - math.floor(low32 / candidate)
+                        self.assertGreater(rows, ROW_CAP)
+                if is_blast:
+                    self.assertEqual(table.dtype, np.int64)
+
+    def test_the_decimal_steps_are_the_floats_nearest_the_decimals(self):
+        table = self.table(False, 0.0, 30.0)  # 0.2 apart
+        self.assertEqual(table.tolist(), [round(index * 0.2, 1) for index in range(len(table))])
+        self.assertIn(0.6, table.tolist())  # not 0.6000000000000001
+
+    def test_scores_that_are_not_finite_are_refused(self):
+        for bad in (np.inf, -np.inf, np.nan):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, "not all finite"):
+                stats.report_thresholds(False, np.float32(0.0), np.float32(bad))
+
+    def test_the_report_of_a_network_with_huge_scores_stays_short_and_counts_right(self):
+        rng = np.random.default_rng(12)
+        with tempfile.TemporaryDirectory() as folder:
+            for blast, top in ((False, 2.0e4), (True, 5000.0)):
+                count, nodes = 3_000, 80
+                first = rng.integers(0, nodes - 1, size=count)
+                second = rng.integers(first + 1, nodes)
+                scores = (rng.random(count) ** 3 * top).astype(np.float32)
+                scores[0] = top
+                headers = [f"n{index}_x" for index in range(nodes)]
+                path = pathlib.Path(folder) / ("blast.h5" if blast else "aln.h5")
+                if blast:
+                    write_network(path, headers, (first, second), {"score": scores}, blast=True)
+                else:
+                    write_network(path, headers, (first, second),
+                                  {"g_score": scores, "g_len": np.ones(count), "l_score": scores, "l_len": np.ones(count)},
+                                  seq_lens=np.ones(nodes))
+                fasta = path.with_suffix(".fasta")
+                write_fasta(fasta, headers, range(nodes))
+                tracemalloc.start()
+                try:
+                    report = new_statistics_report(path, str(fasta), "global", "alignment_length", workers=2, chunk_edges=700)
+                    peak = tracemalloc.get_traced_memory()[1]
+                finally:
+                    tracemalloc.stop()
+                with self.subTest(blast=blast):
+                    rows = report["rows"]
+                    self.assertLessEqual(len(rows), ROW_CAP)
+                    self.assertLess(peak, 20_000_000)
+                    counts = [int(row[1]) for row in rows]
+                    self.assertEqual(counts[0], count)
+                    self.assertEqual(counts, sorted(counts, reverse=True))
+                    for value, shown, _percent in rows:
+                        self.assertEqual(int(shown), int(np.count_nonzero(scores.astype(np.float64) >= float(value))))
 
 
 class MemoryBudgets(unittest.TestCase):
