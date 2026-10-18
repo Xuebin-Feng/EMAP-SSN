@@ -160,7 +160,11 @@ still change before version 1.0.0.
   unchanged; the average is now summed in double precision, so its last digit can
   differ. The MCP `network_statistics` action uses the same code: its report is
   unchanged, and a network of 974 million edges takes about 19 s and under 1 GB, within
-  its 50 s limit (it needed about 55 GB and minutes before).
+  its 50 s limit (it needed about 55 GB and minutes before). The report's threshold
+  table has at most 200 rows: a network whose scores span a very wide range, such as
+  one with zero alignment lengths, gets a coarser step (1, 2 or 5 × a power of ten)
+  instead of building hundreds of millions of rows and running out of memory. Ordinary
+  tables are unchanged.
 
 ### Fixed
 
