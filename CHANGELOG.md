@@ -170,6 +170,16 @@ still change before version 1.0.0.
   inline code with its language name in front: the Sanitize Sequences page's FASTA
   structure read "text >Sequence_Header_1 … MKVLLVSDA…". Such blocks now show as code
   blocks with their lines, in English and Chinese.
+- Embedding SSEARCH's hardware benchmark could pick a plan about twice as slow as the
+  best one. Timing the CPU pool started its workers one after another on Windows (about
+  2.3 s each, so 20 s or more for eight), which used up the 5 s tuning budget before any
+  other GPU plan was tried; and a tiled GPU plan was timed on a few targets from every
+  tile block, which made it look 2.5 to 34 times slower than it runs. Now the pool trial
+  starts its workers together (about 3 s), a tiled plan is warmed up and timed on
+  targets from one tile block, and each GPU's likely fastest plans (tiled with 1 and 2
+  lanes on CUDA) are measured before the CPU pool, even when the budget is spent. On a
+  44,000-target test the benchmark now picks the tiled plan: 38 s in all, against
+  about 100 s before. The tool's help describes the benchmark as it now works.
 
 ## [0.4.0] - 2026-10-16
 
