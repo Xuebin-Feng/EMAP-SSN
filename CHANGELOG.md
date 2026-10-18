@@ -119,8 +119,9 @@ still change before version 1.0.0.
   A status message replaces the panel's corner ⓘ with its own icon, and the Consistency
   Check report shows its worst result there. The panel keeps one height, set when the
   window opens (seven and a half lines of its font), and scrolls a longer tip or report,
-  so the fields above it no longer move as the tips change. Code shows as chips with
-  rounded corners.
+  so the fields above it no longer move as the tips change. Code shows as key caps like
+  the ones on the Viewer's ⓘ card (a white box with a thin border and rounded corners),
+  each with room of its own in the line, so a cap never covers the text beside it.
 - The Quick Start manual and the Command Reference share the look of the windows and the
   Viewer's web pages: their colours in light and dark, Noto Sans, cards, tabs, buttons and
   Lucide icons in place of every emoji, which a test now keeps out of the docs.
