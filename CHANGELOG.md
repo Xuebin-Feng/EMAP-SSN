@@ -181,6 +181,12 @@ still change before version 1.0.0.
   captures always draw the edges directly. It costs about 5 bytes per pixel of video
   memory (about 40 MB at 4K). If the picture can't be kept, the Viewer draws as before and
   says so at start-up; `SSN_EDGE_IMAGE_CACHE=0` turns it off.
+- Hovering in the Viewer recolours only the node it leaves and the node it reaches
+  instead of resending every node, and a network whose nodes all share one shape passes
+  that shape once. With 60,000 nodes a hover change costs about 2.4 ms instead of 12 ms,
+  and hovering through a dense view keeps 60 frames per second. Anything else that
+  changes the nodes still sends them all. If VisPy's marker buffer is not laid out as
+  expected, every hover sends all nodes as before.
 - Embedding SSEARCH's tiled GPU plan is 2.6 to 3.7 times faster with the same results,
   bit for bit: a reader thread prefetches the next targets from the HDF5 file while the
   GPU works, each block is uploaded once into one packed buffer, and each batch of targets
@@ -217,6 +223,12 @@ still change before version 1.0.0.
   inline code with its language name in front: the Sanitize Sequences page's FASTA
   structure read "text >Sequence_Header_1 … MKVLLVSDA…". Such blocks now show as code
   blocks with their lines, in English and Chinese.
+- Hovering in the Viewer often highlighted the wrong node where nodes overlap: it took
+  the node whose centre was nearest the cursor, even one covered by another, measured
+  every node as a circle of the configured size, and so missed the rims of large nodes
+  and other shapes. It now highlights the node drawn on top under the cursor, using each
+  node's own size, outline and shape at the display's scale, or, between nodes, the
+  topmost one drawn within 1 point of the cursor.
 - Embedding SSEARCH's hardware benchmark could pick a plan about twice as slow as the
   best one. Timing the CPU pool started its workers one after another on Windows (about
   2.3 s each, so 20 s or more for eight), which used up the 5 s tuning budget before any
