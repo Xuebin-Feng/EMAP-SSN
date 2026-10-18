@@ -182,6 +182,7 @@ from desktop.Viewer_State import (
 )
 from desktop.Viewer_Inspection import ViewerInspectionService
 from desktop.Viewer_Edges import ViewerEdges
+from desktop.Viewer_Markers import HoverMarkers, uniform_symbol
 from web_ui.Browser_Page import open_browser_page
 
 
@@ -2437,6 +2438,7 @@ class MainViewer:
             identify_connected=identify_connected
         )
         self._submitted_visible_node_order = draw_order.copy()
+        self._hover_markers = None
         if len(draw_order) == 0:
             self._submitted_marker_node_order = np.empty(0, dtype=np.int32)
             self._submitted_marker_ring_mask = np.empty(0, dtype=bool)
@@ -2479,13 +2481,23 @@ class MainViewer:
                 marker_edge_widths[ring_slots] = 0.0
                 marker_sizes[ring_slots] *= 2.0
             
+            # One name when every node has the same shape: VisPy looks a list
+            # up name by name in Python (3 ms at 60,000 nodes).
+            marker_shapes = shapes[marker_node_order]
+            symbol = uniform_symbol(marker_shapes)
             self.markers.set_data(
                 pos=self.pos[marker_node_order],
                 face_color=marker_face_colors,
                 edge_color=marker_edge_colors,
                 size=marker_sizes,
                 edge_width=marker_edge_widths,
-                symbol=shapes[marker_node_order].tolist()
+                symbol=marker_shapes.tolist() if symbol is None else symbol,
+            )
+            # What a hover then changes is two face colours (_show_hover_change).
+            self._hover_markers = HoverMarkers(
+                self, self.current_colors, sizes, shapes, (edge_colors, edge_widths),
+                identify_connected, self._left_click_node_indices(),
+                marker_node_order, marker_ring_mask,
             )
         self.markers.set_gl_state('translucent', depth_test=False)
 
@@ -3547,14 +3559,29 @@ class MainViewer:
                 node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
                 screen_dist = np.linalg.norm(node_screen_pos - event.pos)
             
+            previous = getattr(self, 'hovered_node_idx', None)
             if screen_dist < (cfg.NODE_SIZE / 1.5):
-                if getattr(self, 'hovered_node_idx', None) != nearest_idx:
+                if previous != nearest_idx:
                     self.hovered_node_idx = nearest_idx
-                    self.update_nodes()
+                    self._show_hover_change(previous)
             else:
-                if getattr(self, 'hovered_node_idx', None) is not None:
+                if previous is not None:
                     self.hovered_node_idx = None
-                    self.update_nodes()
+                    self._show_hover_change(previous)
+
+    def _show_hover_change(self, previous):
+        """Show hovered_node_idx, the hover having left node previous.
+
+        When nothing else has changed since update_nodes sent the markers,
+        only the two nodes' face colours are sent (desktop.Viewer_Markers);
+        otherwise every marker is, as update_nodes does for any other change.
+        """
+        hover = getattr(self, '_hover_markers', None)
+        if hover is not None and hover.apply(self, previous, self.hovered_node_idx):
+            self.canvas.update()
+            self._update_hud_elements()
+            return
+        self.update_nodes()
     
     def on_mouse_release(self, event):
         # ---> 1. MULTI-DRAG RELEASE <---
