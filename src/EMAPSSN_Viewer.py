@@ -174,7 +174,7 @@ from desktop.Desktop_App import (
 from desktop.Studio_Theme import TOKENS, set_role, studio_icon
 from desktop.Viewer_Zoom import SmoothWheelZoom
 from desktop.Viewer_Widgets import (
-    ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ThresholdSpinBox, ViewWidthBox,
+    ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ThresholdSpinBox, ZoomBox,
 )
 from desktop.Viewer_State import (
     prepare_network,
@@ -252,11 +252,11 @@ CLICK_STATUS_SEPARATOR = "  ·  "
 # enough that the button doesn't read as a mark on the number.
 SLIDER_INFO_GAP = 26
 # The slider row along the canvas's bottom, in px: the threshold slider from
-# the left, the View Width box at the right, level with it.
+# the left, the Zoom box at the right, level with it.
 SLIDER_ROW_HEIGHT = 45
 SLIDER_ROW_BOTTOM = 15
 SLIDER_ROW_LEFT = 20
-SLIDER_BOX_GAP = 20  # between the slider's end and the View Width box
+SLIDER_BOX_GAP = 20  # between the slider's end and the Zoom box
 # The info card over the canvas stays this far (px) from its left, right and
 # bottom edges, and starts this far down: clear of the command line and the
 # background-job status text under it.
@@ -803,7 +803,7 @@ class MainViewer:
             "background_job_status_gap": 8.0,
             "background_job_status_right_padding": 20.0,
 
-            # 4. Bottom-right status stack, above the View Width box (level with
+            # 4. Bottom-right status stack, above the Zoom box (level with
             #    the threshold slider), from bottom to top: Hidden Nodes, then
             #    the selected metadata property. The box's row and the two lines
             #    are evenly spaced, middle to middle, so each position is the
@@ -1061,9 +1061,10 @@ class MainViewer:
         print("\nViewer Ready. Press [ENTER] to type commands.")
 
     def _limit_camera_zoom(self):
-        """Keep zooming by the wheel or a pinch within the view widths the zoom
-        command keeps to (commands.zoom.view_width_limits): it stops at 0.5 wide
-        and at the nearest 100 that shows every node, wherever they are now."""
+        """Keep zooming by the wheel or a pinch within the zooms the zoom
+        command keeps to (commands.zoom.zoom_limits): it stops at 200000% and at
+        the zoom, rounded down to two figures, that shows every node, wherever
+        they are now."""
         original_zoom = self.view.camera.zoom
 
         def limited_zoom(factor, center=None):
@@ -1094,7 +1095,7 @@ class MainViewer:
 
     def _build_slider_overlay(self):
         """Set up the slider row over the canvas's bottom: the threshold slider from
-        the left, the controls' info button at its start, and the View Width box at the right."""
+        the left, the controls' info button at its start, and the Zoom box at the right."""
         # The overlay is a child of the native canvas.
         self.slider_overlay = QtWidgets.QWidget(self.canvas.native)
         self.slider_overlay.setObjectName("sliderOverlay")
@@ -1149,7 +1150,7 @@ class MainViewer:
         overlay_layout.addWidget(self.threshold_box)
         overlay_layout.addWidget(self.slider)
 
-        # The slider and the box take the window theme, the box in the View Width box's font.
+        # The slider and the box take the window theme, the box in the Zoom box's font.
         self.slider_overlay.setStyleSheet("""
             QWidget#sliderOverlay {
                 background: transparent;
@@ -1157,27 +1158,33 @@ class MainViewer:
             QDoubleSpinBox#thresholdBox { font-family: %(font)s; font-size: 12pt; }
         """ % {"font": UI_QSS_FONT_STACK})
 
-        # The view's width, to read and to set as `zoom` does, at the row's
+        # The view's zoom, to read and to set as `zoom` does, at the row's
         # right; its text keeps the HUD's text colour, as the slider's value does.
-        self.view_width_box = ViewWidthBox(translate("Viewer", "View Width: {width}"), self.canvas.native)
-        self.view_width_box.setStyleSheet("""
-            QWidget#viewWidthBox { background: transparent; }
-            QWidget#viewWidthBox QLabel {
+        from commands.zoom import ZOOM_100_PERCENT_WIDTH
+        self.zoom_box = ZoomBox(translate("Viewer", "Zoom: {zoom}"), self.canvas.native)
+        self.zoom_box.setToolTip(translate(
+            "Viewer",
+            "A bigger zoom is closer: 100% is a view {width} layout units wide. "
+            "Type a percentage, or use the arrows or the mouse wheel over the box.",
+        ).format(width=f"{ZOOM_100_PERCENT_WIDTH:g}"))
+        self.zoom_box.setStyleSheet("""
+            QWidget#zoomBox { background: transparent; }
+            QWidget#zoomBox QLabel {
                 font-family: %(font)s;
                 font-size: 12pt;
                 color: %(text_color)s;
                 background: transparent;
             }
-            QWidget#viewWidthBox QDoubleSpinBox { font-family: %(font)s; font-size: 12pt; }
+            QWidget#zoomBox QDoubleSpinBox { font-family: %(font)s; font-size: 12pt; }
         """ % {"font": UI_QSS_FONT_STACK, "text_color": cfg.TEXT_COLOR})
-        spin_box = self.view_width_box.spin_box
-        spin_box.valueChanged.connect(self._zoom_to_box_width)
+        spin_box = self.zoom_box.spin_box
+        spin_box.valueChanged.connect(self._zoom_to_box)
         spin_box.editingFinished.connect(self._return_keyboard_to_canvas)
         spin_box.dismissed.connect(self._return_keyboard_to_canvas)
 
         self.position_slider_overlay()
         self.slider_overlay.show()
-        self.view_width_box.show()
+        self.zoom_box.show()
 
     def _session_overview(self):
         """The counts and files the info card lists (ViewerInspectionService.session_overview)."""
@@ -1208,21 +1215,21 @@ class MainViewer:
         if button is not None:
             button.refresh_card()
 
-    def _zoom_to_box_width(self, width):
-        """Zoom to the width set in the View Width box, as `zoom` does (commands.zoom.set_view_width)."""
-        from commands.zoom import set_view_width
+    def _zoom_to_box(self, percent):
+        """Zoom to the percentage set in the Zoom box, as `zoom` does (commands.zoom.set_zoom)."""
+        from commands.zoom import set_zoom
         try:
-            set_view_width(self, width)
+            set_zoom(self, percent)
         except ValueError as error:
             print(error)
             self._show_click_status(error.args[0])
         self._return_keyboard_to_canvas()
-        # The box shows the width the view took, or kept.
+        # The box shows the zoom the view took, or kept.
         self._hud_timer.start()
 
     def _return_keyboard_to_canvas(self):
         """Give the keyboard back to the network once a box in the slider row is done with it, so [ENTER] opens the command line."""
-        if self.view_width_box.spin_box.hasFocus() or self.threshold_box.hasFocus():
+        if self.zoom_box.spin_box.hasFocus() or self.threshold_box.hasFocus():
             self.canvas.native.setFocus()
 
     def _build_main_window(self):
@@ -1326,11 +1333,11 @@ class MainViewer:
         return vispy_points_at_reference_dpi(cfg.TEXT_SIZE, self._canvas_dpi())
 
     def _status_hud_position(self, line_index, size=None):
-        """Return one position in the bottom-right HUD stack above the View Width box.
+        """Return one position in the bottom-right HUD stack above the Zoom box.
 
         Line 0 is Hidden Nodes, line 1 the selected metadata property. Each is
         the right end and middle of its line, a status_line_spacing step above
-        the line, or the View Width box's row, below it.
+        the line, or the Zoom box's row, below it.
         """
         if size is None:
             size = self.canvas.size
@@ -2139,12 +2146,12 @@ class MainViewer:
             self.broadcast_event({"type": "selection_changed", "indices": self.selected_indices})
     
     def position_slider_overlay(self):
-        """Lay out the slider row: the View Width box at the right, centred on
+        """Lay out the slider row: the Zoom box at the right, centred on
         the row, and the threshold slider in the room left of it."""
         if hasattr(self, 'slider_overlay') and hasattr(self, 'canvas'):
             canvas_w, canvas_h = self.canvas.size
             right = canvas_w - _sidebar_room(self) - self.hud_layout["status_x_offset"]
-            box = getattr(self, 'view_width_box', None)
+            box = getattr(self, 'zoom_box', None)
             box_room = 0
             if box is not None:
                 box.ensurePolished()  # Measured in the stylesheet's font.
@@ -2536,7 +2543,7 @@ class MainViewer:
         )
         self.background_job_status_text.visible = False
 
-        # The view's width shows in the View Width box, by the threshold slider
+        # The view's zoom shows in the Zoom box, by the threshold slider
         # (_build_slider_overlay); Hidden Nodes sits above it.
         self.hidden_text = scene.visuals.Text(
             text="", 
@@ -2925,11 +2932,13 @@ class MainViewer:
         effective_canvas_w = self.canvas.size[0] - _sidebar_room(self)
         effective_size = (effective_canvas_w, self.canvas.size[1])
         
-        # 1. The View Width box: the visible world width, and the limits zooms keep to
-        box = getattr(self, 'view_width_box', None)
+        # 1. The Zoom box: the view's zoom, and the limits zooms keep to
+        box = getattr(self, 'zoom_box', None)
         if box is not None:
-            from commands.zoom import view_width_limits
-            box.spin_box.show_width(self.view.camera.rect.width, *view_width_limits(self))
+            from commands.zoom import current_zoom, zoom_limits
+            zoom = current_zoom(self)
+            if zoom is not None:
+                box.spin_box.show_zoom(zoom, *zoom_limits(self))
 
         # 2. Update Hidden Nodes Indicator
         if hasattr(self, 'hidden_text') and hasattr(self, 'visible_mask'):

@@ -1,9 +1,10 @@
-"""The zoom command (commands/zoom.py): the view width it accepts and the camera
-rectangle it sets, and what it leaves alone when it refuses a width. The
-Viewer's view width keeps to limits, by the command, the View Width box, the
-wheel and a pinch alike: at least 0.5, and at most the nearest 100 that shows
-every node, hidden ones too, as the Viewer opens on them; that widest view
-follows the nodes as they move. The wheel zooms smoothly
+"""The zoom command (commands/zoom.py): the zoom, a percentage of a view
+ZOOM_100_PERCENT_WIDTH units wide, it accepts and the camera rectangle it sets,
+and what it leaves alone when it refuses a zoom. The Viewer's zoom keeps to
+limits, by the command, the Zoom box, the wheel and a pinch alike: at most
+200000% (a view 0.5 wide), and at least the zoom that shows every node, hidden
+ones too, as the Viewer opens on them, rounded down to two significant figures;
+that lowest zoom follows the nodes as they move. The wheel zooms smoothly
 (desktop/Viewer_Zoom.py): VisPy's amount a notch, played out over a few frames."""
 
 import io
@@ -64,10 +65,10 @@ def zoom_viewer(canvas_size=(200, 100), camera=None):
 
 
 class ZoomCommandTests(unittest.TestCase):
-    def run_zoom(self, width, canvas_size=(200, 100), camera=None):
+    def run_zoom(self, *words, canvas_size=(200, 100), camera=None):
         viewer = zoom_viewer(canvas_size, camera)
         with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
-            zoom_command.run(viewer, [width])
+            zoom_command.run(viewer, list(words))
         return viewer, succeeded, failed
 
     def assert_refused(self, viewer, succeeded, failed, message):
@@ -77,63 +78,130 @@ class ZoomCommandTests(unittest.TestCase):
         failed.assert_called_once()
         self.assertIn(message, failed.call_args.args[1])
 
-    def test_width_must_be_a_positive_finite_number(self):
+    def test_a_hundred_percent_is_a_fixed_width_of_layout_units(self):
+        # One named number says what 100% is; everything else follows from it.
+        self.assertEqual(zoom_command.ZOOM_100_PERCENT_WIDTH, 1000.0)
+        self.assertEqual(zoom_command.width_at_zoom(100.0), 1000.0)
+        self.assertEqual(zoom_command.width_at_zoom(200.0), 500.0)
+        self.assertEqual(zoom_command.zoom_percent(2000.0), 50.0)
+        # The narrowest view, 0.5 wide, is the highest zoom.
+        self.assertEqual(zoom_command.MAX_ZOOM_PERCENT, 200000.0)
+        with mock.patch.object(zoom_command, "ZOOM_100_PERCENT_WIDTH", 300.0):
+            self.assertEqual(zoom_command.width_at_zoom(100.0), 300.0)
+            self.assertEqual(zoom_command.zoom_percent(150.0), 200.0)
+
+    def test_the_zoom_must_be_a_positive_finite_number(self):
         # float() parses all of these; none of them gives a usable view.
-        for width in ("0", "-5", "nan", "inf", "-inf", "1e400"):
-            with self.subTest(width=width):
+        for zoom in ("0", "-5", "nan", "inf", "-inf", "1e400", "0%", "-5%"):
+            with self.subTest(zoom=zoom):
                 self.assert_refused(
-                    *self.run_zoom(width), "Zoom width must be a positive, finite number."
+                    *self.run_zoom(zoom), "Zoom must be a positive, finite percentage."
                 )
 
-    def test_text_width_is_refused(self):
-        self.assert_refused(*self.run_zoom("wide"), "Zoom width must be a valid number.")
+    def test_a_zoom_that_is_not_a_number_is_refused(self):
+        # A % sign comes once, after the number; nothing else is a number here.
+        message = "Zoom must be a number, with an optional % sign, as in zoom 200 or zoom 200%."
+        for words in (("wide",), ("200%%",), ("%",), ("%200",), ("20", "0"), ("200", "%", "%"),
+                      ("200", "300"), ("200", "wide"), ("1_0",), ("٢٠٠",), ("--5",)):
+            with self.subTest(words=words):
+                self.assert_refused(*self.run_zoom(*words), message)
+
+    def test_the_percent_sign_is_optional_and_may_stand_apart(self):
+        for words in (("200",), ("200%",), ("200", "%"), (" 200 % ",), ("2e2",), ("200.0%",)):
+            with self.subTest(words=words):
+                viewer, succeeded, failed = self.run_zoom(*words)
+                failed.assert_not_called()
+                self.assertEqual(viewer.view.camera.rect.width, 500.0)
+                self.assertEqual(succeeded.call_args.args[1], "Zoom set to 200%")
 
     def test_canvas_without_area_is_refused_without_dividing_by_zero(self):
         for canvas_size in ((200, 0), (0, 100)):
             with self.subTest(canvas_size=canvas_size):
                 self.assert_refused(
-                    *self.run_zoom("500", canvas_size), "The canvas has no visible area"
+                    *self.run_zoom("200", canvas_size=canvas_size), "The canvas has no visible area"
                 )
 
-    def test_width_that_overflows_the_view_range_is_refused(self):
-        # Finite, but a 1:3 canvas makes the view 3e308 high, which overflows.
+    def test_a_zoom_whose_width_overflows_the_view_range_is_refused(self):
+        # 1e-303% is 1e308 units wide: finite, but a 1:3 canvas makes the view 3e308 high, which overflows.
         self.assert_refused(
-            *self.run_zoom("1e308", canvas_size=(100, 300)), "Zoom width is too large"
+            *self.run_zoom("1e-303", canvas_size=(100, 300)), "Zoom is too low for the current view."
         )
+        # A zoom so low that its width is not even a float.
+        self.assert_refused(*self.run_zoom("1e-320"), "Zoom is too low for the current view.")
 
-    def test_widths_beyond_the_float32_scale_range_are_refused(self):
-        # 1e50 once made the camera's matrix singular after its rectangle had changed.
-        for width in ("1e50", "1e308"):
-            with self.subTest(width=width):
-                self.assert_refused(*self.run_zoom(width), "Zoom width is too large")
+    def test_zooms_beyond_the_float32_scale_range_are_refused(self):
+        # A view 1e50 wide once made the camera's matrix singular after its rectangle had changed.
+        for zoom in ("1e-47", "1e-305"):
+            with self.subTest(zoom=zoom):
+                self.assert_refused(*self.run_zoom(zoom), "Zoom is too low for the current view.")
 
-    def test_width_too_small_for_the_view_centre_is_refused(self):
+    def test_a_zoom_too_high_for_the_view_centre_is_refused(self):
         # Centred at (50, 25), a view under about 1e-3 units wide is not drawn to within a pixel.
-        self.assert_refused(*self.run_zoom("1e-14"), "Zoom width is too small")
+        self.assert_refused(*self.run_zoom("1e19"), "Zoom is too high to draw accurately")
 
-    def test_a_narrow_width_the_centre_can_hold_is_set_exactly(self):
-        # This viewer has no nodes, so no view width limits (ViewWidthLimitTests) apply.
-        viewer, succeeded, failed = self.run_zoom("0.01")
+    def test_a_high_zoom_the_centre_can_hold_is_set_exactly(self):
+        # This viewer has no nodes, so no zoom limits (ZoomLimitTests) apply: 0.01 units wide.
+        viewer, succeeded, failed = self.run_zoom("10000000")
 
         self.assertEqual(viewer.view.camera.rect.width, 0.01)
         self.assertEqual(viewer.view.camera.rect.height, 0.01 / 2.0)
         failed.assert_not_called()
-        self.assertEqual(succeeded.call_args.args[1], "Zoom snapped to View Width: 0.01")
+        self.assertEqual(succeeded.call_args.args[1], "Zoom set to 10000000%")
 
-    def test_width_sets_the_range_around_the_current_center(self):
-        viewer, succeeded, failed = self.run_zoom("500")
+    def test_zoom_sets_the_range_around_the_current_center(self):
+        viewer, succeeded, failed = self.run_zoom("200")
 
-        # 500 wide on a 2:1 canvas is 250 high, centered on (50, 25), with no margin added.
+        # 200% is 500 wide, on a 2:1 canvas 250 high, centered on (50, 25), with no margin added.
         self.assertEqual(
             viewer.view.camera.rect,
             SimpleNamespace(pos=(-200.0, -100.0), width=500.0, height=250.0),
         )
         viewer._hud_timer.start.assert_called_once_with()
         failed.assert_not_called()
-        self.assertEqual(succeeded.call_args.args[1], "Zoom snapped to View Width: 500.0")
+        self.assertEqual(succeeded.call_args.args[1], "Zoom set to 200%")
+
+    def test_the_success_report_gives_the_zoom_as_typed(self):
+        for text, shown in (("50", "50"), ("33.5%", "33.5"), ("0.25", "0.25"), ("1234567", "1234567"),
+                            ("0.00001", "0.00001")):
+            with self.subTest(text=text):
+                viewer = zoom_viewer()
+                with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
+                    zoom_command.run(viewer, [text])
+                failed.assert_not_called()
+                self.assertEqual(succeeded.call_args.args[1], f"Zoom set to {shown}%")
+
+    def test_help_explains_the_percentage_and_its_limits(self):
+        viewer = zoom_viewer()
+        with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()) as printed:
+            zoom_command.run(viewer, [])
+        failed.assert_not_called()
+        text = printed.getvalue()
+        self.assertIn("Usage: zoom <percent>", text)
+        self.assertIn("100% is a view 1000 layout units wide", text)
+        self.assertIn("200000%", text)
+        self.assertIn("zoom 200 ", text)
+        self.assertIn("zoom 50% ", text)
+        self.assertNotIn("width", text.split("Examples:")[1])
+
+    def test_agent_texts_state_the_same_hundred_percent(self):
+        # The command's metadata and the agent's prompt say what 100% is as the constant does.
+        from desktop.Command_Metadata import COMMAND_METADATA
+
+        width = f"{zoom_command.ZOOM_100_PERCENT_WIDTH:g}"
+        highest = f"{zoom_command.MAX_ZOOM_PERCENT:g}%"
+        description = next(
+            entry["description"] for entry in COMMAND_METADATA["zoom"]["arguments"] if entry["name"] == "percent"
+        )
+        self.assertIn(f"100% is a view {width} layout units wide", description)
+        self.assertIn(highest, description)
+        prompt = os.path.join(SRC_DIR, "resources", "agent", "system_prompt.md")
+        with open(prompt, encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertIn(f"100% is a view {width} viewer-coordinate units wide", text)
+        self.assertIn(f"up to {highest}", text)
 
     def test_a_camera_that_fails_to_apply_the_view_gets_its_previous_view_back(self):
-        viewer, succeeded, failed = self.run_zoom("500", camera=FakeCamera(fail_next=True))
+        viewer, succeeded, failed = self.run_zoom("200", camera=FakeCamera(fail_next=True))
 
         self.assertEqual(viewer.view.camera.rect, ORIGINAL_RECT)
         viewer._hud_timer.start.assert_not_called()
@@ -155,7 +223,7 @@ def network_viewer(positions=NETWORK, canvas_size=(1200, 800), camera=None):
     return viewer
 
 
-class ViewWidthLimitTests(unittest.TestCase):
+class ZoomLimitTests(unittest.TestCase):
     def test_the_viewer_opens_on_the_view_set_range_used_to_draw(self):
         # The network, 5% of its extent each side (at least 10 units), then the
         # camera's set_range margin of 5% of that range each side.
@@ -166,88 +234,145 @@ class ViewWidthLimitTests(unittest.TestCase):
         # A single node still gets 10 units each side.
         self.assertEqual(zoom_command.opening_view([[5.0, 5.0]]), (-6.0, -6.0, 22.0, 22.0))
 
-    def test_the_widest_view_is_the_next_hundred_that_shows_every_node(self):
-        # 1089 wide, 363 high: on a 3:2 canvas the width decides.
-        self.assertEqual(zoom_command.view_width_limits(network_viewer()), (0.5, 1100.0))
-        # A tall network on a wide canvas: its height decides, at the canvas's shape.
-        tall = [[0.0, 0.0], [100.0, 1000.0]]
-        self.assertEqual(zoom_command.view_width_limits(network_viewer(tall, (1200, 600))),
-                         (0.5, 2500.0))  # 1210 high x 2
-        # Exactly a multiple stays that multiple, though floating point leaves this
-        # one 2900.0000000000005 wide.
-        exact = [[0.0, 0.0], [2900.0 / 1.21, 0.0]]
-        self.assertGreater(zoom_command.opening_view(exact)[2], 2900.0)
-        self.assertEqual(zoom_command.view_width_limits(network_viewer(exact))[1], 2900.0)
-        # One node: one step.
-        self.assertEqual(zoom_command.view_width_limits(network_viewer([[5.0, 5.0]]))[1], 100.0)
+    def test_significant_figures_are_rounded_down(self):
+        for value, expected in ((23.26, 23.0), (1.87, 1.8), (91.827, 91.0), (99.99, 99.0), (10.0, 10.0),
+                                (432.9, 430.0), (4545.4, 4500.0), (0.826, 0.82), (0.0123, 0.012),
+                                (40.0, 40.0), (39.99999999999999, 40.0)):
+            with self.subTest(value=value):
+                self.assertEqual(zoom_command.round_down(value), expected)
+        # Three figures, and the float nearest the decimal, as typing it gives.
+        self.assertEqual(zoom_command.round_down(1.2999, 3), 1.29)
+        self.assertEqual(zoom_command.round_down(0.29999, 2), 0.29)
 
-    def test_hidden_nodes_count_and_the_widest_view_follows_moved_nodes(self):
-        # A hidden node far out still sets the widest view: 2420 wide.
+    def test_the_lowest_zoom_shows_the_whole_network_rounded_down(self):
+        # 1089 wide, 363 high: on a 3:2 canvas the width decides, 91.8%, which is 91%.
+        self.assertEqual(zoom_command.zoom_limits(network_viewer()), (91.0, 200000.0))
+        # The view at that zoom is 1098.9 wide, so the whole network still fits.
+        self.assertAlmostEqual(zoom_command.view_width_limits(network_viewer())[1], 1000.0 * 100 / 91)
+        self.assertGreater(zoom_command.view_width_limits(network_viewer())[1], 1089.0)
+        self.assertEqual(zoom_command.view_width_limits(network_viewer())[0], 0.5)
+        # A tall network on a wide canvas: its height decides, at the canvas's shape (1210 x 2 wide).
+        tall = [[0.0, 0.0], [100.0, 1000.0]]
+        self.assertEqual(zoom_command.zoom_limits(network_viewer(tall, (1200, 600)))[0], 41.0)
+        # Exactly a round percentage stays that percentage, though floating point leaves this
+        # one 2500.000000000001 wide, 39.99999999999999%.
+        exact = [[0.0, 0.0], [2066.1157024793397, 0.0]]
+        self.assertGreater(zoom_command.opening_view(exact)[2], 2500.0)
+        self.assertLess(zoom_command.zoom_percent(zoom_command.opening_view(exact)[2]), 40.0)
+        self.assertEqual(zoom_command.zoom_limits(network_viewer(exact))[0], 40.0)
+        # One node: 22 units, but 33 across a 3:2 canvas, which is 3030%.
+        self.assertEqual(zoom_command.zoom_limits(network_viewer([[5.0, 5.0]]))[0], 3000.0)
+        # A very large network: under 1%, to two figures.
+        wide = [[0.0, 0.0], [100000.0, 0.0]]
+        self.assertEqual(zoom_command.zoom_limits(network_viewer(wide))[0], 0.82)
+
+    def test_hidden_nodes_count_and_the_lowest_zoom_follows_moved_nodes(self):
+        # A hidden node far out still sets the lowest zoom: 2420 wide, 41.3%.
         far = network_viewer(np.vstack([NETWORK, [[2000.0, 0.0]]]))
         far.visible_mask[-1] = False
-        self.assertEqual(zoom_command.view_width_limits(far)[1], 2500.0)
+        self.assertEqual(zoom_command.zoom_limits(far)[0], 41.0)
         viewer = network_viewer()
         viewer.pos[1] = [2000.0, 0.0]  # dragged further out: 2420 wide
-        self.assertEqual(zoom_command.view_width_limits(viewer)[1], 2500.0)
-        viewer.pos[1] = viewer.pos[3] = [100.0, 0.0]  # two dragged in: 594 wide
-        self.assertEqual(zoom_command.view_width_limits(viewer)[1], 600.0)
+        self.assertEqual(zoom_command.zoom_limits(viewer)[0], 41.0)
+        viewer.pos[1] = viewer.pos[3] = [100.0, 0.0]  # two dragged in: 544.5 wide
+        self.assertEqual(zoom_command.zoom_limits(viewer)[0], 180.0)
 
-    def test_without_nodes_there_is_no_widest_view(self):
+    def test_without_nodes_there_is_no_lowest_zoom(self):
         viewer = zoom_viewer()
+        self.assertEqual(zoom_command.zoom_limits(viewer), (None, 200000.0))
         self.assertEqual(zoom_command.view_width_limits(viewer), (0.5, None))
         viewer.pos = np.empty((0, 2))
+        self.assertEqual(zoom_command.zoom_limits(viewer), (None, 200000.0))
         self.assertEqual(zoom_command.view_width_limits(viewer), (0.5, None))
+
+    def test_the_zoom_goes_by_the_width_the_camera_shows(self):
+        # A camera asked for a tall view shows a wider one, at the canvas's shape (its real
+        # rectangle); the zoom is that of what shows, not of what was asked for.
+        camera = FakeCamera((0.0, 0.0, 100.0, 400.0))
+        self.assertEqual(zoom_command.visible_width(camera), 100.0)
+        camera._real_rect = SimpleNamespace(width=300.0)
+        self.assertEqual(zoom_command.visible_width(camera), 300.0)
+        viewer = network_viewer(camera=camera)
+        self.assertAlmostEqual(zoom_command.current_zoom(viewer), 100.0 * 1000.0 / 300.0)
+        # A view with no width has no zoom to show.
+        camera._real_rect = SimpleNamespace(width=0.0)
+        self.assertIsNone(zoom_command.current_zoom(viewer))
 
     def test_a_zoom_stops_at_a_limit_and_goes_no_further_past_one(self):
         viewer = network_viewer(camera=FakeCamera((0.0, 0.0, 1000.0, 666.0)))
         factor = zoom_command.limited_zoom_factor
-        self.assertAlmostEqual(factor(viewer, 2.0), 1.1)        # out to 1100, no further
+        widest = 1000.0 * 100 / 91
+        self.assertAlmostEqual(factor(viewer, 2.0), widest / 1000.0)  # out to 91%, no further
         self.assertEqual(factor(viewer, 1.05), 1.05)            # within: as asked
-        self.assertAlmostEqual(factor(viewer, 1e-5), 0.0005)    # in to 0.5, no further
+        self.assertAlmostEqual(factor(viewer, 1e-5), 0.0005)    # in to 200000%, no further
         self.assertEqual(factor(viewer, [0.5, 0.5]), 0.5)       # the camera's pair form
-        viewer.view.camera.rect = (0.0, 0.0, 1500.0, 1000.0)    # past the widest, nodes moved in
+        viewer.view.camera.rect = (0.0, 0.0, 1500.0, 1000.0)    # past the lowest zoom, nodes moved in
         self.assertEqual(factor(viewer, 1.2), 1.0)
         self.assertEqual(factor(viewer, 0.9), 0.9)
-        viewer.view.camera.rect = (0.0, 0.0, 0.4, 0.3)          # past the narrowest
+        viewer.view.camera.rect = (0.0, 0.0, 0.4, 0.3)          # past the highest zoom
         self.assertEqual(factor(viewer, 0.5), 1.0)
         self.assertEqual(factor(viewer, 1.5), 1.5)
 
-    def test_the_command_refuses_a_width_outside_the_limits_and_takes_each_limit(self):
-        for width, refused in (("1101", True), ("0.49", True), ("1100", False), ("0.5", False)):
+    def test_the_command_refuses_a_zoom_outside_the_limits_and_takes_each_limit(self):
+        for zoom, refused in (("90.9", True), ("200000.1", True), ("91", False), ("91%", False),
+                              ("200000", False), ("200000 %", False), ("100", False)):
             viewer = network_viewer()
             opened = viewer.view.camera.rect
-            with self.subTest(width=width), reported_outcomes() as (succeeded, failed), \
+            with self.subTest(zoom=zoom), reported_outcomes() as (succeeded, failed), \
                     redirect_stdout(io.StringIO()):
-                zoom_command.run(viewer, [width])
+                zoom_command.run(viewer, zoom.split())
                 if refused:
                     self.assertEqual(viewer.view.camera.rect, opened)
                     succeeded.assert_not_called()
                     self.assertEqual(
                         str(failed.call_args.args[1]),
-                        "Error: Zoom width must be between 0.5 and 1100, "
-                        "the widest view that shows every node.",
+                        "Error: Zoom must be between 91% and 200000%, "
+                        "the lowest being the zoom that shows every node.",
                     )
                 else:
                     failed.assert_not_called()
-                    self.assertEqual(viewer.view.camera.rect.width, float(width))
+                    percent = float(zoom.strip("% "))
+                    self.assertEqual(viewer.view.camera.rect.width, 1000.0 * 100 / percent)
 
-    def test_the_view_width_box_zooms_through_the_commands_checks(self):
-        # set_view_width is what the zoom command and the View Width box share:
-        # it zooms and returns the width, or raises the command's error and
-        # leaves the view, without reporting anything itself.
+    def test_the_limit_message_gives_the_limits_in_percent_to_the_figures_they_have(self):
+        for nodes, zoom, expected in (([[0.0, 0.0], [100000.0, 0.0]], "0.5", "0.82% and 200000%"),
+                                      ([[5.0, 5.0]], "100", "3000% and 200000%")):
+            viewer = network_viewer(nodes)
+            with self.subTest(expected=expected), reported_outcomes() as (succeeded, failed),                     redirect_stdout(io.StringIO()):
+                zoom_command.run(viewer, [zoom])
+                self.assertIn(expected, str(failed.call_args.args[1]))
+
+    def test_the_zoom_box_zooms_through_the_commands_checks(self):
+        # set_zoom is what the zoom command and the Zoom box share: it zooms and
+        # returns the zoom, or raises the command's error and leaves the view,
+        # without reporting anything itself.
         viewer = network_viewer()
         with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()) as printed:
-            self.assertEqual(zoom_command.set_view_width(viewer, 500.0), 500.0)
+            self.assertEqual(zoom_command.set_zoom(viewer, 200.0), 200.0)
             self.assertEqual(viewer.view.camera.rect.width, 500.0)
             viewer._hud_timer.start.assert_called_once_with()
-            for width in (1101.0, 0.49, float("nan")):
-                with self.subTest(width=width), self.assertRaises(ValueError) as caught:
-                    zoom_command.set_view_width(viewer, width)
+            for zoom in (90.0, 200001.0, float("nan"), -5.0, 0.0):
+                with self.subTest(zoom=zoom), self.assertRaises(ValueError) as caught:
+                    zoom_command.set_zoom(viewer, zoom)
                 self.assertIsInstance(caught.exception.args[0], zoom_command.Message)
                 self.assertEqual(viewer.view.camera.rect.width, 500.0)
         succeeded.assert_not_called()
         failed.assert_not_called()
         self.assertEqual(printed.getvalue(), "")
+
+    def test_a_limit_a_float_digit_off_is_still_the_limit(self):
+        # The view at the lowest zoom, taken back to a percentage, may be a float digit
+        # under it (as 41 and 43 are); the Zoom box sends that and the command takes it.
+        off = [p for p in range(10, 100) if zoom_command.zoom_percent(zoom_command.width_at_zoom(float(p))) < p]
+        self.assertTrue(off)
+        for lowest in off:
+            viewer = network_viewer()
+            percent = zoom_command.zoom_percent(zoom_command.width_at_zoom(float(lowest)))
+            with self.subTest(lowest=lowest), mock.patch.object(
+                zoom_command, "zoom_limits", return_value=(float(lowest), 200000.0)
+            ):
+                self.assertEqual(zoom_command.set_zoom(viewer, percent), percent)
+                self.assertGreaterEqual(viewer.view.camera.rect.width, 1000.0)
 
 
 class FakeClock:
@@ -382,7 +507,7 @@ class SmoothWheelZoomTests(unittest.TestCase):
         zoom.add(1.25, (0.0, 0.0))
         self.clock.now += 0.015
         self.timer.fire()
-        # As a pan, the zoom command, the View Width box or a print would.
+        # As a pan, the zoom command, the Zoom box or a print would.
         self.camera.rect = SimpleNamespace(pos=(7.0, 7.0), width=300.0, height=300.0)
         self.clock.now += 0.015
         self.timer.fire()
@@ -451,11 +576,11 @@ class ViewerWheelZoomTests(unittest.TestCase):
         left, bottom = camera.rect.left, camera.rect.bottom
         self.assertAlmostEqual((100.0 - left) / camera.rect.width, 100.0 / 400.0)
         self.assertAlmostEqual((300.0 - bottom) / camera.rect.height, 300.0 / 400.0)
-        # A notch past the widest view stops there, in fewer frames than a whole notch takes.
+        # A notch past the lowest zoom stops there, in fewer frames than a whole notch takes.
         camera.rect = (0.0, 0.0, 1000.0, 1000.0)
         EMAPSSN_Viewer.MainViewer._camera_mouse_event(viewer, SimpleNamespace(**{**vars(wheel), "handled": False}))
         at_limit = run_frames(timer, clock, camera)
-        self.assertAlmostEqual(at_limit[-1], 1100.0)
+        self.assertAlmostEqual(at_limit[-1], 1000.0 * 100 / 91)
         self.assertLess(len(at_limit), len(widths) - 2)
         # The right button rotates dragged nodes with the wheel; the camera never sees it.
         right = SimpleNamespace(type="mouse_wheel", handled=False, pos=(0.0, 0.0), delta=(0.0, 1.0),
@@ -507,7 +632,38 @@ class ViewerWheelZoomTests(unittest.TestCase):
         self.assertIn("self.view.camera.rect = opening_view(self.pos)", assigned)
         self.assertFalse([call for call in calls if "set_range" in call])
 
-    def test_a_wheel_zoom_stops_at_the_widest_and_narrowest_view(self):
+    def test_a_real_camera_reports_the_zoom_of_what_shows_and_zooms_to_an_exact_percentage(self):
+        from vispy import scene
+
+        # A tall request on a wide box: the camera widens it, so what shows is wider than the
+        # rectangle it was asked for, and the zoom is that of what shows.
+        box = scene.widgets.ViewBox()
+        box.size = (800, 400)
+        camera = scene.PanZoomCamera(aspect=1)
+        box.camera = camera
+        camera.rect = (0.0, 0.0, 100.0, 100.0)
+        self.assertEqual((camera.rect.width, camera._real_rect.width), (100.0, 200.0))
+        viewer = network_viewer([[0.0, 0.0], [100.0, 100.0]], (800, 400), camera)
+        self.assertEqual(zoom_command.current_zoom(viewer), 500.0)
+        # The window's shape changes what shows, and so the zoom.
+        box.size = (400, 400)
+        viewer.canvas.size = (400, 400)
+        self.assertEqual(zoom_command.current_zoom(viewer), 1000.0)
+        # `zoom 800` shows exactly an 800% view, and the camera then reports it.
+        with redirect_stdout(io.StringIO()):
+            self.assertEqual(zoom_command.set_zoom(viewer, 800), 800)
+        self.assertAlmostEqual(camera._real_rect.width, 125.0)
+        self.assertAlmostEqual(zoom_command.current_zoom(viewer), 800.0)
+        # The wheel stops at the lowest zoom for this shape, and the highest.
+        import EMAPSSN_Viewer
+
+        EMAPSSN_Viewer.MainViewer._limit_camera_zoom(viewer)
+        camera.zoom(1e9)
+        self.assertAlmostEqual(zoom_command.current_zoom(viewer), zoom_command.zoom_limits(viewer)[0])
+        camera.zoom(1e-9)
+        self.assertAlmostEqual(zoom_command.current_zoom(viewer), 200000.0)
+
+    def test_a_wheel_zoom_stops_at_the_lowest_and_highest_zoom(self):
         from vispy.scene.cameras import PanZoomCamera
 
         import EMAPSSN_Viewer
@@ -518,19 +674,19 @@ class ViewerWheelZoomTests(unittest.TestCase):
         EMAPSSN_Viewer.MainViewer._limit_camera_zoom(viewer)
         for _ in range(20):
             camera.zoom(1.5, (450.0, 150.0))
-        self.assertAlmostEqual(camera.rect.width, 1100.0)
+        self.assertAlmostEqual(camera.rect.width, 1000.0 * 100 / 91)
         # It says what it applied, which the smooth wheel stops on: here, nothing.
         self.assertEqual(camera.zoom(1.5, (450.0, 150.0)), 1.0)
         camera.zoom(0.5, (450.0, 150.0))
-        self.assertAlmostEqual(camera.rect.width, 550.0)
+        self.assertAlmostEqual(camera.rect.width, 1000.0 * 50 / 91)
         for _ in range(40):
             camera.zoom(0.25, (450.0, 150.0))
         self.assertAlmostEqual(camera.rect.width, 0.5)
         # Dragging a node out lets the view widen with it.
-        viewer.pos[1] = [3000.0, 0.0]  # 3630 wide
+        viewer.pos[1] = [3000.0, 0.0]  # 3630 wide: 27.5%, so 27%
         for _ in range(30):
             camera.zoom(2.0, (450.0, 150.0))
-        self.assertAlmostEqual(camera.rect.width, 3700.0)
+        self.assertAlmostEqual(camera.rect.width, 1000.0 * 100 / 27)
 
 
 if __name__ == "__main__":

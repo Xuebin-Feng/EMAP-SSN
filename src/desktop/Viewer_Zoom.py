@@ -14,7 +14,7 @@ other way takes back from it. The zoom keeps the point under the cursor
 where it is, as VisPy's does, and goes through the camera's zoom, so the
 Viewer's width limits (commands.zoom.limited_zoom_factor) still hold; at a
 limit the rest is dropped. A view moved by anything else meanwhile (a pan,
-the zoom command, the View Width box, a print) ends the zoom where it is.
+the zoom command, the Zoom box, a print) ends the zoom where it is.
 """
 
 from __future__ import annotations

@@ -2744,11 +2744,11 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at least {n}, or zoom out. The limit is {setting} in {file}.</source>
+        <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at most {n}, or zoom out. The limit is {setting} in {file}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
+        <source>Warning: the image is only {width}×{height} px. N in {syntax} is the zoom percentage, so a bigger N zooms in and gives a larger image.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2760,7 +2760,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: {syntax} needs a view width, as in {example}.</source>
+        <source>Error: {syntax} needs a zoom percentage, as in {example}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3244,11 +3244,11 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Zoom width must be a valid number.</source>
+        <source>Error: Zoom must be a number, with an optional % sign, as in {example}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Zoom width must be a positive, finite number.</source>
+        <source>Error: Zoom must be a positive, finite percentage.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3256,15 +3256,15 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Zoom width is too large for the current view.</source>
+        <source>Error: Zoom is too low for the current view.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Zoom width is too small to draw accurately at the current view centre.</source>
+        <source>Error: Zoom is too high to draw accurately at the current view centre.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.</source>
+        <source>Error: Zoom must be between {lowest}% and {highest}%, the lowest being the zoom that shows every node.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3272,7 +3272,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Zoom snapped to View Width: {width}</source>
+        <source>Zoom set to {zoom}%</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7005,7 +7005,11 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>View Width: {width}</source>
+        <source>Zoom: {zoom}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A bigger zoom is closer: 100% is a view {width} layout units wide. Type a percentage, or use the arrows or the mouse wheel over the box.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

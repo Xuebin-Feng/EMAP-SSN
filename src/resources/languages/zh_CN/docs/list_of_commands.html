@@ -251,7 +251,7 @@
 
 <div class="section-divider" id="sec-core" data-source-sha256="c175c22301f1c83e5c269ea71faf430518141facb6b84eec8c37fa3320cf6319">核心命令</div>
 
-            <section class="command-card" id="cmd-zoom" data-source-sha256="d0590b7c87a3368f2c06025ac4883c5c3cd476228f016e635a6840e7d2c500f0">
+            <section class="command-card" id="cmd-zoom" data-source-sha256="3f431bdb1c526ed03384b7b8462b773c4e2d1cbe830d430fbd32785a5cd7fd5d">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">zoom</span>
@@ -260,13 +260,14 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">zoom &lt;width&gt;</div>
+                    <div class="syntax-content">zoom &lt;percent&gt;</div>
                     <button class="copy-btn" onclick="copyText('zoom', this)">复制</button>
                 </div>
-                <p><strong>功能：</strong>把相机矩形设为恰好等于指定的数值宽度，同时保持其当前中心和画布宽高比。宽度必须至少为 0.5，且至多为能显示所有节点（包括隐藏节点）的最宽视图，并向上取整为 100 的倍数；该最宽视图会随节点移动和窗口形状而变化。超出这些限制的宽度会被拒绝，并同时指出两个限制。鼠标滚轮、触控板捏合以及阈值滑块旁的视图宽度框遵守同样的限制。</p>
+                <p><strong>功能：</strong>把相机缩放设为恰好等于指定的百分比，同时保持其当前中心和画布宽高比。100% 是宽 1000 个布局单位的视图（<code>ZOOM_100_PERCENT_WIDTH</code>，位于 <code>src/commands/zoom.py</code> 中），百分比越大视图越近：200% 的视图宽度只有一半。百分号可以省略，因此 <code>zoom 200</code> 和 <code>zoom 200%</code> 相同，百分号前也可以有一个空格。缩放必须至多为 200000%（视图宽 0.5 个单位），且至少为能显示所有节点（包括隐藏节点）的缩放，并向下取整为两位有效数字；该最低缩放会随节点移动和窗口形状而变化。超出这些限制的缩放会被拒绝，并同时指出两个限制。鼠标滚轮、触控板捏合以及阈值滑块旁的缩放框遵守同样的限制。</p>
                 <div class="subheading">示例</div>
                 <ul class="example-list">
-                    <li class="example-item"><span>zoom 500</span><button class="copy-btn" onclick="copyText('zoom 500', this)">复制</button></li>
+                    <li class="example-item"><span>zoom 200</span><button class="copy-btn" onclick="copyText('zoom 200', this)">复制</button></li>
+                    <li class="example-item"><span>zoom 50%</span><button class="copy-btn" onclick="copyText('zoom 50%', this)">复制</button></li>
                 </ul>
             </section>
 
@@ -1037,7 +1038,7 @@
 
 <div class="section-divider" id="sec-graphics" data-source-sha256="7fe5fed3b72997d936a31056687d854cbec3ccf719bbdd98262fde19901224b3">图形</div>
 
-            <section class="command-card" id="cmd-print" data-source-sha256="40ec13668477c0bcbf5c00f02664e6f98b51c626a6c7fc46c349e8f9a3304fd1">
+            <section class="command-card" id="cmd-print" data-source-sha256="77a864c6395b6ba0d751fd63e2b67e1da4d4bef455432f4325962e7ac6804dec">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">print</span>
@@ -1055,9 +1056,9 @@
                 <div class="subheading">修饰符</div>
                 <ul>
                     <li><strong>transparent：</strong>去掉纯色背景，使输出的 PNG 透明。</li>
-                    <li><strong>full：</strong>绕过 OpenGL 相机边缘的剪切。在屏幕外逐块渲染网络而不移动视图，并把这些分块拼接成超大的超高分辨率 PNG。绘制分块期间键盘和鼠标输入会等待，调整窗口大小会取消截取。超过 1000 兆像素的图像（<code>MAX_FULL_IMAGE_MEGAPIXELS</code>，位于 <code>src/commands/print.py</code> 中）会在绘制任何分块之前被拒绝，并指出能容纳的最小 <code>zoom N</code>；生成图像每个像素约需 4 字节内存，带透明度时为 7 字节。可以与透明度组合使用。</li>
+                    <li><strong>full：</strong>绕过 OpenGL 相机边缘的剪切。在屏幕外逐块渲染网络而不移动视图，并把这些分块拼接成超大的超高分辨率 PNG。绘制分块期间键盘和鼠标输入会等待，调整窗口大小会取消截取。超过 1000 兆像素的图像（<code>MAX_FULL_IMAGE_MEGAPIXELS</code>，位于 <code>src/commands/print.py</code> 中）会在绘制任何分块之前被拒绝，并指出能容纳的最大 <code>zoom N</code>；生成图像每个像素约需 4 字节内存，带透明度时为 7 字节。可以与透明度组合使用。</li>
                     <li><strong>svg：</strong>按当前显示的样子写出网络的分层可缩放矢量图形，不会关闭 OpenGL 查看器：包括可见节点和屏幕上显示的边（受相似性阈值和 UMAP 模式过滤的影响），使用已配置的边和节点边框颜色。不包含文字标签。节点大小和线宽跟随当前缩放，因此 SVG 保持屏幕上显示的比例。它绘制的内容与该视图的 PNG 所显示的一致：每个标记的形状与屏幕上相同，节点轮廓（包括选中节点的边框）和边的宽度与屏幕绘制的宽度相同，因此细轮廓约为 1.7 个设备像素宽，边为整数个设备像素；在高 DPI 显示器上，两者在节点旁都会显得更细。不能与 <code>transparent</code> 或 <code>full</code> 组合。</li>
-                    <li><strong>zoom N：</strong>只能与 <code>full</code> 或 <code>svg</code> 一起使用，可出现在修饰符中的任何位置。按 <code>zoom N</code> 所设置的缩放比例绘制，即在当前画布上视图宽 N 个场景单位，且不移动视图；N 必须是视图能够绘制的正宽度，<code>zoom</code> 命令的 0.5 和整个网络的限制不适用。带 <code>full</code> 时，节点大小保持为屏幕像素，N 越小图像越大；最长边小于 1000&nbsp;px 的图像仍会保存，但会给出警告。带 <code>svg</code> 时，节点大小和线宽按宽 N 个单位的视图写出。与普通 PNG 一起使用会被拒绝。<code>zoom</code> 之后的词始终被读作 N，因此名为 zoom 的文件会写成 <code>zoom.png</code>。</li>
+                    <li><strong>zoom N：</strong>只能与 <code>full</code> 或 <code>svg</code> 一起使用，可出现在修饰符中的任何位置。按 <code>zoom N</code> 所设置的缩放比例绘制，即与查看器缩放框相同的 N% 缩放（百分号可以省略，其前也可以有一个空格），且不移动视图；N 必须是视图能够绘制的正缩放，<code>zoom</code> 命令的限制不适用。带 <code>full</code> 时，节点大小保持为屏幕像素，N 越大图像越大；最长边小于 1000&nbsp;px 的图像仍会保存，但会给出警告。带 <code>svg</code> 时，节点大小和线宽按该缩放下的视图写出。与普通 PNG 一起使用会被拒绝。<code>zoom</code> 之后的词始终被读作 N，因此名为 zoom 的文件会写成 <code>zoom.png</code>。</li>
                 </ul>
 
                 <div class="subheading">示例</div>
@@ -1067,8 +1068,8 @@
                     <li class="example-item"><span>print my_network full transparent</span><button class="copy-btn" onclick="copyText('print my_network full transparent', this)">复制</button></li>
                     <li class="example-item"><span>print my_network svg</span><button class="copy-btn" onclick="copyText('print my_network svg', this)">复制</button></li>
                     <li class="example-item"><span>print my_network.svg</span><button class="copy-btn" onclick="copyText('print my_network.svg', this)">复制</button></li>
-                    <li class="example-item"><span>print my_network full zoom 500</span><button class="copy-btn" onclick="copyText('print my_network full zoom 500', this)">复制</button></li>
-                    <li class="example-item"><span>print my_network svg zoom 500</span><button class="copy-btn" onclick="copyText('print my_network svg zoom 500', this)">复制</button></li>
+                    <li class="example-item"><span>print my_network full zoom 200</span><button class="copy-btn" onclick="copyText('print my_network full zoom 200', this)">复制</button></li>
+                    <li class="example-item"><span>print my_network svg zoom 200%</span><button class="copy-btn" onclick="copyText('print my_network svg zoom 200%', this)">复制</button></li>
                 </ul>
             </section>
 

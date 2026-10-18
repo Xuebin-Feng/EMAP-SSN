@@ -639,7 +639,7 @@ class StatusStackRenderTests(unittest.TestCase):
         import subprocess
 
         from EMAPSSN_Viewer import _slider_row_centre
-        from desktop.Viewer_Widgets import VIEW_WIDTH_BOX_HEIGHT
+        from desktop.Viewer_Widgets import SLIDER_BOX_HEIGHT
 
         layout = shipped_hud_layout()
         viewer = MainViewer.__new__(MainViewer)
@@ -647,7 +647,7 @@ class StatusStackRenderTests(unittest.TestCase):
         hidden_y = viewer._status_hud_position(0, (400, 300))[1]
         meta_y = viewer._status_hud_position(1, (400, 300))[1]
         row = _slider_row_centre(300)
-        box_top = row - VIEW_WIDTH_BOX_HEIGHT / 2.0
+        box_top = row - SLIDER_BOX_HEIGHT / 2.0
         environment = dict(os.environ)
         # tests/__init__.py defaults Qt to offscreen, which has no OpenGL on
         # Windows; a hidden canvas on the native platform renders.

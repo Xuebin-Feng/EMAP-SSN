@@ -1907,12 +1907,12 @@ class PrintZoomTests(unittest.TestCase):
 
     def test_zoom_n_may_stand_anywhere_among_the_modifiers(self):
         cases = (
-            (["full", "zoom", "500"], None),
-            (["fig1", "full", "zoom", "500"], "fig1.png"),
-            (["zoom", "500", "fig1", "full"], "fig1.png"),
-            (["fig1", "zoom", "500", "full", "transparent"], "fig1.png"),
-            (["my_net", "zoom", "500", "full"], "my_net.png"),
-            (["ZOOM", "500", "Full"], None),
+            (["full", "zoom", "200"], None),
+            (["fig1", "full", "zoom", "200"], "fig1.png"),
+            (["zoom", "200", "fig1", "full"], "fig1.png"),
+            (["fig1", "zoom", "200", "full", "transparent"], "fig1.png"),
+            (["my_net", "zoom", "200", "full"], "my_net.png"),
+            (["ZOOM", "200", "Full"], None),
         )
         for arguments, name in cases:
             with self.subTest(arguments=arguments):
@@ -1924,14 +1924,45 @@ class PrintZoomTests(unittest.TestCase):
                     self.assertTrue(saved.startswith("test_sequences_"), saved)
                 else:
                     self.assertEqual(saved, name)
-                # Every tile after the first, which measures the canvas, is 500 units wide.
+                # Every tile after the first, which measures the canvas, is 500 units wide: 200%.
                 self.assertTrue(all(rect[2] == 500.0 for rect in result.tile_rects[1:]))
+
+    def test_the_percent_sign_is_optional_and_may_stand_apart_from_n(self):
+        cases = (
+            (["fig1", "full", "zoom", "200%"], "fig1.png"),
+            (["fig1", "full", "zoom", "200", "%"], "fig1.png"),
+            (["zoom", "200", "%", "fig1", "full"], "fig1.png"),
+            (["full", "zoom", "200", "%", "transparent"], None),
+            (["ZOOM", "200%", "Full"], None),
+            (["fig1", "full", "zoom", "2e2"], "fig1.png"),
+        )
+        for arguments, name in cases:
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                result.save.assert_called_once()
+                if name is not None:
+                    self.assertEqual(os.path.basename(result.save.call_args.args[0]), name)
+                self.assertTrue(all(rect[2] == 500.0 for rect in result.tile_rects[1:]))
+        for arguments in (["svg", "zoom", "200%"], ["svg", "zoom", "200", "%"]):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                self.assertEqual(result.export_svg.call_args.kwargs["view_width"], 500.0)
+
+    def test_a_percent_sign_after_something_else_is_no_part_of_n(self):
+        # Only the word right after N may be the sign; a % after a file name is a second word.
+        self.assert_refused(
+            ["full", "zoom", "200", "fig1", "%"],
+            "Error: Unrecognized print argument '%'. A file name is one word; "
+            "the modifiers are transparent, full, svg, zoom N.",
+        )
 
     def test_svg_takes_zoom_n_and_the_name_alongside_it(self):
         for arguments, name in (
-            (["svg", "zoom", "500"], None),
-            (["fig1", "svg", "zoom", "500"], "fig1.svg"),
-            (["zoom", "500", "svg", "fig1"], "fig1.svg"),
+            (["svg", "zoom", "200"], None),
+            (["fig1", "svg", "zoom", "200"], "fig1.svg"),
+            (["zoom", "200", "svg", "fig1"], "fig1.svg"),
         ):
             with self.subTest(arguments=arguments):
                 result = self.run_print(arguments)
@@ -1951,7 +1982,7 @@ class PrintZoomTests(unittest.TestCase):
     def test_a_name_such_as_zoom_png_is_still_a_name(self):
         for arguments, name in (
             (["zoom.png"], "zoom.png"),
-            (["zoom.png", "full", "zoom", "500"], "zoom.png"),
+            (["zoom.png", "full", "zoom", "200"], "zoom.png"),
             (["my_zoom.png"], "my_zoom.png"),
         ):
             with self.subTest(arguments=arguments):
@@ -1959,34 +1990,39 @@ class PrintZoomTests(unittest.TestCase):
                 result.engine.command_failed.assert_not_called()
                 self.assertEqual(os.path.basename(result.save.call_args.args[0]), name)
 
-    def test_zoom_without_a_width_is_refused(self):
-        message = "Error: zoom needs a view width, as in print full zoom 500."
+    def test_zoom_without_a_percentage_is_refused(self):
+        message = "Error: zoom needs a zoom percentage, as in print full zoom 200."
         for arguments in (["full", "zoom"], ["zoom", "full"], ["svg", "zoom", "svg"],
                           ["fig1", "zoom", "transparent", "full"], ["zoom"]):
             with self.subTest(arguments=arguments):
                 self.assert_refused(arguments, message)
 
-    def test_an_invalid_width_is_refused_as_the_zoom_command_refuses_it(self):
+    def test_an_invalid_zoom_is_refused_as_the_zoom_command_refuses_it(self):
+        not_a_number = "Error: Zoom must be a number, with an optional % sign, as in zoom 200 or zoom 200%."
+        not_positive = "Error: Zoom must be a positive, finite percentage."
         cases = (
-            ("wide", "Error: Zoom width must be a valid number."),
-            ("500.png", "Error: Zoom width must be a valid number."),
-            ("0", "Error: Zoom width must be a positive, finite number."),
-            ("-5", "Error: Zoom width must be a positive, finite number."),
-            ("nan", "Error: Zoom width must be a positive, finite number."),
-            ("inf", "Error: Zoom width must be a positive, finite number."),
-            ("1e400", "Error: Zoom width must be a positive, finite number."),
-            ("1e50", "Error: Zoom width is too large for the current view."),
-            ("1e-14", "Error: Zoom width is too small to draw accurately at the current view centre."),
+            ("wide", not_a_number),
+            ("500.png", not_a_number),
+            ("%", not_a_number),
+            ("200%%", not_a_number),
+            ("0", not_positive),
+            ("-5", not_positive),
+            ("0%", not_positive),
+            ("nan", not_positive),
+            ("inf", not_positive),
+            ("1e400", not_positive),
+            ("1e-47", "Error: Zoom is too low for the current view."),
+            ("1e19", "Error: Zoom is too high to draw accurately at the current view centre."),
         )
-        for width, message in cases:
+        for zoom, message in cases:
             for modifier in ("full", "svg"):
-                with self.subTest(width=width, modifier=modifier):
-                    self.assert_refused([modifier, "zoom", width], message)
+                with self.subTest(zoom=zoom, modifier=modifier):
+                    self.assert_refused([modifier, "zoom", zoom], message)
 
     def test_a_canvas_without_area_is_refused(self):
         viewer = zoom_viewer()
         viewer.canvas.size = (0, 600)
-        result = self.run_print(["full", "zoom", "500"], viewer)
+        result = self.run_print(["full", "zoom", "200"], viewer)
         result.capture.assert_not_called()
         self.assertEqual(
             self.failure(result),
@@ -1995,24 +2031,24 @@ class PrintZoomTests(unittest.TestCase):
 
     def test_zoom_given_twice_is_refused(self):
         self.assert_refused(
-            ["full", "zoom", "500", "zoom", "300"], "Error: zoom N can be given only once."
+            ["full", "zoom", "200", "zoom", "300"], "Error: zoom N can be given only once."
         )
 
     def test_zoom_with_a_plain_png_is_refused(self):
         message = "Error: zoom N works only with full or svg."
-        for arguments in (["zoom", "500"], ["fig1", "zoom", "500"],
-                          ["fig1", "transparent", "zoom", "500"]):
+        for arguments in (["zoom", "200"], ["fig1", "zoom", "200"],
+                          ["fig1", "transparent", "zoom", "200"]):
             with self.subTest(arguments=arguments):
                 self.assert_refused(arguments, message)
 
     def test_the_svg_rules_still_hold_with_zoom(self):
         self.assert_refused(
-            ["svg", "full", "zoom", "500"],
+            ["svg", "full", "zoom", "200"],
             "Error: 'SVG' export is not compatible with 'transparent' or 'full'.",
         )
         # A second word is refused as a name before the svg rules apply.
         self.assert_refused(
-            ["my", "net", "svg", "zoom", "500"],
+            ["my", "net", "svg", "zoom", "200"],
             "Error: Unrecognized print argument 'net'. A file name is one word; "
             "the modifiers are transparent, full, svg, zoom N.",
         )
@@ -2020,9 +2056,9 @@ class PrintZoomTests(unittest.TestCase):
     # --- full ------------------------------------------------------------
 
     def test_full_with_zoom_renders_tiles_n_units_wide_and_leaves_the_camera(self):
-        # 50 units across 800 pixels: 0.0625 units per pixel, so the 110 x 60
+        # 2000% is 50 units across 800 pixels: 0.0625 units per pixel, so the 110 x 60
         # network is 1760 x 960 pixels. The tiles keep the view's 4:3 shape.
-        result = self.run_print(["fig1", "full", "zoom", "50"])
+        result = self.run_print(["fig1", "full", "zoom", "2000"])
 
         result.engine.command_failed.assert_not_called()
         # The first render measures the canvas from the live camera.
@@ -2045,9 +2081,9 @@ class PrintZoomTests(unittest.TestCase):
             self.assertEqual(rect[2:], (100.0, 75.0))
         self.assertEqual(result.save.call_args.args[1].shape, (480, 880, 4))
 
-    def test_zoom_at_the_view_width_gives_the_same_picture_as_no_zoom(self):
+    def test_zoom_at_the_views_own_zoom_gives_the_same_picture_as_no_zoom(self):
         plain = self.run_print(["fig1", "full"])
-        zoomed = self.run_print(["fig1", "full", "zoom", "100"])
+        zoomed = self.run_print(["fig1", "full", "zoom", "1000"])
 
         self.assertEqual(plain.tile_rects[1:], zoomed.tile_rects[1:])
         np.testing.assert_array_equal(
@@ -2055,15 +2091,15 @@ class PrintZoomTests(unittest.TestCase):
         )
 
     def test_a_small_zoomed_image_is_saved_with_a_warning(self):
-        # 500 units across 800 pixels: 0.625 per pixel, so 176 x 96 pixels.
-        result = self.run_print(["fig1", "full", "zoom", "500"])
+        # 200% is 500 units across 800 pixels: 0.625 per pixel, so 176 x 96 pixels.
+        result = self.run_print(["fig1", "full", "zoom", "200"])
 
         result.save.assert_called_once()
         self.assertEqual(result.save.call_args.args[1].shape, (96, 176, 4))
         result.engine.command_failed.assert_not_called()
         warning = (
-            "Warning: the image is only 176×96 px. N in zoom N is the view width, "
-            "so a smaller N zooms in and gives a larger image."
+            "Warning: the image is only 176×96 px. N in zoom N is the zoom percentage, "
+            "so a bigger N zooms in and gives a larger image."
         )
         self.assertIn("Successfully saved full stitched snapshot: ", result.output)
         self.assertTrue(result.output.rstrip().endswith(warning), result.output)
@@ -2077,13 +2113,13 @@ class PrintZoomTests(unittest.TestCase):
         self.addCleanup(patcher.stop)
 
     def test_a_full_image_over_the_limit_is_refused_before_any_tile(self):
-        # zoom 50 makes 1760 x 960 px, 1.69 megapixels.
+        # zoom 2000 makes 1760 x 960 px, 1.69 megapixels.
         self.limited(1)
-        result = self.run_print(["fig1", "full", "zoom", "50"])
+        result = self.run_print(["fig1", "full", "zoom", "2000"])
 
         message = (
             "Error: The full image would be 1760×960 px (2 megapixels), more than the "
-            "limit of 1. Use print full zoom N with N of at least 65.7, or zoom out. "
+            "limit of 1. Use print full zoom N with N of at most 1520, or zoom out. "
             "The limit is MAX_FULL_IMAGE_MEGAPIXELS in src/commands/print.py."
         )
         self.assertEqual(self.failure(result), message)
@@ -2096,17 +2132,18 @@ class PrintZoomTests(unittest.TestCase):
         self.assertFalse(os.path.exists(result.save_dir))
 
     def test_the_n_it_suggests_fits_the_limit(self):
-        for limit, arguments, smallest in (
-            (1, ["fig1", "full", "zoom", "50"], "65.7"),
+        for limit, arguments, highest in (
+            # 2000% is 50 units wide; 65.64 units, 1523.5%, is the narrowest that fits.
+            (1, ["fig1", "full", "zoom", "2000"], "1520"),
             # Without zoom N, the scale is the view's: 100 units wide, 880 x 480 px.
-            (0.2, ["fig1", "full"], "147"),
+            (0.2, ["fig1", "full"], "681"),
         ):
             with self.subTest(arguments=arguments):
                 self.limited(limit)
                 refused = self.run_print(arguments)
-                self.assertIn(f"N of at least {smallest}, or zoom out", self.failure(refused))
+                self.assertIn(f"N of at most {highest}, or zoom out", self.failure(refused))
 
-                result = self.run_print(["fig1", "full", "zoom", smallest])
+                result = self.run_print(["fig1", "full", "zoom", highest])
                 result.engine.command_failed.assert_not_called()
                 height, width = result.save.call_args.args[1].shape[:2]
                 self.assertLessEqual(width * height, limit * 1e6)
@@ -2116,15 +2153,16 @@ class PrintZoomTests(unittest.TestCase):
         self.assertIsNone(print_command.full_image_size_refusal(1000, 1000, 50.0))
         self.assertIsNotNone(print_command.full_image_size_refusal(1001, 1000, 50.0))
 
-    def test_the_suggested_n_is_rounded_up_to_three_digits(self):
-        for value, text in ((65.64, "65.7"), (1234.5, "1240"), (100.0, "100"),
-                            (999.9, "1000"), (0.012345, "0.0124")):
+    def test_the_suggested_n_is_rounded_down_to_three_digits(self):
+        # Down, so the zoom it names is never past the limit.
+        for value, text in ((65.64, "65.6"), (1234.5, "1230"), (100.0, "100"),
+                            (999.9, "999"), (0.012345, "0.0123")):
             with self.subTest(value=value):
-                self.assertEqual(print_command._round_up(value), text)
+                self.assertEqual(print_command._round_down(value), text)
 
     def test_the_warning_needs_zoom_and_an_image_under_1000_pixels(self):
-        # No zoom: 880 x 480 pixels, and no warning. zoom 50: 1760 x 960, none either.
-        for arguments in (["fig1", "full"], ["fig1", "full", "zoom", "50"],
+        # No zoom: 880 x 480 pixels, and no warning. zoom 2000: 1760 x 960, none either.
+        for arguments in (["fig1", "full"], ["fig1", "full", "zoom", "2000"],
                           ["fig1", "full", "transparent"]):
             with self.subTest(arguments=arguments):
                 result = self.run_print(arguments)
@@ -2132,7 +2170,7 @@ class PrintZoomTests(unittest.TestCase):
                 self.assertNotIn("Warning", result.output)
                 self.assertEqual(result.scheduler.report, "Saved PNG: fig1.png")
         # An SVG has no pixel size, so it never warns.
-        result = self.run_print(["fig1", "svg", "zoom", "50000"])
+        result = self.run_print(["fig1", "svg", "zoom", "2"])
         self.assertNotIn("Warning", result.output)
         self.assertEqual(result.scheduler.report, "Saved SVG: fig1.svg")
 
@@ -2144,7 +2182,7 @@ class PrintZoomTests(unittest.TestCase):
 
 
 class PrintSvgZoomTests(unittest.TestCase):
-    """`print svg zoom N` writes the sizes of a view N units wide: N / view width per pixel."""
+    """`print svg zoom N` writes the sizes of the view N% sets: its width / the view's width per pixel."""
 
     def svg(self, arguments, units_per_pixel=0.2):
         viewer = square_network(
@@ -2167,8 +2205,8 @@ class PrintSvgZoomTests(unittest.TestCase):
             with open(os.path.join(save_dir, "net.svg"), encoding="utf-8") as handle:
                 return handle.read()
 
-    def test_node_radius_is_half_its_size_times_n_over_the_view_width(self):
-        svg = self.svg(["net", "svg", "zoom", "500"])
+    def test_node_radius_is_half_its_size_times_the_zooms_width_over_the_view_width(self):
+        svg = self.svg(["net", "svg", "zoom", "200"])
 
         circles = elements(svg, "circle")
         self.assertEqual(len(circles), 4)
@@ -2183,13 +2221,13 @@ class PrintSvgZoomTests(unittest.TestCase):
 
     def test_the_scale_ignores_the_current_zoom(self):
         self.assertEqual(
-            self.svg(["net", "svg", "zoom", "500"], units_per_pixel=0.2),
-            self.svg(["net", "svg", "zoom", "500"], units_per_pixel=0.05),
+            self.svg(["net", "svg", "zoom", "200"], units_per_pixel=0.2),
+            self.svg(["net", "svg", "zoom", "200"], units_per_pixel=0.05),
         )
 
-    def test_zoom_at_the_view_width_writes_the_same_svg_as_no_zoom(self):
-        # The view at 0.2 units per pixel is 160 units wide.
-        self.assertEqual(self.svg(["net", "svg"]), self.svg(["net", "svg", "zoom", "160"]))
+    def test_zoom_at_the_views_own_zoom_writes_the_same_svg_as_no_zoom(self):
+        # The view at 0.2 units per pixel is 160 units wide: 625%.
+        self.assertEqual(self.svg(["net", "svg"]), self.svg(["net", "svg", "zoom", "625"]))
 
     def test_the_scale_function_takes_the_view_width(self):
         viewer = SimpleNamespace(view=view_at(0.2))
@@ -2284,10 +2322,10 @@ class PrintFileNameTests(unittest.TestCase):
             (["fig1", "transparent"], "fig1.png"),
             (["full", "transparent", "fig1"], "fig1.png"),
             (["fig1", "FULL", "Transparent"], "fig1.png"),
-            (["full", "zoom", "500", "fig1"], "fig1.png"),
+            (["full", "zoom", "200", "fig1"], "fig1.png"),
             (["svg", "fig1"], "fig1.svg"),
             (["fig1", "svg"], "fig1.svg"),
-            (["zoom", "500", "svg", "fig1"], "fig1.svg"),
+            (["zoom", "200", "svg", "fig1"], "fig1.svg"),
         ):
             with self.subTest(arguments=arguments):
                 result = self.run_print(arguments)
@@ -2327,7 +2365,7 @@ class PrintFileNameTests(unittest.TestCase):
                 self.assertIn("Successfully saved SVG snapshot: ", result.output)
 
     def test_an_svg_name_takes_zoom_n_like_the_modifier(self):
-        for arguments in (["foo.svg", "zoom", "500"], ["zoom", "500", "foo.svg"]):
+        for arguments in (["foo.svg", "zoom", "200"], ["zoom", "200", "foo.svg"]):
             with self.subTest(arguments=arguments):
                 result = self.run_print(arguments)
                 result.engine.command_failed.assert_not_called()
@@ -2337,7 +2375,7 @@ class PrintFileNameTests(unittest.TestCase):
     def test_the_svg_rules_apply_to_an_svg_name(self):
         message = "Error: 'SVG' export is not compatible with 'transparent' or 'full'."
         for arguments in (["foo.svg", "full"], ["foo.svg", "transparent"],
-                          ["transparent", "full", "foo.svg"], ["foo.svg", "full", "zoom", "500"]):
+                          ["transparent", "full", "foo.svg"], ["foo.svg", "full", "zoom", "200"]):
             with self.subTest(arguments=arguments):
                 self.assert_refused(arguments, message)
 
@@ -2349,7 +2387,7 @@ class PrintFileNameTests(unittest.TestCase):
             (["svg", "FOO.PNG"],
              "Error: 'FOO.PNG' ends in .PNG, but svg saves an SVG file. "
              "Use 'FOO.svg' or leave the extension off."),
-            (["foo.png", "svg", "zoom", "500"],
+            (["foo.png", "svg", "zoom", "200"],
              "Error: 'foo.png' ends in .png, but svg saves an SVG file. "
              "Use 'foo.svg' or leave the extension off."),
         ):
@@ -2376,7 +2414,7 @@ class PrintFileNameTests(unittest.TestCase):
         for arguments, shown in (
             ([".svg"], ".svg"), ([".png"], ".png"), ([".SVG"], ".SVG"), ([".Png"], ".Png"),
             (["svg", ".svg"], ".svg"), ([".png", "full"], ".png"),
-            ([".png", "transparent"], ".png"), ([".svg", "zoom", "500"], ".svg"),
+            ([".png", "transparent"], ".png"), ([".svg", "zoom", "200"], ".svg"),
             # A mismatch would otherwise suggest the nonsense name ".svg".
             ([".png", "svg"], ".png"),
         ):
@@ -2432,11 +2470,11 @@ class PrintFileNameTests(unittest.TestCase):
                 self.assertNotIn(self.REPLACED, result.output)
 
     def test_the_replacement_note_and_the_size_warning_both_ride_along(self):
-        # 500 units across 800 pixels gives a 176 x 96 picture: the warning applies.
-        result = self.run_print(["mine", "full", "zoom", "500"], existing=("mine.png",))
+        # 200% is 500 units across 800 pixels: a 176 x 96 picture, so the warning applies.
+        result = self.run_print(["mine", "full", "zoom", "200"], existing=("mine.png",))
         warning = (
-            "Warning: the image is only 176×96 px. N in zoom N is the view width, "
-            "so a smaller N zooms in and gives a larger image."
+            "Warning: the image is only 176×96 px. N in zoom N is the zoom percentage, "
+            "so a bigger N zooms in and gives a larger image."
         )
         self.assertEqual(
             result.scheduler.report, f"Saved PNG: mine.png {self.REPLACED} {warning}"
@@ -2869,7 +2907,7 @@ class PrintTransientMarksTests(unittest.TestCase):
 
     def test_a_png_leaves_out_hover_and_halo_and_gets_them_back(self):
         for arguments in (["marks"], ["marks", "transparent"], ["marks", "full"],
-                          ["marks", "full", "zoom", "50"]):
+                          ["marks", "full", "zoom", "2000"]):
             with self.subTest(arguments=arguments):
                 viewer = marked_viewer()
                 before = drawn(viewer)
@@ -2930,7 +2968,7 @@ class PrintTransientMarksTests(unittest.TestCase):
                 mock.patch.object(print_command, "_svg_snapshot"), \
                 mock.patch.object(print_command, "_write_svg"):
             self.run_print(viewer, ["marks", "svg"])
-            self.run_print(viewer, ["marks", "zoom", "500"])
+            self.run_print(viewer, ["marks", "zoom", "200"])
         update.assert_not_called()
 
     def test_a_network_without_marks_is_not_redrawn(self):

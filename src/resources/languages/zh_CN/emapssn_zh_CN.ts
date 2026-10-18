@@ -2632,7 +2632,7 @@ Command-line usage:
         <location line="+447"/>
         <location filename="../../../commands/logo.py" line="+691"/>
         <location line="+59"/>
-        <location filename="../../../commands/print.py" line="+1306"/>
+        <location filename="../../../commands/print.py" line="+1310"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
@@ -2640,7 +2640,7 @@ Command-line usage:
         <location line="+2"/>
         <location filename="../../../commands/label.py" line="+140"/>
         <location filename="../../../commands/logo.py" line="+685"/>
-        <location filename="../../../commands/print.py" line="+208"/>
+        <location filename="../../../commands/print.py" line="+217"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
@@ -2918,8 +2918,8 @@ Command-line usage:
         <location line="+16"/>
         <location filename="../../../commands/meta.py" line="+172"/>
         <location line="+119"/>
-        <location filename="../../../commands/print.py" line="-76"/>
-        <location line="+51"/>
+        <location filename="../../../commands/print.py" line="-77"/>
+        <location line="+52"/>
         <location line="+15"/>
         <location line="+10"/>
         <location filename="../../../commands/query.py" line="+583"/>
@@ -2943,7 +2943,7 @@ Command-line usage:
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
         <location filename="../../../commands/offset.py" line="+92"/>
-        <location filename="../../../commands/print.py" line="-138"/>
+        <location filename="../../../commands/print.py" line="-147"/>
         <location filename="../../../commands/query.py" line="-260"/>
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
@@ -3454,7 +3454,7 @@ Command-line usage:
         <location filename="../../../commands/subcluster.py" line="-82"/>
         <location filename="../../../commands/undo.py" line="+48"/>
         <location line="+16"/>
-        <location filename="../../../commands/zoom.py" line="+188"/>
+        <location filename="../../../commands/zoom.py" line="+283"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
@@ -3640,7 +3640,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+5"/>
-        <location filename="../../../commands/print.py" line="+129"/>
+        <location filename="../../../commands/print.py" line="+138"/>
         <source>The background job scheduler is unavailable.</source>
         <translation type="unfinished">后台任务调度器不可用。</translation>
     </message>
@@ -3690,7 +3690,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+66"/>
-        <location filename="../../../commands/print.py" line="-65"/>
+        <location filename="../../../commands/print.py" line="-66"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
     </message>
@@ -3901,7 +3901,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../../commands/print.py" line="-385"/>
+        <location filename="../../../commands/print.py" line="-395"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -3911,17 +3911,30 @@ Command-line usage:
         <translation type="unfinished">截取过程中网络显示发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
     <message>
-        <location line="+201"/>
         <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at least {n}, or zoom out. The limit is {setting} in {file}.</source>
-        <translation type="unfinished">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过 {limit} 百万像素的上限。请使用 {syntax}，并让 N 至少为 {n}，或缩小视图。此上限由 {file} 中的 {setting} 设定。</translation>
+        <translation type="obsolete">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过 {limit} 百万像素的上限。请使用 {syntax}，并让 N 至少为 {n}，或缩小视图。此上限由 {file} 中的 {setting} 设定。</translation>
     </message>
     <message>
-        <location line="+138"/>
         <source>Error: {syntax} needs a view width, as in {example}.</source>
-        <translation type="unfinished">错误：{syntax} 需要一个视图宽度，例如 {example}。</translation>
+        <translation type="obsolete">错误：{syntax} 需要一个视图宽度，例如 {example}。</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+202"/>
+        <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at most {n}, or zoom out. The limit is {setting} in {file}.</source>
+        <translation type="unfinished">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过 {limit} 百万像素的上限。请使用 {syntax}，并让 N 不超过 {n}，或缩小视图。此上限由 {file} 中的 {setting} 设定。</translation>
+    </message>
+    <message>
+        <location line="+83"/>
+        <source>Warning: the image is only {width}×{height} px. N in {syntax} is the zoom percentage, so a bigger N zooms in and gives a larger image.</source>
+        <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是缩放百分比，N 越大，视图放得越大，图像也越大。</translation>
+    </message>
+    <message>
+        <location line="+60"/>
+        <source>Error: {syntax} needs a zoom percentage, as in {example}.</source>
+        <translation type="unfinished">错误：{syntax} 需要一个缩放百分比，例如 {example}。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Error: {syntax} can be given only once.</source>
         <translation type="unfinished">错误：{syntax} 只能指定一次。</translation>
     </message>
@@ -3955,19 +3968,18 @@ Command-line usage:
         <translation type="obsolete">错误：使用 &apos;SVG&apos; 时最多只能有 2 个关键字（例如 &apos;print [filename] svg&apos;）。</translation>
     </message>
     <message>
-        <location line="+72"/>
+        <location line="+73"/>
         <location line="+12"/>
         <location line="+121"/>
         <source>Error: No visible nodes to export.</source>
         <translation type="unfinished">错误：没有可导出的可见节点。</translation>
     </message>
     <message>
-        <location line="-326"/>
         <source>Warning: the image is only {width}×{height} px. N in {syntax} is the view width, so a smaller N zooms in and gives a larger image.</source>
-        <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是视图宽度，N 越小，视图放得越大，图像也越大。</translation>
+        <translation type="obsolete">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是视图宽度，N 越小，视图放得越大，图像也越大。</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="-327"/>
         <source>Saved {format}: {file}</source>
         <translation type="unfinished">已保存 {format}：{file}</translation>
     </message>
@@ -3977,7 +3989,7 @@ Command-line usage:
         <translation type="unfinished">已替换同名的现有文件。</translation>
     </message>
     <message>
-        <location line="+329"/>
+        <location line="+338"/>
         <location line="+35"/>
         <source>Failed to save {format}: {error}</source>
         <translation type="unfinished">保存 {format} 失败：{error}</translation>
@@ -4512,44 +4524,68 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/zoom.py" line="-71"/>
         <source>Error: Zoom width must be a valid number.</source>
-        <translation type="unfinished">错误：缩放宽度必须是有效的数字。</translation>
+        <translation type="obsolete">错误：缩放宽度必须是有效的数字。</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Error: Zoom width must be a positive, finite number.</source>
-        <translation type="unfinished">错误：缩放宽度必须是有限的正数。</translation>
+        <translation type="obsolete">错误：缩放宽度必须是有限的正数。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location filename="../../../commands/zoom.py" line="-90"/>
+        <source>Error: Zoom must be a number, with an optional % sign, as in {example}.</source>
+        <translation type="unfinished">错误：缩放必须是数字，可以带百分号，例如 {example}。</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Error: Zoom must be a positive, finite percentage.</source>
+        <translation type="unfinished">错误：缩放必须是有限的正百分比。</translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <source>Error: The canvas has no visible area, so the zoom cannot be applied.</source>
         <translation type="unfinished">错误：画布没有可见区域，因此无法应用缩放。</translation>
     </message>
     <message>
-        <location line="+17"/>
-        <source>Error: Zoom width is too large for the current view.</source>
-        <translation type="unfinished">错误：缩放宽度对当前视图来说过大。</translation>
+        <location line="+18"/>
+        <source>Error: Zoom is too low for the current view.</source>
+        <translation type="unfinished">错误：缩放过低，无法用于当前视图。</translation>
     </message>
     <message>
         <location line="+3"/>
-        <source>Error: Zoom width is too small to draw accurately at the current view centre.</source>
-        <translation type="unfinished">错误：缩放宽度过小，在当前视图中心无法精确绘制。</translation>
+        <source>Error: Zoom is too high to draw accurately at the current view centre.</source>
+        <translation type="unfinished">错误：缩放过高，在当前视图中心无法精确绘制。</translation>
     </message>
     <message>
         <location line="+18"/>
-        <source>Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.</source>
-        <translation type="unfinished">错误：缩放宽度必须介于 {narrowest} 和能显示所有节点的最大视图宽度 {widest} 之间。</translation>
+        <source>Error: Zoom must be between {lowest}% and {highest}%, the lowest being the zoom that shows every node.</source>
+        <translation type="unfinished">错误：缩放必须介于 {lowest}% 和 {highest}% 之间，下限是能显示所有节点的缩放。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+52"/>
+        <source>Zoom set to {zoom}%</source>
+        <translation type="unfinished">缩放已设为 {zoom}%</translation>
+    </message>
+    <message>
+        <source>Error: Zoom width is too large for the current view.</source>
+        <translation type="obsolete">错误：缩放宽度对当前视图来说过大。</translation>
+    </message>
+    <message>
+        <source>Error: Zoom width is too small to draw accurately at the current view centre.</source>
+        <translation type="obsolete">错误：缩放宽度过小，在当前视图中心无法精确绘制。</translation>
+    </message>
+    <message>
+        <source>Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.</source>
+        <translation type="obsolete">错误：缩放宽度必须介于 {narrowest} 和能显示所有节点的最大视图宽度 {widest} 之间。</translation>
+    </message>
+    <message>
+        <location line="-36"/>
         <source>Error: Zoom could not be applied: {error}</source>
         <translation type="unfinished">错误：无法应用缩放：{error}</translation>
     </message>
     <message>
-        <location line="+27"/>
         <source>Zoom snapped to View Width: {width}</source>
-        <translation type="unfinished">缩放已对齐到视图宽度：{width}</translation>
+        <translation type="obsolete">缩放已对齐到视图宽度：{width}</translation>
     </message>
     <message>
         <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+133"/>
@@ -4664,7 +4700,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1288"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1295"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -4732,7 +4768,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+340"/>
+        <location line="+342"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -10261,7 +10297,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2332"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2334"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -10270,7 +10306,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-155"/>
+        <location line="-161"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -10285,12 +10321,21 @@ Fedora / RHEL：
         <translation type="unfinished">会话与操作</translation>
     </message>
     <message>
-        <location line="+48"/>
-        <source>View Width: {width}</source>
-        <translation type="unfinished">视图宽度：{width}</translation>
+        <location line="+49"/>
+        <source>Zoom: {zoom}</source>
+        <translation type="unfinished">缩放：{zoom}</translation>
     </message>
     <message>
-        <location line="+1775"/>
+        <location line="+1"/>
+        <source>A bigger zoom is closer: 100% is a view {width} layout units wide. Type a percentage, or use the arrows or the mouse wheel over the box.</source>
+        <translation type="unfinished">缩放越大，视图越近：100% 对应宽 {width} 个布局单位的视图。可输入百分比，也可在此框上使用箭头或鼠标滚轮。</translation>
+    </message>
+    <message>
+        <source>View Width: {width}</source>
+        <translation type="obsolete">视图宽度：{width}</translation>
+    </message>
+    <message>
+        <location line="+1781"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -10380,7 +10425,7 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+111"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+112"/>
         <source>Sequence Set:</source>
         <translation type="unfinished">序列集：</translation>
     </message>

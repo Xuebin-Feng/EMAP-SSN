@@ -503,7 +503,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="19ee800a9196d024565a8665fc33adf79aef845647b1fcf8bdd0863d0390f49a">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="cde758cd5e9f55b1771a47939274718adec2284ac4b80d4639a506fb4bb789c0">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -516,7 +516,7 @@
                     <img src="../../../../../docs/assets/emapssn_viewer_gui.png" alt="EMAP-SSN 查看器 GUI 截图" style="max-height: 520px;">
                 </div>
                 <div class="figure-caption">
-                    <strong>图 4：EMAP-SSN 查看器 GUI 界面元素。</strong>图中的标注指出了主要的交互组件：（1）左上角的<strong>命令行界面（Command Line Interface，HUD）</strong>，用于运行分析命令；（2）<strong>选择框（Selection Box）</strong>，用于框选节点集；（3）左下角的<strong>边可见性滑块（Edge Visibility Slider）</strong>，用于实时调整阈值；（4）右下角的<strong>查看器状态堆叠区（Viewer Status）</strong>，显示视图宽度（View Width）和隐藏节点（Hidden Nodes）；（5）右上角的<strong>侧面板插件（Side Panel Plugin）</strong>，包括元数据（Meta Data）、智能体（Agent）和结构视图（Fold View，Mol* 3D 结构）。
+                    <strong>图 4：EMAP-SSN 查看器 GUI 界面元素。</strong>图中的标注指出了主要的交互组件：（1）左上角的<strong>命令行界面（Command Line Interface，HUD）</strong>，用于运行分析命令；（2）<strong>选择框（Selection Box）</strong>，用于框选节点集；（3）左下角的<strong>边可见性滑块（Edge Visibility Slider）</strong>，用于实时调整阈值；（4）右下角的<strong>查看器状态堆叠区（Viewer Status）</strong>，显示缩放（Zoom）和隐藏节点（Hidden Nodes）；（5）右上角的<strong>侧面板插件（Side Panel Plugin）</strong>，包括元数据（Meta Data）、智能体（Agent）和结构视图（Fold View，Mol* 3D 结构）。
                 </div>
             </div>
 
@@ -637,7 +637,7 @@
                     右下角显示实时状态信息：
                 </p>
                 <ul>
-                    <li><strong>视图宽度：</strong>与阈值滑块处于同一水平位置的输入框，显示相机视场在世界坐标中的宽度。输入一个宽度并按 Enter，或使用它的箭头、在其上滚动鼠标滚轮，即可缩放到该宽度；其取值遵循 <code>zoom</code> 命令的限制。</li>
+                    <li><strong>缩放：</strong>与阈值滑块处于同一水平位置的输入框，以百分比显示相机的缩放：100% 是宽 1000 个布局单位的视图，数字越大视图越近。输入一个百分比并按 Enter，或使用它的箭头、在其上滚动鼠标滚轮（向上和向前为放大），即可缩放到该值；其取值遵循 <code>zoom</code> 命令的限制。</li>
                     <li><strong>隐藏节点：</strong>当前被选择过滤器或子网络命令隐藏的节点数。</li>
                     <li><strong>当前元数据：</strong>显示当前映射到节点渐变色着色的属性。</li>
                     <li><strong>后台任务监视器：</strong>当异步计算（例如生成序列标识图或下载结构）在后台执行时，显示进度指示器。</li>

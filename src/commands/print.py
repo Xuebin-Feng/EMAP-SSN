@@ -28,7 +28,7 @@ from vispy import app
 from vispy.scene.visuals import VisualNode
 from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
-from commands.zoom import view_for_width
+from commands.zoom import ZOOM_100_PERCENT_WIDTH, view_for_zoom, zoom_percent
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import edge_stages
@@ -39,7 +39,7 @@ PRINT_MODIFIERS = ("transparent", "full", "svg", "zoom")
 # The modifiers as an error lists them: zoom is written with its N.
 PRINT_MODIFIER_SYNTAX = "transparent, full, svg, zoom N"
 # A full PNG drawn at a `zoom N` scale whose longest side is shorter than this
-# is still saved, with a warning that a smaller N gives a larger image.
+# is still saved, with a warning that a larger N gives a larger image.
 ZOOMED_IMAGE_MIN_SIDE_PX = 1000
 # print full refuses, before drawing any tile, a PNG of more megapixels than
 # this. 1000 is about 31,600 x 31,600 px, seven times an A0 poster at 300 dpi
@@ -65,7 +65,7 @@ SVG_CHUNK_SIZE = 100_000
 CAPTURE_EVENT_INTERVAL_S = 0.1
 
 def print_help():
-    print("""
+    print(f"""
     SSN Image Export & Printing Tool
     ================================
     Usage: print [FILENAME] [MODIFIERS]
@@ -104,11 +104,13 @@ def print_help():
                     high-DPI display both come out thinner beside the nodes.
 
     Scale (with full or svg only, anywhere among the modifiers):
-      zoom N      : Draws at the scale 'zoom N' would set, the view N scene
-                    units wide on the current canvas, without moving the
-                    view. N must be a positive width the view can draw;
-                    the zoom command's 0.5 and whole-network limits don't
-                    apply. A smaller N zooms in: a larger full PNG, and
+      zoom N      : Draws at the scale 'zoom N' would set: the Viewer's zoom
+                    of N percent, as in its Zoom box, without moving the view.
+                    100% is a view {ZOOM_100_PERCENT_WIDTH:g} scene units wide, and a
+                    bigger N is closer (200% is half as wide). The % sign is
+                    optional, and a space may come before it. N must be a
+                    positive zoom the view can draw; the zoom command's limits
+                    don't apply. A bigger N zooms in: a larger full PNG, and
                     smaller nodes and lines relative to the network in an
                     SVG. Node sizes stay in screen pixels. A full PNG whose
                     longest side is under 1000 px is saved with a warning.
@@ -122,7 +124,7 @@ def print_help():
     and opens its folder.
 
     Size limit: a full PNG of more than MAX_FULL_IMAGE_MEGAPIXELS megapixels
-    (1000 as shipped) is refused before any tile is drawn, with the smallest
+    (1000 as shipped) is refused before any tile is drawn, with the largest
     N that fits. The limit is set in src/commands/print.py.
 
     PNG captures leave out the hover colour of the node under the mouse and
@@ -135,8 +137,8 @@ def print_help():
       print my_network full transparent   (Stitches a massive transparent PNG)
       print my_network svg                (Saves view as a vector SVG file)
       print my_network.svg                (The same: a .svg name selects SVG)
-      print my_network full zoom 500      (Whole network, 500 units per view width)
-      print my_network svg zoom 500       (SVG sized as on a view 500 units wide)
+      print my_network full zoom 200      (Whole network, drawn at a 200% zoom)
+      print my_network svg zoom 200%      (SVG sized as at a 200% zoom)
     """)
 
 # The marker names a node's shape can hold: vispy's own aliases, which the
@@ -200,8 +202,8 @@ def _scene_units_per_pixel(viewer, view_width=None):
     logical pixels too. The Viewer fixes the aspect at 1, so one scale holds
     for both axes. A view with no area keeps the sizes as they are, 1 to 1.
 
-    view_width, the N of `print svg zoom N`, gives the scale of a view N
-    scene units wide instead of the current one.
+    view_width, the width of the view `print svg zoom N` sets, gives the
+    scale of a view that wide instead of the current one.
     """
     view = viewer.view
     camera = view.camera
@@ -631,8 +633,8 @@ def _svg_snapshot(viewer, view_width=None):
 
     Sizes set in screen pixels (node size and outline, edge width) are written
     in scene units at the current zoom, so the SVG keeps the proportions of
-    the view on screen; with view_width, the N of `zoom N`, at the zoom of a
-    view N scene units wide instead.
+    the view on screen; with view_width, the width of the view `zoom N` sets,
+    at the zoom of a view that wide instead.
     """
     vis = viewer.visible_mask
     if not np.any(vis):
@@ -1241,19 +1243,20 @@ class _RawMosaic:
         return _compact(self.image, box)
 
 
-def _round_up(value):
-    """value rounded up to three significant digits, as text."""
+def _round_down(value):
+    """value rounded down to three significant digits, as text."""
     exponent = math.floor(math.log10(value)) - 2
     step = 10.0 ** exponent
-    return f"{math.ceil(value / step) * step:.{max(0, -exponent)}f}"
+    return f"{math.floor(value / step) * step:.{max(0, -exponent)}f}"
 
 
 def full_image_size_refusal(width, height, view_width):
     """The Message refusing a full PNG of width x height px, or None within the limit.
 
-    view_width is the scene width the image is drawn at, the N of `zoom N` or
-    the current view's width. The pixel count falls with its square, which
-    gives the smallest N that fits; 1% more allows for rounding.
+    view_width is the scene width the image is drawn at, that of the view `zoom N`
+    sets or the current view's width. The pixel count falls with its square,
+    which gives the narrowest view that fits, and so the highest zoom N, the
+    zoom of that width; 1% more width allows for rounding.
     """
     megapixels = width * height / 1e6
     if megapixels <= MAX_FULL_IMAGE_MEGAPIXELS:
@@ -1261,10 +1264,11 @@ def full_image_size_refusal(width, height, view_width):
     smallest = view_width * math.sqrt(megapixels / MAX_FULL_IMAGE_MEGAPIXELS) * 1.01
     return Message(
         "Error: The full image would be {width}×{height} px ({megapixels} megapixels), "
-        "more than the limit of {limit}. Use {syntax} with N of at least {n}, or zoom out. "
+        "more than the limit of {limit}. Use {syntax} with N of at most {n}, or zoom out. "
         "The limit is {setting} in {file}.",
         width=width, height=height, megapixels=math.ceil(megapixels),
-        limit=MAX_FULL_IMAGE_MEGAPIXELS, syntax="print full zoom N", n=_round_up(smallest),
+        limit=MAX_FULL_IMAGE_MEGAPIXELS, syntax="print full zoom N",
+        n=_round_down(zoom_percent(smallest)),
         setting="MAX_FULL_IMAGE_MEGAPIXELS", file="src/commands/print.py",
     )
 
@@ -1342,8 +1346,8 @@ def _print_job(job):
         # A scale the user chose can make a small picture; it is saved all the same.
         if job.zoom_width is not None and max(trimmed_width, trimmed_height) < ZOOMED_IMAGE_MIN_SIDE_PX:
             size_warning = Message(
-                "Warning: the image is only {width}×{height} px. N in {syntax} is the view "
-                "width, so a smaller N zooms in and gives a larger image.",
+                "Warning: the image is only {width}×{height} px. N in {syntax} is the zoom "
+                "percentage, so a bigger N zooms in and gives a larger image.",
                 width=trimmed_width, height=trimmed_height, syntax="zoom N",
             )
 
@@ -1384,8 +1388,11 @@ def run(viewer, args):
     zoom_text = None
     name = None
 
-    words = iter(args)
-    for a in words:
+    words = list(args)
+    position = 0
+    while position < len(words):
+        a = words[position]
+        position += 1
         if a.lower() == "transparent":
             is_transparent = True
         elif a.lower() == "full":
@@ -1395,17 +1402,22 @@ def run(viewer, args):
         elif a.lower() == "zoom":
             # The next word is N, whatever it holds, so it never joins the
             # file name; a name such as zoom.png is not this keyword.
-            width = next(words, None)
-            if width is None or width.lower() in PRINT_MODIFIERS:
+            percent = words[position] if position < len(words) else None
+            position += 1
+            if percent is None or percent.lower() in PRINT_MODIFIERS:
                 _refuse(viewer, Message(
-                    "Error: {syntax} needs a view width, as in {example}.",
-                    syntax="zoom", example="print full zoom 500",
+                    "Error: {syntax} needs a zoom percentage, as in {example}.",
+                    syntax="zoom", example="print full zoom 200",
                 ))
                 return
+            # The % sign may stand apart from N, as in "zoom 200 %".
+            if position < len(words) and words[position] == "%":
+                percent += words[position]
+                position += 1
             if zoom_text is not None:
                 _refuse(viewer, Message("Error: {syntax} can be given only once.", syntax="zoom N"))
                 return
-            zoom_text = width
+            zoom_text = percent
         elif a.strip().startswith("-"):
             # Not a modifier, and not a name: it would be saved as "--flag.png".
             msg = Message(
@@ -1468,11 +1480,12 @@ def run(viewer, args):
             Command_Engine.show_status(viewer, msg)
             return
 
-    # N is checked as `zoom N` checks it, against the current canvas and view.
+    # N is checked as `zoom N` checks it, against the current canvas and view;
+    # zoom_width is the width, in scene units, of the view it sets.
     zoom_width = None
     if zoom_text is not None:
         try:
-            zoom_width = view_for_width(viewer, zoom_text)[2]
+            zoom_width = view_for_zoom(viewer, zoom_text)[2]
         except ValueError as error:
             _refuse(viewer, error.args[0])
             return
@@ -1556,7 +1569,7 @@ def run(viewer, args):
             camera = viewer.view.camera
             orig_real_rect = camera._real_rect if hasattr(camera, '_real_rect') else camera.rect
             # Each tile shows the scene area the view shows now, or with zoom N
-            # the view `zoom N` sets: N units wide, in the view's own shape.
+            # the view `zoom N` sets: zoom_width units wide, in the view's own shape.
             tile_world_w = orig_real_rect.width
             tile_world_h = orig_real_rect.height
             if zoom_width is not None:

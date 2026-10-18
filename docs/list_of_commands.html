@@ -259,13 +259,14 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">zoom &lt;width&gt;</div>
+                    <div class="syntax-content">zoom &lt;percent&gt;</div>
                     <button class="copy-btn" onclick="copyText('zoom', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> Sets the camera rectangle to exactly the specified numeric width while preserving its current center and the canvas aspect ratio. The width must be at least 0.5 and at most the widest view that shows every node, hidden ones too, rounded up to a multiple of 100; that widest view follows the nodes as they move and the window's shape. A width outside those limits is refused with both limits named. The mouse wheel, a touchpad pinch and the View Width box beside the threshold slider stop at the same limits.</p>
+                <p><strong>Function:</strong> Sets the camera zoom to exactly the specified percentage while preserving its current center and the canvas aspect ratio. 100% is a view 1000 layout units wide (<code>ZOOM_100_PERCENT_WIDTH</code> in <code>src/commands/zoom.py</code>), and a bigger percentage is closer: 200% is a view half as wide. The % sign is optional, so <code>zoom 200</code> and <code>zoom 200%</code> are the same, and a space may come before it. The zoom must be at most 200000% (a view 0.5 units wide) and at least the zoom that shows every node, hidden ones too, rounded down to two significant figures; that lowest zoom follows the nodes as they move and the window's shape. A zoom outside those limits is refused with both limits named. The mouse wheel, a touchpad pinch and the Zoom box beside the threshold slider stop at the same limits.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
-                    <li class="example-item"><span>zoom 500</span><button class="copy-btn" onclick="copyText('zoom 500', this)">Copy</button></li>
+                    <li class="example-item"><span>zoom 200</span><button class="copy-btn" onclick="copyText('zoom 200', this)">Copy</button></li>
+                    <li class="example-item"><span>zoom 50%</span><button class="copy-btn" onclick="copyText('zoom 50%', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1056,9 +1057,9 @@
                 <div class="subheading">Modifiers</div>
                 <ul>
                     <li><strong>transparent:</strong> Removes the solid background, making the output PNG transparent.</li>
-                    <li><strong>full:</strong> Bypasses OpenGL camera edge-clipping. Renders the network tile by tile off screen, without moving the view, and stitches the tiles into a massive, ultra-high-resolution PNG. Keyboard and mouse input waits while the tiles are drawn, and resizing the window cancels the capture. An image of more than 1000 megapixels (<code>MAX_FULL_IMAGE_MEGAPIXELS</code> in <code>src/commands/print.py</code>) is refused before any tile is drawn, naming the smallest <code>zoom N</code> that fits; making the image takes about 4 bytes of memory per pixel, 7 with transparency. Can be combined with transparency.</li>
+                    <li><strong>full:</strong> Bypasses OpenGL camera edge-clipping. Renders the network tile by tile off screen, without moving the view, and stitches the tiles into a massive, ultra-high-resolution PNG. Keyboard and mouse input waits while the tiles are drawn, and resizing the window cancels the capture. An image of more than 1000 megapixels (<code>MAX_FULL_IMAGE_MEGAPIXELS</code> in <code>src/commands/print.py</code>) is refused before any tile is drawn, naming the largest <code>zoom N</code> that fits; making the image takes about 4 bytes of memory per pixel, 7 with transparency. Can be combined with transparency.</li>
                     <li><strong>svg:</strong> Writes a layered Scalable Vector Graphic of the network as displayed, without shutting down the OpenGL viewer: visible nodes and the edges shown on screen (the similarity-threshold and UMAP-mode filters apply), in the configured edge and node-boundary colors. Text labels are not included. Node sizes and line widths follow the current zoom, so the SVG keeps the proportions shown on screen. It draws what a PNG of the view shows: each marker's shape as on screen, and node outlines (selection borders too) and edges as wide as the screen draws them, so a thin outline is about 1.7 device pixels wide and edges are whole device pixels; on a high-DPI display both come out thinner beside the nodes. Cannot be combined with <code>transparent</code> or <code>full</code>.</li>
-                    <li><strong>zoom N:</strong> Only with <code>full</code> or <code>svg</code>, anywhere among the modifiers. Draws at the scale <code>zoom N</code> would set, the view N scene units wide on the current canvas, without moving the view; N must be a positive width the view can draw, and the <code>zoom</code> command's 0.5 and whole-network limits do not apply. With <code>full</code>, node sizes stay in screen pixels and a smaller N gives a larger image; an image whose longest side is under 1000&nbsp;px is still saved, with a warning. With <code>svg</code>, node sizes and line widths are written as on a view N units wide. Refused with a plain PNG. The word after <code>zoom</code> is always read as N, so a file named zoom is written <code>zoom.png</code>.</li>
+                    <li><strong>zoom N:</strong> Only with <code>full</code> or <code>svg</code>, anywhere among the modifiers. Draws at the scale <code>zoom N</code> would set, a zoom of N percent as in the Viewer's Zoom box (the % sign is optional, and a space may come before it), without moving the view; N must be a positive zoom the view can draw, and the <code>zoom</code> command's limits do not apply. With <code>full</code>, node sizes stay in screen pixels and a bigger N gives a larger image; an image whose longest side is under 1000&nbsp;px is still saved, with a warning. With <code>svg</code>, node sizes and line widths are written as at that zoom. Refused with a plain PNG. The word after <code>zoom</code> is always read as N, so a file named zoom is written <code>zoom.png</code>.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1068,8 +1069,8 @@
                     <li class="example-item"><span>print my_network full transparent</span><button class="copy-btn" onclick="copyText('print my_network full transparent', this)">Copy</button></li>
                     <li class="example-item"><span>print my_network svg</span><button class="copy-btn" onclick="copyText('print my_network svg', this)">Copy</button></li>
                     <li class="example-item"><span>print my_network.svg</span><button class="copy-btn" onclick="copyText('print my_network.svg', this)">Copy</button></li>
-                    <li class="example-item"><span>print my_network full zoom 500</span><button class="copy-btn" onclick="copyText('print my_network full zoom 500', this)">Copy</button></li>
-                    <li class="example-item"><span>print my_network svg zoom 500</span><button class="copy-btn" onclick="copyText('print my_network svg zoom 500', this)">Copy</button></li>
+                    <li class="example-item"><span>print my_network full zoom 200</span><button class="copy-btn" onclick="copyText('print my_network full zoom 200', this)">Copy</button></li>
+                    <li class="example-item"><span>print my_network svg zoom 200%</span><button class="copy-btn" onclick="copyText('print my_network svg zoom 200%', this)">Copy</button></li>
                 </ul>
             </section>
 

@@ -4,7 +4,7 @@
 
 """The Viewer's widgets (desktop.Viewer_Widgets): its info card and the
 info button that opens it, its sidebar's rounded card and buttons, and the
-View Width box.
+Zoom box.
 
 The Viewer lists its mouse and keyboard actions in one translated text. The
 card shows the session (the counts, and each input file as a read-only path;
@@ -14,9 +14,9 @@ and in Chinese, into key caps beside what each action does, on a light tint
 of the theme colour. It is a child of the canvas: it closes only by its
 cross or the button, takes no mouse event from the canvas and none of its
 own to the canvas, and never takes the keyboard. A sidebar button
-centres its label in the room after its icon. The View Width box steps the
-view's width by a factor, as the wheel zooms, and reports only what the
-user set. The threshold box's step comes from the range of the scores, and
+centres its label in the room after its icon. The Zoom box shows the view's
+zoom as a percentage, steps it by a factor, as the wheel zooms (a bigger
+percentage is closer), and reports only what the user set. The threshold box's step comes from the range of the scores, and
 each of its numbers is a position of the threshold slider.
 """
 
@@ -57,15 +57,17 @@ from desktop.Viewer_Widgets import (  # noqa: E402
     ControlsCard,
     PathField,
     SidebarButton,
+    SLIDER_BOX_HEIGHT,
     SidebarPanel,
     THRESHOLD_STEPS,
     ThresholdSpinBox,
-    VIEW_WIDTH_BOX_HEIGHT,
-    VIEW_WIDTH_STEP,
-    ViewWidthBox,
-    ViewWidthSpinBox,
+    ZOOM_STEP,
+    ZoomBox,
+    ZoomSpinBox,
     controls_rows,
     display_path,
+    shown_zoom,
+    zoom_decimals,
 )
 from desktop.Viewer_State import alias_form  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
@@ -1252,45 +1254,114 @@ class ControlsCardLanguageTests(unittest.TestCase):
                 self.assertTrue(drafted.get((context, source)), (context, source))
 
 
-class ViewWidthBoxTests(unittest.TestCase):
+class ZoomBoxTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme_for_class(cls, cls.app)
 
-    def make_spin_box(self, width=242.0, narrowest=0.5, widest=1100.0):
-        spin_box = ViewWidthSpinBox()
+    def make_spin_box(self, zoom=229.57, lowest=220.0, highest=200000.0):
+        spin_box = ZoomSpinBox()
         self.addCleanup(spin_box.deleteLater)
-        spin_box.show_width(width, narrowest, widest)
+        spin_box.show_zoom(zoom, lowest, highest)
         sets = []
         spin_box.valueChanged.connect(sets.append)
         return spin_box, sets
 
     def test_the_view_shows_without_a_signal_and_the_user_sets_with_one(self):
         spin_box, sets = self.make_spin_box()
-        self.assertEqual(spin_box.text(), "242.0")
-        self.assertEqual((spin_box.minimum(), spin_box.maximum()), (0.5, 1100.0))
-        spin_box.show_width(300.04, 0.5, 1200.0)
-        self.assertEqual((spin_box.text(), sets), ("300.0", []))
+        self.assertEqual(spin_box.text(), "230%")
+        self.assertEqual((spin_box.minimum(), spin_box.maximum()), (220.0, 200000.0))
+        spin_box.show_zoom(300.04, 220.0, 200000.0)
+        self.assertEqual((spin_box.text(), sets), ("300%", []))
         spin_box.setValue(500.0)
         self.assertEqual(sets, [500.0])
-        # A width beyond the limits, as after the nodes were moved together, still shows.
-        spin_box.show_width(1500.0, 0.5, 1100.0)
-        self.assertEqual(spin_box.value(), 1500.0)
-        # With no limit to keep to, a wide view still shows.
-        spin_box.show_width(5000.0, 0.5, None)
-        self.assertEqual(spin_box.value(), 5000.0)
+        # A zoom beyond the limits, as after the nodes were moved together, still shows.
+        spin_box.show_zoom(150.0, 220.0, 200000.0)
+        self.assertEqual(spin_box.value(), 150.0)
+        self.assertEqual(spin_box.minimum(), 150.0)
+        # With no limit to keep to, a low zoom still shows.
+        spin_box.show_zoom(0.4, None, 200000.0)
+        self.assertEqual(spin_box.value(), 0.4)
+
+    def test_a_limit_a_float_digit_off_is_still_the_limit(self):
+        spin_box, sets = self.make_spin_box(zoom=219.99999999999997, lowest=220.0)
+        self.assertEqual((spin_box.minimum(), spin_box.value(), spin_box.text()), (220.0, 220.0, "220%"))
+        spin_box.stepBy(-1)
+        self.assertEqual(sets, [])  # Already at the lowest zoom.
+        spin_box.show_zoom(200000.00000000003, 220.0, 200000.0)
+        self.assertEqual(spin_box.maximum(), 200000.0)
+
+    def test_the_precision_reads_from_one_percent_to_the_highest_zoom(self):
+        # Three significant figures, and every digit of the whole part.
+        for zoom, text in ((0.5, "0.500%"), (0.826, "0.826%"), (1.0, "1.00%"), (1.87, "1.87%"),
+                           (9.996, "10.0%"), (23.26, "23.3%"), (99.96, "100%"), (123.4, "123%"),
+                           (1234.5, "1234%"), (20000.4, "20000%"), (123456.7, "123457%"),
+                           (200000.0, "200000%")):
+            with self.subTest(zoom=zoom):
+                spin_box, _sets = self.make_spin_box(zoom=zoom, lowest=0.1)
+                self.assertEqual(spin_box.text(), text)
+        self.assertEqual([zoom_decimals(value) for value in (0.1, 0.99, 1, 9.99, 10, 99.9, 100, 200000)],
+                         [3, 3, 2, 2, 1, 1, 0, 0])
+        # The number it keeps is the one it shows, so leaving the box as it is changes nothing.
+        spin_box, sets = self.make_spin_box(zoom=229.57)
+        self.assertEqual((spin_box.value(), shown_zoom(229.57)), (230.0, 230.0))
+        self.assertEqual(shown_zoom(23.26), 23.3)
+        self.assertEqual(shown_zoom(1.874), 1.87)
+
+    def test_a_typed_number_is_kept_as_typed_with_or_without_the_sign(self):
+        spin_box, sets = self.make_spin_box()
+        for typed, value in (("250", 250.0), ("300 %", 300.0), ("300%", 300.0), ("1234.5", 1234.5),
+                             ("12345", 12345.0), ("0221.4", 221.4)):
+            spin_box.lineEdit().selectAll()
+            QTest.keyClicks(spin_box, typed)
+            QTest.keyClick(spin_box, Qt.Key.Key_Return)
+            with self.subTest(typed=typed):
+                self.assertEqual(sets[-1], value)
+        self.assertEqual(spin_box.text(), "221%")
+
+    def test_enter_on_the_number_shown_changes_nothing(self):
+        # Clicking in the box and pressing Enter must not nudge a view at 229.57% to 230%.
+        spin_box, sets = self.make_spin_box()
+        spin_box.lineEdit().selectAll()
+        QTest.keyClick(spin_box, Qt.Key.Key_Return)
+        spin_box.lineEdit().selectAll()
+        QTest.keyClicks(spin_box, "230")
+        QTest.keyClick(spin_box, Qt.Key.Key_Return)
+        self.assertEqual(sets, [])
+
+    def test_a_number_outside_the_limits_is_not_taken(self):
+        spin_box, sets = self.make_spin_box()
+        for typed in ("5", "219", "0"):
+            spin_box.lineEdit().selectAll()
+            QTest.keyClicks(spin_box, typed)
+            QTest.keyClick(spin_box, Qt.Key.Key_Return)
+        self.assertEqual((sets, spin_box.text()), ([], "230%"))
 
     def test_a_step_zooms_by_a_factor_and_stops_at_the_limits(self):
-        spin_box, sets = self.make_spin_box(width=400.0)
+        spin_box, sets = self.make_spin_box(zoom=400.0)
+        # Up and the wheel forward zoom in: a bigger percentage; down zooms out.
         spin_box.stepBy(1)
         spin_box.stepBy(-2)
-        self.assertEqual(sets, [400.0 * VIEW_WIDTH_STEP, round(400.0 / VIEW_WIDTH_STEP, 1)])
-        self.assertGreaterEqual(VIEW_WIDTH_STEP, 1.1)
-        spin_box.stepBy(20)
-        self.assertEqual(sets[-1], 1100.0)
-        spin_box.stepBy(-60)
-        self.assertEqual(sets[-1], 0.5)
+        self.assertEqual(sets, [400.0 * ZOOM_STEP, 400.0 * ZOOM_STEP / ZOOM_STEP ** 2])
+        self.assertGreaterEqual(ZOOM_STEP, 1.1)
+        spin_box.stepBy(60)
+        self.assertEqual(sets[-1], 200000.0)
+        spin_box.stepBy(-80)
+        self.assertEqual(sets[-1], 220.0)
+
+    def test_the_arrows_the_wheel_and_the_keys_zoom_in_for_up_and_forward(self):
+        spin_box, sets = self.make_spin_box(zoom=400.0)
+        spin_box.setFocus()
+        QTest.keyClick(spin_box, Qt.Key.Key_Up)
+        QTest.keyClick(spin_box, Qt.Key.Key_Down)
+        QTest.keyClick(spin_box, Qt.Key.Key_Down)
+        self.assertEqual(sets, [500.0, 400.0, 320.0])
+        # A wheel notch forward (a positive angle) is Up.
+        wheel = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(), QPoint(0, 120), Qt.MouseButton.NoButton,
+                            Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+        self.app.sendEvent(spin_box, wheel)
+        self.assertEqual(sets[-1], 400.0)
 
     def test_typing_counts_on_enter_and_esc_puts_back_the_view(self):
         spin_box, sets = self.make_spin_box()
@@ -1301,7 +1372,7 @@ class ViewWidthBoxTests(unittest.TestCase):
         QTest.keyClicks(spin_box, "750")
         self.assertEqual(sets, [])
         QTest.keyClick(spin_box, Qt.Key.Key_Escape)
-        self.assertEqual((spin_box.text(), sets, dismissed), ("242.0", [], [True]))
+        self.assertEqual((spin_box.text(), sets, dismissed), ("230%", [], [True]))
         spin_box.lineEdit().selectAll()
         QTest.keyClicks(spin_box, "750")
         QTest.keyClick(spin_box, Qt.Key.Key_Return)
@@ -1317,26 +1388,26 @@ class ViewWidthBoxTests(unittest.TestCase):
         self.app.processEvents()
         if not spin_box.hasFocus():
             self.skipTest("this platform gives no window the keyboard")
-        spin_box.show_width(900.0, 0.5, 1100.0)
-        self.assertEqual(spin_box.text(), "242.0")
+        spin_box.show_zoom(900.0, 220.0, 200000.0)
+        self.assertEqual(spin_box.text(), "230%")
 
     def test_it_never_takes_the_keyboard_from_the_network_unasked(self):
         spin_box, _sets = self.make_spin_box()
         self.assertEqual(spin_box.focusPolicy(), Qt.FocusPolicy.ClickFocus)
 
     def test_its_width_holds_as_the_limits_change(self):
-        spin_box, _sets = self.make_spin_box(widest=100.0)
+        spin_box, _sets = self.make_spin_box(lowest=0.1)
         narrow = spin_box.sizeHint()
-        spin_box.show_width(242.0, 0.5, 250000.0)
+        spin_box.show_zoom(242.0, 3000.0, 4000.0)
         self.assertEqual(spin_box.sizeHint(), narrow)
-        self.assertEqual(narrow.height(), VIEW_WIDTH_BOX_HEIGHT)
-        self.assertGreaterEqual(narrow.width(), QFontMetrics(spin_box.font()).horizontalAdvance("999999.9"))
+        self.assertEqual(narrow.height(), SLIDER_BOX_HEIGHT)
+        self.assertGreaterEqual(narrow.width(), QFontMetrics(spin_box.font()).horizontalAdvance("200000%"))
 
-    def test_the_text_either_side_of_the_width(self):
-        for template, before, after in (("View Width: {width}", "View Width:", ""),
-                                        ("{width} units wide", "", "units wide"),
-                                        ("视图宽度：{width}", "视图宽度：", "")):
-            box = ViewWidthBox(template)
+    def test_the_text_either_side_of_the_zoom(self):
+        for template, before, after in (("Zoom: {zoom}", "Zoom:", ""),
+                                        ("{zoom} closer", "", "closer"),
+                                        ("缩放：{zoom}", "缩放：", "")):
+            box = ZoomBox(template)
             self.addCleanup(box.deleteLater)
             with self.subTest(template=template):
                 self.assertEqual((box.before.text(), box.after.text()), (before, after))
@@ -1434,9 +1505,9 @@ class ThresholdBoxTests(unittest.TestCase):
         box.stepBy(1)
         self.assertEqual(sets[-1], 5.501)
 
-    def test_it_is_as_tall_as_the_view_width_box(self):
+    def test_it_is_as_tall_as_the_zoom_box(self):
         box = self.make_box(0.0, 9.6)
-        self.assertEqual(box.sizeHint().height(), VIEW_WIDTH_BOX_HEIGHT)
+        self.assertEqual(box.sizeHint().height(), SLIDER_BOX_HEIGHT)
         self.assertGreaterEqual(box.sizeHint().width(), QFontMetrics(box.font()).horizontalAdvance("9.600"))
 
 

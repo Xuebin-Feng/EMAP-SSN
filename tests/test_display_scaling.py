@@ -247,7 +247,7 @@ class DisplayScalingTests(unittest.TestCase):
         viewer.position_slider_overlay.assert_called_once_with()
         viewer.reposition_expand_btn.assert_called_once_with()
 
-    def test_bottom_right_status_stack_sits_evenly_above_the_view_width_box(self):
+    def test_bottom_right_status_stack_sits_evenly_above_the_zoom_box(self):
         from EMAPSSN_Viewer import SLIDER_ROW_BOTTOM, SLIDER_ROW_HEIGHT
 
         viewer = MainViewer.__new__(MainViewer)
@@ -310,7 +310,7 @@ class DisplayScalingTests(unittest.TestCase):
         # Drawn as Hidden Nodes is, so its position is the middle of its line too.
         self.assertEqual(display.anchor_y, "center")
 
-    def test_zero_hidden_nodes_and_view_width_use_configured_text_color(self):
+    def test_zero_hidden_nodes_and_zoom_use_configured_text_color(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.hud_layout = {
             "status_x_offset": 10.0,
@@ -319,7 +319,8 @@ class DisplayScalingTests(unittest.TestCase):
         viewer.canvas = FakeCanvas(size=(1000, 800))
         viewer.view = mock.Mock()
         viewer.view.camera.rect.width = 250.0
-        viewer.view_width_box = SimpleNamespace(spin_box=mock.Mock())
+        viewer.view.camera._real_rect = None  # A camera not yet placed shows what it was asked for.
+        viewer.zoom_box = SimpleNamespace(spin_box=mock.Mock())
         viewer.pos = np.array([[0.0, 0.0], [900.0, 0.0], [450.0, 300.0]])
         viewer.hidden_text = mock.Mock()
         viewer.visible_mask = np.ones(3, dtype=bool)
@@ -331,9 +332,9 @@ class DisplayScalingTests(unittest.TestCase):
         viewer._update_hud_elements()
 
         self.assertEqual(viewer.hidden_text.color, cfg.TEXT_COLOR)
-        # The View Width box shows the width, with the limits zooms keep to:
-        # 0.5, and 1100 for this network (test_zoom_command's).
-        viewer.view_width_box.spin_box.show_width.assert_called_once_with(250.0, 0.5, 1100.0)
+        # The Zoom box shows the zoom of the 250 wide view, 400%, with the limits zooms keep to:
+        # 91% for this network (test_zoom_command's), and 200000%.
+        viewer.zoom_box.spin_box.show_zoom.assert_called_once_with(400.0, 91.0, 200000.0)
 
     def test_hidden_nodes_take_a_dark_shade_of_the_theme_colour(self):
         from desktop.Studio_Theme import set_theme_color, theme_color, theme_tokens

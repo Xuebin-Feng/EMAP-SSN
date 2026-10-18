@@ -246,12 +246,12 @@ class SliderOverlayTests(unittest.TestCase):
         viewer._build_slider_overlay()
         return viewer
 
-    def test_the_view_width_box_ends_the_slider_row(self):
+    def test_the_zoom_box_ends_the_slider_row(self):
         viewer = self.make_viewer()
         for room in (0, 160):
             with self.subTest(sidebar=room), mock.patch.object(EMAPSSN_Viewer, "_sidebar_room", return_value=room):
                 viewer.position_slider_overlay()
-                box, row = viewer.view_width_box.geometry(), viewer.slider_overlay.geometry()
+                box, row = viewer.zoom_box.geometry(), viewer.slider_overlay.geometry()
                 # At the right, 10 px in from the sidebar's room, as the status texts above it.
                 self.assertEqual(box.x() + box.width(), CANVAS_SIZE[0] - room - 10)
                 # Level with the slider: the same middle, to the pixel.
@@ -265,24 +265,34 @@ class SliderOverlayTests(unittest.TestCase):
                 meta = viewer._status_hud_position(1, room_size)[1]
                 self.assertAlmostEqual((box.y() + box.height() / 2) - hidden, hidden - meta, delta=0.5)
                 self.assertGreaterEqual(hidden - meta, 30)
-        self.assertEqual(viewer.view_width_box.before.text(), "View Width:")
-        self.assertFalse(viewer.view_width_box.after.isVisibleTo(viewer.view_width_box))
+        self.assertEqual(viewer.zoom_box.before.text(), "Zoom:")
+        self.assertFalse(viewer.zoom_box.after.isVisibleTo(viewer.zoom_box))
 
-    def test_the_view_width_box_zooms_as_zoom_does(self):
+    def test_the_zoom_box_zooms_as_zoom_does(self):
         viewer = self.make_viewer()
         viewer.canvas.native.setFocus = mock.Mock()
-        spin_box = viewer.view_width_box.spin_box
-        spin_box.show_width(242.0, 0.5, 1100.0)
-        with mock.patch("commands.zoom.set_view_width") as set_view_width:
+        spin_box = viewer.zoom_box.spin_box
+        spin_box.show_zoom(242.0, 220.0, 200000.0)
+        with mock.patch("commands.zoom.set_zoom") as set_zoom:
             spin_box.setValue(500.0)
-        set_view_width.assert_called_once_with(viewer, 500.0)
+        set_zoom.assert_called_once_with(viewer, 500.0)
         viewer._hud_timer.start.assert_called()
-        # A width zoom refuses shows its error on the console line.
+        # A zoom that zoom refuses shows its error on the console line.
         viewer._show_click_status = mock.Mock()
-        error = ValueError(EMAPSSN_Viewer.Message("Error: Zoom width is too large for the current view."))
-        with mock.patch("commands.zoom.set_view_width", side_effect=error), mock.patch("builtins.print"):
+        error = ValueError(EMAPSSN_Viewer.Message("Error: Zoom is too low for the current view."))
+        with mock.patch("commands.zoom.set_zoom", side_effect=error), mock.patch("builtins.print"):
             spin_box.setValue(600.0)
         viewer._show_click_status.assert_called_once_with(error.args[0])
+
+    def test_the_zoom_box_says_what_a_hundred_percent_is(self):
+        # The tip names the width, from the constant, and how to use the box.
+        from commands.zoom import ZOOM_100_PERCENT_WIDTH
+
+        viewer = self.make_viewer()
+        tip = viewer.zoom_box.toolTip()
+        self.assertIn(f"100% is a view {ZOOM_100_PERCENT_WIDTH:g} layout units wide", tip)
+        self.assertIn("A bigger zoom is closer", tip)
+        self.assertIn("mouse wheel", tip)
 
     def test_low_resource_mode_redraws_the_edges_when_the_slider_is_let_go(self):
         import EMAPSSN_Config as cfg
@@ -415,7 +425,7 @@ class SliderOverlayTests(unittest.TestCase):
         viewer.update_console_background = lambda: None
         viewer.hud_displays = {}
         viewer.canvas.update = lambda: None
-        with mock.patch("commands.zoom.view_width_limits", return_value=(0.5, 1000.0)):
+        with mock.patch("commands.zoom.zoom_limits", return_value=(1.0, 200000.0)):
             viewer._update_hud_elements()
         self.assertEqual(card.count_labels["nodes"].text(), "5 (3 visible)")
         # Undo restores them and redraws the edges.

@@ -133,8 +133,8 @@ COMMAND_METADATA = {
         CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE),
     'undo': entry('Restore the previous state; report a no-op if undo history is empty.',
         argument('steps', 'Optional positive whole number N: undoes up to N steps, stopping early when the history runs out, and reports how many were undone. Omitted, one step is undone. Any other argument is refused before anything changes.')),
-    'zoom': entry('Set camera view width while retaining its center and canvas aspect ratio.',
-        argument('width', 'Width in scene units, from 0.5 to the widest view that shows every node, hidden ones too, rounded up to a multiple of 100 (the mouse wheel stops at the same limits); omission prints help.')),
+    'zoom': entry('Set the camera zoom, a percentage, while retaining its center and canvas aspect ratio.',
+        argument('percent', 'Zoom as a percentage with an optional % sign: zoom 200 and zoom 200% both mean 200%, and a space may come before the sign. 100% is a view 1000 layout units wide, and a bigger percentage is closer (200% is half as wide). From the zoom that shows every node, hidden ones too, rounded down to two significant figures, up to 200000% (the mouse wheel stops at the same limits); omission prints help.')),
 }
 
 # Help flags are command-specific; these are documentation, not dispatch aliases.

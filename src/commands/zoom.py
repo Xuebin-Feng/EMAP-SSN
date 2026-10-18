@@ -30,14 +30,22 @@ _FLOAT32_LARGEST = float(np.finfo(np.float32).max)
 # a view narrower than |centre| * canvas_width * eps is off by half a pixel or more.
 _FLOAT32_EPSILON = float(np.finfo(np.float32).eps)
 
-# The view widths the Viewer keeps to, whether zoomed by the wheel, a pinch,
-# the View Width box or this command (view_width_limits): no narrower than
-# MIN_VIEW_WIDTH, and no wider than the nearest multiple of MAX_VIEW_WIDTH_STEP
-# that shows every node, hidden ones too, as the Viewer opens on them
-# (opening_view). That widest view follows the nodes as they are moved.
-# print's zoom N doesn't take them.
+# The Viewer's zoom is a percentage of a fixed view: 100 % is a view
+# ZOOM_100_PERCENT_WIDTH layout (scene) units wide, so a bigger percentage is a
+# narrower view, closer in, and the same percentage is the same view width in
+# every session and window shape: zoom = 100 * ZOOM_100_PERCENT_WIDTH / width.
+# The zoom command, print's zoom N, the Zoom box, the wheel and a pinch all go
+# by it. Change this one number to move what 100 % means.
+ZOOM_100_PERCENT_WIDTH = 1000.0
+# The narrowest view the Viewer zooms to, whether by the wheel, a pinch, the Zoom
+# box or the zoom command: MIN_VIEW_WIDTH units across, which is MAX_ZOOM_PERCENT.
+# print's zoom N doesn't take the limits.
 MIN_VIEW_WIDTH = 0.5
-MAX_VIEW_WIDTH_STEP = 100
+# The zoom out that shows every node, hidden ones too, as the Viewer opens on them
+# (opening_view), is the widest view and the lowest zoom (zoom_limits). It follows the
+# nodes as they are moved, and is rounded down to this many significant figures, so
+# the whole network still fits at the limit.
+ZOOM_LIMIT_DIGITS = 2
 # The view the Viewer opens on: every node, a margin of FIT_MARGIN_FRACTION of
 # the network's extent on each side (at least FIT_MARGIN_MIN units), and then
 # OPENING_RANGE_MARGIN of that range on each side, as the camera's set_range
@@ -45,6 +53,57 @@ MAX_VIEW_WIDTH_STEP = 100
 FIT_MARGIN_FRACTION = 0.05
 FIT_MARGIN_MIN = 10.0
 OPENING_RANGE_MARGIN = 0.05
+# A hair under a limit is that limit: the width a percentage gives, taken back to
+# a percentage, may be a float's last digit off.
+LIMIT_SLACK = 1e-9
+
+
+def zoom_percent(width):
+    """The zoom of a view `width` scene units wide, as a percentage."""
+    return 100.0 * ZOOM_100_PERCENT_WIDTH / width
+
+
+def width_at_zoom(percent):
+    """The width, in scene units, of the view at a zoom of `percent`."""
+    return 100.0 * ZOOM_100_PERCENT_WIDTH / percent
+
+
+# The highest zoom: the view MIN_VIEW_WIDTH wide.
+MAX_ZOOM_PERCENT = zoom_percent(MIN_VIEW_WIDTH)
+
+
+def format_percent(percent):
+    """A zoom as text for a message: six significant figures at most, with no exponent."""
+    text = f"{percent:.6g}"
+    if "e" in text:
+        text = f"{percent:.12f}".rstrip("0").rstrip(".")
+    return text
+
+
+def round_down(value, digits=ZOOM_LIMIT_DIGITS):
+    """A positive value rounded down to `digits` significant figures: 23.26 is 23, 1.87 is 1.8."""
+    exponent = math.floor(math.log10(value)) - (digits - 1)
+    # A hair under a whole count is that count, as 0.57 * 100 is 56.99999999999999.
+    count = math.floor((value * 10.0 ** -exponent if exponent < 0 else value / 10.0 ** exponent) + LIMIT_SLACK)
+    # The count is a whole number, so dividing by a power of ten gives the float nearest the decimal.
+    return count / 10 ** -exponent if exponent < 0 else float(count * 10 ** exponent)
+
+
+def visible_width(camera):
+    """The width, in scene units, the camera shows now.
+
+    The camera widens a view to the canvas's shape (its real rectangle), so what
+    shows is at least as wide as the rectangle it was asked for; the zoom goes by
+    what shows. A camera with no real rectangle shows what it was asked for.
+    """
+    real = getattr(camera, "_real_rect", None)
+    return abs(float((real if real is not None else camera.rect).width))
+
+
+def current_zoom(viewer):
+    """The zoom the camera shows now, as a percentage, or None while it shows no width."""
+    width = visible_width(viewer.view.camera)
+    return zoom_percent(width) if math.isfinite(width) and width > 0 else None
 
 
 def opening_view(positions):
@@ -58,25 +117,36 @@ def opening_view(positions):
     return (float(low[0]), float(low[1]), float(high[0] - low[0]), float(high[1] - low[1]))
 
 
-def view_width_limits(viewer):
-    """The narrowest and widest view width, in scene units, the Viewer zooms to.
+def zoom_limits(viewer):
+    """The lowest and highest zoom, as percentages, the Viewer zooms to.
 
-    The widest is the nearest multiple of MAX_VIEW_WIDTH_STEP at or above the
-    width whose view, at the canvas's shape, shows every node, hidden or not,
-    as the Viewer opens on them; it is None while there is no node to show.
+    The highest is MAX_ZOOM_PERCENT. The lowest is the zoom whose view, at the
+    canvas's shape, shows every node, hidden or not, as the Viewer opens on
+    them, rounded down to ZOOM_LIMIT_DIGITS significant figures so that view
+    still shows every node. It is None while there is no node to show.
     """
     positions = getattr(viewer, "pos", None)
     if positions is None or len(positions) == 0:
-        return MIN_VIEW_WIDTH, None
+        return None, MAX_ZOOM_PERCENT
     _left, _bottom, needed, height = opening_view(positions)
     canvas_width, canvas_height = viewer.canvas.size
     if canvas_width > 0 and canvas_height > 0:
         needed = max(needed, height * canvas_width / canvas_height)
-    if not math.isfinite(needed):
-        return MIN_VIEW_WIDTH, None
-    # A hair over a multiple, as floating point leaves 1100 * 1.21 / 1.21, is that multiple.
-    steps = max(1, math.ceil(needed / MAX_VIEW_WIDTH_STEP - 1e-9))
-    return MIN_VIEW_WIDTH, float(steps * MAX_VIEW_WIDTH_STEP)
+    if not (math.isfinite(needed) and needed > 0):
+        return None, MAX_ZOOM_PERCENT
+    whole_network = zoom_percent(needed)
+    if not whole_network > 0:  # So wide that it underflows.
+        return None, MAX_ZOOM_PERCENT
+    return round_down(whole_network), MAX_ZOOM_PERCENT
+
+
+def view_width_limits(viewer):
+    """The narrowest and widest view width, in scene units, the Viewer zooms to.
+
+    These are zoom_limits as widths: the widest is None while there is no node to show.
+    """
+    lowest, _highest = zoom_limits(viewer)
+    return MIN_VIEW_WIDTH, None if lowest is None else width_at_zoom(lowest)
 
 
 def limited_zoom_factor(viewer, factor):
@@ -87,7 +157,7 @@ def limited_zoom_factor(viewer, factor):
     does nothing; the other way, it zooms as asked.
     """
     scale = float(factor) if np.isscalar(factor) else float(factor[-1])
-    width = abs(viewer.view.camera.rect.width)
+    width = visible_width(viewer.view.camera)
     if not (math.isfinite(scale) and scale > 0 and width > 0):
         return factor
     narrowest, widest = view_width_limits(viewer)
@@ -103,21 +173,44 @@ def _report_error(viewer, msg):
     Command_Engine.print_help(viewer, msg)
 
 
-def view_for_width(viewer, text):
-    """Return the view `zoom text` sets, as (left, bottom, width, height) in scene units.
+def parse_zoom(value):
+    """The zoom `value` asks for, as a percentage.
 
-    The view is text scene units wide, keeps the current centre and takes the
-    canvas's aspect ratio. Nothing is changed here. A text that is not a width
-    the camera can draw raises ValueError holding the Message to show. The
-    print command checks the width of its own `zoom N` here too.
+    A text is a number with an optional % sign after it, and a space may
+    come before the sign: "200", "200%" and "200 %" are all 200 %. A number is
+    taken as it is. Anything else, or a percentage that is not positive and finite,
+    raises ValueError holding the Message to show.
     """
-    try:
-        new_width = float(text)
-    except ValueError:
-        raise ValueError(Message("Error: Zoom width must be a valid number.")) from None
-    # float() also accepts nan, inf and 1e400; none of them is a view width.
-    if not math.isfinite(new_width) or new_width <= 0:
-        raise ValueError(Message("Error: Zoom width must be a positive, finite number."))
+    if isinstance(value, str):
+        text = value.strip()
+        if text.endswith("%"):
+            text = text[:-1].rstrip()
+        try:
+            if not text.isascii() or "_" in text:  # float() reads 1_0 and Arabic-Indic digits.
+                raise ValueError(text)
+            percent = float(text)
+        except ValueError:
+            raise ValueError(Message(
+                "Error: Zoom must be a number, with an optional % sign, as in {example}.",
+                example="zoom 200 or zoom 200%",
+            )) from None
+    else:
+        percent = float(value)
+    # float() also accepts nan, inf and 1e400; none of them is a zoom.
+    if not math.isfinite(percent) or percent <= 0:
+        raise ValueError(Message("Error: Zoom must be a positive, finite percentage."))
+    return percent
+
+
+def view_for_zoom(viewer, value):
+    """Return the view `zoom value` sets, as (left, bottom, width, height) in scene units.
+
+    The view is the width the zoom gives, keeps the current centre and takes the
+    canvas's aspect ratio. Nothing is changed here. A value that is not a zoom
+    the camera can draw raises ValueError holding the Message to show. The
+    print command checks its own `zoom N` here too.
+    """
+    new_width = width_at_zoom(parse_zoom(value))
 
     canvas_width, canvas_height = viewer.canvas.size
     if canvas_width <= 0 or canvas_height <= 0:
@@ -134,34 +227,35 @@ def view_for_width(viewer, text):
     half_h = (new_width / aspect_ratio) / 2.0
     x_range = (center_x - half_w, center_x + half_w)
     y_range = (center_y - half_h, center_y + half_h)
-    # A huge finite width can still overflow to inf on a tall canvas, and a
-    # scale below float32's normal range is too large.
+    # A tiny zoom can make a width that overflows to inf, a huge finite width can
+    # still overflow to inf on a tall canvas, and a scale below float32's normal
+    # range is too large.
     if (not all(math.isfinite(value) for value in x_range + y_range)
             or canvas_width < new_width * _FLOAT32_SMALLEST_NORMAL):
-        raise ValueError(Message("Error: Zoom width is too large for the current view."))
+        raise ValueError(Message("Error: Zoom is too low for the current view."))
     if (canvas_width > new_width * _FLOAT32_LARGEST
             or new_width < max(abs(center_x), abs(center_y)) * canvas_width * _FLOAT32_EPSILON):
         raise ValueError(Message(
-            "Error: Zoom width is too small to draw accurately at the current view centre."
+            "Error: Zoom is too high to draw accurately at the current view centre."
         ))
     return (x_range[0], y_range[0], new_width, new_width / aspect_ratio)
 
 
-def set_view_width(viewer, text):
-    """Set the view `zoom text` asks for, and return its width.
+def set_zoom(viewer, value):
+    """Set the view `zoom value` asks for, and return its zoom as a percentage.
 
-    The zoom command and the Viewer's View Width box both zoom here. Every
-    check runs before the camera is touched: a width the camera can't draw,
-    or one outside view_width_limits, raises ValueError holding the Message
-    to show, and the view stays as it was.
+    The zoom command and the Viewer's Zoom box both zoom here. Every check runs
+    before the camera is touched: a zoom the camera can't draw, or one outside
+    zoom_limits, raises ValueError holding the Message to show, and the view
+    stays as it was.
     """
-    new_rect = view_for_width(viewer, text)
-    new_width = new_rect[2]
-    narrowest, widest = view_width_limits(viewer)
-    if widest is not None and not narrowest <= new_width <= widest:
+    percent = parse_zoom(value)
+    new_rect = view_for_zoom(viewer, percent)
+    lowest, highest = zoom_limits(viewer)
+    if lowest is not None and not lowest * (1 - LIMIT_SLACK) <= percent <= highest * (1 + LIMIT_SLACK):
         raise ValueError(Message(
-            "Error: Zoom width must be between {narrowest} and {widest}, the widest view that shows every node.",
-            narrowest=f"{narrowest:g}", widest=f"{widest:g}",
+            "Error: Zoom must be between {lowest}% and {highest}%, the lowest being the zoom that shows every node.",
+            lowest=format_percent(lowest), highest=format_percent(highest),
         ))
 
     camera = viewer.view.camera
@@ -178,30 +272,39 @@ def set_view_width(viewer, text):
         raise ValueError(Message("Error: Zoom could not be applied: {error}", error=error)) from error
 
     viewer._hud_timer.start()
-    return new_width
+    return percent
 
 
 def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
         # The console line shows the first line; the terminal shows it all, in English.
+        full = f"{ZOOM_100_PERCENT_WIDTH:g}"
         msg = JoinedMessage([
-            Message("Usage: {syntax}", syntax="zoom <width>"),
-            "Description: Sets the camera view width to exactly <width> while keeping the current "
-            "center point and canvas aspect ratio. The width must be at least 0.5 and at most the "
-            "widest view that shows every node, hidden ones too, rounded up to a multiple of 100; "
-            "the mouse wheel stops at the same limits.\n"
-            "Examples:\n  zoom 500  (Sets the view width to 500 units)",
+            Message("Usage: {syntax}", syntax="zoom <percent>"),
+            "Description: Sets the camera zoom to exactly <percent> while keeping the current "
+            "center point and canvas aspect ratio. A bigger percentage is closer: "
+            f"100% is a view {full} layout units wide and 200% is half as wide. The % sign is "
+            "optional, and a space may come before it. The zoom must be at most "
+            f"{format_percent(MAX_ZOOM_PERCENT)}% (a view {MIN_VIEW_WIDTH:g} units wide) and "
+            "at least the zoom that shows every node, hidden ones too, rounded down to "
+            f"{ZOOM_LIMIT_DIGITS} significant figures; the mouse wheel stops at the same limits.\n"
+            "Examples:\n"
+            f"  zoom 200   (Sets the zoom to 200%, a view {ZOOM_100_PERCENT_WIDTH / 2:g} units wide)\n"
+            f"  zoom 50%   (Sets the zoom to 50%, a view {ZOOM_100_PERCENT_WIDTH * 2:g} units wide)",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
 
+    # `zoom 200 %` reaches here as two words: the sign may stand apart. Any other
+    # second word is not part of the zoom.
+    text = args[0] + args[1] if len(args) == 2 and args[1] == "%" else " ".join(args)
     try:
-        new_width = set_view_width(viewer, args[0])
+        percent = set_zoom(viewer, text)
     except ValueError as error:
         _report_error(viewer, error.args[0])
         return
 
-    msg = Message("Zoom snapped to View Width: {width}", width=new_width)
+    msg = Message("Zoom set to {zoom}%", zoom=format_percent(percent))
     Command_Engine.print_help(viewer, msg)
     Command_Engine.command_succeeded(viewer, msg)

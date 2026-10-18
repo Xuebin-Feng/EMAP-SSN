@@ -199,7 +199,7 @@ class RealPagesTests(unittest.TestCase):
     def test_a_figure_caption_gives_the_label_the_english_screenshot_shows_beside_its_translation(self):
         page = (ZH / "quickstart.html").read_text(encoding="utf-8")
         for translated in ("保存并运行（Save &amp; Run）", "导出布局设置（Export Layout Settings）", "一致性检查（Consistency Check）",
-                           "视图宽度（View Width）", "隐藏节点（Hidden Nodes）", "选择框（Selection Box）"):
+                           "缩放（Zoom）", "隐藏节点（Hidden Nodes）", "选择框（Selection Box）"):
             self.assertIn(translated, page)
         # The pictures are the English screenshots, the same files as the English page's.
         english = T.Page(DOCS / "quickstart.html")
@@ -270,17 +270,17 @@ class TemporaryPages(unittest.TestCase):
 
 
 class EnglishChangesTests(TemporaryPages):
-    SENTENCE = "exactly the specified numeric width"
+    SENTENCE = "exactly the specified percentage"
 
     def test_a_changed_english_sentence_makes_only_its_section_stale(self):
-        self.edit(self.english, self.SENTENCE, "exactly the given numeric width")
+        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
         report = self.check()
         self.assertEqual(report.problems, [])
         self.assertEqual(report.stale, ["cmd-zoom"])
         self.assertEqual(report.unstamped, [])
 
     def test_the_failure_message_says_what_to_update_and_how(self):
-        self.edit(self.english, self.SENTENCE, "exactly the given numeric width")
+        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
         message = self.check().format()
         for expected in (
             "cmd-zoom", "list_of_commands.html", "python src/resources/languages/Docs_Translation.py stamp",
@@ -336,7 +336,7 @@ class EnglishChangesTests(TemporaryPages):
         self.assertIn("TRANSLATED_ATTRIBUTES in src/resources/languages/Docs_Translation.py lists 'data-label-dark'", messages)
 
     def test_re_indenting_and_rewrapping_the_english_page_changes_nothing(self):
-        self.edit(self.english, "Sets the camera rectangle to exactly", "Sets the   camera\r\n      rectangle   to\r\n  exactly")
+        self.edit(self.english, "Sets the camera zoom to exactly", "Sets the   camera\r\n      zoom   to\r\n  exactly")
         self.edit(self.english, '<section class="command-card" id="cmd-save">', '\r\n\r\n        <section class="command-card"\r\n   id="cmd-save">')
         self.assertTrue(self.check().ok, self.check().format())
 
@@ -390,14 +390,14 @@ class TranslationChangesTests(TemporaryPages):
         self.assertIn("'reset hide' in English and 'reset unhide' in the translation", problems)
 
     def test_a_translated_command_name_or_syntax_line_is_noticed(self):
-        self.edit(self.chinese, '<div class="syntax-content">zoom &lt;width&gt;</div>', '<div class="syntax-content">缩放 &lt;width&gt;</div>')
+        self.edit(self.chinese, '<div class="syntax-content">zoom &lt;percent&gt;</div>', '<div class="syntax-content">缩放 &lt;percent&gt;</div>')
         self.edit(self.chinese, '<span class="command-card-name">save</span>', '<span class="command-card-name">保存</span>')
         problems = self.problems()
         self.assertIn("Section 'cmd-zoom'", problems)
         self.assertIn("Section 'cmd-save'", problems)
 
     def test_a_translated_example_line_is_noticed(self):
-        self.edit(self.chinese, "<span>zoom 500</span>", "<span>缩放 500</span>")
+        self.edit(self.chinese, "<span>zoom 200</span>", "<span>缩放 200</span>")
         self.assertIn("Section 'cmd-zoom'", self.problems())
 
     def test_a_translated_command_in_the_sidebar_list_is_noticed(self):
@@ -690,14 +690,14 @@ class LanguageSwitchTests(TemporaryPages):
 
 
 class UpdateWorkflowTests(TemporaryPages):
-    SENTENCE = "exactly the specified numeric width"
-    TRANSLATED = "恰好等于指定的数值宽度"
+    SENTENCE = "exactly the specified percentage"
+    TRANSLATED = "恰好等于指定的百分比"
 
     def test_translating_a_changed_section_and_stamping_it_brings_the_pages_back_in_step(self):
-        self.edit(self.english, self.SENTENCE, "exactly the given numeric width")
+        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
         before = self.chinese.read_bytes().decode("utf-8")
         self.assertEqual(self.check().stale, ["cmd-zoom"])
-        self.edit(self.chinese, self.TRANSLATED, "恰好等于给定的数值宽度")
+        self.edit(self.chinese, self.TRANSLATED, "恰好等于给定的百分比")
         self.assertEqual(self.check().stale, ["cmd-zoom"])  # editing the text does not record the review
         self.assertEqual(T.stamp_sections(self.english, self.chinese, ["cmd-zoom"]), ["cmd-zoom"])
         self.assertTrue(self.check().ok, self.check().format())
@@ -733,7 +733,7 @@ class UpdateWorkflowTests(TemporaryPages):
         code, out, _ = self.run_main()
         self.assertEqual(code, 0)
         self.assertEqual(out.count("matches"), 2)
-        self.edit(self.english, self.SENTENCE, "exactly the given numeric width")
+        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
         code, out, _ = self.run_main()
         self.assertEqual(code, 1)
         self.assertIn("cmd-zoom", out)
@@ -748,7 +748,7 @@ class UpdateWorkflowTests(TemporaryPages):
 
     def test_the_command_line_refuses_to_stamp_while_the_pages_differ_in_more_than_text(self):
         self.edit(self.chinese, "<code>reset hide</code>", "<code>reset unhide</code>")
-        self.edit(self.english, self.SENTENCE, "exactly the given numeric width")
+        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
         before = self.chinese.read_bytes()
         code, out, err = self.run_main("stamp", "--all")
         self.assertEqual(code, 1)
@@ -761,8 +761,8 @@ class UpdateWorkflowTests(TemporaryPages):
         self.assertEqual(code, 0)
         self.assertIn("===== English: cmd-zoom", out)
         self.assertIn("===== Translation: cmd-zoom", out)
-        self.assertIn("Sets the camera rectangle", out)
-        self.assertIn("相机矩形", out)
+        self.assertIn("Sets the camera zoom", out)
+        self.assertIn("相机缩放", out)
 
     def test_a_page_or_language_with_no_translation_is_a_usage_error(self):
         for argv in (["--page", "missing"], ["--language", "fr"]):
@@ -1194,7 +1194,7 @@ class BrowserTests(unittest.TestCase):
 
         shown = search("聚类")
         self.assertEqual((shown["cmd-cluster"], shown["cmd-zoom"], shown["empty-search-state"]), ("block", "none", "none"))
-        shown = search("相机矩形")
+        shown = search("相机缩放")
         self.assertEqual((shown["cmd-cluster"], shown["cmd-zoom"]), ("none", "block"))
         shown = search("没有这样的命令zzz")
         self.assertEqual(shown["empty-search-state"], "block")

@@ -21,8 +21,8 @@
   colour; the link to the list of commands is in the first one's row, beside
   the ×. ControlsButton, at the start of the threshold slider, opens the card
   above itself.
-  The card is a child of the canvas, so the network, the sliders, the View
-  Width box and the sidebar work as usual while it is open: it closes only
+  The card is a child of the canvas, so the network, the sliders, the Zoom
+  box and the sidebar work as usual while it is open: it closes only
   by its × or by the button again, never by a click elsewhere, and it never
   takes the keyboard, so [ENTER] still opens the command line. Mouse events
   on the card stop at the card. The fields have no keyboard focus to receive
@@ -34,9 +34,9 @@
   as a card with round corners, SIDEBAR_INSET clear of the canvas's top,
   right and bottom edges. SidebarButton is one of its buttons: the icon at
   the start, the label centred in the room after it.
-* The view's width. ViewWidthBox, at the canvas's bottom right level with the
-  threshold slider, is the translated "View Width: {width}" with a
-  ViewWidthSpinBox in place of {width}: it shows the view's width and sets it.
+* The view's zoom. ZoomBox, at the canvas's bottom right level with the
+  threshold slider, is the translated "Zoom: {zoom}" with a ZoomSpinBox in
+  place of {zoom}: it shows the view's zoom, a percentage, and sets it.
 * The threshold. ThresholdSpinBox, before the threshold slider, shows the
   edge threshold and sets it. Each of its numbers is one of the slider's
   positions, so the two follow each other.
@@ -78,6 +78,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from commands.zoom import MAX_ZOOM_PERCENT
 from desktop.Desktop_App import button_icon_room, installed_language
 from desktop.Studio_Theme import TOKENS, icon_button, studio_icon
 from desktop.Viewer_State import alias_form
@@ -960,18 +961,24 @@ class SidebarButton(QPushButton):
         painter.end()
 
 
-# A step of the View Width box's arrows, of the wheel over it or of Up/Down
-# widens or narrows the view by this factor, about a notch of the mouse wheel
-# over the network.
-VIEW_WIDTH_STEP = 1.25
-# The height of the slider row's boxes, the View Width box's and the
-# threshold's, in px: the status texts above them go by it.
-VIEW_WIDTH_BOX_HEIGHT = 28
+# A step of the Zoom box's arrows, of the wheel over it or of Up/Down zooms in
+# (a percentage this many times bigger) or out by this factor, about a notch of
+# the mouse wheel over the network.
+ZOOM_STEP = 1.25
+# The height of the slider row's boxes, the Zoom box's and the threshold's, in
+# px: the status texts above them go by it.
+SLIDER_BOX_HEIGHT = 28
 # Between the box and the text either side of it, in px.
-VIEW_WIDTH_LABEL_GAP = 12
-# The widest width its field shows without scrolling; with no limit to keep
-# to (no nodes), also the widest it takes.
-VIEW_WIDTH_ROOM = 999999.9
+ZOOM_LABEL_GAP = 12
+# The widest zoom its field shows without scrolling, which is the highest the
+# Viewer zooms to (commands.zoom.MAX_ZOOM_PERCENT); with no limit to keep to (no
+# nodes), also the highest it takes.
+ZOOM_ROOM = MAX_ZOOM_PERCENT
+# The lowest zoom the box takes while there is no node to set a limit.
+ZOOM_FLOOR = 0.001
+# The decimals the box keeps internally, so a typed number is kept as typed; what
+# it shows is rounded by zoom_decimals.
+ZOOM_DECIMALS = 6
 # The threshold box has at least this many steps from the lowest score to the
 # highest: the slider's 1000 positions before the box came, so it is never
 # coarser than the slider was.
@@ -996,7 +1003,7 @@ class CanvasSpinBox(QDoubleSpinBox):
         super().__init__(parent)
         self.setKeyboardTracking(False)
         self.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        self.setFixedHeight(VIEW_WIDTH_BOX_HEIGHT)
+        self.setFixedHeight(SLIDER_BOX_HEIGHT)
         self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self._shown = self.value()
 
@@ -1020,25 +1027,51 @@ class CanvasSpinBox(QDoubleSpinBox):
         super().keyPressEvent(event)
 
 
-class ViewWidthSpinBox(CanvasSpinBox):
-    """The view's width, in scene units.
+def zoom_decimals(percent):
+    """How many decimals the Zoom box shows for percent: three significant figures
+    as far as they go, and always the whole part: 1235%, 123%, 12.3%, 1.23%, 0.123%."""
+    if percent >= 100:
+        return 0
+    if percent >= 10:
+        return 1
+    if percent >= 1:
+        return 2
+    return 3
 
-    The arrows, the wheel over it and Up/Down widen or narrow the view
-    VIEW_WIDTH_STEP at a time, as the mouse wheel zooms, not by a fixed
-    amount. Esc puts back the width the view has.
+
+def shown_zoom(percent):
+    """percent as the Zoom box shows it, rounded to zoom_decimals."""
+    return round(percent, zoom_decimals(percent))
+
+
+class ZoomSpinBox(CanvasSpinBox):
+    """The view's zoom, a percentage: 100% is a view of commands.zoom.ZOOM_100_PERCENT_WIDTH
+    scene units, and a bigger number is closer.
+
+    The arrows, the wheel over it and Up/Down zoom in (Up, wheel forward) or out
+    ZOOM_STEP at a time, as the mouse wheel zooms, not by a fixed amount. It
+    shows the zoom to the precision zoom_decimals gives, with a % sign after it,
+    and keeps the number shown as its value, so leaving it as it is changes
+    nothing. Esc puts back the zoom the view has.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setDecimals(1)
-        self.setRange(0.0, VIEW_WIDTH_ROOM)
+        self.setDecimals(ZOOM_DECIMALS)
+        self.setSuffix("%")
+        self.setRange(ZOOM_FLOOR, ZOOM_ROOM)
+
+    def textFromValue(self, value):
+        locale = self.locale()
+        # No group separators, as QDoubleSpinBox shows its numbers: 200000, not 200,000.
+        return locale.toString(float(value), "f", zoom_decimals(value)).replace(locale.groupSeparator(), "")
 
     def sizeHint(self):
-        # As wide as VIEW_WIDTH_ROOM needs in the font it has now, whatever the
+        # As wide as ZOOM_ROOM needs in the font it has now, whatever the
         # range is, so the box keeps its width as the limits change.
         hint = super().sizeHint()
         metrics = self.fontMetrics()
-        extra = (metrics.horizontalAdvance(self.textFromValue(VIEW_WIDTH_ROOM))
+        extra = (metrics.horizontalAdvance(self.textFromValue(ZOOM_ROOM))
                  - metrics.horizontalAdvance(self.textFromValue(self.maximum())))
         return QSize(hint.width() + max(0, extra), hint.height()).boundedTo(self.maximumSize())
 
@@ -1046,23 +1079,27 @@ class ViewWidthSpinBox(CanvasSpinBox):
         return self.sizeHint()
 
     def stepBy(self, steps):
-        self.setValue(self.value() * VIEW_WIDTH_STEP ** steps)
+        self.setValue(self.value() * ZOOM_STEP ** steps)
 
-    def show_width(self, width, narrowest, widest):
-        """Show the view's width, with the limits it keeps to as the range.
+    def show_zoom(self, percent, lowest, highest):
+        """Show the view's zoom, with the limits it keeps to as the range.
 
-        Nothing changes while the box is being typed in. A view beyond a limit,
-        as after the nodes were moved closer together, still shows its width.
+        lowest is None while there is no node to set one. Nothing changes while
+        the box is being typed in. A view beyond a limit, as after the nodes
+        were moved closer together, still shows its zoom.
         """
         if self.hasFocus():
             return
-        top = VIEW_WIDTH_ROOM if widest is None else widest
+        bottom = ZOOM_FLOOR if lowest is None else lowest
+        # A hair under a limit is that limit, whatever its last digit says.
+        bottom = bottom if percent >= bottom * (1 - 1e-9) else percent
+        top = highest if percent <= highest * (1 + 1e-9) else percent
         blocked = self.blockSignals(True)
         try:
-            self.setRange(min(narrowest, width), max(top, width))
+            self.setRange(min(bottom, percent), max(top, percent))
         finally:
             self.blockSignals(blocked)
-        self.show_value(width)
+        self.show_value(shown_zoom(percent))
 
 
 class ThresholdSpinBox(CanvasSpinBox):
@@ -1109,22 +1146,22 @@ class ThresholdSpinBox(CanvasSpinBox):
         return min(max(steps, 0), self.positions)
 
 
-class ViewWidthBox(QWidget):
-    """The translated "View Width: {width}", with a ViewWidthSpinBox for {width}.
+class ZoomBox(QWidget):
+    """The translated "Zoom: {zoom}", with a ZoomSpinBox for {zoom}.
 
-    The text either side of {width} goes either side of the box, so a
+    The text either side of {zoom} goes either side of the box, so a
     language that puts the number first keeps its order.
     """
 
     def __init__(self, template, parent=None):
         super().__init__(parent)
-        self.setObjectName("viewWidthBox")
-        before, _field, after = template.partition("{width}")
+        self.setObjectName("zoomBox")
+        before, _field, after = template.partition("{zoom}")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(VIEW_WIDTH_LABEL_GAP)
+        layout.setSpacing(ZOOM_LABEL_GAP)
         self.before = QLabel(before.strip())
-        self.spin_box = ViewWidthSpinBox()
+        self.spin_box = ZoomSpinBox()
         self.after = QLabel(after.strip())
         for widget in (self.before, self.spin_box, self.after):
             layout.addWidget(widget)
@@ -1141,12 +1178,14 @@ __all__ = [
     "SIDEBAR_INSET",
     "SidebarButton",
     "SidebarPanel",
+    "SLIDER_BOX_HEIGHT",
     "THRESHOLD_STEPS",
     "ThresholdSpinBox",
-    "VIEW_WIDTH_BOX_HEIGHT",
-    "VIEW_WIDTH_STEP",
-    "ViewWidthBox",
-    "ViewWidthSpinBox",
+    "ZOOM_STEP",
+    "ZoomBox",
+    "ZoomSpinBox",
     "controls_rows",
     "display_path",
+    "shown_zoom",
+    "zoom_decimals",
 ]
