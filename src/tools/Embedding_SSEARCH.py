@@ -819,24 +819,6 @@ def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
     return results
 
 
-def _finish_fixed_query(task, query_length, target_length, matrix):
-    idx, header, _safe_h, _query, mode, gap, norm_mode, q_seq, t_seq = task
-    return finish_search(
-        (
-            idx,
-            header,
-            query_length,
-            target_length,
-            mode,
-            gap,
-            norm_mode,
-            matrix,
-            q_seq,
-            t_seq,
-        )
-    )
-
-
 def _bf16_search_validation_sample(tasks, lengths):
     return stratified(tasks, lengths, 2048)
 
@@ -985,7 +967,7 @@ def _execute_search_plan(
                 device=candidate.device,
                 workers=workers,
                 lanes=lanes,
-                alignment_callback=_finish_fixed_query,
+                batch_alignment_callback=finish_search_batch,
                 precision=precision,
                 progress=progress,
                 timing=timing,

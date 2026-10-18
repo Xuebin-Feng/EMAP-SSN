@@ -20,6 +20,8 @@ from collections import OrderedDict, defaultdict, deque
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 import os
+import queue
+import threading
 import time
 from typing import Callable
 
@@ -1013,6 +1015,26 @@ class EmbeddingTileStore:
 
     def load_indices(self, indices, h5_group=None):
         return {int(index): self.get(index, h5_group) for index in sorted(set(indices))}
+
+    def read_into(self, index, out, h5_group=None):
+        """Read embedding ``index`` into ``out``, a C-contiguous array of its stored dtype and shape.
+
+        Reading into a buffer the caller owns (a pinned one, say) saves the array
+        ``get`` allocates for every embedding.
+        """
+        index = int(index)
+        if self._packed is not None:
+            start, end = self._offsets[index:index + 2]
+            out[...] = self._packed[int(start):int(end)]
+        elif h5_group is not None:
+            # h5py's low-level calls: the Dataset wrapper and the selections of read_direct
+            # cost about as much as the read itself (91 us against 194 us per 0.5 MB embedding).
+            dataset = h5py.h5d.open(h5_group.id, self.headers[index].encode("utf-8"))
+            dataset.read(h5py.h5s.ALL, h5py.h5s.ALL, out, h5py.h5t.py_create(out.dtype))
+        else:
+            with h5py.File(self.path, "r", libver="latest", swmr=True) as hf:
+                return self.read_into(index, out, hf["embeddings"])
+        return out
 
     def compute_bytes(self, element_bytes=4):
         """Return per-sequence resident bytes for the selected compute dtype."""
@@ -2152,7 +2174,14 @@ def estimate_fixed_query_cuda_working_set(
     transient = normalization_transient + target_normalization_transient + sum(
         sorted(workspaces, reverse=True)[:plan.inflight_slots]
     )
-    additional = tile_bytes + transient
+    # The device staging buffer one chunk of raw embeddings is copied into before it is normalized.
+    source_bytes = getattr(store, "source_bytes", None)
+    largest_source = (
+        max((int(source_bytes[i]) for i in range(len(source_bytes))), default=0)
+        if isinstance(source_bytes, (list, tuple, np.ndarray)) else 0
+    )
+    staging_bytes = max(FIXED_QUERY_CHUNK_BYTES, largest_source)
+    additional = tile_bytes + transient + staging_bytes
     projected = baseline + additional
     feasible = largest <= plan.matrix_bytes and projected <= safe_peak
     if largest > plan.matrix_bytes:
@@ -2177,6 +2206,116 @@ def estimate_fixed_query_cuda_working_set(
     )
 
 
+# A fixed-query search reads its embeddings in chunks of about this many bytes into a ring of pinned
+# buffers, at most FIXED_QUERY_RING_BYTES of them, while the device works on what it already has.
+FIXED_QUERY_CHUNK_BYTES = 64 * 1024 ** 2
+FIXED_QUERY_RING_BYTES = 256 * 1024 ** 2
+FIXED_QUERY_ALIGNMENT = 16
+_TORCH_SOURCE_DTYPES = {
+    np.dtype(np.float16): torch.float16,
+    np.dtype(np.float32): torch.float32,
+    np.dtype(np.float64): torch.float64,
+}
+
+
+def plan_upload_chunks(indices, nbytes, chunk_bytes=FIXED_QUERY_CHUNK_BYTES, alignment=FIXED_QUERY_ALIGNMENT):
+    """Cut ``indices`` into consecutive chunks that fill a buffer of about ``chunk_bytes``.
+
+    Returns ``[(entries, used_bytes), ...]`` where ``entries`` lists ``(index, offset, size)``.
+    Offsets are aligned to ``alignment`` bytes so each embedding can be viewed in its own dtype.
+    An embedding larger than ``chunk_bytes`` is a chunk of its own.
+    """
+    chunks = []
+    entries = []
+    used = 0
+    for index in indices:
+        size = int(nbytes[index])
+        padded = -(-size // alignment) * alignment
+        if entries and used + padded > chunk_bytes:
+            chunks.append((entries, used))
+            entries, used = [], 0
+        entries.append((int(index), used, size))
+        used += padded
+    if entries:
+        chunks.append((entries, used))
+    return chunks
+
+
+class _ChunkReader(threading.Thread):
+    """Reads a fixed-query search's embeddings, chunk by chunk, into reusable host buffers.
+
+    The chunks are read in their planned order, so reading runs ahead of the consumer
+    (into the next tile block too) until every buffer holds a chunk it has not taken.
+    ``next_chunk`` returns ``(chunk number, entries, used bytes, slot)``; ``release`` gives
+    the slot's buffer back once its contents are on the device. A failure while reading
+    surfaces from ``next_chunk``; ``close`` stops the thread.
+    """
+
+    def __init__(self, store, chunks, buffers):
+        super().__init__(name="search-embedding-reader", daemon=True)
+        self.store = store
+        self.chunks = chunks
+        self.buffers = buffers
+        self.free = queue.Queue()
+        self.ready = queue.Queue()
+        self.stopping = threading.Event()
+        for slot in range(len(buffers)):
+            self.free.put(slot)
+
+    def _take_free(self):
+        while not self.stopping.is_set():
+            try:
+                return self.free.get(timeout=0.05)
+            except queue.Empty:
+                continue
+        return None
+
+    def run(self):
+        try:
+            with h5py.File(self.store.path, "r", libver="latest", swmr=True) as hf:
+                group = hf["embeddings"]
+                for number, (entries, used) in enumerate(self.chunks):
+                    slot = self._take_free()
+                    if slot is None:
+                        return
+                    raw = self.buffers[slot]
+                    for index, offset, size in entries:
+                        if self.stopping.is_set():
+                            return
+                        view = raw[offset:offset + size].view(self.store.dtypes[index])
+                        self.store.read_into(index, view.reshape(self.store.shapes[index]), group)
+                    self.ready.put((number, entries, used, slot))
+        except BaseException as error:  # handed to the consumer, which re-raises it
+            self.ready.put(error)
+        finally:
+            self.ready.put(None)
+
+    def next_chunk(self, idle=None, interval=0.005):
+        """The next chunk. While it is read, ``idle()`` runs every ``interval`` seconds."""
+        while True:
+            try:
+                item = self.ready.get(timeout=interval)
+            except queue.Empty:
+                if not self.is_alive() and self.ready.empty():
+                    raise RuntimeError("The embedding reader stopped before every chunk was read.")
+                if idle is not None:
+                    idle()
+                continue
+            if item is None:
+                raise RuntimeError("The embedding reader stopped before every chunk was read.")
+            if isinstance(item, BaseException):
+                raise item
+            return item
+
+    def release(self, slot):
+        self.free.put(slot)
+
+    def close(self):
+        self.stopping.set()
+        if self.ident is not None:
+            self.join()
+
+
 def run_fixed_query_cuda_pipeline(
     tasks,
     *,
@@ -2186,14 +2325,24 @@ def run_fixed_query_cuda_pipeline(
     device,
     workers,
     lanes,
-    alignment_callback: Callable,
+    batch_alignment_callback: Callable,
     precision="float32",
     progress=None,
     matrix_budget_override=None,
     task_index: Callable = _fixed_query_task_index,
     timing=None,
 ):
-    """Batch a fixed query against target embeddings and overlap CPU scoring."""
+    """Batch a fixed query against target embeddings and overlap CPU scoring.
+
+    Targets are grouped into tile blocks that fit the device, as before. Within a block the
+    work is pipelined: a reader thread reads the next embeddings into pinned buffers while
+    the device scores the current ones; each chunk is copied up once and every target
+    normalized exactly as ``_to_normalized_cuda`` does, into one packed device buffer reused
+    for every block; each microbatch gathers its zero-padded targets from it in one operation;
+    and one CPU task, ``batch_alignment_callback(tasks, target_lengths, matrices)``, aligns a
+    whole microbatch and returns its results. Microbatches, matrices and results are those of
+    the per-target pipeline this replaces, bit for bit.
+    """
     if getattr(device, "type", None) != "cuda":
         raise ValueError("The fixed-query tiled engine currently requires CUDA.")
     tasks = list(tasks)
@@ -2201,140 +2350,223 @@ def run_fixed_query_cuda_pipeline(
         return []
 
     element_bytes = precision_element_bytes(precision)
+    compute_dtype = precision_compute_dtype(precision)
     plan = cuda_memory_plan(
         device, lanes=lanes, compute_element_bytes=element_bytes
     )
     matrix_budget = int(matrix_budget_override or plan.matrix_bytes)
     query_array = np.asarray(query_embedding)
     query_length = int(query_array.shape[0])
+    feature_dimension = int(store.feature_dimension)
     block_ids = fixed_query_block_ids(store, query_array, plan, element_bytes)
     grouped = OrderedDict()
     for task in tasks:
         index = task_index(task)
         grouped.setdefault(int(block_ids[index]), []).append(task)
 
+    # Every block's embeddings, in index order, laid out in the packed buffer and cut into chunks.
+    nbytes = store.source_bytes
+    block_layouts = []
+    chunks = []
+    for block_tasks in grouped.values():
+        indices = sorted({task_index(task) for task in block_tasks})
+        starts, rows = {}, 0
+        for index in indices:
+            starts[index] = rows
+            rows += int(lengths[index])
+        planned = plan_upload_chunks(indices, nbytes)
+        block_layouts.append((starts, rows, len(planned)))
+        chunks.extend(planned)
+    pad_row = max(rows for _starts, rows, _count in block_layouts)
+    capacity = max(used for _entries, used in chunks)
+    ring_depth = max(2, min(4, FIXED_QUERY_RING_BYTES // max(1, capacity)))
+    try:
+        buffers = [
+            torch.empty(capacity, dtype=torch.uint8, pin_memory=True)
+            for _ in range(ring_depth)
+        ]
+    except RuntimeError:
+        buffers = [torch.empty(capacity, dtype=torch.uint8) for _ in range(ring_depth)]
+    reader = _ChunkReader(store, chunks, [buffer.numpy() for buffer in buffers])
+
     results = []
     cpu_pending = set()
     inflight = deque()
     max_inflight = max(2, int(lanes) * 2)
+    batch_pending_limit = max(1, int(workers)) + max(1, int(lanes))
     streams = [torch.cuda.Stream(device=device) for _ in range(max(1, int(lanes)))]
+    upload_stream = torch.cuda.Stream(device=device)
     stream_cursor = 0
+    pending_release = deque()
+    tiny = torch.finfo(torch.float32).tiny
+    packed = raw_device = query_tensor = targets = matrices = host_tensor = event = None
 
     def collect_cpu(block=False):
-        nonlocal cpu_pending
         if block and cpu_pending:
             completed, _ = wait(cpu_pending, return_when=FIRST_COMPLETED)
         else:
             completed = {future for future in cpu_pending if future.done()}
         for future in completed:
             cpu_pending.remove(future)
-            results.append(future.result())
+            batch_results = future.result()
+            results.extend(batch_results)
             if progress is not None:
-                progress.update(1)
+                progress.update(len(batch_results))
 
     def submit_oldest(block):
         if not inflight:
             return
-        event, host_tensor, metadata = inflight[0]
+        event, host_tensor, batch_tasks, target_lengths = inflight[0]
         if not block and not event.query():
             return
         if block:
             event.synchronize()
         inflight.popleft()
-        matrices = host_tensor.numpy()
-        for offset, (task, target_length) in enumerate(metadata):
-            matrix = matrices[offset, :, :int(target_length)]
-            if not np.isfinite(matrix).all():
-                raise FloatingPointError(
-                    "Fixed-query accelerator scoring produced non-finite values."
-                )
-            cpu_pending.add(
-                cpu_executor.submit(
-                    alignment_callback,
-                    task,
-                    query_length,
-                    int(target_length),
-                    matrix,
-                )
+        cpu_pending.add(
+            cpu_executor.submit(
+                batch_alignment_callback,
+                batch_tasks,
+                target_lengths,
+                host_tensor.numpy(),
             )
-        while len(cpu_pending) >= max(1, int(workers)) * 2:
+        )
+        while len(cpu_pending) >= batch_pending_limit:
             collect_cpu(block=True)
 
-    with cuda_matmul_precision(precision), torch.inference_mode(), \
-            h5py.File(store.path, "r", libver="latest", swmr=True) as hf, \
-            ThreadPoolExecutor(
-                max_workers=max(1, int(workers)),
-                thread_name_prefix="search-alignment-cpu",
-            ) as cpu_executor:
-        preload_stream = streams[0]
-        with torch.cuda.stream(preload_stream):
-            query_tensor = _to_normalized_accelerator(
-                query_array, device, precision
-            )
-            query_event = torch.cuda.Event()
-            query_event.record(preload_stream)
-        query_event.synchronize()
-        group = hf["embeddings"]
-        if timing is not None:
-            timing.warm_executor(cpu_executor, max(1, int(workers)))
-            timing.start()
+    def release_completed():
+        while pending_release and pending_release[0][0].query():
+            reader.release(pending_release.popleft()[1])
 
-        for block_tasks in grouped.values():
-            indices = {task_index(task) for task in block_tasks}
-            host_embeddings = store.load_indices(indices, group)
-            preload_stream = streams[stream_cursor % len(streams)]
+    def idle():
+        submit_oldest(block=False)
+        collect_cpu(block=False)
+        release_completed()
+
+    def upload_block(layout, indices, after):
+        """Queue one block's chunks onto the upload stream; return the event its data is ready at."""
+        starts, _rows, chunk_count = layout
+        with torch.cuda.stream(upload_stream):
+            waited = False
+            for _ in range(chunk_count):
+                _number, entries, used, slot = reader.next_chunk(idle)
+                raw_device[:used].copy_(buffers[slot][:used], non_blocking=True)
+                copied = torch.cuda.Event()
+                copied.record(upload_stream)
+                pending_release.append((copied, slot))
+                if not waited:
+                    # The packed buffer holds the previous block until every lane has
+                    # finished with it: wait on the device, not on the host.
+                    for event in after:
+                        upload_stream.wait_event(event)
+                    waited = True
+                for index, offset, size in entries:
+                    length = int(lengths[index])
+                    source = raw_device[offset:offset + size].view(
+                        _TORCH_SOURCE_DTYPES[store.dtypes[index]]
+                    ).view(length, feature_dimension)
+                    values = source.to(torch.float32)
+                    norms = torch.linalg.vector_norm(values, ord=2, dim=-1, keepdim=True)
+                    norms.clamp_min_(tiny)
+                    target = packed[starts[index]:starts[index] + length]
+                    if compute_dtype == torch.float32:
+                        torch.div(values, norms, out=target)
+                    else:
+                        target.copy_(torch.div(values, norms))
+                release_completed()
+            uploaded = torch.cuda.Event()
+            uploaded.record(upload_stream)
+        return uploaded
+
+    try:
+        with cuda_matmul_precision(precision), torch.inference_mode(), \
+                ThreadPoolExecutor(
+                    max_workers=max(1, int(workers)),
+                    thread_name_prefix="search-alignment-cpu",
+                ) as cpu_executor:
+            preload_stream = streams[0]
             with torch.cuda.stream(preload_stream):
-                gpu_embeddings = {
-                    index: _to_normalized_accelerator(array, device, precision)
-                    for index, array in host_embeddings.items()
-                }
-                preload_event = torch.cuda.Event()
-                preload_event.record(preload_stream)
-            preload_event.synchronize()
-            del host_embeddings
+                query_tensor = _to_normalized_accelerator(
+                    query_array, device, precision
+                )
+                query_event = torch.cuda.Event()
+                query_event.record(preload_stream)
+            query_event.synchronize()
+            with torch.cuda.stream(upload_stream):
+                # The packed buffer ends in one all-zero row, which pads every gathered batch.
+                packed = torch.zeros((pad_row + 1, feature_dimension), dtype=compute_dtype, device=device)
+                raw_device = torch.empty(capacity, dtype=torch.uint8, device=device)
+            if timing is not None:
+                timing.warm_executor(cpu_executor, max(1, int(workers)))
+                timing.start()
+            reader.start()
 
-            pseudo_tasks = [(0, task_index(task), task) for task in block_tasks]
-            for microbatch in _length_microbatches(
-                pseudo_tasks,
-                lengths,
-                query_length,
-                matrix_budget,
-                store.feature_dimension,
-                element_bytes,
-            ):
-                stream = streams[stream_cursor % len(streams)]
-                stream_cursor += 1
-                target_lengths = [int(lengths[int(item[1])]) for item in microbatch]
-                target_tensors = [gpu_embeddings[int(item[1])] for item in microbatch]
-                with torch.cuda.stream(stream):
-                    matrices = _batched_score_matrices(
-                        query_tensor,
-                        target_tensors,
-                        target_lengths,
+            previous_lanes = []
+            for layout, block_tasks in zip(block_layouts, grouped.values()):
+                starts = layout[0]
+                indices = sorted(starts)
+                uploaded = upload_block(layout, indices, previous_lanes)
+                for stream in streams:
+                    stream.wait_event(uploaded)
+
+                pseudo_tasks = [(0, task_index(task), task) for task in block_tasks]
+                for microbatch in _length_microbatches(
+                    pseudo_tasks,
+                    lengths,
+                    query_length,
+                    matrix_budget,
+                    feature_dimension,
+                    element_bytes,
+                ):
+                    stream = streams[stream_cursor % len(streams)]
+                    stream_cursor += 1
+                    target_indices = [int(item[1]) for item in microbatch]
+                    target_lengths = [int(lengths[index]) for index in target_indices]
+                    with torch.cuda.stream(stream):
+                        targets = _gather_padded_targets(
+                            packed,
+                            [starts[index] for index in target_indices],
+                            target_lengths,
+                            pad_row,
+                        )
+                        matrices = _batched_score_matrices(
+                            query_tensor, targets, target_lengths
+                        )
+                        host_tensor = _host_output_buffer(matrices)
+                        host_tensor.copy_(matrices, non_blocking=host_tensor.is_pinned())
+                        event = torch.cuda.Event()
+                        event.record(stream)
+                    inflight.append(
+                        (event, host_tensor, [item[2] for item in microbatch], target_lengths)
                     )
-                    host_tensor = _host_output_buffer(matrices)
-                    host_tensor.copy_(matrices, non_blocking=host_tensor.is_pinned())
-                    event = torch.cuda.Event()
-                    event.record(stream)
-                metadata = [
-                    (item[2], length)
-                    for item, length in zip(microbatch, target_lengths)
-                ]
-                inflight.append((event, host_tensor, metadata))
-                while len(inflight) >= max_inflight:
-                    submit_oldest(block=True)
-                submit_oldest(block=False)
-                collect_cpu(block=False)
+                    while len(inflight) >= max_inflight:
+                        submit_oldest(block=True)
+                    submit_oldest(block=False)
+                    collect_cpu(block=False)
+
+                # The next block may overwrite the packed buffer once these are reached.
+                previous_lanes = []
+                for stream in streams:
+                    reached = torch.cuda.Event()
+                    reached.record(stream)
+                    previous_lanes.append(reached)
 
             while inflight:
                 submit_oldest(block=True)
-            del gpu_embeddings
-            torch.cuda.empty_cache()
-
-        while cpu_pending:
-            collect_cpu(block=True)
-        if timing is not None:
-            timing.stop()
+            while cpu_pending:
+                collect_cpu(block=True)
+            if timing is not None:
+                timing.stop()
+    finally:
+        reader.close()
+        inflight.clear()
+        pending_release.clear()
+        try:
+            torch.cuda.synchronize(device)
+        except RuntimeError:
+            pass
+        # Let go of every device tensor first, so the cache can really be emptied.
+        packed = raw_device = query_tensor = targets = matrices = host_tensor = event = None
+        torch.cuda.empty_cache()
     if timing is not None:
         timing.finish()
     return results

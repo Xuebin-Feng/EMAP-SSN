@@ -149,6 +149,7 @@ modules = [
     "test_network_kernels_batch",
     "test_parse_blast_output",
     "test_population_std_singletons",
+    "test_ssearch_tiled_pipeline",
     "test_workload_hardware",
 ]
 
