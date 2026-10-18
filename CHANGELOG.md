@@ -228,7 +228,10 @@ still change before version 1.0.0.
   every node as a circle of the configured size, and so missed the rims of large nodes
   and other shapes. It now highlights the node drawn on top under the cursor, using each
   node's own size, outline and shape at the display's scale, or, between nodes, the
-  topmost one drawn within 1 point of the cursor.
+  topmost one drawn within 1 point of the cursor. Clicks use the same rule, so a left
+  click, a right click, a node drag and Shift/Ctrl copying act on exactly the highlighted
+  node. A click 2 to 5 points outside a node, which used to reach it, now counts as empty
+  space, as the highlight shows.
 - Embedding SSEARCH's hardware benchmark could pick a plan about twice as slow as the
   best one. Timing the CPU pool started its workers one after another on Windows (about
   2.3 s each, so 20 s or more for eight), which used up the 5 s tuning budget before any
