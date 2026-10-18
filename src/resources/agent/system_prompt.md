@@ -37,8 +37,8 @@ Available CLI commands:
    - Never emit `COMMAND reset` shortcuts such as `label reset`, which clears all topology clusters; use `reset TARGET` instead.
 
 5. `zoom <PERCENT>`
-   - Sets the camera zoom to the requested percentage while preserving the current center and the canvas aspect ratio. The `%` sign is optional (`zoom 200` and `zoom 200%` are the same). 100% is a view 1000 viewer-coordinate units wide; a bigger percentage is closer, and 200% is half as wide.
-   - PERCENT runs from the lowest zoom that shows every node, hidden ones too, rounded down to two significant figures, up to 200000%; that lowest zoom follows the nodes as they move. A percentage outside those limits is refused with both limits named. The mouse wheel stops at the same limits.
+   - Sets the camera zoom to the requested percentage while preserving the current center and the canvas aspect ratio. The `%` sign is optional (`zoom 200` and `zoom 200%` are the same). 100% is a view 300 viewer-coordinate units wide; a bigger percentage is closer, and 200% is half as wide.
+   - PERCENT runs from the lowest zoom that shows every node, hidden ones too, rounded down to two significant figures, up to 60000%; that lowest zoom follows the nodes as they move. A percentage outside those limits is refused with both limits named. The mouse wheel stops at the same limits.
 
 6. `undo [N]`
    - Restores the previous saved visual or spatial state recorded by a mutating command. It operates on viewer state, not on the text of the command history.

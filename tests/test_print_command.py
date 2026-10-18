@@ -79,6 +79,25 @@ def load_print_command():
 
 print_command = load_print_command()
 
+_zoom_patches = []
+
+
+def setUpModule():
+    # `zoom N` is a percentage of a view ZOOM_100_PERCENT_WIDTH units wide. The numbers in
+    # these tests (zoom 200 is a view 500 units wide, zoom 2000 is 50) assume that is 1000, so
+    # they hold whatever the shipped number is; test_zoom_command.ShippedZoomTests checks that.
+    import commands.zoom
+
+    for target in (commands.zoom, print_command):
+        patcher = mock.patch.object(target, "ZOOM_100_PERCENT_WIDTH", 1000.0)
+        patcher.start()
+        _zoom_patches.append(patcher)
+
+
+def tearDownModule():
+    while _zoom_patches:
+        _zoom_patches.pop().stop()
+
 
 class InlineScheduler:
     """The viewer's background job queue, run at once: each job's worker runs

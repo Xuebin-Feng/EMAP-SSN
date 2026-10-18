@@ -3454,7 +3454,7 @@ Command-line usage:
         <location filename="../../../commands/subcluster.py" line="-82"/>
         <location filename="../../../commands/undo.py" line="+48"/>
         <location line="+16"/>
-        <location filename="../../../commands/zoom.py" line="+283"/>
+        <location filename="../../../commands/zoom.py" line="+285"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
@@ -4700,7 +4700,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1295"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1297"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -10306,7 +10306,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-161"/>
+        <location line="-163"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -10321,9 +10321,13 @@ Fedora / RHEL：
         <translation type="unfinished">会话与操作</translation>
     </message>
     <message>
-        <location line="+49"/>
+        <location line="+51"/>
+        <source>Zoom: {zoom}%</source>
+        <translation type="unfinished">缩放：{zoom}%</translation>
+    </message>
+    <message>
         <source>Zoom: {zoom}</source>
-        <translation type="unfinished">缩放：{zoom}</translation>
+        <translation type="obsolete">缩放：{zoom}</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -10425,7 +10429,7 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+112"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+118"/>
         <source>Sequence Set:</source>
         <translation type="unfinished">序列集：</translation>
     </message>
@@ -10465,12 +10469,12 @@ Fedora / RHEL：
         <translation type="unfinished">在本次查看器会话中固定不变。</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+49"/>
         <source>None</source>
         <translation type="unfinished">无</translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+144"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
@@ -10480,7 +10484,7 @@ Fedora / RHEL：
         <translation type="unfinished">会话</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+104"/>
         <source>Nodes:</source>
         <translation type="unfinished">节点：</translation>
     </message>
@@ -10494,7 +10498,7 @@ Fedora / RHEL：
         <translation type="obsolete">打开文件夹</translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="+82"/>
         <source>List of commands</source>
         <translation type="unfinished">命令列表</translation>
     </message>
@@ -10509,7 +10513,7 @@ Fedora / RHEL：
         <translation type="unfinished">{total}（显示 {shown}）</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+100"/>
         <source>Open the list of commands in your web browser</source>
         <translation type="unfinished">在网页浏览器中打开命令列表</translation>
     </message>

@@ -847,10 +847,12 @@ class ViewerCanvasTextTests(WindowTestCase):
         viewer.hud_layout = collections.defaultdict(float, {"status_x_offset": 10.0})
         with mock.patch.object(EMAPSSN_Viewer.MainViewer, "on_slider_value_changed"):
             viewer._build_slider_overlay()
+        from commands.zoom import ZOOM_100_PERCENT_WIDTH
+
         box = viewer.zoom_box
         box.spin_box.show_zoom(81.0, 80.0, 200000.0)
         self.assert_translated(" ".join([box.before.text(), box.spin_box.text(), box.after.text()]), "81.0")
-        self.assert_translated(box.toolTip(), "100", "1000")
+        self.assert_translated(box.toolTip(), "100", f"{ZOOM_100_PERCENT_WIDTH:g}")
 
     def test_the_selected_nodes_cluster_and_groups(self):
         from types import SimpleNamespace

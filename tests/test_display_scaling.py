@@ -329,7 +329,11 @@ class DisplayScalingTests(unittest.TestCase):
         viewer.hud_displays = {}
         viewer.update_console_background = mock.Mock()
 
-        viewer._update_hud_elements()
+        # With 100% a view 1000 units wide, as test_zoom_command's literal numbers assume.
+        from commands import zoom as zoom_command
+
+        with mock.patch.multiple(zoom_command, ZOOM_100_PERCENT_WIDTH=1000.0, MAX_ZOOM_PERCENT=200000.0):
+            viewer._update_hud_elements()
 
         self.assertEqual(viewer.hidden_text.color, cfg.TEXT_COLOR)
         # The Zoom box shows the zoom of the 250 wide view, 400%, with the limits zooms keep to:

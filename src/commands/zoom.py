@@ -35,8 +35,10 @@ _FLOAT32_EPSILON = float(np.finfo(np.float32).eps)
 # narrower view, closer in, and the same percentage is the same view width in
 # every session and window shape: zoom = 100 * ZOOM_100_PERCENT_WIDTH / width.
 # The zoom command, print's zoom N, the Zoom box, the wheel and a pinch all go
-# by it. Change this one number to move what 100 % means.
-ZOOM_100_PERCENT_WIDTH = 1000.0
+# by it. Change this one number to move what 100 % means (the highest zoom,
+# MAX_ZOOM_PERCENT, follows). 300 puts the layouts the Viewer opens on, a few
+# hundred units across, near 100 %.
+ZOOM_100_PERCENT_WIDTH = 300.0
 # The narrowest view the Viewer zooms to, whether by the wheel, a pinch, the Zoom
 # box or the zoom command: MIN_VIEW_WIDTH units across, which is MAX_ZOOM_PERCENT.
 # print's zoom N doesn't take the limits.

@@ -61,7 +61,10 @@ from desktop.Viewer_Widgets import (  # noqa: E402
     SidebarPanel,
     THRESHOLD_STEPS,
     ThresholdSpinBox,
+    ZOOM_LABEL_GAP,
+    ZOOM_ROOM,
     ZOOM_STEP,
+    ZOOM_UNIT_GAP,
     ZoomBox,
     ZoomSpinBox,
     controls_rows,
@@ -1260,7 +1263,7 @@ class ZoomBoxTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme_for_class(cls, cls.app)
 
-    def make_spin_box(self, zoom=229.57, lowest=220.0, highest=200000.0):
+    def make_spin_box(self, zoom=229.57, lowest=220.0, highest=ZOOM_ROOM):
         spin_box = ZoomSpinBox()
         self.addCleanup(spin_box.deleteLater)
         spin_box.show_zoom(zoom, lowest, highest)
@@ -1270,34 +1273,34 @@ class ZoomBoxTests(unittest.TestCase):
 
     def test_the_view_shows_without_a_signal_and_the_user_sets_with_one(self):
         spin_box, sets = self.make_spin_box()
-        self.assertEqual(spin_box.text(), "230%")
-        self.assertEqual((spin_box.minimum(), spin_box.maximum()), (220.0, 200000.0))
-        spin_box.show_zoom(300.04, 220.0, 200000.0)
-        self.assertEqual((spin_box.text(), sets), ("300%", []))
+        self.assertEqual(spin_box.text(), "230")
+        self.assertEqual((spin_box.minimum(), spin_box.maximum()), (220.0, ZOOM_ROOM))
+        spin_box.show_zoom(300.04, 220.0, ZOOM_ROOM)
+        self.assertEqual((spin_box.text(), sets), ("300", []))
         spin_box.setValue(500.0)
         self.assertEqual(sets, [500.0])
         # A zoom beyond the limits, as after the nodes were moved together, still shows.
-        spin_box.show_zoom(150.0, 220.0, 200000.0)
+        spin_box.show_zoom(150.0, 220.0, ZOOM_ROOM)
         self.assertEqual(spin_box.value(), 150.0)
         self.assertEqual(spin_box.minimum(), 150.0)
         # With no limit to keep to, a low zoom still shows.
-        spin_box.show_zoom(0.4, None, 200000.0)
+        spin_box.show_zoom(0.4, None, ZOOM_ROOM)
         self.assertEqual(spin_box.value(), 0.4)
 
     def test_a_limit_a_float_digit_off_is_still_the_limit(self):
         spin_box, sets = self.make_spin_box(zoom=219.99999999999997, lowest=220.0)
-        self.assertEqual((spin_box.minimum(), spin_box.value(), spin_box.text()), (220.0, 220.0, "220%"))
+        self.assertEqual((spin_box.minimum(), spin_box.value(), spin_box.text()), (220.0, 220.0, "220"))
         spin_box.stepBy(-1)
         self.assertEqual(sets, [])  # Already at the lowest zoom.
-        spin_box.show_zoom(200000.00000000003, 220.0, 200000.0)
-        self.assertEqual(spin_box.maximum(), 200000.0)
+        spin_box.show_zoom(ZOOM_ROOM * (1 + 1e-13), 220.0, ZOOM_ROOM)
+        self.assertEqual(spin_box.maximum(), ZOOM_ROOM)
 
     def test_the_precision_reads_from_one_percent_to_the_highest_zoom(self):
         # Three significant figures, and every digit of the whole part.
-        for zoom, text in ((0.5, "0.500%"), (0.826, "0.826%"), (1.0, "1.00%"), (1.87, "1.87%"),
-                           (9.996, "10.0%"), (23.26, "23.3%"), (99.96, "100%"), (123.4, "123%"),
-                           (1234.5, "1234%"), (20000.4, "20000%"), (123456.7, "123457%"),
-                           (200000.0, "200000%")):
+        for zoom, text in ((0.5, "0.500"), (0.826, "0.826"), (1.0, "1.00"), (1.87, "1.87"),
+                           (9.996, "10.0"), (23.26, "23.3"), (99.96, "100"), (123.4, "123"),
+                           (1234.5, "1234"), (20000.4, "20000"), (123456.7, "123457"),
+                           (200000.0, "200000")):
             with self.subTest(zoom=zoom):
                 spin_box, _sets = self.make_spin_box(zoom=zoom, lowest=0.1)
                 self.assertEqual(spin_box.text(), text)
@@ -1318,7 +1321,28 @@ class ZoomBoxTests(unittest.TestCase):
             QTest.keyClick(spin_box, Qt.Key.Key_Return)
             with self.subTest(typed=typed):
                 self.assertEqual(sets[-1], value)
-        self.assertEqual(spin_box.text(), "221%")
+        self.assertEqual(spin_box.text(), "221")
+
+    def test_the_box_holds_only_the_number_and_drops_a_typed_percent_sign(self):
+        # The % sign is the text after the box (ZoomBox), so the box has no suffix; a sign typed
+        # or pasted after the number is left out of what it holds.
+        spin_box, sets = self.make_spin_box()
+        self.assertEqual((spin_box.suffix(), spin_box.prefix()), ("", ""))
+        spin_box.lineEdit().selectAll()
+        QTest.keyClicks(spin_box, "250%")
+        self.assertEqual(spin_box.lineEdit().text(), "250")
+        QTest.keyClick(spin_box, Qt.Key.Key_Return)
+        self.assertEqual((sets, spin_box.text()), ([250.0], "250"))
+        spin_box.lineEdit().selectAll()
+        spin_box.lineEdit().insert("260 %")  # A paste.
+        self.assertEqual(spin_box.lineEdit().text(), "260")
+        # A sign with no number, or after text that is no number, gives nothing.
+        spin_box.lineEdit().selectAll()
+        QTest.keyClicks(spin_box, "%")
+        self.assertEqual(spin_box.lineEdit().text(), "")
+        spin_box.lineEdit().selectAll()
+        QTest.keyClicks(spin_box, "x%")
+        self.assertEqual(spin_box.lineEdit().text(), "")
 
     def test_enter_on_the_number_shown_changes_nothing(self):
         # Clicking in the box and pressing Enter must not nudge a view at 229.57% to 230%.
@@ -1336,7 +1360,7 @@ class ZoomBoxTests(unittest.TestCase):
             spin_box.lineEdit().selectAll()
             QTest.keyClicks(spin_box, typed)
             QTest.keyClick(spin_box, Qt.Key.Key_Return)
-        self.assertEqual((sets, spin_box.text()), ([], "230%"))
+        self.assertEqual((sets, spin_box.text()), ([], "230"))
 
     def test_a_step_zooms_by_a_factor_and_stops_at_the_limits(self):
         spin_box, sets = self.make_spin_box(zoom=400.0)
@@ -1346,7 +1370,7 @@ class ZoomBoxTests(unittest.TestCase):
         self.assertEqual(sets, [400.0 * ZOOM_STEP, 400.0 * ZOOM_STEP / ZOOM_STEP ** 2])
         self.assertGreaterEqual(ZOOM_STEP, 1.1)
         spin_box.stepBy(60)
-        self.assertEqual(sets[-1], 200000.0)
+        self.assertEqual(sets[-1], ZOOM_ROOM)
         spin_box.stepBy(-80)
         self.assertEqual(sets[-1], 220.0)
 
@@ -1372,7 +1396,7 @@ class ZoomBoxTests(unittest.TestCase):
         QTest.keyClicks(spin_box, "750")
         self.assertEqual(sets, [])
         QTest.keyClick(spin_box, Qt.Key.Key_Escape)
-        self.assertEqual((spin_box.text(), sets, dismissed), ("230%", [], [True]))
+        self.assertEqual((spin_box.text(), sets, dismissed), ("230", [], [True]))
         spin_box.lineEdit().selectAll()
         QTest.keyClicks(spin_box, "750")
         QTest.keyClick(spin_box, Qt.Key.Key_Return)
@@ -1388,8 +1412,8 @@ class ZoomBoxTests(unittest.TestCase):
         self.app.processEvents()
         if not spin_box.hasFocus():
             self.skipTest("this platform gives no window the keyboard")
-        spin_box.show_zoom(900.0, 220.0, 200000.0)
-        self.assertEqual(spin_box.text(), "230%")
+        spin_box.show_zoom(900.0, 220.0, ZOOM_ROOM)
+        self.assertEqual(spin_box.text(), "230")
 
     def test_it_never_takes_the_keyboard_from_the_network_unasked(self):
         spin_box, _sets = self.make_spin_box()
@@ -1401,12 +1425,15 @@ class ZoomBoxTests(unittest.TestCase):
         spin_box.show_zoom(242.0, 3000.0, 4000.0)
         self.assertEqual(spin_box.sizeHint(), narrow)
         self.assertEqual(narrow.height(), SLIDER_BOX_HEIGHT)
-        self.assertGreaterEqual(narrow.width(), QFontMetrics(spin_box.font()).horizontalAdvance("200000%"))
+        self.assertGreaterEqual(
+            narrow.width(), QFontMetrics(spin_box.font()).horizontalAdvance(spin_box.textFromValue(ZOOM_ROOM)))
 
     def test_the_text_either_side_of_the_zoom(self):
-        for template, before, after in (("Zoom: {zoom}", "Zoom:", ""),
+        for template, before, after in (("Zoom: {zoom}%", "Zoom:", "%"),
                                         ("{zoom} closer", "", "closer"),
-                                        ("缩放：{zoom}", "缩放：", "")):
+                                        ("缩放：{zoom}%", "缩放：", "%"),
+                                        ("%{zoom}", "%", ""),
+                                        ("Zoom: {zoom}", "Zoom:", "")):
             box = ZoomBox(template)
             self.addCleanup(box.deleteLater)
             with self.subTest(template=template):
@@ -1416,8 +1443,21 @@ class ZoomBoxTests(unittest.TestCase):
                 layout = box.layout()
                 self.assertEqual([layout.itemAt(index).widget() for index in range(layout.count())],
                                  [box.before, box.spin_box, box.after])
-                # The text keeps clear of the box, not crowding it.
-                self.assertGreaterEqual(layout.spacing(), 10)
+                # The text before the box keeps clear of it, not crowding it.
+                self.assertGreaterEqual(box.before.contentsMargins().right(), 10)
+
+    def test_a_percent_sign_after_the_box_sits_close_and_other_text_keeps_clear(self):
+        close = ZoomBox("Zoom: {zoom}%")
+        full_width = ZoomBox("{zoom}\uff05")
+        word = ZoomBox("{zoom} closer")
+        for box in (close, full_width, word):
+            self.addCleanup(box.deleteLater)
+        self.assertEqual(close.after.contentsMargins().left(), ZOOM_UNIT_GAP)
+        self.assertEqual(full_width.after.contentsMargins().left(), ZOOM_UNIT_GAP)
+        self.assertEqual(word.after.contentsMargins().left(), ZOOM_LABEL_GAP)
+        self.assertLess(ZOOM_UNIT_GAP, ZOOM_LABEL_GAP)
+        self.assertEqual(close.layout().spacing(), 0)  # The gaps are the labels' own.
+
 
 
 class ThresholdBoxTests(unittest.TestCase):

@@ -64,7 +64,22 @@ def zoom_viewer(canvas_size=(200, 100), camera=None):
     )
 
 
-class ZoomCommandTests(unittest.TestCase):
+class HundredPercentIs1000:
+    """Mixin: the literal numbers of a test class assume 100% is a view 1000 units wide.
+
+    So the highest zoom is 200000%, and a network 1089 units across opens at 92%.
+    The tests then hold whatever the shipped ZOOM_100_PERCENT_WIDTH is, which
+    ShippedZoomTests checks; changing that one number changes no other test.
+    """
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.multiple(zoom_command, ZOOM_100_PERCENT_WIDTH=1000.0, MAX_ZOOM_PERCENT=200000.0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+
+class ZoomCommandTests(HundredPercentIs1000, unittest.TestCase):
     def run_zoom(self, *words, canvas_size=(200, 100), camera=None):
         viewer = zoom_viewer(canvas_size, camera)
         with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
@@ -79,13 +94,10 @@ class ZoomCommandTests(unittest.TestCase):
         self.assertIn(message, failed.call_args.args[1])
 
     def test_a_hundred_percent_is_a_fixed_width_of_layout_units(self):
-        # One named number says what 100% is; everything else follows from it.
-        self.assertEqual(zoom_command.ZOOM_100_PERCENT_WIDTH, 1000.0)
+        # One named number says what 100% is; the width of a zoom and the zoom of a width follow from it.
         self.assertEqual(zoom_command.width_at_zoom(100.0), 1000.0)
         self.assertEqual(zoom_command.width_at_zoom(200.0), 500.0)
         self.assertEqual(zoom_command.zoom_percent(2000.0), 50.0)
-        # The narrowest view, 0.5 wide, is the highest zoom.
-        self.assertEqual(zoom_command.MAX_ZOOM_PERCENT, 200000.0)
         with mock.patch.object(zoom_command, "ZOOM_100_PERCENT_WIDTH", 300.0):
             self.assertEqual(zoom_command.width_at_zoom(100.0), 300.0)
             self.assertEqual(zoom_command.zoom_percent(150.0), 200.0)
@@ -183,6 +195,49 @@ class ZoomCommandTests(unittest.TestCase):
         self.assertIn("zoom 50% ", text)
         self.assertNotIn("width", text.split("Examples:")[1])
 
+    def test_a_camera_that_fails_to_apply_the_view_gets_its_previous_view_back(self):
+        viewer, succeeded, failed = self.run_zoom("200", camera=FakeCamera(fail_next=True))
+
+        self.assertEqual(viewer.view.camera.rect, ORIGINAL_RECT)
+        viewer._hud_timer.start.assert_not_called()
+        succeeded.assert_not_called()
+        failed.assert_called_once()
+        self.assertIn("Zoom could not be applied: Singular matrix", failed.call_args.args[1])
+
+
+class ShippedZoomTests(unittest.TestCase):
+    """What the shipped ZOOM_100_PERCENT_WIDTH makes of the Viewer, and the texts that state it.
+
+    Nothing here names the number: it is read from commands.zoom, so changing it
+    changes only what the texts and the constant itself say (the line in
+    commands/zoom.py, the metadata, the agent prompt and the two docs pages).
+    """
+
+    def test_the_highest_zoom_is_the_narrowest_view_and_follows_the_constant(self):
+        width = zoom_command.ZOOM_100_PERCENT_WIDTH
+        self.assertEqual(zoom_command.MAX_ZOOM_PERCENT, 100.0 * width / zoom_command.MIN_VIEW_WIDTH)
+        self.assertEqual(zoom_command.width_at_zoom(100.0), width)
+        self.assertEqual(zoom_command.width_at_zoom(zoom_command.MAX_ZOOM_PERCENT), zoom_command.MIN_VIEW_WIDTH)
+        viewer = network_viewer()
+        lowest, highest = zoom_command.zoom_limits(viewer)
+        self.assertEqual(highest, zoom_command.MAX_ZOOM_PERCENT)
+        # The whole 1089-wide network still fits at the lowest zoom, which is its zoom to two figures.
+        self.assertGreaterEqual(zoom_command.view_width_limits(viewer)[1], 1089.0)
+        self.assertEqual(lowest, zoom_command.round_down(100.0 * width / 1089.0))
+
+    def test_a_layout_a_few_hundred_units_across_opens_near_a_hundred_percent(self):
+        # What the constant is for: the layouts the Viewer opens on (the 4K-13K node caches are
+        # 80-240 units across, 110-290 with the margins) open at about 70% to 170% on a 3:2 canvas.
+        for extent in (110.0, 200.0, 290.0):
+            positions = [[0.0, 0.0], [extent, extent]]
+            viewer = network_viewer(positions)
+            left, bottom, opening_width, height = zoom_command.opening_view(positions)
+            visible = max(opening_width, height * 1200 / 800)
+            with self.subTest(extent=extent):
+                opens_at = zoom_command.zoom_percent(visible)
+                self.assertTrue(40 <= opens_at <= 250, opens_at)
+                self.assertAlmostEqual(opens_at, zoom_command.zoom_limits(viewer)[0], delta=opens_at * 0.1)
+
     def test_agent_texts_state_the_same_hundred_percent(self):
         # The command's metadata and the agent's prompt say what 100% is as the constant does.
         from desktop.Command_Metadata import COMMAND_METADATA
@@ -200,14 +255,26 @@ class ZoomCommandTests(unittest.TestCase):
         self.assertIn(f"100% is a view {width} viewer-coordinate units wide", text)
         self.assertIn(f"up to {highest}", text)
 
-    def test_a_camera_that_fails_to_apply_the_view_gets_its_previous_view_back(self):
-        viewer, succeeded, failed = self.run_zoom("200", camera=FakeCamera(fail_next=True))
+    def test_the_docs_state_the_same_hundred_percent_and_highest_zoom(self):
+        # The zoom card and the Quick Start's Zoom bullet, in English and in Chinese, give
+        # both numbers; only the numbers are checked, not the wording around them.
+        import re
 
-        self.assertEqual(viewer.view.camera.rect, ORIGINAL_RECT)
-        viewer._hud_timer.start.assert_not_called()
-        succeeded.assert_not_called()
-        failed.assert_called_once()
-        self.assertIn("Zoom could not be applied: Singular matrix", failed.call_args.args[1])
+        width = f"{zoom_command.ZOOM_100_PERCENT_WIDTH:g}"
+        highest = f"{zoom_command.MAX_ZOOM_PERCENT:g}%"
+        docs = (os.path.join(PROJECT_ROOT, "docs"),
+                os.path.join(SRC_DIR, "resources", "languages", "zh_CN", "docs"))
+        for folder in docs:
+            with open(os.path.join(folder, "list_of_commands.html"), encoding="utf-8") as handle:
+                page = handle.read()
+            card = page.split('id="cmd-zoom"', 1)[1].split("</section>", 1)[0]
+            card = re.sub(r"<[^>]+>", "", card)
+            with open(os.path.join(folder, "quickstart.html"), encoding="utf-8") as handle:
+                quickstart = re.sub(r"<[^>]+>", "", handle.read())
+            with self.subTest(folder=folder):
+                self.assertRegex(card, r"100%%.{0,30}?\b%s\b" % width)
+                self.assertIn(highest, card)
+                self.assertRegex(quickstart, r"100%%.{0,30}?\b%s\b" % width)
 
 
 # A 900 x 300 network, a node at each corner of that box and one hidden between.
@@ -223,7 +290,7 @@ def network_viewer(positions=NETWORK, canvas_size=(1200, 800), camera=None):
     return viewer
 
 
-class ZoomLimitTests(unittest.TestCase):
+class ZoomLimitTests(HundredPercentIs1000, unittest.TestCase):
     def test_the_viewer_opens_on_the_view_set_range_used_to_draw(self):
         # The network, 5% of its extent each side (at least 10 units), then the
         # camera's set_range margin of 5% of that range each side.
@@ -530,7 +597,7 @@ class SmoothWheelZoomTests(unittest.TestCase):
         self.assertEqual(self.camera.rect.width, 400.0)
 
 
-class ViewerWheelZoomTests(unittest.TestCase):
+class ViewerWheelZoomTests(HundredPercentIs1000, unittest.TestCase):
     """The Viewer's camera: a wheel or pinch zoom goes through camera.zoom, which keeps to the limits."""
 
     def test_the_cameras_wheel_and_pinch_zoom_through_its_zoom_method(self):

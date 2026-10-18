@@ -266,7 +266,38 @@ class SliderOverlayTests(unittest.TestCase):
                 self.assertAlmostEqual((box.y() + box.height() / 2) - hidden, hidden - meta, delta=0.5)
                 self.assertGreaterEqual(hidden - meta, 30)
         self.assertEqual(viewer.zoom_box.before.text(), "Zoom:")
-        self.assertFalse(viewer.zoom_box.after.isVisibleTo(viewer.zoom_box))
+        self.assertEqual(viewer.zoom_box.after.text(), "%")
+        self.assertTrue(viewer.zoom_box.after.isVisibleTo(viewer.zoom_box))
+
+    def test_the_percent_sign_after_the_zoom_box_matches_the_label_and_lines_up_with_the_number(self):
+        from desktop.Viewer_Widgets import ZOOM_UNIT_GAP
+
+        viewer = self.make_viewer()
+        box = viewer.zoom_box
+        box.show()
+        with mock.patch.object(EMAPSSN_Viewer, "_sidebar_room", return_value=0):
+            viewer.position_slider_overlay()
+        box.layout().activate()
+        self.app.processEvents()
+        spin, before, after = box.spin_box, box.before, box.after
+        # Zoom: [ 230 ] %, in that order, the sign just after the box and outside it.
+        self.assertLess(before.geometry().right(), spin.geometry().left())
+        self.assertEqual(after.geometry().left() + after.contentsMargins().left() - spin.geometry().right() - 1,
+                         ZOOM_UNIT_GAP)
+        self.assertEqual(spin.suffix(), "")
+        self.assertFalse(after.geometry().intersects(spin.geometry()))
+        # The same font and colour as "Zoom:", from the box's stylesheet.
+        self.assertEqual(after.font(), before.font())
+        self.assertEqual(after.palette().color(after.foregroundRole()), before.palette().color(before.foregroundRole()))
+        # As tall as the number's box and centred in it, as "Zoom:" is, so the text baselines agree.
+        for label in (before, after):
+            self.assertEqual((label.geometry().top(), label.geometry().height()),
+                             (spin.geometry().top(), spin.geometry().height()))
+            self.assertTrue(label.alignment() & Qt.AlignmentFlag.AlignVCenter)
+        # The box still ends the slider row, level with the slider, with the sign inside it.
+        row = viewer.slider_overlay.geometry()
+        self.assertEqual(box.geometry().right() + 1, CANVAS_SIZE[0] - 10)
+        self.assertGreaterEqual(box.x() - (row.x() + row.width()), 16)
 
     def test_the_zoom_box_zooms_as_zoom_does(self):
         viewer = self.make_viewer()

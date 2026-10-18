@@ -35,8 +35,9 @@
   right and bottom edges. SidebarButton is one of its buttons: the icon at
   the start, the label centred in the room after it.
 * The view's zoom. ZoomBox, at the canvas's bottom right level with the
-  threshold slider, is the translated "Zoom: {zoom}" with a ZoomSpinBox in
-  place of {zoom}: it shows the view's zoom, a percentage, and sets it.
+  threshold slider, is the translated "Zoom: {zoom}%" with a ZoomSpinBox in
+  place of {zoom}: it shows the view's zoom, a percentage, and sets it. The
+  percent sign is the text after the box, not part of it.
 * The threshold. ThresholdSpinBox, before the threshold slider, shows the
   edge threshold and sets it. Each of its numbers is one of the slider's
   positions, so the two follow each other.
@@ -970,6 +971,13 @@ ZOOM_STEP = 1.25
 SLIDER_BOX_HEIGHT = 28
 # Between the box and the text either side of it, in px.
 ZOOM_LABEL_GAP = 12
+# Between the box and a percent sign after it, in px: the sign is the box's unit,
+# so it sits close.
+ZOOM_UNIT_GAP = 4
+# The labels' text sits this many px lower than centred in the row: the number
+# in its box sits a pixel lower than its box's middle (the style's padding), and
+# the text beside it takes the same baseline.
+ZOOM_LABEL_DROP = 1
 # The widest zoom its field shows without scrolling, which is the highest the
 # Viewer zooms to (commands.zoom.MAX_ZOOM_PERCENT); with no limit to keep to (no
 # nodes), also the highest it takes.
@@ -1050,16 +1058,24 @@ class ZoomSpinBox(CanvasSpinBox):
 
     The arrows, the wheel over it and Up/Down zoom in (Up, wheel forward) or out
     ZOOM_STEP at a time, as the mouse wheel zooms, not by a fixed amount. It
-    shows the zoom to the precision zoom_decimals gives, with a % sign after it,
-    and keeps the number shown as its value, so leaving it as it is changes
-    nothing. Esc puts back the zoom the view has.
+    shows the number alone, to the precision zoom_decimals gives (the % sign is
+    ZoomBox's text after it), and keeps the number shown as its value, so
+    leaving it as it is changes nothing. A % typed or pasted after the number is
+    left out of what the box holds. Esc puts back the zoom the view has.
     """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setDecimals(ZOOM_DECIMALS)
-        self.setSuffix("%")
         self.setRange(ZOOM_FLOOR, ZOOM_ROOM)
+
+    def validate(self, text, pos):
+        # "230%" and "230 %" are 230: the sign is dropped as it is typed or pasted.
+        stripped = text.rstrip()
+        if stripped.endswith("%"):
+            stripped = stripped[:-1].rstrip()
+            return super().validate(stripped, min(pos, len(stripped)))
+        return super().validate(text, pos)
 
     def textFromValue(self, value):
         locale = self.locale()
@@ -1147,10 +1163,14 @@ class ThresholdSpinBox(CanvasSpinBox):
 
 
 class ZoomBox(QWidget):
-    """The translated "Zoom: {zoom}", with a ZoomSpinBox for {zoom}.
+    """The translated "Zoom: {zoom}%", with a ZoomSpinBox for {zoom}.
 
     The text either side of {zoom} goes either side of the box, so a
-    language that puts the number first keeps its order.
+    language that puts the number first, or the % sign before it, keeps its
+    order. A percent sign after the box sits ZOOM_UNIT_GAP from it, as the
+    box's unit; any other text keeps ZOOM_LABEL_GAP clear of it. The labels
+    take the stylesheet's font and colour and are as tall as the box, their text
+    centred in it as the number is, so the baselines agree.
     """
 
     def __init__(self, template, parent=None):
@@ -1159,10 +1179,13 @@ class ZoomBox(QWidget):
         before, _field, after = template.partition("{zoom}")
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(ZOOM_LABEL_GAP)
+        layout.setSpacing(0)
         self.before = QLabel(before.strip())
         self.spin_box = ZoomSpinBox()
         self.after = QLabel(after.strip())
+        self.before.setContentsMargins(0, 2 * ZOOM_LABEL_DROP, ZOOM_LABEL_GAP, 0)
+        unit = after.strip()[:1] in ("%", "％")  # Also the full-width sign.
+        self.after.setContentsMargins(ZOOM_UNIT_GAP if unit else ZOOM_LABEL_GAP, 2 * ZOOM_LABEL_DROP, 0, 0)
         for widget in (self.before, self.spin_box, self.after):
             layout.addWidget(widget)
         self.before.setVisible(bool(self.before.text()))
@@ -1181,7 +1204,10 @@ __all__ = [
     "SLIDER_BOX_HEIGHT",
     "THRESHOLD_STEPS",
     "ThresholdSpinBox",
+    "ZOOM_LABEL_GAP",
+    "ZOOM_ROOM",
     "ZOOM_STEP",
+    "ZOOM_UNIT_GAP",
     "ZoomBox",
     "ZoomSpinBox",
     "controls_rows",

@@ -7005,7 +7005,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Zoom: {zoom}</source>
+        <source>Zoom: {zoom}%</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

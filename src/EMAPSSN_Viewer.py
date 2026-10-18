@@ -1062,9 +1062,9 @@ class MainViewer:
 
     def _limit_camera_zoom(self):
         """Keep zooming by the wheel or a pinch within the zooms the zoom
-        command keeps to (commands.zoom.zoom_limits): it stops at 200000% and at
-        the zoom, rounded down to two figures, that shows every node, wherever
-        they are now."""
+        command keeps to (commands.zoom.zoom_limits): it stops at the highest zoom
+        (MAX_ZOOM_PERCENT) and at the zoom, rounded down to two figures, that
+        shows every node, wherever they are now."""
         original_zoom = self.view.camera.zoom
 
         def limited_zoom(factor, center=None):
@@ -1161,7 +1161,7 @@ class MainViewer:
         # The view's zoom, to read and to set as `zoom` does, at the row's
         # right; its text keeps the HUD's text colour, as the slider's value does.
         from commands.zoom import ZOOM_100_PERCENT_WIDTH
-        self.zoom_box = ZoomBox(translate("Viewer", "Zoom: {zoom}"), self.canvas.native)
+        self.zoom_box = ZoomBox(translate("Viewer", "Zoom: {zoom}%"), self.canvas.native)
         self.zoom_box.setToolTip(translate(
             "Viewer",
             "A bigger zoom is closer: 100% is a view {width} layout units wide. "
