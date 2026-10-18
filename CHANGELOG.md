@@ -192,6 +192,11 @@ still change before version 1.0.0.
   benchmark, against about 100 s before these changes. The tiled plan uses about 256 MB of
   pinned host memory and 64 MB more video memory. The Device tip no longer says that
   searches under 512 targets stay on the scalar path.
+- Align Similarity Matrix and Network Injection run their CPU-pool and scalar GPU
+  alignments through the same float32 kernel their tiled plan already used, under the
+  same exactness conditions, so the three tools share their kernels. The written networks
+  are identical and the alignment step itself is about twice as fast there, though a whole
+  job gains little, as building each pair's score matrix costs more.
 
 ### Fixed
 
