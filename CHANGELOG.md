@@ -150,6 +150,17 @@ still change before version 1.0.0.
   and Chinese), and the Viewer's agent and metadata pages have clearly rounded corners
   that scale with the text, so a large chip in a title looks as rounded as the small
   ones in the text.
+- **Compute Network Statistics** in Config and VR Config reads the network a slice at a
+  time on worker threads instead of loading and sorting every score. A network of 974
+  million edges takes about 0.16 GB and 6 s, against about 31 GB and 20 s before, and
+  the sequence-length normalizations, which needed about 35 GB, now fit too. It runs off
+  the window's thread: the panel shows its progress, the button waits for it, and a
+  change of the files, modes or folders, a second click or closing the window stops it,
+  so a result never lands for inputs that have changed. Counts, minimum and maximum are
+  unchanged; the average is now summed in double precision, so its last digit can
+  differ. The MCP `network_statistics` action uses the same code: its report is
+  unchanged, and a network of 974 million edges takes about 19 s and under 1 GB, within
+  its 50 s limit (it needed about 55 GB and minutes before).
 
 ### Fixed
 
