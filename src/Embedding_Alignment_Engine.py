@@ -2049,6 +2049,20 @@ def _fixed_query_task_index(task):
     return int(task[0])
 
 
+def fixed_query_block_ids(store, query_array, plan, element_bytes):
+    """Tile block of every database embedding in a fixed-query tiled search.
+
+    The one place that decides the blocks, so the search, its VRAM estimate
+    and the hardware tuner's timing sample all see the same ones: each block
+    is as many consecutive embeddings as fit beside the query in the tile cache.
+    """
+    query_bytes = int(np.asarray(query_array).size) * int(element_bytes)
+    return store.block_ids(
+        max(1, plan.tile_cache_bytes - query_bytes),
+        element_bytes=element_bytes,
+    )
+
+
 def estimate_fixed_query_cuda_working_set(
     tasks,
     *,
@@ -2093,8 +2107,7 @@ def estimate_fixed_query_cuda_working_set(
         )
 
     indexed = [(task_index(task), task) for task in tasks]
-    per_block = max(1, plan.tile_cache_bytes - query_bytes)
-    block_ids = store.block_ids(per_block, element_bytes=element_bytes)
+    block_ids = fixed_query_block_ids(store, query, plan, element_bytes)
     grouped = OrderedDict()
     for index, task in indexed:
         grouped.setdefault(int(block_ids[index]), []).append(task)
@@ -2194,9 +2207,7 @@ def run_fixed_query_cuda_pipeline(
     matrix_budget = int(matrix_budget_override or plan.matrix_bytes)
     query_array = np.asarray(query_embedding)
     query_length = int(query_array.shape[0])
-    query_bytes = int(query_array.size) * element_bytes
-    per_block = max(1, plan.tile_cache_bytes - query_bytes)
-    block_ids = store.block_ids(per_block, element_bytes=element_bytes)
+    block_ids = fixed_query_block_ids(store, query_array, plan, element_bytes)
     grouped = OrderedDict()
     for task in tasks:
         index = task_index(task)

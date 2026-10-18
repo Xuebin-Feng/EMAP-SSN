@@ -8,12 +8,15 @@ simulated; the real searches run on the CPU.
 
 import io
 import os
+import pickle
+import queue
 import sys
 import tempfile
 import time
 import unittest
 from contextlib import ExitStack, redirect_stderr, redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import h5py
@@ -53,6 +56,10 @@ def make_tasks(count):
 
 def cpu():
     return ssearch.Hardware_Utils.DeviceCandidate("cpu", "CPU", torch.device("cpu"), "cpu")
+
+
+def gpu():
+    return ssearch.Hardware_Utils.DeviceCandidate("cuda:0", "GPU", torch.device("cuda:0"), "cuda")
 
 
 class SsearchCudaRoutingTests(unittest.TestCase):
@@ -328,6 +335,65 @@ class SelectorTests(unittest.TestCase):
             plan.observations = [(SearchTiming(), rate)]
         self.assertIs(rank_plans([pool, serial], {0: 1})[0], serial)
 
+    def test_a_plan_with_its_own_sample_keeps_only_that_samples_results(self):
+        selector = self.selector(count=1000)
+        own = [selector.tasks[index] for index in (7, 8, 9, 10)]
+        selector.sampler = lambda plan: own if plan.variant == "tiled" else None
+        shared, tiled = SearchPlan(cpu(), "serial", "float32"), SearchPlan(gpu(), "tiled", "float32")
+        with redirect_stdout(io.StringIO()):
+            self.assertTrue(selector.trial(shared, required=True))
+            self.assertTrue(selector.trial(tiled, required=True))
+        self.assertEqual(set(shared.results), {int(task[0]) for task in selector.sample})
+        self.assertEqual(set(tiled.results), {7, 8, 9, 10})
+        self.assertEqual(selector.sampled_ids, set(shared.results) | {7, 8, 9, 10})
+        # What a plan has computed itself leaves its remaining work, whichever sample that was.
+        costs = selector.costs
+        rate = tiled.observations[0][1]
+        timing = tiled.observations[0][0]
+        expected = timing.setup + timing.shutdown + rate * (sum(costs.values()) - sum(costs[i] for i in (7, 8, 9, 10)))
+        self.assertAlmostEqual(tiled.predicted(costs), expected)
+
+    def test_an_empty_or_missing_own_sample_means_the_shared_one(self):
+        selector = self.selector()
+        plan = SearchPlan(gpu(), "tiled", "float32")
+        self.assertIs(selector.sample_of(plan), selector.sample)
+        selector.sampler = lambda _plan: None
+        self.assertIs(selector.sample_of(plan), selector.sample)
+        selector.sampler = lambda _plan: []
+        self.assertIs(selector.sample_of(plan), selector.sample)
+
+    def test_trial_cost_is_estimated_on_the_plans_own_sample(self):
+        selector = self.selector(count=1000)
+        serial = SearchPlan(cpu(), "serial", "float32")
+        with redirect_stdout(io.StringIO()):
+            selector.trial(serial, required=True)
+            tiled = SearchPlan(gpu(), "tiled", "float32")
+            self.assertTrue(selector.allowed(tiled))
+            selector.budget = 0.2
+            selector.sampler = lambda _plan: selector.tasks[:800]
+            self.assertFalse(selector.allowed(tiled))
+
+    def test_a_guaranteed_first_measurement_ignores_the_budget_but_not_repayment(self):
+        selector = self.selector(count=1000)
+        serial = SearchPlan(cpu(), "serial", "float32")
+        tiled = SearchPlan(gpu(), "tiled", "float32")
+        with redirect_stdout(io.StringIO()) as output:
+            selector.trial(serial, required=True)
+            self.now += 10  # the 5 s budget is spent
+            self.assertFalse(selector.allowed(tiled))
+            self.assertTrue(selector.allowed(tiled, guaranteed=True))
+            # A repeat is not a first measurement: no guarantee.
+            self.assertFalse(selector.allowed(serial, guaranteed=True))
+            # A job too short for the trial to pay back stays unmeasured, guaranteed or not.
+            short = self.selector(count=20)
+            short.trial(SearchPlan(cpu(), "serial", "float32"), required=True)
+            self.now += 10
+            self.assertFalse(short.allowed(SearchPlan(gpu(), "tiled", "float32"), guaranteed=True))
+        text = output.getvalue()
+        self.assertIn("unmeasured: tuning budget exhausted", text)
+        self.assertIn("repeat skipped: tuning budget exhausted", text)
+        self.assertIn("unmeasured: estimated trial cost cannot repay tuning", text)
+
     def test_sample_contains_extremes_and_no_duplicates(self):
         tasks = make_tasks(100)
         sample = stratified(tasks, list(range(100)), 16)
@@ -488,6 +554,291 @@ class PlanSelectionTests(unittest.TestCase):
     def test_auto_tf32_can_win_when_equivalent_and_faster(self):
         plans, calls = self.run_selector(precision="automatic_32bit")
         self.assertTrue(any(p.precision == "tf32" for p in plans))
+
+
+class PoolStartupTests(unittest.TestCase):
+    """The timing trial's pool must start its workers in parallel, as a real run does."""
+
+    @staticmethod
+    def task(rows=330, features=768):
+        query = np.zeros((rows, features), dtype=np.float16)
+        return (0, "h", "h", query, "local", -2.0, "longer_sequence", "A" * rows, "A" * 40)
+
+    def test_a_worker_is_sent_a_few_bytes_not_the_query(self):
+        spec = ssearch._warm_spec(self.task())
+        # With the 0.5 MB query in initargs, Windows spawn started the workers one after another.
+        self.assertLess(len(pickle.dumps(("embeddings.h5", spec))), 1024)
+        warm = ssearch._warm_task(spec)
+        self.assertEqual(warm[3].dtype, np.float16)
+        self.assertEqual(warm[3].shape, (ssearch._WARM_ROWS, 768))
+        self.assertEqual((warm[4], warm[5], warm[6]), ("local", -2.0, "longer_sequence"))
+        self.assertEqual(len(warm[7]), len(warm[3]))
+        self.assertTrue(np.array_equal(warm[3], ssearch._warm_task(spec)[3]))
+
+    def test_the_timing_trial_pool_gets_no_query_in_its_initargs(self):
+        seen = {}
+
+        class FakePool:
+            def __init__(self, processes, initializer, initargs):
+                seen.update(initializer=initializer, initargs=initargs)
+                for _ in range(processes):
+                    initargs[2].put(None)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def imap_unordered(self, function, tasks, chunksize):
+                return iter(())
+
+        with mock.patch.object(ssearch, "Pool", FakePool):
+            ssearch._run_cpu_search([self.task()], 3, "embeddings.h5", False, timing=SearchTiming())
+        self.assertIs(seen["initializer"], ssearch._init_search_pool)
+        self.assertLess(len(pickle.dumps(seen["initargs"][:2])), 1024)
+
+    def test_the_real_run_pool_keeps_its_one_argument(self):
+        seen = {}
+
+        class FakePool:
+            def __init__(self, processes, initializer, initargs):
+                seen.update(initializer=initializer, initargs=initargs)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def imap_unordered(self, function, tasks, chunksize):
+                return iter(())
+
+        with mock.patch.object(ssearch, "Pool", FakePool):
+            ssearch._run_cpu_search([self.task()], 3, "embeddings.h5", False)
+        self.assertIs(seen["initializer"], ssearch.init_worker)
+        self.assertEqual(seen["initargs"], ("embeddings.h5",))
+
+    def test_a_worker_warms_the_kernels_from_the_spec(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "embeddings.h5")
+            with h5py.File(path, "w") as hf:
+                hf.create_group("embeddings")
+            ready = queue.Queue()
+            try:
+                with redirect_stdout(io.StringIO()):
+                    ssearch._init_search_pool(path, ssearch._warm_spec(self.task(rows=80, features=16)), ready)
+                self.assertIsNone(ready.get_nowait())
+            finally:
+                if ssearch.worker_hf is not None:
+                    ssearch.worker_hf.close()
+                ssearch.worker_hf = None
+
+
+class TiledSampleTests(unittest.TestCase):
+    """A tiled plan is timed on targets of one tile block, as windows of consecutive lengths."""
+
+    def run_sample(self, lengths, block_ids, count, plan_error=None):
+        tasks = make_tasks(len(lengths))
+        plan = SimpleNamespace(tile_cache_bytes=1)
+        with mock.patch.object(ssearch, "cuda_memory_plan", return_value=plan, side_effect=plan_error), \
+                mock.patch.object(ssearch, "fixed_query_block_ids", return_value=np.asarray(block_ids)) as ids:
+            sample = ssearch._tiled_timing_sample(
+                tasks, lengths, mock.Mock(), tasks[0][3], torch.device("cuda:0"), 2, "float32", count)
+        return tasks, sample, ids
+
+    def test_the_sample_sits_in_one_block_and_spans_its_lengths(self):
+        lengths = [20 + (index * 7) % 80 for index in range(3000)]
+        block_ids = [index // 500 for index in range(3000)]
+        _tasks, sample, ids = self.run_sample(lengths, block_ids, 100)
+        self.assertEqual(len(sample), 100)
+        self.assertEqual(len({int(task[0]) for task in sample}), 100)
+        self.assertEqual(len({block_ids[int(task[0])] for task in sample}), 1)
+        block = block_ids[int(sample[0][0])]
+        in_block = sorted(lengths[i] for i in range(3000) if block_ids[i] == block)
+        sample_lengths = [lengths[int(task[0])] for task in sample]
+        self.assertEqual(sample_lengths, sorted(sample_lengths))
+        self.assertLessEqual(sample_lengths[0], in_block[len(in_block) // 4])
+        self.assertGreaterEqual(sample_lengths[-1], in_block[3 * len(in_block) // 4])
+        # The blocks come from the same rule as the search's (the fixed-query engine's).
+        self.assertEqual(ids.call_args.args[3], 4)
+
+    def test_the_block_nearest_the_jobs_mean_length_is_used(self):
+        lengths = [10] * 500 + [100] * 500 + [55] * 500
+        block_ids = [index // 500 for index in range(1500)]
+        _tasks, sample, _ids = self.run_sample(lengths, block_ids, 64)
+        self.assertEqual({block_ids[int(task[0])] for task in sample}, {2})
+
+    def test_a_block_smaller_than_the_count_gives_the_largest_block(self):
+        lengths = [30] * 60
+        block_ids = [0] * 10 + [1] * 30 + [2] * 20
+        _tasks, sample, _ids = self.run_sample(lengths, block_ids, 50)
+        self.assertEqual({int(task[0]) for task in sample}, set(range(10, 40)))
+
+    def test_a_sample_is_none_when_the_device_cannot_be_read(self):
+        _tasks, sample, _ids = self.run_sample([30] * 100, [0] * 100, 64, plan_error=RuntimeError("no device"))
+        self.assertIsNone(sample)
+
+    def test_the_block_rule_is_the_engines_one(self):
+        class Store:
+            headers = [f"h{i}" for i in range(40)]
+            shapes = [(10 + i, 4) for i in range(40)]
+            block_ids = alignment_engine.EmbeddingTileStore.block_ids
+            compute_bytes = alignment_engine.EmbeddingTileStore.compute_bytes
+
+        query = np.zeros((5, 4), np.float32)
+        plan = SimpleNamespace(tile_cache_bytes=4000)
+        expected = Store().block_ids(4000 - 5 * 4 * 4, element_bytes=4)
+        self.assertTrue(np.array_equal(
+            alignment_engine.fixed_query_block_ids(Store(), query, plan, 4), expected))
+        self.assertEqual(len(set(expected.tolist())) > 1, True)
+        # A cache smaller than the query still makes progress, one embedding a block.
+        tiny = SimpleNamespace(tile_cache_bytes=1)
+        self.assertEqual(len(set(alignment_engine.fixed_query_block_ids(Store(), query, tiny, 4).tolist())), 40)
+
+
+class TunerEmulationTests(unittest.TestCase):
+    """The whole tuning flow on a simple cost model of a 44,000-target search on a CUDA GPU."""
+
+    TARGETS = 44000
+    BLOCK = 2000
+    # Seconds: CPU serial per target, pool per target, scalar per target, tiled per target, per block, per pass.
+    SERIAL, POOL, SCALAR, TILED, PER_BLOCK, PER_PASS = 0.004, 0.001, 0.0015, 0.0007, 0.012, 0.012
+
+    def run_flow(self, *, scalar_start=0.0, pool_setup=3.0, blocks=True, precision="float32", lanes="auto"):
+        tasks = make_tasks(self.TARGETS)
+        lengths = [3] * self.TARGETS
+        now = [0.0]
+        calls = []
+        block_of = np.arange(self.TARGETS) // self.BLOCK
+
+        def execute(plan, selected, *args, timing=None):
+            candidate, variant, prec, count = plan
+            n = len(selected)
+            touched = len({int(task[0]) // self.BLOCK for task in selected})
+            setup = shutdown = 0.0
+            if candidate.is_cpu and variant == "serial":
+                setup, work = 0.001, n * self.SERIAL
+            elif candidate.is_cpu:
+                setup, work, shutdown = pool_setup, n * self.POOL, 0.05
+            elif variant == "scalar":
+                setup, work = 0.2 + scalar_start, n * self.SCALAR / min(count, 2)
+            else:
+                setup, work = 0.1, n * self.TILED + touched * self.PER_BLOCK + self.PER_PASS
+            if prec == "tf32":
+                work *= 0.5
+            now[0] += setup + work + shutdown
+            calls.append((candidate.spec, variant, prec, count, n, timing is not None))
+            if timing is not None:
+                timing.setup, timing.processing, timing.shutdown = setup, work, shutdown
+            return [{"index": int(task[0]), "raw_score": 1.0, "norm_score": 1.0, "aln_len": 1} for task in selected]
+
+        devices = [cpu(), gpu()]
+        output = io.StringIO()
+        with ExitStack() as stack:
+            for name, value in (("DEVICE_SELECTION", "auto"), ("ACCELERATOR_LANES", lanes),
+                                ("ACCELERATOR_PRECISION", precision)):
+                stack.enter_context(mock.patch.object(ssearch, name, value))
+            clock = FakeClockTime(lambda: now[0])
+            stack.enter_context(mock.patch.object(ssearch, "time", clock))
+            stack.enter_context(mock.patch.object(tool_pipeline, "time", clock))
+            stack.enter_context(mock.patch.object(ssearch.Hardware_Utils, "get_available_devices", return_value=devices))
+            stack.enter_context(mock.patch.object(ssearch.Hardware_Utils, "release_device_cache"))
+            stack.enter_context(mock.patch.object(ssearch, "is_nvidia_cuda", side_effect=lambda d: d.type == "cuda"))
+            stack.enter_context(mock.patch.object(ssearch, "estimate_fixed_query_cuda_working_set",
+                                                  return_value=mock.Mock(feasible=True, reason="fits")))
+            stack.enter_context(mock.patch.object(ssearch, "_execute_search_plan", side_effect=execute))
+            stack.enter_context(mock.patch.object(ssearch, "cuda_memory_plan",
+                                                  return_value=SimpleNamespace(tile_cache_bytes=1)))
+            stack.enter_context(mock.patch.object(
+                ssearch, "fixed_query_block_ids",
+                side_effect=None if blocks else RuntimeError("no device"),
+                return_value=block_of))
+            stack.enter_context(redirect_stdout(output))
+            plans = ssearch._select_search_plans(
+                tasks, 4, "unused.h5", mock.Mock(feature_dimension=4, dtypes=[np.dtype("float32")]),
+                lengths, tasks[0][3])
+        return plans, calls, output.getvalue(), tasks
+
+    def true_tiled_seconds(self):
+        return (self.TARGETS * self.TILED + (self.TARGETS // self.BLOCK) * self.PER_BLOCK)
+
+    def test_tiled_is_selected_and_its_estimate_matches_a_real_run(self):
+        plans, calls, text, tasks = self.run_flow()
+        self.assertEqual((plans[0].candidate.spec, plans[0].variant), ("cuda:0", "tiled"))
+        costs = {int(task[0]): 9 for task in tasks}
+        estimate = plans[0].predicted(costs)
+        # The target for estimate / real run: 0.8 to 1.25.
+        self.assertGreater(estimate / self.true_tiled_seconds(), 0.8)
+        self.assertLess(estimate / self.true_tiled_seconds(), 1.25)
+        scalar = next(p for p in plans if p.variant == "scalar" and p.candidate.spec == "cuda:0" and p.lanes == 1)
+        true_scalar = self.TARGETS * self.SCALAR
+        self.assertGreater(scalar.predicted(costs) / true_scalar, 0.8)
+        self.assertLess(scalar.predicted(costs) / true_scalar, 1.25)
+        # Each plan keeps only its own sample's results; the tiled sample sits in one tile block.
+        tiled_blocks = {index // self.BLOCK for index in plans[0].results}
+        self.assertEqual(len(tiled_blocks), 1)
+        self.assertEqual(len(plans[0].results), len(set(plans[0].results)))
+
+    def test_with_the_job_wide_sample_tiled_would_have_been_rejected(self):
+        plans, _calls, text, tasks = self.run_flow(blocks=False)
+        self.assertNotEqual(plans[0].variant, "tiled")
+        tiled = next(p for p in plans if p.variant == "tiled")
+        costs = {int(task[0]): 9 for task in tasks}
+        self.assertGreater(tiled.predicted(costs), 3 * self.true_tiled_seconds())
+
+    def test_the_best_variants_are_timed_before_the_pool(self):
+        _plans, calls, _text, _tasks = self.run_flow()
+        order = list(dict.fromkeys((spec, variant, lanes) for spec, variant, _p, lanes, _n, timed in calls if timed))
+        self.assertEqual(order[:5], [("cpu", "serial", 1), ("cuda:0", "scalar", 1), ("cuda:0", "tiled", 1),
+                                     ("cuda:0", "tiled", 2), ("cpu", "pool", 1)])
+
+    def test_every_variant_is_measured_even_when_the_budget_is_spent_early(self):
+        # The first GPU trial takes 6 s (a slow driver start), more than the 5 s budget.
+        plans, calls, text, _tasks = self.run_flow(scalar_start=6.0)
+        measured = {(p.candidate.spec, p.variant, p.lanes) for p in plans}
+        self.assertIn(("cuda:0", "scalar", 1), measured)
+        self.assertIn(("cuda:0", "tiled", 1), measured)  # guaranteed
+        self.assertNotIn(("cuda:0", "tiled", 2), measured)
+        self.assertNotIn(("cpu", "pool", 1), measured)
+        self.assertIn("tiled / float32 / 2 lane(s): unmeasured: tuning budget exhausted", text)
+        self.assertEqual(plans[0].variant, "tiled")
+
+    def test_a_tiled_trial_warms_up_untimed_and_keeps_the_faster_timed_pass(self):
+        _plans, calls, _text, _tasks = self.run_flow()
+        tiled = [(n, timed) for spec, variant, _p, lanes, n, timed in calls if variant == "tiled" and lanes == 1]
+        warm, first, second = tiled[:3]
+        self.assertFalse(warm[1])
+        self.assertLessEqual(warm[0], ssearch.TILED_WARMUP_TARGETS)
+        self.assertTrue(first[1] and second[1])
+        self.assertEqual(first[0], second[0])
+        self.assertGreater(first[0], warm[0])
+
+    def test_tf32_is_compared_on_the_tiled_plans_own_sample(self):
+        plans, _calls, text, _tasks = self.run_flow(precision="automatic_32bit", pool_setup=0.2)
+        self.assertNotIn("target identities differ", text)
+        tf32 = [p for p in plans if p.precision == "tf32" and p.variant == "tiled"]
+        self.assertTrue(tf32)
+        fp32 = next(p for p in plans if p.precision == "float32" and p.variant == "tiled"
+                    and p.lanes == tf32[0].lanes)
+        self.assertEqual(set(tf32[0].results), set(fp32.results))
+
+    def test_a_manual_lane_count_is_used_for_the_expected_best_variant(self):
+        _plans, calls, _text, _tasks = self.run_flow(lanes="3")
+        gpu_lanes = {lanes for spec, _v, _p, lanes, _n, _t in calls if spec == "cuda:0"}
+        self.assertEqual(gpu_lanes, {3})
+
+    def test_expected_best_variants_per_backend(self):
+        cuda, xpu, mps = gpu(), ssearch.Hardware_Utils.DeviceCandidate("xpu:0", "XPU", torch.device("xpu:0"), "xpu"), \
+            ssearch.Hardware_Utils.DeviceCandidate("mps", "MPS", torch.device("mps"), "mps")
+        with mock.patch.object(ssearch, "ACCELERATOR_LANES", "auto"):
+            self.assertEqual(ssearch._expected_best_ladders(cuda, 8), {"tiled": [1, 2]})
+            self.assertEqual(ssearch._expected_best_ladders(cuda, 1), {"tiled": [1]})
+            self.assertEqual(ssearch._expected_best_ladders(xpu, 8), {"scalar": [2]})
+            self.assertEqual(ssearch._expected_best_ladders(mps, 8), {})
+        with mock.patch.object(ssearch, "ACCELERATOR_LANES", "3"):
+            self.assertEqual(ssearch._expected_best_ladders(cuda, 8), {"tiled": [3]})
+            self.assertEqual(ssearch._expected_best_ladders(mps, 8), {})
 
 
 if __name__ == "__main__":

@@ -740,6 +740,11 @@ class SearchSelector:
         self.messages = []
         self.sampled_ids = set()
         self.sample = stratified(tasks, lengths, 16)
+        # Optional ``plan -> targets``: a plan whose timing needs its own sample (a
+        # tiled search's must sit in one tile block) returns it; None or an
+        # empty list keeps the shared one. A plan keeps the results of its own
+        # sample only, so no target is reused twice or skipped.
+        self.sampler = None
 
     @property
     def elapsed(self):
@@ -753,10 +758,23 @@ class SearchSelector:
         self.messages.append(message)
         print(f"[Hardware] {message}")
 
-    def allowed(self, plan):
+    def sample_of(self, plan):
+        """The targets ``plan`` is timed on."""
+        own = self.sampler(plan) if self.sampler is not None else None
+        return own if own else self.sample
+
+    def allowed(self, plan, guaranteed=False):
+        """Whether ``plan`` may be timed now.
+
+        A ``guaranteed`` first measurement ignores the budget (spent or too
+        small for the trial) but not the test that the trial can repay itself
+        against the best known total: tuning must not cost more than it can save.
+        """
+        guaranteed = guaranteed and not plan.observations
+        kind = "repeat skipped" if plan.observations else "unmeasured"
         ranked = self.ranked()
-        if self.elapsed >= self.budget:
-            self.skip(plan, ("repeat skipped" if plan.observations else "unmeasured") + ": tuning budget exhausted")
+        if self.elapsed >= self.budget and not guaranteed:
+            self.skip(plan, kind + ": tuning budget exhausted")
             return False
         if not ranked:
             return True
@@ -764,19 +782,19 @@ class SearchSelector:
             obs for other in self.plans if other.candidate.spec == plan.candidate.spec
             for obs in other.observations
         ] or ranked[0].observations
-        work = sum(self.costs[int(task[0])] for task in self.sample)
+        work = sum(self.costs[int(task[0])] for task in self.sample_of(plan))
         estimate = statistics.median(t.setup + t.shutdown + rate * work for t, rate in observations)
         if plan.variant == "pool" and not plan.observations:
             estimate = max(estimate, 1.0 + statistics.median(rate * work for _, rate in observations))
-        if estimate > self.budget - self.elapsed or ranked[0].predicted(self.costs) <= 2 * estimate:
-            self.skip(plan, ("repeat skipped" if plan.observations else "unmeasured") + ": estimated trial cost cannot repay tuning")
+        if (not guaranteed and estimate > self.budget - self.elapsed) or ranked[0].predicted(self.costs) <= 2 * estimate:
+            self.skip(plan, kind + ": estimated trial cost cannot repay tuning")
             return False
         return True
 
-    def trial(self, plan, sample=None, required=False):
-        if not required and not self.allowed(plan):
+    def trial(self, plan, sample=None, required=False, guaranteed=False):
+        if not required and not self.allowed(plan, guaranteed):
             return False
-        sample = self.sample if sample is None else sample
+        sample = self.sample_of(plan) if sample is None else sample
         timing = SearchTiming()
         try:
             payload = self.execute(plan, sample, timing)

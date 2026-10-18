@@ -56,6 +56,7 @@ import gc
 import threading
 import time
 import math
+import statistics
 from tools.tool_helpers.Tool_Pipeline import SearchPlan, SearchSelector, SearchTiming, stratified
 from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
@@ -73,6 +74,7 @@ from Embedding_Alignment_Engine import (
     cuda_matmul_precision,
     cuda_memory_plan,
     estimate_fixed_query_cuda_working_set,
+    fixed_query_block_ids,
     format_bf16_validation_report,
     is_nvidia_cuda,
     normalize_precision_setting,
@@ -681,10 +683,36 @@ def _warm_search_kernel(task, device, precision="float32"):
                    matrix, residues, residues))
 
 
-def _init_search_pool(input_h5, warm_task, ready):
+_WARM_ROWS = 64
+
+
+def _warm_spec(task):
+    """What a pool worker needs to warm the search kernels, in a few bytes.
+
+    The timing trial's pool once received the whole first task, query embedding
+    included (hundreds of KiB), in its initargs. A spawned worker reads that
+    pickle only after it has imported this module (about 2.3 s), and the
+    parent cannot start the next worker until the write completes, so the
+    workers started one after another and the trial reported a start-up of
+    seconds per worker. A real run's pool starts in parallel.
+    """
+    query = np.asarray(task[3])
+    return (int(query.shape[1]), query.dtype.str, task[4], float(task[5]), task[6])
+
+
+def _warm_task(spec):
+    """A small stand-in task with the dtypes, mode, gap and normalization of ``spec``."""
+    features, dtype, mode, gap, norm_mode = spec
+    rng = np.random.default_rng(42)
+    query = rng.standard_normal((_WARM_ROWS, features)).astype(np.dtype(dtype))
+    residues = ("ACDEFGHIKLMNPQRSTVWY" * _WARM_ROWS)[:_WARM_ROWS]
+    return (0, "warmup", "warmup", query, mode, gap, norm_mode, residues, residues)
+
+
+def _init_search_pool(input_h5, warm_spec, ready):
     try:
         init_worker(input_h5)
-        _warm_search_kernel(warm_task, torch.device("cpu"))
+        _warm_search_kernel(_warm_task(warm_spec), torch.device("cpu"))
         ready.put(None)
     except Exception as error:
         ready.put(f"{type(error).__name__}: {error}")
@@ -713,7 +741,7 @@ def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
         with Pool(
             processes=workers,
             initializer=_init_search_pool if timing is not None else init_worker,
-            initargs=(input_h5, tasks[0], ready) if timing is not None else (input_h5,),
+            initargs=(input_h5, _warm_spec(tasks[0]), ready) if timing is not None else (input_h5,),
         ) as pool:
             if timing is not None:
                 for _ in range(workers):
@@ -922,6 +950,89 @@ def _execute_search_plan(
     )
 
 
+# Where a backend is expected to search fastest, as (variant, lanes) in the order to time them. The
+# tuner times these right after a device's first scalar trial and before the slow-to-start CPU pool;
+# the first of a variant it has not measured yet is guaranteed a measurement whatever the budget says.
+# Tiled searches exist only on CUDA/ROCm here; MPS has one lane and nothing else to try.
+EXPECTED_BEST_VARIANTS = {
+    "cuda": (("tiled", 1), ("tiled", 2)),
+    "xpu": (("scalar", 2),),
+}
+# A tiled plan's timing sample (see _tiled_timing_sample) holds as many targets as the best plan so far
+# would take TILED_SAMPLE_SECONDS for, between TILED_SAMPLE_LIMITS, in TILED_SAMPLE_WINDOWS windows. It
+# is timed after an untimed pass over TILED_WARMUP_TARGETS of them, in TILED_TIMED_PASSES passes.
+TILED_SAMPLE_SECONDS = 0.4
+TILED_SAMPLE_LIMITS = (64, 1024)
+TILED_SAMPLE_WINDOWS = 4
+TILED_WARMUP_TARGETS = 48
+TILED_TIMED_PASSES = 2
+
+
+def _expected_best_ladders(candidate, workers):
+    """``{variant: [lanes, ...]}`` that ``candidate`` is expected to be fastest with."""
+    usable = set(_lane_candidates(candidate.device, workers))
+    manual_lanes = _configured_lanes(candidate.device, workers)
+    ladders = {}
+    for variant, lanes in EXPECTED_BEST_VARIANTS.get(candidate.backend, ()):
+        if manual_lanes:
+            lanes = manual_lanes
+        elif lanes not in usable:
+            continue
+        ladder = ladders.setdefault(variant, [])
+        if lanes not in ladder:
+            ladder.append(lanes)
+    return ladders
+
+
+def _tiled_timing_sample(tasks, lengths, store, query_embedding, device, lanes, precision, count):
+    """Targets that stand for a whole tiled search when it is timed on only a few.
+
+    Two costs of a tiled search do not scale with the targets timed, so the shared
+    timing sample, spread over the whole job, made tiled look 2-3 times slower than it is:
+    - Each tile block is read, uploaded, drained and its cache cleared once. On a
+      44,127-target job the 39-target sample touched all 16 blocks (one per 2.4 targets).
+    - A microbatch holds consecutive targets in length order (at most 15% padding)
+      and costs a launch and a wait. Spread over the lengths, a 200-target sample made
+      11 microbatches of 18 targets where a real block makes 13 of about 220.
+    So the sample comes from one block, the one whose mean length is nearest the job's
+    (with at least ``count`` targets, else the largest), as a few windows of consecutive
+    targets in length order at evenly spaced length quantiles: they still cover the
+    lengths, and each window fills a microbatch. None when the block layout cannot be
+    read: the shared sample is used.
+    """
+    try:
+        element_bytes = precision_element_bytes(precision)
+        plan = cuda_memory_plan(device, lanes=lanes, compute_element_bytes=element_bytes)
+        block_ids = fixed_query_block_ids(store, query_embedding, plan, element_bytes)
+        blocks = {}
+        for task in tasks:
+            blocks.setdefault(int(block_ids[int(task[0])]), []).append(task)
+    except Exception:  # The sample is advisory: trouble reading the device only costs it its own sample.
+        return None
+    mean_length = sum(lengths[int(task[0])] for task in tasks) / len(tasks)
+
+    def distance(block):
+        members = blocks[block]
+        mean = sum(lengths[int(task[0])] for task in members) / len(members)
+        return abs(mean - mean_length), block
+
+    roomy = [block for block, members in blocks.items() if len(members) >= count]
+    block = min(roomy, key=distance) if roomy else max(blocks, key=lambda b: (len(blocks[b]), -b))
+    members = sorted(blocks[block], key=lambda task: (lengths[int(task[0])], int(task[0])))
+    count = min(count, len(members))
+    windows = max(1, min(TILED_SAMPLE_WINDOWS, count))
+    size, extra = divmod(count, windows)
+    widths = [size + (1 if window < extra else 0) for window in range(windows)]
+    sample, cursor = [], 0
+    for window, width in enumerate(widths):
+        centre = (window + 0.5) * len(members) / windows
+        # Centred on its quantile, never overlapping the window before, always leaving room for the rest.
+        first = min(max(int(centre - width / 2), cursor), len(members) - sum(widths[window:]))
+        sample.extend(members[first:first + width])
+        cursor = first + width
+    return sample
+
+
 def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embedding, selection_started=None):
     selection_started = time.perf_counter() if selection_started is None else selection_started
     precision_setting = normalize_precision_setting(ACCELERATOR_PRECISION)
@@ -937,11 +1048,48 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
         raise RuntimeError(f"No selected device supports SSEARCH {precision_setting}.")
 
     def execute(plan, sample, timing=None):
-        return _execute_search_plan(plan.execution, sample, workers, input_h5,
-                                    store, lengths, query_embedding, False, timing=timing)
+        if timing is None or plan.variant != "tiled":
+            return _execute_search_plan(plan.execution, sample, workers, input_h5,
+                                        store, lengths, query_embedding, False, timing=timing)
+        # A tiled pipeline's first pass pays one-time costs (pinned buffers, batched-matmul
+        # shapes, streams) that a real run pays once for the whole job. They would be
+        # extrapolated over every target, so an untimed pass over some of the same targets
+        # takes them out of the timed ones. Its results are dropped. Interference from other
+        # programs only ever slows a pass, so of two timed passes the faster counts.
+        _execute_search_plan(plan.execution, stratified(sample, lengths, TILED_WARMUP_TARGETS),
+                             workers, input_h5, store, lengths, query_embedding, False)
+        passes = []
+        for _ in range(TILED_TIMED_PASSES):
+            attempt = SearchTiming()
+            passes.append((attempt, _execute_search_plan(plan.execution, sample, workers, input_h5, store,
+                                                         lengths, query_embedding, False, timing=attempt)))
+        best, payload = min(passes, key=lambda entry: entry[0].processing)
+        timing.setup, timing.processing, timing.shutdown = best.setup, best.processing, best.shutdown
+        return payload
 
     selector = SearchSelector(tasks, lengths, len(query_embedding), execute)
     selector.started = selection_started
+    tiled_samples = {}
+
+    def own_sample(plan):
+        """A tiled plan's timing sample (cached per device, lanes and compute width)."""
+        if plan.variant != "tiled":
+            return None
+        element_bytes = precision_element_bytes(plan.precision)
+        key = (plan.candidate.spec, plan.lanes, element_bytes)
+        if key not in tiled_samples:
+            ranked = selector.ranked()
+            rates = [rate for _timing, rate in ranked[0].observations] if ranked else []
+            mean_cost = sum(selector.costs.values()) / len(selector.costs)
+            count = (math.ceil(TILED_SAMPLE_SECONDS / max(statistics.median(rates) * mean_cost, 1e-9))
+                     if rates else TILED_SAMPLE_LIMITS[0])
+            count = min(TILED_SAMPLE_LIMITS[1], max(TILED_SAMPLE_LIMITS[0], count))
+            tiled_samples[key] = _tiled_timing_sample(
+                tasks, lengths, store, query_embedding, plan.candidate.device,
+                plan.lanes, plan.precision, count)
+        return tiled_samples[key]
+
+    selector.sampler = own_sample
     precision = precision_setting if precision_setting in {"tf32", "bf16"} else "float32"
     cpu = next((c for c in candidates if c.is_cpu), None)
     serial = SearchPlan(cpu, "serial", "float32") if cpu is not None else None
@@ -998,8 +1146,8 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
         finally:
             selector.excluded += time.perf_counter() - started
 
-    def trial(plan, required=False):
-        if not required and not selector.allowed(plan):
+    def trial(plan, required=False, guaranteed=False):
+        if not required and not selector.allowed(plan, guaranteed):
             return False
         try:
             if not feasible(plan) or not validate_bf16(plan):
@@ -1011,18 +1159,40 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
         finally:
             Hardware_Utils.release_device_cache(plan.candidate)
 
+    def measured(candidate, variant):
+        return sorted((p for p in selector.plans if p.candidate.spec == candidate.spec
+                       and p.variant == variant and p.precision == precision), key=lambda p: p.lanes)
+
+    def climb(candidate, variant, ladder, guarantee=False):
+        """Time ``variant`` at each lane count of ``ladder`` while doubling the lanes still gains 10%."""
+        previous = None
+        for lanes in ladder:
+            plan = next((p for p in measured(candidate, variant) if p.lanes == lanes), None)
+            if plan is None:
+                plan = SearchPlan(candidate, variant, precision, lanes)
+                if not trial(plan, guaranteed=guarantee and not measured(candidate, variant)):
+                    break
+            if previous is not None and plan.predicted(selector.costs) > previous.predicted(selector.costs) * 0.90:
+                break
+            previous = plan
+
     if not tiny:
-        for candidate in candidates:
-            if candidate.is_cpu:
-                continue
+        accelerators = [candidate for candidate in candidates if not candidate.is_cpu]
+        # 1. Each accelerator's plain scalar plan, one lane.
+        for candidate in accelerators:
             lanes = _configured_lanes(candidate.device, workers) or 1
             trial(SearchPlan(candidate, "scalar", precision, lanes), required=not selector.ranked())
+        # 2. The variants each is expected to be fastest with, before the CPU pool, whose start-up
+        #    can use up the budget. The first measurement of a variant is guaranteed.
+        for candidate in accelerators:
+            for variant, ladder in _expected_best_ladders(candidate, workers).items():
+                climb(candidate, variant, ladder, guarantee=True)
+        # 3. The CPU pool.
         if cpu is not None and workers > 1:
             trial(SearchPlan(cpu, "pool", "float32"), required=not selector.ranked())
 
-        for candidate in candidates:
-            if candidate.is_cpu:
-                continue
+        # 4. The rest of each accelerator's lane counts, while the budget lasts.
+        for candidate in accelerators:
             device_plans = [p for p in selector.plans if p.candidate.spec == candidate.spec]
             best = selector.ranked()
             if not device_plans or not best:
@@ -1033,16 +1203,7 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
             manual_lanes = _configured_lanes(candidate.device, workers)
             lanes_to_try = [manual_lanes] if manual_lanes else _lane_candidates(candidate.device, workers)
             for variant in (["scalar", "tiled"] if candidate.backend == "cuda" else ["scalar"]):
-                previous = next((p for p in device_plans if p.variant == variant), None)
-                for lanes in lanes_to_try:
-                    if previous is not None and lanes <= previous.lanes:
-                        continue
-                    plan = SearchPlan(candidate, variant, precision, lanes)
-                    if not trial(plan):
-                        break
-                    if previous is not None and plan.predicted(selector.costs) > previous.predicted(selector.costs) * 0.90:
-                        break
-                    previous = plan
+                climb(candidate, variant, lanes_to_try)
 
         # Automatic reduced precision is considered only after FP32 screening.
         if precision_setting == "automatic_32bit" and len(tasks) >= TF32_SEARCH_MIN_TARGETS:
@@ -1052,8 +1213,7 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
                 plan = SearchPlan(baseline.candidate, baseline.variant, "tf32", baseline.lanes)
                 if not trial(plan):
                     continue
-                ids = {int(task[0]) for task in selector.sample}
-                reference = [row for index, row in baseline.results.items() if index in ids]
+                reference = [row for index, row in baseline.results.items() if index in plan.results]
                 equivalent, reason = _search_results_equivalent(reference, list(plan.results.values()))
                 fp32_best = min(p.predicted(selector.costs) for p in selector.plans if p.precision == "float32")
                 if not equivalent or plan.predicted(selector.costs) * 1.10 > fp32_best:
