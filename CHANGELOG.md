@@ -19,6 +19,11 @@ still change before version 1.0.0.
   `opt_vr\Cache_Files` are no longer read: copy them to `Cache_Files_VR`, or point the
   Cache File Directory at the old folder. Move inputs from `opt_vr\Input_Files` to
   `Input_Files`. Absolute folders are unaffected.
+- `zoom N` and `print … zoom N` now take a zoom percentage instead of a view width in
+  layout units: 100% is a view 300 units wide, so a bigger N is closer. A script written
+  for the old meaning still runs but zooms differently: `zoom 500` used to show 500
+  units and now zooms to 500%, a view 60 units wide. To keep a view width W, use
+  `zoom` with 30000 / W.
 
 ### Added
 
@@ -129,6 +134,17 @@ still change before version 1.0.0.
 - The Viewer's info card stays open while you click, drag or scroll on the network, and
   those actions work as usual. Only its × or the ⓘ button closes it. Before, any click
   closed the card, and that click did nothing else.
+- The Viewer's View Width box is now **Zoom**, a percentage: a bigger number is closer,
+  where a smaller view width used to mean a bigger graph. 100% is a view 300 layout units
+  wide in every session and window. You can zoom in to 60,000%, a view 0.5 units wide,
+  and out to the zoom that shows every node, rounded down to two figures (it follows the
+  nodes as they move). The box shows at least three significant figures, with the % after
+  it, and accepts a typed %; its arrows and the wheel over it zoom by a factor of 1.25.
+  The zoom is now read from the width actually shown, which can be wider than the
+  camera's requested rectangle, so it also changes when the window is resized. The
+  `zoom` and `print … zoom N` commands, their help, the docs and the agent's instructions
+  use the same percentage (see Upgrade Notes); `zoom 500 junk` now fails instead of
+  ignoring the extra word.
 
 ### Fixed
 
