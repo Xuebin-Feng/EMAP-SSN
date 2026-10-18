@@ -31,6 +31,7 @@ import re
 import shutil
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 
@@ -59,6 +60,75 @@ def real(page):
     return DOCS / (page + ".html"), ZH / (page + ".html")
 
 
+_CARD = re.compile(r'<section class="command-card" id="(cmd-[a-z0-9-]+)"[^>]*>(.*?)</section>', re.S)
+_LEAD = re.compile(r"<p><strong>[^<]*</strong>([^<]*)")
+
+
+def _once(text, snippet):
+    return text.count(snippet) == 1
+
+
+def _lead_phrase(card, text, chinese):
+    """The start of the card's first paragraph, as little of it as occurs once in the page, or None."""
+    match = _LEAD.search(card)
+    prose = match.group(1).strip() if match else ""
+    if chinese:
+        candidates = (prose[:length] for length in range(6, len(prose) + 1))
+    else:
+        words = prose.split()
+        candidates = (" ".join(words[:count]) for count in range(4, len(words) + 1))
+    for phrase in candidates:
+        if "&" not in phrase and _once(text, phrase):
+            return phrase
+    return None
+
+
+def sample_cards(english_text, chinese_text, wanted=3):
+    """The first `wanted` command cards of the command reference that the tests can change by name.
+
+    The sync machinery's tests need a few cards to edit: the sentence at the start of a
+    card, its syntax line, its example, a <code> snippet, its name and its link in the
+    sidebar. They take those from the pages as they are, so a rewording of any card's
+    text never has to be copied into a test. A card qualifies when each of those occurs
+    exactly once in both pages. Each is a namespace: key, name, syntax, example, code (in
+    both pages, as HTML), lead (the English phrase) and zh_lead (the Chinese one).
+    """
+    english = {key: card for key, card in _CARD.findall(english_text)}
+    chinese = {key: card for key, card in _CARD.findall(chinese_text)}
+    found = []
+    for key, card in english.items():
+        if key not in chinese or not _once(english_text, 'id="%s"' % key) or not _once(chinese_text, 'id="%s"' % key):
+            continue
+        name = re.search(r'<span class="command-card-name">([^<]+)</span>', card)
+        syntax = re.search(r'<div class="syntax-content">([^<]+)</div>', card)
+        example = re.search(r'<li class="example-item"><span>([^<]+)</span>', card)
+        if not (name and syntax and example):
+            continue
+        name, syntax, example = name.group(1), syntax.group(1), example.group(1)
+        pieces = (
+            '<span class="command-card-name">%s</span>' % name, '<div class="syntax-content">%s</div>' % syntax,
+            "<span>%s</span>" % example, '<a href="#%s"><span>%s</span></a>' % (key, name),
+        )
+        if not all(_once(english_text, piece) and _once(chinese_text, piece) for piece in pieces):
+            continue
+        code = next((c for c in re.findall(r"<code>([^<]+)</code>", card)
+                     if _once(english_text, "<code>%s</code>" % c) and _once(chinese_text, "<code>%s</code>" % c)), None)
+        lead = _lead_phrase(card, english_text, chinese=False)
+        zh_lead = _lead_phrase(chinese[key], chinese_text, chinese=True)
+        if code and lead and zh_lead:
+            found.append(types.SimpleNamespace(
+                key=key, name=name, syntax=syntax, example=example, code=code, lead=lead, zh_lead=zh_lead))
+        if len(found) == wanted:
+            return found
+    raise AssertionError("the command reference has too few cards the tests can change by name: %d" % len(found))
+
+
+def samples():
+    """Three sample cards of the real command reference (see sample_cards)."""
+    english, chinese = (path.read_bytes().decode("utf-8") for path in real(COMMANDS))
+    return sample_cards(english, chinese)
+
+
 class RealPagesTests(unittest.TestCase):
     def test_every_english_page_has_a_chinese_translation_that_follows_it(self):
         found = [(page, code) for page, code, _, _ in T.translations()]
@@ -74,6 +144,18 @@ class RealPagesTests(unittest.TestCase):
         with contextlib.redirect_stdout(out):
             self.assertEqual(T.main([]), 0, out.getvalue())
         self.assertEqual(out.getvalue().count("matches"), 2)
+
+    def test_the_sample_cards_the_sync_tests_change_come_from_the_pages(self):
+        # The machinery tests below edit three cards picked at run time, not quoted: the pick
+        # must stay possible, and different cards must be picked.
+        first, second, third = samples()
+        self.assertEqual(len({first.key, second.key, third.key}), 3)
+        english = (DOCS / "list_of_commands.html").read_bytes().decode("utf-8")
+        chinese = (ZH / "list_of_commands.html").read_bytes().decode("utf-8")
+        for card in (first, second, third):
+            self.assertEqual(english.count(card.lead), 1, card.key)
+            self.assertEqual(chinese.count(card.zh_lead), 1, card.key)
+            self.assertEqual(english.count("<code>%s</code>" % card.code), 1, card.key)
 
     def test_the_command_reference_has_the_sections_the_translations_are_matched_by(self):
         page = T.Page(DOCS / (COMMANDS + ".html"))
@@ -239,6 +321,13 @@ class TemporaryPages(unittest.TestCase):
             shutil.copyfile(real(page)[1], self.zh / "docs" / (page + ".html"))
         self.english = self.docs / (self.PAGE + ".html")
         self.chinese = self.zh / "docs" / (self.PAGE + ".html")
+        # Three command cards picked from the copies: card A for a sentence, a syntax line, an
+        # example and a sidebar link; B for a snippet and a name; C for a whole section.
+        self.a, self.b, self.c = samples()
+
+    def reworded(self, phrase):
+        """phrase with a word added: a change to a section's text that makes it stale."""
+        return phrase + " indeed"
 
     def edit(self, path, old, new, count=1):
         text = path.read_bytes().decode("utf-8")
@@ -270,29 +359,27 @@ class TemporaryPages(unittest.TestCase):
 
 
 class EnglishChangesTests(TemporaryPages):
-    SENTENCE = "exactly the specified percentage"
-
     def test_a_changed_english_sentence_makes_only_its_section_stale(self):
-        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
+        self.edit(self.english, self.a.lead, self.reworded(self.a.lead))
         report = self.check()
         self.assertEqual(report.problems, [])
-        self.assertEqual(report.stale, ["cmd-zoom"])
+        self.assertEqual(report.stale, [self.a.key])
         self.assertEqual(report.unstamped, [])
 
     def test_the_failure_message_says_what_to_update_and_how(self):
-        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
+        self.edit(self.english, self.a.lead, self.reworded(self.a.lead))
         message = self.check().format()
         for expected in (
-            "cmd-zoom", "list_of_commands.html", "python src/resources/languages/Docs_Translation.py stamp",
+            self.a.key, "list_of_commands.html", "python src/resources/languages/Docs_Translation.py stamp",
             "python src/resources/languages/Docs_Translation.py show", "--page list_of_commands --language zh_CN",
         ):
             self.assertIn(expected, message)
 
     def test_a_changed_code_snippet_in_english_makes_its_section_stale_and_unmatched(self):
-        self.edit(self.english, "<code>reset hide</code> command", "<code>reset hidden</code> command")
+        self.edit(self.english, "<code>%s</code>" % self.b.code, "<code>%s_changed</code>" % self.b.code)
         report = self.check()
-        self.assertEqual(report.stale, ["cmd-hide"])
-        self.assertIn("cmd-hide", "\n".join(report.problems))
+        self.assertEqual(report.stale, [self.b.key])
+        self.assertIn(self.b.key, "\n".join(report.problems))
         self.assertIn("never translated", "\n".join(report.problems))
 
     def test_a_new_english_section_is_named(self):
@@ -304,8 +391,8 @@ class EnglishChangesTests(TemporaryPages):
         self.assertIn("lacks these sections of the English page: cmd-new", self.problems())
 
     def test_an_english_section_that_is_gone_is_named(self):
-        self.sub(self.english, r'<section class="command-card" id="cmd-agent">.*?</section>', "")
-        self.assertIn("has sections the English page lacks: cmd-agent", self.problems())
+        self.sub(self.english, r'<section class="command-card" id="%s">.*?</section>' % self.c.key, "")
+        self.assertIn("has sections the English page lacks: %s" % self.c.key, self.problems())
 
     def test_an_english_element_beside_the_sections_without_an_id_is_named(self):
         self.edit(
@@ -336,8 +423,9 @@ class EnglishChangesTests(TemporaryPages):
         self.assertIn("TRANSLATED_ATTRIBUTES in src/resources/languages/Docs_Translation.py lists 'data-label-dark'", messages)
 
     def test_re_indenting_and_rewrapping_the_english_page_changes_nothing(self):
-        self.edit(self.english, "Sets the camera zoom to exactly", "Sets the   camera\r\n      zoom   to\r\n  exactly")
-        self.edit(self.english, '<section class="command-card" id="cmd-save">', '\r\n\r\n        <section class="command-card"\r\n   id="cmd-save">')
+        self.edit(self.english, self.a.lead, "   \r\n      ".join(self.a.lead.split(" ")))
+        card = '<section class="command-card" id="%s">' % self.b.key
+        self.edit(self.english, card, '\r\n\r\n        <section class="command-card"\r\n   id="%s">' % self.b.key)
         self.assertTrue(self.check().ok, self.check().format())
 
     def test_restyling_both_pages_alike_makes_nothing_stale(self):
@@ -384,43 +472,46 @@ class TranslationChangesTests(TemporaryPages):
         self.assertIn("the tags differ", problems)
 
     def test_a_changed_code_snippet_is_noticed_in_its_section(self):
-        self.edit(self.chinese, "<code>reset hide</code>", "<code>reset unhide</code>")
+        self.edit(self.chinese, "<code>%s</code>" % self.b.code, "<code>%s_changed</code>" % self.b.code)
         problems = self.problems()
-        self.assertIn("Section 'cmd-hide'", problems)
-        self.assertIn("'reset hide' in English and 'reset unhide' in the translation", problems)
+        self.assertIn("Section '%s'" % self.b.key, problems)
+        self.assertIn("'%s' in English and '%s_changed' in the translation" % (self.b.code, self.b.code), problems)
 
     def test_a_translated_command_name_or_syntax_line_is_noticed(self):
-        self.edit(self.chinese, '<div class="syntax-content">zoom &lt;percent&gt;</div>', '<div class="syntax-content">缩放 &lt;percent&gt;</div>')
-        self.edit(self.chinese, '<span class="command-card-name">save</span>', '<span class="command-card-name">保存</span>')
+        self.edit(self.chinese, '<div class="syntax-content">%s</div>' % self.a.syntax,
+                  '<div class="syntax-content">译 %s</div>' % self.a.syntax)
+        self.edit(self.chinese, '<span class="command-card-name">%s</span>' % self.b.name,
+                  '<span class="command-card-name">译%s</span>' % self.b.name)
         problems = self.problems()
-        self.assertIn("Section 'cmd-zoom'", problems)
-        self.assertIn("Section 'cmd-save'", problems)
+        self.assertIn("Section '%s'" % self.a.key, problems)
+        self.assertIn("Section '%s'" % self.b.key, problems)
 
     def test_a_translated_example_line_is_noticed(self):
-        self.edit(self.chinese, "<span>zoom 200</span>", "<span>缩放 200</span>")
-        self.assertIn("Section 'cmd-zoom'", self.problems())
+        self.edit(self.chinese, "<span>%s</span>" % self.a.example, "<span>译 %s</span>" % self.a.example)
+        self.assertIn("Section '%s'" % self.a.key, self.problems())
 
     def test_a_translated_command_in_the_sidebar_list_is_noticed(self):
-        self.edit(self.chinese, '<a href="#cmd-zoom"><span>zoom</span></a>', '<a href="#cmd-zoom"><span>缩放</span></a>')
+        link = '<a href="#%s"><span>%s</span></a>' % (self.a.key, self.a.name)
+        self.edit(self.chinese, link, '<a href="#%s"><span>译%s</span></a>' % (self.a.key, self.a.name))
         self.assertIn("Section 'sidebar'", self.problems())
 
     def test_a_changed_id_class_or_link_is_noticed(self):
-        self.edit(self.chinese, 'id="cmd-undoredo"', 'id="cmd-undo"')
+        self.edit(self.chinese, 'id="%s"' % self.c.key, 'id="%s-renamed"' % self.c.key)
         problems = self.problems()
-        self.assertIn("lacks these sections of the English page: cmd-undoredo", problems)
-        self.assertIn("has sections the English page lacks: cmd-undo", problems)
+        self.assertIn("lacks these sections of the English page: %s" % self.c.key, problems)
+        self.assertIn("has sections the English page lacks: %s-renamed" % self.c.key, problems)
 
     def test_a_changed_class_or_link_target_is_noticed(self):
-        self.edit(self.chinese, '<a href="#cmd-zoom">', '<a href="#cmd-zoom2">')
+        self.edit(self.chinese, '<a href="#%s">' % self.a.key, '<a href="#%s2">' % self.a.key)
         self.sub(self.chinese, r'<div class="callout callout-warn">', '<div class="callout callout-warn extra">', count=1)
         problems = self.problems()
         self.assertIn("Section 'sidebar'", problems)
         self.assertIn("Section 'expr-interpreter'", problems)
 
     def test_sections_in_another_order_are_noticed(self):
-        self.edit(self.chinese, 'id="cmd-zoom"', 'id="cmd-tmp"')
-        self.edit(self.chinese, 'id="cmd-save"', 'id="cmd-zoom"')
-        self.edit(self.chinese, 'id="cmd-tmp"', 'id="cmd-save"')
+        self.edit(self.chinese, 'id="%s"' % self.a.key, 'id="cmd-tmp"')
+        self.edit(self.chinese, 'id="%s"' % self.b.key, 'id="%s"' % self.a.key)
+        self.edit(self.chinese, 'id="cmd-tmp"', 'id="%s"' % self.b.key)
         self.assertIn("another order", self.problems())
 
     def test_a_changed_head_is_noticed(self):
@@ -488,14 +579,15 @@ class TranslationChangesTests(TemporaryPages):
         self.assertIn("Section 'sidebar'", self.problems())
 
     def test_a_missing_fingerprint_is_listed(self):
-        self.sub(self.chinese, r'(<section class="command-card" id="cmd-run") data-source-sha256="[0-9a-f]{64}"', r"\1")
+        self.sub(self.chinese, r'(<section class="command-card" id="%s") data-source-sha256="[0-9a-f]{64}"' % self.c.key, r"\1")
         report = self.check()
-        self.assertEqual(report.unstamped, ["cmd-run"])
+        self.assertEqual(report.unstamped, [self.c.key])
         self.assertEqual((report.problems, report.stale), ([], []))
 
     def test_a_fingerprint_that_is_not_the_sections_is_stale(self):
-        self.sub(self.chinese, r'(<section class="command-card" id="cmd-run" data-source-sha256=")[0-9a-f]{64}', r"\g<1>" + "0" * 64)
-        self.assertEqual(self.check().stale, ["cmd-run"])
+        self.sub(self.chinese, r'(<section class="command-card" id="%s" data-source-sha256=")[0-9a-f]{64}' % self.c.key,
+                 r"\g<1>" + "0" * 64)
+        self.assertEqual(self.check().stale, [self.c.key])
 
     def test_a_link_to_the_other_page_must_reach_the_page_in_the_pages_own_language(self):
         # The Chinese command reference's Quick Start tab goes to the Chinese Quick Start beside it.
@@ -690,16 +782,13 @@ class LanguageSwitchTests(TemporaryPages):
 
 
 class UpdateWorkflowTests(TemporaryPages):
-    SENTENCE = "exactly the specified percentage"
-    TRANSLATED = "恰好等于指定的百分比"
-
     def test_translating_a_changed_section_and_stamping_it_brings_the_pages_back_in_step(self):
-        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
+        self.edit(self.english, self.a.lead, self.reworded(self.a.lead))
         before = self.chinese.read_bytes().decode("utf-8")
-        self.assertEqual(self.check().stale, ["cmd-zoom"])
-        self.edit(self.chinese, self.TRANSLATED, "恰好等于给定的百分比")
-        self.assertEqual(self.check().stale, ["cmd-zoom"])  # editing the text does not record the review
-        self.assertEqual(T.stamp_sections(self.english, self.chinese, ["cmd-zoom"]), ["cmd-zoom"])
+        self.assertEqual(self.check().stale, [self.a.key])
+        self.edit(self.chinese, self.a.zh_lead, self.a.zh_lead + "确实")
+        self.assertEqual(self.check().stale, [self.a.key])  # editing the text does not record the review
+        self.assertEqual(T.stamp_sections(self.english, self.chinese, [self.a.key]), [self.a.key])
         self.assertTrue(self.check().ok, self.check().format())
         after = self.chinese.read_bytes().decode("utf-8")
         old = re.findall(r'data-source-sha256="([0-9a-f]{64})"', before)
@@ -710,7 +799,7 @@ class UpdateWorkflowTests(TemporaryPages):
     def test_stamping_a_section_that_does_not_exist_changes_nothing(self):
         before = self.chinese.read_bytes()
         with self.assertRaises(KeyError):
-            T.stamp_sections(self.english, self.chinese, ["cmd-zoom", "cmd-nonexistent"])
+            T.stamp_sections(self.english, self.chinese, [self.a.key, "cmd-nonexistent"])
         self.assertEqual(self.chinese.read_bytes(), before)
 
     def test_stamping_adds_a_fingerprint_to_a_section_that_has_none(self):
@@ -733,36 +822,36 @@ class UpdateWorkflowTests(TemporaryPages):
         code, out, _ = self.run_main()
         self.assertEqual(code, 0)
         self.assertEqual(out.count("matches"), 2)
-        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
+        self.edit(self.english, self.a.lead, self.reworded(self.a.lead))
         code, out, _ = self.run_main()
         self.assertEqual(code, 1)
-        self.assertIn("cmd-zoom", out)
+        self.assertIn(self.a.key, out)
         self.assertIn("stamp", out)
         code, out, _ = self.run_main("stamp")
         self.assertEqual(code, 1)
-        self.assertIn("cmd-zoom", out)
+        self.assertIn(self.a.key, out)
         code, out, _ = self.run_main("stamp", "--all")
         self.assertEqual(code, 0)
-        self.assertIn("Stamped list_of_commands/zh_CN: cmd-zoom", out)
+        self.assertIn("Stamped list_of_commands/zh_CN: %s" % self.a.key, out)
         self.assertEqual(self.run_main()[0], 0)
 
     def test_the_command_line_refuses_to_stamp_while_the_pages_differ_in_more_than_text(self):
-        self.edit(self.chinese, "<code>reset hide</code>", "<code>reset unhide</code>")
-        self.edit(self.english, self.SENTENCE, "exactly the given percentage")
+        self.edit(self.chinese, "<code>%s</code>" % self.b.code, "<code>%s_changed</code>" % self.b.code)
+        self.edit(self.english, self.a.lead, self.reworded(self.a.lead))
         before = self.chinese.read_bytes()
         code, out, err = self.run_main("stamp", "--all")
         self.assertEqual(code, 1)
-        self.assertIn("cmd-hide", out)
+        self.assertIn(self.b.key, out)
         self.assertIn("Nothing was stamped", err)
         self.assertEqual(self.chinese.read_bytes(), before)
 
     def test_the_command_line_shows_both_sections(self):
-        code, out, _ = self.run_main("show", "cmd-zoom")
+        code, out, _ = self.run_main("show", self.a.key)
         self.assertEqual(code, 0)
-        self.assertIn("===== English: cmd-zoom", out)
-        self.assertIn("===== Translation: cmd-zoom", out)
-        self.assertIn("Sets the camera zoom", out)
-        self.assertIn("相机缩放", out)
+        self.assertIn("===== English: %s" % self.a.key, out)
+        self.assertIn("===== Translation: %s" % self.a.key, out)
+        self.assertIn(self.a.lead, out)
+        self.assertIn(self.a.zh_lead, out)
 
     def test_a_page_or_language_with_no_translation_is_a_usage_error(self):
         for argv in (["--page", "missing"], ["--language", "fr"]):
@@ -1183,24 +1272,28 @@ class BrowserTests(unittest.TestCase):
     def test_the_search_finds_chinese_text_and_says_so_when_nothing_matches(self):
         self.open(self.CHINESE)
 
+        # Two cards picked from the pages; each search is a phrase of one card's Chinese text,
+        # which no other part of the page holds.
+        first, second, _third = samples()
+
         def search(text):
             self.run_js(
                 "var box = document.getElementById('search-input'); box.value = %r; box.dispatchEvent(new Event('input'))" % text
             )
             return {
                 section: self.run_js("document.getElementById('%s').style.display" % section)
-                for section in ("cmd-cluster", "cmd-zoom", "empty-search-state")
+                for section in (first.key, second.key, "empty-search-state")
             }
 
-        shown = search("聚类")
-        self.assertEqual((shown["cmd-cluster"], shown["cmd-zoom"], shown["empty-search-state"]), ("block", "none", "none"))
-        shown = search("相机缩放")
-        self.assertEqual((shown["cmd-cluster"], shown["cmd-zoom"]), ("none", "block"))
+        shown = search(second.zh_lead)
+        self.assertEqual((shown[second.key], shown[first.key], shown["empty-search-state"]), ("block", "none", "none"))
+        shown = search(first.zh_lead)
+        self.assertEqual((shown[second.key], shown[first.key]), ("none", "block"))
         shown = search("没有这样的命令zzz")
         self.assertEqual(shown["empty-search-state"], "block")
         self.assertIn("没有匹配的命令", self.run_js("document.getElementById('empty-search-state').textContent"))
         search("")
-        self.assertEqual(self.run_js("document.getElementById('cmd-zoom').style.display"), "block")
+        self.assertEqual(self.run_js("document.getElementById('%s').style.display" % first.key), "block")
 
     def test_the_quick_start_search_filters_its_topics_in_chinese(self):
         self.open(self.CHINESE_QUICK)
