@@ -747,9 +747,9 @@ code, kbd, pre {
     font-family: var(--font-mono);
 }
 code {
-    padding: 1px 5px;
+    padding: 1px 0.4em;
     background-color: var(--code-inline-bg);
-    border-radius: 4px;
+    border-radius: max(6px, 0.6em);
     font-size: 0.85em;
     color: var(--code-inline-text);
     overflow-wrap: anywhere;
