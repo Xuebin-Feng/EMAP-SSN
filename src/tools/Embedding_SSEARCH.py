@@ -60,10 +60,7 @@ import statistics
 from tools.tool_helpers.Tool_Pipeline import SearchPlan, SearchSelector, SearchTiming, stratified
 from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
-from utilities.Network_Kernels import (
-    global_score_length_identity,
-    local_score_length_identity,
-)
+from utilities.Network_Kernels import search_batch_scores, search_pair_scores
 from Embedding_Alignment_Engine import (
     BF16ValidationIntegrityError,
     EmbeddingTileStore,
@@ -329,6 +326,34 @@ def init_worker(h5_path):
     worker_device = torch.device("cpu")
 
 
+def _search_row(index, header, len_q, len_t, norm_mode, raw, path_len, identities):
+    """One target's result row from its DP outputs (Python numbers) and lengths."""
+    norm = normalize_score(raw, path_len, len_q, len_t, norm_mode)
+    # Both kernels report the length of the selected path: internal gaps only
+    # for local alignments and every column, end gaps included, for global.
+    identity = 100.0 * int(identities) / path_len if path_len > 0 else 0.0
+    eff_len = normalization_length(path_len, len_q, len_t, norm_mode)
+
+    return {
+        "index": index,
+        "header": header,
+        "raw_score": raw,
+        "norm_score": norm,
+        "length": eff_len,
+        "seq_len": len_t,
+        "aln_len": path_len,
+        "identity": identity,
+    }
+
+
+def _mismatched_matrix_error(header, shape, query_residues, target_residues):
+    return ValueError(
+        f"Score matrix for '{header}' has shape {shape}, but the query "
+        f"and target sequences have {query_residues} and "
+        f"{target_residues} residues."
+    )
+
+
 def finish_search(args):
     (
         idx,
@@ -345,36 +370,66 @@ def finish_search(args):
     query_codes = encode_identity_residues(query_seq, QUERY_UNMATCHED_CODE)
     target_codes = encode_identity_residues(target_seq, TARGET_UNMATCHED_CODE)
     if mat.shape != (len(query_codes), len(target_codes)):
-        raise ValueError(
-            f"Score matrix for '{header}' has shape {mat.shape}, but the query "
-            f"and target sequences have {len(query_codes)} and "
-            f"{len(target_codes)} residues."
+        raise _mismatched_matrix_error(
+            header, mat.shape, len(query_codes), len(target_codes)
         )
-    is_local = (mode == "local")
-    if is_local:
-        raw, path_len, identities = local_score_length_identity(
-            mat, gap, query_codes, target_codes
-        )
-    else:
-        raw, path_len, identities = global_score_length_identity(
-            mat, gap, query_codes, target_codes
-        )
-    norm = normalize_score(raw, path_len, len_q, len_t, norm_mode)
-    # Both kernels report the length of the selected path: internal gaps only
-    # for local alignments and every column, end gaps included, for global.
-    identity = 100.0 * int(identities) / path_len if path_len > 0 else 0.0
-    eff_len = normalization_length(path_len, len_q, len_t, norm_mode)
+    raw, path_len, identities = search_pair_scores(
+        "local" if mode == "local" else "global", mat, gap, query_codes, target_codes
+    )
+    return _search_row(idx, header, len_q, len_t, norm_mode, raw, path_len, identities)
 
-    return {
-        "index": idx,
-        "header": header,
-        "raw_score": raw,
-        "norm_score": norm,
-        "length": eff_len,
-        "seq_len": len_t,
-        "aln_len": path_len,
-        "identity": identity,
-    }
+
+def finish_search_batch(tasks, target_lengths, matrices):
+    """Result rows for one padded microbatch, equal to ``finish_search`` on each target.
+
+    ``tasks`` are the search tasks of the microbatch's targets, ``target_lengths`` their
+    embedding lengths and ``matrices`` the ``(batch, query rows, padded columns)`` score
+    matrices. One call replaces a call per target: the finite check, the residue codes
+    and the dynamic programming run once for the whole microbatch.
+    """
+    if not np.isfinite(matrices).all():
+        raise FloatingPointError(
+            "Fixed-query accelerator scoring produced non-finite values."
+        )
+    first = tasks[0]
+    mode, gap, norm_mode, query_seq = first[4], first[5], first[6], first[7]
+    if any(
+        (task[4], task[5], task[6]) != (mode, gap, norm_mode) or task[7] != query_seq
+        for task in tasks
+    ):
+        # A microbatch of searches that differ in query or settings: one at a time.
+        return [
+            finish_search((
+                task[0], task[1], matrices.shape[1], int(length), task[4], task[5], task[6],
+                matrices[offset, :, :int(length)], task[7], task[8],
+            ))
+            for offset, (task, length) in enumerate(zip(tasks, target_lengths))
+        ]
+    query_codes = encode_identity_residues(query_seq, QUERY_UNMATCHED_CODE)
+    target_codes = np.zeros((len(tasks), matrices.shape[2]), dtype=np.uint8)
+    for offset, (task, length) in enumerate(zip(tasks, target_lengths)):
+        codes = encode_identity_residues(task[8], TARGET_UNMATCHED_CODE)
+        if matrices.shape[1] != len(query_codes) or int(length) != len(codes):
+            raise _mismatched_matrix_error(
+                task[1], (matrices.shape[1], int(length)), len(query_codes), len(codes)
+            )
+        target_codes[offset, :len(codes)] = codes
+    scores, path_lengths, identities = search_batch_scores(
+        "local" if mode == "local" else "global",
+        matrices,
+        target_lengths,
+        gap,
+        query_codes,
+        target_codes,
+    )
+    return [
+        _search_row(
+            task[0], task[1], matrices.shape[1], int(length), norm_mode, raw, path_len, identity
+        )
+        for task, length, raw, path_len, identity in zip(
+            tasks, target_lengths, scores.tolist(), path_lengths.tolist(), identities.tolist()
+        )
+    ]
 
 
 def search_cpu_worker(args):

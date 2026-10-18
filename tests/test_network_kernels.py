@@ -265,12 +265,12 @@ class AlignmentScoreKernelTests(unittest.TestCase):
             global_local_scores,
         )
         self.assertIs(
-            embedding_ssearch.global_score_length_identity,
-            global_score_length_identity,
+            embedding_ssearch.search_batch_scores,
+            network_kernels.search_batch_scores,
         )
         self.assertIs(
-            embedding_ssearch.local_score_length_identity,
-            local_score_length_identity,
+            embedding_ssearch.search_pair_scores,
+            network_kernels.search_pair_scores,
         )
 
 

@@ -156,6 +156,146 @@ class FinishSearchTests(unittest.TestCase):
             )
 
 
+class FinishSearchBatchTests(unittest.TestCase):
+    """finish_search_batch gives, for a padded microbatch, exactly what finish_search gives per target."""
+
+    RESIDUES = list("ACDEFGHIKLMNPQRSTVWYXBZ")
+
+    def microbatch(self, seed, mode, gap, norm_mode, count=9, rows=17, dense=False):
+        rng = np.random.default_rng(seed)
+        lengths = [int(n) for n in rng.integers(1, 30, size=count)]
+        padded = max(lengths)
+        if dense:
+            matrices = (rng.random((count, rows, padded)) * 3.0).astype(np.float32)
+        else:
+            matrices = (rng.integers(-3, 4, size=(count, rows, padded)) * 0.5).astype(np.float32)
+        for offset, length in enumerate(lengths):
+            matrices[offset, :, length:] = 0.0
+        query = "".join(rng.choice(self.RESIDUES, size=rows))
+        tasks = [
+            (index, f"h{index}", f"h{index}", None, mode, gap, norm_mode, query,
+             "".join(rng.choice(self.RESIDUES, size=length)))
+            for index, length in enumerate(lengths)
+        ]
+        return tasks, lengths, matrices
+
+    @staticmethod
+    def per_target(tasks, lengths, matrices):
+        return [
+            Embedding_SSEARCH.finish_search((
+                task[0], task[1], matrices.shape[1], length, task[4], task[5], task[6],
+                matrices[offset, :, :length], task[7], task[8],
+            ))
+            for offset, (task, length) in enumerate(zip(tasks, lengths))
+        ]
+
+    def assert_same_rows(self, got, want):
+        self.assertEqual(got, want)
+        for row_got, row_want in zip(got, want):
+            self.assertEqual(
+                {key: type(value) for key, value in row_got.items()},
+                {key: type(value) for key, value in row_want.items()},
+            )
+
+    def test_rows_equal_the_per_target_rows_for_every_mode_and_normalization(self):
+        settings = [
+            ("local", -2.0), ("local", 0.0), ("local", -0.7), ("global", 0.0), ("global", -0.5),
+        ]
+        for mode, gap in settings:
+            for norm in ("alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"):
+                for dense in (False, True):
+                    with self.subTest(mode=mode, gap=gap, norm=norm, dense=dense):
+                        tasks, lengths, matrices = self.microbatch(5, mode, gap, norm, dense=dense)
+                        self.assert_same_rows(
+                            Embedding_SSEARCH.finish_search_batch(tasks, lengths, matrices),
+                            self.per_target(tasks, lengths, matrices),
+                        )
+
+    def test_a_non_finite_matrix_is_refused(self):
+        tasks, lengths, matrices = self.microbatch(1, "local", -2.0, "longer_sequence")
+        matrices[2, 3, 1] = np.nan
+        with self.assertRaisesRegex(FloatingPointError, "non-finite"):
+            Embedding_SSEARCH.finish_search_batch(tasks, lengths, matrices)
+
+    def test_a_matrix_that_does_not_fit_its_sequence_is_refused_like_a_single_target(self):
+        tasks, lengths, matrices = self.microbatch(2, "global", 0.0, "longer_sequence")
+        lengths = list(lengths)
+        lengths[4] += 1
+        with self.assertRaises(ValueError) as batch:
+            Embedding_SSEARCH.finish_search_batch(tasks, lengths, matrices)
+        with self.assertRaises(ValueError) as single:
+            Embedding_SSEARCH.finish_search((
+                4, tasks[4][1], matrices.shape[1], lengths[4], "global", 0.0, "longer_sequence",
+                np.zeros((matrices.shape[1], lengths[4]), np.float32), tasks[4][7], tasks[4][8],
+            ))
+        self.assertEqual(str(batch.exception), str(single.exception))
+
+    def test_searches_that_differ_run_one_at_a_time(self):
+        tasks, lengths, matrices = self.microbatch(3, "local", -2.0, "longer_sequence")
+        other_query = tasks[3][:7] + ("A" * matrices.shape[1], tasks[3][8])
+        other_mode = tasks[5][:4] + ("global", 0.0, "alignment_length", tasks[5][7], tasks[5][8])
+        mixed = list(tasks)
+        mixed[3], mixed[5] = other_query, other_mode
+        self.assert_same_rows(
+            Embedding_SSEARCH.finish_search_batch(mixed, lengths, matrices),
+            self.per_target(mixed, lengths, matrices),
+        )
+
+    def test_the_search_runs_the_float32_kernels_only_where_they_are_exact(self):
+        from utilities import Network_Kernels
+
+        cases = (
+            ("global", 0.0, "_float32_global_length_identity_batch"),
+            ("local", -2.0, "_float32_local_length_identity_batch"),
+            ("local", 0.0, "_float32_local_length_identity_batch"),
+        )
+        for mode, gap, kernel in cases:
+            tasks, lengths, matrices = self.microbatch(4, mode, gap, "longer_sequence")
+            with self.subTest(mode=mode, gap=gap), mock.patch.object(
+                Network_Kernels, kernel, wraps=getattr(Network_Kernels, kernel)
+            ) as fast:
+                # One target alone (the pool and scalar paths) and a microbatch both take them.
+                Embedding_SSEARCH.finish_search(self.per_target_args(tasks, lengths, matrices, 0))
+                self.assertEqual(fast.call_count, 1)
+                Embedding_SSEARCH.finish_search_batch(tasks, lengths, matrices)
+                self.assertEqual(fast.call_count, 2)
+        # Other gaps, and matrices that are not float32, run the reference kernels.
+        for mode, gap, scores in (("global", -0.5, np.float32), ("local", -0.7, np.float32),
+                                  ("local", -2.0, np.float64), ("global", 0.0, np.float64)):
+            tasks, lengths, matrices = self.microbatch(4, mode, gap, "longer_sequence")
+            with self.subTest(mode=mode, gap=gap, dtype=scores.__name__), mock.patch.object(
+                Network_Kernels, "_float32_global_length_identity_batch", side_effect=AssertionError("float32")
+            ), mock.patch.object(
+                Network_Kernels, "_float32_local_length_identity_batch", side_effect=AssertionError("float32")
+            ):
+                Embedding_SSEARCH.finish_search(self.per_target_args(tasks, lengths, matrices.astype(scores), 0))
+                Embedding_SSEARCH.finish_search_batch(tasks, lengths, matrices.astype(scores))
+
+    @staticmethod
+    def per_target_args(tasks, lengths, matrices, offset):
+        task = tasks[offset]
+        return (task[0], task[1], matrices.shape[1], lengths[offset], task[4], task[5], task[6],
+                matrices[offset, :, :lengths[offset]], task[7], task[8])
+
+    def test_the_results_are_the_reference_kernels_bit_for_bit(self):
+        from utilities import Network_Kernels
+
+        for mode, gap in (("local", -2.0), ("global", 0.0)):
+            tasks, lengths, matrices = self.microbatch(8, mode, gap, "longer_sequence", dense=True)
+            rows = Embedding_SSEARCH.finish_search_batch(tasks, lengths, matrices)
+            kernel = (Network_Kernels.local_score_length_identity if mode == "local"
+                      else Network_Kernels.global_score_length_identity)
+            for offset, (task, length, row) in enumerate(zip(tasks, lengths, rows)):
+                raw, path_len, identities = kernel(
+                    np.ascontiguousarray(matrices[offset, :, :length]), gap,
+                    Embedding_SSEARCH.encode_identity_residues(task[7], Embedding_SSEARCH.QUERY_UNMATCHED_CODE),
+                    Embedding_SSEARCH.encode_identity_residues(task[8], Embedding_SSEARCH.TARGET_UNMATCHED_CODE),
+                )
+                with self.subTest(mode=mode, target=offset):
+                    self.assertEqual((row["raw_score"], row["aln_len"]), (raw, path_len))
+                    self.assertEqual(row["identity"], 100.0 * int(identities) / path_len if path_len > 0 else 0.0)
+
+
 class ScoreNormalizationTests(unittest.TestCase):
     def test_each_mode_divides_by_its_own_length(self):
         # Raw score 10 on a 4-column path between 5- and 8-residue sequences.

@@ -1099,9 +1099,11 @@ def search_batch_scores(
     lengths = np.empty(batch, dtype=np.uint32)
     identities = np.empty(batch, dtype=np.uint32)
     gap = float(gap_penalty)
+    # The float32 kernels are proven for float32 scores; any other dtype runs the reference.
+    float32_scores = np.asarray(matrices).dtype == np.float32
     if mode == "local":
         scores = np.empty(batch, dtype=np.float64)
-        bound = float32_exact_local_bound(0.0, gap)
+        bound = float32_exact_local_bound(0.0, gap) if float32_scores else None
         if bound is None:
             _reference_local_length_identity_batch(
                 matrices, column_lengths, gap, query_codes, target_codes,
@@ -1114,7 +1116,7 @@ def search_batch_scores(
             )
     elif mode == "global":
         scores = np.empty(batch, dtype=np.float32)
-        if float32_exact_global_gap(gap):
+        if float32_scores and float32_exact_global_gap(gap):
             _float32_global_length_identity_batch(
                 matrices, column_lengths, np.float32(gap), query_codes,
                 target_codes, scores, lengths, identities,
