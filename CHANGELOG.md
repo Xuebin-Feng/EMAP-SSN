@@ -146,9 +146,10 @@ still change before version 1.0.0.
   `zoom` and `print … zoom N` commands, their help, the docs and the agent's instructions
   use the same percentage (see Upgrade Notes); `zoom 500 junk` now fails instead of
   ignoring the extra word.
-- The code chips in the Tools help pane have clearly rounded corners that scale with
-  the text, so the large chip in a page's title looks as rounded as the small ones in
-  the text.
+- The code chips in the Tools help pane, the Quick Start and Command Reference (English
+  and Chinese), and the Viewer's agent and metadata pages have clearly rounded corners
+  that scale with the text, so a large chip in a title looks as rounded as the small
+  ones in the text.
 
 ### Fixed
 
