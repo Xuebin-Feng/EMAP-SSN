@@ -81,7 +81,7 @@ from PySide6.QtWidgets import (
 
 from commands.zoom import MAX_ZOOM_PERCENT
 from desktop.Desktop_App import button_icon_room, installed_language
-from desktop.Studio_Theme import TOKENS, icon_button, studio_icon
+from desktop.Studio_Theme import TOKENS, icon_button, key_cap_qss, studio_icon
 from desktop.Viewer_State import alias_form
 from utilities.Help_Pages import command_list_path
 
@@ -357,11 +357,7 @@ class ControlsCard(QWidget):
             QLabel#controlsValue {{ color: {t['text']}; }}
             QLabel#controlsDescription {{ color: {t['text_soft']}; }}
             QLabel#controlsPlus {{ color: {t['text_subtle']}; }}
-            QLabel#controlsKey {{
-                background: {t['surface']}; color: {t['text']};
-                border: 1px solid {t['field_border']}; border-bottom: 2px solid {t['field_border_hover']};
-                border-radius: 5px; padding: 0px 6px;
-            }}
+            QLabel#controlsKey {{ {key_cap_qss(t)} }}
             QLineEdit#controlsPath {{
                 background: {t['field']}; color: {t['text']};
                 border: 1px solid {t['field_border']}; border-radius: {t['radius']}px;

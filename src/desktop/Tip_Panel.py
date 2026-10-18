@@ -16,8 +16,9 @@ line break where the text has one), or a Tip, which the panel lays out:
 * a bold title, the field's own label (already translated, without its colon);
 * a summary, then muted detail lines;
 * a table of options, one row each: the option as the field's dropdown shows it,
-  in a code chip (a rounded rectangle the panel draws behind the text), then what
-  it does;
+  in a code chip (a key cap, like the Viewer's info card keys: a white box with a
+  thin border, round corners and room of its own, which the panel draws behind the
+  text), then what it does;
 * notes with a status icon: "warning" (a cost or a risk) and "info" (a remark);
 * a live note, such as what AUTO picks right now, with a swatch when it is a colour;
 * a facts footer built from the field itself, not from prose: its default, its
@@ -62,10 +63,15 @@ from desktop.Studio_Theme import (
     HINT_RIGHT_PADDING,
     HINT_SCROLL_EDGE,
     HINT_TEXT_MARGIN,
+    KEY_CAP_BORDER,
+    KEY_CAP_BOTTOM,
+    KEY_CAP_PADDING,
+    KEY_CAP_RADIUS,
     TOKENS,
     IconLabel,
     coloured_svg,
     icon_svg,
+    key_cap_colors,
     status_color,
 )
 
@@ -187,10 +193,11 @@ def is_whole(text):
 def chip(text):
     """text as a code chip: monospace on a lighter ground, kept on one line where it is short.
 
-    Rich text can only fill a square, so the ground is the span's background
-    here, which is how the chip reads back from the text. The panel finds
-    every run with that background, takes it off and paints each as a
-    rounded rectangle behind the text (SpacedTipLabel).
+    Rich text can only fill a square and gives a span no padding, so the ground
+    is the span's background here, which is how the chip reads back from the
+    text. The panel finds every run with that background, takes it off, makes
+    room for the key cap's padding on both sides and paints the cap behind the
+    text (SpacedTipLabel); this function's text is unchanged by that.
     """
     from desktop.Desktop_App import MONOSPACE_QSS_FONT_STACK
 
@@ -704,12 +711,15 @@ TIP_PANEL_LINES = 7.5
 # This keeps the windows' minimum height where it was (the label it replaces asked for 51 px).
 TIP_PANEL_MINIMUM_LINES = 1.25
 
-# A code chip is drawn here, behind the text, because rich text ignores border-radius: a
-# rounded rectangle in the chip's own colour, as round as the docs' code chips (4 px) and a
-# little wider and taller than the glyphs, as theirs are (padding 2px 4px).
-CHIP_RADIUS = 4
-CHIP_PADDING_X = 2.5    # less than the panel's text margin (HINT_TEXT_MARGIN), so no chip is cut off at the edge
-CHIP_PADDING_Y = 1
+# A code chip is a key cap (Studio_Theme.KEY_CAP_*, the look of the Viewer's info card keys):
+# a white box with a thin border, a thicker bottom edge and round corners, with real room
+# round its text. Rich text can't give a span padding or a radius, so the panel paints the
+# box behind the text and reserves the room in the line: a word joiner (U+2060), which has
+# no width of its own, on each side of the chip's text, spaced out by the cap's padding and
+# border. The joiners hold the chip to the punctuation next to it ("(e.g. WP_01*)" breaks
+# only at its spaces), and since they take their own width, the box covers no neighbouring
+# glyph. The box is as tall as the chip's own glyphs and borders, which fits the line.
+CHIP_GLUE = "\u2060"
 
 
 class PanelHeightAtFirstLayout(QObject):
@@ -772,8 +782,8 @@ class SpacedTipLabel(QTextEdit):
         self._sample = str(text) or "Ag"
         self.setReadOnly(True)
         self.document().setUndoRedoEnabled(False)
-        # The text keeps a few pixels from the viewport's edges, which a code chip's
-        # ground, a little wider than its text, needs not to be cut off there.
+        # The text keeps a few pixels from the viewport's edges, so glyphs and a chip at the
+        # start of a line are not cut by the clip.
         self.document().setDocumentMargin(HINT_TEXT_MARGIN)
         self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -936,12 +946,13 @@ class SpacedTipLabel(QTextEdit):
     # --- Code chips ---
 
     def _take_chips(self):
-        """Find the code chips in the document, and take the square ground off them.
+        """Find the code chips in the document, make room round each and take the square ground off.
 
         A chip is a run of text with the chip ground (the theme's surface
-        colour) as its background. The document would paint that as a
-        rectangle with square corners, so the ground comes off, and
-        chip_rects() gives the rounded rectangles the panel paints instead.
+        colour) as its background, which the document would paint as a
+        rectangle with square corners. The ground comes off. The word
+        joiners that reserve the key cap's padding go in on both sides of the run,
+        and chip_rects() gives the key caps the panel paints behind them.
         """
         document = self.document()
         ground = QColor(TOKENS["surface"])
@@ -956,19 +967,31 @@ class SpacedTipLabel(QTextEdit):
             block = block.next()
         self._chips = []
         cursor = QTextCursor(document)
-        for start, end, text_format in found:
-            self._chips.append((start, end, QColor(text_format.background().color()), QFont(text_format.font())))
+        padding = KEY_CAP_PADDING + KEY_CAP_BORDER
+        # From the last chip to the first, so the places of those before are not moved by the joiners.
+        for start, end, text_format in reversed(found):
             text_format.clearBackground()
+            glue = QTextCharFormat(text_format)
+            glue.setFontLetterSpacingType(QFont.SpacingType.AbsoluteSpacing)
+            glue.setFontLetterSpacing(padding)  # the room after the joiner: before the text, and after it
+            cursor.setPosition(end)
+            cursor.insertText(CHIP_GLUE, glue)
             cursor.setPosition(start)
-            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            cursor.insertText(CHIP_GLUE, glue)
+            cursor.setPosition(start + 1)
+            cursor.setPosition(end + 1, QTextCursor.MoveMode.KeepAnchor)
             cursor.setCharFormat(text_format)
+        fill, border, bottom = (QColor(name) for name in key_cap_colors())
+        for number, (start, end, _format) in enumerate(found):
+            # Each chip before this one added its two joiners; this chip's box is from its first to past its last.
+            self._chips.append((start + 2 * number, end + 2 * number + 2, fill, border, bottom))
 
-    def chip_rects(self):
-        """(rectangle, colour) of every chip's ground, in document coordinates, a line of a wrapped chip each."""
+    def _chip_boxes(self):
+        """(rectangle, fill, border, bottom edge) of every chip's key cap, in document coordinates, one for each line of a wrapped chip."""
         document = self.document()
         document_layout = document.documentLayout()
-        rects = []
-        for start, end, colour, font in self._chips:
+        boxes = []
+        for start, end, fill, border, bottom in self._chips:
             block = document.findBlock(start)
             layout = block.layout()
             if layout is None:
@@ -976,40 +999,60 @@ class SpacedTipLabel(QTextEdit):
             # A block's layout is placed within its table cell; the document
             # layout adds the cell's and the table's place.
             origin = document_layout.blockBoundingRect(block).topLeft()
-            metrics = QFontMetricsF(font, self.viewport())
             for number in range(layout.lineCount()):
                 line = layout.lineAt(number)
                 first = max(start - block.position(), line.textStart())
                 last = min(end - block.position(), line.textStart() + line.textLength())
                 if last <= first:
                     continue
+                # The box is as tall as the glyphs of the chip's text on this line, whatever font
+                # (a fallback one for Chinese) drew them, and as wide as the text with its room.
+                ascent = descent = 0.0
+                for run in line.glyphRuns(first, last - first):
+                    raw = run.rawFont()
+                    ascent, descent = max(ascent, raw.ascent()), max(descent, raw.descent())
+                if not ascent and not descent:
+                    continue
                 left, right = line.cursorToX(first)[0], line.cursorToX(last)[0]
                 baseline = origin.y() + line.y() + line.ascent()
-                rects.append((QRectF(
-                    origin.x() + left - CHIP_PADDING_X,
-                    baseline - metrics.ascent() - CHIP_PADDING_Y,
-                    right - left + 2 * CHIP_PADDING_X,
-                    metrics.ascent() + metrics.descent() + 2 * CHIP_PADDING_Y,
-                ), colour))
-        return rects
+                boxes.append((QRectF(
+                    origin.x() + left,
+                    baseline - ascent - KEY_CAP_BORDER,
+                    right - left,
+                    ascent + descent + KEY_CAP_BORDER + KEY_CAP_BOTTOM,
+                ), fill, border, bottom))
+        return boxes
+
+    def chip_rects(self):
+        """(rectangle, fill colour) of every chip's key cap, in document coordinates."""
+        return [(rect, fill) for rect, fill, _border, _bottom in self._chip_boxes()]
 
     def paintEvent(self, event):
-        rects = self.chip_rects()
-        if rects:
+        boxes = self._chip_boxes()
+        if boxes:
             painter = QPainter(self.viewport())
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             painter.translate(-self.horizontalScrollBar().value(), -self.verticalScrollBar().value())
             painter.setPen(Qt.PenStyle.NoPen)
-            for rect, colour in rects:
-                painter.setBrush(colour)
-                painter.drawRoundedRect(rect, CHIP_RADIUS, CHIP_RADIUS)
+            radius, inner_radius = KEY_CAP_RADIUS, max(0, KEY_CAP_RADIUS - KEY_CAP_BORDER)
+            for rect, fill, border, bottom in boxes:
+                # The bottom edge's colour, the border over all but that edge, the fill inside both.
+                painter.setBrush(bottom)
+                painter.drawRoundedRect(rect, radius, radius)
+                painter.setBrush(border)
+                painter.drawRoundedRect(rect.adjusted(0, 0, 0, -KEY_CAP_BOTTOM), radius, radius)
+                painter.setBrush(fill)
+                painter.drawRoundedRect(
+                    rect.adjusted(KEY_CAP_BORDER, KEY_CAP_BORDER, -KEY_CAP_BORDER, -KEY_CAP_BOTTOM),
+                    inner_radius, inner_radius,
+                )
             painter.end()
-        # The document draws its text over the chips.
+        # The document draws its text over the key caps.
         super().paintEvent(event)
 
 
 __all__ = [
-    "CHIP_RADIUS",
+    "CHIP_GLUE",
     "Code",
     "CodeList",
     "Field",

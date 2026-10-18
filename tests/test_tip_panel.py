@@ -48,6 +48,10 @@ from PySide6.QtWidgets import (  # noqa: E402
 from desktop.Desktop_App import MONOSPACE_QSS_FONT_STACK, NAME_ITEM_ROLE, ToggleSwitch  # noqa: E402
 from desktop.Studio_Theme import (  # noqa: E402
     HINT_BORDER,
+    KEY_CAP_BORDER,
+    KEY_CAP_BOTTOM,
+    KEY_CAP_PADDING,
+    KEY_CAP_RADIUS,
     HINT_PADDING,
     HINT_RIGHT_PADDING,
     HINT_SCROLL_EDGE,
@@ -57,7 +61,7 @@ from desktop.Studio_Theme import (  # noqa: E402
     status_color,
 )
 from desktop.Tip_Panel import (  # noqa: E402
-    CHIP_RADIUS,
+    CHIP_GLUE,
     MISSING,
     TIP_PANEL_LINES,
     TIP_PANEL_MINIMUM_LINES,
@@ -998,6 +1002,13 @@ class PanelTests(WithApplication):
 # Code chips: rounded, drawn behind the text
 # ---------------------------------------------------------------------
 
+def blocks(document):
+    block = document.begin()
+    while block.isValid():
+        yield block
+        block = block.next()
+
+
 def every_chip_entry():
     """A tip with a code chip in every place the panel puts one."""
     return FieldTip(
@@ -1056,7 +1067,7 @@ class ChipTests(WithApplication):
         panel = self.panel()
         panel.setTip(every_chip_entry())
         self.app.processEvents()
-        with mock.patch("desktop.Tip_Panel.CHIP_RADIUS", 0):
+        with mock.patch("desktop.Tip_Panel.KEY_CAP_RADIUS", 0):
             square = panel.grab().toImage()
         rounded = panel.grab().toImage()
         offset = panel.viewport().mapTo(panel, panel.viewport().rect().topLeft())
@@ -1069,20 +1080,29 @@ class ChipTests(WithApplication):
         }
         self.assertTrue(differing)
         tint = QColor(TOKENS["tint"])
+        reach = KEY_CAP_RADIUS + KEY_CAP_BOTTOM + 1
 
         def near_corner(x, y, rect):
             return any(
-                abs(x + 0.5 - corner_x) <= CHIP_RADIUS and abs(y + 0.5 - corner_y) <= CHIP_RADIUS
+                abs(x + 0.5 - corner_x) <= reach and abs(y + 0.5 - corner_y) <= reach
                 for corner_x in (rect.left(), rect.right()) for corner_y in (rect.top(), rect.bottom())
             )
 
-        # Every difference is at a corner of a chip, and turns the chip's colour into the card's.
+        def distance(image, x, y):
+            colour = image.pixelColor(x, y)
+            return abs(colour.red() - tint.red()) + abs(colour.green() - tint.green()) + abs(colour.blue() - tint.blue())
+
+        # Every difference is at a corner of a key cap...
         for x, y in differing:
             self.assertTrue(any(near_corner(x, y, rect) for rect in rects), (x, y))
-            self.assertLess(
-                abs(rounded.pixelColor(x, y).red() - tint.red()) + abs(rounded.pixelColor(x, y).green() - tint.green()),
-                abs(square.pixelColor(x, y).red() - tint.red()) + abs(square.pixelColor(x, y).green() - tint.green()),
-            )
+        # ...and where a corner's outermost pixel differs, the rounded one is the card's, not the cap's.
+        nearer = 0
+        for rect in rects:
+            for x, y in ((int(rect.left()), int(rect.top())), (int(rect.right()) - 1, int(rect.top())),
+                         (int(rect.left()), int(rect.bottom()) - 1), (int(rect.right()) - 1, int(rect.bottom()) - 1)):
+                self.assertLessEqual(distance(rounded, x, y), distance(square, x, y), (x, y))
+                nearer += distance(rounded, x, y) < distance(square, x, y)
+        self.assertGreaterEqual(nearer, 2 * len(rects))
         # No chip is cut off at the viewport's edge, the first column of a table at the left edge included.
         for rect in panel.chip_rects():
             self.assertGreaterEqual(rect[0].left(), 0)
@@ -1097,10 +1117,118 @@ class ChipTests(WithApplication):
                         any((x < middle_x) == left and (y < middle_y) == top for x, y in nearby), (rect, left, top)
                     )
 
-    def test_a_chip_is_as_round_as_the_docs_code_chips(self):
-        self.assertEqual(CHIP_RADIUS, 4)
+    def test_a_chip_is_the_viewers_key_cap_drawn_from_the_same_definition(self):
+        import desktop.Studio_Theme as theme
+        import desktop.Tip_Panel as module
 
-    def test_a_chip_that_wraps_has_a_rounded_ground_on_each_of_its_lines(self):
+        self.assertEqual((KEY_CAP_RADIUS, KEY_CAP_PADDING, KEY_CAP_BORDER, KEY_CAP_BOTTOM), (5, 6, 1, 2))
+        for name in ("KEY_CAP_RADIUS", "KEY_CAP_PADDING", "KEY_CAP_BORDER", "KEY_CAP_BOTTOM"):
+            self.assertEqual(getattr(module, name), getattr(theme, name), name)
+        panel = self.panel()
+        panel.setTip(every_chip_entry())
+        self.app.processEvents()
+        fills = {fill.name() for _rect, fill in panel.chip_rects()}
+        self.assertEqual(fills, {theme.key_cap_colors()[0]})
+        # Its look is a white box with a thin border and a thicker bottom edge, as the card's caps.
+        fill, border, bottom = theme.key_cap_colors()
+        rect, _ = panel.chip_rects()[0]
+        image = panel.grab().toImage()
+        offset = panel.viewport().mapTo(panel, panel.viewport().rect().topLeft())
+        def near(pixel, name):
+            wanted = QColor(name)
+            return all(abs(a - b) <= 10 for a, b in ((pixel.red(), wanted.red()), (pixel.green(), wanted.green()),
+                                                     (pixel.blue(), wanted.blue())))
+
+        # Below the baseline, where no glyph reaches, the edges and the fill are all there is.
+        row = int(offset.y() + rect.bottom()) - KEY_CAP_BOTTOM - 3
+        self.assertTrue(near(image.pixelColor(int(offset.x() + rect.left() + 0.5), row), border))  # the border, 1 px
+        self.assertTrue(near(image.pixelColor(int(offset.x() + rect.left()) + 1 + 2, row), fill))  # the fill inside
+        centre_x = int(offset.x() + rect.left() + rect.width() / 2)
+        self.assertTrue(near(image.pixelColor(centre_x, int(offset.y() + rect.bottom()) - 1), bottom))  # the bottom edge
+
+    def test_a_chip_takes_its_own_room_and_covers_no_neighbouring_glyph(self):
+        entry = FieldTip(
+            Tip("Full header, leading identifier (e.g. `WP_0123.1`), or wildcard (e.g. `WP_01*`) naming it.", facts=False),
+            Field(key="K", label=QLabel("L:")),
+        )
+        panel = self.panel(width=620)
+        panel.setTip(entry)
+        self.app.processEvents()
+        document, padding = panel.document(), KEY_CAP_PADDING + KEY_CAP_BORDER
+        block = next(block for block in blocks(document) if "WP_01*" in block.text())
+        text = block.text()
+        rects = [rect for rect, _ in panel.chip_rects()]
+        self.assertEqual(len(rects), 2)
+        for chip_text, rect in zip(("WP_0123.1", "WP_01*"), rects):
+            first = text.index(chip_text)
+            last = first + len(chip_text)
+            # A joiner on each side, spaced out by the cap's padding and border: room of its own.
+            self.assertEqual((text[first - 1], text[last]), (CHIP_GLUE, CHIP_GLUE))
+            line = block.layout().lineForTextPosition(first)
+            origin = document.documentLayout().blockBoundingRect(block).topLeft().x()
+            before, text_start = line.cursorToX(first - 1)[0], line.cursorToX(first)[0]
+            text_end, after = line.cursorToX(last)[0], line.cursorToX(last + 1)[0]
+            self.assertAlmostEqual(text_start - before, padding, delta=0.6)
+            self.assertAlmostEqual(after - text_end, padding, delta=0.6)
+            # The box is exactly that room and the text; the next glyph starts where it ends.
+            self.assertAlmostEqual(rect.left(), origin + before, delta=0.6)
+            self.assertAlmostEqual(rect.right(), origin + after, delta=0.6)
+            self.assertEqual(text[last + 1], ")")
+            self.assertEqual(text[first - 2], " ")
+        # In the pixels: right of the last chip's box, where the ")" is, there is none of the chip's ground.
+        image = panel.grab().toImage()
+        offset = panel.viewport().mapTo(panel, panel.viewport().rect().topLeft())
+        rect = rects[1]
+        ground = QColor(TOKENS["surface"]).name()
+        for x in range(int(offset.x() + rect.right()) + 1, int(offset.x() + rect.right()) + 6):
+            for y in range(int(offset.y() + rect.top()) + 2, int(offset.y() + rect.bottom()) - 3):
+                self.assertNotEqual(image.pixelColor(x, y).name(), ground, (x, y))
+
+    def test_a_chip_does_not_make_its_line_taller(self):
+        panel = self.panel(width=700)
+        label = QLabel("L:")
+
+        def height(summary):
+            panel.setTip(FieldTip(Tip(summary, facts=False), Field(key="K", label=label)))
+            self.app.processEvents()
+            return panel.document().size().height()
+
+        plain_height = height("A summary with a word and another one.")
+        chipped = height("A summary with `a word` and `another one`.")
+        self.assertAlmostEqual(chipped, plain_height, delta=0.5)
+        # So the panel's line count measures a tip with chips as it does one without.
+        footer = FieldTip(Tip("A summary."), Field(key="THE_KEY", label=label, default="auto"))
+        panel.setTip(footer)
+        self.app.processEvents()
+        with_footer = panel.document().size().height()
+        panel.setTip(FieldTip(Tip("A summary.", facts=False), Field(key="THE_KEY", label=label)))
+        self.app.processEvents()
+        self.assertGreater(with_footer, panel.document().size().height())
+        self.assertLessEqual(with_footer - panel.document().size().height(), 2 * panel.line_height())
+
+    def test_a_short_chip_never_breaks_and_stays_with_the_punctuation_after_it(self):
+        entry = FieldTip(
+            Tip("Names a header (e.g. `WP_01*`) and a wildcard (see `WP_0123.1`), as it says here at length.", facts=False),
+            Field(key="K", label=QLabel("L:")),
+        )
+        for width in range(260, 620, 20):  # a chip wider than the panel itself can only break
+            with self.subTest(width=width):
+                panel = self.panel(width=width)
+                panel.setTip(entry)
+                self.app.processEvents()
+                block = next(block for block in blocks(panel.document()) if "WP_01*" in block.text())
+                text = block.text()
+                for chip_text, after in (("WP_01*", ")"), ("WP_0123.1", ")")):
+                    first = text.index(chip_text)
+                    last = first + len(chip_text)
+                    layout = block.layout()
+                    line_of = lambda position: layout.lineForTextPosition(position).lineNumber()
+                    # Joiner, text, joiner and the closing bracket are on one line, and the chip has one box.
+                    self.assertEqual({line_of(position) for position in range(first - 1, last + 2)}, {line_of(first)})
+                    self.assertEqual(text[last + 1], after)
+                self.assertEqual(len(panel.chip_rects()), 2)
+
+    def test_a_chip_that_wraps_has_a_key_cap_on_each_of_its_lines(self):
         token = "sid|18367|pid|10722|hfid|10|sfid|2|gi|914684625|pdb|3WWH(A)|taxonID|1042534|Arthrobactersp.KNK168"
         panel = self.panel(width=300)
         panel.setTip(FieldTip(Tip(f"Names `{token}` here."), Field(key="K", label=QLabel("L:"))))
@@ -1128,8 +1256,8 @@ class ChipTests(WithApplication):
         rect, colour = panel.chip_rects()[-1]
         image = panel.grab().toImage()
         offset = panel.viewport().mapTo(panel, panel.viewport().rect().topLeft())
-        x = int(offset.x() + rect.left() + 1.5)  # inside the ground, left of the first glyph
-        y = int(offset.y() + rect.center().y() - bar.value())
+        x = int(offset.x() + rect.left() + KEY_CAP_BORDER + KEY_CAP_PADDING / 2)  # inside the fill, left of the first glyph
+        y = int(offset.y() + rect.bottom() - KEY_CAP_BOTTOM - 3 - bar.value())  # below the baseline, clear of any glyph
         self.assertEqual(image.pixelColor(x, y).name(), colour.name())
         # At the top, the same place is the card's.
         bar.setValue(0)

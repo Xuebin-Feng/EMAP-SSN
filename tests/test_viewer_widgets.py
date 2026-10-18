@@ -47,7 +47,7 @@ from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget  # noqa: E402
 
 from desktop.Desktop_App import fit_buttons_to_text  # noqa: E402
-from desktop.Studio_Theme import TOKENS, studio_icon  # noqa: E402
+from desktop.Studio_Theme import TOKENS, key_cap_qss, studio_icon  # noqa: E402
 from desktop.Viewer_Widgets import (  # noqa: E402
     FIXED_NOTE,
     PICK_FILES,
@@ -368,6 +368,13 @@ class ControlsCardTests(unittest.TestCase):
         # Each description shows whole: no row is cut short.
         for label in card.descriptions:
             self.assertGreaterEqual(label.width(), label.sizeHint().width(), label.text())
+
+    def test_the_key_caps_take_their_look_from_the_shared_key_cap_definition(self):
+        # The tip panel draws its code chips from the same definition: one look for both.
+        card = self.open_card()
+        self.assertIn(f"QLabel#controlsKey {{ {key_cap_qss(TOKENS)} }}", card.styleSheet())
+        self.assertIn("border-radius: 5px; padding: 0px 6px;", key_cap_qss(TOKENS))
+        self.assertIn(f"border-bottom: 2px solid {TOKENS['field_border_hover']}", key_cap_qss(TOKENS))
 
     def test_the_full_path_is_absolute_and_normalised(self):
         self.info["inputs"]["node_fasta"] = os.path.join(

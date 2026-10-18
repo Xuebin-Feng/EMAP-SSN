@@ -607,7 +607,7 @@ QLabel[role="hint"] {{
 }}
 /* The tip panel scrolls: its scroll bar sits in the card's right padding, and the
    viewport's own margin keeps the text off it. The text keeps HINT_TEXT_MARGIN from the
-   viewport's edges (the document's margin), room for a code chip's ground, so the
+   viewport's edges (the document's margin), so glyphs are not cut by the clip, and the
    padding is that much less. */
 QTextEdit[role="hint"] {{
     background: {t['tint']}; color: {t['text_muted']};
@@ -632,6 +632,32 @@ HINT_PADDING = 11            # above and below the text
 HINT_RIGHT_PADDING = 14      # between the text and the card's right edge
 HINT_SCROLL_EDGE = 4         # the scrolling card's padding on the right; its scroll bar lies inside it
 HINT_TEXT_MARGIN = 3         # the scrolling card's text keeps this far from its viewport's edges
+
+# The key cap: a small white box with a thin border, a thicker bottom edge and round corners,
+# which holds a key's name in the Viewer's info card ("ENTER", "LeftClick") and a code chip
+# in the tip panel. One definition, so the two look alike: the Viewer's stylesheet is built
+# from key_cap_qss and the panel paints from the same numbers and colours.
+KEY_CAP_RADIUS = 5
+KEY_CAP_PADDING = 6          # left and right of the text, inside the border
+KEY_CAP_BORDER = 1           # the border, on the top and the sides
+KEY_CAP_BOTTOM = 2           # the bottom edge, thicker and a shade darker
+
+
+def key_cap_colors(t=None):
+    """(fill, border, bottom edge) of a key cap, as colour names, in the tokens (TOKENS by default)."""
+    t = TOKENS if t is None else t
+    return t["surface"], t["field_border"], t["field_border_hover"]
+
+
+def key_cap_qss(t=None):
+    """The declarations of a key cap's rule: its box and its text colour (the Viewer's controlsKey label)."""
+    t = TOKENS if t is None else t
+    fill, border, bottom = key_cap_colors(t)
+    return (
+        f"background: {fill}; color: {t['text']}; "
+        f"border: {KEY_CAP_BORDER}px solid {border}; border-bottom: {KEY_CAP_BOTTOM}px solid {bottom}; "
+        f"border-radius: {KEY_CAP_RADIUS}px; padding: 0px {KEY_CAP_PADDING}px;"
+    )
 
 
 def studio_palette(t=None):
@@ -1187,6 +1213,10 @@ __all__ = [
     "HINT_TEXT_MARGIN",
     "ICONS_DIR",
     "IconLabel",
+    "KEY_CAP_BORDER",
+    "KEY_CAP_BOTTOM",
+    "KEY_CAP_PADDING",
+    "KEY_CAP_RADIUS",
     "NEUTRAL_SHADES",
     "LUCIDE_DIR",
     "QSS_ICON_DIR",
@@ -1205,6 +1235,8 @@ __all__ = [
     "coloured_svg",
     "icon_button",
     "icon_svg",
+    "key_cap_colors",
+    "key_cap_qss",
     "oklch_hex",
     "page_tokens",
     "paint_switch",
