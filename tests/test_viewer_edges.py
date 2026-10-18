@@ -5,8 +5,9 @@ of them, and their buffer holds node numbers that the vertex shader resolves
 through a texture of node positions. These tests check that the drawn edges
 are exactly those edge_stages keeps, and that each kind of change re-sends only
 what it must: a threshold change nothing, a node move the position texture,
-hiding nodes the edge buffer once. The last test renders the old Line visual
-and the new one on a real GL canvas and compares their pixels.
+hiding nodes the edge buffer once. The GL tests render the old Line visual
+and the new one on a real GL canvas and compare their pixels, and check that
+the stencil overdraw limit (EdgeStencilLimit) leaves every pixel as it was.
 """
 import os
 import subprocess
@@ -459,6 +460,227 @@ class UpdateEdgesTests(unittest.TestCase):
             self.assertEqual(layer_class.call_count, 1)
 
 
+class FakeGL:
+    """vispy.gloo.gl's answers for framebuffer_stencil_bits, set per test.
+
+    attachment maps an attachment name to (object type, stencil size), or to
+    an exception to raise; errors lists the glGetError values to return, in
+    turn, after which it returns 0.
+    """
+
+    GL_RENDERER = 0x1F01
+
+    def __init__(self, binding=0, attachment=None, stencil_bits=0, errors=(), raises=None):
+        self.binding = binding
+        self.attachment = attachment or {}
+        self.stencil_bits = stencil_bits
+        self.errors = list(errors)
+        self.raises = raises
+        self.asked = []
+
+    def glGetParameter(self, name):
+        if self.raises is not None:
+            raise self.raises
+        if name == Viewer_Edges._GL_FRAMEBUFFER_BINDING:
+            return self.binding
+        if name == Viewer_Edges._GL_STENCIL_BITS:
+            return self.stencil_bits
+        if name == self.GL_RENDERER:
+            return "Fake Renderer"
+        raise AssertionError(name)
+
+    def glGetFramebufferAttachmentParameter(self, target, attachment, pname):
+        self.asked.append(attachment)
+        answer = self.attachment.get(attachment, (Viewer_Edges._GL_NONE, 0))
+        if isinstance(answer, Exception):
+            raise answer
+        kind, size = answer
+        return kind if pname == Viewer_Edges._GL_ATTACHMENT_OBJECT_TYPE else size
+
+    def glGetError(self):
+        return self.errors.pop(0) if self.errors else 0
+
+
+GL_RENDERBUFFER = 0x8D41
+GL_FRAMEBUFFER_DEFAULT = 0x8218
+GL_INVALID_ENUM = 0x0500
+
+
+class FramebufferStencilBitsTests(unittest.TestCase):
+    def test_a_framebuffer_object_is_asked_about_its_stencil_attachment(self):
+        gl = FakeGL(binding=7, attachment={Viewer_Edges._GL_STENCIL_ATTACHMENT: (GL_RENDERBUFFER, 8)})
+        self.assertEqual(Viewer_Edges.framebuffer_stencil_bits(gl), 8)
+        self.assertEqual(set(gl.asked), {Viewer_Edges._GL_STENCIL_ATTACHMENT})
+
+    def test_the_default_framebuffer_is_asked_about_its_stencil_buffer(self):
+        gl = FakeGL(binding=0, attachment={Viewer_Edges._GL_STENCIL: (GL_FRAMEBUFFER_DEFAULT, 8)})
+        self.assertEqual(Viewer_Edges.framebuffer_stencil_bits(gl), 8)
+        self.assertEqual(set(gl.asked), {Viewer_Edges._GL_STENCIL})
+
+    def test_no_stencil_attachment_is_zero_bits(self):
+        gl = FakeGL(binding=7, stencil_bits=8)
+        self.assertEqual(Viewer_Edges.framebuffer_stencil_bits(gl), 0)
+
+    def test_an_unanswered_question_falls_back_to_the_old_one(self):
+        # A driver that refuses the attachment question (GL_INVALID_ENUM).
+        gl = FakeGL(binding=0, attachment={Viewer_Edges._GL_STENCIL: (GL_FRAMEBUFFER_DEFAULT, 8)},
+                    errors=[GL_INVALID_ENUM], stencil_bits=4)
+        self.assertEqual(Viewer_Edges.framebuffer_stencil_bits(gl), 4)
+
+    def test_failures_are_zero_bits_and_leave_no_gl_error_behind(self):
+        cases = {
+            "both refused": FakeGL(errors=[GL_INVALID_ENUM, GL_INVALID_ENUM, GL_INVALID_ENUM]),
+            "raises": FakeGL(raises=RuntimeError("no context")),
+            "attachment raises": FakeGL(attachment={Viewer_Edges._GL_STENCIL: RuntimeError("no function")}),
+        }
+        for name, gl in cases.items():
+            with self.subTest(name):
+                self.assertEqual(Viewer_Edges.framebuffer_stencil_bits(gl), 0)
+                self.assertEqual(gl.errors, [])
+
+
+class FakeCanvas:
+    """What EdgeStencilLimit reads of a canvas: its framebuffer stack and context."""
+
+    def __init__(self, framebuffer=None):
+        self._fb_stack = [] if framebuffer is None else [(framebuffer, (0, 0), (10, 10))]
+        self.context = SimpleNamespace(flush_commands=mock.Mock())
+
+
+class EdgeStencilLimitTests(unittest.TestCase):
+    def decide(self, bits):
+        reports = []
+        limit = Viewer_Edges.EdgeStencilLimit(enabled=True, report=reports.append)
+        canvas = FakeCanvas()
+        bits_mock = mock.Mock(side_effect=bits) if isinstance(bits, Exception) else mock.Mock(return_value=bits)
+        with mock.patch.object(Viewer_Edges, "framebuffer_stencil_bits", bits_mock), \
+                mock.patch.object(Viewer_Edges, "_gl_renderer", return_value="Fake Renderer"):
+            first = limit.applies(canvas)
+            second = limit.applies(canvas)
+        return first, second, reports, bits_mock, canvas
+
+    def test_the_switch(self):
+        with mock.patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(Viewer_Edges.STENCIL_ENVIRONMENT_VARIABLE, None)
+            self.assertTrue(Viewer_Edges.stencil_limit_enabled())
+            for value in ("0", "off", "False", " no "):
+                os.environ[Viewer_Edges.STENCIL_ENVIRONMENT_VARIABLE] = value
+                self.assertFalse(Viewer_Edges.stencil_limit_enabled(), value)
+                self.assertFalse(Viewer_Edges.EdgeStencilLimit().enabled, value)
+            os.environ[Viewer_Edges.STENCIL_ENVIRONMENT_VARIABLE] = "1"
+            self.assertTrue(Viewer_Edges.EdgeStencilLimit().enabled)
+
+    def test_a_window_with_8_stencil_bits_draws_with_the_limit_and_says_so_once(self):
+        first, second, reports, bits, canvas = self.decide(8)
+        self.assertTrue(first)
+        self.assertTrue(second)
+        bits.assert_called_once()
+        canvas.context.flush_commands.assert_called_once()
+        self.assertEqual(len(reports), 1)
+        self.assertIn("overdraw limit on", reports[0])
+        self.assertIn("Fake Renderer", reports[0])
+
+    def test_a_window_with_fewer_bits_or_an_unanswered_question_draws_as_before(self):
+        for bits in (0, 1, 4, 7, RuntimeError("no context")):
+            with self.subTest(bits=bits):
+                first, second, reports, _, _ = self.decide(bits)
+                self.assertFalse(first)
+                self.assertFalse(second)
+                self.assertEqual(len(reports), 1)
+                self.assertIn("overdraw limit off", reports[0])
+                self.assertIn("Fake Renderer", reports[0])
+
+    def test_each_window_is_asked_for_itself(self):
+        limit = Viewer_Edges.EdgeStencilLimit(enabled=True, report=lambda _text: None)
+        first, second = FakeCanvas(), FakeCanvas()
+        with mock.patch.object(Viewer_Edges, "framebuffer_stencil_bits", side_effect=[8, 0]), \
+                mock.patch.object(Viewer_Edges, "_gl_renderer", return_value="Fake"):
+            self.assertTrue(limit.applies(first))
+            self.assertFalse(limit.applies(second))
+            self.assertTrue(limit.applies(first))
+
+    def test_a_framebuffer_object_decides_by_its_own_stencil_buffer(self):
+        # canvas.render() (print, captures) attaches colour and depth only.
+        limit = Viewer_Edges.EdgeStencilLimit(enabled=True, report=self.fail)
+        with mock.patch.object(Viewer_Edges, "framebuffer_stencil_bits", side_effect=AssertionError):
+            self.assertFalse(limit.applies(FakeCanvas(SimpleNamespace(stencil_buffer=None))))
+            self.assertTrue(limit.applies(FakeCanvas(SimpleNamespace(stencil_buffer=object()))))
+
+    def test_off_or_without_a_canvas_it_never_applies(self):
+        limit = Viewer_Edges.EdgeStencilLimit(enabled=False, report=self.fail)
+        with mock.patch.object(Viewer_Edges, "framebuffer_stencil_bits", side_effect=AssertionError):
+            self.assertFalse(limit.applies(FakeCanvas()))
+            self.assertFalse(limit.applies(FakeCanvas(SimpleNamespace(stencil_buffer=object()))))
+            self.assertFalse(Viewer_Edges.EdgeStencilLimit(enabled=True, report=self.fail).applies(None))
+
+
+class DrawWithLimitTests(unittest.TestCase):
+    def draw(self, applies, fail=False):
+        visual = mock.Mock()
+        limit = SimpleNamespace(applies=mock.Mock(return_value=applies))
+        drawn = mock.Mock(side_effect=RuntimeError("draw failed") if fail else None)
+        with mock.patch.object(Viewer_Edges, "get_current_canvas", return_value="canvas"), \
+                mock.patch.object(Viewer_Edges.gloo, "set_state") as set_state:
+            if fail:
+                with self.assertRaises(RuntimeError):
+                    Viewer_Edges._draw_with_limit(visual, limit, drawn)
+            else:
+                Viewer_Edges._draw_with_limit(visual, limit, drawn)
+        limit.applies.assert_called_once_with("canvas")
+        drawn.assert_called_once()
+        return visual, set_state
+
+    def test_a_limited_draw_counts_in_the_stencil_and_turns_it_off_after(self):
+        for fail in (False, True):
+            with self.subTest(draw_fails=fail):
+                visual, set_state = self.draw(True, fail)
+                state = visual.update_gl_state.call_args.kwargs
+                self.assertEqual(state["stencil_test"], True)
+                self.assertEqual(state["stencil_func"], ("greater", Viewer_Edges.STENCIL_LIMIT, 0xFF))
+                self.assertEqual(state["stencil_op"], ("keep", "keep", "incr"))
+                self.assertEqual(state["dither"], False)
+                set_state.assert_called_once_with(stencil_test=False, dither=True)
+
+    def test_an_unlimited_draw_keeps_the_stencil_test_off(self):
+        visual, set_state = self.draw(False)
+        visual.update_gl_state.assert_called_once_with(stencil_test=False)
+        set_state.assert_not_called()
+
+    def test_the_limit_counts_to_what_8_bits_hold(self):
+        self.assertEqual(Viewer_Edges.STENCIL_LIMIT, 255)
+        self.assertEqual(Viewer_Edges.STENCIL_BITS_NEEDED, 8)
+
+    def test_both_edge_visuals_draw_with_the_layers_limit(self):
+        edges, scores, positions = random_network(9)
+        limit = Viewer_Edges.EdgeStencilLimit(enabled=True, report=lambda _text: None)
+        for texture in (True, False):
+            with self.subTest(position_texture=texture):
+                layer = ViewerEdges(None, edges, scores, positions, (0, 0, 0, 0.5), 1.0,
+                                    use_position_texture=texture, stencil_limit=limit)
+                self.assertIs(layer.stencil_limit, limit)
+                self.assertIs(layer.visual.stencil_limit, limit)
+                expected = Viewer_Edges.EdgeSegmentsVisual if texture else Viewer_Edges.LimitedLine
+                self.assertIsInstance(layer.visual, expected)
+                with mock.patch.object(Viewer_Edges, "_draw_with_limit") as draw:
+                    layer.visual.draw()
+                self.assertIs(draw.call_args.args[0], layer.visual)
+                self.assertIs(draw.call_args.args[1], limit)
+        default = ViewerEdges(None, edges, scores, positions, (0, 0, 0, 0.5), 1.0)
+        self.assertIsInstance(default.stencil_limit, Viewer_Edges.EdgeStencilLimit)
+
+    def test_the_viewer_canvas_asks_for_an_8_bit_stencil_buffer(self):
+        import ast
+        import EMAPSSN_Viewer
+        with open(EMAPSSN_Viewer.__file__, encoding="utf-8") as source:
+            tree = ast.parse(source.read())
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and getattr(node.func, "attr", None) == "SceneCanvas"]
+        self.assertEqual(len(calls), 1)
+        config = next(keyword.value for keyword in calls[0].keywords if keyword.arg == "config")
+        self.assertEqual(ast.literal_eval(config.keywords[0].value), Viewer_Edges.STENCIL_BITS_NEEDED)
+        self.assertEqual(config.keywords[0].arg, "stencil_size")
+
+
 _RENDER_SCRIPT = textwrap.dedent(
     """
     import sys
@@ -526,6 +748,151 @@ class EdgeShaderPixelTests(unittest.TestCase):
         if "CONTEXT OK" not in result.stdout:
             self.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
         self.assertIn("DONE 0", result.stdout, result.stdout + result.stderr[-2000:])
+
+
+_STENCIL_SCRIPT = textwrap.dedent(
+    """
+    import sys
+    from unittest import mock
+    import numpy as np
+    sys.path.insert(0, sys.argv[1])
+    from vispy import app, gloo, scene
+    from vispy.gloo import gl
+    from desktop import Viewer_Edges as VE
+    app.use_app("pyside6")
+    canvas = scene.SceneCanvas(size=(200, 160), bgcolor="white", show=False,
+                               config=dict(stencil_size=8))
+    view = canvas.central_widget.add_view()
+    view.camera = scene.PanZoomCamera(aspect=1)
+    view.camera.set_range(x=(-5, 105), y=(-5, 105))
+    rng = np.random.default_rng(42)
+    # Two tight groups joined by 2000 edges, so the pixels between them lie
+    # under all of them; a 50-node clique; loose edges over everything.
+    pos = np.vstack([rng.normal((20, 50), 1.5, (30, 2)), rng.normal((80, 52), 1.5, (30, 2)),
+                     rng.normal((50, 20), 6, (50, 2)), rng.random((150, 2)) * 100]).astype(np.float32)
+    ci, cj = np.triu_indices(50, 1)
+    edges = np.vstack([np.stack([rng.integers(0, 30, 2000), rng.integers(30, 60, 2000)], axis=1),
+                       np.stack([ci + 60, cj + 60], axis=1),
+                       rng.integers(110, 260, (400, 2))]).astype(np.int32)
+    scores = rng.random(len(edges)).astype(np.float32)
+    limit = VE.EdgeStencilLimit(enabled=True, report=lambda text: None)
+    layers = {texture: VE.ViewerEdges(view.scene, edges, scores, pos, (0, 0, 0, 0.1), 1.0,
+                                      use_position_texture=texture, stencil_limit=limit)
+              for texture in (True, False)}
+    for layer in layers.values():
+        layer.show_threshold(pos, None, -1.0)
+        layer.visible = False
+    # Nodes drawn over the saturated middle of the bundle and over the clique.
+    markers = scene.visuals.Markers(parent=view.scene)
+    markers.set_data(pos=np.array([[50, 51], [44, 51], [56, 51], [50, 20]], dtype=np.float32),
+                     face_color=(0.27, 0.53, 1.0, 1.0), edge_color=(0, 0, 0, 1), size=10, edge_width=0.5)
+    markers.set_gl_state("translucent", depth_test=False)
+    layers[True].visible = True
+    if (canvas.render()[..., 0] < 250).sum() == 0:
+        sys.exit(3)
+    print("CONTEXT OK", flush=True)
+    print("SCALE", canvas.pixel_scale, flush=True)
+    shape = canvas.render().shape[:2]
+    plain = gloo.FrameBuffer(color=gloo.RenderBuffer(shape), depth=gloo.RenderBuffer(shape))
+    stenciled = gloo.FrameBuffer(color=gloo.RenderBuffer(shape))
+    packed = gloo.RenderBuffer(shape, format=0x88F0)  # GL_DEPTH24_STENCIL8
+    stenciled.depth_buffer = packed
+    stenciled.stencil_buffer = packed
+
+    def bits(fbo):
+        canvas.push_fbo(fbo, (0, 0), canvas.size)
+        canvas.context.flush_commands()
+        result = VE.framebuffer_stencil_bits(gl)
+        canvas.pop_fbo()
+        canvas.context.flush_commands()
+        return result
+
+    print("BITS", bits(plain), bits(stenciled), flush=True)
+
+    def draw(fbo, bg):
+        canvas.push_fbo(fbo, (0, 0), canvas.size)
+        try:
+            canvas._draw_scene(bgcolor=bg)
+            return fbo.read()
+        finally:
+            canvas.pop_fbo()
+
+    colours = {"black": (0, 0, 0), "grey": (0.5, 0.5, 0.5), "orange": (0.9, 0.3, 0.1), "white": (1, 1, 1)}
+    cases = inexact = engaged = contrasting = printed_differ = 0
+    for texture, layer in layers.items():
+        for other in layers.values():
+            other.visible = other is layer
+        for alpha in (0.01, 0.1, 0.5, 1.0):
+            for name, rgb in colours.items():
+                if texture:
+                    layer.visual.shared_program["u_color"] = (*rgb, alpha)
+                else:
+                    layer.visual.set_data(color=(*rgb, alpha))
+                for bg in ("white", "black"):
+                    cases += 1
+                    limit.enabled = False
+                    everything = draw(stenciled, bg)
+                    printed_everything = canvas.render(bgcolor=bg)
+                    limit.enabled = True
+                    limited = draw(stenciled, bg)
+                    if (limited != everything).any():
+                        inexact += 1
+                        print("INEXACT", texture, alpha, name, bg, int((limited != everything).any(axis=2).sum()))
+                    with mock.patch.object(VE, "STENCIL_LIMIT", 8):
+                        # A limit too low to be exact shows the stencil really counts.
+                        if alpha == 0.1 and (name, bg) not in {("white", "white"), ("black", "black")}:
+                            contrasting += 1
+                            engaged += bool((draw(stenciled, bg) != everything).any())
+                        # canvas.render(), as print draws, has no stencil buffer: untouched.
+                        if (canvas.render(bgcolor=bg) != printed_everything).any():
+                            printed_differ += 1
+    print("STENCIL", cases, inexact, engaged, contrasting, printed_differ, flush=True)
+    """
+)
+
+
+class EdgeStencilLimitPixelTests(unittest.TestCase):
+    """The overdraw limit on a real GL canvas, at display scales 1 and 2.
+
+    In a framebuffer with a stencil buffer, every edge path, alpha, colour and
+    background draws the same pixels with the limit as without it, nodes drawn
+    over saturated edges included; a limit of 8 changes them, so the stencil
+    really counts. canvas.render(), whose framebuffer has no stencil buffer,
+    as print's, is untouched even by a limit of 8.
+    """
+
+    def run_script(self, scale):
+        environment = dict(os.environ)
+        environment.pop("QT_QPA_PLATFORM", None)
+        environment.pop(Viewer_Edges.STENCIL_ENVIRONMENT_VARIABLE, None)
+        environment.update(PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0",
+                           QT_SCALE_FACTOR=str(scale))
+        try:
+            result = subprocess.run(
+                [sys.executable, "-c", _STENCIL_SCRIPT, SRC_DIR],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                env=environment, timeout=300,
+            )
+        except subprocess.TimeoutExpired:
+            self.skipTest("the GL render probe timed out")
+        if "CONTEXT OK" not in result.stdout:
+            self.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
+        lines = {line.split()[0]: line.split()[1:] for line in result.stdout.splitlines() if line.strip()}
+        self.assertIn("STENCIL", lines, result.stdout + result.stderr[-2000:])
+        return lines, result.stdout
+
+    def test_the_limit_leaves_every_pixel_as_it_was(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                lines, output = self.run_script(scale)
+                self.assertEqual(float(lines["SCALE"][0]), scale)
+                self.assertEqual(lines["BITS"], ["0", "8"])
+                cases, inexact, engaged, contrasting, printed_differ = map(int, lines["STENCIL"])
+                self.assertEqual(cases, 64)
+                self.assertEqual(inexact, 0, output)
+                self.assertEqual(contrasting, 12)
+                self.assertEqual(engaged, contrasting, output)
+                self.assertEqual(printed_differ, 0, output)
 
 
 if __name__ == "__main__":

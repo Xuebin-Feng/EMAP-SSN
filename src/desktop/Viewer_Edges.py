@@ -26,20 +26,38 @@ float vertex attribute numbers nodes exactly only below that), the edges are
 drawn by VisPy's Line visual from coordinates gathered on the CPU, as before:
 the prefix still spares the filtering, but every slider or node move uploads
 the drawn edges' coordinates again.
+
+Inside a dense cluster each pixel can lie under thousands of edges, but an
+8-bit pixel stops changing long before: the stencil buffer counts the edge
+fragments each pixel takes and drops those past STENCIL_LIMIT before they are
+blended (EdgeStencilLimit), which leaves every pixel as it was. It needs a
+framebuffer with an 8-bit stencil buffer; without one, or with
+SSN_EDGE_STENCIL_LIMIT=0, the edges are drawn as before.
 """
 
 from __future__ import annotations
 
 import os
+import weakref
 
 import numpy as np
 from vispy import gloo, scene
+from vispy.gloo.context import get_current_canvas
 from vispy.scene.visuals import create_visual_node
 from vispy.visuals import Visual
 
 
 POSITION_TEXTURE_ENVIRONMENT_VARIABLE = "SSN_EDGE_POSITION_TEXTURE"
+STENCIL_ENVIRONMENT_VARIABLE = "SSN_EDGE_STENCIL_LIMIT"
 _OFF_VALUES = {"0", "off", "false", "no"}
+# The most edge fragments a pixel takes. All edges share one colour and alpha,
+# and 8-bit blending leaves a pixel unchanged once alpha times its distance
+# from the edge colour is under half a level: within about 190 layers for any
+# alpha above 1/510 (below that an edge changes no pixel at all). So 255, all
+# an 8-bit stencil counts, leaves every pixel as drawing every edge does.
+STENCIL_LIMIT = 255
+# The stencil bits the limit needs: it counts to STENCIL_LIMIT.
+STENCIL_BITS_NEEDED = 8
 # Node numbers travel to the GPU as float32 vertex attributes, exact below 2**24.
 MAX_TEXTURE_NODES = 1 << 24
 # Texels per row of the position texture. Both texture sides are powers of two,
@@ -53,6 +71,156 @@ _NOT_BUILT = object()
 def position_texture_enabled(node_count):
     value = os.environ.get(POSITION_TEXTURE_ENVIRONMENT_VARIABLE, "").strip().lower()
     return value not in _OFF_VALUES and node_count < MAX_TEXTURE_NODES
+
+
+def stencil_limit_enabled():
+    value = os.environ.get(STENCIL_ENVIRONMENT_VARIABLE, "").strip().lower()
+    return value not in _OFF_VALUES
+
+
+# OpenGL 3.0 / OpenGL ES 2.0 names for asking a framebuffer about its stencil buffer.
+_GL_FRAMEBUFFER = 0x8D40
+_GL_FRAMEBUFFER_BINDING = 0x8CA6
+_GL_STENCIL = 0x1802             # the stencil buffer of the default framebuffer
+_GL_STENCIL_ATTACHMENT = 0x8D20  # that of a framebuffer object
+_GL_ATTACHMENT_OBJECT_TYPE = 0x8CD0
+_GL_ATTACHMENT_STENCIL_SIZE = 0x2217
+_GL_NONE = 0
+# glGetIntegerv's older question, answered by compatibility profiles only.
+_GL_STENCIL_BITS = 0x0D57
+
+
+def _clear_gl_errors(gl):
+    """Take back the errors a failed question left, so VisPy's next check
+    does not report them against a draw."""
+    for _ in range(16):
+        if not gl.glGetError():
+            return
+
+
+def framebuffer_stencil_bits(gl):
+    """The stencil bits of the framebuffer bound now, or 0 when it has none
+    or the driver cannot say. gl is vispy.gloo.gl, with a context current."""
+    bits = 0
+    try:
+        bound = gl.glGetParameter(_GL_FRAMEBUFFER_BINDING)
+        attachment = _GL_STENCIL_ATTACHMENT if bound else _GL_STENCIL
+        kind = gl.glGetFramebufferAttachmentParameter(
+            _GL_FRAMEBUFFER, attachment, _GL_ATTACHMENT_OBJECT_TYPE)
+        if not gl.glGetError():
+            if kind == _GL_NONE:
+                return 0
+            bits = gl.glGetFramebufferAttachmentParameter(
+                _GL_FRAMEBUFFER, attachment, _GL_ATTACHMENT_STENCIL_SIZE)
+            if not gl.glGetError() and isinstance(bits, int) and bits > 0:
+                return bits
+        _clear_gl_errors(gl)
+        bits = gl.glGetParameter(_GL_STENCIL_BITS)
+        if gl.glGetError() or not isinstance(bits, int) or bits < 0:
+            bits = 0
+    except Exception:
+        bits = 0
+    finally:
+        try:
+            _clear_gl_errors(gl)
+        except Exception:
+            pass
+    return int(bits)
+
+
+def _gl_renderer(gl):
+    """GL_RENDERER of the current context, for the report."""
+    try:
+        return gl.glGetParameter(gl.GL_RENDERER) or "unknown renderer"
+    except Exception as error:
+        return f"unknown renderer: {error}"
+
+
+def _pushed_framebuffer(canvas):
+    """The framebuffer object canvas.render() or push_fbo draws into, or None
+    for the window's own framebuffer."""
+    stack = getattr(canvas, '_fb_stack', None)
+    return stack[-1][0] if stack else None
+
+
+class EdgeStencilLimit:
+    """Whether the edges draw with the stencil overdraw limit (STENCIL_LIMIT).
+
+    It is decided for the framebuffer they are drawn into. A window's is asked
+    for its stencil bits on the first draw, and the choice is reported once
+    (report, print by default) with the renderer, so a log shows it. A
+    framebuffer object, as canvas.render() makes for print and captures, has a
+    stencil buffer only when its maker attached one; render()'s has none, so
+    prints are drawn as before.
+    """
+
+    def __init__(self, enabled=None, report=print):
+        self.enabled = stencil_limit_enabled() if enabled is None else bool(enabled)
+        self._report = report
+        self._windows = weakref.WeakKeyDictionary()
+
+    def applies(self, canvas):
+        if not self.enabled or canvas is None:
+            return False
+        framebuffer = _pushed_framebuffer(canvas)
+        if framebuffer is not None:
+            return getattr(framebuffer, 'stencil_buffer', None) is not None
+        try:
+            decided = self._windows.get(canvas)
+        except TypeError:
+            return False
+        if decided is None:
+            decided = self._windows[canvas] = self._decide_for_window(canvas)
+        return decided
+
+    def _decide_for_window(self, canvas):
+        from vispy.gloo import gl
+        try:
+            # Run what VisPy has queued, so the window's framebuffer is the one bound.
+            canvas.context.flush_commands()
+            bits = framebuffer_stencil_bits(gl)
+        except Exception:
+            bits = 0
+        renderer = _gl_renderer(gl)
+        if bits >= STENCIL_BITS_NEEDED:
+            self._report(f"Edges: overdraw limit on ({bits} stencil bits; {renderer}).")
+            return True
+        self._report(
+            f"Edges: overdraw limit off, the window has {bits} stencil bits "
+            f"({renderer}); edges are drawn without it."
+        )
+        return False
+
+
+def _limited_state():
+    """The edges' GL state with the limit: a fragment passes while its pixel
+    has taken fewer than STENCIL_LIMIT, and counts itself. Dithering is off,
+    so a pixel's last value is the one blending settles on."""
+    return dict(
+        stencil_test=True,
+        stencil_func=('greater', STENCIL_LIMIT, 0xFF),
+        stencil_op=('keep', 'keep', 'incr'),
+        stencil_mask=0xFF,
+        dither=False,
+    )
+
+
+# What the edges leave behind after a limited draw: GL's defaults, which every
+# other visual draws with.
+_AFTER_LIMITED_STATE = dict(stencil_test=False, dither=True)
+_UNLIMITED_STATE = dict(stencil_test=False)
+
+
+def _draw_with_limit(visual, limit, draw):
+    """Draw visual with the overdraw limit where it applies, then turn the
+    stencil test off again, so markers and text never inherit it."""
+    limited = limit is not None and limit.applies(get_current_canvas())
+    visual.update_gl_state(**(_limited_state() if limited else _UNLIMITED_STATE))
+    try:
+        draw()
+    finally:
+        if limited:
+            gloo.set_state(**_AFTER_LIMITED_STATE)
 
 
 def position_texels(positions):
@@ -241,12 +409,17 @@ class EdgeSegmentsVisual(Visual):
         self._buffers = {}
         self._buffer_sizes = {}
         self._segment_count = 0
+        # The EdgeStencilLimit it draws with; None draws every fragment.
+        self.stencil_limit = None
         self.shared_program['u_color'] = tuple(float(value) for value in color)
         self.set_gl_state('translucent')
 
     @property
     def segment_count(self):
         return self._segment_count
+
+    def draw(self):
+        _draw_with_limit(self, self.stencil_limit, lambda: Visual.draw(self))
 
     def set_node_positions(self, positions):
         """Upload node ``i``'s (x, y) to texel ``i``; positions must be finite."""
@@ -324,6 +497,18 @@ class EdgeSegmentsVisual(Visual):
 EdgeSegments = create_visual_node(EdgeSegmentsVisual)
 
 
+class LimitedLine(scene.visuals.Line):
+    """VisPy's Line, for the coordinate fallback, drawn with an EdgeStencilLimit."""
+
+    def __init__(self, *args, stencil_limit=None, **kwargs):
+        # Set before VisPy freezes the visual's attributes.
+        self.stencil_limit = stencil_limit
+        super().__init__(*args, **kwargs)
+
+    def draw(self):
+        _draw_with_limit(self, self.stencil_limit, super().draw)
+
+
 class ViewerEdges:
     """The Viewer's edge layer: the score order and the visual drawing it.
 
@@ -331,11 +516,12 @@ class ViewerEdges:
     both visible; show_edges draws a given edge list. Each uploads only what
     changed since the previous call: node positions, the visible edges, or
     the explicit list. ``upload_count`` counts edge-buffer uploads, and
-    ``position_upload_count`` node-position uploads.
+    ``position_upload_count`` node-position uploads. Either visual draws with
+    ``stencil_limit`` (an EdgeStencilLimit unless one is given).
     """
 
     def __init__(self, parent, edges, scores, positions, color, width,
-                 name='network_edges', use_position_texture=None):
+                 name='network_edges', use_position_texture=None, stencil_limit=None):
         self.order = EdgeOrder(edges, scores)
         node_count = len(positions)
         if len(self.order) and (
@@ -348,11 +534,14 @@ class ViewerEdges:
         if use_position_texture is None:
             use_position_texture = position_texture_enabled(node_count)
         self.uses_position_texture = bool(use_position_texture)
+        self.stencil_limit = EdgeStencilLimit() if stencil_limit is None else stencil_limit
         if self.uses_position_texture:
             self.visual = EdgeSegments(color=color, width=width, parent=parent, name=name)
+            self.visual.stencil_limit = self.stencil_limit
         else:
-            self.visual = scene.visuals.Line(
+            self.visual = LimitedLine(
                 connect='segments', color=color, width=width, parent=parent, name=name,
+                stencil_limit=self.stencil_limit,
             )
         self.visual.set_gl_state('translucent', depth_test=False)
         # Nothing is uploaded before the first show_threshold or show_edges.

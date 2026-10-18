@@ -891,6 +891,9 @@ class MainViewer:
             show=False,
             title=f"{VIEWER_DISPLAY_NAME} (Live)",
             bgcolor='white',
+            # The edges' overdraw limit counts in the stencil buffer
+            # (desktop.Viewer_Edges.EdgeStencilLimit, which checks what it got).
+            config=dict(stencil_size=8),
         )
         # Keep the complete traceback available if a future VisPy draw
         # callback fails; the default logarithmic reminders hide the cause
