@@ -673,6 +673,7 @@ if __name__ == "__main__":
         FieldTip,
         LiveNote,
         MISSING,
+        PanelHeightAtFirstLayout,
         SpacedTipLabel,
         Tip,
         TipNote,
@@ -1280,11 +1281,6 @@ if __name__ == "__main__":
             self.tip_panel = SpacedTipLabel(translate(
                 "Config", "Click or tab to an input or its label to see helpful tips here."
             ))
-            self.tip_panel.setWordWrap(True)
-            # The panel's text when it last showed a tip (here, the
-            # placeholder). Anything else in it is a status message, such as a
-            # consistency-check result, which hovering must not replace.
-            self._tip_panel_tip_text = self.tip_panel.text()
             add_hint_icon(self.tip_panel)
             self.left_bottom_layout.addWidget(self.tip_panel, 1)
             
@@ -1322,8 +1318,12 @@ if __name__ == "__main__":
             self.left_split.addWidget(self.left_top_widget)
             self.left_split.addWidget(self.left_bottom_widget)
             
-            # The initial heights: the tabs get most of the room, the help card four lines.
-            self.left_split.setSizes([500, 150])
+            # The initial heights: the tabs get most of the room, the tip panel its
+            # fixed height (TIP_PANEL_LINES) and the buttons under it, as many rows of
+            # them as the width makes. What the panel shows never changes its height;
+            # only the splitter does.
+            self.left_split.setSizes([500, self.left_bottom_widget.sizeHint().height()])
+            PanelHeightAtFirstLayout(self.left_split)
             
             # Ensure that if the user resizes the window, extra space goes to the tabs, not the bottom
             self.left_split.setStretchFactor(0, 1)
@@ -2122,12 +2122,8 @@ if __name__ == "__main__":
                         # replace another tip. A status message stays until
                         # the user picks an element with a tip by a left click
                         # or the keyboard; then hovering works again.
-                        if (
-                            self.tip_panel.text() == self._tip_panel_tip_text
-                            or self._picks_tip_target(event)
-                        ):
+                        if self.tip_panel.shows_tip() or self._picks_tip_target(event):
                             self.tip_panel.setTip(tip)
-                            self._tip_panel_tip_text = self.tip_panel.text()
                         if event_type == QEvent.Type.ToolTip:
                             return True
             return super().eventFilter(obj, event)
@@ -2198,8 +2194,7 @@ if __name__ == "__main__":
 
         def _live_tip_changed(self, *_):
             """A field with a live note changed: the tip on display shows what holds now."""
-            if self.tip_panel.refresh():
-                self._tip_panel_tip_text = self.tip_panel.text()
+            self.tip_panel.refresh()
 
         def setup_tips(self):
             self._field_tips = {}

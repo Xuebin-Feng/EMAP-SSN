@@ -31,7 +31,7 @@ if str(SRC_DIR) not in sys.path:
 
 from utilities import Hardware_Acceleration  # noqa: E402,F401 - load torch before PySide6
 from PySide6.QtCore import QEvent, Qt  # noqa: E402
-from PySide6.QtGui import QFocusEvent, QTextCharFormat, QTextDocument  # noqa: E402
+from PySide6.QtGui import QColor, QFocusEvent, QFont, QTextCharFormat, QTextDocument  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
     QApplication,
     QComboBox,
@@ -41,13 +41,26 @@ from PySide6.QtWidgets import (  # noqa: E402
     QLineEdit,
     QSpinBox,
     QTextBrowser,
+    QTextEdit,
     QWidget,
 )
 
 from desktop.Desktop_App import MONOSPACE_QSS_FONT_STACK, NAME_ITEM_ROLE, ToggleSwitch  # noqa: E402
-from desktop.Studio_Theme import TOKENS, add_hint_icon, status_color  # noqa: E402
+from desktop.Studio_Theme import (  # noqa: E402
+    HINT_BORDER,
+    HINT_PADDING,
+    HINT_RIGHT_PADDING,
+    HINT_SCROLL_EDGE,
+    HINT_TEXT_INDENT,
+    TOKENS,
+    add_hint_icon,
+    status_color,
+)
 from desktop.Tip_Panel import (  # noqa: E402
+    CHIP_RADIUS,
     MISSING,
+    TIP_PANEL_LINES,
+    TIP_PANEL_MINIMUM_LINES,
     UNBOUNDED,
     Code,
     CodeList,
@@ -603,7 +616,6 @@ class RenderTests(WithApplication):
     def test_a_long_header_gets_places_to_wrap_so_it_never_widens_the_panel(self):
         header = "sid|18367|pid|10722|hfid|10|sfid|2|gi|914684625|pdb|3WWH(A)|taxonID|1042534|Arthrobactersp.KNK168"
         panel = SpacedTipLabel()
-        panel.setWordWrap(True)
         panel.resize(300, 100)
         panel.show()
         panel.setTip(FieldTip(
@@ -616,7 +628,9 @@ class RenderTests(WithApplication):
         ))
         self.app.processEvents()
         self.assertLessEqual(panel.minimumSizeHint().width(), 300)
-        self.assertGreater(panel.minimumHeight(), 50)
+        # The text wraps at the panel's width, whatever the header: it never needs a horizontal bar.
+        self.assertFalse(panel.horizontalScrollBar().isVisible())
+        self.assertLessEqual(panel.document().idealWidth(), panel.viewport().width() + 1)
         panel.close()
 
 
@@ -624,11 +638,36 @@ class RenderTests(WithApplication):
 # The panel itself
 # ---------------------------------------------------------------------
 
+def wheel(widget, delta=-120):
+    """A real wheel event over the middle of widget (negative scrolls down)."""
+    from PySide6.QtCore import QPoint, QPointF
+    from PySide6.QtGui import QWheelEvent
+
+    middle = QPointF(widget.width() / 2, widget.height() / 2)
+    event = QWheelEvent(
+        middle, widget.mapToGlobal(middle), QPoint(0, 0), QPoint(0, delta),
+        Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False,
+    )
+    QApplication.sendEvent(widget, event)
+
+
+def long_tip(sentences=12, key="LONG"):
+    """A tip too long for the panel's ordinary height, and a short one's field."""
+    return FieldTip(
+        Tip(
+            "A summary that goes on for a good while, so that it wraps. " * 2,
+            details=tuple(f"Detail line number {number}, long enough to wrap in a narrow panel." for number in range(sentences)),
+        ),
+        Field(key=key, label=QLabel("Long field:")),
+    )
+
+
 class PanelTests(WithApplication):
-    def panel(self, width=500):
+    def panel(self, width=500, hint=False):
         panel = SpacedTipLabel("start")
-        panel.setWordWrap(True)
-        panel.resize(width, 100)
+        if hint:
+            add_hint_icon(panel)  # the card the windows put it in
+        panel.resize(width, panel.preferred_height())
         panel.show()
         self.addCleanup(panel.close)
         self.app.processEvents()
@@ -655,39 +694,168 @@ class PanelTests(WithApplication):
         panel.setTip("plain again")
         self.assertEqual(panel.accessibleName(), "")
 
-    def test_the_panel_is_as_tall_as_a_rich_tip_is_at_its_width_and_plain_text_lets_go(self):
-        # Long enough to wrap in a narrow panel, whatever the font.
-        entry = FieldTip(Tip(
-            "A summary that goes on for a good while, so that it wraps. " * 4 + "`chip`",
-            options=(TipOption("auto", "What auto does, in a sentence long enough to wrap at that width. " * 2),),
-            notes=(TipNote("warning", "A caution that also goes on for some time, to wrap. " * 3),),
-        ), Field(key="K"))
-        panel = self.panel()
-        panel.setTip(entry)
-
-        def text_height(width):
-            # A label's height for a width is never less than its minimum height.
-            held = panel.minimumHeight()
-            panel.setMinimumHeight(0)
-            height = panel.heightForWidth(width)
-            panel.setMinimumHeight(held)
-            return height
-
-        for width in (500, 250, 900):
-            panel.resize(width, 100)
+    def test_the_panel_keeps_one_height_whatever_it_shows_and_however_long_it_is(self):
+        entry, _ = full_entry()
+        panel = self.panel(hint=True)
+        height = panel.height()
+        held = (panel.minimumHeight(), panel.minimumSizeHint(), panel.sizeHint())
+        shows = (
+            lambda: panel.setTip(entry),
+            lambda: panel.setTip(long_tip()),
+            lambda: panel.setTip(long_tip(sentences=60)),
+            lambda: panel.setTip("plain\ntip"),
+            lambda: panel.setStatus("danger", "Failed.\n" * 30),
+            lambda: panel.setReport(status_html("success", "row") * 40, "success"),
+            lambda: panel.setText("a plain message\n" * 20),
+            lambda: panel.setTip(entry),
+        )
+        for show in shows:
+            show()
             self.app.processEvents()
-            # Whatever width the panel really has, it is as tall as the text is there.
-            self.assertEqual(panel.minimumHeight(), text_height(panel.width()), width)
-        # The text wraps less when it is wider, so the panel lets go of the height it held.
-        self.assertGreater(text_height(250), text_height(900))
-        panel.resize(250, 100)
+            with self.subTest(text=panel.text()[:60]):
+                self.assertEqual(panel.height(), height)
+                self.assertEqual((panel.minimumHeight(), panel.minimumSizeHint(), panel.sizeHint()), held)
+
+    def test_the_height_is_so_many_lines_of_the_panels_own_font(self):
+        panel = self.panel(hint=True)
+        line = panel.line_height()
+        chrome = 2 * (HINT_BORDER + HINT_PADDING)
+        self.assertEqual(panel.preferred_height(), round(TIP_PANEL_LINES * line) + chrome)
+        self.assertEqual(panel.sizeHint().height(), panel.preferred_height())
+        self.assertEqual(panel.minimumSizeHint().height(), panel.preferred_height(TIP_PANEL_MINIMUM_LINES))
+        # A line is what the font's lines take in the panel: two lines of text step by that much.
+        panel.setTip("one\ntwo")
+        doc_height = panel.document().size().height() - 2 * panel.document().documentMargin()
+        self.assertAlmostEqual(doc_height, 2 * line, delta=2)
+        # The size of the font sets the height, and a font with taller lines for the text does too.
+        bigger = QFont(panel.font())
+        bigger.setPointSizeF(panel.font().pointSizeF() * 1.5)
+        larger = SpacedTipLabel("start")
+        larger.setFont(bigger)
+        self.assertGreater(larger.preferred_height(), panel.preferred_height() * 1.3)
+        self.assertGreater(larger.line_height(), line)
+        chinese = SpacedTipLabel("点击某个输入项或其标签，即可在此查看提示。")
+        self.assertGreaterEqual(chinese.line_height(), 1)
+        # A typical tip fits: the panel shows a tip of seven lines whole.
+        self.assertGreaterEqual(TIP_PANEL_LINES, 7)
+
+    def test_a_tip_that_does_not_fit_scrolls_by_a_vertical_bar_that_shows_only_while_it_is_needed(self):
+        entry = FieldTip(Tip("A short tip."), Field(key="S", label=QLabel("Short field:")))
+        panel = self.panel(width=560, hint=True)
+        panel.setTip(entry)
         self.app.processEvents()
-        narrow = panel.minimumHeight()
-        panel.resize(900, 100)
+        bar = panel.verticalScrollBar()
+        wide_text = panel.viewport().width()
+        self.assertFalse(bar.isVisible())
+        self.assertEqual(bar.maximum(), 0)
+        panel.setTip(long_tip())
         self.app.processEvents()
-        self.assertLess(panel.minimumHeight(), narrow)
-        panel.setTip("plain")
-        self.assertEqual(panel.minimumHeight(), 0)
+        self.assertTrue(bar.isVisible())
+        self.assertGreater(bar.maximum(), 0)
+        # The text wraps at what is left of the width: nothing is cut off under the bar.
+        self.assertLess(panel.viewport().width(), wide_text)
+        self.assertAlmostEqual(panel.document().textWidth(), panel.viewport().width(), delta=1)
+        self.assertLessEqual(panel.document().size().height(), panel.verticalScrollBar().maximum() + panel.viewport().height() + 1)
+        for tip in (entry, long_tip(), "plain"):
+            panel.setTip(tip)
+            self.app.processEvents()
+            self.assertFalse(panel.horizontalScrollBar().isVisible())
+        panel.setTip("short")
+        self.app.processEvents()
+        self.assertFalse(bar.isVisible())
+        self.assertEqual(panel.viewport().width(), wide_text)
+
+    def test_the_bar_appearing_does_not_set_the_text_relaying_in_a_loop(self):
+        from PySide6.QtCore import QEvent, QObject
+
+        class Resizes(QObject):
+            count = 0
+
+            def eventFilter(self, watched, event):
+                if event.type() == QEvent.Type.Resize:
+                    self.count += 1
+                return False
+
+        panel = self.panel(width=560, hint=True)
+        resizes = Resizes(panel)
+        panel.viewport().installEventFilter(resizes)
+        counts = []
+        for _ in range(3):
+            for tip in (long_tip(), "short", long_tip(sentences=3)):
+                resizes.count = 0
+                panel.setTip(tip)
+                self.app.processEvents()
+                counts.append(resizes.count)
+        # The viewport narrows once when the bar comes and widens once when it goes.
+        self.assertLessEqual(max(counts), 2, counts)
+
+    def test_each_new_tip_or_message_starts_at_the_top_and_the_wheel_scrolls(self):
+        panel = self.panel(width=560, hint=True)
+        bar = panel.verticalScrollBar()
+        panel.setTip(long_tip())
+        self.app.processEvents()
+        self.assertEqual(bar.value(), 0)
+        wheel(panel.viewport())
+        self.assertGreater(bar.value(), 0)
+        # Hovering the same field again leaves the tip where the user scrolled it...
+        place = bar.value()
+        panel.setTip(long_tip())
+        self.assertEqual(bar.value(), place)
+        # ...a different tip, a status, a report and plain text start at the top.
+        shows = (
+            lambda: panel.setTip(long_tip(sentences=13, key="OTHER")),
+            lambda: panel.setStatus("warning", "Careful.\n" * 25),
+            lambda: panel.setReport(status_html("danger", "row") * 40, "danger"),
+            lambda: panel.setText("a plain message\n" * 20),
+        )
+        for show in shows:
+            panel.setTip(long_tip(sentences=20, key="MORE"))
+            bar.setValue(bar.maximum())
+            show()
+            self.app.processEvents()
+            with self.subTest(text=panel.text()[:40]):
+                self.assertEqual(bar.value(), 0)
+                self.assertGreater(bar.maximum(), 0)
+        # A wheel over text that fits is left for whatever is behind the panel.
+        panel.setTip("short")
+        self.app.processEvents()
+        before = bar.value()
+        wheel(panel.viewport())
+        self.assertEqual(bar.value(), before)
+
+    def test_a_live_refresh_keeps_the_place_the_user_scrolled_to(self):
+        line = QLineEdit("red")
+        entry = FieldTip(
+            Tip("x", details=tuple(f"Detail line {number} that goes on for a good while." for number in range(14)),
+                live=lambda field: LiveNote("Now", swatch=field.widget.text())),
+            Field(widget=line),
+        )
+        panel = self.panel(width=400, hint=True)
+        panel.setTip(entry)
+        self.app.processEvents()
+        panel.verticalScrollBar().setValue(30)
+        line.setText("#336699")
+        self.assertTrue(panel.refresh())
+        self.assertEqual(panel.verticalScrollBar().value(), 30)
+
+    def test_the_bar_is_the_themes_scroll_bar_inside_the_card(self):
+        panel = self.panel(width=560, hint=True)
+        panel.setTip(long_tip())
+        self.app.processEvents()
+        bar = panel.verticalScrollBar()
+        self.assertTrue(bar.isVisible())
+        # The theme's bar (10 px, at the card's right edge, in the padding), not a native one.
+        self.assertEqual(bar.width(), 10)
+        bar_right = bar.mapTo(panel, bar.rect().topRight()).x()
+        self.assertLessEqual(panel.width() - 1 - bar_right, HINT_BORDER + HINT_SCROLL_EDGE + 2)
+        # The text starts where the card's text always did, the document's margin included.
+        self.assertEqual(
+            panel.viewport().geometry().left() + panel.document().documentMargin(), HINT_BORDER + HINT_TEXT_INDENT
+        )
+        self.assertEqual(panel.property("role"), "hint")
+        # The text keeps clear of the bar by the card's right padding.
+        gap = bar.mapTo(panel, bar.rect().topLeft()).x() - panel.viewport().geometry().right() - 1
+        self.assertEqual(gap + panel.document().documentMargin(), HINT_RIGHT_PADDING - HINT_SCROLL_EDGE)
 
     def test_a_status_without_a_corner_icon_has_its_icon_beside_the_text(self):
         panel = self.panel()
@@ -769,10 +937,10 @@ class PanelTests(WithApplication):
         entry, _ = full_entry()
         panel = self.panel()
         panel.setTip(entry)
-        with mock.patch.object(QLabel, "setText") as set_text:
+        with mock.patch.object(QTextEdit, "setHtml") as set_html:
             panel.setTip(entry)
             panel.setTip(entry)
-        set_text.assert_not_called()
+        set_html.assert_not_called()
 
     def test_change_signal_finds_the_signal_of_a_field(self):
         spin = QSpinBox()
@@ -793,6 +961,198 @@ class PanelTests(WithApplication):
             panel.setTip(FieldTip(FULL, Field(key=f"K{index}", label=QLabel("F:"), default=index)))
         mean = (time.perf_counter() - start) / 40
         self.assertLess(mean, 0.05, f"{mean * 1000:.1f} ms per tip")
+
+    def test_the_panel_knows_whether_it_holds_a_tip_or_a_message(self):
+        entry, _ = full_entry()
+        panel = self.panel()
+        self.assertTrue(panel.shows_tip())  # its placeholder is a tip's place
+        messages = (
+            lambda: panel.setStatus("danger", "Failed."),
+            lambda: panel.setStatus("info", "Working..."),
+            lambda: panel.setReport("<p>Report</p>", "success"),
+            lambda: panel.setText("Plain message"),
+        )
+        for show in messages:
+            for tip in (entry, "a plain tip"):
+                with self.subTest(tip=type(tip).__name__):
+                    panel.setTip(tip)
+                    self.assertTrue(panel.shows_tip())
+                    show()
+                    self.assertFalse(panel.shows_tip())
+        # A live refresh of the tip keeps it a tip; it never touches a message.
+        panel.setTip(entry)
+        self.assertTrue(panel.refresh())
+        self.assertTrue(panel.shows_tip())
+        panel.setStatus("success", "Done.")
+        self.assertFalse(panel.refresh())
+        self.assertFalse(panel.shows_tip())
+        # The same text again does not turn a message into a tip, or a tip into a message.
+        panel.setTip("same")
+        panel.setTip("same")
+        self.assertTrue(panel.shows_tip())
+        panel.setText("same")
+        self.assertFalse(panel.shows_tip())
+
+
+# ---------------------------------------------------------------------
+# Code chips: rounded, drawn behind the text
+# ---------------------------------------------------------------------
+
+def every_chip_entry():
+    """A tip with a code chip in every place the panel puts one."""
+    return FieldTip(
+        Tip(
+            "A summary with `one chip`.",
+            details=("A detail with `another` chip.",),
+            options=(TipOption("auto", "Does `a thing`."), TipOption("scalar", "Does it alone.")),
+            notes=(TipNote("warning", "Careful with `this`."),),
+            live=lambda field: LiveNote("Right now {value}", {"value": Code("42")}),
+        ),
+        Field(key="THE_KEY", label=QLabel("The Field:"), default="auto"),
+    )
+
+
+class ChipTests(WithApplication):
+    def panel(self, width=560, height=400):
+        panel = SpacedTipLabel("start")
+        add_hint_icon(panel)
+        panel.resize(width, height)
+        panel.show()
+        self.addCleanup(panel.close)
+        self.app.processEvents()
+        return panel
+
+    @staticmethod
+    def square_fragments(panel):
+        """The text fragments of the panel's document that have the chip ground as a background."""
+        found = []
+        block = panel.document().begin()
+        while block.isValid():
+            for piece in block.textFormats():
+                brush = piece.format.background()
+                if brush.style() != Qt.BrushStyle.NoBrush and brush.color().name() == TOKENS["surface"]:
+                    found.append(block.text()[piece.start:piece.start + piece.length])
+            block = block.next()
+        return found
+
+    def test_a_chip_is_drawn_for_each_place_the_panel_puts_one_and_the_document_draws_no_square(self):
+        entry = every_chip_entry()
+        panel = self.panel()
+        panel.setTip(entry)
+        self.app.processEvents()
+        # Summary, detail, an option, its text, a note, the live note, the default and the key.
+        expected = chips(tip_html(entry))
+        self.assertEqual(len(expected), 9, expected)
+        self.assertEqual(len(panel.chip_rects()), len(expected))
+        self.assertEqual(self.square_fragments(panel), [])
+        # The text of the chips is still there, as text.
+        shown = panel.toPlainText()
+        for name in ("one chip", "another", "a thing", "this", "42", "THE_KEY"):
+            self.assertIn(name, shown)
+        # What the panel reads back is still the rich text with the chip's ground in it.
+        self.assertEqual(chips(panel.text()), expected)
+
+    def test_a_chip_has_rounded_corners_and_only_the_corners_differ_from_a_square(self):
+        panel = self.panel()
+        panel.setTip(every_chip_entry())
+        self.app.processEvents()
+        with mock.patch("desktop.Tip_Panel.CHIP_RADIUS", 0):
+            square = panel.grab().toImage()
+        rounded = panel.grab().toImage()
+        offset = panel.viewport().mapTo(panel, panel.viewport().rect().topLeft())
+        rects = [rect.translated(offset.x(), offset.y()) for rect, _ in panel.chip_rects()]
+        differing = {
+            (x, y) for y in range(square.height()) for x in range(square.width())
+            if max(abs(square.pixelColor(x, y).red() - rounded.pixelColor(x, y).red()),
+                   abs(square.pixelColor(x, y).green() - rounded.pixelColor(x, y).green()),
+                   abs(square.pixelColor(x, y).blue() - rounded.pixelColor(x, y).blue())) > 2
+        }
+        self.assertTrue(differing)
+        tint = QColor(TOKENS["tint"])
+
+        def near_corner(x, y, rect):
+            return any(
+                abs(x + 0.5 - corner_x) <= CHIP_RADIUS and abs(y + 0.5 - corner_y) <= CHIP_RADIUS
+                for corner_x in (rect.left(), rect.right()) for corner_y in (rect.top(), rect.bottom())
+            )
+
+        # Every difference is at a corner of a chip, and turns the chip's colour into the card's.
+        for x, y in differing:
+            self.assertTrue(any(near_corner(x, y, rect) for rect in rects), (x, y))
+            self.assertLess(
+                abs(rounded.pixelColor(x, y).red() - tint.red()) + abs(rounded.pixelColor(x, y).green() - tint.green()),
+                abs(square.pixelColor(x, y).red() - tint.red()) + abs(square.pixelColor(x, y).green() - tint.green()),
+            )
+        # No chip is cut off at the viewport's edge, the first column of a table at the left edge included.
+        for rect in panel.chip_rects():
+            self.assertGreaterEqual(rect[0].left(), 0)
+            self.assertLessEqual(rect[0].right(), panel.viewport().width())
+        # Every chip has all four corners rounded: differences on both sides, above and below its middle.
+        for rect in rects:
+            middle_x, middle_y = rect.center().x(), rect.center().y()
+            nearby = [(x, y) for x, y in differing if near_corner(x, y, rect)]
+            for left in (True, False):
+                for top in (True, False):
+                    self.assertTrue(
+                        any((x < middle_x) == left and (y < middle_y) == top for x, y in nearby), (rect, left, top)
+                    )
+
+    def test_a_chip_is_as_round_as_the_docs_code_chips(self):
+        self.assertEqual(CHIP_RADIUS, 4)
+
+    def test_a_chip_that_wraps_has_a_rounded_ground_on_each_of_its_lines(self):
+        token = "sid|18367|pid|10722|hfid|10|sfid|2|gi|914684625|pdb|3WWH(A)|taxonID|1042534|Arthrobactersp.KNK168"
+        panel = self.panel(width=300)
+        panel.setTip(FieldTip(Tip(f"Names `{token}` here."), Field(key="K", label=QLabel("L:"))))
+        self.app.processEvents()
+        rects = [rect for rect, _ in panel.chip_rects()]
+        self.assertGreaterEqual(len(rects), 2)
+        self.assertEqual(len({round(rect.top()) for rect in rects}), len(rects))  # one per line
+        for rect in rects:
+            self.assertGreaterEqual(rect.left(), 0)
+            self.assertLessEqual(rect.right(), panel.viewport().width())
+
+    def test_a_chip_scrolls_with_its_text(self):
+        entry = FieldTip(
+            Tip("A summary.", details=tuple(f"Detail line number {number} goes on." for number in range(14))
+                + ("The last line, with `lastchip`.",)),
+            Field(key="K", label=QLabel("L:")),
+        )
+        panel = self.panel(height=SpacedTipLabel("start").preferred_height(5))  # shorter than the tip
+        panel.setTip(entry)
+        self.app.processEvents()
+        bar = panel.verticalScrollBar()
+        self.assertGreater(bar.maximum(), 0)
+        bar.setValue(bar.maximum())
+        self.app.processEvents()
+        rect, colour = panel.chip_rects()[-1]
+        image = panel.grab().toImage()
+        offset = panel.viewport().mapTo(panel, panel.viewport().rect().topLeft())
+        x = int(offset.x() + rect.left() + 1.5)  # inside the ground, left of the first glyph
+        y = int(offset.y() + rect.center().y() - bar.value())
+        self.assertEqual(image.pixelColor(x, y).name(), colour.name())
+        # At the top, the same place is the card's.
+        bar.setValue(0)
+        self.app.processEvents()
+        self.assertEqual(panel.grab().toImage().pixelColor(x, y).name(), TOKENS["tint"])
+
+    def test_a_chip_takes_the_theme_colour_in_force_when_the_tip_is_shown(self):
+        panel = self.panel()
+        with mock.patch.dict(TOKENS, {"surface": "#123456"}):
+            panel.setTip(every_chip_entry())
+            self.app.processEvents()
+            self.assertEqual({colour.name() for _, colour in panel.chip_rects()}, {"#123456"})
+            self.assertEqual(self.square_fragments(panel), [])
+        panel.setTip(every_chip_entry())
+        self.assertEqual({colour.name() for _, colour in panel.chip_rects()}, {TOKENS["surface"]})
+
+    def test_a_message_and_plain_text_have_no_chips(self):
+        panel = self.panel()
+        panel.setTip(every_chip_entry())
+        for show in (lambda: panel.setStatus("info", "m `x`"), lambda: panel.setText("`x`"),
+                     lambda: panel.setReport("<p>r</p>")):
+            show()
+            self.assertEqual(panel.chip_rects(), [])
 
 
 # ---------------------------------------------------------------------
@@ -992,11 +1352,163 @@ class ConfigWindowTipTests(WithApplication):
                 self.click(self.window.labels["TEXT_COLOR"])
                 self.assertIn("Text Color", plain_text(self.panel.text()))
 
-    def test_the_tip_text_the_lock_compares_is_the_rich_text_of_the_last_tip(self):
+    def test_the_panel_itself_says_whether_a_tip_or_a_message_is_on_display(self):
+        self.assertTrue(self.panel.shows_tip())  # the placeholder
         self.click(self.window.labels["ALIGNMENT_REFERENCE"])
-        self.assertEqual(self.window._tip_panel_tip_text, self.panel.text())
+        self.assertTrue(self.panel.shows_tip())
+        self.hover(self.window.labels["TEXT_COLOR"])
+        self.assertTrue(self.panel.shows_tip())
         self.panel.setStatus("info", "msg")
-        self.assertNotEqual(self.window._tip_panel_tip_text, self.panel.text())
+        self.assertFalse(self.panel.shows_tip())
+        self.hover(self.window.labels["TEXT_COLOR"])
+        self.assertFalse(self.panel.shows_tip())
+        self.click(self.window.labels["TEXT_COLOR"])
+        self.assertTrue(self.panel.shows_tip())
+
+    def test_a_tip_that_a_live_note_redraws_is_still_a_tip_that_hovering_replaces(self):
+        # Typing in a field with a live note lays its tip out again; that is no status message.
+        line = self.window.inputs["TEXT_COLOR"]
+        self.click(self.window.labels["TEXT_COLOR"])
+        for text in ("#336699", "#cc0000", ""):
+            line.setText(text)
+            self.assertTrue(self.panel.shows_tip(), text)
+        self.hover(self.window.labels["ALIGNMENT_OFFSET"])
+        self.assertIn("Integer offset", plain_text(self.panel.text()))
+
+    def real_hover(self, widget):
+        """Rest the real pointer on widget, and wait until Qt itself sends it the ToolTip event.
+
+        Returns whether the event came, so a test that sees the panel not follow knows the
+        window's filter had the event to act on (sendEvent returns True even when the filter
+        lets an event through, so it can't tell).
+        """
+        from PySide6.QtCore import QObject, QPoint
+
+        class Spy(QObject):
+            arrived = False
+
+            def eventFilter(spy, watched, event):
+                if watched is widget and event.type() == QEvent.Type.ToolTip:
+                    spy.arrived = True
+                return False
+
+        from PySide6.QtTest import QTest
+
+        spy = Spy()
+        self.app.installEventFilter(spy)
+        try:
+            self.window.activateWindow()
+            QTest.mouseMove(self.window, QPoint(2, 2))
+            QTest.qWait(30)
+            QTest.mouseMove(widget, QPoint(5, 5))
+            QTest.qWait(30)
+            QTest.mouseMove(widget, QPoint(7, 6))
+            waited = 0
+            while not spy.arrived and waited < 3000:
+                QTest.qWait(50)
+                waited += 50
+            self.app.processEvents()
+        finally:
+            self.app.removeEventFilter(spy)
+        return spy.arrived
+
+    def real_click(self, widget, button=Qt.MouseButton.LeftButton):
+        from PySide6.QtCore import QPoint
+        from PySide6.QtTest import QTest
+
+        QTest.mouseClick(widget, button, pos=QPoint(5, 5))
+        self.app.processEvents()
+
+    def test_the_real_pointer_resting_on_fields_shows_their_tips_until_a_message_and_a_left_click(self):
+        # The path a user takes: Qt's own ToolTip event after its delay, then a status message,
+        # then a left click. Config and VR Config share the rule; Tools has none by design.
+        first, second = self.window.labels["NODE_FASTA_FILE"], self.window.labels["MSA_FILE"]
+        self.window.tabs.setCurrentIndex(0)
+        self.assertTrue(first.isVisible() and second.isVisible())
+
+        def title():
+            return plain_text(self.panel.text()).split("\n")[0].strip()
+
+        self.assertTrue(self.panel.shows_tip())  # the placeholder
+        self.assertTrue(self.real_hover(first))
+        self.assertEqual(title(), "Sequence Set / Subset (.fasta)")
+        self.assertTrue(self.real_hover(second))
+        self.assertEqual(title(), "MSA Input (.fasta / _sparse.h5)")
+        self.assertTrue(self.real_hover(first))
+        self.assertEqual(title(), "Sequence Set / Subset (.fasta)")
+        # A status message: hovering leaves it where it is...
+        self.panel.setStatus("success", "Settings saved.")
+        message = self.panel.text()
+        self.assertTrue(self.real_hover(second))
+        self.assertEqual(self.panel.text(), message)
+        self.assertTrue(self.real_hover(first))
+        self.assertEqual(self.panel.text(), message)
+        # (a right click counts as hovering, and so does Qt moving the focus by itself)
+        self.real_click(first, Qt.MouseButton.RightButton)
+        self.assertEqual(self.panel.text(), message)
+        # ...a left click on an element with a tip shows that tip and gives hovering back...
+        self.real_click(first)
+        self.assertEqual(title(), "Sequence Set / Subset (.fasta)")
+        self.assertTrue(self.real_hover(second))
+        self.assertEqual(title(), "MSA Input (.fasta / _sparse.h5)")
+        # ...and a report is a message too.
+        self.panel.setReport("<p>Report</p>", "warning")
+        report = self.panel.text()
+        self.assertTrue(self.real_hover(first))
+        self.assertEqual(self.panel.text(), report)
+        self.real_click(second)
+        self.assertEqual(title(), "MSA Input (.fasta / _sparse.h5)")
+
+    def test_the_tip_area_is_laid_out_at_its_fixed_height_and_keeps_it_whatever_a_tip_or_message_holds(self):
+        window, panel = self.window, self.panel
+        # The window as it first appears: the panel is so many lines of its own font tall.
+        self.assertEqual(panel.height(), panel.preferred_height())
+        for width in (self.window.minimumSizeHint().width(), 1000, 1400):
+            with self.subTest(width=width):
+                window.resize(width, 650)
+                self.app.processEvents()
+                # (The action buttons under it wrap onto another row in a narrow window, as they
+                # always did, and the panel takes up the difference; its content never does.)
+                held = (panel.height(), window.left_split.sizes(), window.tabs.height(),
+                        window.minimumSizeHint(), window.size())
+                shows = [lambda tip=tip: panel.setTip(tip) for tip in
+                         (window._field_tips.get(key, entry) for key, entry in window.tip_db_keys.items())]
+                shows += [
+                    lambda: panel.setStatus("danger", "Failed.\n" * 30),
+                    lambda: panel.setReport(status_html("success", "row") * 40, "success"),
+                    lambda: panel.setText("Plain message"),
+                ]
+                for show in shows:
+                    show()
+                    self.app.processEvents()
+                    self.assertEqual(
+                        (panel.height(), window.left_split.sizes(), window.tabs.height(),
+                         window.minimumSizeHint(), window.size()), held,
+                    )
+
+    def test_a_tip_scrolls_exactly_when_it_does_not_fit_and_the_longest_ones_do(self):
+        window, panel = self.window, self.panel
+        window.resize(1000, 650)
+        self.app.processEvents()
+        bar = panel.verticalScrollBar()
+        heights = {}
+        for key, entry in window.tip_db_keys.items():
+            panel.setTip(window._field_tips.get(key, entry))
+            self.app.processEvents()
+            needed, available = panel.document().size().height(), panel.viewport().height()
+            self.assertEqual(bar.isVisible(), needed > available, (key, needed, available))
+            self.assertFalse(panel.horizontalScrollBar().isVisible(), key)
+            heights[key] = needed
+        # The tip with the options table is the longest, and scrolls; the shortest fits.
+        longest = max(heights, key=heights.get)
+        shortest = min(heights, key=heights.get)
+        self.assertEqual(longest, "NORM_MODE")
+        panel.setTip(window._field_tips[longest])
+        self.app.processEvents()
+        self.assertTrue(bar.isVisible())
+        panel.setTip(window._field_tips[shortest])
+        self.app.processEvents()
+        self.assertFalse(bar.isVisible())
 
     def test_saved_config_lists_the_entries_of_its_own_tabs_selector(self):
         for tab_id, selector in self.window.profile_selectors.items():
@@ -1379,6 +1891,39 @@ class ToolsWindowTipTests(WithApplication):
         event = QHelpEvent(QEvent.Type.ToolTip, QPoint(1, 1), QPoint(1, 1))
         self.assertTrue(self.window.eventFilter(combo, event))
         self.assertIn("Execution Mode", plain_text(self.shown()))
+
+    def test_the_tip_area_keeps_its_height_whatever_a_tip_holds_and_the_window_around_it_stays_put(self):
+        window, panel = self.window, self.panel
+        window.resize(1000, 700)
+        window.show()
+        self.app.processEvents()
+        self.assertEqual(panel.height(), panel.preferred_height())
+        held = (panel.height(), window.left_split.sizes(), window.tabs.height(), window.minimumSizeHint())
+        seen = {}
+        for widget, entry in window.tip_db.items():
+            if isinstance(entry, FieldTip):
+                seen.setdefault(id(entry), entry)
+        self.assertGreater(len(seen), 50)
+        shows = [lambda entry=entry: panel.setTip(entry) for entry in seen.values()]
+        shows += [lambda: panel.setStatus("danger", "Failed.\n" * 30), lambda: panel.setText("Plain\n" * 30)]
+        scrolled = 0
+        for show in shows:
+            show()
+            self.app.processEvents()
+            needed, available = panel.document().size().height(), panel.viewport().height()
+            self.assertEqual(panel.verticalScrollBar().isVisible(), needed > available)
+            scrolled += panel.verticalScrollBar().isVisible()
+            self.assertFalse(panel.horizontalScrollBar().isVisible())
+            self.assertEqual(
+                (panel.height(), window.left_split.sizes(), window.tabs.height(), window.minimumSizeHint()), held,
+            )
+        # What does not fit scrolls (the longest are an options table with notes), and not everything does.
+        self.assertGreater(scrolled, 0)
+        self.assertLess(scrolled, len(shows))
+        # Tools hovers by Enter and has no lock: a message gives way to the next field at once.
+        panel.setStatus("info", "message")
+        self.enter(self.widget("Align_Similarity_Matrix.py", "BATCH_SIZE"))
+        self.assertIn("Batch Size", plain_text(self.shown()))
 
 
 # ---------------------------------------------------------------------

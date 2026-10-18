@@ -562,6 +562,7 @@ from desktop.Tip_Panel import (
     Field,
     FieldTip,
     LiveNote,
+    PanelHeightAtFirstLayout,
     SpacedTipLabel,
     Tip,
     TipNote,
@@ -2906,7 +2907,6 @@ class ToolsGUI(QMainWindow):
         self.left_bottom_layout.setSpacing(TOKENS["card_gap"])
 
         self.tip_panel = SpacedTipLabel(translate("Tools", "Hover or focus on an input to see its description."))
-        self.tip_panel.setWordWrap(True)
         self.tip_panel.setMinimumHeight(20)
         add_hint_icon(self.tip_panel)
         self.left_bottom_layout.addWidget(self.tip_panel, 1)
@@ -2914,8 +2914,10 @@ class ToolsGUI(QMainWindow):
         self.left_split.addWidget(self.left_top_widget)
         self.left_split.addWidget(self.left_bottom_widget)
 
-        # The initial heights: the tabs get most of the room, the help card a few lines.
-        self.left_split.setSizes([500, 150])
+        # The initial heights: the tabs get most of the room, the tip panel its fixed
+        # height (TIP_PANEL_LINES). What the panel shows never changes its height.
+        self.left_split.setSizes([500, self.left_bottom_widget.sizeHint().height()])
+        PanelHeightAtFirstLayout(self.left_split)
 
         # Ensure that if the user resizes the window, extra space goes to the tabs
         self.left_split.setStretchFactor(0, 1)

@@ -353,7 +353,10 @@ ROLES = {
     "QFrame": {
         "separator": "a line between sections, separator_thickness thick, in a light shade of the theme colour",
     },
-    "QTextEdit": {"report": "a read-only report card"},
+    "QTextEdit": {
+        "report": "a read-only report card",
+        "hint": "the help card when it scrolls (the tip panel); add_hint_icon puts an info icon in it",
+    },
 }
 
 # Copies of Lucide icons coloured for the stylesheet: (icon, token), made for
@@ -599,8 +602,17 @@ QFrame[role="separator"] {{
 }}
 QLabel[role="hint"] {{
     background: {t['tint']}; color: {t['text_muted']};
-    border: 1px solid {t['tint']}; border-radius: {t['radius_card']}px;
-    padding: 11px 14px 11px {HINT_TEXT_INDENT}px;
+    border: {HINT_BORDER}px solid {t['tint']}; border-radius: {t['radius_card']}px;
+    padding: {HINT_PADDING}px {HINT_RIGHT_PADDING}px {HINT_PADDING}px {HINT_TEXT_INDENT}px;
+}}
+/* The tip panel scrolls: its scroll bar sits in the card's right padding, and the
+   viewport's own margin keeps the text off it. The text keeps HINT_TEXT_MARGIN from the
+   viewport's edges (the document's margin), room for a code chip's ground, so the
+   padding is that much less. */
+QTextEdit[role="hint"] {{
+    background: {t['tint']}; color: {t['text_muted']};
+    border: {HINT_BORDER}px solid {t['tint']}; border-radius: {t['radius_card']}px;
+    padding: {HINT_PADDING - HINT_TEXT_MARGIN}px {HINT_SCROLL_EDGE}px {HINT_PADDING - HINT_TEXT_MARGIN}px {HINT_TEXT_INDENT - HINT_TEXT_MARGIN}px;
 }}
 QLabel[role="title"] {{ font-weight: 600; font-size: 14px; padding: 0px 2px; }}
 QLabel[role="subtle"] {{ color: {t['text_subtle']}; }}
@@ -615,6 +627,11 @@ QTextEdit[role="report"] {{
 HINT_ICON_SIZE = 16
 HINT_ICON_OFFSET = 15
 HINT_TEXT_INDENT = 40
+HINT_BORDER = 1
+HINT_PADDING = 11            # above and below the text
+HINT_RIGHT_PADDING = 14      # between the text and the card's right edge
+HINT_SCROLL_EDGE = 4         # the scrolling card's padding on the right; its scroll bar lies inside it
+HINT_TEXT_MARGIN = 3         # the scrolling card's text keeps this far from its viewport's edges
 
 
 def studio_palette(t=None):
@@ -1162,7 +1179,12 @@ __all__ = [
     "BLACK_ACCENTS",
     "CardShadows",
     "DEFAULT_THEME_COLOR",
+    "HINT_BORDER",
+    "HINT_PADDING",
+    "HINT_RIGHT_PADDING",
+    "HINT_SCROLL_EDGE",
     "HINT_TEXT_INDENT",
+    "HINT_TEXT_MARGIN",
     "ICONS_DIR",
     "IconLabel",
     "NEUTRAL_SHADES",

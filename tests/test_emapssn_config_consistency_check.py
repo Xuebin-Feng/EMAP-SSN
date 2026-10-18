@@ -594,72 +594,63 @@ class ConsistencyReportWindowTests(unittest.TestCase):
         self.window.eventFilter(label, _left_press())
         self.assertEqual((corner.icon_name, corner.icon_color), ("info", TOKENS["text_subtle"]))
 
-    def test_the_report_is_never_cut_off(self):
+    def test_the_report_scrolls_in_the_panels_fixed_height_and_is_never_cut_off(self):
         window, panel = self.window, self.window.tip_panel
-        for width in (1000, window.minimumSizeHint().width()):
-            with self.subTest(width=width):
-                self.run_check(self.long_headers(), "WP_005", msa_lacks=5)
-                window.resize(width, 650)
-                self.flush()
-                # The splitter keeps no label shorter than its text at its width.
-                self.assertGreaterEqual(panel.height(), panel.heightForWidth(panel.width()))
-                self.assertGreaterEqual(panel.minimumHeight(), panel.heightForWidth(panel.width()))
-
-    def test_the_panel_gives_its_height_back_when_the_window_widens_again(self):
-        from PySide6.QtCore import QEvent, QObject
-
-        class Resizes(QObject):
-            count = 0
-
-            def eventFilter(self, watched, event):
-                if event.type() == QEvent.Type.Resize:
-                    self.count += 1
-                return False
-
-        window, panel = self.window, self.window.tip_panel
-        self.run_check(self.long_headers(), "WP_005", msa_lacks=5)
-        narrow_width = window.minimumSizeHint().width()
         window.resize(1000, 650)
         self.flush()
-        wide_minimum = panel.minimumHeight()
-        resizes = Resizes(panel)
-        panel.installEventFilter(resizes)
-        counts = []
-        for _ in range(3):
-            resizes.count = 0
-            window.resize(narrow_width, 650)
-            self.flush()
-            narrow_minimum, narrow_height = panel.minimumHeight(), panel.height()
-            # A narrower panel wraps more, so the report needs more height...
-            self.assertGreater(narrow_minimum, wide_minimum)
-            self.assertGreaterEqual(narrow_height, panel.heightForWidth(panel.width()))
-            window.resize(1000, 650)
-            self.flush()
-            # ...and the panel gives it back (heightForWidth never goes below the
-            # minimum already set, so the minimum has to be cleared to measure).
-            self.assertEqual(panel.minimumHeight(), wide_minimum)
-            self.assertLess(panel.height(), narrow_height)
-            self.assertGreaterEqual(panel.height(), panel.heightForWidth(panel.width()))
-            counts.append(resizes.count)
-        # Fitting the panel does not feed back into more resizing: each cycle takes the
-        # same few resize events, the width's and the pane's height following it.
-        self.assertEqual(len(set(counts)), 1, counts)
-        self.assertLessEqual(counts[0], 6, counts)
+        height = panel.height()
+        self.assertEqual(height, panel.preferred_height())
+        for width in (1000, window.minimumSizeHint().width()):
+            with self.subTest(width=width):
+                window.resize(width, 650)
+                self.flush()
+                self.run_check(self.long_headers(), "WP_005", msa_lacks=5)
+                self.flush()
+                # The report does not grow the panel: what does not fit scrolls, from the top.
+                self.assertEqual(panel.height(), height)
+                self.assertEqual(panel.minimumHeight(), 0)
+                bar = panel.verticalScrollBar()
+                self.assertTrue(bar.isVisible())
+                self.assertEqual(bar.value(), 0)
+                # Scrolled to the end, the whole report has been through the viewport: nothing is lost.
+                self.assertGreaterEqual(
+                    bar.maximum() + panel.viewport().height(), panel.document().size().height() - 1
+                )
+                self.assertFalse(panel.horizontalScrollBar().isVisible())
+                self.assertAlmostEqual(panel.document().textWidth(), panel.viewport().width(), delta=1)
+                self.assertLessEqual(panel.document().idealWidth(), panel.viewport().width() + 1)
 
-    def test_a_tip_gives_the_panel_back_its_ordinary_size(self):
+    def test_the_window_does_not_move_when_a_report_comes_and_goes(self):
         window, panel = self.window, self.window.tip_panel
+        for width in (window.minimumSizeHint().width(), 1000, 1400):
+            with self.subTest(width=width):
+                window.resize(width, 650)
+                self.flush()
+                before = (panel.height(), window.left_split.sizes(), window.tabs.height(), window.minimumSizeHint())
+                self.run_check(self.long_headers(), "WP_005", msa_lacks=5)
+                self.flush()
+                self.assertEqual(
+                    (panel.height(), window.left_split.sizes(), window.tabs.height(), window.minimumSizeHint()), before
+                )
+                window.eventFilter(window.labels["NODE_FASTA_FILE"], _left_press())
+                self.flush()
+                self.assertEqual(
+                    (panel.height(), window.left_split.sizes(), window.tabs.height(), window.minimumSizeHint()), before
+                )
+
+    def test_a_tip_after_a_report_starts_at_the_top_at_the_same_height(self):
+        window, panel = self.window, self.window.tip_panel
+        window.resize(1000, 650)
+        self.flush()
+        height = panel.height()
         self.run_check(self.long_headers(), "WP_005", msa_lacks=5)
-        report_height = panel.minimumHeight()
-        self.assertGreater(report_height, 0)
+        self.flush()
+        panel.verticalScrollBar().setValue(panel.verticalScrollBar().maximum())
         window.eventFilter(window.labels["NODE_FASTA_FILE"], _left_press())
+        self.flush()
         self.assertIn("Primary FASTA file", panel.text())
-        # The panel is as tall as the tip is, no longer as tall as the long report was.
-        held = panel.minimumHeight()
-        panel.setMinimumHeight(0)
-        needed = panel.heightForWidth(panel.width())
-        panel.setMinimumHeight(held)
-        self.assertEqual(held, needed)
-        self.assertLess(held, report_height)
+        self.assertEqual(panel.height(), height)
+        self.assertEqual(panel.verticalScrollBar().value(), 0)
 
     def test_one_long_header_does_not_widen_the_window(self):
         window = self.window

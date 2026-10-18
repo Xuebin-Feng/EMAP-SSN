@@ -5,8 +5,10 @@
 """The tip panel: the card under a window's form that describes the field in focus.
 
 Config, VR Config and Tools show a field's description there, and each window's
-own messages (a check's result, a failure) too. They share this module's label,
-SpacedTipLabel, and the tip a field gives it.
+own messages (a check's result, a failure) too. They share this module's panel,
+SpacedTipLabel, and the tip a field gives it. The panel is as tall as so many
+lines of its own font (TIP_PANEL_LINES) when its window is first laid out, and
+stays so whatever it shows: what does not fit scrolls.
 
 A tip is either plain text, which the panel shows as it always has (escaped, a
 line break where the text has one), or a Tip, which the panel lays out:
@@ -14,7 +16,8 @@ line break where the text has one), or a Tip, which the panel lays out:
 * a bold title, the field's own label (already translated, without its colon);
 * a summary, then muted detail lines;
 * a table of options, one row each: the option as the field's dropdown shows it,
-  in a code chip, then what it does;
+  in a code chip (a rounded rectangle the panel draws behind the text), then what
+  it does;
 * notes with a status icon: "warning" (a cost or a risk) and "info" (a remark);
 * a live note, such as what AUTO picks right now, with a swatch when it is a colour;
 * a facts footer built from the field itself, not from prose: its default, its
@@ -40,10 +43,31 @@ import unicodedata
 from dataclasses import dataclass, field as dataclass_field, replace
 from typing import Callable, Optional
 
-from PySide6.QtCore import QCoreApplication, Qt
-from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QLabel, QWidget
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QRectF, QSize, Qt
+from PySide6.QtGui import (
+    QColor,
+    QFont,
+    QFontMetricsF,
+    QPainter,
+    QTextCharFormat,
+    QTextCursor,
+    QTextDocument,
+    QTextOption,
+)
+from PySide6.QtWidgets import QAbstractSpinBox, QComboBox, QFrame, QLabel, QTextEdit, QWidget
 
-from desktop.Studio_Theme import TOKENS, IconLabel, coloured_svg, icon_svg, status_color
+from desktop.Studio_Theme import (
+    HINT_BORDER,
+    HINT_PADDING,
+    HINT_RIGHT_PADDING,
+    HINT_SCROLL_EDGE,
+    HINT_TEXT_MARGIN,
+    TOKENS,
+    IconLabel,
+    coloured_svg,
+    icon_svg,
+    status_color,
+)
 
 # The few words the panel itself adds (the facts' labels, the words that stand
 # for the icons) are filed under the context "TipPanel", for every window.
@@ -161,7 +185,13 @@ def is_whole(text):
 
 
 def chip(text):
-    """text as a code chip: monospace on a lighter ground, kept on one line where it is short."""
+    """text as a code chip: monospace on a lighter ground, kept on one line where it is short.
+
+    Rich text can only fill a square, so the ground is the span's background
+    here, which is how the chip reads back from the text. The panel finds
+    every run with that background, takes it off and paints each as a
+    rounded rectangle behind the text (SpacedTipLabel).
+    """
     from desktop.Desktop_App import MONOSPACE_QSS_FONT_STACK
 
     text = str(text)
@@ -511,7 +541,8 @@ def resolve(entry):
 # Drawing it
 # =====================================================================
 
-LINE = "line-height: 120%;"
+LINE_SCALE = 1.2    # a panel line is the font's line, this much taller
+LINE = f"line-height: {round(LINE_SCALE * 100)}%;"
 
 
 def _paragraph(content, margin_top, style=""):
@@ -660,15 +691,122 @@ def change_signal(widget):
     return None
 
 
-class SpacedTipLabel(QLabel):
-    """Help-panel label with proportional multiline spacing, and the rich layouts above."""
+# How many lines of the panel's text the tip area shows without scrolling when the window is
+# first laid out. A panel line is the font's line at LINE_SCALE (what a paragraph of tip text
+# takes, measured by the panel in its own language), and the card's border and padding are
+# counted on top. Seven and a half lines hold the title, a two-line summary, a detail line,
+# a note or two and the facts footer with its rule and the gaps between them: with the
+# windows at their ordinary widths that is 98 % of Config's tips (median 5.6 lines) and 89 %
+# of Tools' (median 4.9). A tip with an options table, several notes and a long footer is
+# longer, 9 to 11 lines, and scrolls.
+TIP_PANEL_LINES = 7.5
+# The least it shrinks to when the user drags the splitter: a title line and a little over.
+# This keeps the windows' minimum height where it was (the label it replaces asked for 51 px).
+TIP_PANEL_MINIMUM_LINES = 1.25
+
+# A code chip is drawn here, behind the text, because rich text ignores border-radius: a
+# rounded rectangle in the chip's own colour, as round as the docs' code chips (4 px) and a
+# little wider and taller than the glyphs, as theirs are (padding 2px 4px).
+CHIP_RADIUS = 4
+CHIP_PADDING_X = 2.5    # less than the panel's text margin (HINT_TEXT_MARGIN), so no chip is cut off at the edge
+CHIP_PADDING_Y = 1
+
+
+class PanelHeightAtFirstLayout(QObject):
+    """Starts a splitter's last pane at the height its tip panel asks for, when the splitter is first shown.
+
+    The pane holds the panel and, in Config, the action buttons under it, which
+    wrap onto more rows in a narrow window. The pane's size hint counts one
+    row, so a splitter set from that hint at construction would leave the panel
+    shorter than its fixed height wherever they wrap. At the first show the
+    layout has a width: the pane then takes what its layout needs at that width,
+    and the tabs above take the rest. What the panel shows never changes this.
+    """
+
+    def __init__(self, split):
+        super().__init__(split)
+        self._split = split
+        split.installEventFilter(self)
+
+    def eventFilter(self, watched, event):
+        if watched is self._split and event.type() == QEvent.Type.Show:
+            self._split.removeEventFilter(self)
+            self.apply()
+        return False
+
+    def apply(self):
+        split = self._split
+        pane = split.widget(split.count() - 1)
+        layout = pane.layout()
+        wanted = (
+            layout.totalHeightForWidth(pane.width()) if layout.hasHeightForWidth() and pane.width() > 0
+            else layout.totalSizeHint().height()
+        )
+        sizes = split.sizes()
+        split.setSizes([*sizes[:-2], sum(sizes[-2:]) - wanted, wanted])
+
+
+class SpacedTipLabel(QTextEdit):
+    """The tip panel: a read-only card of rich text at a fixed height, which scrolls.
+
+    Config, VR Config and Tools put it under their form. It shows a tip (what
+    setTip is given, or the placeholder it starts with) or a message (a
+    status, a report, plain text). Its height does not follow what it shows:
+    a window starts it at preferred_height() and text that does not fit scrolls,
+    with a vertical scroll bar only while it is needed, never a horizontal one.
+    What it shows starts at the top, and the mouse wheel over it scrolls.
+
+    The name is the QLabel it once was, and text() still gives the rich text
+    last shown (the same string the label held). The code chips (see chip())
+    are drawn here with rounded corners, on the theme's lighter ground; the
+    document itself draws only their text.
+    """
 
     def __init__(self, text="", parent=None):
         super().__init__(parent)
-        self._showing_report = False
+        self._html = ""
         self._entry = None
-        self.setTextFormat(Qt.TextFormat.RichText)
-        self.setText(text)
+        self._tip_shown = True
+        self._chips = []
+        self._line_cache = None
+        self._sample = str(text) or "Ag"
+        self.setReadOnly(True)
+        self.document().setUndoRedoEnabled(False)
+        # The text keeps a few pixels from the viewport's edges, which a code chip's
+        # ground, a little wider than its text, needs not to be cut off there.
+        self.document().setDocumentMargin(HINT_TEXT_MARGIN)
+        self.setTextInteractionFlags(Qt.TextInteractionFlag.NoTextInteraction)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
+        self.setAcceptRichText(False)
+        self.setLineWrapMode(QTextEdit.LineWrapMode.WidgetWidth)
+        self.setWordWrapMode(QTextOption.WrapMode.WrapAtWordBoundaryOrAnywhere)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
+        self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        # The card's right padding is a margin of the viewport, so the text keeps
+        # that far from the scroll bar, which lies in what the stylesheet leaves.
+        self.setViewportMargins(0, 0, HINT_RIGHT_PADDING - HINT_SCROLL_EDGE - HINT_TEXT_MARGIN, 0)
+        self._show(self._plain_html(text), "")
+
+    # --- What the panel holds ---
+
+    def text(self):
+        """The rich text on display, as setText, setTip, setStatus and setReport made it."""
+        return self._html
+
+    def shows_tip(self):
+        """Whether the panel holds a tip or its placeholder, not a message.
+
+        A window's hover rule asks this: hovering replaces a tip, and leaves a
+        message (a status, a report, plain text) until the user picks a tip.
+        """
+        return self._tip_shown
+
+    @staticmethod
+    def _plain_html(text):
+        escaped_text = html.escape(str(text)).replace("\r\n", "\n").replace("\r", "\n")
+        return f'<div style="{LINE}">{escaped_text.replace(chr(10), "<br>")}</div>'
 
     def _corner_icon(self):
         """The icon in the panel's corner (Studio_Theme.add_hint_icon puts it there), or None."""
@@ -686,35 +824,38 @@ class SpacedTipLabel(QLabel):
         return True
 
     def setText(self, text):
-        """Show plain text: escaped, a line break where the text has one."""
+        """Show plain text as a message: escaped, a line break where the text has one.
+
+        Like any message, it is not a tip (see shows_tip), so hovering leaves it.
+        """
+        self._tip_shown = False
         self._mark_corner(None)
-        self._showing_report = False
-        self._entry = None
-        self.setMinimumHeight(0)
-        self.setAccessibleName("")
-        escaped_text = html.escape(str(text)).replace("\r\n", "\n").replace("\r", "\n")
-        escaped_text = escaped_text.replace("\n", "<br>")
-        super().setText(f'<div style="line-height: 120%;">{escaped_text}</div>')
+        self._show(self._plain_html(text), "")
 
     def setTip(self, entry):
-        """Show a tip: plain text as setText does, a Tip or FieldTip laid out as its model says."""
+        """Show a tip: plain text as it always was, a Tip or FieldTip laid out as its model says."""
+        self._set_tip(entry, keep_place=False)
+
+    def _set_tip(self, entry, keep_place):
+        self._tip_shown = True
         if isinstance(entry, (Tip, FieldTip)):
             model = resolve(entry)
-            self._show_rich(model_html(model), model_plain(model))
-            self._mark_corner(None)
+            self._show(model_html(model), model_plain(model), keep_place)
             self._entry = entry
         else:
-            self.setText(entry)
+            self._show(self._plain_html(entry), "", keep_place)
+        self._mark_corner(None)
 
     def refresh(self):
         """Lay the tip on display out again, so its live note shows what holds now.
 
         Returns False, and changes nothing, while the panel shows anything else
-        (a status message, plain text), so a field changing never replaces one.
+        (a message, plain text), so a field changing never replaces one. The
+        tip stays where the user scrolled it.
         """
-        if self._entry is None:
+        if not self._tip_shown or self._entry is None:
             return False
-        self.setTip(self._entry)
+        self._set_tip(self._entry, keep_place=True)
         return True
 
     def setStatus(self, kind, text):
@@ -724,13 +865,14 @@ class SpacedTipLabel(QLabel):
         or plain text replaces the message. A panel with no corner icon shows
         the icon beside the text instead.
 
-        Like any status message, it is not the tip the panel last showed
-        (the window's _tip_panel_tip_text), so hovering leaves it in place.
+        A status is a message, not a tip (see shows_tip), so hovering leaves
+        it in place.
         """
+        self._tip_shown = False
         if self._mark_corner(kind):
-            self._show_rich(status_text_html(text), text)
+            self._show(status_text_html(text), text)
         else:
-            self._show_rich(status_html(kind, text), text)
+            self._show(status_html(kind, text), text)
 
     def setReport(self, report_html, status=None):
         """Show a status report, rich text whose own text is already escaped.
@@ -738,49 +880,146 @@ class SpacedTipLabel(QLabel):
         status is its overall verdict ("success", "warning" or "danger"), which
         the corner icon shows. The report's own rows keep their icons.
 
-        Like any status message, it is not the tip the panel last showed
-        (ConfigGUI._tip_panel_tip_text), so hovering leaves it in place.
+        A report is a message, not a tip (see shows_tip), so hovering leaves it in place.
         """
+        self._tip_shown = False
         self._mark_corner(status)
-        self._show_rich(report_html, None)
+        self._show(report_html, None)
 
-    def _show_rich(self, rich_text, plain_text):
+    def _show(self, rich_text, plain_text, keep_place=False):
+        """Put rich_text in the document, scrolled to the top (or where it was, with keep_place)."""
         self._entry = None
-        if self._showing_report and rich_text == self.text():
-            return  # already showing it
-        self._showing_report = True
-        self.setMinimumHeight(0)
         self.setAccessibleName(plain_text or "")
-        super().setText(rich_text)
-        self._fit_report()
+        if rich_text == self._html:
+            return  # already showing it, where the user left it
+        place = self.verticalScrollBar().value() if keep_place else 0
+        self._html = rich_text
+        self.setHtml(rich_text)
+        self._take_chips()
+        self.verticalScrollBar().setValue(place)
 
-    def _fit_report(self):
-        """Keep the panel as tall as its rich text is at the panel's width.
+    # --- The size ---
 
-        A wrapped label's minimum height is only an estimate (the text laid
-        out at a width that suits its proportions), and the splitter around
-        the panel ignores height-for-width, so a report whose rows wrap
-        more than that was cut off at the bottom.
+    def line_height(self):
+        """The height of one line of the panel's text, as it lays it out, in pixels.
+
+        Measured on the text the panel started with (its placeholder, in the
+        window's language), so a font that needs taller lines for that
+        language, Chinese for one, counts: the step between two lines.
         """
-        if self._showing_report and self.wordWrap() and self.width() > 0:
-            # heightForWidth never goes below the minimum already set, so
-            # clear it first, or the panel could only grow as it narrows.
-            self.setMinimumHeight(0)
-            self.setMinimumHeight(self.heightForWidth(self.width()))
+        font = self.font()
+        if self._line_cache is None or self._line_cache[0] != font.key():
+            probe = QTextDocument()
+            probe.setDefaultFont(font)
+            probe.setDocumentMargin(0)
+            heights = []
+            for lines in (1, 2):
+                probe.setHtml(f'<div style="{LINE}">{"<br>".join([html.escape(self._sample)] * lines)}</div>')
+                probe.setTextWidth(-1)
+                heights.append(probe.size().height())
+            self._line_cache = (font.key(), max(1, round(heights[1] - heights[0])))
+        return self._line_cache[1]
 
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        self._fit_report()
+    def preferred_height(self, lines=TIP_PANEL_LINES):
+        """The height of the card for that many lines of text (a number of lines, not only whole ones): the lines, the card's padding and its border."""
+        return round(lines * self.line_height()) + 2 * (HINT_BORDER + HINT_PADDING)
+
+    def sizeHint(self):
+        return QSize(256, self.preferred_height())
+
+    def minimumSizeHint(self):
+        return QSize(64, self.preferred_height(TIP_PANEL_MINIMUM_LINES))
+
+    def setAlignment(self, alignment):
+        """Ignored: the text starts at the card's top left, whichever label code asks (add_hint_icon)."""
+
+    # --- Code chips ---
+
+    def _take_chips(self):
+        """Find the code chips in the document, and take the square ground off them.
+
+        A chip is a run of text with the chip ground (the theme's surface
+        colour) as its background. The document would paint that as a
+        rectangle with square corners, so the ground comes off, and
+        chip_rects() gives the rounded rectangles the panel paints instead.
+        """
+        document = self.document()
+        ground = QColor(TOKENS["surface"])
+        found = []
+        block = document.begin()
+        while block.isValid():
+            for piece in block.textFormats():
+                brush = piece.format.background()
+                if brush.style() != Qt.BrushStyle.NoBrush and brush.color() == ground:
+                    start = block.position() + piece.start
+                    found.append((start, start + piece.length, QTextCharFormat(piece.format)))
+            block = block.next()
+        self._chips = []
+        cursor = QTextCursor(document)
+        for start, end, text_format in found:
+            self._chips.append((start, end, QColor(text_format.background().color()), QFont(text_format.font())))
+            text_format.clearBackground()
+            cursor.setPosition(start)
+            cursor.setPosition(end, QTextCursor.MoveMode.KeepAnchor)
+            cursor.setCharFormat(text_format)
+
+    def chip_rects(self):
+        """(rectangle, colour) of every chip's ground, in document coordinates, a line of a wrapped chip each."""
+        document = self.document()
+        document_layout = document.documentLayout()
+        rects = []
+        for start, end, colour, font in self._chips:
+            block = document.findBlock(start)
+            layout = block.layout()
+            if layout is None:
+                continue
+            # A block's layout is placed within its table cell; the document
+            # layout adds the cell's and the table's place.
+            origin = document_layout.blockBoundingRect(block).topLeft()
+            metrics = QFontMetricsF(font, self.viewport())
+            for number in range(layout.lineCount()):
+                line = layout.lineAt(number)
+                first = max(start - block.position(), line.textStart())
+                last = min(end - block.position(), line.textStart() + line.textLength())
+                if last <= first:
+                    continue
+                left, right = line.cursorToX(first)[0], line.cursorToX(last)[0]
+                baseline = origin.y() + line.y() + line.ascent()
+                rects.append((QRectF(
+                    origin.x() + left - CHIP_PADDING_X,
+                    baseline - metrics.ascent() - CHIP_PADDING_Y,
+                    right - left + 2 * CHIP_PADDING_X,
+                    metrics.ascent() + metrics.descent() + 2 * CHIP_PADDING_Y,
+                ), colour))
+        return rects
+
+    def paintEvent(self, event):
+        rects = self.chip_rects()
+        if rects:
+            painter = QPainter(self.viewport())
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            painter.translate(-self.horizontalScrollBar().value(), -self.verticalScrollBar().value())
+            painter.setPen(Qt.PenStyle.NoPen)
+            for rect, colour in rects:
+                painter.setBrush(colour)
+                painter.drawRoundedRect(rect, CHIP_RADIUS, CHIP_RADIUS)
+            painter.end()
+        # The document draws its text over the chips.
+        super().paintEvent(event)
 
 
 __all__ = [
+    "CHIP_RADIUS",
     "Code",
     "CodeList",
     "Field",
     "FieldTip",
     "LiveNote",
     "MISSING",
+    "PanelHeightAtFirstLayout",
     "SpacedTipLabel",
+    "TIP_PANEL_LINES",
+    "TIP_PANEL_MINIMUM_LINES",
     "Tip",
     "TipModel",
     "UNBOUNDED",
