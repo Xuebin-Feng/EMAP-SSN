@@ -6225,7 +6225,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.</source>
+        <source>Auto times a short sample of the search to pick the fastest device and plan; a search estimated at 1 s or less stays on the CPU. A device you choose is still tuned for its fastest plan.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

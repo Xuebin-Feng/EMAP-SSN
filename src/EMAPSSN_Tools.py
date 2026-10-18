@@ -2065,7 +2065,7 @@ class ToolsGUI(QMainWindow):
                 "DEVICE_SELECTION": Tip(
                     translate("Tools", "Hardware used for residue score matrices."),
                     notes=(
-                        TipNote("info", translate("Tools", "Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.")),
+                        TipNote("info", translate("Tools", "Auto times a short sample of the search to pick the fastest device and plan; a search estimated at 1 s or less stays on the CPU. A device you choose is still tuned for its fastest plan.")),
                     ),
                     live=_detected_devices_note,
                 ),

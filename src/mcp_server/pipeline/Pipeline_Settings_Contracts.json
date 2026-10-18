@@ -737,7 +737,7 @@
       "DEVICE_SELECTION": {
         "type": "string",
         "default": "auto",
-        "description": "Device: Hardware used for residue score matrices. Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.",
+        "description": "Device: Hardware used for residue score matrices. Auto times a short sample of the search to pick the fastest device and plan; a search estimated at 1 s or less stays on the CPU. A device you choose is still tuned for its fastest plan.",
         "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$"
       },
       "ACCELERATOR_PRECISION": {

@@ -6332,7 +6332,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">阶段 {number}</translation>
     </message>
     <message>
-        <location filename="../../../utilities/Network_Kernels.py" line="+807"/>
+        <location filename="../../../utilities/Network_Kernels.py" line="+1215"/>
         <source>Leiden clustering failed: {error}</source>
         <translation type="unfinished">Leiden 聚类失败：{error}</translation>
     </message>
@@ -9125,12 +9125,11 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">计算残基得分矩阵时使用的硬件。</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Searches below 512 targets retain the scalar path; larger CUDA searches may batch targets.</source>
-        <translation type="unfinished">目标少于 512 条的搜索保持标量方式；更大的 CUDA 搜索可能会分批处理目标。</translation>
+        <translation type="obsolete">目标少于 512 条的搜索保持标量方式；更大的 CUDA 搜索可能会分批处理目标。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
         <source>Considers IEEE FP32 and validated TF32 only (TF32 is considered for at least 4,096 targets).</source>
         <translation type="unfinished">只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。</translation>
     </message>
@@ -10182,7 +10181,12 @@ Fedora / RHEL：
         <translation type="unfinished">选择用“全局”还是“局部”网络得分为引导树分支加权。</translation>
     </message>
     <message>
-        <location line="+1285"/>
+        <location line="+305"/>
+        <source>Auto times a short sample of the search to pick the fastest device and plan; a search estimated at 1 s or less stays on the CPU. A device you choose is still tuned for its fastest plan.</source>
+        <translation type="unfinished">自动模式会先对搜索的一小部分计时，选出最快的设备和方案；估计耗时不超过 1 秒的搜索仍留在 CPU 上。你指定的设备仍会为其调优出最快的方案。</translation>
+    </message>
+    <message>
+        <location line="+980"/>
         <location line="+177"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>
