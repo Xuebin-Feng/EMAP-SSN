@@ -145,6 +145,9 @@ still change before version 1.0.0.
   `zoom` and `print … zoom N` commands, their help, the docs and the agent's instructions
   use the same percentage (see Upgrade Notes); `zoom 500 junk` now fails instead of
   ignoring the extra word.
+- The code chips in the Tools help pane have clearly rounded corners that scale with
+  the text, so the large chip in a page's title looks as rounded as the small ones in
+  the text.
 
 ### Fixed
 
@@ -161,6 +164,10 @@ still change before version 1.0.0.
   the key went to the canvas, which ignores it outside the command line. The card now
   answers the standard Copy key for the field with a selection, and Select All for the
   field last clicked. While the command line is open, Ctrl+C still copies the command.
+- In the Tools help pane, a code block indented under a list item showed as one line of
+  inline code with its language name in front: the Sanitize Sequences page's FASTA
+  structure read "text >Sequence_Header_1 … MKVLLVSDA…". Such blocks now show as code
+  blocks with their lines, in English and Chinese.
 
 ## [0.4.0] - 2026-10-16
 
