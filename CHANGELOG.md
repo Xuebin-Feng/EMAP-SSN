@@ -173,6 +173,17 @@ still change before version 1.0.0.
   view goes from about 8 to 17 frames per second on an RTX 4070. The Viewer checks that its
   window has an 8-bit stencil buffer and otherwise draws as before, printing which it uses
   at start-up; print and exports are unchanged. `SSN_EDGE_STENCIL_LIMIT=0` turns it off.
+- Embedding SSEARCH's tiled GPU plan is 2.6 to 3.7 times faster with the same results,
+  bit for bit: a reader thread prefetches the next targets from the HDF5 file while the
+  GPU works, each block is uploaded once into one packed buffer, and each batch of targets
+  is aligned in one CPU task. Its dynamic programming uses new float32 kernels that also
+  report the path length and identities, wherever they are proven exact (global mode with
+  a gap of 0, local mode with a gap of 0 or a negative power of two, with the old kernel
+  for scores past the exact range); the CPU pool and scalar GPU plans use them too. On a
+  44,000-target test a global search now takes about 16 to 19 s including the hardware
+  benchmark, against about 100 s before these changes. The tiled plan uses about 256 MB of
+  pinned host memory and 64 MB more video memory. The Device tip no longer says that
+  searches under 512 targets stay on the scalar path.
 
 ### Fixed
 
