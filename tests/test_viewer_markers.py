@@ -247,6 +247,155 @@ class HoverMarkersTests(unittest.TestCase):
             self.assertIsNone(viewer.hovered_node_idx)
 
 
+class IdentityTransforms:
+    """A TransformSystem, and a node transform, whose scene, canvas and
+    framebuffer coordinates are one."""
+
+    @staticmethod
+    def map(points):
+        points = np.asarray(points, dtype=float)
+        flat = np.atleast_2d(points)[:, :2]
+        mapped = np.column_stack([flat, np.zeros(len(flat)), np.ones(len(flat))])
+        return mapped[0] if points.ndim == 1 else mapped
+
+    imap = map
+
+    def get_transform(self, map_from, map_to):
+        return self
+
+
+class ClickPickTests(unittest.TestCase):
+    """Every click acts on the node the hover highlights (pick_hovered_node).
+
+    Node A is small and drawn first; node B is big and drawn over it; the
+    cursor is on A's centre, inside B. The old rule, the nearest centre within
+    a radius from the node size, took A; every click now takes B.
+    """
+
+    A, B, C = 0, 1, 2
+
+    def make_viewer(self):
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.n_nodes = 3
+        viewer.pos = np.array([[50.0, 0.0], [62.0, 0.0], [200.0, 0.0]])
+        viewer.visible_mask = np.ones(3, dtype=bool)
+        viewer.full_headers = ["A first", "B second", "C third"]
+        viewer.sequences_map = {"A": "MKA", "B": "MKB", "C": "MKC"}
+        viewer.cluster_labels = viewer.group_labels = None
+        viewer.selected_indices = []
+        viewer.selected_node_idx = viewer.hovered_node_idx = None
+        viewer.left_click_highlight_indices = None
+        viewer.is_multi_dragging = viewer.is_box_selecting = False
+        viewer.console_mode = False
+        viewer.tooltip = SimpleNamespace(text="")
+        viewer.hud_displays = {}
+        viewer.selection_box = SimpleNamespace(set_data=mock.Mock(), visible=False)
+        transforms = IdentityTransforms()
+        viewer.canvas = SimpleNamespace(scene=SimpleNamespace(node_transform=lambda _scene: transforms),
+                                        update=mock.Mock(), pixel_scale=1.0)
+        viewer.view = SimpleNamespace(scene=object())
+        viewer.markers = SimpleNamespace(visible=True, transforms=transforms)
+        viewer._marker_picker = Viewer_Markers.MarkerPicker(
+            np.array([self.A, self.B, self.C]), np.zeros(3, dtype=bool), viewer.pos,
+            np.array([6.0, 40.0, 10.0]), np.full(3, 0.5), Viewer_Markers.symbol_codes_of(["disc"] * 3), 1.0)
+        for name in ("_save_state", "update_selection_visual", "apply_left_click_focus",
+                     "clear_left_click_focus", "_show_click_status", "update_console_background",
+                     "broadcast_event"):
+            setattr(viewer, name, mock.Mock())
+        return viewer
+
+    def press(self, viewer, x, button, modifiers=()):
+        clipboard = mock.Mock()
+        native = SimpleNamespace(clipboard=lambda: clipboard)
+        event = SimpleNamespace(pos=np.array([float(x), 0.0]), button=button, buttons=[button],
+                                modifiers=list(modifiers), handled=False)
+        with mock.patch("vispy.app.use_app", return_value=SimpleNamespace(native=native)), \
+                mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
+            viewer.on_mouse_press(event)
+        return clipboard, event
+
+    def test_the_old_rule_and_the_drawing_disagree_here(self):
+        viewer = self.make_viewer()
+        distances = np.hypot(*(viewer.pos - [50.0, 0.0]).T)
+        self.assertEqual(int(np.argmin(distances)), self.A)
+        self.assertEqual(viewer.pick_hovered_node((50.0, 0.0)), self.B)
+
+    def test_a_left_click_highlights_the_node_on_top(self):
+        viewer = self.make_viewer()
+        self.press(viewer, 50, 1)
+        viewer.apply_left_click_focus.assert_called_once_with(self.B)
+        viewer.clear_left_click_focus.assert_not_called()
+
+    def test_a_right_click_selects_the_node_on_top_and_drags_it(self):
+        viewer = self.make_viewer()
+        self.press(viewer, 50, 2)
+        self.assertEqual(viewer.selected_indices, [self.B])
+        self.assertTrue(viewer.is_multi_dragging)
+        np.testing.assert_array_equal(viewer.drag_start_nodes_pos, viewer.pos[[self.B]])
+        self.assertFalse(viewer.is_box_selecting)
+        viewer = self.make_viewer()
+        viewer.selected_indices = [self.A, self.B]
+        self.press(viewer, 50, 2, ["Control"])
+        self.assertEqual(viewer.selected_indices, [self.A])
+        viewer = self.make_viewer()
+        self.press(viewer, 50, 2, ["Shift"])
+        self.assertEqual(viewer.selected_indices, [self.B])
+
+    def test_shift_and_control_clicks_copy_the_node_on_top(self):
+        viewer = self.make_viewer()
+        clipboard, _ = self.press(viewer, 50, 1, ["Shift"])
+        clipboard.setText.assert_called_once_with("B second")
+        clipboard, _ = self.press(viewer, 50, 1, ["Control"])
+        clipboard.setText.assert_called_once_with("MKB")
+
+    def test_clicks_over_no_node_do_what_they_did(self):
+        viewer = self.make_viewer()
+        # A left click on empty space clears the highlight.
+        self.press(viewer, 120, 1)
+        viewer.clear_left_click_focus.assert_called_once_with()
+        viewer.apply_left_click_focus.assert_not_called()
+        # Shift and Control clicks copy nothing.
+        for modifier in ("Shift", "Control"):
+            clipboard, _ = self.press(viewer, 120, 1, [modifier])
+            clipboard.setText.assert_not_called()
+        # A right press starts a box; let go where it started, it clears the selection.
+        viewer.selected_indices = [self.C]
+        _, event = self.press(viewer, 120, 2)
+        self.assertTrue(viewer.is_box_selecting)
+        self.assertTrue(viewer.selection_box.visible)
+        self.assertEqual(viewer.selected_indices, [self.C])
+        with mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
+            viewer.on_mouse_release(event)
+        self.assertEqual(viewer.selected_indices, [])
+
+    def test_the_margin_is_the_hover_margin(self):
+        # B is drawn out to 62 + 20 + 0.25 + 1 = 83.25. The pixel at 83 is just
+        # outside it, within the margin; the one at 86 is not.
+        for x, node in ((83, self.B), (86, None)):
+            with self.subTest(x=x):
+                viewer = self.make_viewer()
+                self.assertEqual(viewer.pick_hovered_node((float(x), 0.0)), node)
+                self.press(viewer, x, 1)
+                if node is None:
+                    viewer.clear_left_click_focus.assert_called_once_with()
+                else:
+                    viewer.apply_left_click_focus.assert_called_once_with(node)
+                viewer = self.make_viewer()
+                self.press(viewer, x, 2)
+                self.assertEqual(viewer.is_box_selecting, node is None)
+                self.assertEqual(viewer.selected_indices, [] if node is None else [node])
+
+    def test_every_click_asks_the_hover_pick_where_it_was_pressed(self):
+        for button, modifiers in ((1, ()), (1, ("Shift",)), (1, ("Control",)), (2, ())):
+            with self.subTest(button=button, modifiers=modifiers):
+                viewer = self.make_viewer()
+                with mock.patch.object(viewer, "pick_hovered_node", return_value=self.C) as pick:
+                    _, event = self.press(viewer, 7, button, modifiers)
+                pick.assert_called_once()
+                np.testing.assert_array_equal(pick.call_args.args[0], event.pos)
+
+
 class FakeTransforms:
     """A TransformSystem whose visual coordinates are framebuffer pixels
     divided by scale, y up, and canvas pixels framebuffer pixels divided by
@@ -495,6 +644,7 @@ _PICK_SCRIPT = textwrap.dedent(
     """
     import os
     import sys
+    from types import SimpleNamespace
     import numpy as np
     sys.path.insert(0, sys.argv[1])
     os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
@@ -585,7 +735,10 @@ _PICK_SCRIPT = textwrap.dedent(
         rows, cols = np.nonzero(under >= 0)
         c2f = v.markers.transforms.get_transform("canvas", "framebuffer")
         reach = int(np.ceil(VM.HOVER_MARGIN_PX * scale)) + 1
-        points = on_nodes = wrong = ties = background_picks = background_far = 0
+        points = on_nodes = wrong = ties = background_picks = background_far = clicks = click_mismatches = 0
+        clicked = []
+        v.apply_left_click_focus = lambda node: clicked.append(int(node))
+        v.clear_left_click_focus = lambda: clicked.append(-1)
         step = int(2 * scale)
         for py in range(max(0, rows.min() - 10), min(height, rows.max() + 10), step):
             for px in range(max(0, cols.min() - 10), min(width, cols.max() + 10), step):
@@ -593,6 +746,13 @@ _PICK_SCRIPT = textwrap.dedent(
                 picked = v.pick_hovered_node(((px + 0.5) / scale, (py + 0.5) / scale))
                 picked = -1 if picked is None else picked
                 points += 1
+                if points % 7 == 0:
+                    # A left click here acts on the node the hover picks.
+                    clicked.clear()
+                    v.on_mouse_press(SimpleNamespace(button=1, modifiers=[], handled=False,
+                                                     pos=np.array([(px + 0.5) / scale, (py + 0.5) / scale])))
+                    clicks += 1
+                    click_mismatches += clicked != [picked]
                 if truth >= 0:
                     on_nodes += 1
                     if picked != truth:
@@ -606,6 +766,7 @@ _PICK_SCRIPT = textwrap.dedent(
                     window = under[max(0, py - reach):py + reach + 1, max(0, px - reach):px + reach + 1]
                     background_far += not (window == picked).any()
         print("GRID", kind, points, on_nodes, wrong, ties, background_picks, background_far, flush=True)
+        print("CLICKS", kind, clicks, click_mismatches, flush=True)
     """
 )
 
@@ -672,6 +833,12 @@ class PickPixelTests(unittest.TestCase):
                         self.assertEqual(int(wrong), 0, output)
                         self.assertLessEqual(int(ties), int(on_nodes) // 1000, output)
                         self.assertEqual(int(far), 0, output)
+                clicks = [line.split()[1:] for line in output.splitlines() if line.startswith("CLICKS ")]
+                self.assertEqual(len(clicks), 2, output)
+                for kind, count, mismatches in clicks:
+                    with self.subTest(scene=kind, clicks=True):
+                        self.assertGreater(int(count), 1000, output)
+                        self.assertEqual(int(mismatches), 0, output)
 
 
 if __name__ == "__main__":

@@ -511,33 +511,6 @@ def _web_clients_connected(viewer):
         return bool(server.event_queues)
 
 
-def _topmost_nearest_visible_node_index(
-    positions,
-    visible_mask,
-    point,
-    visible_draw_order=None,
-):
-    """Return the nearest visible node, preferring the later-drawn node on ties."""
-    if visible_draw_order is None:
-        visible_indices = np.flatnonzero(visible_mask)
-    else:
-        candidate_order = np.asarray(visible_draw_order, dtype=np.int64)
-        valid = (candidate_order >= 0) & (candidate_order < len(positions))
-        visible_indices = candidate_order[valid]
-        visible_indices = visible_indices[visible_mask[visible_indices]]
-    if visible_indices.size == 0:
-        return None
-
-    # With depth testing disabled, later entries are drawn over earlier entries,
-    # so search the submitted order in reverse to make exact distance ties match
-    # the visual stacking order.
-    topmost_first = visible_indices[::-1]
-    distances = np.linalg.norm(
-        positions[topmost_first, :2] - np.asarray(point)[:2],
-        axis=1,
-    )
-    return int(topmost_first[np.argmin(distances)])
-
 # =========================================================================
 # MANUAL CUSTOM ATTRIBUTES INITIALIZATION SECTION
 # Users can add custom attributes to be initialized on the viewer at startup
@@ -2733,19 +2706,11 @@ class MainViewer:
             
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
-            
-            nearest_idx = _topmost_nearest_visible_node_index(
-                self.pos,
-                self.visible_mask,
-                mouse_world,
-                getattr(self, '_submitted_visible_node_order', None),
-            )
-            screen_dist = np.inf
-            if nearest_idx is not None:
-                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
-            
-            is_node_clicked = screen_dist < cfg.NODE_SIZE
+
+            # The node the hover highlights here (pick_hovered_node); over
+            # no node the press starts a box selection.
+            nearest_idx = self.pick_hovered_node(event.pos)
+            is_node_clicked = nearest_idx is not None
             self.drag_start_mouse = mouse_world
             self.drag_start_screen = event.pos
             
@@ -2789,21 +2754,8 @@ class MainViewer:
         # ---> 2. SHIFT + LEFT-CLICK LOGIC (Copy to Clipboard) <---
         # Vispy Button 1 = Left Click
         if event.button == 1 and 'Shift' in event.modifiers:
-            tr = self.canvas.scene.node_transform(self.view.scene)
-            mouse_world = tr.map(event.pos)[:2]
-            
-            nearest_idx = _topmost_nearest_visible_node_index(
-                self.pos,
-                self.visible_mask,
-                mouse_world,
-                getattr(self, '_submitted_visible_node_order', None),
-            )
-            screen_dist = np.inf
+            nearest_idx = self.pick_hovered_node(event.pos)
             if nearest_idx is not None:
-                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
-            
-            if screen_dist < (cfg.NODE_SIZE / 1.5):
                 full_header = self.full_headers[nearest_idx]
                 try:
                     # Use Vispy's native app instance, just like in on_key_press
@@ -2825,21 +2777,8 @@ class MainViewer:
         # ---> 2.5 CONTROL + LEFT-CLICK LOGIC (Copy Sequence to Clipboard) <---
         # Vispy Button 1 = Left Click
         if event.button == 1 and ('Control' in event.modifiers or 'Meta' in event.modifiers):
-            tr = self.canvas.scene.node_transform(self.view.scene)
-            mouse_world = tr.map(event.pos)[:2]
-            
-            nearest_idx = _topmost_nearest_visible_node_index(
-                self.pos,
-                self.visible_mask,
-                mouse_world,
-                getattr(self, '_submitted_visible_node_order', None),
-            )
-            screen_dist = np.inf
+            nearest_idx = self.pick_hovered_node(event.pos)
             if nearest_idx is not None:
-                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
-            
-            if screen_dist < (cfg.NODE_SIZE / 1.5):
                 full_header = self.full_headers[nearest_idx]
                 rec_id = full_header.split()[0]
                 
@@ -2884,22 +2823,9 @@ class MainViewer:
         
         # ---> 3. PLAIN LEFT-CLICK LOGIC (Show Highlight) <---
         if event.button == 1 and 'Shift' not in event.modifiers:
-            tr = self.canvas.scene.node_transform(self.view.scene)
-            mouse_world = tr.map(event.pos)[:2]
-            
-            nearest_idx = _topmost_nearest_visible_node_index(
-                self.pos,
-                self.visible_mask,
-                mouse_world,
-                getattr(self, '_submitted_visible_node_order', None),
-            )
-            screen_dist = np.inf
+            # On the node the hover highlights, apply the shared left-click focus.
+            nearest_idx = self.pick_hovered_node(event.pos)
             if nearest_idx is not None:
-                node_screen_pos = tr.inverse.map(self.pos[nearest_idx])[:2]
-                screen_dist = np.linalg.norm(node_screen_pos - event.pos)
-            
-            # If clicked within the node's radius, apply the shared left-click focus.
-            if screen_dist < cfg.NODE_SIZE:
                 self.apply_left_click_focus(nearest_idx)
             else:
                 # Clicking empty space clears the left-click highlight
@@ -3570,7 +3496,8 @@ class MainViewer:
     def pick_hovered_node(self, cursor):
         """The node a cursor at canvas position cursor hovers: the topmost one
         whose drawn shape covers the pixel under it, or, over no node, the
-        one drawn within a pixel of it (desktop.Viewer_Markers.MarkerPicker)."""
+        one drawn within a pixel of it (desktop.Viewer_Markers.MarkerPicker).
+        Clicks act on this node too, so a click acts on what is highlighted."""
         picker = getattr(self, '_marker_picker', None)
         markers = getattr(self, 'markers', None)
         if picker is None or markers is None or not markers.visible:

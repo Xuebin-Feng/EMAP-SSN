@@ -23,7 +23,7 @@ if SRC_DIR not in sys.path:
 
 import Command_Engine
 import EMAPSSN_Config as cfg
-from EMAPSSN_Viewer import MainViewer, _topmost_nearest_visible_node_index
+from EMAPSSN_Viewer import MainViewer
 from desktop.Viewer_Markers import MarkerPicker, symbol_codes_of
 from commands import color as color_command
 from commands import spectrum as spectrum_command
@@ -345,63 +345,40 @@ class NodeRenderOrderTests(unittest.TestCase):
 
 
 class NodePickingOrderTests(unittest.TestCase):
+    """Picking (pick_hovered_node, for hover and clicks) follows the
+    submitted draw order: of nodes drawn at the cursor, the one drawn last."""
+
+    @staticmethod
+    def pick(order, cursor, positions, sizes=None):
+        """Pick at cursor among discs drawn in order (node numbers), where the
+        scene, canvas and framebuffer coordinates are one."""
+        order = np.asarray(order, dtype=np.int64)
+        sizes = np.full(len(order), 10.0) if sizes is None else np.asarray(sizes, dtype=float)
+        picker = MarkerPicker(order, np.zeros(len(order), dtype=bool), np.asarray(positions, float),
+                              sizes, np.full(len(order), 0.5), symbol_codes_of(["disc"] * len(order)), 1.0)
+        return picker.pick(ScreenTransforms(), cursor, 1.0)
+
     def test_identical_positions_choose_later_drawn_node(self):
-        positions = np.array([[3.0, 4.0], [3.0, 4.0]], dtype=np.float32)
-
-        selected = _topmost_nearest_visible_node_index(
-            positions,
-            np.array([True, True]),
-            np.array([3.0, 4.0]),
-        )
-
-        self.assertEqual(selected, 1)
-
-    def test_nearest_node_still_wins_when_distances_differ(self):
-        positions = np.array([[0.0, 0.0], [2.0, 0.0]], dtype=np.float32)
-
-        selected = _topmost_nearest_visible_node_index(
-            positions,
-            np.array([True, True]),
-            np.array([0.25, 0.0]),
-        )
-
-        self.assertEqual(selected, 0)
+        positions = [[3.0, 4.0], [3.0, 4.0]]
+        self.assertEqual(self.pick([0, 1], (3.0, 4.0), positions), 1)
 
     def test_identical_positions_follow_submitted_draw_order(self):
-        positions = np.array(
-            [[3.0, 4.0], [3.0, 4.0], [3.0, 4.0]], dtype=np.float32
-        )
+        positions = [[3.0, 4.0], [3.0, 4.0], [3.0, 4.0]]
+        self.assertEqual(self.pick([2, 0, 1], (3.0, 4.0), positions), 1)
 
-        selected = _topmost_nearest_visible_node_index(
-            positions,
-            np.array([True, True, True]),
-            np.array([3.0, 4.0]),
-            np.array([2, 0, 1]),
-        )
-
-        self.assertEqual(selected, 1)
+    def test_the_node_drawn_on_top_wins_over_a_nearer_centre(self):
+        # Node 0 is small and drawn first; node 1 is big and drawn over it.
+        positions = [[0.0, 0.0], [8.0, 0.0]]
+        self.assertEqual(self.pick([0, 1], (0.0, 0.0), positions, sizes=[4.0, 30.0]), 1)
+        self.assertEqual(self.pick([1, 0], (0.0, 0.0), positions, sizes=[30.0, 4.0]), 0)
 
     def test_hidden_top_node_is_not_pickable(self):
-        positions = np.array([[3.0, 4.0], [3.0, 4.0]], dtype=np.float32)
-
-        selected = _topmost_nearest_visible_node_index(
-            positions,
-            np.array([True, False]),
-            np.array([3.0, 4.0]),
-        )
-
-        self.assertEqual(selected, 0)
+        # Node 1 is hidden, so it has no marker: only node 0 is drawn.
+        positions = [[3.0, 4.0], [3.0, 4.0]]
+        self.assertEqual(self.pick([0], (3.0, 4.0), positions), 0)
 
     def test_no_visible_nodes_returns_none(self):
-        positions = np.array([[3.0, 4.0], [3.0, 4.0]], dtype=np.float32)
-
-        selected = _topmost_nearest_visible_node_index(
-            positions,
-            np.array([False, False]),
-            np.array([3.0, 4.0]),
-        )
-
-        self.assertIsNone(selected)
+        self.assertIsNone(self.pick([], (3.0, 4.0), [[3.0, 4.0], [3.0, 4.0]]))
 
 
 class LeftClickFocusTests(unittest.TestCase):
