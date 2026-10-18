@@ -173,6 +173,14 @@ still change before version 1.0.0.
   view goes from about 8 to 17 frames per second on an RTX 4070. The Viewer checks that its
   window has an 8-bit stencil buffer and otherwise draws as before, printing which it uses
   at start-up; print and exports are unchanged. `SSN_EDGE_STENCIL_LIMIT=0` turns it off.
+- The Viewer keeps the last picture of its edges and reuses it for frames where only the
+  nodes or text change: hovering, the click halo, tooltips, typing, status messages, the
+  HUD and the sidebar. With 30,000 nodes and 8 million edges, hovering goes from 15–24 to
+  60 frames per second, with the same pixels. The picture is redrawn whenever the view,
+  the window, the background or anything about the edges changes; print and other
+  captures always draw the edges directly. It costs about 5 bytes per pixel of video
+  memory (about 40 MB at 4K). If the picture can't be kept, the Viewer draws as before and
+  says so at start-up; `SSN_EDGE_IMAGE_CACHE=0` turns it off.
 - Embedding SSEARCH's tiled GPU plan is 2.6 to 3.7 times faster with the same results,
   bit for bit: a reader thread prefetches the next targets from the HDF5 file while the
   GPU works, each block is uploaded once into one packed buffer, and each batch of targets
