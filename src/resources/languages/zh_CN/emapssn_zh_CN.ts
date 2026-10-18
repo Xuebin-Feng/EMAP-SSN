@@ -7091,7 +7091,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>TipPanel</name>
     <message>
-        <location filename="../../../desktop/Tip_Panel.py" line="+402"/>
+        <location filename="../../../desktop/Tip_Panel.py" line="+411"/>
         <source>(empty)</source>
         <translation type="unfinished">（空）</translation>
     </message>
@@ -7442,20 +7442,20 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+544"/>
-        <location line="+531"/>
+        <location line="+538"/>
         <location line="+234"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
     <message>
-        <location line="-765"/>
-        <location line="+532"/>
+        <location line="-772"/>
+        <location line="+539"/>
         <location line="+234"/>
         <source>AUTO OFF</source>
         <translation type="unfinished">自动：关</translation>
     </message>
     <message>
-        <location line="-764"/>
+        <location line="-771"/>
         <source>Automatic host cache</source>
         <translation type="unfinished">自动主机缓存</translation>
     </message>
@@ -8021,7 +8021,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">加速器精度：“自动 32 位”只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的目标上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+790"/>
+        <location line="+797"/>
         <source>Sequence Sanitization Settings:</source>
         <translation type="unfinished">序列清理设置：</translation>
     </message>
@@ -8049,7 +8049,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message numerus="yes">
-        <location line="-1042"/>
+        <location line="-1049"/>
         <source>This computer has %n logical CPU(s).</source>
         <translation type="unfinished">
             <numerusform>这台计算机有 %n 个逻辑 CPU。</numerusform>
@@ -8076,7 +8076,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">所在磁盘剩余 {free}。</translation>
     </message>
     <message>
-        <location line="+447"/>
+        <location line="+454"/>
         <source>The raw FASTA sequence database to clean.</source>
         <translation type="unfinished">要清理（sanitize）的原始 FASTA 序列库。</translation>
     </message>
@@ -10038,7 +10038,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-4980"/>
+        <location line="-4987"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -10168,7 +10168,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+1021"/>
+        <location line="+1028"/>
         <source>Selects whether to weight guide tree branches using global or local network scores.</source>
         <translation type="unfinished">选择用“全局”还是“局部”网络得分为引导树分支加权。</translation>
     </message>
