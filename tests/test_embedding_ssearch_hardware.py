@@ -703,14 +703,16 @@ class TunerEmulationTests(unittest.TestCase):
     TARGETS = 44000
     BLOCK = 2000
     # Seconds: CPU serial per target, pool per target, scalar per target, tiled per target, per block, per pass.
-    SERIAL, POOL, SCALAR, TILED, PER_BLOCK, PER_PASS = 0.004, 0.001, 0.0015, 0.0007, 0.012, 0.012
+    SERIAL, POOL, SCALAR, TILED, PER_BLOCK, PER_PASS = 0.004, 0.001, 0.0015, 0.00025, 0.012, 0.012
 
-    def run_flow(self, *, scalar_start=0.0, pool_setup=3.0, blocks=True, precision="float32", lanes="auto"):
-        tasks = make_tasks(self.TARGETS)
-        lengths = [3] * self.TARGETS
+    def run_flow(self, *, scalar_start=0.0, pool_setup=3.0, blocks=True, precision="float32", lanes="auto",
+                 sample_targets=None, per_pass=None, targets=None):
+        count = self.TARGETS if targets is None else targets
+        tasks = make_tasks(count)
+        lengths = [3] * count
         now = [0.0]
         calls = []
-        block_of = np.arange(self.TARGETS) // self.BLOCK
+        block_of = np.arange(count) // self.BLOCK
 
         def execute(plan, selected, *args, timing=None):
             candidate, variant, prec, count = plan
@@ -724,7 +726,8 @@ class TunerEmulationTests(unittest.TestCase):
             elif variant == "scalar":
                 setup, work = 0.2 + scalar_start, n * self.SCALAR / min(count, 2)
             else:
-                setup, work = 0.1, n * self.TILED + touched * self.PER_BLOCK + self.PER_PASS
+                setup, work = 0.02, n * self.TILED + touched * self.PER_BLOCK + (
+                    self.PER_PASS if per_pass is None else per_pass)
             if prec == "tf32":
                 work *= 0.5
             now[0] += setup + work + shutdown
@@ -754,6 +757,8 @@ class TunerEmulationTests(unittest.TestCase):
                 ssearch, "fixed_query_block_ids",
                 side_effect=None if blocks else RuntimeError("no device"),
                 return_value=block_of))
+            if sample_targets is not None:
+                stack.enter_context(mock.patch.object(ssearch, "TILED_SAMPLE_TARGETS", sample_targets))
             stack.enter_context(redirect_stdout(output))
             plans = ssearch._select_search_plans(
                 tasks, 4, "unused.h5", mock.Mock(feature_dimension=4, dtypes=[np.dtype("float32")]),
@@ -779,6 +784,23 @@ class TunerEmulationTests(unittest.TestCase):
         tiled_blocks = {index // self.BLOCK for index in plans[0].results}
         self.assertEqual(len(tiled_blocks), 1)
         self.assertEqual(len(plans[0].results), len(set(plans[0].results)))
+
+    def test_a_passs_fixed_cost_is_taken_out_of_the_estimate(self):
+        # Each pass pays 0.3 s that a whole search pays once: without the thin passes the estimate would be
+        # (0.3 + 1500 x 0.00025) / (1500 x 0.00025) = 1.8 times the real run.
+        plans, _calls, _text, tasks = self.run_flow(per_pass=0.3)
+        self.assertEqual((plans[0].candidate.spec, plans[0].variant), ("cuda:0", "tiled"))
+        costs = {int(task[0]): 9 for task in tasks}
+        ratio = plans[0].predicted(costs) / (self.true_tiled_seconds() + 0.3)
+        self.assertGreater(ratio, 0.8)
+        self.assertLess(ratio, 1.25)
+
+    def test_the_tiled_sample_has_a_fixed_size_and_a_quarter_of_a_small_search_at_most(self):
+        for targets, expected in ((self.TARGETS, ssearch.TILED_SAMPLE_TARGETS), (3000, 750)):
+            with self.subTest(targets=targets):
+                plans, _calls, _text, _tasks = self.run_flow(targets=targets)
+                tiled = next(plan for plan in plans if plan.variant == "tiled")
+                self.assertEqual(len(tiled.results), expected)
 
     def test_with_the_job_wide_sample_tiled_would_have_been_rejected(self):
         plans, _calls, text, tasks = self.run_flow(blocks=False)
@@ -807,15 +829,19 @@ class TunerEmulationTests(unittest.TestCase):
     def test_a_tiled_trial_warms_up_untimed_and_keeps_the_faster_timed_pass(self):
         _plans, calls, _text, _tasks = self.run_flow()
         tiled = [(n, timed) for spec, variant, _p, lanes, n, timed in calls if variant == "tiled" and lanes == 1]
-        warm, first, second = tiled[:3]
+        warm, first, second, thin_first, thin_second = tiled[:5]
         self.assertFalse(warm[1])
         self.assertLessEqual(warm[0], ssearch.TILED_WARMUP_TARGETS)
         self.assertTrue(first[1] and second[1])
         self.assertEqual(first[0], second[0])
         self.assertGreater(first[0], warm[0])
+        # Then two passes over every third target, which time a pass's fixed cost.
+        self.assertTrue(thin_first[1] and thin_second[1])
+        self.assertEqual(thin_first[0], thin_second[0])
+        self.assertEqual(thin_first[0], len(range(0, first[0], ssearch.TILED_THIN_STEP)))
 
     def test_tf32_is_compared_on_the_tiled_plans_own_sample(self):
-        plans, _calls, text, _tasks = self.run_flow(precision="automatic_32bit", pool_setup=0.2)
+        plans, _calls, text, _tasks = self.run_flow(precision="automatic_32bit", pool_setup=0.2, sample_targets=200)
         self.assertNotIn("target identities differ", text)
         tf32 = [p for p in plans if p.precision == "tf32" and p.variant == "tiled"]
         self.assertTrue(tf32)

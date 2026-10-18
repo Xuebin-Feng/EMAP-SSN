@@ -56,7 +56,6 @@ import gc
 import threading
 import time
 import math
-import statistics
 from tools.tool_helpers.Tool_Pipeline import SearchPlan, SearchSelector, SearchTiming, stratified
 from utilities import Benchmark_Record
 from utilities import Hardware_Acceleration as Hardware_Utils
@@ -995,14 +994,19 @@ EXPECTED_BEST_VARIANTS = {
     "cuda": (("tiled", 1), ("tiled", 2)),
     "xpu": (("scalar", 2),),
 }
-# A tiled plan's timing sample (see _tiled_timing_sample) holds as many targets as the best plan so far
-# would take TILED_SAMPLE_SECONDS for, between TILED_SAMPLE_LIMITS, in TILED_SAMPLE_WINDOWS windows. It
-# is timed after an untimed pass over TILED_WARMUP_TARGETS of them, in TILED_TIMED_PASSES passes.
-TILED_SAMPLE_SECONDS = 0.4
-TILED_SAMPLE_LIMITS = (64, 1024)
+# A tiled plan's timing sample (see _tiled_timing_sample) holds TILED_SAMPLE_TARGETS targets (at most a
+# TILED_SAMPLE_JOB_SHARE-th of the search, at least TILED_SAMPLE_MINIMUM), in TILED_SAMPLE_WINDOWS windows.
+# The pipeline overlaps reading, copying up and scoring only once a pass is long enough: a sample of 300
+# targets runs at about 1.7 times the cost per target of a whole search, one of 1,500 at about 1.2 times.
+# It is timed after an untimed pass over TILED_WARMUP_TARGETS of them, in TILED_TIMED_PASSES passes, and
+# again on every TILED_THIN_STEP-th target, so that the fixed cost of a pass can be taken out.
+TILED_SAMPLE_TARGETS = 1500
+TILED_SAMPLE_JOB_SHARE = 4
+TILED_SAMPLE_MINIMUM = 64
 TILED_SAMPLE_WINDOWS = 4
 TILED_WARMUP_TARGETS = 48
 TILED_TIMED_PASSES = 2
+TILED_THIN_STEP = 3
 
 
 def _expected_best_ladders(candidate, workers):
@@ -1101,8 +1105,28 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
             passes.append((attempt, _execute_search_plan(plan.execution, sample, workers, input_h5, store,
                                                          lengths, query_embedding, False, timing=attempt)))
         best, payload = min(passes, key=lambda entry: entry[0].processing)
+        # Every pass also pays a fixed cost (the reader starting and the pipeline filling and draining) that
+        # a real run pays once, not per target. A pass over every third target of the sample times it: the
+        # difference between the two passes, over the cells they differ by, is the cost per cell without it.
+        thin = sample[::TILED_THIN_STEP]
+        if len(thin) >= 8:
+            thin_best = min(
+                (_timed_tiled_pass(plan, thin) for _ in range(TILED_TIMED_PASSES)),
+                key=lambda attempt: attempt.processing,
+            )
+            cells = sum(selector.costs[int(task[0])] for task in sample)
+            thin_cells = sum(selector.costs[int(task[0])] for task in thin)
+            if cells > thin_cells and best.processing > thin_best.processing:
+                per_cell = (best.processing - thin_best.processing) / (cells - thin_cells)
+                best.processing = min(best.processing, max(0.5 * best.processing, per_cell * cells))
         timing.setup, timing.processing, timing.shutdown = best.setup, best.processing, best.shutdown
         return payload
+
+    def _timed_tiled_pass(plan, subset):
+        attempt = SearchTiming()
+        _execute_search_plan(plan.execution, subset, workers, input_h5, store, lengths,
+                             query_embedding, False, timing=attempt)
+        return attempt
 
     selector = SearchSelector(tasks, lengths, len(query_embedding), execute)
     selector.started = selection_started
@@ -1115,12 +1139,7 @@ def _select_search_plans(tasks, workers, input_h5, store, lengths, query_embeddi
         element_bytes = precision_element_bytes(plan.precision)
         key = (plan.candidate.spec, plan.lanes, element_bytes)
         if key not in tiled_samples:
-            ranked = selector.ranked()
-            rates = [rate for _timing, rate in ranked[0].observations] if ranked else []
-            mean_cost = sum(selector.costs.values()) / len(selector.costs)
-            count = (math.ceil(TILED_SAMPLE_SECONDS / max(statistics.median(rates) * mean_cost, 1e-9))
-                     if rates else TILED_SAMPLE_LIMITS[0])
-            count = min(TILED_SAMPLE_LIMITS[1], max(TILED_SAMPLE_LIMITS[0], count))
+            count = min(TILED_SAMPLE_TARGETS, max(TILED_SAMPLE_MINIMUM, len(tasks) // TILED_SAMPLE_JOB_SHARE))
             tiled_samples[key] = _tiled_timing_sample(
                 tasks, lengths, store, query_embedding, plan.candidate.device,
                 plan.lanes, plan.precision, count)

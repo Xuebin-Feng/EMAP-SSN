@@ -2211,6 +2211,10 @@ def estimate_fixed_query_cuda_working_set(
 FIXED_QUERY_CHUNK_BYTES = 64 * 1024 ** 2
 FIXED_QUERY_RING_BYTES = 256 * 1024 ** 2
 FIXED_QUERY_ALIGNMENT = 16
+# A small search is read in finer chunks, at least this small and about this many to a search, so that
+# reading and copying up overlap (and its first chunk arrives soon) even when it is a few hundred megabytes.
+FIXED_QUERY_MIN_CHUNK_BYTES = 4 * 1024 ** 2
+FIXED_QUERY_CHUNKS_PER_RUN = 16
 _TORCH_SOURCE_DTYPES = {
     np.dtype(np.float16): torch.float16,
     np.dtype(np.float32): torch.float32,
@@ -2366,6 +2370,14 @@ def run_fixed_query_cuda_pipeline(
 
     # Every block's embeddings, in index order, laid out in the packed buffer and cut into chunks.
     nbytes = store.source_bytes
+    chunk_bytes = min(
+        FIXED_QUERY_CHUNK_BYTES,
+        max(
+            FIXED_QUERY_MIN_CHUNK_BYTES,
+            sum(int(nbytes[index]) for index in {task_index(task) for task in tasks})
+            // FIXED_QUERY_CHUNKS_PER_RUN,
+        ),
+    )
     block_layouts = []
     chunks = []
     for block_tasks in grouped.values():
@@ -2374,12 +2386,12 @@ def run_fixed_query_cuda_pipeline(
         for index in indices:
             starts[index] = rows
             rows += int(lengths[index])
-        planned = plan_upload_chunks(indices, nbytes)
+        planned = plan_upload_chunks(indices, nbytes, chunk_bytes)
         block_layouts.append((starts, rows, len(planned)))
         chunks.extend(planned)
     pad_row = max(rows for _starts, rows, _count in block_layouts)
     capacity = max(used for _entries, used in chunks)
-    ring_depth = max(2, min(4, FIXED_QUERY_RING_BYTES // max(1, capacity)))
+    ring_depth = max(2, min(8, FIXED_QUERY_RING_BYTES // max(1, capacity)))
     try:
         buffers = [
             torch.empty(capacity, dtype=torch.uint8, pin_memory=True)

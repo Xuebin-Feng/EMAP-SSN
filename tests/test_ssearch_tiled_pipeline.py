@@ -419,6 +419,28 @@ class FixedQueryPipelineCudaTests(unittest.TestCase):
         with mock.patch.object(engine, "_batched_score_matrices", slow):
             self.assert_same_rows(self.harness.run_pipeline(tasks, store, lengths, query, plan, lanes=3), want)
 
+    def test_a_small_search_is_read_in_finer_chunks_than_a_large_one(self):
+        plan = self.harness.plan(tile_bytes=14_000, matrix_bytes=40_000)
+        path, tasks, store, lengths, query = self.harness.build(self.directory.name, seed=15)
+        total = sum(store.source_bytes)
+        seen = []
+        original = engine.plan_upload_chunks
+
+        def spy(indices, nbytes, chunk_bytes=engine.FIXED_QUERY_CHUNK_BYTES, **kwargs):
+            seen.append(chunk_bytes)
+            return original(indices, nbytes, chunk_bytes, **kwargs)
+
+        want = self.harness.reference(tasks, store, lengths, query, plan)
+        for minimum, per_run, expected in (
+            (engine.FIXED_QUERY_MIN_CHUNK_BYTES, 16, engine.FIXED_QUERY_MIN_CHUNK_BYTES),  # too small for 16 chunks
+            (1, 4, total // 4),
+            (1, 10 ** 9, 1),
+        ):
+            seen.clear()
+            with self.subTest(minimum=minimum, per_run=per_run),                     mock.patch.object(engine, "plan_upload_chunks", spy),                     mock.patch.object(engine, "FIXED_QUERY_MIN_CHUNK_BYTES", minimum),                     mock.patch.object(engine, "FIXED_QUERY_CHUNKS_PER_RUN", per_run):
+                self.assert_same_rows(self.harness.run_pipeline(tasks, store, lengths, query, plan), want)
+                self.assertEqual(set(seen), {expected})
+
     def test_the_order_of_the_tasks_does_not_matter(self):
         plan = self.harness.plan(tile_bytes=14_000, matrix_bytes=40_000)
         path, tasks, store, lengths, query = self.harness.build(self.directory.name, seed=9)
