@@ -591,23 +591,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3739"/>
+        <location line="+3770"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3738"/>
+        <location line="-3769"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4250"/>
+        <location line="+4284"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4242"/>
+        <location line="-4276"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -681,7 +681,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
     </message>
     <message>
-        <location line="+341"/>
+        <location line="+408"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -697,12 +697,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3414"/>
+        <location line="+3381"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3411"/>
+        <location line="-3378"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -727,7 +727,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">选择 FASTA 子集和 HDF5 网络文件，然后点击计算。</translation>
     </message>
     <message>
-        <location line="+230"/>
+        <location line="+237"/>
         <source>New profile name</source>
         <translation type="unfinished">新配置方案名称</translation>
     </message>
@@ -743,12 +743,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+221"/>
-        <location line="+2197"/>
+        <location line="+2154"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2116"/>
+        <location line="-2073"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -765,7 +765,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {error}</translation>
     </message>
     <message>
-        <location line="+169"/>
+        <location line="+172"/>
         <source>Running Consistency Check...</source>
         <translation type="unfinished">正在运行一致性检查…</translation>
     </message>
@@ -826,14 +826,14 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1083"/>
+        <location line="-1160"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1124"/>
+        <location line="+1201"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1188,7 +1188,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="-160"/>
-        <location line="+345"/>
+        <location line="+346"/>
         <location line="+257"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
@@ -1248,12 +1248,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+105"/>
-        <location line="+1270"/>
+        <location line="+1223"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1236"/>
+        <location line="-1189"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1401,24 +1401,23 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">平均序列长度</translation>
     </message>
     <message>
-        <location line="+99"/>
         <source>Computing network statistics... This may take a moment for large HDF5 networks.</source>
-        <translation type="unfinished">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
+        <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="+28"/>
+        <location line="-2310"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+2484"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-2971"/>
+        <location line="-3029"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1523,7 +1522,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2377"/>
+        <location line="+2455"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1540,12 +1539,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">局部（Smith-Waterman）</translation>
     </message>
     <message>
-        <location line="+596"/>
+        <location line="+531"/>
         <source>Network statistics computed successfully.</source>
         <translation type="unfinished">网络统计计算完成。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-9"/>
         <source>Error during network statistics calculation: {error}</source>
         <translation type="unfinished">计算网络统计时出错：{error}</translation>
     </message>
@@ -1566,7 +1565,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">生成直方图时出错：{error}</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+69"/>
         <source>Node Size:</source>
         <translation type="unfinished">节点大小：</translation>
     </message>
@@ -1630,7 +1629,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-3114"/>
+        <location line="-3145"/>
         <source>Current color: {value}</source>
         <translation type="unfinished">当前颜色：{value}</translation>
     </message>
@@ -1723,7 +1722,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+1173"/>
+        <location line="+1250"/>
         <source>Resolves to {folder}.</source>
         <translation type="unfinished">解析为 {folder}。</translation>
     </message>
@@ -2339,7 +2338,17 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">默认使用 `$cache_file$`，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="+1448"/>
+        <location line="+1156"/>
+        <source>Computing network statistics... {percent} %</source>
+        <translation type="unfinished">正在计算网络统计… {percent} %</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Network statistics stopped: the inputs changed.</source>
+        <translation type="unfinished">网络统计已停止：输入已更改。</translation>
+    </message>
+    <message>
+        <location line="+238"/>
         <source>Low Resource Mode:</source>
         <translation type="unfinished">低资源模式：</translation>
     </message>
@@ -2462,7 +2471,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">选择目录</translation>
     </message>
     <message>
-        <location line="+174"/>
+        <location line="+177"/>
         <source>Settings saved successfully.</source>
         <translation type="unfinished">设置已保存。</translation>
     </message>
@@ -4598,7 +4607,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4576"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4610"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -4640,7 +4649,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1327"/>
+        <location line="+1401"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -7091,7 +7100,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>TipPanel</name>
     <message>
-        <location filename="../../../desktop/Tip_Panel.py" line="+411"/>
+        <location filename="../../../desktop/Tip_Panel.py" line="+418"/>
         <source>(empty)</source>
         <translation type="unfinished">（空）</translation>
     </message>
@@ -10484,7 +10493,7 @@ Fedora / RHEL：
         <translation type="unfinished">会话</translation>
     </message>
     <message>
-        <location line="+104"/>
+        <location line="+100"/>
         <source>Nodes:</source>
         <translation type="unfinished">节点：</translation>
     </message>

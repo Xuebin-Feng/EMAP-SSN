@@ -372,8 +372,11 @@ class ConfigRunTimeTextTests(WindowTestCase):
         self.write_inputs(["WP_1_alpha", "WP_2_beta", "Other"])
         cache_manifest = self.window.run_statistics.__globals__["cache_manifest"]
         blast = SimpleNamespace(network_type="blast", model_name="BLAST")
+        from tests.config_gui_loader import finish_statistics
+
         with mock.patch.object(cache_manifest, "validate_network_schema", return_value=blast):
             self.window.run_statistics()
+            finish_statistics(self.window)
         report = self.window.stat_display.toPlainText()
         self.assertGreater(len(report.splitlines()), 10, report)
         self.assert_translated(report)

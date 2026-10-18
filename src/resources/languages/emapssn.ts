@@ -622,6 +622,12 @@
         <source>&apos;{reference}&apos; resolves to {header}</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished"></translation>
@@ -1364,14 +1370,16 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Computing network statistics... This may take a moment for large HDF5 networks.</source>
+        <source>Computing network statistics... {percent} %</source>
         <translation type="unfinished"></translation>
     </message>
-    <message numerus="yes">
-        <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
+    <message>
+        <source>Network statistics stopped: the inputs changed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error during network statistics calculation: {error}</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
@@ -1379,10 +1387,6 @@
     </message>
     <message>
         <source>Network statistics computed successfully.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error during network statistics calculation: {error}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -101,6 +101,7 @@ modules = [
     "test_mcp_server",
     "test_mcp_viewer_lifecycle",
     "test_mcp_workflow_dispatch",
+    "test_network_score_statistics",
     "test_pipeline_file_inspection",
     "test_pipeline_jobs",
     "test_pipeline_settings",
@@ -185,6 +186,7 @@ modules = [
     "test_emapssn_config_profiles",
     "test_emapssn_config_responsive_layout",
     "test_emapssn_config_score_mode",
+    "test_emapssn_config_statistics",
     "test_statistics_report",
     "test_tip_panel",
 ]

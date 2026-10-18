@@ -2315,8 +2315,11 @@ class TipPanelStatusLockTests(unittest.TestCase):
         return result
 
     def fail_statistics(self):
+        from tests.config_gui_loader import finish_statistics
+
         with mock.patch("h5py.File", side_effect=OSError("unreadable network")):
             self.window.run_statistics()
+            finish_statistics(self.window)
         result = self.panel()
         self.assertEqual(
             result, "Error during network statistics calculation: unreadable network"

@@ -108,7 +108,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
 
             from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
             from PySide6.QtWidgets import QApplication
-            from tests.config_gui_loader import load_config_namespace, open_config_window
+            from tests.config_gui_loader import finish_statistics, load_config_namespace, open_config_window
             app = QApplication.instance() or QApplication([])
 
             # A window over temporary directories, not the developer's viewer_settings.json.
@@ -156,6 +156,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                     cache_manifest, "validate_network_schema", side_effect=validate_statistics
                 ):
                     window.run_statistics()
+                    finish_statistics(window)
 
                 report = window.stat_display.toPlainText()
                 assert "Stored Edges:" in report
@@ -163,6 +164,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
 
                 with mock.patch("h5py.File", side_effect=OSError("unreadable network")):
                     window.run_statistics()
+                    finish_statistics(window)
                 assert window.stat_display.toPlainText() == report
                 assert (
                     "Error during network statistics calculation: unreadable network"
@@ -205,7 +207,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
 
             from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
             from PySide6.QtWidgets import QApplication
-            from tests.config_gui_loader import load_config_namespace, open_config_window
+            from tests.config_gui_loader import finish_statistics, load_config_namespace, open_config_window
             app = QApplication.instance() or QApplication([])
 
             # A window over temporary directories, not the developer's viewer_settings.json.
@@ -270,6 +272,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                     indexed.clear()
                     with mock.patch("h5py.File", RecordingFile):
                         window.run_statistics()
+                        finish_statistics(window)
                     context = (score, normalization)
                     assert "successfully" in window.tip_panel.text(), (context, window.tip_panel.text())
                     assert indexed & {"g_len", "l_len"} == lengths, (context, sorted(indexed))

@@ -100,3 +100,24 @@ def open_config_window(gui_class, root):
         gui_class, "_read_custom_settings", return_value=directory_settings(root)
     ):
         return gui_class()
+
+
+def finish_statistics(window, timeout=60.0):
+    """Let the statistics run a Config window started finish, and show its result.
+
+    run_statistics works on a worker thread and the window shows what it finds when the
+    thread's signal reaches the event loop, so a test that asks for the report waits
+    here, inside any patch the worker's reads must see.
+    """
+    import time
+
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    deadline = time.monotonic() + timeout
+    while window._statistics_request is not None:
+        if time.monotonic() > deadline:
+            raise AssertionError("the network statistics did not finish")
+        app.processEvents()
+        time.sleep(0.005)
+    app.processEvents()

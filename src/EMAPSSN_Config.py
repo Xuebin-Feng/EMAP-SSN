@@ -1234,6 +1234,73 @@ if __name__ == "__main__":
             except Exception as error:
                 self.completed.emit(self.request_id, self.cache_keys, {}, str(error))
 
+    class StatisticsWorker(QThread):
+        """Computes a network's statistics off the window's thread.
+
+        The pairs are read and scored a slice at a time by worker threads of their own
+        (utilities.Network_Score_Statistics), so a network of any size takes a few
+        hundred megabytes. completed carries the request id, the report (None when no
+        edge is left) and the error, if any; a stopped run reports a StatisticsCancelled.
+        """
+
+        progress = Signal(int, float)
+        completed = Signal(int, object, object)
+
+        def __init__(self, request_id, network_path, fasta_path, score_mode, norm_mode):
+            super().__init__()
+            self.request_id = request_id
+            self.network_path = network_path
+            self.fasta_path = fasta_path
+            self.score_mode = score_mode
+            self.norm_mode = norm_mode
+
+        def run(self):
+            try:
+                report = self._report()
+            except Exception as error:
+                self.completed.emit(self.request_id, None, error)
+            else:
+                self.completed.emit(self.request_id, report, None)
+
+        def _report(self):
+            import h5py
+            from utilities import Network_Score_Statistics as scores
+
+            with h5py.File(self.network_path, "r") as hf:
+                metadata = cache_manifest.validate_network_schema(hf)
+                is_blast = metadata.network_type == "blast"
+                headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in hf['headers'][:]]
+                kept_mask = None
+                node_count = len(headers)
+                if self.fasta_path and os.path.exists(self.fasta_path):
+                    fasta_ids, fasta_headers = scores.read_fasta_names(self.fasta_path)
+                    mask, missing = scores.kept_node_mask(headers, fasta_ids, fasta_headers)
+                    if missing:
+                        raise ValueError(translate(
+                            "Config",
+                            "FASTA file is NOT a strict subset of the network file. "
+                            "The network lacks %n sequence(s).",
+                            None, missing,
+                        ))
+                    if not mask.all():
+                        kept_mask, node_count = mask, int(mask.sum())
+                source = scores.ScoreSource(
+                    hf, is_blast=is_blast, score_mode=self.score_mode,
+                    norm_mode=self.norm_mode, kept_mask=kept_mask,
+                )
+                result = scores.compute_score_statistics(
+                    source,
+                    progress=lambda fraction: self.progress.emit(self.request_id, fraction),
+                    cancelled=self.isInterruptionRequested,
+                )
+            if result.stored_edges == 0:
+                return None
+            return scores.statistics_report(
+                result, model_name=metadata.model_name,
+                fasta_name=os.path.basename(self.fasta_path), node_count=node_count,
+                is_blast=is_blast, score_mode=self.score_mode, norm_mode=self.norm_mode,
+            )
+
     class ConfigGUI(QMainWindow):
         def __init__(self, carried=None):
             # carried: what a redraw in another language keeps (language_carry_over).
@@ -1377,6 +1444,13 @@ if __name__ == "__main__":
             self._cache_hash_request_id = 0
             self._cache_hash_workers = {}
             self._cache_hash_pending_keys = None
+            # The statistics run in progress (run_statistics): its request id, the inputs it
+            # was started on (None while none runs), and the progress line it last wrote.
+            self._statistics_request_id = 0
+            self._statistics_workers = {}
+            self._statistics_request = None
+            self._statistics_percent = -1
+            self._statistics_status_html = None
             self._cache_launch_allowed = False
             self._save_run_paused = False  # in the pause after a click (_save_and_run_from_button)
             self._last_duplicate_signature = None
@@ -2032,7 +2106,10 @@ if __name__ == "__main__":
             self._cache_hash_request_id += 1
             for worker in self._cache_hash_workers.values():
                 worker.requestInterruption()
+            self._cancel_statistics()
             for worker in self._cache_hash_workers.values():
+                worker.wait(5000)
+            for worker in list(self._statistics_workers.values()):
                 worker.wait(5000)
             super().closeEvent(event)
             
@@ -2579,6 +2656,7 @@ if __name__ == "__main__":
                     (self.cb_hdf5, "HDF5_DIR", [".h5"]),
                 ):
                     self.refresh_combo(combo, key, extensions)
+                self._cancel_statistics_if_inputs_changed()
             elif base_key == "CACHE_FILE_DIR":
                 self.update_live_validators()
             elif base_key == "EMBED_DIR":
@@ -3534,7 +3612,8 @@ if __name__ == "__main__":
             has_fasta = bool(self.cb_fasta.currentText().strip())
             has_hdf5 = bool(self.cb_hdf5.currentText().strip())
             self._update_reference_controls()
-            self.btn_stats.setEnabled(has_fasta and has_hdf5)
+            self._cancel_statistics_if_inputs_changed()
+            self._update_statistics_button()
 
             is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
             for stack in getattr(self, "_input_mode_stacks", ()):
@@ -3592,12 +3671,8 @@ if __name__ == "__main__":
             self.lbl_cache_tracker.setMaximumHeight(30)
             self._request_cache_discovery()
 
-        def run_statistics(self):
-            import h5py
-            import numpy as np
-            import math
-            import sys
-            
+        def _statistics_inputs(self):
+            """What the statistics depend on: the two files, how they stand on disk, and the modes."""
             fasta_path = os.path.join(
                 self._resolved_directory_input("FASTA_DIR"),
                 self.cb_fasta.currentText(),
@@ -3606,158 +3681,114 @@ if __name__ == "__main__":
                 self._resolved_directory_input("HDF5_DIR"),
                 self.cb_hdf5.currentText(),
             )
-            
-            self.tip_panel.setStatus("info", translate(
-                "Config", "Computing network statistics... This may take a moment for large HDF5 networks."
-            ))
-            QApplication.processEvents()
-            
-            try:
-                score_mode = combo_value(self.cb_score_mode)
-                norm_mode = combo_value(self.cb_norm_mode)
-                
-                with h5py.File(hdf5_path, "r") as hf:
-                    metadata = cache_manifest.validate_network_schema(hf)
-                    is_blast = metadata.network_type == "blast"
-                    from Bio import SeqIO
-                    kept_mask = None
-                    if fasta_path and os.path.exists(fasta_path):
-                        fasta_ids = set()
-                        fasta_headers = set()
-                        for rec in SeqIO.parse(fasta_path, "fasta"):
-                            fasta_ids.add(rec.id)
-                            fasta_headers.add(rec.description)
-                            
-                        raw_headers = hf['headers'][:]
-                        headers = [h.decode('utf-8') if isinstance(h, bytes) else h for h in raw_headers]
-                        
-                        net_headers_set = set(headers)
-                        net_id_set = {h.split()[0] for h in headers}
-                        missing_nodes = [hid for hid in fasta_ids if hid not in net_id_set and hid not in net_headers_set]
-                        if missing_nodes:
-                            raise ValueError(translate(
-                                "Config",
-                                "FASTA file is NOT a strict subset of the network file. "
-                                "The network lacks %n sequence(s).",
-                                None, len(missing_nodes),
-                            ))
-                        
-                        valid_indices = []
-                        for i, h in enumerate(headers):
-                            rec_id = h.split()[0]
-                            if h in fasta_headers or rec_id in fasta_ids:
-                                valid_indices.append(i)
-                                
-                        if len(valid_indices) < len(headers):
-                            kept_mask = np.zeros(len(headers), dtype=bool)
-                            kept_mask[valid_indices] = True
-                    
-                    # The indices keep the file's 16- or 32-bit type; they only
-                    # index masks and sequence lengths.
-                    sources = hf['i'][:]
-                    targets = hf['j'][:]
-                    if is_blast:
-                        raw_scores = hf['score'][:]
-                    else:
-                        if score_mode == "local":
-                            raw_scores = hf['l_score'][:].astype(np.float32, copy=False)
-                            length_name = 'l_len'
-                        else:
-                            raw_scores = hf['g_score'][:].astype(np.float32, copy=False)
-                            length_name = 'g_len'
-                        # Only alignment-length normalization divides by the
-                        # alignment-length column, so other modes never read it.
-                        align_lens = None
-                        if norm_mode not in ("shorter_sequence", "longer_sequence", "average_sequence"):
-                            align_lens = hf[length_name][:].astype(np.float32)
-                            
-                        if 'seq_lens' in hf:
-                            seq_lens = hf['seq_lens'][:]
-                        else:
-                            seq_lens = np.ones(int(max(sources.max(), targets.max())) + 1)
-                        
-                    if kept_mask is not None:
-                        valid_edges_mask = kept_mask[sources] & kept_mask[targets]
-                        raw_scores = raw_scores[valid_edges_mask]
-                        sources = sources[valid_edges_mask]
-                        targets = targets[valid_edges_mask]
-                        if not is_blast and align_lens is not None:
-                            align_lens = align_lens[valid_edges_mask]
-                            
-                    if is_blast:
-                        scores = raw_scores.astype(np.float32)
-                    else:
-                        epsilon = 1e-6
-                        if norm_mode == "alignment_length":
-                            denom = align_lens
-                        else:
-                            len_src = seq_lens[sources].astype(np.float32)
-                            len_dst = seq_lens[targets].astype(np.float32)
-                            if norm_mode == "shorter_sequence": denom = np.minimum(len_src, len_dst)
-                            elif norm_mode == "longer_sequence": denom = np.maximum(len_src, len_dst)
-                            elif norm_mode == "average_sequence": denom = (len_src + len_dst) / 2.0
-                            else: denom = align_lens
-                            
-                        denom = np.maximum(denom, epsilon)
-                        scores = (raw_scores / denom).astype(np.float32)
-                
-                if len(scores) == 0:
-                    self.tip_panel.setStatus("warning", translate(
-                        "Config", "Warning: No valid edges were found in the selected FASTA subset."
-                    ))
-                    return
-                    
-                max_score = np.max(scores)
-                min_score = np.min(scores)
-                avg_score = np.mean(scores)
-                
-                sorted_scores = np.sort(scores)
-                stored_edges = len(sorted_scores)
-                
-                total_nodes = np.sum(kept_mask) if kept_mask is not None else len(headers)
-                theoretical_max_edges = (total_nodes * (total_nodes - 1)) / 2.0
-                
-                if is_blast:
-                    start_val = int(math.floor(min_score))
-                    limit_step_1 = min(100, int(math.ceil(max_score)))
-                    thresh_low = np.arange(start_val, limit_step_1 + 1, 1)
-                    if max_score > 100:
-                        thresh_high = np.arange(105, int(math.ceil(max_score)) + 5, 5)
-                        thresholds = np.concatenate([thresh_low, thresh_high])
-                    else:
-                        thresholds = thresh_low
-                else:
-                    start_val = math.floor(min_score * 10) / 10.0
-                    thresholds = np.arange(start_val, max_score + 0.1, 0.1)
-                    
-                indices = np.searchsorted(sorted_scores, thresholds, side='left')
-                counts = stored_edges - indices
-                
-                rows = []
-                for thresh, count in zip(thresholds, counts):
-                    pct = (count / theoretical_max_edges) * 100.0 if theoretical_max_edges > 0 else 0
-                    value = f"{int(thresh)}" if is_blast else f"{thresh:.1f}"
-                    rows.append((value, f"{count}", f"{pct:.2f}%"))
-                self.show_statistics({
-                    "model": metadata.model_name,
-                    "fasta": os.path.basename(fasta_path),
-                    "nodes": int(total_nodes),
-                    "blast": is_blast,
-                    "score_mode": score_mode,
-                    "normalization": norm_mode,
-                    "stored_edges": int(stored_edges),
-                    "possible_edges": int(theoretical_max_edges),
-                    "maximum": float(max_score),
-                    "minimum": float(min_score),
-                    "mean": float(avg_score),
-                    "rows": rows,
-                })
-                self.tip_panel.setStatus("success", translate("Config", "Network statistics computed successfully."))
+            states = []
+            for path in (fasta_path, hdf5_path):
+                try:
+                    states.append(cache_manifest.file_cache_key(path))
+                except OSError:
+                    states.append(None)
+            return (
+                fasta_path, hdf5_path,
+                combo_value(self.cb_score_mode), combo_value(self.cb_norm_mode),
+                tuple(states),
+            )
 
-            except Exception as e:
+        def _update_statistics_button(self):
+            """The button works while both inputs are chosen and no run is in progress."""
+            self.btn_stats.setEnabled(
+                bool(self.cb_fasta.currentText().strip())
+                and bool(self.cb_hdf5.currentText().strip())
+                and self._statistics_request is None
+            )
+
+        def _show_statistics_progress(self, fraction):
+            """Write the progress line, unless something else has taken the panel since the last one."""
+            percent = min(100, int(fraction * 100))
+            if percent == self._statistics_percent:
+                return
+            self._statistics_percent = percent
+            if self._statistics_status_html not in (None, self.tip_panel.text()):
+                return
+            self.tip_panel.setStatus("info", translate(
+                "Config", "Computing network statistics... {percent} %"
+            ).format(percent=percent))
+            self._statistics_status_html = self.tip_panel.text()
+
+        def _show_statistics_stopped(self):
+            """Replace the progress line of a run that was stopped, if it is still on show."""
+            if self._statistics_status_html == self.tip_panel.text():
+                self.tip_panel.setStatus("info", translate(
+                    "Config", "Network statistics stopped: the inputs changed."
+                ))
+            self._statistics_status_html = None
+
+        def _cancel_statistics(self):
+            """Stop the statistics run in progress and ignore whatever it still reports."""
+            self._statistics_request_id += 1
+            self._statistics_request = None
+            for worker in self._statistics_workers.values():
+                worker.requestInterruption()
+            if hasattr(self, "btn_stats"):
+                self._update_statistics_button()
+
+        def _cancel_statistics_if_inputs_changed(self, *_ignored):
+            if self._statistics_request is None:
+                return
+            if self._statistics_inputs() != self._statistics_request:
+                self._cancel_statistics()
+                self._show_statistics_stopped()
+
+        def _statistics_progress(self, request_id, fraction):
+            if request_id == self._statistics_request_id and self._statistics_request is not None:
+                self._show_statistics_progress(fraction)
+
+        def _statistics_completed(self, request_id, report, error):
+            worker = self._statistics_workers.pop(request_id, None)
+            if worker is not None:
+                worker.deleteLater()
+            if request_id != self._statistics_request_id:
+                return
+            started_on, self._statistics_request = self._statistics_request, None
+            self._update_statistics_button()
+            if started_on != self._statistics_inputs():
+                # The files or the modes changed while it ran: its figures describe other inputs.
+                self._show_statistics_stopped()
+                return
+            self._statistics_status_html = None
+            if error is not None:
                 self.tip_panel.setStatus("danger", translate(
                     "Config", "Error during network statistics calculation: {error}"
-                ).format(error=display_text(e)))
+                ).format(error=display_text(error)))
+            elif report is None:
+                self.tip_panel.setStatus("warning", translate(
+                    "Config", "Warning: No valid edges were found in the selected FASTA subset."
+                ))
+            else:
+                self.show_statistics(report)
+                self.tip_panel.setStatus("success", translate("Config", "Network statistics computed successfully."))
+
+        def run_statistics(self):
+            """Compute the network statistics on a worker thread and show them when it is done.
+
+            A run in progress is stopped first. The window stays usable: the tip panel
+            shows the progress, the button waits, and a change of the inputs, a second
+            run or closing the window stops the run, so a report never lands for inputs
+            that are no longer selected.
+            """
+            self._cancel_statistics()
+            request_id = self._statistics_request_id
+            inputs = self._statistics_inputs()
+            fasta_path, hdf5_path, score_mode, norm_mode, _states = inputs
+            self._statistics_request = inputs
+            self._statistics_percent = -1
+            self._statistics_status_html = None
+            self._update_statistics_button()
+            self._show_statistics_progress(0.0)
+            worker = StatisticsWorker(request_id, hdf5_path, fasta_path, score_mode, norm_mode)
+            self._statistics_workers[request_id] = worker
+            worker.progress.connect(self._statistics_progress)
+            worker.completed.connect(self._statistics_completed)
+            worker.start()
 
         def create_visuals_tab(self):
             tab = QWidget()
@@ -4447,6 +4478,9 @@ if __name__ == "__main__":
             self.inputs["FASTA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_fasta, "FASTA_DIR", ['.fasta']))
             self.inputs["MSA_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_msa, "MSA_DIR", ['.fasta', '.h5']))
             self.inputs["HDF5_DIR"].textChanged.connect(lambda: self.refresh_combo(self.cb_hdf5, "HDF5_DIR", ['.h5']))
+            # The statistics read these folders' files, so a run on the old ones stops.
+            self.inputs["FASTA_DIR"].textChanged.connect(self._cancel_statistics_if_inputs_changed)
+            self.inputs["HDF5_DIR"].textChanged.connect(self._cancel_statistics_if_inputs_changed)
             self.inputs["SAVED_LAYOUT_DIR"].textChanged.connect(self.update_live_validators)
             for base_key in (
                 "INPUT_FILE_DIR",
