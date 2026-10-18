@@ -137,6 +137,11 @@ still change before version 1.0.0.
   or `delete`, so a VR session left on the default folders, and the VR tests, left an
   empty `Input_Files/Meta_Data` behind. Like the desktop's, it now creates the folder
   only when it downloads metadata.
+- The paths in the Viewer's ⓘ card could be selected and copied with the right-click
+  menu, but Ctrl+C (Cmd+C on macOS) did nothing: the fields never take the keyboard, so
+  the key went to the canvas, which ignores it outside the command line. The card now
+  answers the standard Copy key for the field with a selection, and Select All for the
+  field last clicked. While the command line is open, Ctrl+C still copies the command.
 
 ## [0.4.0] - 2026-10-16
 
