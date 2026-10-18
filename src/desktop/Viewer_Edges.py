@@ -33,6 +33,11 @@ fragments each pixel takes and drops those past STENCIL_LIMIT before they are
 blended (EdgeStencilLimit), which leaves every pixel as it was. It needs a
 framebuffer with an 8-bit stencil buffer; without one, or with
 SSN_EDGE_STENCIL_LIMIT=0, the edges are drawn as before.
+
+Most frames change only the nodes or the HUD: a hover, a click, typing. The
+window keeps the edges' last picture in a texture (EdgeImageCache) and copies
+it while the camera, the window and the edges stay as they were, so those
+frames cost the nodes alone. Print and captures always draw the edges.
 """
 
 from __future__ import annotations
@@ -49,6 +54,7 @@ from vispy.visuals import Visual
 
 POSITION_TEXTURE_ENVIRONMENT_VARIABLE = "SSN_EDGE_POSITION_TEXTURE"
 STENCIL_ENVIRONMENT_VARIABLE = "SSN_EDGE_STENCIL_LIMIT"
+CACHE_ENVIRONMENT_VARIABLE = "SSN_EDGE_IMAGE_CACHE"
 _OFF_VALUES = {"0", "off", "false", "no"}
 # The most edge fragments a pixel takes. All edges share one colour and alpha,
 # and 8-bit blending leaves a pixel unchanged once alpha times its distance
@@ -221,6 +227,253 @@ def _draw_with_limit(visual, limit, draw):
     finally:
         if limited:
             gloo.set_state(**_AFTER_LIMITED_STATE)
+
+
+def image_cache_enabled():
+    value = os.environ.get(CACHE_ENVIRONMENT_VARIABLE, "").strip().lower()
+    return value not in _OFF_VALUES
+
+
+def _draws_into_window(canvas):
+    """Whether canvas draws into its window's own framebuffer now, rather than
+    into a framebuffer object pushed for canvas.render() (print, captures)."""
+    return _pushed_framebuffer(canvas) is None
+
+
+# The cached picture, copied 1:1: each fragment reads the texel under it.
+_PICTURE_VERTEX_SHADER = """
+attribute vec2 a_position;
+void main() {
+    gl_Position = vec4(a_position, 0.0, 1.0);
+}
+"""
+
+_PICTURE_FRAGMENT_SHADER = """
+uniform sampler2D u_picture;
+uniform vec2 u_size;
+void main() {
+    gl_FragColor = texture2D(u_picture, gl_FragCoord.xy / u_size);
+}
+"""
+
+# Stencil buffers to try for the cache's framebuffer, smallest first: an
+# 8-bit stencil alone (1 byte a pixel), which some drivers refuse, then
+# GL_DEPTH24_STENCIL8 (4 bytes), then none, which only drops the overdraw
+# limit while the edges are drawn into the cache.
+_CACHE_STENCILS = (("stencil", 1), (0x88F0, 4), (None, 0))
+
+
+class EdgeImageCache:
+    """The edge layer's last picture over the background, reused while
+    nothing it shows changes.
+
+    A frame that changes only the nodes or the HUD (a hover, a click halo,
+    typing, a status line, the sidebar sliding) copies the picture instead of
+    drawing every edge again. The picture is drawn when its key changes (see
+    _picture_key): the camera, the framebuffer's size and scale, the
+    background, the edges themselves (EdgeSegmentsVisual.generation) or the
+    overdraw limit. The Viewer draws its edges first, straight after the
+    clear, so the copy, with blending off, leaves the framebuffer exactly as
+    drawing them does.
+
+    It serves only frames drawn into the window's own framebuffer: a draw into
+    a pushed framebuffer object, as canvas.render() makes for print and
+    captures, always draws the edges themselves. If the framebuffer or texture
+    cannot be made, or GL reports an error, it says so once (report) and the
+    edges are drawn directly from then on. SSN_EDGE_IMAGE_CACHE=0 turns it off.
+    ``render_count`` counts pictures drawn, ``reuse_count`` frames that copied one.
+    """
+
+    def __init__(self, enabled=None, report=print):
+        self.enabled = image_cache_enabled() if enabled is None else bool(enabled)
+        self.failed = False
+        self.render_count = 0
+        self.reuse_count = 0
+        self.bytes = 0
+        self.stencil_kind = None
+        self._report = report
+        self._reported = False
+        self._texture = None
+        self._framebuffer = None
+        self._stencil = None
+        self._picture = None
+        self._shape = None
+        self._key = None
+        self._canvas = None
+
+    def serves(self, canvas):
+        return (self.enabled and not self.failed and canvas is not None
+                and _draws_into_window(canvas))
+
+    def draw(self, canvas, key, draw_edges):
+        """Copy the picture for key into the window's framebuffer, drawing it
+        first with draw_edges when key is new. Returns False, having drawn
+        nothing, when the cache cannot serve; the caller then draws directly."""
+        try:
+            shape = (int(round(canvas.physical_size[1])), int(round(canvas.physical_size[0])))
+            if self._framebuffer is None or shape != self._shape or canvas is not self._canvas:
+                self._allocate(canvas, shape)
+            if key != self._key:
+                self._key = None
+                canvas.push_fbo(self._framebuffer, (0, 0), canvas.size)
+                try:
+                    canvas.context.clear(color=canvas.bgcolor, depth=True, stencil=True)
+                    draw_edges()
+                finally:
+                    canvas.pop_fbo()
+                self._check_gl(canvas)
+                self._key = key
+                self.render_count += 1
+            else:
+                self.reuse_count += 1
+        except Exception as error:
+            self._fail(canvas, error)
+            return False
+        try:
+            gloo.set_state(blend=False, depth_test=False, stencil_test=False,
+                           cull_face=False, dither=False)
+            self._picture['u_size'] = (float(shape[1]), float(shape[0]))
+            self._picture.draw('triangle_strip')
+            # The state the edges' own draw leaves for the visuals after them.
+            gloo.set_state('translucent', depth_test=False, dither=True)
+        except Exception as error:
+            self._fail(canvas, error)
+            return False
+        try:
+            self._check_gl(canvas)
+        except Exception as error:
+            # The copy is drawn, so this frame keeps it; the next ones draw
+            # the edges directly.
+            self._fail(canvas, error)
+        return True
+
+    def _allocate(self, canvas, shape):
+        """A colour texture the size of the window's framebuffer, with the
+        smallest stencil buffer this GL accepts, checked complete now."""
+        self.free()
+        texture = gloo.Texture2D(shape=shape + (4,), internalformat='rgba8',
+                                 interpolation='nearest', wrapping='clamp_to_edge')
+        refusals = []
+        for stencil_format, stencil_bytes in _CACHE_STENCILS:
+            framebuffer = gloo.FrameBuffer(color=texture)
+            stencil = None
+            if stencil_format is not None:
+                stencil = gloo.RenderBuffer(shape, format=stencil_format)
+                framebuffer.stencil_buffer = stencil
+            try:
+                # VisPy checks a framebuffer's completeness when it is first bound.
+                canvas.push_fbo(framebuffer, (0, 0), canvas.size)
+                try:
+                    canvas.context.flush_commands()
+                finally:
+                    canvas.pop_fbo()
+                    canvas.context.flush_commands()
+                self._check_gl(canvas)
+            except Exception as error:
+                refusals.append(f"{stencil_format}: {error}")
+                for buffer in (framebuffer, stencil):
+                    if buffer is not None:
+                        buffer.delete()
+                continue
+            self._texture, self._framebuffer, self._stencil = texture, framebuffer, stencil
+            self.stencil_kind = {"stencil": "8-bit stencil", None: "no stencil"}.get(
+                stencil_format, "depth24/stencil8")
+            break
+        else:
+            texture.delete()
+            raise RuntimeError("no framebuffer for the cache: " + "; ".join(refusals))
+        self.bytes = shape[0] * shape[1] * (4 + stencil_bytes)
+        self._shape = shape
+        if self._canvas is not canvas:
+            self._canvas = canvas
+            close = getattr(getattr(canvas, 'events', None), 'close', None)
+            if close is not None:
+                close.connect(lambda _event: self.free())
+        if self._picture is None:
+            self._picture = gloo.Program(_PICTURE_VERTEX_SHADER, _PICTURE_FRAGMENT_SHADER)
+            self._picture['a_position'] = gloo.VertexBuffer(
+                np.array([[-1, -1], [1, -1], [-1, 1], [1, 1]], dtype=np.float32))
+        self._picture['u_picture'] = self._texture
+        if not self._reported:
+            self._reported = True
+            self._report(
+                f"Edges: image cache on ({shape[1]}x{shape[0]}, {self.bytes / 2**20:.0f} MB, "
+                f"{self.stencil_kind}; {_gl_renderer(_gl())})."
+            )
+
+    def _check_gl(self, canvas):
+        canvas.context.flush_commands()
+        error = _gl().glGetError()
+        if error:
+            _clear_gl_errors(_gl())
+            raise RuntimeError(f"GL error 0x{error:04x}")
+
+    def _fail(self, canvas, error):
+        self.failed = True
+        try:
+            self.free()
+        except Exception:
+            pass
+        try:
+            _clear_gl_errors(_gl())
+        except Exception:
+            pass
+        self._report(
+            f"Edges: image cache off, {error} ({_gl_renderer(_gl())}); "
+            "edges are drawn directly."
+        )
+
+    def free(self):
+        """Release the texture and framebuffer; the next frame makes new ones."""
+        for name in ('_framebuffer', '_stencil', '_texture'):
+            item = getattr(self, name)
+            setattr(self, name, None)
+            if item is not None:
+                item.delete()
+        self._shape = None
+        self._key = None
+        self.bytes = 0
+
+
+def _gl():
+    from vispy.gloo import gl
+    return gl
+
+
+def _picture_key(visual, canvas):
+    """Everything the edges' picture depends on, besides what bumps
+    visual.generation: the visual's mapping to the framebuffer, the
+    framebuffer's size and scale, the background and the overdraw limit."""
+    transform = visual.transforms.get_transform(map_from='visual', map_to='render')
+    corners = np.asarray(transform.map(np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 1.0]])),
+                         dtype=np.float64)
+    limit = getattr(visual, 'stencil_limit', None)
+    return (
+        visual.generation,
+        visual.edge_style(),
+        tuple(corners.ravel().tolist()),
+        tuple(float(value) for value in canvas.physical_size),
+        float(canvas.pixel_scale),
+        tuple(float(value) for value in canvas.bgcolor.rgba),
+        None if limit is None else (limit.enabled, STENCIL_LIMIT),
+    )
+
+
+def _draw_edges(visual, draw):
+    """Draw the edges: from the image cache when it serves this frame,
+    otherwise directly, with the overdraw limit where it applies."""
+    canvas = get_current_canvas()
+    cache = getattr(visual, 'image_cache', None)
+    limit = getattr(visual, 'stencil_limit', None)
+    if cache is not None and cache.serves(canvas):
+        try:
+            key = _picture_key(visual, canvas)
+        except Exception as error:
+            cache._fail(canvas, error)
+        else:
+            if cache.draw(canvas, key, lambda: _draw_with_limit(visual, limit, draw)):
+                return
+    _draw_with_limit(visual, limit, draw)
 
 
 def position_texels(positions):
@@ -409,17 +662,38 @@ class EdgeSegmentsVisual(Visual):
         self._buffers = {}
         self._buffer_sizes = {}
         self._segment_count = 0
+        self._drawn = None
         # The EdgeStencilLimit it draws with; None draws every fragment.
         self.stencil_limit = None
-        self.shared_program['u_color'] = tuple(float(value) for value in color)
+        # The EdgeImageCache it draws through; None draws directly.
+        self.image_cache = None
+        # Bumped by every change to what it draws (positions, segments, the
+        # drawn count, colour), so the image cache knows its picture is old.
+        self.generation = 0
+        self._color = tuple(float(value) for value in color)
+        self.shared_program['u_color'] = self._color
         self.set_gl_state('translucent')
 
     @property
     def segment_count(self):
         return self._segment_count
 
+    def edge_style(self):
+        return (self._color, self._width)
+
+    def set_color(self, color):
+        self._color = tuple(float(value) for value in color)
+        self.shared_program['u_color'] = self._color
+        self.generation += 1
+        self.update()
+
+    def set_width(self, width):
+        self._width = float(width)
+        self.generation += 1
+        self.update()
+
     def draw(self):
-        _draw_with_limit(self, self.stencil_limit, lambda: Visual.draw(self))
+        _draw_edges(self, lambda: Visual.draw(self))
 
     def set_node_positions(self, positions):
         """Upload node ``i``'s (x, y) to texel ``i``; positions must be finite."""
@@ -443,6 +717,7 @@ class EdgeSegmentsVisual(Visual):
             self._bounds = [(float(low[d]), float(high[d])) for d in range(2)]
         else:
             self._bounds = None
+        self.generation += 1
         self.update()
 
     def set_segments(self, key, edges):
@@ -458,6 +733,7 @@ class EdgeSegmentsVisual(Visual):
         else:
             buffer.set_data(node_numbers)
         self._buffer_sizes[key] = len(node_numbers) // 2
+        self.generation += 1
 
     def drop_segments(self, key):
         """Free buffer ``key``; the next set_segments for it uploads afresh."""
@@ -465,12 +741,16 @@ class EdgeSegmentsVisual(Visual):
         if buffer is not None:
             buffer.delete()
         self._buffer_sizes.pop(key, None)
+        self.generation += 1
 
     def draw_segments(self, key, count):
         """Draw the first ``count`` segments of buffer ``key`` from now on."""
         available = self._buffer_sizes.get(key, 0)
         count = max(0, min(int(count), available))
         self._segment_count = count
+        if (key, count) != self._drawn:
+            self._drawn = (key, count)
+            self.generation += 1
         if count:
             # A view of the buffer's first 2 * count vertices sets the vertex
             # count VisPy passes to glDrawArrays; nothing is uploaded.
@@ -498,15 +778,26 @@ EdgeSegments = create_visual_node(EdgeSegmentsVisual)
 
 
 class LimitedLine(scene.visuals.Line):
-    """VisPy's Line, for the coordinate fallback, drawn with an EdgeStencilLimit."""
+    """VisPy's Line, for the coordinate fallback, drawn with an EdgeStencilLimit
+    and through an EdgeImageCache, as EdgeSegmentsVisual is."""
 
-    def __init__(self, *args, stencil_limit=None, **kwargs):
+    def __init__(self, *args, stencil_limit=None, image_cache=None, **kwargs):
         # Set before VisPy freezes the visual's attributes.
         self.stencil_limit = stencil_limit
+        self.image_cache = image_cache
+        self.generation = 0
         super().__init__(*args, **kwargs)
 
+    def edge_style(self):
+        # Colour and width reach the Line through set_data, which bumps generation.
+        return ()
+
+    def set_data(self, *args, **kwargs):
+        self.generation += 1
+        return super().set_data(*args, **kwargs)
+
     def draw(self):
-        _draw_with_limit(self, self.stencil_limit, super().draw)
+        _draw_edges(self, super().draw)
 
 
 class ViewerEdges:
@@ -517,11 +808,13 @@ class ViewerEdges:
     changed since the previous call: node positions, the visible edges, or
     the explicit list. ``upload_count`` counts edge-buffer uploads, and
     ``position_upload_count`` node-position uploads. Either visual draws with
-    ``stencil_limit`` (an EdgeStencilLimit unless one is given).
+    ``stencil_limit`` (an EdgeStencilLimit unless one is given) and through
+    ``image_cache`` (an EdgeImageCache unless one is given).
     """
 
     def __init__(self, parent, edges, scores, positions, color, width,
-                 name='network_edges', use_position_texture=None, stencil_limit=None):
+                 name='network_edges', use_position_texture=None, stencil_limit=None,
+                 image_cache=None):
         self.order = EdgeOrder(edges, scores)
         node_count = len(positions)
         if len(self.order) and (
@@ -535,13 +828,15 @@ class ViewerEdges:
             use_position_texture = position_texture_enabled(node_count)
         self.uses_position_texture = bool(use_position_texture)
         self.stencil_limit = EdgeStencilLimit() if stencil_limit is None else stencil_limit
+        self.image_cache = EdgeImageCache() if image_cache is None else image_cache
         if self.uses_position_texture:
             self.visual = EdgeSegments(color=color, width=width, parent=parent, name=name)
             self.visual.stencil_limit = self.stencil_limit
+            self.visual.image_cache = self.image_cache
         else:
             self.visual = LimitedLine(
                 connect='segments', color=color, width=width, parent=parent, name=name,
-                stencil_limit=self.stencil_limit,
+                stencil_limit=self.stencil_limit, image_cache=self.image_cache,
             )
         self.visual.set_gl_state('translucent', depth_test=False)
         # Nothing is uploaded before the first show_threshold or show_edges.
@@ -562,6 +857,8 @@ class ViewerEdges:
 
     @visible.setter
     def visible(self, value):
+        if bool(value) != bool(self.visual.visible):
+            self.visual.generation += 1
         self.visual.visible = value
 
     def _upload_positions(self, positions):

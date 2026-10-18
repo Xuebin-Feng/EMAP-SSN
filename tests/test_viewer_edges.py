@@ -681,6 +681,348 @@ class DrawWithLimitTests(unittest.TestCase):
         self.assertEqual(config.keywords[0].arg, "stencil_size")
 
 
+class EdgeGenerationTests(unittest.TestCase):
+    """Every change to what the edges draw bumps their visual's generation,
+    so the image cache draws a new picture; what leaves it alone does not."""
+
+    def layer(self, texture):
+        edges, scores, positions = random_network(11)
+        layer = ViewerEdges(None, edges, scores, positions, (0, 0, 0, 0.5), 1.0,
+                            use_position_texture=texture)
+        layer.show_threshold(positions, None, 0.0)
+        layer.visible = True
+        return layer, positions
+
+    def assert_bumps(self, layer, change, bumps=True):
+        before = layer.visual.generation
+        change()
+        if bumps:
+            self.assertGreater(layer.visual.generation, before)
+        else:
+            self.assertEqual(layer.visual.generation, before)
+
+    def test_changes_to_the_drawn_edges_bump_it(self):
+        for texture in (True, False):
+            with self.subTest(position_texture=texture):
+                layer, positions = self.layer(texture)
+                moved = positions.copy()
+                moved[3] += 1.0
+                hidden = np.ones(len(positions), dtype=bool)
+                hidden[5] = False
+                explicit = np.array([[0, 1], [2, 3]], dtype=np.int32)
+                self.assert_bumps(layer, lambda: layer.show_threshold(positions, None, 0.5))
+                self.assert_bumps(layer, lambda: layer.show_threshold(moved, None, 0.5))
+                self.assert_bumps(layer, lambda: layer.show_threshold(moved, hidden, 0.5))
+                self.assert_bumps(layer, lambda: layer.show_edges(moved, explicit))
+                self.assert_bumps(layer, lambda: layer.show_threshold(moved, hidden, 0.5))
+                self.assert_bumps(layer, lambda: setattr(layer, "visible", False))
+                self.assert_bumps(layer, lambda: setattr(layer, "visible", True))
+
+    def test_new_segments_of_the_same_count_bump_it(self):
+        # A UMAP selection swapped for another with as many edges.
+        for texture in (True, False):
+            with self.subTest(position_texture=texture):
+                layer, positions = self.layer(texture)
+                layer.show_edges(positions, np.array([[0, 1], [2, 3]], dtype=np.int32))
+                self.assert_bumps(layer, lambda: layer.show_edges(
+                    positions, np.array([[4, 5], [6, 7]], dtype=np.int32)))
+        layer, _ = self.layer(True)
+        self.assert_bumps(layer, lambda: layer.visual.set_segments("threshold", np.array([[1, 2]])))
+        self.assert_bumps(layer, lambda: layer.visual.drop_segments("threshold"))
+
+    def test_the_same_edges_again_leave_it(self):
+        for texture in (True, False):
+            with self.subTest(position_texture=texture):
+                layer, positions = self.layer(texture)
+                self.assert_bumps(layer, lambda: layer.show_threshold(positions.copy(), None, 0.0), False)
+                self.assert_bumps(layer, lambda: setattr(layer, "visible", True), False)
+
+    def test_colour_alpha_and_width_bump_it(self):
+        layer, _ = self.layer(True)
+        self.assert_bumps(layer, lambda: layer.visual.set_color((0, 0, 0, 0.25)))
+        self.assert_bumps(layer, lambda: layer.visual.set_color((1, 0, 0, 0.25)))
+        self.assert_bumps(layer, lambda: layer.visual.set_width(2.0))
+        self.assertEqual(layer.visual.edge_style(), ((1.0, 0.0, 0.0, 0.25), 2.0))
+        line, _ = self.layer(False)
+        self.assert_bumps(line, lambda: line.visual.set_data(color=(0, 0, 0, 0.25)))
+        self.assert_bumps(line, lambda: line.visual.set_data(width=2.0))
+
+    def test_a_hover_or_an_unchanged_selection_leaves_it(self):
+        viewer = UpdateEdgesTests.make_viewer(self)
+        viewer.edge_layer = ViewerEdges(None, viewer.edges, viewer.edge_scores, viewer.pos,
+                                        (0, 0, 0, 0.5), 1.0, use_position_texture=True)
+        viewer.update_edges()
+        viewer.n_nodes = len(viewer.pos)
+        viewer.node_render_order = np.arange(viewer.n_nodes, dtype=np.int32)
+        viewer.selected_node_idx = None
+        viewer.left_click_highlight_indices = None
+        viewer.current_colors = np.zeros((viewer.n_nodes, 4), dtype=np.float32)
+        viewer.current_sizes = np.ones(viewer.n_nodes, dtype=np.float32)
+        viewer.current_shapes = np.full(viewer.n_nodes, "disc", dtype=object)
+        viewer.markers = mock.Mock()
+        viewer.canvas = SimpleNamespace(update=mock.Mock())
+        viewer._update_hud_elements = mock.Mock()
+        viewer._refresh_session_card = mock.Mock()
+        viewer.broadcast_event = mock.Mock()
+        layer = viewer.edge_layer
+        for node in (2, 3, None):
+            viewer.hovered_node_idx = node
+            self.assert_bumps(layer, viewer.update_nodes, False)
+        self.assert_bumps(layer, viewer.update_selection_visual, False)
+        viewer.current_slider_threshold = 0.0
+        self.assert_bumps(layer, viewer.update_edges)
+
+
+class FakeTransform:
+    def __init__(self, scale=1.0, shift=0.0):
+        self.scale, self.shift = scale, shift
+
+    def map(self, points):
+        points = np.asarray(points, dtype=float)
+        return np.column_stack([points * self.scale + self.shift,
+                                np.zeros(len(points)), np.ones(len(points))])
+
+
+class PictureKeyTests(unittest.TestCase):
+    def setUp(self):
+        self.transform = FakeTransform()
+        self.visual = SimpleNamespace(
+            generation=3, edge_style=lambda: ((0, 0, 0, 0.1), 1.0),
+            transforms=SimpleNamespace(get_transform=lambda map_from, map_to: self.transform),
+            stencil_limit=SimpleNamespace(enabled=True),
+        )
+        self.canvas = SimpleNamespace(physical_size=(400, 300), pixel_scale=2.0,
+                                      bgcolor=SimpleNamespace(rgba=(1.0, 1.0, 1.0, 1.0)))
+
+    def key(self):
+        return Viewer_Edges._picture_key(self.visual, self.canvas)
+
+    def test_the_key_holds_still_while_nothing_changes(self):
+        self.assertEqual(self.key(), self.key())
+
+    def test_every_input_changes_the_key(self):
+        changes = {
+            "generation": lambda: setattr(self.visual, "generation", 4),
+            "style": lambda: setattr(self.visual, "edge_style", lambda: ((0, 0, 0, 0.2), 1.0)),
+            "camera pan": lambda: setattr(self.transform, "shift", 0.5),
+            "camera zoom": lambda: setattr(self.transform, "scale", 1.5),
+            "framebuffer size": lambda: setattr(self.canvas, "physical_size", (800, 600)),
+            "display scale": lambda: setattr(self.canvas, "pixel_scale", 1.0),
+            "background": lambda: setattr(self.canvas, "bgcolor", SimpleNamespace(rgba=(0, 0, 0, 1))),
+            "overdraw limit": lambda: setattr(self.visual.stencil_limit, "enabled", False),
+            "limit value": lambda: mock.patch.object(Viewer_Edges, "STENCIL_LIMIT", 64).start(),
+        }
+        for name, change in changes.items():
+            with self.subTest(name):
+                self.setUp()
+                before = self.key()
+                change()
+                self.assertNotEqual(self.key(), before)
+                mock.patch.stopall()
+
+
+class FakeGlooObject:
+    """A VisPy GL object that records whether it was deleted."""
+
+    made = []
+
+    def __init__(self, *args, **kwargs):
+        self.args, self.kwargs = args, kwargs
+        self.deleted = False
+        self.stencil_buffer = None
+        self.values = {}
+        FakeGlooObject.made.append(self)
+
+    def delete(self):
+        self.deleted = True
+
+    def __setitem__(self, name, value):
+        self.values[name] = value
+
+    def draw(self, mode):
+        self.values["drawn"] = self.values.get("drawn", 0) + 1
+
+
+class FakeGloo:
+    Texture2D = FrameBuffer = RenderBuffer = VertexBuffer = Program = FakeGlooObject
+
+    def __init__(self):
+        self.states = []
+
+    def set_state(self, *args, **kwargs):
+        self.states.append((args, kwargs))
+
+
+class FakeWindowCanvas:
+    """What the image cache uses of a canvas, drawing into its window."""
+
+    def __init__(self, physical_size=(400, 300), refuse=()):
+        self.physical_size = physical_size
+        self.size = (200, 150)
+        self.bgcolor = "white"
+        self._fb_stack = []
+        self.refuse = set(refuse)  # stencil formats whose framebuffer is incomplete
+        self.closers = []
+        self.events = SimpleNamespace(close=SimpleNamespace(connect=self.closers.append))
+        self.context = SimpleNamespace(flush_commands=self.flush, clear=mock.Mock())
+        self.pushed = []
+
+    def push_fbo(self, fbo, offset, size):
+        self._fb_stack.append((fbo, offset, size))
+        self.pushed.append(fbo)
+
+    def pop_fbo(self):
+        self._fb_stack.pop()
+
+    def flush(self):
+        if self._fb_stack:
+            stencil = self._fb_stack[-1][0].stencil_buffer
+            kind = None if stencil is None else stencil.kwargs.get("format")
+            if kind in self.refuse:
+                raise RuntimeError(f"framebuffer incomplete with {kind}")
+
+
+class EdgeImageCacheTests(unittest.TestCase):
+    def setUp(self):
+        FakeGlooObject.made = []
+        self.gloo = FakeGloo()
+        self.gl = SimpleNamespace(glGetError=mock.Mock(return_value=0), GL_RENDERER=0x1F01,
+                                  glGetParameter=lambda name: "Fake Renderer")
+        for patcher in (mock.patch.object(Viewer_Edges, "gloo", self.gloo),
+                        mock.patch.object(Viewer_Edges, "_gl", lambda: self.gl)):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.reports = []
+        self.cache = Viewer_Edges.EdgeImageCache(enabled=True, report=self.reports.append)
+
+    def objects(self, kind):
+        return [item for item in FakeGlooObject.made if item.kwargs.get("internalformat") == kind]
+
+    def test_it_serves_only_the_window(self):
+        canvas = FakeWindowCanvas()
+        self.assertTrue(self.cache.serves(canvas))
+        canvas._fb_stack.append((object(), (0, 0), (1, 1)))  # canvas.render(): print, captures
+        self.assertFalse(self.cache.serves(canvas))
+        self.assertFalse(self.cache.serves(None))
+        self.assertFalse(Viewer_Edges.EdgeImageCache(enabled=False).serves(FakeWindowCanvas()))
+        with mock.patch.dict(os.environ, {Viewer_Edges.CACHE_ENVIRONMENT_VARIABLE: "0"}):
+            self.assertFalse(Viewer_Edges.EdgeImageCache().enabled)
+
+    def test_a_key_draws_its_picture_once_and_frames_copy_it(self):
+        canvas = FakeWindowCanvas()
+        draw_edges = mock.Mock()
+        for key in ("a", "a", "a", "b", "b"):
+            self.assertTrue(self.cache.draw(canvas, key, draw_edges))
+        self.assertEqual(draw_edges.call_count, 2)
+        self.assertEqual((self.cache.render_count, self.cache.reuse_count), (2, 3))
+        picture = [item for item in FakeGlooObject.made if "drawn" in item.values]
+        self.assertEqual(picture[0].values["drawn"], 5)
+        self.assertEqual(picture[0].values["u_size"], (400.0, 300.0))
+        # Blending off for the copy, then the state the edges leave behind.
+        self.assertEqual(self.gloo.states[0][1]["blend"], False)
+        self.assertEqual(self.gloo.states[1], (("translucent",), {"depth_test": False, "dither": True}))
+        texture = self.objects("rgba8")
+        self.assertEqual(len(texture), 1)
+        self.assertEqual(texture[0].kwargs["shape"], (300, 400, 4))
+        self.assertEqual(self.cache.stencil_kind, "8-bit stencil")
+        self.assertEqual(self.cache.bytes, 400 * 300 * 5)
+        self.assertEqual(len(self.reports), 1)
+        self.assertIn("image cache on", self.reports[0])
+
+    def test_a_resize_frees_the_old_picture_and_draws_a_new_one(self):
+        canvas = FakeWindowCanvas()
+        draw_edges = mock.Mock()
+        self.cache.draw(canvas, "a", draw_edges)
+        old = self.objects("rgba8")[0]
+        canvas.physical_size = (800, 600)
+        self.cache.draw(canvas, "a", draw_edges)
+        self.assertTrue(old.deleted)
+        self.assertEqual(self.objects("rgba8")[-1].kwargs["shape"], (600, 800, 4))
+        self.assertEqual(draw_edges.call_count, 2)
+
+    def test_closing_the_window_frees_the_picture(self):
+        canvas = FakeWindowCanvas()
+        self.cache.draw(canvas, "a", mock.Mock())
+        texture = self.objects("rgba8")[0]
+        self.assertEqual(len(canvas.closers), 1)
+        canvas.closers[0](None)
+        self.assertTrue(texture.deleted)
+        self.assertEqual(self.cache.bytes, 0)
+
+    def test_a_refused_stencil_falls_back_to_a_packed_one_then_none(self):
+        for refused, kind in (({"stencil"}, "depth24/stencil8"), ({"stencil", 0x88F0}, "no stencil")):
+            with self.subTest(refused=refused):
+                self.setUp()
+                self.assertTrue(self.cache.draw(FakeWindowCanvas(refuse=refused), "a", mock.Mock()))
+                self.assertEqual(self.cache.stencil_kind, kind)
+                self.assertFalse(self.cache.failed)
+
+    def test_failures_draw_directly_from_then_on_and_say_so_once(self):
+        def refuse_all():
+            return FakeWindowCanvas(refuse={"stencil", 0x88F0, None})
+
+        def out_of_memory():
+            # GL_OUT_OF_MEMORY while the edges are drawn into the picture.
+            self.gl.glGetError.side_effect = [0x0505, 0]
+        cases = {
+            "no framebuffer": (refuse_all, lambda: None),
+            "texture refused": (FakeWindowCanvas, lambda: None),
+            "edges fail to draw": (FakeWindowCanvas, mock.Mock(side_effect=RuntimeError("draw failed"))),
+            "GL error": (FakeWindowCanvas, out_of_memory),
+        }
+        for name, (make_canvas, draw_edges) in cases.items():
+            with self.subTest(name):
+                self.setUp()
+                canvas = make_canvas()
+                if name == "texture refused":
+                    self.gloo.Texture2D = mock.Mock(side_effect=MemoryError("out of memory"))
+                self.assertFalse(self.cache.draw(canvas, "a", draw_edges))
+                self.assertTrue(self.cache.failed)
+                self.assertFalse(self.cache.serves(FakeWindowCanvas()))
+                said = [text for text in self.reports if "image cache off" in text]
+                self.assertEqual(len(said), 1)
+                self.assertIn("Fake Renderer", said[0])
+                self.assertTrue(all(item.deleted for item in self.objects("rgba8")))
+                self.assertEqual(canvas._fb_stack, [])
+
+    def test_a_gl_error_after_the_copy_keeps_the_frame_and_stops_the_cache(self):
+        canvas = FakeWindowCanvas()
+        self.cache.draw(canvas, "a", mock.Mock())
+        self.gl.glGetError.side_effect = [0x0505, 0]
+        self.assertTrue(self.cache.draw(canvas, "a", mock.Mock()))
+        self.assertTrue(self.cache.failed)
+        self.assertIn("image cache off", self.reports[-1])
+
+    def test_draw_edges_uses_the_cache_when_it_serves(self):
+        visual = SimpleNamespace(image_cache=mock.Mock(), stencil_limit=None)
+        drawn = mock.Mock()
+        with mock.patch.object(Viewer_Edges, "get_current_canvas", return_value="canvas"), \
+                mock.patch.object(Viewer_Edges, "_picture_key", return_value="key"), \
+                mock.patch.object(Viewer_Edges, "_draw_with_limit") as direct:
+            for serves, copied, direct_draws in ((True, True, 0), (True, False, 1), (False, None, 2)):
+                visual.image_cache.serves.return_value = serves
+                visual.image_cache.draw.return_value = copied
+                Viewer_Edges._draw_edges(visual, drawn)
+                self.assertEqual(direct.call_count, direct_draws)
+            self.assertEqual(visual.image_cache.draw.call_count, 2)
+            self.assertEqual(visual.image_cache.draw.call_args.args[:2], ("canvas", "key"))
+            # A cached picture is drawn with the overdraw limit too.
+            visual.image_cache.draw.call_args.args[2]()
+            direct.assert_called_with(visual, None, drawn)
+
+    def test_both_edge_visuals_draw_through_the_layers_cache(self):
+        edges, scores, positions = random_network(12)
+        cache = Viewer_Edges.EdgeImageCache(enabled=True, report=lambda _text: None)
+        for texture in (True, False):
+            with self.subTest(position_texture=texture):
+                layer = ViewerEdges(None, edges, scores, positions, (0, 0, 0, 0.5), 1.0,
+                                    use_position_texture=texture, image_cache=cache)
+                self.assertIs(layer.image_cache, cache)
+                self.assertIs(layer.visual.image_cache, cache)
+        default = ViewerEdges(None, edges, scores, positions, (0, 0, 0, 0.5), 1.0)
+        self.assertIsInstance(default.image_cache, Viewer_Edges.EdgeImageCache)
+
+
 _RENDER_SCRIPT = textwrap.dedent(
     """
     import sys
@@ -825,7 +1167,7 @@ _STENCIL_SCRIPT = textwrap.dedent(
         for alpha in (0.01, 0.1, 0.5, 1.0):
             for name, rgb in colours.items():
                 if texture:
-                    layer.visual.shared_program["u_color"] = (*rgb, alpha)
+                    layer.visual.set_color((*rgb, alpha))
                 else:
                     layer.visual.set_data(color=(*rgb, alpha))
                 for bg in ("white", "black"):
@@ -851,6 +1193,231 @@ _STENCIL_SCRIPT = textwrap.dedent(
 )
 
 
+def run_gl_script(test, script, scale):
+    """Run script in a subprocess on the native GL at display scale (1 or 2)
+    and return its output, or skip test when it gets no OpenGL context."""
+    environment = dict(os.environ)
+    environment.pop("QT_QPA_PLATFORM", None)
+    for name in (Viewer_Edges.STENCIL_ENVIRONMENT_VARIABLE, Viewer_Edges.CACHE_ENVIRONMENT_VARIABLE):
+        environment.pop(name, None)
+    environment.update(PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0",
+                       QT_SCALE_FACTOR=str(scale))
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", script, SRC_DIR],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=environment, timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        test.skipTest("the GL render probe timed out")
+    if "CONTEXT OK" not in result.stdout:
+        test.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
+    test.assertEqual(result.returncode, 0, result.stdout + result.stderr[-2000:])
+    return result.stdout + result.stderr[-2000:]
+
+
+_CACHE_SCRIPT = textwrap.dedent(
+    """
+    import sys
+    from unittest import mock
+    import numpy as np
+    sys.path.insert(0, sys.argv[1])
+    from vispy import app, gloo, scene
+    from vispy.gloo import gl
+    from desktop import Viewer_Edges as VE
+    app.use_app("pyside6")
+    canvas = scene.SceneCanvas(size=(200, 160), bgcolor="white", show=False,
+                               config=dict(stencil_size=8))
+    view = canvas.central_widget.add_view()
+    view.camera = scene.PanZoomCamera(aspect=1)
+    view.camera.set_range(x=(-5, 105), y=(-5, 105))
+    rng = np.random.default_rng(42)
+    pos = np.vstack([rng.normal((20, 50), 1.5, (30, 2)), rng.normal((80, 52), 1.5, (30, 2)),
+                     rng.random((150, 2)) * 100]).astype(np.float32)
+    edges = np.vstack([np.stack([rng.integers(0, 30, 2000), rng.integers(30, 60, 2000)], axis=1),
+                       rng.integers(60, 210, (400, 2))]).astype(np.int32)
+    scores = rng.random(len(edges)).astype(np.float32)
+    reports = []
+    # The settings some saved profiles use: grey edges 1.5 wide at alpha 0.1,
+    # nodes 15 across with 2-pixel outlines.
+    cache = VE.EdgeImageCache(enabled=True, report=reports.append)
+    limit = VE.EdgeStencilLimit(enabled=True, report=reports.append)
+    layers = {texture: VE.ViewerEdges(view.scene, edges, scores, pos, (0.5, 0.5, 0.5, 0.1), 1.5,
+                                      use_position_texture=texture, stencil_limit=limit,
+                                      image_cache=cache)
+              for texture in (True, False)}
+    for layer in layers.values():
+        layer.show_threshold(pos, None, -1.0)
+        layer.visible = False
+    markers = scene.visuals.Markers(parent=view.scene)
+    colours = np.tile([0.27, 0.53, 1.0, 1.0], (len(pos), 1)).astype(np.float32)
+
+    def set_nodes():
+        markers.set_data(pos=pos, face_color=colours, edge_color=(0, 0, 0, 1), size=15, edge_width=2.0)
+
+    set_nodes()
+    markers.set_gl_state("translucent", depth_test=False)
+    hud = scene.visuals.Text("Hidden Nodes: 0", pos=(150, 140), color="grey", parent=canvas.scene)
+    layers[True].visible = True
+    if (canvas.render()[..., 0] < 250).sum() == 0:
+        sys.exit(3)
+    print("CONTEXT OK", flush=True)
+    print("SCALE", canvas.pixel_scale, flush=True)
+    shape = canvas.render().shape[:2]
+    # The window's own framebuffer, as QOpenGLWidget makes it: colour plus a
+    # packed depth/stencil buffer. Frames drawn into it count as the window's.
+    window = gloo.FrameBuffer(color=gloo.RenderBuffer(shape))
+    packed = gloo.RenderBuffer(shape, format=0x88F0)
+    window.depth_buffer = packed
+    window.stencil_buffer = packed
+
+    def frame(cached=True):
+        enabled, cache.enabled = cache.enabled, cached
+        with mock.patch.object(VE, "_draws_into_window", lambda canvas: True):
+            canvas.push_fbo(window, (0, 0), canvas.size)
+            try:
+                canvas._draw_scene()
+                return window.read()
+            finally:
+                canvas.pop_fbo()
+                cache.enabled = enabled
+
+    results = []
+
+    def check(name):
+        before = cache.render_count
+        cached = frame()
+        drew = cache.render_count - before
+        direct = frame(cached=False)
+        results.append((name, drew, int((cached != direct).any(axis=2).sum())))
+
+    for texture, layer in layers.items():
+        for other in layers.values():
+            other.visible = other is layer
+        check("first")
+        check("unchanged")
+        colours[7] = (1.0, 0.67, 0.0, 1.0)
+        set_nodes()
+        check("hover")
+        colours[7] = (0.27, 0.53, 1.0, 1.0)
+        set_nodes()
+        hud.text = "Hidden Nodes: 3"
+        check("hud text")
+        rect = view.camera.rect
+        view.camera.rect = (rect.left + 4, rect.bottom, rect.width, rect.height)
+        check("camera pan")
+        view.camera.rect = (rect.left + 4, rect.bottom, rect.width * 0.7, rect.height * 0.7)
+        check("camera zoom")
+        layer.show_threshold(pos, None, 0.5)
+        check("threshold")
+        moved = pos.copy()
+        moved[:20] += 4.0
+        layer.show_threshold(moved, None, 0.5)
+        check("node positions")
+        hidden = np.ones(len(pos), dtype=bool)
+        hidden[40:55] = False
+        layer.show_threshold(moved, hidden, 0.5)
+        check("hidden nodes")
+        layer.show_edges(moved, edges[:900])
+        check("explicit edges")
+        if texture:
+            layer.visual.set_color((0.2, 0.2, 0.2, 0.3))
+        else:
+            layer.visual.set_data(color=(0.2, 0.2, 0.2, 0.3))
+        check("colour and alpha")
+        if texture:
+            layer.visual.set_width(2.5)
+        else:
+            layer.visual.set_data(width=2.5)
+        check("width")
+        layer.visible = False
+        check("edges hidden")
+        layer.visible = True
+        check("edges shown")
+        canvas.bgcolor = "black"
+        check("background")
+        canvas.bgcolor = "white"
+        limit.enabled = False
+        check("overdraw limit off")
+        limit.enabled = True
+        check("overdraw limit on")
+        # Captures and print draw through canvas.render(): never the cache.
+        counts = (cache.render_count, cache.reuse_count)
+        printed = canvas.render()
+        cache.enabled = False
+        printed_direct = canvas.render()
+        cache.enabled = True
+        results.append(("capture", int(counts != (cache.render_count, cache.reuse_count)),
+                        int((printed != printed_direct).any(axis=2).sum())))
+    for name, drew, differ in results:
+        print("CASE", name.replace(" ", "_"), drew, differ, flush=True)
+
+    # Failures: no framebuffer this GL accepts, then a GL error while the
+    # picture is drawn. Either way the frame is drawn directly, and said once.
+    layer = layers[True]
+    for other in layers.values():
+        other.visible = other is layer
+    for failure in ("framebuffer", "gl error"):
+        cache = VE.EdgeImageCache(enabled=True, report=reports.append)
+        layer.visual.image_cache = cache
+        reported = len(reports)
+        if failure == "framebuffer":
+            patch = mock.patch.object(VE, "_CACHE_STENCILS", ((0x1234, 1),))
+        else:
+            original = VE._draw_with_limit
+
+            def failing(visual, limit, draw, original=original):
+                original(visual, limit, draw)
+                top = canvas._fb_stack[-1][0] if canvas._fb_stack else None
+                if top is not None and top is cache._framebuffer:
+                    gl.glEnable(0x1234)  # GL_INVALID_ENUM, inside the picture's draw
+            patch = mock.patch.object(VE, "_draw_with_limit", failing)
+        with patch:
+            fallen = frame()
+        direct = frame(cached=False)
+        said = sum("image cache off" in text for text in reports[reported:])
+        print("FAIL", failure.replace(" ", "_"), int(cache.failed), said,
+              int((fallen != direct).any(axis=2).sum()), int(cache.bytes), flush=True)
+    """
+)
+
+
+class EdgeImageCachePixelTests(unittest.TestCase):
+    """The image cache on a real GL canvas, at display scales 1 and 2.
+
+    Frames drawn into a framebuffer like the window's (colour plus packed
+    depth/stencil) with the cache equal those drawn without it, pixel for
+    pixel. A hover or a HUD change copies the picture without drawing the
+    edges; every change to the camera, the edges, their style, the
+    background or the overdraw limit draws a new picture; canvas.render()
+    never touches the cache; and a failure draws directly and says so once.
+    """
+
+    TRIGGERS = ("camera_pan", "camera_zoom", "threshold", "node_positions", "hidden_nodes",
+                "explicit_edges", "colour_and_alpha", "width", "edges_shown", "background",
+                "overdraw_limit_off", "overdraw_limit_on")
+    COPIES = ("unchanged", "hover", "hud_text")
+
+    def test_cached_frames_equal_direct_ones(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                output = run_gl_script(self, _CACHE_SCRIPT, scale)
+                cases = [line.split()[1:] for line in output.splitlines() if line.startswith("CASE ")]
+                failures = [line.split()[1:] for line in output.splitlines() if line.startswith("FAIL ")]
+                self.assertEqual(len(cases), 2 * (3 + len(self.TRIGGERS) + len(self.COPIES)), output)
+                for name, drew, differ in cases:
+                    with self.subTest(case=name):
+                        self.assertEqual(int(differ), 0, output)
+                        if name in self.COPIES or name in ("capture", "edges_hidden"):
+                            self.assertEqual(int(drew), 0, output)
+                        else:
+                            self.assertEqual(int(drew), 1, output)
+                self.assertEqual(len(failures), 2, output)
+                for name, failed, reports, differ, cache_bytes in failures:
+                    with self.subTest(failure=name):
+                        self.assertEqual((failed, reports, differ, cache_bytes), ("1", "1", "0", "0"), output)
+
+
 class EdgeStencilLimitPixelTests(unittest.TestCase):
     """The overdraw limit on a real GL canvas, at display scales 1 and 2.
 
@@ -862,24 +1429,10 @@ class EdgeStencilLimitPixelTests(unittest.TestCase):
     """
 
     def run_script(self, scale):
-        environment = dict(os.environ)
-        environment.pop("QT_QPA_PLATFORM", None)
-        environment.pop(Viewer_Edges.STENCIL_ENVIRONMENT_VARIABLE, None)
-        environment.update(PYTHONDONTWRITEBYTECODE="1", QT_ENABLE_HIGHDPI_SCALING="0",
-                           QT_SCALE_FACTOR=str(scale))
-        try:
-            result = subprocess.run(
-                [sys.executable, "-c", _STENCIL_SCRIPT, SRC_DIR],
-                capture_output=True, text=True, encoding="utf-8", errors="replace",
-                env=environment, timeout=300,
-            )
-        except subprocess.TimeoutExpired:
-            self.skipTest("the GL render probe timed out")
-        if "CONTEXT OK" not in result.stdout:
-            self.skipTest(f"no OpenGL context to render with (exit {result.returncode})")
-        lines = {line.split()[0]: line.split()[1:] for line in result.stdout.splitlines() if line.strip()}
-        self.assertIn("STENCIL", lines, result.stdout + result.stderr[-2000:])
-        return lines, result.stdout
+        output = run_gl_script(self, _STENCIL_SCRIPT, scale)
+        lines = {line.split()[0]: line.split()[1:] for line in output.splitlines() if line.strip()}
+        self.assertIn("STENCIL", lines, output)
+        return lines, output
 
     def test_the_limit_leaves_every_pixel_as_it_was(self):
         for scale in (1, 2):
