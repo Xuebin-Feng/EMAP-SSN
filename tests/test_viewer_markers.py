@@ -396,6 +396,100 @@ class ClickPickTests(unittest.TestCase):
                 np.testing.assert_array_equal(pick.call_args.args[0], event.pos)
 
 
+class PlacedMarkers:
+    """Real VisPy markers, picked through IdentityTransforms: scene units are canvas pixels."""
+
+    def __init__(self):
+        object.__setattr__(self, "_markers", scene.visuals.Markers())
+        object.__setattr__(self, "transforms", IdentityTransforms())
+
+    def __getattr__(self, name):
+        return getattr(self._markers, name)
+
+    def __setattr__(self, name, value):
+        setattr(self._markers, name, value)
+
+
+class DraggedNodePickTests(unittest.TestCase):
+    """Moved nodes are picked where they are drawn after the move.
+
+    A drag writes the Viewer's float32 positions in place. The hover, a left
+    click, a right press and so the next drag all ask the pick, so a pick
+    still looking at the old places would leave the moved nodes "locked":
+    a press on them would start a box selection instead of a drag.
+    """
+
+    def make_viewer(self):
+        viewer = make_viewer(node_count=6, shapes=["disc"] * 6)
+        viewer.pos = np.array([[0, 0], [40, 0], [80, 0], [120, 0], [160, 0], [200, 0]],
+                              dtype=np.float32)  # float32, as the Viewer loads them
+        viewer.visible_mask[:] = True
+        viewer.current_sizes = np.full(6, 10.0, np.float32)
+        viewer.selected_indices, viewer.selected_node_idx = [], None
+        viewer.markers = PlacedMarkers()
+        transforms = IdentityTransforms()
+        viewer.canvas = SimpleNamespace(update=mock.Mock(), pixel_scale=1.0,
+                                        scene=SimpleNamespace(node_transform=lambda _scene: transforms))
+        viewer.view = SimpleNamespace(scene=object())
+        viewer.edge_layer = None
+        viewer.hud_displays = {}
+        viewer.tooltip = SimpleNamespace(text="")
+        viewer.full_headers = [f"N{i}" for i in range(6)]
+        viewer.is_multi_dragging = viewer.is_box_selecting = False
+        viewer.console_mode = False
+        viewer.selection_box = SimpleNamespace(set_data=mock.Mock(), visible=False)
+        viewer._hud_timer = mock.Mock()
+        for name in ("_save_state", "apply_left_click_focus", "clear_left_click_focus",
+                     "_show_click_status", "broadcast_event", "_refresh_session_card"):
+            setattr(viewer, name, mock.Mock())
+        viewer.update_nodes()
+        return viewer
+
+    @staticmethod
+    def event(x, y, button=None, buttons=(), delta=(0.0, 0.0)):
+        return SimpleNamespace(pos=np.array([float(x), float(y)]), button=button, buttons=list(buttons),
+                               modifiers=[], handled=False, delta=delta)
+
+    def drag(self, viewer, start, end):
+        viewer.on_mouse_press(self.event(*start, button=2, buttons=[2]))
+        self.assertTrue(viewer.is_multi_dragging, f"no drag started at {start}")
+        viewer.on_mouse_move(self.event(*end, buttons=[2]))
+        viewer.on_mouse_release(self.event(*end, button=2))
+        self.assertFalse(viewer.is_multi_dragging)
+
+    def test_a_dragged_node_can_be_dragged_again(self):
+        with mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
+            viewer = self.make_viewer()
+            self.drag(viewer, (40, 0), (60, 30))
+            np.testing.assert_array_equal(viewer.pos[1], [60, 30])
+            self.assertEqual(viewer.pick_hovered_node((60, 30)), 1)
+            self.assertIsNone(viewer.pick_hovered_node((40, 0)))
+            # The press on its new place starts the second drag.
+            self.drag(viewer, (60, 30), (60, 70))
+            np.testing.assert_array_equal(viewer.pos[1], [60, 70])
+            self.assertEqual(viewer.pick_hovered_node((60, 70)), 1)
+            # A left click lands on it too.
+            viewer.on_mouse_press(self.event(60, 70, button=1, buttons=[1]))
+            viewer.apply_left_click_focus.assert_called_once()
+            self.assertEqual(viewer.apply_left_click_focus.call_args.args[0], 1)
+
+    def test_rotated_nodes_are_picked_where_they_turned_to(self):
+        with mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
+            viewer = self.make_viewer()
+            viewer.selected_indices = [1, 2]
+            viewer.on_mouse_press(self.event(40, 0, button=2, buttons=[2]))
+            self.assertTrue(viewer.is_multi_dragging)
+            # Eighteen wheel steps: 90 degrees about the press.
+            viewer.on_mouse_wheel(self.event(40, 0, buttons=[2], delta=(0.0, 18.0)))
+            viewer.on_mouse_release(self.event(40, 0, button=2))
+            np.testing.assert_allclose(viewer.pos[2], [40, 40], atol=1e-4)
+            self.assertEqual(viewer.pick_hovered_node((40, 40)), 2)
+            self.assertIsNone(viewer.pick_hovered_node((80, 0)))
+            self.drag(viewer, (40, 40), (40, 60))
+
+
 class FakeTransforms:
     """A TransformSystem whose visual coordinates are framebuffer pixels
     divided by scale, y up, and canvas pixels framebuffer pixels divided by
@@ -518,6 +612,24 @@ class MarkerPickerTests(unittest.TestCase):
         self.assertIsNone(after._tree)
         self.assertEqual(self.pick(after, 100, 100), 2)
         self.assertEqual(self.pick(after, 150, 100), 1)
+
+    def test_nodes_moved_in_place_get_a_new_tree(self):
+        # The Viewer's positions are float32, and a drag writes them in place:
+        # the picker keeps its own copy, so the next one sees what moved.
+        positions = np.array([[100, 100], [110, 100], [300, 100]], np.float32)
+        codes = Viewer_Markers.symbol_codes_of(["disc"] * 3)
+        first = Viewer_Markers.MarkerPicker(np.array([0, 1, 2]), np.zeros(3, bool), positions,
+                                            np.array([6, 40, 10], np.float32), np.zeros(3, np.float32),
+                                            codes, 1.0)
+        self.assertEqual(self.pick(first, 300, 100), 2)
+        positions[2] = (200, 200)
+        self.assertEqual(self.pick(first, 300, 100), 2)       # as drawn, until drawn again
+        after = Viewer_Markers.MarkerPicker(np.array([0, 1, 2]), np.zeros(3, bool), positions,
+                                            np.array([6, 40, 10], np.float32), np.zeros(3, np.float32),
+                                            first.codes, 1.0, previous=first)
+        self.assertIsNot(after._tree, first._tree)
+        self.assertEqual(self.pick(after, 200, 200), 2)
+        self.assertIsNone(self.pick(after, 300, 100))
 
     def test_hidden_nodes_are_never_picked(self):
         # Node 0 is hidden: it has a position but no marker.
@@ -769,6 +881,123 @@ _PICK_SCRIPT = textwrap.dedent(
         print("CLICKS", kind, clicks, click_mismatches, flush=True)
     """
 )
+
+
+_DRAG_SCRIPT = textwrap.dedent(
+    """
+    import os
+    import sys
+    from types import SimpleNamespace
+    from unittest import mock
+    import numpy as np
+    sys.path.insert(0, sys.argv[1])
+    os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
+    import matplotlib.colors as mcolors
+    from vispy import app, scene
+    app.use_app("pyside6")
+    import EMAPSSN_Viewer as V
+    cfg = V.cfg
+    cfg.NODE_SIZE, cfg.UMAP_MODE = 15, False
+    n = 30
+    rng = np.random.default_rng(42)
+    v = V.MainViewer.__new__(V.MainViewer)
+    v.n_nodes = n
+    v.pos = (rng.random((n, 2)) * 30 - 15).astype(np.float32)        # float32, as loaded
+    v.pos[7] = (0.0, 0.0)
+    v.edges = np.zeros((0, 2), dtype=np.int32)
+    v.edge_layer = None
+    v.current_colors = np.tile(mcolors.to_rgba(cfg.INITIAL_NODE_COLOR), (n, 1)).astype(np.float32)
+    v.current_sizes = np.full(n, 15.0, dtype=np.float32)
+    v.current_shapes = np.full(n, "disc", dtype=object)
+    v.visible_mask = np.ones(n, dtype=bool)
+    v.node_render_order = np.arange(n, dtype=np.int32)
+    v.selected_indices, v.selected_node_idx, v.hovered_node_idx = [], None, None
+    v.left_click_highlight_indices = None
+    v.full_headers = [f"N{i}" for i in range(n)]
+    v.hud_displays = {}
+    v.tooltip = SimpleNamespace(text="")
+    v.selection_box = SimpleNamespace(set_data=lambda **kwargs: None, visible=False)
+    v.is_multi_dragging = v.is_box_selecting = v.console_mode = False
+    for name in ("_save_state", "broadcast_event", "_show_click_status", "_refresh_session_card",
+                 "_update_hud_elements", "apply_left_click_focus", "clear_left_click_focus"):
+        setattr(v, name, mock.Mock())
+    v._hud_timer = mock.Mock()
+    v.canvas = scene.SceneCanvas(size=(300, 240), bgcolor="white", show=False)
+    v.view = v.canvas.central_widget.add_view()
+    v.view.camera = scene.PanZoomCamera(aspect=1)
+    v.markers = scene.visuals.Markers(parent=v.view.scene)
+    v.update_nodes()
+    v.view.camera.rect = (-20, -16, 40, 32)
+    if (v.canvas.render()[..., 0] < 250).sum() == 0:
+        sys.exit(3)
+    print("CONTEXT OK", flush=True)
+
+    def on_canvas(node):
+        to_canvas = v.markers.transforms.get_transform("visual", "canvas")
+        return np.asarray(to_canvas.map(v.pos[node, :2]))[:2]
+
+    def event(at, button=None, buttons=(), delta=(0.0, 0.0)):
+        return SimpleNamespace(pos=np.asarray(at, float), button=button, buttons=list(buttons),
+                               modifiers=[], handled=False, delta=delta)
+
+    def drawn_at(at):
+        image = v.canvas.render()
+        x, y = (np.asarray(at) * v.canvas.pixel_scale).astype(int)
+        return int(image[y, x, 2]) > 200 and int(image[y, x, 0]) < 150   # the node's blue
+
+    out = {}
+    start = on_canvas(7)
+    out["pick_before"] = v.pick_hovered_node(start)
+    v.on_mouse_press(event(start, button=2, buttons=[2]))
+    out["drag1"] = int(v.is_multi_dragging)
+    end = start + (40.0, 25.0)
+    v.on_mouse_move(event(end, buttons=[2]))
+    v.on_mouse_release(event(end, button=2))
+    moved = on_canvas(7)
+    out["moved_by"] = "%.1f,%.1f" % tuple(moved - start)
+    out["drawn_new"] = int(drawn_at(moved))
+    out["drawn_old"] = int(drawn_at(start))
+    out["pick_new"] = v.pick_hovered_node(moved)
+    out["pick_old"] = v.pick_hovered_node(start)
+    # The second drag, from where the node now is.
+    v.on_mouse_press(event(moved, button=2, buttons=[2]))
+    out["drag2"] = int(v.is_multi_dragging)
+    v.on_mouse_move(event(moved + (0.0, -30.0), buttons=[2]))
+    v.on_mouse_release(event(moved + (0.0, -30.0), button=2))
+    out["pick_after_drag2"] = v.pick_hovered_node(on_canvas(7))
+    # A rotation: a quarter turn of the selection about the press.
+    v.selected_indices = [7, 8]
+    pivot = on_canvas(7)
+    v.on_mouse_press(event(pivot, button=2, buttons=[2]))
+    v.on_mouse_wheel(event(pivot, buttons=[2], delta=(0.0, 18.0)))
+    v.on_mouse_release(event(pivot, button=2))
+    out["pick_rotated"] = v.pick_hovered_node(on_canvas(8))
+    print("DRAG", " ".join(f"{key}={value}" for key, value in out.items()), flush=True)
+    """
+)
+
+
+class DragPickPixelTests(unittest.TestCase):
+    """On a real canvas: a node dragged with the right button is drawn and
+    picked where it went, so it drags again; the place it left picks nothing;
+    a rotated node is picked where it turned to."""
+
+    def test_a_dragged_node_drags_again_from_where_it_is_drawn(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                output = run_gl_script(self, _DRAG_SCRIPT, scale)
+                line = next(line for line in output.splitlines() if line.startswith("DRAG "))
+                values = dict(item.split("=", 1) for item in line.split()[1:])
+                self.assertEqual(values["pick_before"], "7", output)
+                self.assertEqual(values["drag1"], "1", output)
+                self.assertEqual(values["moved_by"], "40.0,25.0", output)
+                self.assertEqual(values["drawn_new"], "1", output)
+                self.assertEqual(values["drawn_old"], "0", output)
+                self.assertEqual(values["pick_new"], "7", output)
+                self.assertEqual(values["pick_old"], "None", output)
+                self.assertEqual(values["drag2"], "1", output)
+                self.assertEqual(values["pick_after_drag2"], "7", output)
+                self.assertEqual(values["pick_rotated"], "8", output)
 
 
 def run_gl_script(test, script, scale):

@@ -354,8 +354,11 @@ class MarkerPicker:
         keep = ~np.asarray(marker_ring_mask, dtype=bool)
         self.slots = np.flatnonzero(keep)
         self.nodes = np.asarray(marker_node_order)[keep]
-        # Every node's position, by node number, as the markers are sent (float32).
-        self.node_positions = np.asarray(node_positions, dtype=np.float32)[:, :2]
+        # Every node's position, by node number, as the markers are sent (float32):
+        # a copy, never a view of the Viewer's positions, which a drag moves in
+        # place. Through a view the next picker would see no node moved and keep
+        # a tree of the old places (moved nodes could then not be picked).
+        self.node_positions = np.array(np.asarray(node_positions)[:, :2], dtype=np.float32)
         self.positions = self.node_positions[self.nodes]
         self.sizes = np.asarray(sizes, dtype=np.float32)[keep]
         self.edge_widths = np.asarray(edge_widths, dtype=np.float32)[keep]
