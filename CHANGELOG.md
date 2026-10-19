@@ -187,6 +187,15 @@ still change before version 1.0.0.
   and hovering through a dense view keeps 60 frames per second. Anything else that
   changes the nodes still sends them all. If VisPy's marker buffer is not laid out as
   expected, every hover sends all nodes as before.
+- While you pan, zoom, pinch, use the Zoom box or drag nodes, the Viewer draws every 4th,
+  16th or 64th edge in score order, made more opaque so dense areas keep their tone, and
+  draws every edge again 150 ms after the motion stops. It picks the step from the GPU
+  time the last full frame took, aiming at about 8 ms per frame, and draws in full when
+  that is already fast or when fewer than 250,000 edges are shown. With 8 million edges a
+  frame while moving takes about 4 to 8 ms instead of 39 to 143 ms on an RTX 4070. The
+  threshold slider, hidden nodes and selections stay correct while moving; print and other
+  captures always draw every edge. The thinned copies take about a third more video memory
+  for the edges. `SSN_EDGE_MOTION_LOD=0` turns it off.
 - Embedding SSEARCH's tiled GPU plan is 2.6 to 3.7 times faster with the same results,
   bit for bit: a reader thread prefetches the next targets from the HDF5 file while the
   GPU works, each block is uploaded once into one packed buffer, and each batch of targets
