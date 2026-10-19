@@ -241,6 +241,10 @@ still change before version 1.0.0.
   click, a right click, a node drag and Shift/Ctrl copying act on exactly the highlighted
   node. A click 2 to 5 points outside a node, which used to reach it, now counts as empty
   space, as the highlight shows.
+- With that change, nodes moved by a right-drag could no longer be picked: the hover,
+  clicks and a second drag missed them at both their new and their old place, and a
+  right press on them started a box selection instead. Moved nodes are now picked where
+  they are drawn.
 - Embedding SSEARCH's hardware benchmark could pick a plan about twice as slow as the
   best one. Timing the CPU pool started its workers one after another on Windows (about
   2.3 s each, so 20 s or more for eight), which used up the 5 s tuning budget before any
