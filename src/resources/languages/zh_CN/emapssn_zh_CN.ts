@@ -609,29 +609,29 @@
         <translation type="unfinished">显示帧率：</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+31"/>
         <source>Inputs &amp; Outputs</source>
         <translation type="unfinished">输入与输出</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3811"/>
+        <location line="+3803"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3810"/>
+        <location line="-3802"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4354"/>
+        <location line="+4346"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4346"/>
+        <location line="-4338"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -721,12 +721,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3450"/>
+        <location line="+3442"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3447"/>
+        <location line="-3439"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -767,12 +767,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+228"/>
-        <location line="+2213"/>
+        <location line="+2205"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2132"/>
+        <location line="-2124"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1352,12 +1352,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+105"/>
-        <location line="+1254"/>
+        <location line="+1246"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1220"/>
+        <location line="-1212"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1526,12 +1526,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
     <message>
-        <location line="-563"/>
+        <location line="-562"/>
         <source>Fewer Edges While Moving:</source>
         <translation type="unfinished">移动时减少绘制边：</translation>
     </message>
     <message>
-        <location line="+567"/>
+        <location line="+566"/>
         <source>Global</source>
         <comment>alignment score</comment>
         <translation type="unfinished">全局</translation>
@@ -2156,9 +2156,8 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">用右键拖出选择框时，它在松开后才更新一次，而不是框每移动一下就更新。</translation>
     </message>
     <message>
-        <location line="+1544"/>
         <source>Low Resource Mode</source>
-        <translation type="unfinished">低资源模式</translation>
+        <translation type="obsolete">低资源模式</translation>
     </message>
     <message>
         <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.</source>
@@ -2173,7 +2172,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。</translation>
     </message>
     <message>
-        <location line="-1533"/>
+        <location line="+11"/>
         <source>Selects the compute device used for SSN layout generation (CPU, CUDA, XPU, MPS).</source>
         <translation type="unfinished">选择生成 SSN 布局时使用的计算设备（CPU、CUDA、XPU、MPS）。</translation>
     </message>
@@ -2468,7 +2467,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">低资源模式：</translation>
     </message>
     <message>
-        <location line="+328"/>
+        <location line="+320"/>
         <source>Auto Benchmark</source>
         <translation type="unfinished">自动基准测试</translation>
     </message>
@@ -4722,7 +4721,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4680"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4672"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>

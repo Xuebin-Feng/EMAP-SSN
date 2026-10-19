@@ -201,13 +201,12 @@ LOW_RESOURCE_SWITCH_LABELS = {
     "SHOW_FPS": QT_TRANSLATE_NOOP("Config", "Show FPS:"),
 }
 # Their rows on the tab's grid, in the colour rows' two label/field column
-# pairs. A second-column label must be no wider than the colour labels there
-# ("Connected Node Color:"), so that column keeps its width in English and
-# Chinese: Node and Edge Drawing has a row of its own, which keeps the order.
+# pairs, two to a row in the order above (the user's choice). The second
+# column fits its longest label, "Webserver Communication:".
 LOW_RESOURCE_SWITCH_ROWS = (
     ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS"),
-    ("LOW_RESOURCE_DRAWING",),
-    ("LOW_RESOURCE_WEBSERVER", "SHOW_FPS"),
+    ("LOW_RESOURCE_DRAWING", "LOW_RESOURCE_WEBSERVER"),
+    ("SHOW_FPS",),
 )
 
 TAB_PROFILE_SPECS = {
@@ -4018,19 +4017,11 @@ if __name__ == "__main__":
 
             visual_row = color_row_start + (len(color_keys) + 1) // 2
 
-            # Low Resource Mode, under the line the saved-config row has: a
-            # heading, then a switch per category of work the Viewer can be
-            # spared, on the tab's grid like the colours.
+            # Low Resource Mode, under a line like the saved-config row's: a
+            # switch per category of work the Viewer can be spared, on the
+            # tab's grid like the colours.
             self.low_resource_separator = self._add_padded_separator(None, "lowResourceSeparator")
             visual_grid.addWidget(self.low_resource_separator.wrapper, visual_row, 0, 1, 5)
-            visual_row += 1
-            title = set_role(QLabel(translate("Config", "Low Resource Mode")), "title")
-            title.setObjectName("lowResourceTitle")
-            # The text starts where the labels' do: no padding at the left,
-            # and none of the indent Qt gives a label with a stylesheet frame.
-            title.setStyleSheet("QLabel#lowResourceTitle { padding-left: 0px; }")
-            title.setIndent(0)
-            visual_grid.addWidget(title, visual_row, 0, 1, 5)
             visual_row += 1
             for keys in LOW_RESOURCE_SWITCH_ROWS:
                 for column, key in zip((0, 3), keys):

@@ -4,14 +4,14 @@
 
 """The Config's Low Resource Mode section (EMAPSSN_Config.py, Visual Effects tab).
 
-Under the same padded line as the saved-config row and a "Low Resource Mode"
-heading, a switch per category (Fewer Edges While Moving, Basic Animations,
+Under a padded line like the saved-config row's (the tab's sections have no
+titles), a switch per category (Fewer Edges While Moving, Basic Animations,
 Node and Edge Drawing, Webserver Communication) and Show FPS, on the tab's
-grid two to a row in the colour rows' columns, all off by default. These
-tests check the section's place and spacing, the heading's alignment, the
-rows and columns (no column wider than before), saving and loading the
-switches, the old single switch in a settings file or saved profile, the
-tips, and the stacked order in a narrow window.
+grid in the colour rows' columns, two to a row in that order, all off by
+default. These tests check the section's place and spacing, the rows and
+columns (the first column as before, the second fitting its longest label),
+saving and loading the switches, the old single switch in a settings file or
+saved profile, the tips, and the stacked order in a narrow window.
 The settings themselves are in test_low_resource_mode.
 """
 import json
@@ -67,9 +67,9 @@ class ConfigSectionTests(unittest.TestCase):
         cls.app.processEvents()
         cls.temp.cleanup()
 
-    # The switches' rows on the Visual Effects grid: (1, 2), (3), (4, 5).
-    ROWS = (("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS"), ("LOW_RESOURCE_DRAWING",),
-            ("LOW_RESOURCE_WEBSERVER", "SHOW_FPS"))
+    # The switches' rows on the Visual Effects grid, 2-2-1 in the user's order.
+    ROWS = (("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS"),
+            ("LOW_RESOURCE_DRAWING", "LOW_RESOURCE_WEBSERVER"), ("SHOW_FPS",))
     COLOUR_SECOND_LABELS = ("INITIAL_NODE_COLOR", "CONNECTED_NODE_COLOR", "NODE_BOUNDARY_COLOR")
 
     def x(self, widget):
@@ -117,13 +117,14 @@ class ConfigSectionTests(unittest.TestCase):
         self.assertEqual(separator.height(), saved_config.height())
         self.assertEqual(separator.parentWidget().layout().contentsMargins(),
                          saved_config.parentWidget().layout().contentsMargins())
-        # Under the last colour row, over the heading, over the switches.
-        title = self.window.findChild(QLabel, "lowResourceTitle")
-        self.assertEqual(title.text(), "Low Resource Mode")
-        self.assertEqual(title.property("role"), "title")
+        # Under the last colour row, over the switches, with no title: the
+        # tab's other sections have none.
         self.assertLess(self.y(self.window.inputs["NODE_BOUNDARY_COLOR"]), self.y(separator))
-        self.assertLess(self.y(separator), self.y(title))
-        self.assertLess(self.y(title), self.y(self.window.inputs["FEWER_EDGES_WHILE_MOVING"]))
+        self.assertLess(self.y(separator), self.y(self.window.inputs["FEWER_EDGES_WHILE_MOVING"]))
+        self.assertIsNone(self.window.findChild(QLabel, "lowResourceTitle"))
+        page = self.window.tabs.widget(1).widget()
+        self.assertFalse([label.text() for label in page.findChildren(QLabel)
+                          if label.text() in ("Low Resource Mode", "Low Resource Mode:")])
 
         # The rows above and below keep the saved-config line's distances to it.
         def gaps(wrapper):
@@ -132,18 +133,6 @@ class ConfigSectionTests(unittest.TestCase):
             line = wrapper.geometry()
             return line.top() - above.bottom(), below.top() - line.bottom()
         self.assertEqual(gaps(separator.parentWidget()), gaps(saved_config.parentWidget()))
-
-    def test_the_heading_starts_where_the_labels_do(self):
-        from PySide6.QtWidgets import QLabel
-        title = self.window.findChild(QLabel, "lowResourceTitle")
-        # No indent and no left padding: the text starts at the widget's edge.
-        self.assertEqual(title.indent(), 0)
-        self.assertEqual(title.contentsRect().left(), 0)
-        for key in ("NODE_SIZE", "FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_DRAWING"):
-            self.assertEqual(self.x(title), self.x(self.window.labels[key]), key)
-        self.assertEqual(self.x(title), self.x(self.window.profile_labels["visual_effects"]))
-        # Still the Config's title style otherwise.
-        self.assertTrue(title.font().bold() or title.font().weight() >= 600)
 
     def test_two_switches_a_row_in_the_colour_rows_columns(self):
         from desktop.Desktop_App import ToggleSwitch
@@ -172,27 +161,28 @@ class ConfigSectionTests(unittest.TestCase):
                         # Under "Initial Node Color:", its switch under the colour fields.
                         self.assertEqual(self.x(label), second_label_x)
                         self.assertEqual(self.x(self.field(key)), second_field_x)
-        # Node and Edge Drawing has its row to itself.
-        drawing_row = self.y(window.labels["LOW_RESOURCE_DRAWING"])
-        self.assertEqual([key for key in SWITCHES if self.y(window.labels[key]) == drawing_row],
-                         ["LOW_RESOURCE_DRAWING"])
+        # 2-2-1: two switches in each of the first rows, Show FPS alone in the last.
+        rows_seen = [[key for key in SWITCHES if self.y(window.labels[key]) == top] for top in rows]
+        self.assertEqual(rows_seen, [list(keys) for keys in self.ROWS])
 
-    def test_no_column_gets_wider(self):
+    def test_the_columns(self):
         window = self.window
         switch_labels = {window.labels[key] for key in SWITCHES}
         # The first column is still the longest of the other labels (in English,
-        # "MSA Input (.fasta / _sparse.h5):", 174 px on Windows).
+        # "MSA Input (.fasta / _sparse.h5):", 174 px on Windows; 190 in Chinese).
         others = [label for label in dict.fromkeys(window._label_column)
                   if label not in switch_labels and hasattr(label, "text")]
         self.assertEqual(window.label_column_width, max(self.natural(label) for label in others))
         self.assertTrue(all(self.natural(label) < window.label_column_width for label in switch_labels))
-        # The second column is still the longest colour label's.
-        colour_width = max(self.natural(window.labels[key]) for key in self.COLOUR_SECOND_LABELS)
-        for key in self.COLOUR_SECOND_LABELS + ("LOW_RESOURCE_ANIMATIONS", "SHOW_FPS"):
+        # The second column fits the widest label in it: "Webserver Communication:".
+        second = self.COLOUR_SECOND_LABELS + ("LOW_RESOURCE_ANIMATIONS", "LOW_RESOURCE_WEBSERVER")
+        widest = max(self.natural(window.labels[key]) for key in second)
+        self.assertEqual(widest, self.natural(window.labels["LOW_RESOURCE_WEBSERVER"]))
+        for key in second:
             with self.subTest(key=key):
-                self.assertEqual(window.labels[key].width(), colour_width)
-        for key in ("LOW_RESOURCE_ANIMATIONS", "SHOW_FPS"):
-            self.assertLess(self.natural(window.labels[key]), colour_width)
+                self.assertEqual(window.labels[key].width(), widest)
+        # Show FPS, alone in its row, is in the first column.
+        self.assertEqual(window.labels["SHOW_FPS"].width(), window.label_column_width)
 
     def test_all_off_by_default_and_saved_as_the_categories(self):
         window = self.window
@@ -267,7 +257,7 @@ class ConfigSectionTests(unittest.TestCase):
         window = self.window
         size = window.size()
         rows = {key: window.labels[key].parentWidget()
-                for key in ("INITIAL_NODE_COLOR", "FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_WEBSERVER")}
+                for key in ("INITIAL_NODE_COLOR", "FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_DRAWING")}
         seen = set()
         try:
             for width in range(window.minimumSizeHint().width(), 1600, 40):

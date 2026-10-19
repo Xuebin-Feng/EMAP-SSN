@@ -1514,10 +1514,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Low Resource Mode</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Auto Benchmark</source>
         <translation type="unfinished"></translation>
     </message>

@@ -308,7 +308,8 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.assertEqual(separator.property("role"), "separator")
         self.assertEqual(separator.parentWidget().layout().contentsMargins(),
                          saved_config.parentWidget().layout().contentsMargins())
-        self.assertIsNotNone(self.window.findChild(self.namespace["QLabel"], "lowResourceTitle"))
+        # No title under it, as the tab's other sections have none.
+        self.assertIsNone(self.window.findChild(self.namespace["QLabel"], "lowResourceTitle"))
 
     def test_spinboxes_are_not_clipped_by_parent_wrappers(self):
         from PySide6.QtWidgets import QAbstractSpinBox
