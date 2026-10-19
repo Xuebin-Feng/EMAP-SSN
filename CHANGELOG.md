@@ -24,6 +24,11 @@ still change before version 1.0.0.
   for the old meaning still runs but zooms differently: `zoom 500` used to show 500
   units and now zooms to 500%, a view 60 units wide. To keep a view width W, use
   `zoom` with 30000 / W.
+- Visual Effects profiles saved by this version hold the new Low Resource Mode switches
+  instead of `LOW_RESOURCE_MODE`, so v0.4.0 refuses them ("unknown setting key(s)"), and
+  it refuses Viewer settings documents exported now for the same reason. Profiles and
+  documents saved by v0.4.0 keep working here: their `LOW_RESOURCE_MODE` turns Basic
+  Animations, Node and Edge Drawing and Webserver Communication on or off.
 
 ### Added
 
@@ -79,6 +84,11 @@ still change before version 1.0.0.
   The values follow every command while the card is open. A link beside the × opens the
   list of commands in the Viewer's language, or in English if that language has no
   translated copy.
+- **Show FPS.** A switch in the Config's new Low Resource Mode section (below) shows the
+  Viewer's frame rate at the top right, left of the sidebar button: the frames shown on
+  screen in the last second, the GPU time of a recent frame and, while edges are thinned,
+  the step, for example `60 fps · GPU 4.1 ms · edges 1/16`. It reads Idle when nothing is
+  being drawn. It never makes the Viewer redraw and never appears in prints or captures.
 
 ### Changed
 
@@ -187,15 +197,34 @@ still change before version 1.0.0.
   and hovering through a dense view keeps 60 frames per second. Anything else that
   changes the nodes still sends them all. If VisPy's marker buffer is not laid out as
   expected, every hover sends all nodes as before.
-- While you pan, zoom, pinch, use the Zoom box or drag nodes, the Viewer draws every 4th,
-  16th or 64th edge in score order, made more opaque so dense areas keep their tone, and
-  draws every edge again 150 ms after the motion stops. It picks the step from the GPU
-  time the last full frame took, aiming at about 8 ms per frame, and draws in full when
-  that is already fast or when fewer than 250,000 edges are shown. With 8 million edges a
-  frame while moving takes about 4 to 8 ms instead of 39 to 143 ms on an RTX 4070. The
-  threshold slider, hidden nodes and selections stay correct while moving; print and other
-  captures always draw every edge. The thinned copies take about a third more video memory
-  for the edges. `SSN_EDGE_MOTION_LOD=0` turns it off.
+- **Low Resource Mode is now a section of separate switches** on the Config's Visual
+  Effects tab, two to a row like the colours, all off by default. The Viewer reads them
+  when it starts.
+  - **Fewer Edges While Moving:** while you pan, zoom, pinch, use the Zoom box or drag
+    nodes, the Viewer draws every 4th, 16th or 64th edge in score order, made more opaque
+    so dense areas keep their tone, and draws every edge again 150 ms after the motion
+    stops. It picks the step from the GPU time the last full frame took, aiming at about
+    8 ms per frame, and draws in full when that is already fast or when fewer than 250,000
+    edges are shown. With 8 million edges on an RTX 4070, a frame while moving takes about
+    4 to 8 ms instead of 39 to 143 ms, and a frame of a node drag 7 ms instead of 65 ms. The
+    threshold slider, hidden nodes and selections stay correct while moving; print and
+    other captures always draw every edge. The thinned copies take about a third more
+    video memory for the edges, and none are made while the switch is off.
+    `SSN_EDGE_MOTION_LOD=0` turns it off even when the switch is on.
+  - **Basic Animations:** the wheel zoom jumps without its glide and the sidebar opens
+    and closes without sliding.
+  - **Node and Edge Drawing:** the threshold slider redraws the edges only when let go; a
+    right-drag or rotation of nodes moves them and their edges, and colours the selection
+    and its neighbours again only on release; a box selection colours its nodes only on
+    release.
+  - **Webserver Communication:** the Meta Data sheet hears of a node drag's selection, and
+    of a box selection, only on release.
+  - **Show FPS** (see Added).
+  A settings file, profile or settings document with the old Low Resource Mode switch
+  sets Basic Animations, Node and Edge Drawing and Webserver Communication to its value.
+  Dragging nodes in low resource mode no longer hides their edges: they follow the
+  nodes. The old tip said low resource mode hid the edges while panning and zooming; it
+  never did. VR Config shows none of these switches, as before.
 - Embedding SSEARCH's tiled GPU plan is 2.6 to 3.7 times faster with the same results,
   bit for bit: a reader thread prefetches the next targets from the HDF5 file while the
   GPU works, each block is uploaded once into one packed buffer, and each batch of targets
