@@ -45,7 +45,8 @@ from desktop.Desktop_App import (
 )
 from Layout_Cache_Generator import LayoutGenerationSettings
 from desktop.Viewer_State import (
-    INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS, DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS, PROFILE_ENUM_VALUES, PROFILE_RANGES
+    INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS, DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS, PROFILE_ENUM_VALUES, PROFILE_RANGES,
+    migrate_low_resource_mode,
 )
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 
@@ -139,8 +140,13 @@ INITIAL_NODE_COLOR = '#4488ff'
 HOVER_COLOR = '#ffaa00'
 CONNECTED_NODE_COLOR = '#ff0000'
 EDGE_COLOR = '#000000'
-LOW_RESOURCE_MODE = False
 NODE_BOUNDARY_COLOR = '#000000'
+# Low Resource Mode, by category (desktop.Viewer_State.LOW_RESOURCE_DEFAULTS).
+FEWER_EDGES_WHILE_MOVING = False
+LOW_RESOURCE_ANIMATIONS = False
+LOW_RESOURCE_DRAWING = False
+LOW_RESOURCE_WEBSERVER = False
+SHOW_FPS = False
 
 # --- Grid Packing Settings ---
 PACKING_GRID_SIZE = 10.0  # The base size of one grid square
@@ -183,6 +189,16 @@ DIRECTORY_LABELS = {
     "HEADER_LIST_DIR": QT_TRANSLATE_NOOP("Config", "Header List Directory:"),
     "SAVED_LAYOUT_DIR": QT_TRANSLATE_NOOP("Config", "Layout Directory:"),
     "SETTING_EXPORT_DIR": QT_TRANSLATE_NOOP("Config", "Setting Export Directory:"),
+}
+
+# The Visual Effects tab's Low Resource Mode section: a switch per category,
+# then the frame rate, in this order.
+LOW_RESOURCE_SWITCH_LABELS = {
+    "FEWER_EDGES_WHILE_MOVING": QT_TRANSLATE_NOOP("Config", "Fewer Edges Drawn While Moving:"),
+    "LOW_RESOURCE_ANIMATIONS": QT_TRANSLATE_NOOP("Config", "Basic Animations:"),
+    "LOW_RESOURCE_DRAWING": QT_TRANSLATE_NOOP("Config", "Node and Edge Drawing:"),
+    "LOW_RESOURCE_WEBSERVER": QT_TRANSLATE_NOOP("Config", "Webserver Communication:"),
+    "SHOW_FPS": QT_TRANSLATE_NOOP("Config", "Show FPS:"),
 }
 
 TAB_PROFILE_SPECS = {
@@ -406,6 +422,7 @@ def apply_viewer_settings(settings_dict):
     """Apply a dictionary of viewer settings to EMAPSSN_Config globals."""
     if not isinstance(settings_dict, dict):
         return
+    settings_dict = migrate_low_resource_mode(settings_dict)
     LEGACY_KEYS_MAPPING = {
         "NEIGHBOR_COLOR": "INITIAL_NODE_COLOR"
     }
@@ -1615,7 +1632,9 @@ if __name__ == "__main__":
                 for key in DIRECTORY_PROFILE_DEFAULTS:
                     if key in data:
                         data[key] = _migrate_default_directory_path(key, data[key])
-                return dict(data)
+                # The old single Low Resource Mode switch, as the categories
+                # it stood for; a save then writes those, not the old key.
+                return dict(migrate_low_resource_mode(data))
             except FileNotFoundError:
                 return {}
             except (OSError, ValueError, json.JSONDecodeError) as error:
@@ -1859,6 +1878,8 @@ if __name__ == "__main__":
             path = self._profile_path(tab_id, profile_name)
             with open(path, "r", encoding="utf-8") as handle:
                 raw_data = json.load(handle)
+            if tab_id == "visual_effects":
+                raw_data = migrate_low_resource_mode(raw_data)
             return self._normalize_profile_data(tab_id, raw_data)
 
         def _set_widget_profile_value(self, key, value):
@@ -2419,11 +2440,36 @@ if __name__ == "__main__":
                     details=(translate("Config", "Setting a non-zero width helps distinguish overlapping nodes in dense clusters."),),
                     unit="px",
                 ),
-                "LOW_RESOURCE_MODE": Tip(
-                    translate("Config", "Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions."),
-                    details=(translate("Config", "Significantly improves responsiveness and reduces rendering latency for large networks."),),
+                "FEWER_EDGES_WHILE_MOVING": Tip(
+                    translate("Config", "While you pan, zoom or drag nodes, draws every 4th, 16th or 64th edge in score order, and every edge again a moment after the view stops."),
+                    details=(translate("Config", "The step follows how long the edges take to draw on this computer. The edges drawn are made more opaque, so dense regions keep their shade."),),
                     notes=(
-                        TipNote("info", translate("Config", "The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.")),
+                        TipNote("info", translate("Config", "Prints and captures always draw every edge.")),
+                        TipNote("info", translate("Config", "The environment variable `SSN_EDGE_MOTION_LOD=0` turns it off whatever this switch says.")),
+                        TipNote("warning", translate("Config", "While it is on, the graphics card holds thinned copies of the drawn edges: about a third more memory for them.")),
+                    ),
+                ),
+                "LOW_RESOURCE_ANIMATIONS": Tip(
+                    translate("Config", "Skips the Viewer's animations: the wheel zoom without the glide, and the sidebar without the slide."),
+                    details=(translate("Config", "Each wheel step zooms at once, and the sidebar opens and closes at once, sparing the frames in between."),),
+                ),
+                "LOW_RESOURCE_DRAWING": Tip(
+                    translate("Config", "Redraws less of the network while you drag, and catches up when you let go."),
+                    details=(
+                        translate("Config", "The threshold slider redraws the edges only when you let go; the threshold box still follows it."),
+                        translate("Config", "A right-button drag of selected nodes moves them and their edges as they are drawn; the selection and neighbour colouring is worked out again when you let go."),
+                        translate("Config", "A right-button selection box colours the selected nodes and their neighbours only when you let go."),
+                    ),
+                ),
+                "LOW_RESOURCE_WEBSERVER": Tip(
+                    translate("Config", "Sends the Viewer's web pages fewer updates while you work in the network."),
+                    details=(translate("Config", "The Meta Data sheet updates only when a node drag ends, instead of when it starts."),),
+                ),
+                "SHOW_FPS": Tip(
+                    translate("Config", "Shows the Viewer's frame rate at its top right, left of the sidebar button."),
+                    details=(translate("Config", "It counts the frames drawn to the screen over the last second, with the graphics card's time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn."),),
+                    notes=(
+                        TipNote("info", translate("Config", "It is never part of prints or captures.")),
                     ),
                 ),
                 "LAYOUT_DEVICE_SELECTION": Tip(
@@ -3954,30 +4000,51 @@ if __name__ == "__main__":
 
             visual_row = color_row_start + (len(color_keys) + 1) // 2
 
-            # --- Low Resource Mode Toggle ---
-            lbl_low_res = QLabel(translate("Config", "Low Resource Mode:"))
-            self._label_column.append(lbl_low_res)
-            cb_low_res = ToggleSwitch()
-            initial_low_res = bool(globals().get("LOW_RESOURCE_MODE", False))
-            cb_low_res.setChecked(initial_low_res)
-
-            low_resource_row = QWidget()
-            low_resource_row.setObjectName("lowResourceModeRow")
-            low_resource_layout = QHBoxLayout(low_resource_row)
-            low_resource_layout.setContentsMargins(0, 8, 0, 0)
-            low_resource_layout.setSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
-            low_resource_layout.addWidget(lbl_low_res)
-            low_resource_layout.addWidget(cb_low_res)
-            low_resource_layout.addStretch()
-            visual_grid.addWidget(low_resource_row, visual_row, 0, 1, 5)
-            self.labels["LOW_RESOURCE_MODE"] = lbl_low_res
-            self.inputs["LOW_RESOURCE_MODE"] = cb_low_res
-            
+            main_layout.setSpacing(CONFIG_TAB_ROW_SPACING)
             main_layout.addLayout(self._responsive_grid_rows(visual_grid, "visual"))
+            # Low Resource Mode, under the line the saved-config row has: a
+            # switch per category of work the Viewer can be spared.
+            self.low_resource_separator = self._add_padded_separator(
+                main_layout, "lowResourceSeparator"
+            )
+            main_layout.addWidget(self._build_low_resource_section())
             main_layout.addStretch()
             
             self._add_scroll_tab(tab, translate("Config", "Visual Effects"))
             
+        def _build_low_resource_section(self):
+            """The Low Resource Mode heading, then a switch row per setting.
+
+            Each label joins the label column, so the switches line up with
+            the fields above them.
+            """
+            section = QWidget()
+            section.setObjectName("lowResourceSection")
+            layout = QVBoxLayout(section)
+            layout.setContentsMargins(0, 0, 0, 0)
+            layout.setSpacing(CONFIG_TAB_ROW_SPACING)
+            title = set_role(QLabel(translate("Config", "Low Resource Mode")), "title")
+            title.setObjectName("lowResourceTitle")
+            layout.addWidget(title)
+            for key, text in LOW_RESOURCE_SWITCH_LABELS.items():
+                label = QLabel(translate("Config", text))
+                self._label_column.append(label)
+                switch = ToggleSwitch()
+                switch.setChecked(bool(globals().get(key, VISUAL_PROFILE_DEFAULTS[key])))
+                row = QWidget()
+                row.setObjectName("lowResourceSwitchRow")
+                row.setProperty("settingKey", key)
+                row_layout = QHBoxLayout(row)
+                row_layout.setContentsMargins(0, 0, 0, 0)
+                row_layout.setSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
+                row_layout.addWidget(label)
+                row_layout.addWidget(switch)
+                row_layout.addStretch()
+                layout.addWidget(row)
+                self.labels[key] = label
+                self.inputs[key] = switch
+            return section
+
         def create_physics_tab(self):
             tab = QWidget()
             tab_layout = QVBoxLayout(tab)

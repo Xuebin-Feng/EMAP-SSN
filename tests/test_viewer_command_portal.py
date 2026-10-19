@@ -154,7 +154,7 @@ class PortalTests(PortalFixture, unittest.TestCase):
         dialog.assert_not_called()
 
     def test_visual_counts_and_capture_preserve_state(self):
-        cfg = SimpleNamespace(UMAP_MODE=True, LOW_RESOURCE_MODE=False)
+        cfg = SimpleNamespace(UMAP_MODE=True)
         self.viewer.selected_indices = [0]
         edges, counts = edge_stages(self.viewer, cfg)
         self.assertEqual(counts['rendered_edge_count'], 1)

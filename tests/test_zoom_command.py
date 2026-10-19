@@ -660,10 +660,10 @@ class ViewerWheelZoomTests(HundredPercentIs1000, unittest.TestCase):
         drag = SimpleNamespace(type="mouse_move", handled=False, button=1, buttons=[1])
         EMAPSSN_Viewer.MainViewer._camera_mouse_event(viewer, drag)
         viewer._original_camera_mouse_event.assert_called_once_with(drag)
-        # Low resource mode zooms at once, as the camera itself does.
+        # Low Resource Mode's Basic Animations zooms at once, as the camera itself does.
         viewer._original_camera_mouse_event.reset_mock()
         low = SimpleNamespace(**{**vars(wheel), "handled": False})
-        with mock.patch.object(EMAPSSN_Viewer.cfg, "LOW_RESOURCE_MODE", True):
+        with mock.patch.object(EMAPSSN_Viewer.cfg, "LOW_RESOURCE_ANIMATIONS", True):
             EMAPSSN_Viewer.MainViewer._camera_mouse_event(viewer, low)
         viewer._original_camera_mouse_event.assert_called_once_with(low)
         self.assertFalse(timer.active)

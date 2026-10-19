@@ -177,11 +177,17 @@ from desktop.Viewer_Widgets import (
     ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ThresholdSpinBox, ZoomBox,
 )
 from desktop.Viewer_State import (
+    fewer_edges_while_moving,
+    low_resource_animations,
+    low_resource_drawing,
+    low_resource_webserver,
     prepare_network,
     resolve_selected_cache,
 )
 from desktop.Viewer_Inspection import ViewerInspectionService
 from desktop.Viewer_Edges import ViewerEdges
+from desktop.Viewer_Motion import MotionDetail
+from desktop.Viewer_Fps import FPS_GAP, FpsOverlay
 from desktop.Viewer_Markers import HoverMarkers, MarkerPicker, symbol_codes_of, uniform_symbol
 from web_ui.Browser_Page import open_browser_page
 
@@ -845,7 +851,6 @@ class MainViewer:
         self.selected_indices = []
         self.is_box_selecting = False
         self.is_multi_dragging = False
-        self._drag_edges_hidden = False
         self.drag_start_mouse = None
         self.drag_start_screen = None
         self.drag_start_nodes_pos = None
@@ -1002,6 +1007,7 @@ class MainViewer:
         
         # --- 6. Set up MainWindow & WebServer ---
         self._build_main_window()
+        self._build_fps_overlay()
         
         # Initialize thread-safe QtCommunicator for server commands
         from web_ui import Web_Server
@@ -1078,10 +1084,10 @@ class MainViewer:
             self._note_view_motion()
         camera = self.view.camera
         # VisPy's zoom a notch, about the point under the cursor, played out
-        # over a few frames (desktop.Viewer_Zoom) rather than in one; low
-        # resource mode zooms at once, sparing the frames between.
+        # over a few frames (desktop.Viewer_Zoom) rather than in one; Low
+        # Resource Mode's Basic Animations zooms at once, sparing the frames between.
         if (event.type == 'mouse_wheel' and not event.handled and camera.interactive
-                and not getattr(cfg, 'LOW_RESOURCE_MODE', False)):
+                and not low_resource_animations(cfg)):
             center = camera._scene_transform.imap(event.pos)
             self._wheel_zoom.add((1 + camera.zoom_factor) ** (-event.delta[1] * 30), center)
             event.handled = True
@@ -1392,8 +1398,8 @@ class MainViewer:
         left_gap = cfg_hud["console_text_x"] - cfg_hud["console_bg_left_offset"]
         padding_x = cfg_hud.get("console_bg_padding_x", 20.0)
 
-        effective_canvas_width = self.canvas.size[0] - _sidebar_room(self)
-        max_width = max(1.0, effective_canvas_width - 40.0)
+        # The box runs from left_edge to at most _command_line_right().
+        max_width = max(1.0, self._command_line_right() - left_edge)
         available_text_width = max(
             1.0,
             max_width - left_gap - padding_x,
@@ -2091,6 +2097,7 @@ class MainViewer:
             self.edge_layer = ViewerEdges(
                 self.view.scene, self.edges, getattr(self, 'edge_scores', None),
                 self.pos, color=tuple(edge_rgba), width=cfg.EDGE_WIDTH,
+                motion=MotionDetail(setting=fewer_edges_while_moving(cfg)),
             )
         else:
             self.edge_layer = None
@@ -2125,11 +2132,31 @@ class MainViewer:
         self.selection_highlight.set_gl_state('translucent', depth_test=False)
         self.selection_highlight.visible = False
 
+    def _move_dragged_nodes(self):
+        """A drag move under Low Resource Mode's Node and Edge Drawing: the
+        markers and the edges go where the nodes now are, with the colours
+        update_nodes last gave them. The selection and neighbour colouring,
+        and the hover pick, are worked out again on release
+        (update_selection_visual)."""
+        data = getattr(self, '_submitted_marker_data', None)
+        order = getattr(self, '_submitted_marker_node_order', None)
+        if data is None or order is None or not len(order):
+            self.update_nodes()
+        else:
+            self.markers.set_data(pos=self.pos[order], **data)
+            # Both were made for the markers' old places; release remakes them.
+            self._hover_markers = None
+            self._marker_picker = None
+            self.canvas.update()
+            self._update_hud_elements()
+        self.update_edges()
+
     def update_selection_visual(self, broadcast=True):
         """Triggers a node update to draw selection edges and ensures the old highlight is hidden.
 
         broadcast=False leaves the web pages, such as the Meta Data sheet, to
-        hear of the selection later, as a low-resource drag does on release.
+        hear of the selection later, as a node drag under Low Resource Mode's
+        Webserver Communication does on release.
         """
         if hasattr(self, 'selection_highlight'):
             self.selection_highlight.visible = False
@@ -2167,16 +2194,17 @@ class MainViewer:
     def on_slider_value_changed(self, value):
         self.current_slider_threshold = self.threshold_box.value_at(value)
         self.threshold_box.show_value(self.current_slider_threshold)
-        # In low resource mode a drag shows the threshold as it goes and
-        # redraws the edges once, when let go (_on_slider_released).
+        # Under Low Resource Mode's Node and Edge Drawing a drag shows the
+        # threshold as it goes and redraws the edges once, when let go
+        # (_on_slider_released).
         slider = getattr(self, 'slider', None)
-        if getattr(cfg, 'LOW_RESOURCE_MODE', False) and slider is not None and slider.isSliderDown():
+        if low_resource_drawing(cfg) and slider is not None and slider.isSliderDown():
             return
         self.update_edges()
 
     def _on_slider_released(self):
-        """Redraw the edges for the threshold a low-resource drag ended on."""
-        if getattr(cfg, 'LOW_RESOURCE_MODE', False):
+        """Redraw the edges for the threshold a slider drag under Node and Edge Drawing ended on."""
+        if low_resource_drawing(cfg):
             self.update_edges()
 
     def _set_threshold_from_box(self, threshold):
@@ -2201,12 +2229,7 @@ class MainViewer:
         # threshold change only changes how many score-sorted edges it draws.
         if edges_follow_selection(self, cfg):
             active_edges, _ = edge_stages(self, cfg, cache=True)
-            # A low-resource drag remakes its list on every move: no thinned copies.
-            drawn = edge_layer.show_edges(
-                self.pos, active_edges,
-                thinned=not (getattr(cfg, 'LOW_RESOURCE_MODE', False)
-                             and getattr(self, 'is_multi_dragging', False)),
-            )
+            drawn = edge_layer.show_edges(self.pos, active_edges)
         else:
             threshold = getattr(
                 self, 'current_slider_threshold',
@@ -2435,6 +2458,7 @@ class MainViewer:
             identify_connected=identify_connected
         )
         self._submitted_visible_node_order = draw_order.copy()
+        self._submitted_marker_data = None
         self._hover_markers = None
         previous_picker, self._marker_picker = getattr(self, '_marker_picker', None), None
         if len(draw_order) == 0:
@@ -2483,14 +2507,16 @@ class MainViewer:
             # up name by name in Python (3 ms at 60,000 nodes).
             marker_shapes = shapes[marker_node_order]
             symbol = uniform_symbol(marker_shapes)
-            self.markers.set_data(
-                pos=self.pos[marker_node_order],
+            marker_data = dict(
                 face_color=marker_face_colors,
                 edge_color=marker_edge_colors,
                 size=marker_sizes,
                 edge_width=marker_edge_widths,
                 symbol=marker_shapes.tolist() if symbol is None else symbol,
             )
+            self.markers.set_data(pos=self.pos[marker_node_order], **marker_data)
+            # What a node drag under Node and Edge Drawing sends again, moved (_move_dragged_nodes).
+            self._submitted_marker_data = marker_data
             # What a hover then changes is two face colours (_show_hover_change).
             self._hover_markers = HoverMarkers(
                 self, self.current_colors, sizes, shapes, (edge_colors, edge_widths),
@@ -2754,14 +2780,14 @@ class MainViewer:
 
                 starts_drag = nearest_idx in self.selected_indices and not getattr(cfg, 'UMAP_MODE', False)
                 # The web pages (the Meta Data sheet) hear of the selection once
-                # a drag: now, or in low resource mode on release (on_mouse_release).
-                unsent = starts_drag and getattr(cfg, 'LOW_RESOURCE_MODE', False)
+                # a drag: now, or under Low Resource Mode's Webserver
+                # Communication on release (on_mouse_release).
+                unsent = starts_drag and low_resource_webserver(cfg)
                 self.update_selection_visual(broadcast=not unsent)
 
                 if starts_drag:
                     self.is_multi_dragging = True
                     self._drag_selection_unsent = unsent
-                    self._drag_edges_hidden = False
                     self.drag_start_nodes_pos = self.pos[self.selected_indices, :2].copy()
             else:
                 # Clicked empty space: Store the current state, DO NOT clear yet
@@ -3108,7 +3134,8 @@ class MainViewer:
         """Put the sidebar and its toggle where the room it covers now leaves them.
 
         While it slides, the panel's left part shows and the canvas clips the
-        rest; the toggle keeps 10 px clear of its left edge.
+        rest; the toggle keeps 10 px clear of its left edge, and the frame
+        rate, if shown, FPS_GAP left of the toggle.
         """
         if hasattr(self, 'canvas'):
             w, h = self.canvas.size
@@ -3118,6 +3145,46 @@ class MainViewer:
                 self.right_panel.setGeometry(left, 0, panel_w, h)
             if hasattr(self, 'toggle_sidebar_btn'):
                 self.toggle_sidebar_btn.setGeometry(left - 40, 10, 30, 30)
+            overlay = getattr(self, 'fps_overlay', None)
+            if overlay is not None:
+                overlay.place(self._fps_overlay_right(left), 25)
+
+    def _fps_overlay_right(self, left):
+        """The frame rate's right edge, in canvas px, with the sidebar's room starting at left:
+        FPS_GAP left of the toggle, or where the toggle would be when it is hidden."""
+        button = getattr(self, 'toggle_sidebar_btn', None)
+        if button is not None and not button.isHidden():
+            return left - 40 - FPS_GAP
+        return left - 10
+
+    def _build_fps_overlay(self):
+        """The frame rate over the canvas's top right, if Config's Show FPS is on (desktop.Viewer_Fps)."""
+        self.fps_overlay = None
+        if not getattr(cfg, 'SHOW_FPS', False):
+            return
+
+        def edge_detail():
+            layer = getattr(self, 'edge_layer', None)
+            visual = getattr(layer, 'visual', None)
+            if visual is None or not layer.visible:
+                return 1
+            return getattr(visual, 'detail', 1)
+        self.fps_overlay = FpsOverlay(self.canvas, edge_detail)
+        self.fps_overlay.attach()
+        self.fps_overlay.show()
+        self.reposition_expand_btn()
+
+    def _command_line_right(self):
+        """Where the command line's box may reach, in canvas px: as wide as the
+        canvas less the sidebar's room and 40 px, from its left offset, and
+        short of the frame rate's room when that is shown."""
+        left = getattr(self, 'hud_layout', {}).get("console_bg_left_offset", 20.0)
+        right = left + self.canvas.size[0] - _sidebar_room(self) - 40.0
+        overlay = getattr(self, 'fps_overlay', None)
+        if overlay is not None:
+            right = min(right, self._fps_overlay_right(self.canvas.size[0] - _sidebar_room(self))
+                        - overlay.widest_width() - FPS_GAP)
+        return right
 
     def toggle_sidebar(self):
         if hasattr(self, 'right_panel'):
@@ -3190,11 +3257,11 @@ class MainViewer:
 
     def _sidebar_can_slide(self):
         """Whether the sidebar slides: only in a shown window, with a slide time,
-        and not in low resource mode, which switches it at once."""
+        and not under Low Resource Mode's Basic Animations, which switches it at once."""
         window = getattr(self, 'main_window', None)
         return (
             SIDEBAR_SLIDE_MS > 0
-            and not getattr(cfg, 'LOW_RESOURCE_MODE', False)
+            and not low_resource_animations(cfg)
             and not getattr(self, 'headless', False)
             and window is not None
             and window.isVisible()
@@ -3431,11 +3498,8 @@ class MainViewer:
             delta = mouse_world - self.drag_start_mouse
             self.pos[self.selected_indices, :2] = self.drag_start_nodes_pos + delta
             
-            if getattr(cfg, 'LOW_RESOURCE_MODE', False):
-                if not getattr(self, '_drag_edges_hidden', False):
-                    self._drag_edges_hidden = True
-                    self.update_edges()
-                self.update_nodes()
+            if low_resource_drawing(cfg):
+                self._move_dragged_nodes()
             else:
                 # A drag moves the selection without changing it: the web pages heard of it on press.
                 self.update_selection_visual(broadcast=False)
@@ -3460,11 +3524,8 @@ class MainViewer:
             delta = mouse_world - self.drag_start_mouse
             self.pos[self.selected_indices, :2] = self.drag_start_nodes_pos + delta
             
-            if getattr(cfg, 'LOW_RESOURCE_MODE', False):
-                if not getattr(self, '_drag_edges_hidden', False):
-                    self._drag_edges_hidden = True
-                    self.update_edges()
-                self.update_nodes()
+            if low_resource_drawing(cfg):
+                self._move_dragged_nodes()
             else:
                 # A drag moves the selection without changing it: the web pages heard of it on press.
                 self.update_selection_visual(broadcast=False)
@@ -3484,7 +3545,7 @@ class MainViewer:
             )
             
             # --- Dynamic Highlighting Math ---
-            if not getattr(cfg, 'LOW_RESOURCE_MODE', False):
+            if not low_resource_drawing(cfg):
                 min_x, max_x = min(x0, x1), max(x0, x1)
                 min_y, max_y = min(y0, y1), max(y0, y1)
                 xs = self.pos[:, 0]
@@ -3539,6 +3600,8 @@ class MainViewer:
         """
         hover = getattr(self, '_hover_markers', None)
         if hover is not None and hover.apply(self, previous, self.hovered_node_idx):
+            # The markers now differ from what update_nodes sent.
+            self._submitted_marker_data = None
             self.canvas.update()
             self._update_hud_elements()
             return
@@ -3548,7 +3611,6 @@ class MainViewer:
         # ---> 1. MULTI-DRAG RELEASE <---
         if getattr(self, 'is_multi_dragging', False):
             self.is_multi_dragging = False
-            self._drag_edges_hidden = False
             self.update_selection_visual(broadcast=getattr(self, '_drag_selection_unsent', True))
             self._drag_selection_unsent = False
             event.handled = True
@@ -3572,7 +3634,7 @@ class MainViewer:
             dy = event.pos[1] - drag_start_screen[1]
             drag_dist_screen = np.hypot(dx, dy)
             
-            if getattr(cfg, 'LOW_RESOURCE_MODE', False) and drag_dist_screen >= 5.0:
+            if low_resource_drawing(cfg) and drag_dist_screen >= 5.0:
                 min_x, max_x = min(x0, x1), max(x0, x1)
                 min_y, max_y = min(y0, y1), max(y0, y1)
                 xs = self.pos[:, 0]

@@ -27,7 +27,9 @@ it lasts, so the detail never flickers between levels:
   k that draws at most FALLBACK_EDGES_PER_FRAME edges, or the k the last
   motion ended with if higher, and frames FALLBACK_SLOW_FRAME_MS apart raise k.
 
-SSN_EDGE_MOTION_LOD=0 turns it off.
+Config's Fewer Edges Drawn While Moving switch (FEWER_EDGES_WHILE_MOVING)
+turns it off, and so does SSN_EDGE_MOTION_LOD=0, whatever the switch says.
+While it is off no thinned copies are made, so they take no memory.
 """
 
 from __future__ import annotations
@@ -180,8 +182,15 @@ class MotionDetail:
     view moves (see the module's documentation for the rule)."""
 
     def __init__(self, enabled=None, report=None, clock=time.monotonic, timer_factory=None,
-                 gpu_timer=None):
-        self.enabled = motion_detail_enabled() if enabled is None else bool(enabled)
+                 gpu_timer=None, setting=True):
+        # setting is Config's switch; enabled, when given, decides alone.
+        if enabled is None:
+            self.off_by = ("environment" if not motion_detail_enabled()
+                           else None if setting else "setting")
+            self.enabled = self.off_by is None
+        else:
+            self.enabled = bool(enabled)
+            self.off_by = None if self.enabled else "environment"
         self.active = False
         self.level = None                 # k for the motion now, chosen at its first frame
         self.final_level = 1              # k the last motion ended with
@@ -296,7 +305,9 @@ class MotionDetail:
         if self._reported:
             return
         self._reported = True
-        if not self.enabled:
+        if not self.enabled and self.off_by == "setting":
+            self._report("Edges: motion detail off (Fewer Edges Drawn While Moving is off in the Config).")
+        elif not self.enabled:
             self._report(f"Edges: motion detail off ({MOTION_ENVIRONMENT_VARIABLE}=0).")
         elif not thinned:
             self._report("Edges: motion detail off: the coordinate fallback draws every edge.")

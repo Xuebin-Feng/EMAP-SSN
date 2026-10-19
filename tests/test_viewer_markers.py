@@ -311,7 +311,7 @@ class ClickPickTests(unittest.TestCase):
                                 modifiers=list(modifiers), handled=False)
         with mock.patch("vispy.app.use_app", return_value=SimpleNamespace(native=native)), \
                 mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
-                mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
+                mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", False):
             viewer.on_mouse_press(event)
         return clipboard, event
 
@@ -365,7 +365,7 @@ class ClickPickTests(unittest.TestCase):
         self.assertTrue(viewer.is_box_selecting)
         self.assertTrue(viewer.selection_box.visible)
         self.assertEqual(viewer.selected_indices, [self.C])
-        with mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
+        with mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", False):
             viewer.on_mouse_release(event)
         self.assertEqual(viewer.selected_indices, [])
 
@@ -457,37 +457,44 @@ class DraggedNodePickTests(unittest.TestCase):
         viewer.on_mouse_release(self.event(*end, button=2))
         self.assertFalse(viewer.is_multi_dragging)
 
+    # Low Resource Mode's Node and Edge Drawing moves only the markers during
+    # a drag and remakes the pick on release; both ways must pick the moved nodes.
+
     def test_a_dragged_node_can_be_dragged_again(self):
-        with mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
-                mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
-            viewer = self.make_viewer()
-            self.drag(viewer, (40, 0), (60, 30))
-            np.testing.assert_array_equal(viewer.pos[1], [60, 30])
-            self.assertEqual(viewer.pick_hovered_node((60, 30)), 1)
-            self.assertIsNone(viewer.pick_hovered_node((40, 0)))
-            # The press on its new place starts the second drag.
-            self.drag(viewer, (60, 30), (60, 70))
-            np.testing.assert_array_equal(viewer.pos[1], [60, 70])
-            self.assertEqual(viewer.pick_hovered_node((60, 70)), 1)
-            # A left click lands on it too.
-            viewer.on_mouse_press(self.event(60, 70, button=1, buttons=[1]))
-            viewer.apply_left_click_focus.assert_called_once()
-            self.assertEqual(viewer.apply_left_click_focus.call_args.args[0], 1)
+        for drawing in (False, True):
+            with self.subTest(drawing=drawing), \
+                    mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                    mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+                viewer = self.make_viewer()
+                self.drag(viewer, (40, 0), (60, 30))
+                np.testing.assert_array_equal(viewer.pos[1], [60, 30])
+                self.assertEqual(viewer.pick_hovered_node((60, 30)), 1)
+                self.assertIsNone(viewer.pick_hovered_node((40, 0)))
+                # The press on its new place starts the second drag.
+                self.drag(viewer, (60, 30), (60, 70))
+                np.testing.assert_array_equal(viewer.pos[1], [60, 70])
+                self.assertEqual(viewer.pick_hovered_node((60, 70)), 1)
+                # A left click lands on it too.
+                viewer.on_mouse_press(self.event(60, 70, button=1, buttons=[1]))
+                viewer.apply_left_click_focus.assert_called_once()
+                self.assertEqual(viewer.apply_left_click_focus.call_args.args[0], 1)
 
     def test_rotated_nodes_are_picked_where_they_turned_to(self):
-        with mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
-                mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
-            viewer = self.make_viewer()
-            viewer.selected_indices = [1, 2]
-            viewer.on_mouse_press(self.event(40, 0, button=2, buttons=[2]))
-            self.assertTrue(viewer.is_multi_dragging)
-            # Eighteen wheel steps: 90 degrees about the press.
-            viewer.on_mouse_wheel(self.event(40, 0, buttons=[2], delta=(0.0, 18.0)))
-            viewer.on_mouse_release(self.event(40, 0, button=2))
-            np.testing.assert_allclose(viewer.pos[2], [40, 40], atol=1e-4)
-            self.assertEqual(viewer.pick_hovered_node((40, 40)), 2)
-            self.assertIsNone(viewer.pick_hovered_node((80, 0)))
-            self.drag(viewer, (40, 40), (40, 60))
+        for drawing in (False, True):
+            with self.subTest(drawing=drawing), \
+                    mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                    mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+                viewer = self.make_viewer()
+                viewer.selected_indices = [1, 2]
+                viewer.on_mouse_press(self.event(40, 0, button=2, buttons=[2]))
+                self.assertTrue(viewer.is_multi_dragging)
+                # Eighteen wheel steps: 90 degrees about the press.
+                viewer.on_mouse_wheel(self.event(40, 0, buttons=[2], delta=(0.0, 18.0)))
+                viewer.on_mouse_release(self.event(40, 0, button=2))
+                np.testing.assert_allclose(viewer.pos[2], [40, 40], atol=1e-4)
+                self.assertEqual(viewer.pick_hovered_node((40, 40)), 2)
+                self.assertIsNone(viewer.pick_hovered_node((80, 0)))
+                self.drag(viewer, (40, 40), (40, 60))
 
 
 class FakeTransforms:

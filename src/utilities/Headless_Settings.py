@@ -156,10 +156,11 @@ def overlay_edits(overlay, kind):
     decode_document fills optional keys (AUTO_DT, LAYOUT_SEED, ...) with their
     defaults; an overlay that leaves them out must keep the saved values instead.
     """
-    from desktop.Viewer_State import optional_keys, sections
+    from desktop.Viewer_State import migrate_low_resource_mode, optional_keys, sections
     edits = decode_document(overlay, kind, partial=True)
+    # LOW_RESOURCE_MODE supplies the switches it stands for.
     supplied = {key for section in sections(kind) if isinstance(overlay.get(section), dict)
-                for key in overlay[section]}
+                for key in migrate_low_resource_mode(overlay[section])}
     for key in optional_keys(kind):
         if key not in supplied:
             edits.pop(key, None)
@@ -172,6 +173,7 @@ def config_export_document(kind, project_root, *, settings_path=None, overlay=No
         DEFAULTS,
         DIRECTORY_PROFILE_DEFAULTS,
         LEGACY_DEFAULT_DIRECTORY_PATHS,
+        migrate_low_resource_mode,
         normalize_viewer_paths,
         validate_viewer_document,
     )
@@ -179,7 +181,8 @@ def config_export_document(kind, project_root, *, settings_path=None, overlay=No
     from Cache_Manifest import find_matching_manifest_folders
     if kind not in {"layout", "viewer"}:
         raise ValueError("kind must be layout or viewer.")
-    saved = read_object(Path(project_root) / "viewer_settings.json", optional=True)
+    saved = migrate_low_resource_mode(
+        read_object(Path(project_root) / "viewer_settings.json", optional=True))
     # Saved preferences can contain historical GUI-only keys; explicit overlays cannot.
     values = deepcopy(DEFAULTS)
     values.update({key: value for key, value in saved.items() if key in DEFAULTS})

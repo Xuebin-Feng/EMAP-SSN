@@ -608,17 +608,17 @@ class MouseSelectionTimingTests(unittest.TestCase):
         viewer = self.make_viewer()
         event = self.mouse_event()
 
-        with mock.patch.object(cfg, "LOW_RESOURCE_MODE", False):
+        with mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", False):
             viewer.on_mouse_move(event)
 
         self.assertEqual(viewer.selected_indices, [0, 1])
         viewer.update_selection_visual.assert_called_once_with()
 
-    def test_low_resource_box_selection_defers_until_release(self):
+    def test_node_and_edge_drawing_box_selection_defers_until_release(self):
         viewer = self.make_viewer()
         event = self.mouse_event()
 
-        with mock.patch.object(cfg, "LOW_RESOURCE_MODE", True):
+        with mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", True):
             viewer.on_mouse_move(event)
             viewer.update_selection_visual.assert_not_called()
             viewer.on_mouse_release(event)
@@ -706,7 +706,7 @@ class ClicksWhileTypingTests(unittest.TestCase):
         with mock.patch("vispy.app.use_app", return_value=SimpleNamespace(native=native)), \
                 mock.patch.object(cfg, "NODE_SIZE", 10), \
                 mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
-                mock.patch.object(cfg, "LOW_RESOURCE_MODE", False), \
+                mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", False), \
                 mock.patch("builtins.print"):
             for handler, event in steps:
                 getattr(viewer, handler)(SimpleNamespace(**vars(event)))  # A fresh event each run.
@@ -769,7 +769,9 @@ class ClicksWhileTypingTests(unittest.TestCase):
         moves = [mouse(60, 0, buttons=[2]), mouse(70, 0, buttons=[2])]
         rotate = SimpleNamespace(pos=np.array([70.0, 0.0]), delta=(0.0, 1.0), buttons=[2],
                                  modifiers=[], handled=False)
-        for low_resource, ctrl in ((False, False), (True, False), (False, True), (True, True)):
+        cases = [(webserver, drawing, ctrl) for webserver in (False, True)
+                 for drawing in (False, True) for ctrl in (False, True)]
+        for webserver, drawing, ctrl in cases:
             viewer = self.make_viewer(typing=False)
             del viewer.update_selection_visual  # The real one, which tells the web pages.
             viewer.update_edges = mock.Mock()
@@ -777,7 +779,12 @@ class ClicksWhileTypingTests(unittest.TestCase):
             sent = []
             viewer.broadcast_event = lambda event, sent=sent: sent.append(event)
             modifiers = ["Control"] if ctrl else []
-            with self.subTest(low_resource=low_resource, ctrl=ctrl),                     mock.patch.object(cfg, "NODE_SIZE", 10),                     mock.patch.object(cfg, "UMAP_MODE", False, create=True),                     mock.patch.object(cfg, "LOW_RESOURCE_MODE", low_resource),                     mock.patch("builtins.print"):
+            with self.subTest(webserver=webserver, drawing=drawing, ctrl=ctrl), \
+                    mock.patch.object(cfg, "NODE_SIZE", 10), \
+                    mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                    mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", webserver), \
+                    mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing), \
+                    mock.patch("builtins.print"):
                 viewer.on_mouse_press(SimpleNamespace(**{**vars(press), "modifiers": modifiers}))
                 at_press = len(sent)
                 for move in moves:
@@ -791,7 +798,7 @@ class ClicksWhileTypingTests(unittest.TestCase):
                     self.assertEqual(at_press, 1)
                 else:
                     self.assertEqual(selections, [{"type": "selection_changed", "indices": [1]}])
-                    self.assertEqual(at_press, 0 if low_resource else 1)
+                    self.assertEqual(at_press, 0 if webserver else 1)
                     self.assertNotEqual(viewer.pos[1, 0], 50.0)  # The node did move.
 
     def test_the_next_key_shows_the_command_alone_and_enter_runs_it(self):

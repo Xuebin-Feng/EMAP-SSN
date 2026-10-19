@@ -169,6 +169,45 @@ class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
         cleared = export_config_settings("viewer", self.root, settings_path=overlay)["settings_document"]
         self.assertEqual(cleared["embedding"], {"EMBED_FILE": ""})
 
+    def test_viewer_exports_and_validation_take_the_old_low_resource_switch(self):
+        """LOW_RESOURCE_MODE, in saved settings, an older export or an overlay,
+        stands for Basic Animations, Node and Edge Drawing and Webserver
+        Communication; exports write those and never the old key."""
+        from desktop.Viewer_State import validate_viewer_document
+        categories = ("LOW_RESOURCE_ANIMATIONS", "LOW_RESOURCE_DRAWING", "LOW_RESOURCE_WEBSERVER")
+        switches = ("FEWER_EDGES_WHILE_MOVING", *categories, "SHOW_FPS")
+        saved = self.saved_config()
+        self.generate(export_config_settings("layout", self.root)["settings_document"])
+        for old in (True, False):
+            with self.subTest(old=old):
+                legacy = {key: value for key, value in saved.items() if key not in switches}
+                legacy["LOW_RESOURCE_MODE"] = old
+                (self.root / "viewer_settings.json").write_text(json.dumps(legacy))
+                document = export_config_settings("viewer", self.root)["settings_document"]
+                visualization = document["visualization"]
+                self.assertNotIn("LOW_RESOURCE_MODE", visualization)
+                self.assertEqual({key: visualization[key] for key in switches},
+                                 {"FEWER_EDGES_WHILE_MOVING": False, "SHOW_FPS": False,
+                                  **{key: old for key in categories}})
+        # A document exported before the categories still validates, as them.
+        older = copy.deepcopy(document)
+        for key in switches:
+            del older["visualization"][key]
+        older["visualization"]["LOW_RESOURCE_MODE"] = True
+        validated = validate_viewer_document(older, self.root)
+        self.assertNotIn("LOW_RESOURCE_MODE", validated["visualization"])
+        self.assertEqual({key: validated["visualization"][key] for key in switches},
+                         {"FEWER_EDGES_WHILE_MOVING": False, "SHOW_FPS": False,
+                          **{key: True for key in categories}})
+        # So does an overlay holding it.
+        (self.root / "viewer_settings.json").write_text(json.dumps(saved))
+        overlay = self.root / "old-overlay.json"
+        overlay.write_text(json.dumps({"schema_version": 2, "kind": "viewer",
+                                       "visualization": {"LOW_RESOURCE_MODE": True}}))
+        exported = export_config_settings("viewer", self.root, settings_path=overlay)["settings_document"]
+        self.assertEqual({key: exported["visualization"][key] for key in categories},
+                         {key: True for key in categories})
+
     def test_viewer_full_snapshot_newest_and_explicit_selection(self):
         self.saved_config()
         with self.assertRaisesRegex(ValueError, "No compatible"):

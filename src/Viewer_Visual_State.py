@@ -14,17 +14,11 @@ from utilities.Localization import JoinedMessage, Message
 def edges_follow_selection(viewer, configuration):
     """Whether edge_stages filters the edges it keeps by the selection.
 
-    UMAP mode keeps only the selected nodes' edges, and a low-resource drag
-    leaves the dragged nodes' edges out. Otherwise the threshold and hidden
-    nodes alone decide, and the Viewer draws a prefix of its score-sorted edges.
+    UMAP mode keeps only the selected nodes' edges. Otherwise the threshold
+    and hidden nodes alone decide, and the Viewer draws a prefix of its
+    score-sorted edges; a node drag draws them all, following the nodes.
     """
-    if getattr(configuration, 'UMAP_MODE', False):
-        return True
-    return bool(
-        getattr(configuration, 'LOW_RESOURCE_MODE', False)
-        and getattr(viewer, 'is_multi_dragging', False)
-        and len(getattr(viewer, 'selected_indices', ()))
-    )
+    return bool(getattr(configuration, 'UMAP_MODE', False))
 
 
 def edge_stages(viewer, configuration, cache=False):
@@ -45,8 +39,6 @@ def edge_stages(viewer, configuration, cache=False):
             viewer._edge_filter_cache = (key, active, qualified_count)
     visible_count = len(active)
     selection = getattr(viewer, 'selected_indices', ())
-    if getattr(configuration, 'LOW_RESOURCE_MODE', False) and getattr(viewer, 'is_multi_dragging', False) and len(selection):
-        active = active[~(np.isin(active[:, 0], selection) | np.isin(active[:, 1], selection))]
     if getattr(configuration, 'UMAP_MODE', False):
         active = active[np.isin(active[:, 0], selection) | np.isin(active[:, 1], selection)]
     return active, {'loaded_edge_count': len(edges), 'threshold_qualified_edge_count': qualified_count,

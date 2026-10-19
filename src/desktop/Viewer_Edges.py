@@ -15,7 +15,7 @@ tens of millions of edges:
   that texture alone (16 bytes a node), whatever the edge count.
 
 Hiding or showing nodes rebuilds the buffer once, keeping the score order.
-UMAP mode and a low-resource drag draw edges chosen by the selection instead;
+UMAP mode draws edges chosen by the selection instead;
 ViewerEdges.show_edges uploads those as given.
 
 All edges share one colour and alpha, so the order they are blended in leaves
@@ -761,10 +761,11 @@ class EdgeSegmentsVisual(Visual):
     def set_segments(self, key, edges, thinned=True):
         """Upload the (E, 2) node numbers of ``edges`` as buffer ``key``, with
         its thinned copies (every k-th edge, for MOTION_LEVELS) when it has
-        MIN_SUBSET_SEGMENTS or more and thinned is true."""
+        MIN_SUBSET_SEGMENTS or more, thinned is true and motion detail is on."""
         node_numbers = np.ascontiguousarray(edges, dtype=np.float32).reshape(-1)
         self._upload(key, node_numbers)
         pairs = node_numbers.reshape(-1, 2)
+        thinned = thinned and getattr(self.motion_detail, 'enabled', True)
         for k in MOTION_LEVELS[1:]:
             if thinned and len(pairs) >= MIN_SUBSET_SEGMENTS:
                 self._upload((key, k), np.ascontiguousarray(pairs[::k]).reshape(-1))
@@ -1022,9 +1023,7 @@ class ViewerEdges:
         """Draw exactly ``edges``, an (E, 2) array of node indices.
 
         The list is uploaded again whenever a different array object is passed,
-        with thinned copies for motion frames unless thinned is false (a list
-        remade on every mouse move, as a low-resource drag's, would pay for
-        them on every move).
+        with thinned copies for motion frames unless thinned is false.
         """
         moved = self._upload_positions(positions)
         changed = edges is not self._explicit

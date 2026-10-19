@@ -141,12 +141,16 @@ class SidebarSlideTests(unittest.TestCase):
         self.assertTrue(viewer.right_panel.isHidden())
         self.assert_placed(viewer, 0)
 
-    def test_low_resource_mode_switches_the_sidebar_at_once(self):
+    def test_basic_animations_switches_the_sidebar_at_once(self):
         import EMAPSSN_Config as cfg
 
         viewer = self.make_viewer()
         self.assertTrue(viewer._sidebar_can_slide())
-        with mock.patch.object(cfg, "LOW_RESOURCE_MODE", True):
+        # Another category leaves the slide alone.
+        for other in ("LOW_RESOURCE_DRAWING", "LOW_RESOURCE_WEBSERVER", "FEWER_EDGES_WHILE_MOVING"):
+            with mock.patch.object(cfg, other, True):
+                self.assertTrue(viewer._sidebar_can_slide(), other)
+        with mock.patch.object(cfg, "LOW_RESOURCE_ANIMATIONS", True):
             self.assertFalse(viewer._sidebar_can_slide())
             viewer.set_sidebar_visible(True)
             self.assertIsNone(viewer._sidebar_slide_width)
@@ -340,7 +344,7 @@ class SliderOverlayTests(unittest.TestCase):
             viewer._build_slider_overlay()
             slider = viewer.slider
             with self.subTest(low_resource=low_resource), \
-                    mock.patch.object(cfg, "LOW_RESOURCE_MODE", low_resource):
+                    mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", low_resource):
                 # A drag: the number follows it; the edges follow it, or wait for the release.
                 slider.setSliderDown(True)
                 for value in (100, 200, 300):

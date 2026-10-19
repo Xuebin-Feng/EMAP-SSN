@@ -183,7 +183,7 @@ class ViewerEdgesTests(unittest.TestCase):
         edges, scores, positions = random_network(4)
         layer = recording_layer(edges, scores, positions)
         rng = np.random.default_rng(5)
-        configuration = SimpleNamespace(UMAP_MODE=False, LOW_RESOURCE_MODE=False)
+        configuration = SimpleNamespace(UMAP_MODE=False)
         for step in range(40):
             visible = rng.random(len(positions)) > 0.25 if step % 3 else np.ones(len(positions), bool)
             threshold = float(rng.choice([0.0, 0.5, float(scores[step]), rng.random(), 1.5]))
@@ -340,7 +340,7 @@ class ViewerEdgesTests(unittest.TestCase):
 
 class UpdateEdgesTests(unittest.TestCase):
     def make_viewer(self):
-        for name in ("UMAP_MODE", "LOW_RESOURCE_MODE"):
+        for name in ("UMAP_MODE", "LOW_RESOURCE_DRAWING", "FEWER_EDGES_WHILE_MOVING"):
             patcher = mock.patch.object(cfg, name, False)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -407,25 +407,25 @@ class UpdateEdgesTests(unittest.TestCase):
             viewer.update_edges()
             self.assertFalse(viewer.edge_layer.visible)
 
-    def test_low_resource_drag_leaves_out_the_dragged_nodes_edges(self):
+    def test_a_node_drag_leaves_no_edge_out_whatever_the_categories(self):
+        # Low Resource Mode once hid the dragged nodes' edges; no category does now.
         viewer = self.make_viewer()
         viewer.current_slider_threshold = 0.0
         viewer.selected_indices = [1]
         viewer.is_multi_dragging = True
-        with mock.patch.object(cfg, "LOW_RESOURCE_MODE", True):
-            self.assertTrue(edges_follow_selection(viewer, cfg))
-            viewer.update_edges()
-            self.assertEqual(as_rows(viewer.edge_layer.visual.drawn("explicit")), [(2, 3), (3, 4)])
-            viewer.is_multi_dragging = False
-            self.assertFalse(edges_follow_selection(viewer, cfg))
-            viewer.update_edges()
-            self.assertEqual(len(viewer.edge_layer.visual.drawn("threshold")), 4)
-            # Dragging with nothing selected keeps every edge, as edge_stages does.
-            viewer.is_multi_dragging = True
-            viewer.selected_indices = []
-            self.assertFalse(edges_follow_selection(viewer, cfg))
-            viewer.update_edges()
-            self.assertEqual(len(viewer.edge_layer.visual.drawn("threshold")), 4)
+        for drawing in (False, True):
+            for motion in (False, True):
+                with self.subTest(drawing=drawing, motion=motion), \
+                        mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing), \
+                        mock.patch.object(cfg, "FEWER_EDGES_WHILE_MOVING", motion), \
+                        mock.patch.object(cfg, "LOW_RESOURCE_ANIMATIONS", True), \
+                        mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", True):
+                    self.assertFalse(edges_follow_selection(viewer, cfg))
+                    active, counts = edge_stages(viewer, cfg)
+                    self.assertEqual(as_rows(active), [(0, 1), (1, 2), (2, 3), (3, 4)])
+                    self.assertEqual(counts["rendered_edge_count"], 4)
+                    viewer.update_edges()
+                    self.assertEqual(len(viewer.edge_layer.visual.drawn("threshold")), 4)
 
     def test_no_edge_layer_is_a_no_op(self):
         viewer = self.make_viewer()

@@ -88,6 +88,8 @@ class ResponsiveConfigTests(unittest.TestCase):
             for label in visible:
                 if not isinstance(label, QLabel) or not label.text():
                     continue
+                if label.property("role") == "title":
+                    continue  # a section's heading has no field
                 if corner[label].x() != margin:
                     continue
                 top, bottom = corner[label].y(), corner[label].y() + label.height()
@@ -625,7 +627,8 @@ class ResponsiveConfigTests(unittest.TestCase):
         window = self.open_window_with(QLabel=LongLabel, ToggleSwitch=LongToggle)
         self.assertGreater(window.label_column_width, self.window.label_column_width + 40)
         switches = window.findChildren(LongToggle)
-        self.assertEqual(len(switches), 4)
+        # UMAP, progressive simulation, Auto step size, and the Low Resource Mode section's five.
+        self.assertEqual(len(switches), 8)
         for switch in switches:
             text_width = switch.fontMetrics().horizontalAdvance(switch.text())
             self.assertGreaterEqual(switch.width() - text_width, 2 * BUTTON_TEXT_PADDING)

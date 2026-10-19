@@ -669,7 +669,7 @@ exported before they existed):
 | `inputs` | `TARGET_CACHE_PATH`, `NODE_FASTA_FILE`, `INPUT_HDF5` |
 | `alignment` | `MSA_FILE`, `ALIGNMENT_REFERENCE`, `FILTER_MIN_OCCUPANCY`, `ALIGNMENT_OFFSET` |
 | `embedding` | `EMBED_FILE`, the optional protein language model embedding |
-| `visualization` | All visual-profile node, edge, text, color, and low-resource preferences |
+| `visualization` | All visual-profile node, edge, text and color preferences, the Low Resource Mode categories (`FEWER_EDGES_WHILE_MOVING`, `LOW_RESOURCE_ANIMATIONS`, `LOW_RESOURCE_DRAWING`, `LOW_RESOURCE_WEBSERVER`) and `SHOW_FPS`; an older export's `LOW_RESOURCE_MODE` still loads, as the last three categories |
 | `directories` | All directory-profile input-resolution and output directories |
 
 Export first, then change only intended fields. To select a cache during export,

@@ -439,7 +439,7 @@ class MotionTriggerTests(unittest.TestCase):
                                       ("mouse_wheel", (), True), ("gesture_zoom", (), True),
                                       ("mouse_press", (1,), False), ("mouse_move", (2,), False)):
             with self.subTest(kind=kind, buttons=buttons), \
-                    mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
+                    mock.patch.object(cfg, "LOW_RESOURCE_ANIMATIONS", False):
                 viewer = self.make_viewer()
                 viewer._camera_mouse_event(self.event(kind, buttons))
                 self.assertEqual(viewer.edge_layer.note_motion.called, starts)
@@ -468,16 +468,19 @@ class MotionTriggerTests(unittest.TestCase):
         viewer.canvas = SimpleNamespace(scene=SimpleNamespace(node_transform=lambda _scene: transform))
         viewer.view = SimpleNamespace(scene=None)
         viewer.update_selection_visual = mock.Mock()
-        with mock.patch.object(cfg, "LOW_RESOURCE_MODE", False, create=True):
-            viewer.on_mouse_move(SimpleNamespace(pos=np.ones(2), buttons=[2], modifiers=(), handled=False))
-        viewer.edge_layer.note_motion.assert_called_once_with()
+        for drawing in (False, True):
+            with self.subTest(drawing=drawing), mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+                viewer.edge_layer.note_motion.reset_mock()
+                viewer._move_dragged_nodes = mock.Mock()
+                viewer.on_mouse_move(SimpleNamespace(pos=np.ones(2), buttons=[2], modifiers=(), handled=False))
+                viewer.edge_layer.note_motion.assert_called_once_with()
 
     def test_the_viewer_without_edges_ignores_motion(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.edge_layer = None
         viewer._note_view_motion()
 
-    def test_a_low_resource_drag_list_is_not_thinned(self):
+    def test_a_selection_list_gets_thinned_copies(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.edges = np.array([[0, 1], [1, 2]], dtype=np.int32)
         viewer.edge_scores = np.array([0.5, 0.6], dtype=np.float32)
@@ -488,13 +491,13 @@ class MotionTriggerTests(unittest.TestCase):
         viewer._refresh_session_card = mock.Mock()
         viewer.edge_layer = mock.Mock()
         viewer.edge_layer.show_edges.return_value = 1
-        for low_resource, dragging, thinned in ((True, True, False), (False, False, True)):
-            with self.subTest(low_resource=low_resource), \
-                    mock.patch.object(cfg, "LOW_RESOURCE_MODE", low_resource, create=True), \
+        for drawing, dragging in ((True, True), (False, False)):
+            with self.subTest(drawing=drawing, dragging=dragging), \
+                    mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing), \
                     mock.patch.object(cfg, "UMAP_MODE", True, create=True):
                 viewer.is_multi_dragging = dragging
                 viewer.update_edges()
-                self.assertEqual(viewer.edge_layer.show_edges.call_args.kwargs["thinned"], thinned)
+                self.assertTrue(viewer.edge_layer.show_edges.call_args.kwargs.get("thinned", True))
 
 
 _MOTION_SCRIPT = textwrap.dedent(
@@ -515,6 +518,7 @@ _MOTION_SCRIPT = textwrap.dedent(
     VE.MIN_SUBSET_SEGMENTS = VM.MIN_SUBSET_SEGMENTS = 1000
     cfg = V.cfg
     cfg.NODE_SIZE, cfg.NODE_BOUNDARY_WIDTH, cfg.HOVER_COLOR = 15, 2.0, "#ffaa00"
+    cfg.FEWER_EDGES_WHILE_MOVING = True    # off by default
     rng = np.random.default_rng(42)
     n = 160
     v = V.MainViewer.__new__(V.MainViewer)

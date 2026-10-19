@@ -422,6 +422,26 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Fewer Edges Drawn While Moving:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Basic Animations:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Node and Edge Drawing:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Webserver Communication:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show FPS:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Inputs &amp; Outputs</source>
         <translation type="unfinished"></translation>
     </message>
@@ -962,15 +982,67 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Performance mode that simplifies graphics and hides edge lines during pan/zoom/drag interactions.</source>
+        <source>While you pan, zoom or drag nodes, draws every 4th, 16th or 64th edge in score order, and every edge again a moment after the view stops.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Significantly improves responsiveness and reduces rendering latency for large networks.</source>
+        <source>The step follows how long the edges take to draw on this computer. The edges drawn are made more opaque, so dense regions keep their shade.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The wheel zoom and the sidebar skip their animations; the edges redraw once a threshold slider drag ends, and the Meta Data sheet updates once a right-button node drag ends.</source>
+        <source>Prints and captures always draw every edge.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The environment variable `SSN_EDGE_MOTION_LOD=0` turns it off whatever this switch says.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>While it is on, the graphics card holds thinned copies of the drawn edges: about a third more memory for them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Skips the Viewer&apos;s animations: the wheel zoom without the glide, and the sidebar without the slide.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each wheel step zooms at once, and the sidebar opens and closes at once, sparing the frames in between.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Redraws less of the network while you drag, and catches up when you let go.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The threshold slider redraws the edges only when you let go; the threshold box still follows it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A right-button drag of selected nodes moves them and their edges as they are drawn; the selection and neighbour colouring is worked out again when you let go.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A right-button selection box colours the selected nodes and their neighbours only when you let go.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sends the Viewer&apos;s web pages fewer updates while you work in the network.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Meta Data sheet updates only when a node drag ends, instead of when it starts.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Shows the Viewer&apos;s frame rate at its top right, left of the sidebar button.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>It counts the frames drawn to the screen over the last second, with the graphics card&apos;s time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>It is never part of prints or captures.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1438,7 +1510,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Low Resource Mode:</source>
+        <source>Low Resource Mode</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -7145,6 +7217,25 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>The list of commands is not installed: docs/list_of_commands.html is missing.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
+    <name>ViewerFps</name>
+    <message>
+        <source>Idle</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{fps} fps</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>GPU {ms} ms</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>edges 1/{step}</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

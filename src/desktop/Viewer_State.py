@@ -54,8 +54,79 @@ VISUAL_PROFILE_DEFAULTS = {
     "CONNECTED_NODE_COLOR": "#ff0000",
     "EDGE_COLOR": "#000000",
     "NODE_BOUNDARY_COLOR": "#000000",
-    "LOW_RESOURCE_MODE": False,
 }
+
+# The Visual Effects tab's Low Resource Mode: a switch per category of work
+# the Viewer can be spared, all off by default. The Viewer asks each through
+# its helper below, so a category can come to cover more without new reads.
+LOW_RESOURCE_DEFAULTS = {
+    # Basic Animations: the wheel zoom without its glide, the sidebar without its slide.
+    "LOW_RESOURCE_ANIMATIONS": False,
+    # Node and Edge Drawing: the threshold slider redraws the edges when let
+    # go; a right-drag of nodes leaves their edges out, and a selection box
+    # colours its nodes and their edges, only once the button is released.
+    "LOW_RESOURCE_DRAWING": False,
+    # Webserver Communication: the Meta Data sheet hears of a node drag's
+    # selection when the drag ends.
+    "LOW_RESOURCE_WEBSERVER": False,
+}
+VISUAL_PROFILE_DEFAULTS.update({
+    # Fewer edges drawn while moving: every k-th edge while the view moves
+    # (desktop.Viewer_Motion). The first category; the old single switch
+    # never stood for it.
+    "FEWER_EDGES_WHILE_MOVING": False,
+    **LOW_RESOURCE_DEFAULTS,
+    # The frame rate over the canvas's top right (desktop.Viewer_Fps).
+    "SHOW_FPS": False,
+})
+
+
+def fewer_edges_while_moving(configuration):
+    """Fewer edges drawn while moving: whether the Viewer may thin the edges
+    while the view moves (SSN_EDGE_MOTION_LOD=0 still turns it off)."""
+    return bool(getattr(configuration, "FEWER_EDGES_WHILE_MOVING", False))
+
+
+def low_resource_animations(configuration):
+    """Basic Animations: whether the wheel zoom and the sidebar skip their animations."""
+    return bool(getattr(configuration, "LOW_RESOURCE_ANIMATIONS", False))
+
+
+def low_resource_drawing(configuration):
+    """Node and Edge Drawing: whether the Viewer redraws the edges and the
+    selection's colouring only when a slider drag, a node drag or a
+    selection box ends."""
+    return bool(getattr(configuration, "LOW_RESOURCE_DRAWING", False))
+
+
+def low_resource_webserver(configuration):
+    """Webserver Communication: whether the web pages hear of a node drag's
+    selection only when the drag ends."""
+    return bool(getattr(configuration, "LOW_RESOURCE_WEBSERVER", False))
+
+
+# The one switch the categories replaced, which turned Basic Animations, Node
+# and Edge Drawing and Webserver Communication on or off together. Settings
+# files, saved profiles and settings documents written before may hold it.
+LEGACY_LOW_RESOURCE_KEY = "LOW_RESOURCE_MODE"
+
+
+def migrate_low_resource_mode(values):
+    """values with LOW_RESOURCE_MODE taken out, as the categories it stood for.
+
+    When values holds none of LOW_RESOURCE_DEFAULTS, each takes the old key's
+    value; Fewer edges drawn while moving keeps its own (off unless set). A
+    category already there wins, and the old key is dropped either way. A
+    dict without the old key is returned as it is.
+    """
+    if not isinstance(values, dict) or LEGACY_LOW_RESOURCE_KEY not in values:
+        return values
+    result = dict(values)
+    legacy = result.pop(LEGACY_LOW_RESOURCE_KEY)
+    if not any(key in result for key in LOW_RESOURCE_DEFAULTS):
+        for key in LOW_RESOURCE_DEFAULTS:
+            result[key] = legacy
+    return result
 
 PHYSICS_PROFILE_DEFAULTS = {
     "LAYOUT_DEVICE_SELECTION": "auto",
@@ -157,6 +228,11 @@ OPTIONAL_DOCUMENT_KEYS = {
     "viewer": {
         "EMBED_FILE": INPUT_PROFILE_DEFAULTS["EMBED_FILE"],
         "EMBED_DIR": DIRECTORY_PROFILE_DEFAULTS["EMBED_DIR"],
+        # The Low Resource Mode categories and Show FPS came after
+        # LOW_RESOURCE_MODE, which a document may hold instead
+        # (migrate_low_resource_mode).
+        **{key: VISUAL_PROFILE_DEFAULTS[key] for key in (
+            "FEWER_EDGES_WHILE_MOVING", *LOW_RESOURCE_DEFAULTS, "SHOW_FPS")},
     },
 }
 
@@ -202,6 +278,8 @@ def decode_document(document, kind, *, partial=False):
         values = document.get(section, {})
         if not isinstance(values, dict):
             raise ValueError(f"{section}: expected an object. Re-export settings.")
+        if kind == "viewer" and section == "visualization":
+            values = migrate_low_resource_mode(values)
         unknown = set(values) - set(keys)
         missing = set(keys) - set(values) - set(optional)
         if unknown:
@@ -276,6 +354,19 @@ def _flat_viewer_settings_schema():
     }
 
 
+# Fields older documents may hold, which decode_document maps to today's.
+_LEGACY_VISUALIZATION_PROPERTIES = {
+    LEGACY_LOW_RESOURCE_KEY: {
+        "type": "boolean",
+        "deprecated": True,
+        "description": "Older documents' single Low Resource Mode switch. When the section has "
+                       "none of LOW_RESOURCE_ANIMATIONS, LOW_RESOURCE_DRAWING and "
+                       "LOW_RESOURCE_WEBSERVER, each takes this value; otherwise it is ignored. "
+                       "Exports write the categories instead.",
+    },
+}
+
+
 def get_viewer_settings_schema():
     flat = _flat_viewer_settings_schema()["properties"]
     optional = optional_keys("viewer")
@@ -297,7 +388,10 @@ def get_viewer_settings_schema():
                     "type": "object",
                     "additionalProperties": False,
                     "required": [key for key in keys if key not in optional],
-                    "properties": {key: flat[key] for key in keys},
+                    "properties": {
+                        **{key: flat[key] for key in keys},
+                        **(_LEGACY_VISUALIZATION_PROPERTIES if section == "visualization" else {}),
+                    },
                 }
                 for section, keys in VIEWER_SECTIONS.items()
             },
@@ -468,6 +562,7 @@ def alias_form(path, directories, project_root):
 def normalize_viewer_settings(document, project_root, *, require_cache=True):
     if not isinstance(document, dict):
         raise ViewerSettingsError("settings_document: expected a JSON object.")
+    document = migrate_low_resource_mode(document)
     unknown = set(document) - set(DEFAULTS)
     if unknown:
         raise ViewerSettingsError("Unknown Viewer settings: " + ", ".join(sorted(unknown)))
@@ -914,6 +1009,13 @@ __all__ = [
     "EMBEDDING_ALIAS",
     "INPUT_PROFILE_DEFAULTS",
     "VISUAL_PROFILE_DEFAULTS",
+    "LOW_RESOURCE_DEFAULTS",
+    "LEGACY_LOW_RESOURCE_KEY",
+    "migrate_low_resource_mode",
+    "fewer_edges_while_moving",
+    "low_resource_animations",
+    "low_resource_drawing",
+    "low_resource_webserver",
     "PHYSICS_PROFILE_DEFAULTS",
     "DIRECTORY_PROFILE_DEFAULTS",
     "LEGACY_DEFAULT_DIRECTORY_PATHS",

@@ -517,6 +517,26 @@ class ShippedCommandLineTests(unittest.TestCase):
         # No line of instructions sits above it any more.
         self.assertFalse([key for key in layout if key.startswith("instr")])
 
+    def test_the_command_box_stops_short_of_the_frame_rate(self):
+        """With Show FPS on, a long command wraps before the frame-rate card's room."""
+        from desktop.Viewer_Fps import FPS_GAP
+        long_text = "Cmd: " + "select " * 600
+        edges = {}
+        left = ConsoleOverlayWrappingTests.make_viewer().hud_layout["console_bg_left_offset"]
+        for overlay, right in ((None, left + 1200 - 40), (SimpleNamespace(widest_width=lambda: 300),
+                                                            1200 - 10 - 300 - FPS_GAP)):
+            with self.subTest(fps=overlay is not None):
+                viewer = ConsoleOverlayWrappingTests.make_viewer(size=(1200, 800), text=long_text)
+                viewer.fps_overlay = overlay
+                self.assertEqual(viewer._command_line_right(), right)
+                viewer.update_console_background()
+                box = viewer.console_bg
+                edges[overlay is not None] = box.center[0] + box.width / 2.0
+                self.assertLessEqual(edges[overlay is not None], right + 0.5)
+                self.assertGreater(box.height, viewer.hud_layout["console_bg_height"])  # wrapped
+        # The card's room moves the wrap.
+        self.assertGreater(edges[False], 1200 - 10 - 300 - FPS_GAP)
+
     def test_the_command_box_takes_the_theme_colour(self):
         from vispy.color import Color
 

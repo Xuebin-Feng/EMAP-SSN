@@ -300,13 +300,15 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.app.processEvents()
         self.assertTrue(field.isEnabled())
 
-    def test_low_resource_mode_row_has_extra_top_clearance(self):
-        low_resource_row = self.window.findChild(
-            self.namespace["QWidget"], "lowResourceModeRow"
-        )
+    def test_low_resource_mode_sits_under_a_padded_separator(self):
+        separator = self.window.findChild(self.namespace["QFrame"], "lowResourceSeparator")
+        saved_config = self.window.profile_separators["visual_effects"]
 
-        self.assertIsNotNone(low_resource_row)
-        self.assertEqual(low_resource_row.layout().contentsMargins().top(), 8)
+        self.assertIsNotNone(separator)
+        self.assertEqual(separator.property("role"), "separator")
+        self.assertEqual(separator.parentWidget().layout().contentsMargins(),
+                         saved_config.parentWidget().layout().contentsMargins())
+        self.assertIsNotNone(self.window.findChild(self.namespace["QLabel"], "lowResourceTitle"))
 
     def test_spinboxes_are_not_clipped_by_parent_wrappers(self):
         from PySide6.QtWidgets import QAbstractSpinBox
@@ -604,9 +606,11 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             self.tokens["text_disabled"],
         )
 
-        low_resource_toggle = self.window.inputs["LOW_RESOURCE_MODE"]
-        self.assertFalse(low_resource_toggle.isEnabled())
-        self.assertEqual(low_resource_toggle.styleSheet(), self.switch_stylesheet)
+        for key in ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS", "LOW_RESOURCE_DRAWING",
+                    "LOW_RESOURCE_WEBSERVER", "SHOW_FPS"):
+            low_resource_toggle = self.window.inputs[key]
+            self.assertFalse(low_resource_toggle.isEnabled(), key)
+            self.assertEqual(low_resource_toggle.styleSheet(), self.switch_stylesheet, key)
         default_swatch = self.window.color_swatches["HOVER_COLOR"]
         default_swatch_image = default_swatch.grab().toImage()
         self.assertEqual(

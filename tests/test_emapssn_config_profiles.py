@@ -58,20 +58,20 @@ class ProfileNormalizationTests(unittest.TestCase):
     def test_text_values_are_coerced_to_each_settings_type(self):
         visual = self.normalize(
             "visual_effects",
-            {"NODE_SIZE": "12.0", "LOW_RESOURCE_MODE": "yes", "HOVER_COLOR": "#00ff00"},
+            {"NODE_SIZE": "12.0", "LOW_RESOURCE_DRAWING": "yes", "HOVER_COLOR": "#00ff00"},
         )
         self.assertEqual(visual["NODE_SIZE"], 12)
         self.assertIs(type(visual["NODE_SIZE"]), int)
-        self.assertIs(visual["LOW_RESOURCE_MODE"], True)
+        self.assertIs(visual["LOW_RESOURCE_DRAWING"], True)
         self.assertEqual(visual["HOVER_COLOR"], "#00ff00")
         # Keys the profile leaves out keep their defaults.
         self.assertEqual(visual["EDGE_WIDTH"], self.defaults["visual_effects"]["EDGE_WIDTH"])
 
         for text, expected in (("0", False), (" F ", False), ("no", False), ("t", True)):
-            with self.subTest(LOW_RESOURCE_MODE=text):
+            with self.subTest(SHOW_FPS=text):
                 self.assertIs(
-                    self.normalize("visual_effects", {"LOW_RESOURCE_MODE": text})[
-                        "LOW_RESOURCE_MODE"
+                    self.normalize("visual_effects", {"SHOW_FPS": text})[
+                        "SHOW_FPS"
                     ],
                     expected,
                 )
@@ -99,8 +99,8 @@ class ProfileNormalizationTests(unittest.TestCase):
         self.assert_rejected([
             ("visual_effects", {"NODE_SIZE": 10.5}, "invalid value for NODE_SIZE: expected an integer"),
             ("visual_effects", {"NODE_SIZE": True}, "invalid value for NODE_SIZE: expected an integer"),
-            ("visual_effects", {"LOW_RESOURCE_MODE": "maybe"},
-             "invalid value for LOW_RESOURCE_MODE: expected true or false"),
+            ("visual_effects", {"LOW_RESOURCE_ANIMATIONS": "maybe"},
+             "invalid value for LOW_RESOURCE_ANIMATIONS: expected true or false"),
             ("visual_effects", {"HOVER_COLOR": 5}, "invalid value for HOVER_COLOR: expected text"),
             ("visual_effects", {"HOVER_COLOR": "notacolor"},
              "invalid color value for HOVER_COLOR: notacolor"),
@@ -151,7 +151,7 @@ class ProfileNormalizationTests(unittest.TestCase):
 
     def test_custom_settings_fall_back_to_defaults_when_invalid(self):
         window = SimpleNamespace(
-            _custom_settings={"NODE_SIZE": "12", "LOW_RESOURCE_MODE": "yes", "DT": "x"}
+            _custom_settings={"NODE_SIZE": "12", "FEWER_EDGES_WHILE_MOVING": "yes", "DT": "x"}
         )
         window._normalize_profile_data = (
             lambda tab_id, raw_data: self.gui._normalize_profile_data(window, tab_id, raw_data)
@@ -159,7 +159,7 @@ class ProfileNormalizationTests(unittest.TestCase):
         # Settings of other tabs (DT) are not part of this tab's profile.
         visual = self.gui._custom_profile_data(window, "visual_effects")
         self.assertEqual(visual["NODE_SIZE"], 12)
-        self.assertIs(visual["LOW_RESOURCE_MODE"], True)
+        self.assertIs(visual["FEWER_EDGES_WHILE_MOVING"], True)
 
         window._custom_settings["NODE_SIZE"] = 10.5
         with redirect_stdout(io.StringIO()) as output:
