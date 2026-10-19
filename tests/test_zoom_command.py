@@ -628,11 +628,13 @@ class ViewerWheelZoomTests(HundredPercentIs1000, unittest.TestCase):
         clock, timer = FakeClock(), FakeTimer()
         viewer._wheel_zoom = SmoothWheelZoom(camera, camera.zoom, clock=clock, timer=timer)
         viewer._original_camera_mouse_event = mock.Mock()
+        viewer._note_view_motion = mock.Mock()
         wheel = SimpleNamespace(type="mouse_wheel", handled=False, pos=(100.0, 300.0), delta=(0.0, -1.0),
                                 button=None, buttons=[])
 
         EMAPSSN_Viewer.MainViewer._camera_mouse_event(viewer, wheel)
         self.assertTrue(wheel.handled)
+        viewer._note_view_motion.assert_called_once_with()  # fewer edges while it zooms
         viewer._original_camera_mouse_event.assert_not_called()
         self.assertEqual(camera.rect.width, 400.0)  # Nothing yet: it plays out over the frames.
         widths = run_frames(timer, clock, camera)

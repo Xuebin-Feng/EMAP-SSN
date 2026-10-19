@@ -65,6 +65,7 @@ modules = [
     "test_viewer_inspection",
     "test_viewer_inspection_http",
     "test_viewer_markers",
+    "test_viewer_motion",
     "test_viewer_portal_adapters",
     "test_viewer_sessions",
     "test_viewer_sidebar",

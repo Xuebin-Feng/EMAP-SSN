@@ -38,6 +38,10 @@ Most frames change only the nodes or the HUD: a hover, a click, typing. The
 window keeps the edges' last picture in a texture (EdgeImageCache) and copies
 it while the camera, the window and the edges stay as they were, so those
 frames cost the nodes alone. Print and captures always draw the edges.
+
+While the view moves (a pan, a zoom, a node drag), every k-th edge of each
+buffer is drawn from thinned copies kept beside it, in the same score order,
+so a threshold's prefix is a prefix of each copy (desktop.Viewer_Motion).
 """
 
 from __future__ import annotations
@@ -50,6 +54,10 @@ from vispy import gloo, scene
 from vispy.gloo.context import get_current_canvas
 from vispy.scene.visuals import create_visual_node
 from vispy.visuals import Visual
+
+from desktop.Viewer_Motion import (
+    MIN_SUBSET_SEGMENTS, MOTION_LEVELS, MotionDetail, compensated_alpha,
+)
 
 
 POSITION_TEXTURE_ENVIRONMENT_VARIABLE = "SSN_EDGE_POSITION_TEXTURE"
@@ -460,20 +468,44 @@ def _picture_key(visual, canvas):
 
 
 def _draw_edges(visual, draw):
-    """Draw the edges: from the image cache when it serves this frame,
-    otherwise directly, with the overdraw limit where it applies."""
+    """Draw the edges: every k-th of them while the view moves (MotionDetail),
+    else from the image cache when it serves this frame, else directly; with
+    the overdraw limit where it applies."""
     canvas = get_current_canvas()
     cache = getattr(visual, 'image_cache', None)
     limit = getattr(visual, 'stencil_limit', None)
-    if cache is not None and cache.serves(canvas):
-        try:
-            key = _picture_key(visual, canvas)
-        except Exception as error:
-            cache._fail(canvas, error)
+    motion = getattr(visual, 'motion_detail', None)
+    thinned = hasattr(visual, 'available_levels')
+    into_window = canvas is not None and _draws_into_window(canvas)
+    k = 1
+    if motion is not None and thinned:
+        k = motion.level_for(visual.segment_count, visual.available_levels(), into_window)
+    if thinned:
+        visual.detail = k
+    segments = visual.drawn_segments() if thinned else 0
+
+    def edges():
+        if motion is None:
+            _draw_with_limit(visual, limit, draw)
         else:
-            if cache.draw(canvas, key, lambda: _draw_with_limit(visual, limit, draw)):
-                return
-    _draw_with_limit(visual, limit, draw)
+            motion.time_draw(lambda: _draw_with_limit(visual, limit, draw), k, segments)
+
+    try:
+        # A motion frame draws its thinned edges itself: the cache keeps
+        # full-detail pictures only, and the frame after the motion settles
+        # draws a new one.
+        if k == 1 and cache is not None and cache.serves(canvas):
+            try:
+                key = _picture_key(visual, canvas)
+            except Exception as error:
+                cache._fail(canvas, error)
+            else:
+                if cache.draw(canvas, key, edges):
+                    return
+        edges()
+    finally:
+        if motion is not None and into_window:
+            motion.report_once(thinned)
 
 
 def position_texels(positions):
@@ -663,6 +695,11 @@ class EdgeSegmentsVisual(Visual):
         self._buffer_sizes = {}
         self._segment_count = 0
         self._drawn = None
+        self._bound = None
+        # Every k-th edge is drawn, from a thinned copy, while the view moves
+        # (desktop.Viewer_Motion); set before each draw.
+        self.detail = 1
+        self.motion_detail = None
         # The EdgeStencilLimit it draws with; None draws every fragment.
         self.stencil_limit = None
         # The EdgeImageCache it draws through; None draws directly.
@@ -684,6 +721,7 @@ class EdgeSegmentsVisual(Visual):
     def set_color(self, color):
         self._color = tuple(float(value) for value in color)
         self.shared_program['u_color'] = self._color
+        self._bound = None
         self.generation += 1
         self.update()
 
@@ -720,9 +758,22 @@ class EdgeSegmentsVisual(Visual):
         self.generation += 1
         self.update()
 
-    def set_segments(self, key, edges):
-        """Upload the (E, 2) node numbers of ``edges`` as buffer ``key``."""
+    def set_segments(self, key, edges, thinned=True):
+        """Upload the (E, 2) node numbers of ``edges`` as buffer ``key``, with
+        its thinned copies (every k-th edge, for MOTION_LEVELS) when it has
+        MIN_SUBSET_SEGMENTS or more and thinned is true."""
         node_numbers = np.ascontiguousarray(edges, dtype=np.float32).reshape(-1)
+        self._upload(key, node_numbers)
+        pairs = node_numbers.reshape(-1, 2)
+        for k in MOTION_LEVELS[1:]:
+            if thinned and len(pairs) >= MIN_SUBSET_SEGMENTS:
+                self._upload((key, k), np.ascontiguousarray(pairs[::k]).reshape(-1))
+            else:
+                self._drop((key, k))
+        self._bound = None
+        self.generation += 1
+
+    def _upload(self, key, node_numbers):
         buffer = self._buffers.get(key)
         if buffer is None or len(node_numbers) == 0:
             # A fresh buffer each time it empties, as a zero-size upload is
@@ -733,15 +784,31 @@ class EdgeSegmentsVisual(Visual):
         else:
             buffer.set_data(node_numbers)
         self._buffer_sizes[key] = len(node_numbers) // 2
-        self.generation += 1
 
-    def drop_segments(self, key):
-        """Free buffer ``key``; the next set_segments for it uploads afresh."""
+    def _drop(self, key):
         buffer = self._buffers.pop(key, None)
         if buffer is not None:
             buffer.delete()
         self._buffer_sizes.pop(key, None)
+
+    def drop_segments(self, key):
+        """Free buffer ``key`` and its thinned copies; the next set_segments
+        for it uploads afresh."""
+        self._drop(key)
+        for k in MOTION_LEVELS[1:]:
+            self._drop((key, k))
+        self._bound = None
         self.generation += 1
+
+    def available_levels(self):
+        """The k this visual can draw its buffer now with: 1, and those it has a thinned copy for."""
+        key = self._drawn[0] if self._drawn else None
+        return (1,) + tuple(k for k in MOTION_LEVELS[1:] if (key, k) in self._buffers)
+
+    def drawn_segments(self):
+        """How many segments the next draw draws, at the detail set."""
+        k = self.detail if self.detail in self.available_levels() else 1
+        return -(-self._segment_count // k)
 
     def draw_segments(self, key, count):
         """Draw the first ``count`` segments of buffer ``key`` from now on."""
@@ -751,11 +818,25 @@ class EdgeSegmentsVisual(Visual):
         if (key, count) != self._drawn:
             self._drawn = (key, count)
             self.generation += 1
-        if count:
-            # A view of the buffer's first 2 * count vertices sets the vertex
-            # count VisPy passes to glDrawArrays; nothing is uploaded.
-            self.shared_program['a_node'] = self._buffers[key][:2 * count]
         self.update()
+
+    def _bind(self):
+        """Bind the buffer and colour the detail set calls for. The first
+        ceil(count / k) edges of the copy keeping every k-th edge are every
+        k-th edge of the first count, whose opacity compensated_alpha raises."""
+        key, count = self._drawn
+        k = self.detail if self.detail in self.available_levels() else 1
+        drawn = -(-count // k)
+        bound = (key, k, drawn)
+        if bound != self._bound:
+            buffer = self._buffers[key] if k == 1 else self._buffers[(key, k)]
+            # A view of the buffer's first 2 * drawn vertices sets the vertex
+            # count VisPy passes to glDrawArrays; nothing is uploaded.
+            self.shared_program['a_node'] = buffer[:2 * drawn]
+            red, green, blue, alpha = self._color
+            self.shared_program['u_color'] = (
+                self._color if k == 1 else (red, green, blue, compensated_alpha(alpha, k)))
+            self._bound = bound
 
     def _prepare_transforms(self, view):
         view.view_program.vert['transform'] = view.transforms.get_transform()
@@ -763,6 +844,7 @@ class EdgeSegmentsVisual(Visual):
     def _prepare_draw(self, view):
         if self._segment_count == 0 or self._texture is None or self._width == 0:
             return False
+        self._bind()
         # The line state VisPy's 'gl' Line method sets, so other visuals'
         # state cannot leak into the edges.
         width = self.transforms.pixel_scale * self._width
@@ -781,10 +863,12 @@ class LimitedLine(scene.visuals.Line):
     """VisPy's Line, for the coordinate fallback, drawn with an EdgeStencilLimit
     and through an EdgeImageCache, as EdgeSegmentsVisual is."""
 
-    def __init__(self, *args, stencil_limit=None, image_cache=None, **kwargs):
-        # Set before VisPy freezes the visual's attributes.
+    def __init__(self, *args, stencil_limit=None, image_cache=None, motion_detail=None, **kwargs):
+        # Set before VisPy freezes the visual's attributes. It always draws
+        # every edge; motion_detail is there for its report.
         self.stencil_limit = stencil_limit
         self.image_cache = image_cache
+        self.motion_detail = motion_detail
         self.generation = 0
         super().__init__(*args, **kwargs)
 
@@ -809,12 +893,14 @@ class ViewerEdges:
     the explicit list. ``upload_count`` counts edge-buffer uploads, and
     ``position_upload_count`` node-position uploads. Either visual draws with
     ``stencil_limit`` (an EdgeStencilLimit unless one is given) and through
-    ``image_cache`` (an EdgeImageCache unless one is given).
+    ``image_cache`` (an EdgeImageCache unless one is given); the texture
+    visual draws every k-th edge while the view moves (``motion``, a
+    MotionDetail unless one is given, which note_motion() tells of input).
     """
 
     def __init__(self, parent, edges, scores, positions, color, width,
                  name='network_edges', use_position_texture=None, stencil_limit=None,
-                 image_cache=None):
+                 image_cache=None, motion=None):
         self.order = EdgeOrder(edges, scores)
         node_count = len(positions)
         if len(self.order) and (
@@ -829,14 +915,18 @@ class ViewerEdges:
         self.uses_position_texture = bool(use_position_texture)
         self.stencil_limit = EdgeStencilLimit() if stencil_limit is None else stencil_limit
         self.image_cache = EdgeImageCache() if image_cache is None else image_cache
+        self.motion = MotionDetail() if motion is None else motion
         if self.uses_position_texture:
             self.visual = EdgeSegments(color=color, width=width, parent=parent, name=name)
             self.visual.stencil_limit = self.stencil_limit
             self.visual.image_cache = self.image_cache
+            self.visual.motion_detail = self.motion
+            self.motion.on_settle(self.visual.update)
         else:
             self.visual = LimitedLine(
                 connect='segments', color=color, width=width, parent=parent, name=name,
                 stencil_limit=self.stencil_limit, image_cache=self.image_cache,
+                motion_detail=self.motion,
             )
         self.visual.set_gl_state('translucent', depth_test=False)
         # Nothing is uploaded before the first show_threshold or show_edges.
@@ -860,6 +950,10 @@ class ViewerEdges:
         if bool(value) != bool(self.visual.visible):
             self.visual.generation += 1
         self.visual.visible = value
+
+    def note_motion(self):
+        """A pan, zoom or node-drag input: draw fewer edges until the view settles."""
+        self.motion.note()
 
     def _upload_positions(self, positions):
         """Send the node positions if they changed; return whether they did."""
@@ -924,10 +1018,13 @@ class ViewerEdges:
         self.drawn_edge_count = drawn
         return drawn
 
-    def show_edges(self, positions, edges):
+    def show_edges(self, positions, edges, thinned=True):
         """Draw exactly ``edges``, an (E, 2) array of node indices.
 
-        The list is uploaded again whenever a different array object is passed.
+        The list is uploaded again whenever a different array object is passed,
+        with thinned copies for motion frames unless thinned is false (a list
+        remade on every mouse move, as a low-resource drag's, would pay for
+        them on every move).
         """
         moved = self._upload_positions(positions)
         changed = edges is not self._explicit
@@ -935,7 +1032,7 @@ class ViewerEdges:
         drawn = len(edges)
         if self.uses_position_texture:
             if changed:
-                self.visual.set_segments('explicit', edges)
+                self.visual.set_segments('explicit', edges, thinned=thinned)
                 self.upload_count += 1
             self.visual.draw_segments('explicit', drawn)
         elif moved or changed or self._drawn_key != ('explicit',):

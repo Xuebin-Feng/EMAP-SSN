@@ -932,7 +932,7 @@ class MainViewer:
         self._original_camera_mouse_event = self.view.camera.viewbox_mouse_event
         self.view.camera.viewbox_mouse_event = self._camera_mouse_event
         self._limit_camera_zoom()
-        self._wheel_zoom = SmoothWheelZoom(self.view.camera, self.view.camera.zoom, self._hud_timer.start)
+        self._wheel_zoom = SmoothWheelZoom(self.view.camera, self.view.camera.zoom, self._after_wheel_zoom_step)
 
         # --- 4. Draw Initial State ---
         self.draw_network()
@@ -1053,11 +1053,29 @@ class MainViewer:
 
         self.view.camera.zoom = limited_zoom
 
+    def _note_view_motion(self):
+        """A pan, zoom or node-drag input: the edges draw every k-th edge until
+        the view settles (desktop.Viewer_Motion). Only input handlers call this,
+        so a camera moved by print, a command or a capture keeps full detail."""
+        layer = getattr(self, 'edge_layer', None)
+        if layer is not None:
+            layer.note_motion()
+
+    def _after_wheel_zoom_step(self):
+        """Each frame of a smooth wheel zoom: the view moves, and the HUD follows."""
+        self._note_view_motion()
+        self._hud_timer.start()
+
     def _camera_mouse_event(self, event):
         """The camera's mouse handling, without the right button, which selects
         and drags nodes, and with the wheel zooming smoothly."""
         if getattr(event, 'button', None) == 2 or 2 in getattr(event, 'buttons', []):
             return
+        # A left-button drag pans, the wheel and a pinch zoom.
+        event_type = getattr(event, 'type', None)
+        if (event_type == 'mouse_move' and 1 in getattr(event, 'buttons', [])) \
+                or event_type == 'mouse_wheel' or str(event_type).startswith('gesture'):
+            self._note_view_motion()
         camera = self.view.camera
         # VisPy's zoom a notch, about the point under the cursor, played out
         # over a few frames (desktop.Viewer_Zoom) rather than in one; low
@@ -1195,6 +1213,7 @@ class MainViewer:
     def _zoom_to_box(self, percent):
         """Zoom to the percentage set in the Zoom box, as `zoom` does (commands.zoom.set_zoom)."""
         from commands.zoom import set_zoom
+        self._note_view_motion()
         try:
             set_zoom(self, percent)
         except ValueError as error:
@@ -2182,7 +2201,12 @@ class MainViewer:
         # threshold change only changes how many score-sorted edges it draws.
         if edges_follow_selection(self, cfg):
             active_edges, _ = edge_stages(self, cfg, cache=True)
-            drawn = edge_layer.show_edges(self.pos, active_edges)
+            # A low-resource drag remakes its list on every move: no thinned copies.
+            drawn = edge_layer.show_edges(
+                self.pos, active_edges,
+                thinned=not (getattr(cfg, 'LOW_RESOURCE_MODE', False)
+                             and getattr(self, 'is_multi_dragging', False)),
+            )
         else:
             threshold = getattr(
                 self, 'current_slider_threshold',
@@ -3387,6 +3411,7 @@ class MainViewer:
 
         # ---> Rotate selected nodes if right-click dragging <---
         if getattr(self, 'is_multi_dragging', False) and 2 in event.buttons:
+            self._note_view_motion()
             # event.delta[1] is > 0 for scroll up, < 0 for scroll down
             angle = event.delta[1] * (np.pi / 36) # 5 degrees per tick
             
@@ -3431,6 +3456,7 @@ class MainViewer:
 
         # ---> 1. MULTI-NODE DRAGGING <---
         if getattr(self, 'is_multi_dragging', False):
+            self._note_view_motion()
             delta = mouse_world - self.drag_start_mouse
             self.pos[self.selected_indices, :2] = self.drag_start_nodes_pos + delta
             

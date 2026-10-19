@@ -64,9 +64,9 @@ class RecordingSegmentsVisual(EdgeSegmentsVisual):
         super().__init__(*args, **kwargs)
         self.uploaded = {}
 
-    def set_segments(self, key, edges):
+    def set_segments(self, key, edges, **kwargs):
         self.uploaded[key] = np.array(edges, copy=True)
-        super().set_segments(key, edges)
+        super().set_segments(key, edges, **kwargs)
 
     def drawn(self, key):
         return self.uploaded[key][: self.segment_count]
