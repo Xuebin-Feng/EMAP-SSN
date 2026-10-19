@@ -608,11 +608,13 @@ class MouseSelectionTimingTests(unittest.TestCase):
         viewer = self.make_viewer()
         event = self.mouse_event()
 
-        with mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", False):
+        with mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", False), \
+                mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", False):
             viewer.on_mouse_move(event)
 
         self.assertEqual(viewer.selected_indices, [0, 1])
-        viewer.update_selection_visual.assert_called_once_with()
+        # The web pages hear of each change (unless Webserver Communication is on).
+        viewer.update_selection_visual.assert_called_once_with(broadcast=True)
 
     def test_node_and_edge_drawing_box_selection_defers_until_release(self):
         viewer = self.make_viewer()

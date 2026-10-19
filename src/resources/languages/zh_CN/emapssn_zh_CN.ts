@@ -585,12 +585,11 @@
         <translation type="unfinished">设置导出目录：</translation>
     </message>
     <message>
-        <location line="+6"/>
         <source>Fewer Edges Drawn While Moving:</source>
-        <translation type="unfinished">移动时减少绘制边：</translation>
+        <translation type="obsolete">移动时减少绘制边：</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+7"/>
         <source>Basic Animations:</source>
         <translation type="unfinished">基本动画：</translation>
     </message>
@@ -610,29 +609,29 @@
         <translation type="unfinished">显示帧率：</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+32"/>
         <source>Inputs &amp; Outputs</source>
         <translation type="unfinished">输入与输出</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3788"/>
+        <location line="+3811"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3787"/>
+        <location line="-3810"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4335"/>
+        <location line="+4354"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4327"/>
+        <location line="-4346"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -722,12 +721,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3431"/>
+        <location line="+3450"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3428"/>
+        <location line="-3447"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -752,7 +751,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">选择 FASTA 子集和 HDF5 网络文件，然后点击计算。</translation>
     </message>
     <message>
-        <location line="+239"/>
+        <location line="+240"/>
         <source>New profile name</source>
         <translation type="unfinished">新配置方案名称</translation>
     </message>
@@ -767,13 +766,13 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">已保存配置：</translation>
     </message>
     <message>
-        <location line="+223"/>
-        <location line="+2200"/>
+        <location line="+228"/>
+        <location line="+2213"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2119"/>
+        <location line="-2132"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -851,14 +850,14 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1164"/>
+        <location line="-1170"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1205"/>
+        <location line="+1211"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1165,7 +1164,7 @@ Serves as the layout cache to avoid recalculating layouts when reopening network
 作为布局缓存，重新打开网络时无需重新计算布局。</translation>
     </message>
     <message>
-        <location line="+365"/>
+        <location line="+368"/>
         <source>Directory where command-line layout generation JSON settings are exported.</source>
         <translation type="unfinished">导出命令行布局生成所用 JSON 设置的目录。</translation>
     </message>
@@ -1212,14 +1211,14 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
 默认使用 $cache_file$，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="-185"/>
-        <location line="+371"/>
+        <location line="-188"/>
+        <location line="+374"/>
         <location line="+257"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
     </message>
     <message>
-        <location line="-566"/>
+        <location line="-569"/>
         <source>While you pan, zoom or drag nodes, draws every 4th, 16th or 64th edge in score order, and every edge again a moment after the view stops.</source>
         <translation type="unfinished">平移、缩放或拖动节点时，按得分顺序每 4、16 或 64 条边只绘制 1 条；视图停下片刻后重新绘制全部边。</translation>
     </message>
@@ -1279,12 +1278,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">在网络中操作时，减少发给查看器网页的更新。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>The Meta Data sheet updates only when a node drag ends, instead of when it starts.</source>
         <translation type="unfinished">拖动节点时，元数据表在松开后才更新，而不是在开始拖动时更新。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+5"/>
         <source>Shows the Viewer&apos;s frame rate at its top right, left of the sidebar button.</source>
         <translation type="unfinished">在查看器右上角、侧边栏按钮左侧显示帧率。</translation>
     </message>
@@ -1353,12 +1352,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+105"/>
-        <location line="+1244"/>
+        <location line="+1254"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1210"/>
+        <location line="-1220"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1510,24 +1509,29 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2339"/>
+        <location line="-2348"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+2513"/>
+        <location line="+2522"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3058"/>
+        <location line="-3067"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="-563"/>
+        <source>Fewer Edges While Moving:</source>
+        <translation type="unfinished">移动时减少绘制边：</translation>
+    </message>
+    <message>
+        <location line="+567"/>
         <source>Global</source>
         <comment>alignment score</comment>
         <translation type="unfinished">全局</translation>
@@ -1627,7 +1631,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2484"/>
+        <location line="+2493"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1734,7 +1738,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-3174"/>
+        <location line="-3183"/>
         <source>Current color: {value}</source>
         <translation type="unfinished">当前颜色：{value}</translation>
     </message>
@@ -1827,7 +1831,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+1254"/>
+        <location line="+1260"/>
         <source>Resolves to {folder}.</source>
         <translation type="unfinished">解析为 {folder}。</translation>
     </message>
@@ -2147,7 +2151,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">设为非零宽度有助于区分密集簇中的重叠节点。</translation>
     </message>
     <message>
-        <location line="+1586"/>
+        <location line="+28"/>
+        <source>It updates once a right-button selection box is let go, instead of at each move of the box.</source>
+        <translation type="unfinished">用右键拖出选择框时，它在松开后才更新一次，而不是框每移动一下就更新。</translation>
+    </message>
+    <message>
+        <location line="+1544"/>
         <source>Low Resource Mode</source>
         <translation type="unfinished">低资源模式</translation>
     </message>
@@ -2164,7 +2173,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">滚轮缩放和侧边栏开合不播放动画；拖动阈值滑块时，松开后才重绘边；用右键拖动节点时，松开后才更新元数据表。</translation>
     </message>
     <message>
-        <location line="-1550"/>
+        <location line="-1533"/>
         <source>Selects the compute device used for SSN layout generation (CPU, CUDA, XPU, MPS).</source>
         <translation type="unfinished">选择生成 SSN 布局时使用的计算设备（CPU、CUDA、XPU、MPS）。</translation>
     </message>
@@ -2459,7 +2468,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">低资源模式：</translation>
     </message>
     <message>
-        <location line="+318"/>
+        <location line="+328"/>
         <source>Auto Benchmark</source>
         <translation type="unfinished">自动基准测试</translation>
     </message>
@@ -4713,7 +4722,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4661"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4680"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -4755,7 +4764,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1404"/>
+        <location line="+1410"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -4815,7 +4824,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1299"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1300"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -4842,7 +4851,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+769"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+770"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -4883,7 +4892,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+381"/>
+        <location line="+383"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -4903,7 +4912,7 @@ Command-line usage:
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+274"/>
+        <location line="+284"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -10416,7 +10425,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2383"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2396"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -10458,7 +10467,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1784"/>
+        <location line="+1785"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

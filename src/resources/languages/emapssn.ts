@@ -422,7 +422,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Fewer Edges Drawn While Moving:</source>
+        <source>Fewer Edges While Moving:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1031,6 +1031,10 @@
     </message>
     <message>
         <source>The Meta Data sheet updates only when a node drag ends, instead of when it starts.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>It updates once a right-button selection box is let go, instead of at each move of the box.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

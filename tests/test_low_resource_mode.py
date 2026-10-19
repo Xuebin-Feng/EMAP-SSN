@@ -6,7 +6,7 @@
 EMAPSSN_Config.py, EMAPSSN_Viewer.py, desktop/Viewer_Fps.py).
 
 The Visual Effects tab's Low Resource Mode section has a switch per category
-(Fewer Edges Drawn While Moving, Basic Animations, Node and Edge Drawing,
+(Fewer Edges While Moving, Basic Animations, Node and Edge Drawing,
 Webserver Communication) and Show FPS, all off by default. These tests check
 the old single switch's migration in settings files and settings documents;
 that each category's helper reads its own switch and the Viewer asks the
@@ -95,7 +95,7 @@ class SettingsTests(unittest.TestCase):
             with self.subTest(old=old):
                 migrated = migrate_low_resource_mode({LEGACY_LOW_RESOURCE_KEY: old, "NODE_SIZE": 12})
                 self.assertEqual(migrated, {"NODE_SIZE": 12, **{key: old for key in OLD_CATEGORIES}})
-        # Fewer edges drawn while moving keeps its own value, or its default (off).
+        # Fewer Edges While Moving keeps its own value, or its default (off).
         kept = migrate_low_resource_mode({LEGACY_LOW_RESOURCE_KEY: True, "FEWER_EDGES_WHILE_MOVING": True})
         self.assertEqual(kept, {"FEWER_EDGES_WHILE_MOVING": True, **{key: True for key in OLD_CATEGORIES}})
 
@@ -125,7 +125,7 @@ class SettingsTests(unittest.TestCase):
         detail = MotionDetail(setting=False, report=reports.append, gpu_timer=SimpleNamespace(available=True))
         self.assertFalse(detail.enabled)
         detail.report_once(True)
-        self.assertIn("Fewer Edges Drawn While Moving is off", reports[0])
+        self.assertIn("Fewer Edges While Moving is off", reports[0])
         with mock.patch.dict(os.environ, {"SSN_EDGE_MOTION_LOD": "0"}):
             self.assertFalse(MotionDetail(setting=True).enabled)
             self.assertEqual(MotionDetail(setting=True).off_by, "environment")
@@ -221,7 +221,7 @@ class CategoryHelperTests(unittest.TestCase):
             "low_resource_animations": {"_camera_mouse_event", "_sidebar_can_slide"},
             "low_resource_drawing": {"on_slider_value_changed", "_on_slider_released",
                                      "on_mouse_wheel", "on_mouse_move", "on_mouse_release"},
-            "low_resource_webserver": {"on_mouse_press"},
+            "low_resource_webserver": {"on_mouse_press", "on_mouse_move"},
         }
         found = {name: set() for name in expected}
         sources = {path: (SRC / path).read_text(encoding="utf-8")
@@ -341,6 +341,51 @@ class NodeDragTests(unittest.TestCase):
             viewer.outline_calls.clear()      # the hover's own check of the outlines
             self.move(viewer, 1.0, 0.0)
             self.assertEqual(len(viewer.outline_calls), 1)   # update_nodes, in full
+
+
+class BoxSelectionTests(unittest.TestCase):
+    """A right-button selection box tells the web pages (the Meta Data sheet)
+    of its selection at each move, or, under Webserver Communication, once on
+    release; Node and Edge Drawing selects only on release, so it sends once
+    there either way."""
+
+    def run_box(self, webserver, drawing):
+        maker = marker_tests.DraggedNodePickTests("test_a_dragged_node_can_be_dragged_again")
+        event = marker_tests.DraggedNodePickTests.event
+        with mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", webserver), \
+                mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+            viewer = maker.make_viewer()        # nodes at (0, 0), (40, 0), (80, 0) ...
+            viewer.on_mouse_press(event(30, -10, button=2, buttons=[2]))
+            self.assertTrue(viewer.is_box_selecting)
+            sent, per_move = [], []
+            viewer.broadcast_event = sent.append
+            for x in (60, 90):
+                viewer.on_mouse_move(event(x, 10, buttons=[2]))
+                per_move.append(len(sent))
+            viewer.on_mouse_release(event(90, 10, button=2))
+        self.assertEqual(sorted(viewer.selected_indices), [1, 2])
+        self.assertTrue(all(message["type"] == "selection_changed" for message in sent))
+        return sent, per_move
+
+    def test_each_move_tells_the_web_pages_without_webserver_communication(self):
+        sent, per_move = self.run_box(webserver=False, drawing=False)
+        self.assertEqual(per_move, [1, 2])
+        self.assertEqual(len(sent), 2)                          # nothing more on release
+        self.assertEqual(sorted(sent[-1]["indices"]), [1, 2])
+
+    def test_webserver_communication_tells_them_once_on_release(self):
+        for drawing in (False, True):
+            with self.subTest(drawing=drawing):
+                sent, per_move = self.run_box(webserver=True, drawing=drawing)
+                self.assertEqual(per_move, [0, 0])
+                self.assertEqual(len(sent), 1)
+                self.assertEqual(sorted(sent[0]["indices"]), [1, 2])
+
+    def test_node_and_edge_drawing_alone_sends_once_on_release(self):
+        sent, per_move = self.run_box(webserver=False, drawing=True)
+        self.assertEqual(per_move, [0, 0])
+        self.assertEqual(len(sent), 1)
 
 
 # =====================================================================

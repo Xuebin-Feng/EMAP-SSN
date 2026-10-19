@@ -194,12 +194,21 @@ DIRECTORY_LABELS = {
 # The Visual Effects tab's Low Resource Mode section: a switch per category,
 # then the frame rate, in this order.
 LOW_RESOURCE_SWITCH_LABELS = {
-    "FEWER_EDGES_WHILE_MOVING": QT_TRANSLATE_NOOP("Config", "Fewer Edges Drawn While Moving:"),
+    "FEWER_EDGES_WHILE_MOVING": QT_TRANSLATE_NOOP("Config", "Fewer Edges While Moving:"),
     "LOW_RESOURCE_ANIMATIONS": QT_TRANSLATE_NOOP("Config", "Basic Animations:"),
     "LOW_RESOURCE_DRAWING": QT_TRANSLATE_NOOP("Config", "Node and Edge Drawing:"),
     "LOW_RESOURCE_WEBSERVER": QT_TRANSLATE_NOOP("Config", "Webserver Communication:"),
     "SHOW_FPS": QT_TRANSLATE_NOOP("Config", "Show FPS:"),
 }
+# Their rows on the tab's grid, in the colour rows' two label/field column
+# pairs. A second-column label must be no wider than the colour labels there
+# ("Connected Node Color:"), so that column keeps its width in English and
+# Chinese: Node and Edge Drawing has a row of its own, which keeps the order.
+LOW_RESOURCE_SWITCH_ROWS = (
+    ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS"),
+    ("LOW_RESOURCE_DRAWING",),
+    ("LOW_RESOURCE_WEBSERVER", "SHOW_FPS"),
+)
 
 TAB_PROFILE_SPECS = {
     "inputs_outputs": {
@@ -1487,6 +1496,7 @@ if __name__ == "__main__":
 
             self._align_label_column()
             self._prepare_responsive_layouts()
+            self._match_switch_fields_to_colour_fields()
             self._align_report_with_tabs()
             self._initializing_profiles = False
             if carried is None:
@@ -1699,6 +1709,8 @@ if __name__ == "__main__":
             return items
 
         def _add_padded_separator(self, layout, object_name):
+            """The theme's separator line, padded, added to layout (or to none,
+            for a grid to place: its wrapper is the line's parent widget)."""
             wrapper = QWidget()
             wrapper_layout = QVBoxLayout(wrapper)
             extra_padding = CONFIG_SEPARATOR_PADDING - CONFIG_TAB_ROW_SPACING
@@ -1716,8 +1728,11 @@ if __name__ == "__main__":
             wrapper_layout.addWidget(separator)
             if isinstance(layout, QFormLayout):
                 layout.addRow(wrapper)
-            else:
+            elif layout is not None:
                 layout.addWidget(wrapper)
+            else:
+                # Kept alive until a layout takes it: a widget nothing owns is deleted.
+                separator.wrapper = wrapper
             return separator
 
         def _add_profile_separator(self, tab_id, layout):
@@ -2463,7 +2478,10 @@ if __name__ == "__main__":
                 ),
                 "LOW_RESOURCE_WEBSERVER": Tip(
                     translate("Config", "Sends the Viewer's web pages fewer updates while you work in the network."),
-                    details=(translate("Config", "The Meta Data sheet updates only when a node drag ends, instead of when it starts."),),
+                    details=(
+                        translate("Config", "The Meta Data sheet updates only when a node drag ends, instead of when it starts."),
+                        translate("Config", "It updates once a right-button selection box is let go, instead of at each move of the box."),
+                    ),
                 ),
                 "SHOW_FPS": Tip(
                     translate("Config", "Shows the Viewer's frame rate at its top right, left of the sidebar button."),
@@ -4000,50 +4018,60 @@ if __name__ == "__main__":
 
             visual_row = color_row_start + (len(color_keys) + 1) // 2
 
-            main_layout.setSpacing(CONFIG_TAB_ROW_SPACING)
-            main_layout.addLayout(self._responsive_grid_rows(visual_grid, "visual"))
             # Low Resource Mode, under the line the saved-config row has: a
-            # switch per category of work the Viewer can be spared.
-            self.low_resource_separator = self._add_padded_separator(
-                main_layout, "lowResourceSeparator"
-            )
-            main_layout.addWidget(self._build_low_resource_section())
+            # heading, then a switch per category of work the Viewer can be
+            # spared, on the tab's grid like the colours.
+            self.low_resource_separator = self._add_padded_separator(None, "lowResourceSeparator")
+            visual_grid.addWidget(self.low_resource_separator.wrapper, visual_row, 0, 1, 5)
+            visual_row += 1
+            title = set_role(QLabel(translate("Config", "Low Resource Mode")), "title")
+            title.setObjectName("lowResourceTitle")
+            # The text starts where the labels' do: no padding at the left,
+            # and none of the indent Qt gives a label with a stylesheet frame.
+            title.setStyleSheet("QLabel#lowResourceTitle { padding-left: 0px; }")
+            title.setIndent(0)
+            visual_grid.addWidget(title, visual_row, 0, 1, 5)
+            visual_row += 1
+            for keys in LOW_RESOURCE_SWITCH_ROWS:
+                for column, key in zip((0, 3), keys):
+                    label, field = self._low_resource_switch(key)
+                    visual_grid.addWidget(label, visual_row, column)
+                    visual_grid.addWidget(field, visual_row, column + 1)
+                visual_row += 1
+
+            main_layout.addLayout(self._responsive_grid_rows(visual_grid, "visual"))
             main_layout.addStretch()
             
             self._add_scroll_tab(tab, translate("Config", "Visual Effects"))
             
-        def _build_low_resource_section(self):
-            """The Low Resource Mode heading, then a switch row per setting.
+        def _match_switch_fields_to_colour_fields(self):
+            """Give the Low Resource Mode switches' fields a colour field's
+            minimum width, so their rows need the colour rows' room and stack
+            in a narrow window exactly when those do. The switch keeps its
+            size, at the field's start."""
+            colour = self.inputs["INITIAL_NODE_COLOR"].parentWidget()
+            width = ResponsiveFieldLayout._minimum(colour).width()
+            for key in LOW_RESOURCE_SWITCH_LABELS:
+                field = self.inputs[key].parentWidget()
+                field.setMinimumWidth(max(width, field.minimumWidth()))
 
-            Each label joins the label column, so the switches line up with
-            the fields above them.
-            """
-            section = QWidget()
-            section.setObjectName("lowResourceSection")
-            layout = QVBoxLayout(section)
-            layout.setContentsMargins(0, 0, 0, 0)
-            layout.setSpacing(CONFIG_TAB_ROW_SPACING)
-            title = set_role(QLabel(translate("Config", "Low Resource Mode")), "title")
-            title.setObjectName("lowResourceTitle")
-            layout.addWidget(title)
-            for key, text in LOW_RESOURCE_SWITCH_LABELS.items():
-                label = QLabel(translate("Config", text))
-                self._label_column.append(label)
-                switch = ToggleSwitch()
-                switch.setChecked(bool(globals().get(key, VISUAL_PROFILE_DEFAULTS[key])))
-                row = QWidget()
-                row.setObjectName("lowResourceSwitchRow")
-                row.setProperty("settingKey", key)
-                row_layout = QHBoxLayout(row)
-                row_layout.setContentsMargins(0, 0, 0, 0)
-                row_layout.setSpacing(CONFIG_FIELD_HORIZONTAL_SPACING)
-                row_layout.addWidget(label)
-                row_layout.addWidget(switch)
-                row_layout.addStretch()
-                layout.addWidget(row)
-                self.labels[key] = label
-                self.inputs[key] = switch
-            return section
+        def _low_resource_switch(self, key):
+            """A Low Resource Mode switch and its label, the switch in a field
+            of its own width, as the Simulation & Physics tab's switches are."""
+            label = QLabel(translate("Config", LOW_RESOURCE_SWITCH_LABELS[key]))
+            switch = ToggleSwitch()
+            switch.setChecked(bool(globals().get(key, VISUAL_PROFILE_DEFAULTS[key])))
+            field = QWidget()
+            field.setObjectName("wrapper")
+            field.setMinimumHeight(switch.height())
+            field_layout = QHBoxLayout(field)
+            field_layout.setContentsMargins(0, 0, 0, 0)
+            field_layout.addWidget(switch)
+            field_layout.addStretch()
+            field.setMinimumWidth(switch.width())
+            self.labels[key] = label
+            self.inputs[key] = switch
+            return label, field
 
         def create_physics_tab(self):
             tab = QWidget()

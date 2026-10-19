@@ -850,6 +850,7 @@ class MainViewer:
         # ---> NEW: Selection & Drag State <---
         self.selected_indices = []
         self.is_box_selecting = False
+        self._box_selection_unsent = False
         self.is_multi_dragging = False
         self.drag_start_mouse = None
         self.drag_start_screen = None
@@ -2792,6 +2793,7 @@ class MainViewer:
             else:
                 # Clicked empty space: Store the current state, DO NOT clear yet
                 self._pre_drag_selection = set(self.selected_indices)
+                self._box_selection_unsent = False
                 self.is_box_selecting = True
                 self.selection_box.set_data(
                     pos=np.zeros((5, 2), dtype=np.float32),
@@ -3563,8 +3565,12 @@ class MainViewer:
                     current_selection = box_indices                     # Replace
                     
                 self.selected_indices = list(current_selection)
-                self.update_selection_visual()
-            
+                # Under Low Resource Mode's Webserver Communication the web
+                # pages (the Meta Data sheet) hear of it once, on release.
+                unsent = low_resource_webserver(cfg)
+                self.update_selection_visual(broadcast=not unsent)
+                self._box_selection_unsent = getattr(self, '_box_selection_unsent', False) or unsent
+
             event.handled = True
             return
         # ---> 3. PANNING HUD OVERLAY <---
@@ -3653,12 +3659,18 @@ class MainViewer:
                     
                 self.selected_indices = list(current_selection)
                 self.update_selection_visual()
-                
+                self._box_selection_unsent = False
+
             # Single click detection (no drag distance in screen pixels)
             if drag_dist_screen < 5.0:
                 if 'Shift' not in event.modifiers and 'Control' not in event.modifiers and 'Meta' not in event.modifiers:
                     self.selected_indices = []
                     self.update_selection_visual()
+                    self._box_selection_unsent = False
+            # A live box under Webserver Communication sent nothing as it moved.
+            if getattr(self, '_box_selection_unsent', False):
+                self._box_selection_unsent = False
+                self.broadcast_event({"type": "selection_changed", "indices": self.selected_indices})
 
             # Output final count to console
             if len(self.selected_indices) > 0:

@@ -5,11 +5,13 @@
 """The Config's Low Resource Mode section (EMAPSSN_Config.py, Visual Effects tab).
 
 Under the same padded line as the saved-config row and a "Low Resource Mode"
-heading, a switch row per category (Fewer Edges Drawn While Moving, Basic
-Animations, Node and Edge Drawing, Webserver Communication) and Show FPS, in
-the label column, all off by default. These tests check the section's place
-and spacing, the rows and their keys, saving and loading them, the old single
-switch in a settings file or saved profile, the tips, and a narrow window.
+heading, a switch per category (Fewer Edges While Moving, Basic Animations,
+Node and Edge Drawing, Webserver Communication) and Show FPS, on the tab's
+grid two to a row in the colour rows' columns, all off by default. These
+tests check the section's place and spacing, the heading's alignment, the
+rows and columns (no column wider than before), saving and loading the
+switches, the old single switch in a settings file or saved profile, the
+tips, and the stacked order in a narrow window.
 The settings themselves are in test_low_resource_mode.
 """
 import json
@@ -65,12 +67,46 @@ class ConfigSectionTests(unittest.TestCase):
         cls.app.processEvents()
         cls.temp.cleanup()
 
-    def section(self):
-        return self.window.findChild(QWidget, "lowResourceSection")
+    # The switches' rows on the Visual Effects grid: (1, 2), (3), (4, 5).
+    ROWS = (("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS"), ("LOW_RESOURCE_DRAWING",),
+            ("LOW_RESOURCE_WEBSERVER", "SHOW_FPS"))
+    COLOUR_SECOND_LABELS = ("INITIAL_NODE_COLOR", "CONNECTED_NODE_COLOR", "NODE_BOUNDARY_COLOR")
 
-    def rows(self):
-        layout = self.section().layout()
-        return [layout.itemAt(i).widget() for i in range(1, layout.count())]
+    def x(self, widget):
+        from PySide6.QtCore import QPoint
+        return widget.mapTo(self.window, QPoint(0, 0)).x()
+
+    def y(self, widget):
+        from PySide6.QtCore import QPoint
+        return widget.mapTo(self.window, QPoint(0, 0)).y()
+
+    def natural(self, label):
+        """A label's own width: a fresh copy, as a fixed-width one hints its fixed width."""
+        from PySide6.QtWidgets import QLabel
+        fresh = QLabel(label.text())
+        fresh.setFont(label.font())
+        try:
+            return fresh.sizeHint().width()
+        finally:
+            fresh.deleteLater()
+
+    def field(self, key):
+        """The cell a setting's input fills: its wrapper, or the input itself."""
+        widget = self.window.inputs[key]
+        parent = widget.parentWidget()
+        return parent if parent.objectName() == "wrapper" else widget
+
+    @staticmethod
+    def containing_layout(layout, widget):
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            if item.widget() is widget:
+                return layout, index
+            if item.layout() is not None:
+                found = ConfigSectionTests.containing_layout(item.layout(), widget)
+                if found is not None:
+                    return found
+        return None
 
     def test_the_section_sits_under_a_line_like_the_saved_config_one(self):
         from PySide6.QtWidgets import QFrame, QLabel
@@ -81,52 +117,82 @@ class ConfigSectionTests(unittest.TestCase):
         self.assertEqual(separator.height(), saved_config.height())
         self.assertEqual(separator.parentWidget().layout().contentsMargins(),
                          saved_config.parentWidget().layout().contentsMargins())
-        # Under the last colour row, over the heading.
+        # Under the last colour row, over the heading, over the switches.
         title = self.window.findChild(QLabel, "lowResourceTitle")
         self.assertEqual(title.text(), "Low Resource Mode")
         self.assertEqual(title.property("role"), "title")
-        top = lambda widget: widget.mapTo(self.window, widget.rect().topLeft()).y()  # noqa: E731
-        colour = self.window.inputs["NODE_BOUNDARY_COLOR"]
-        self.assertLess(top(colour), top(separator))
-        self.assertLess(top(separator), top(title))
-        self.assertIs(self.section().layout().itemAt(0).widget(), title)
+        self.assertLess(self.y(self.window.inputs["NODE_BOUNDARY_COLOR"]), self.y(separator))
+        self.assertLess(self.y(separator), self.y(title))
+        self.assertLess(self.y(title), self.y(self.window.inputs["FEWER_EDGES_WHILE_MOVING"]))
+
         # The rows above and below keep the saved-config line's distances to it.
         def gaps(wrapper):
-            layout = wrapper.parentWidget().layout()
-            index = layout.indexOf(wrapper)
+            layout, index = self.containing_layout(wrapper.parentWidget().layout(), wrapper)
             above, below = layout.itemAt(index - 1).geometry(), layout.itemAt(index + 1).geometry()
             line = wrapper.geometry()
             return line.top() - above.bottom(), below.top() - line.bottom()
         self.assertEqual(gaps(separator.parentWidget()), gaps(saved_config.parentWidget()))
 
-    def test_a_switch_row_per_setting_in_the_users_order(self):
-        from desktop.Desktop_App import ToggleSwitch
-        rows = self.rows()
-        self.assertEqual([row.property("settingKey") for row in rows], list(SWITCHES))
-        labels = ["Fewer Edges Drawn While Moving:", "Basic Animations:", "Node and Edge Drawing:",
-                  "Webserver Communication:", "Show FPS:"]
-        field_x = self.window.inputs["NODE_SIZE"].parentWidget().mapTo(self.window, self.window.inputs[
-            "NODE_SIZE"].parentWidget().rect().topLeft()).x()
-        for row, key, text in zip(rows, SWITCHES, labels):
-            with self.subTest(key=key):
-                switch, label = self.window.inputs[key], self.window.labels[key]
-                self.assertIsInstance(switch, ToggleSwitch)
-                self.assertIs(switch.parentWidget(), row)
-                self.assertEqual(label.text(), text)
-                # In the label column, so the switch starts where the fields above do.
-                self.assertEqual(label.width(), self.window.label_column_width)
-                self.assertGreaterEqual(label.width(), label.sizeHint().width())
-                self.assertEqual(switch.mapTo(self.window, switch.rect().topLeft()).x(), field_x)
-                self.assertIn(key, self.window.tip_db_keys)
-        # The column fits the longest of them. (Measured on a fresh label: a
-        # fixed-width one hints its fixed width.)
+    def test_the_heading_starts_where_the_labels_do(self):
         from PySide6.QtWidgets import QLabel
-        for key in SWITCHES:
-            fresh = QLabel(self.window.labels[key].text())
-            fresh.setFont(self.window.labels[key].font())
+        title = self.window.findChild(QLabel, "lowResourceTitle")
+        # No indent and no left padding: the text starts at the widget's edge.
+        self.assertEqual(title.indent(), 0)
+        self.assertEqual(title.contentsRect().left(), 0)
+        for key in ("NODE_SIZE", "FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_DRAWING"):
+            self.assertEqual(self.x(title), self.x(self.window.labels[key]), key)
+        self.assertEqual(self.x(title), self.x(self.window.profile_labels["visual_effects"]))
+        # Still the Config's title style otherwise.
+        self.assertTrue(title.font().bold() or title.font().weight() >= 600)
+
+    def test_two_switches_a_row_in_the_colour_rows_columns(self):
+        from desktop.Desktop_App import ToggleSwitch
+        window = self.window
+        labels = {"FEWER_EDGES_WHILE_MOVING": "Fewer Edges While Moving:",
+                  "LOW_RESOURCE_ANIMATIONS": "Basic Animations:",
+                  "LOW_RESOURCE_DRAWING": "Node and Edge Drawing:",
+                  "LOW_RESOURCE_WEBSERVER": "Webserver Communication:", "SHOW_FPS": "Show FPS:"}
+        rows = [self.y(window.labels[keys[0]]) for keys in self.ROWS]
+        self.assertEqual(rows, sorted(rows))                     # the user's order, top to bottom
+        first_x = self.x(self.field("NODE_SIZE"))
+        second_label_x = self.x(window.labels["INITIAL_NODE_COLOR"])
+        second_field_x = self.x(self.field("INITIAL_NODE_COLOR"))
+        for keys in self.ROWS:
+            for slot, key in enumerate(keys):
+                with self.subTest(key=key):
+                    switch, label = window.inputs[key], window.labels[key]
+                    self.assertIsInstance(switch, ToggleSwitch)
+                    self.assertEqual(label.text(), labels[key])
+                    self.assertEqual(self.y(label), self.y(window.labels[keys[0]]))
+                    self.assertIn(key, window.tip_db_keys)
+                    if slot == 0:
+                        self.assertEqual(label.width(), window.label_column_width)
+                        self.assertEqual(self.x(self.field(key)), first_x)
+                    else:
+                        # Under "Initial Node Color:", its switch under the colour fields.
+                        self.assertEqual(self.x(label), second_label_x)
+                        self.assertEqual(self.x(self.field(key)), second_field_x)
+        # Node and Edge Drawing has its row to itself.
+        drawing_row = self.y(window.labels["LOW_RESOURCE_DRAWING"])
+        self.assertEqual([key for key in SWITCHES if self.y(window.labels[key]) == drawing_row],
+                         ["LOW_RESOURCE_DRAWING"])
+
+    def test_no_column_gets_wider(self):
+        window = self.window
+        switch_labels = {window.labels[key] for key in SWITCHES}
+        # The first column is still the longest of the other labels (in English,
+        # "MSA Input (.fasta / _sparse.h5):", 174 px on Windows).
+        others = [label for label in dict.fromkeys(window._label_column)
+                  if label not in switch_labels and hasattr(label, "text")]
+        self.assertEqual(window.label_column_width, max(self.natural(label) for label in others))
+        self.assertTrue(all(self.natural(label) < window.label_column_width for label in switch_labels))
+        # The second column is still the longest colour label's.
+        colour_width = max(self.natural(window.labels[key]) for key in self.COLOUR_SECOND_LABELS)
+        for key in self.COLOUR_SECOND_LABELS + ("LOW_RESOURCE_ANIMATIONS", "SHOW_FPS"):
             with self.subTest(key=key):
-                self.assertLessEqual(fresh.sizeHint().width(), self.window.label_column_width)
-            fresh.deleteLater()
+                self.assertEqual(window.labels[key].width(), colour_width)
+        for key in ("LOW_RESOURCE_ANIMATIONS", "SHOW_FPS"):
+            self.assertLess(self.natural(window.labels[key]), colour_width)
 
     def test_all_off_by_default_and_saved_as_the_categories(self):
         window = self.window
@@ -190,25 +256,49 @@ class ConfigSectionTests(unittest.TestCase):
         for words in ("threshold slider", "neighbour colouring", "selection box"):
             self.assertIn(words, text["LOW_RESOURCE_DRAWING"])
         self.assertIn("Meta Data sheet", text["LOW_RESOURCE_WEBSERVER"])
+        self.assertIn("selection box", text["LOW_RESOURCE_WEBSERVER"])
         self.assertIn("Idle", text["SHOW_FPS"])
         # The old tip's promise, edges hidden while panning and zooming, is gone.
         for key in SWITCHES:
             self.assertNotIn("pan/zoom", text[key])
             self.assertNotIn("hides", text[key])
 
-    def test_a_narrow_window_keeps_the_switches_whole(self):
+    def test_the_switch_rows_stack_when_the_colour_rows_do(self):
+        window = self.window
+        size = window.size()
+        rows = {key: window.labels[key].parentWidget()
+                for key in ("INITIAL_NODE_COLOR", "FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_WEBSERVER")}
+        seen = set()
+        try:
+            for width in range(window.minimumSizeHint().width(), 1600, 40):
+                window.resize(width, 900)
+                self.app.processEvents()
+                stacked = {key: bool(row.property("stacked")) for key, row in rows.items()}
+                with self.subTest(width=width):
+                    self.assertEqual(len(set(stacked.values())), 1, stacked)
+                seen.add(stacked["INITIAL_NODE_COLOR"])
+        finally:
+            window.resize(size)
+            self.app.processEvents()
+        self.assertEqual(seen, {False, True})        # the sweep saw both layouts
+
+    def test_a_narrow_window_stacks_the_switches_in_order(self):
         window = self.window
         size = window.size()
         try:
             window.resize(window.minimumSizeHint().width(), 900)
             self.app.processEvents()
-            for row in self.rows():
-                key = row.property("settingKey")
+            margin = self.x(window.labels["NODE_SIZE"])
+            tops = [self.y(window.labels[key]) for key in SWITCHES]
+            self.assertEqual(tops, sorted(tops))
+            self.assertEqual(len(set(tops)), len(SWITCHES))      # one a line
+            for key in SWITCHES:
                 switch, label = window.inputs[key], window.labels[key]
                 with self.subTest(key=key):
-                    self.assertGreaterEqual(label.width(), label.sizeHint().width())
-                    self.assertLessEqual(switch.geometry().right(), row.width())
+                    self.assertEqual(self.x(label), margin)
+                    self.assertGreaterEqual(label.width(), self.natural(label))
                     self.assertGreaterEqual(switch.width(), switch.sizeHint().width())
+                    self.assertEqual(self.x(self.field(key)), self.x(self.field("NODE_SIZE")))
         finally:
             window.resize(size)
             self.app.processEvents()

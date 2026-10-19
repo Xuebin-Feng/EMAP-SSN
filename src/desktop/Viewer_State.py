@@ -71,7 +71,7 @@ LOW_RESOURCE_DEFAULTS = {
     "LOW_RESOURCE_WEBSERVER": False,
 }
 VISUAL_PROFILE_DEFAULTS.update({
-    # Fewer edges drawn while moving: every k-th edge while the view moves
+    # Fewer Edges While Moving: every k-th edge while the view moves
     # (desktop.Viewer_Motion). The first category; the old single switch
     # never stood for it.
     "FEWER_EDGES_WHILE_MOVING": False,
@@ -82,7 +82,7 @@ VISUAL_PROFILE_DEFAULTS.update({
 
 
 def fewer_edges_while_moving(configuration):
-    """Fewer edges drawn while moving: whether the Viewer may thin the edges
+    """Fewer Edges While Moving: whether the Viewer may thin the edges
     while the view moves (SSN_EDGE_MOTION_LOD=0 still turns it off)."""
     return bool(getattr(configuration, "FEWER_EDGES_WHILE_MOVING", False))
 
@@ -115,7 +115,7 @@ def migrate_low_resource_mode(values):
     """values with LOW_RESOURCE_MODE taken out, as the categories it stood for.
 
     When values holds none of LOW_RESOURCE_DEFAULTS, each takes the old key's
-    value; Fewer edges drawn while moving keeps its own (off unless set). A
+    value; Fewer Edges While Moving keeps its own (off unless set). A
     category already there wins, and the old key is dropped either way. A
     dict without the old key is returned as it is.
     """
