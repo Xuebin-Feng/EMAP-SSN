@@ -68,7 +68,7 @@ executed settings rather than just the requested edits.
 
 Exporting executes nothing, and an exported layout cache filename is a preview,
 not a reservation. Viewer exports may select the newest compatible cache: verify it is
-the intended one. Execution documents are not silently refreshed from personal settings.
+the intended one.
 Relative input paths follow each tool's directory rules, not the settings file's folder.
 
 ## Calculate a layout
@@ -116,19 +116,22 @@ A nonempty reference with an empty MSA_FILE remains invalid.
 
 Both execution formats require schema_version=2 and the matching kind. Layout
 sections are inputs, network, layout, simulation, physics, packing, and output.
-Viewer sections are inputs, alignment, visualization, and directories. Legacy
-execution JSON must be re-exported; personal settings stay unchanged. Never add
+Viewer sections are inputs, alignment, visualization, and directories. Never add
 network, layout, physics, BOX_SCALE, or cache_fallback to Viewer JSON: verified
 cache provenance supplies score mode, normalization, edge filters, UMAP settings,
 and box scale internally. Input FASTA/network paths remain explicit because cache
-metadata records fingerprints and basenames, not source locations. Missing or
-inconsistent provenance is an error, not permission to invent defaults. Report
-cache-derived settings from inspection provenance separately from Viewer JSON.
+metadata records fingerprints and basenames, not source locations.
 
-Use the default `normal` mode for a visible Viewer and terminal. Choose `headless`
-only when a desktop window is not wanted. A ready launch connects this transport;
-status="starting" means still loading: call `emapssn_viewer_control(action="wait_session")`
-with its launch_id, never relaunch.
+Launch modes: `normal` opens a visible Viewer and terminal. `hidden` opens no window
+but renders, so capture_view and print work; `emapssn_viewer_control(action="show_session")`
+puts its window on screen for the user (on top, without keyboard focus: if
+window.foreground is false, ask the user to click it) and
+`emapssn_viewer_control(action="hide_session")` removes it. Closing a shown window ends
+the Viewer. `headless` cannot render on Windows or macOS. With no display `hidden` runs
+headless and the launch result's fallback_reason says why; show_session then fails.
+Until shown, a hidden Viewer refuses dialogs, browser pages and terminals. A ready
+launch connects this transport; status="starting" means still loading: call
+`emapssn_viewer_control(action="wait_session")` with its launch_id, never relaunch.
 
 Inspect summary-first through `emapssn_viewer_data`: get_summary captures an
 immutable metadata/membership snapshot. Reuse its snapshot_id with describe_fields,
@@ -147,8 +150,7 @@ continue the same snapshot/query. Oversized values have explicit read_value
 references: concatenate its JSON-text slices from next_offset, then JSON-decode.
 No scientific value is silently shortened. Snapshots expire after 15 idle minutes;
 only two and 256 MiB are retained per Viewer, with 32 subsets each. Refresh via
-get_summary after expiry or to see edits; never mix different snapshots. Session
-listing uses next_offset and does not allocate snapshots. Logs default to 8 KiB.
+get_summary after expiry or to see edits; never mix different snapshots.
 
 
 ## Connections, progress, and recovery
@@ -176,8 +178,7 @@ with `emapssn_pipeline(action="read_log")`, correct the cause, and avoid blindly
 Both log readers use byte offsets: continue from `next_offset`. `eof` means the
 current end of a stream, not job completion. `emapssn_viewer_data(action="read_log")` captures MCP-launched
 Viewers in either mode. After disconnect or close, supply a full session ID whose
-log location this transport retained. Logs persist on disk, but closed-session
-ID lookup does not survive a new transport. Viewers launched without MCP capture
+log location this transport retained. Viewers launched without MCP capture
 do not offer these logs. Valid file structure, completed generation, and numerical
 or scientific correctness are separate conclusions; state the evidence actually
 obtained.
@@ -216,7 +217,6 @@ zero denominators produce null fractions. Group membership can overlap.
 Positions are explicit displayed labels, including negatives and insertions, not ranges.
 On alignment snapshots, create_subset accepts residue predicates with the existing
 Boolean grammar. No live selection changes are needed.
-For compact node pages, query_nodes(fields=["node_id"]) returns only node IDs.
-Omitting fields preserves existing rows; columns/visual_fields select container contents.
-read_command_output captures MCP-submitted commands even in attached Viewers.
-read_log requires launch-time process-log capture and is not a substitute.
+query_nodes(fields=["node_id"]) returns only node IDs.
+read_command_output captures MCP-submitted commands even in attached Viewers;
+read_log needs launch-time capture.

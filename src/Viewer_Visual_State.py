@@ -5,6 +5,7 @@ import base64
 from datetime import datetime, timezone
 import io
 import os
+import sys
 import uuid
 import numpy as np
 
@@ -55,6 +56,30 @@ def visual_overview(viewer, configuration):
     return counts
 
 
+def opengl_failure_note(viewer, error):
+    """Why a headless Viewer could not render, a Message, when ``error`` is its missing OpenGL context; else None.
+
+    Qt's offscreen platform has no OpenGL context on Windows and macOS, and on
+    Linux only through an X server, so a headless Viewer there cannot render
+    (capture_view, print). A hidden-mode Viewer has one, unless it found no
+    display and fell back to headless. Other failures keep their own text.
+    """
+    if 'OpenGL context' not in str(error):
+        return None
+    if not (os.environ.get('QT_QPA_PLATFORM') == 'offscreen' or getattr(viewer, 'headless', False)):
+        return None
+    reason = getattr(viewer, 'window_fallback_reason', None)
+    if reason is None and sys.platform.startswith('linux'):
+        from utilities.Viewer_Display import display_unavailable_reason
+        reason = display_unavailable_reason()
+    if reason:
+        return Message('This Viewer has no OpenGL context to render with, because {reason}.', reason=reason)
+    return Message(
+        'This headless Viewer has no OpenGL context to render with;'
+        ' start a Viewer in hidden or normal mode to render the view.'
+    )
+
+
 def capture_view(viewer, request_id=None):
     """The canvas as a PNG, for MCP clients and the Agent page.
 
@@ -79,14 +104,9 @@ def capture_view(viewer, request_id=None):
         result.save(out, format='PNG')
     except Exception as error:
         message = Message('Viewer canvas capture failed: {error}', error=error)
-        if os.environ.get('QT_QPA_PLATFORM') == 'offscreen' and 'OpenGL context' in str(error):
-            # Qt's offscreen platform has no OpenGL context on Windows (Linux
-            # builds may provide one through EGL/GLX), so headless Viewers
-            # there cannot render; other capture failures keep their own text.
-            message = JoinedMessage([message, Message(
-                'This headless Viewer has no OpenGL context to render with;'
-                ' relaunch it in normal mode to capture the view.'
-            )])
+        note = opengl_failure_note(viewer, error)
+        if note is not None:
+            message = JoinedMessage([message, note])
         raise ValueError(message) from error
     return {'capture_id': uuid.uuid4().hex, 'captured_at': datetime.now(timezone.utc).isoformat(),
             'session_id': getattr(viewer, 'inspection_session_id', None), 'request_id': request_id,

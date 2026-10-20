@@ -23,6 +23,7 @@ ViewerDataAction = Literal["get_residue_distribution", "help", "describe", "list
 ViewerControlAction = Literal[
     "help", "describe", "get_settings_schema", "export_settings", "validate_settings",
     "start_session", "wait_session", "connect_session", "disconnect_session", "close_session", "execute_commands",
+    "show_session", "hide_session",
 ]
 
 
@@ -107,6 +108,8 @@ _SPECS = {
         "connect_session": (viewer_ops, "connect_viewer_session", "Change this transport's selected Viewer; does not launch one.", {}),
         "disconnect_session": (viewer_ops, "disconnect_viewer_session", "Clear this transport's selection, leaving the Viewer running.", {}),
         "close_session": (viewer_ops, "close_viewer_session", "Terminate the selected, explicitly identified, or still-loading (launch_id) Viewer.", {}),
+        "show_session": (viewer_ops, "show_viewer_window", "Put a hidden-mode Viewer's window on screen, on top and without taking the keyboard; reports whether it got the foreground.", {}),
+        "hide_session": (viewer_ops, "hide_viewer_window", "Take a hidden-mode Viewer's window off screen; the Viewer keeps running.", {}),
     },
 }
 

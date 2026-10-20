@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import socket
 import threading
+import time
 import queue
 import json
 import os
@@ -59,6 +60,8 @@ LOOPBACK_HOST_NAMES = ("127.0.0.1", "localhost")
 # transport cap under that would reject messages the agent layer would then
 # have accepted. tests/test_viewer_web_origin.py fails if the two drift apart.
 MAX_ACTION_BYTES = 300 * 1024 * 1024
+# How long show_session waits before reading whether the window got the foreground.
+WINDOW_SETTLE_SECONDS = 0.4
 
 class NumpyEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -501,7 +504,10 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             if clean_path == "/api/mcp/v1/session":
                 payload = {
                     "protocol_version": SESSION_PROTOCOL_VERSION,
-                    "inspection_capabilities": ["snapshots_v1", "commands_v1", "capture_view_v1", "alignment_snapshots_v1", "node_projection_v1", "embedding_input_v1"],
+                    "inspection_capabilities": ["snapshots_v1", "commands_v1", "capture_view_v1", "alignment_snapshots_v1", "node_projection_v1", "embedding_input_v1", "window_v1"],
+                    "window_mode": getattr(self.server.viewer, "window_mode", None),
+                    "window_requested_mode": getattr(self.server.viewer, "requested_window_mode", None),
+                    "window_fallback_reason": getattr(self.server.viewer, "window_fallback_reason", None),
                     "inputs": self.server.inspection_bridge.service._input_paths(),
                     "session_id": self.server.inspection_session_id,
                     "session_alias": self.server.viewer.inspection_session_alias,
@@ -627,6 +633,34 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 self._send_json(200, payload)
             except TimeoutError:
                 self._send_json(503, {"error": "Viewer snapshot capture timed out; retry when idle."})
+            except (ValueError, TypeError, KeyError) as error:
+                self._send_json(400, {"error": str(error)[:1000]},
+                                headers=self._discard_request_body() if body is None else None)
+            return
+        if self.path == "/api/mcp/v1/window":
+            if not self._inspection_authorized():
+                self._send_json(401, {"error": "Missing or invalid Viewer inspection token."},
+                                headers=self._discard_request_body())
+                return
+            body = None
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 4096:
+                    raise ViewerInspectionError("Window request must be 1..4096 bytes")
+                body = self.rfile.read(length)
+                action = json.loads(body.decode("utf-8"))["action"]
+                if action not in {"show", "hide"}:
+                    raise ViewerInspectionError("Unknown window action: expected show or hide.")
+                bridge = self.server.inspection_bridge
+                state = bridge.request("window_action", action=action)
+                if action == "show":
+                    # The platform grants or refuses the foreground a moment after the window
+                    # appears; the state reported is the one after that.
+                    time.sleep(WINDOW_SETTLE_SECONDS)
+                    state = bridge.request("window_action", action="state")
+                self._send_json(200, state)
+            except TimeoutError:
+                self._send_json(503, {"error": "The Viewer did not answer the window request in time."})
             except (ValueError, TypeError, KeyError) as error:
                 self._send_json(400, {"error": str(error)[:1000]},
                                 headers=self._discard_request_body() if body is None else None)

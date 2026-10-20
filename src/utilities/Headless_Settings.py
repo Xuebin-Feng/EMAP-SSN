@@ -303,7 +303,7 @@ def main(application, argv=None):
         generate.add_argument("--result", help="Private machine-readable job result")
         launch = commands.add_parser("launch-viewer")
         launch.add_argument("--settings", required=True)
-        launch.add_argument("--viewer-mode", choices=("normal", "headless"), default="normal")
+        launch.add_argument("--viewer-mode", choices=("normal", "headless", "hidden"), default="normal")
         launch.add_argument("--delete-settings", action="store_true")
     args = parser.parse_args(argv)
     root = Path(__file__).resolve().parents[2]
@@ -334,12 +334,17 @@ def main(application, argv=None):
             sys.argv = [str(script), "--settings", absolute_path(args.settings, root)]
             if args.delete_settings:
                 sys.argv.append("--delete-settings")
+            # hidden: Qt's native platform with the window kept off screen, or headless when no
+            # display exists (the Viewer decides, utilities.Viewer_Display).
+            os.environ.pop("SSN_VIEWER_WINDOW", None)
             if args.viewer_mode == "headless":
                 sys.argv.append("--headless")
             else:
                 os.environ.pop("SSN_VIEWER_HEADLESS", None)
                 if os.environ.get("QT_QPA_PLATFORM") == "offscreen":
                     os.environ.pop("QT_QPA_PLATFORM", None)
+                if args.viewer_mode == "hidden":
+                    os.environ["SSN_VIEWER_WINDOW"] = "hidden"
             runpy.run_path(str(script), run_name="__main__")
         return 0
     except Exception as error:

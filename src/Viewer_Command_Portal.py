@@ -83,12 +83,27 @@ def report(status=None, message=None, artifact=None, viewer=None):
         context.report(status, message, artifact)
 
 
+def viewer_shows_windows(viewer):
+    """Whether the user is at ``viewer``: false for a headless Viewer and a hidden one not shown.
+
+    The Viewer answers for itself (MainViewer.shows_windows); a stand-in without
+    that method counts as headless when the environment says so.
+    """
+    shows_windows = getattr(viewer, 'shows_windows', None)
+    if callable(shows_windows):
+        return bool(shows_windows())
+    return not (os.environ.get('SSN_VIEWER_HEADLESS') == '1' or os.environ.get('QT_QPA_PLATFORM') == 'offscreen')
+
+
 @contextmanager
 def user_interaction(viewer, description):
     context = CURRENT.get()
     if context is not None and context.portal.viewer is viewer:
-        if os.environ.get('SSN_VIEWER_HEADLESS') == '1' or os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
-            raise CommandInteractionError(f'{description} requires a visible Viewer and user input.')
+        if not viewer_shows_windows(viewer):
+            hint = ''
+            if getattr(viewer, 'window_mode', None) == 'hidden':
+                hint = " Show the window first (emapssn_viewer_control action='show_session')."
+            raise CommandInteractionError(f'{description} requires a visible Viewer and user input.{hint}')
         context.record['status'] = 'awaiting_user_input'
         context.portal.requests[context.request_id]['status'] = 'awaiting_user_input'
         context.report(message=description)

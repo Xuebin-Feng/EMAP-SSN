@@ -455,7 +455,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         # console, so Windows opened a new, visible terminal for the interpreter it
         # started. The broker and headless children must use a hidden console;
         # normal mode still opens its terminal deliberately.
-        expected_child_flag = {"headless": "CREATE_NO_WINDOW", "normal": "CREATE_NEW_CONSOLE"}
+        expected_child_flag = {"headless": "CREATE_NO_WINDOW", "hidden": "CREATE_NO_WINDOW", "normal": "CREATE_NEW_CONSOLE"}
         for mode, child_flag in expected_child_flag.items():
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary, \
                     mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(Path(temporary) / "sessions")}), \

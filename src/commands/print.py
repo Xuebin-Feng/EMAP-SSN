@@ -31,7 +31,7 @@ import EMAPSSN_Config as cfg
 from commands.zoom import ZOOM_100_PERCENT_WIDTH, view_for_zoom, zoom_percent
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
-from Viewer_Visual_State import edge_stages
+from Viewer_Visual_State import edge_stages, opengl_failure_note
 
 PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
 # The words print reads as modifiers rather than as part of the file name.
@@ -1695,6 +1695,9 @@ def run(viewer, args):
             import traceback
             traceback.print_exc()
         error_msg = Message("Failed to save {format}: {error}", format=image_format, error=e)
+        note = opengl_failure_note(viewer, e)
+        if note is not None:
+            error_msg = JoinedMessage([error_msg, note])
         Command_Engine.command_failed(viewer, error_msg)
         print(f"\n{error_msg}")
         Command_Engine.show_status(

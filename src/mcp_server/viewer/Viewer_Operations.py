@@ -181,7 +181,7 @@ async def read_viewer_value(
 
 async def start_viewer_session(
     ctx: Context[AppContext],
-    mode: Literal["normal", "headless"] = "normal",
+    mode: Literal["normal", "headless", "hidden"] = "normal",
     settings_path: str | None = None,
     settings_document: dict[str, Any] | None = None,
     ready_timeout: Annotated[float, Field(gt=0, le=600)] = DEFAULT_READY_TIMEOUT,
@@ -191,8 +191,11 @@ async def start_viewer_session(
     get_viewer_settings_schema, edit only necessary fields in the full export,
     then call validate_viewer_settings. Do not build minimal JSON from defaults.
     Supply exactly one complete settings_document or settings_path, not a cache
-    path alone. normal opens a Viewer and terminal; headless opens neither window.
-    Waits up to ready_timeout seconds (default 45). status="ready" returns a
+    path alone. normal opens a Viewer and terminal; headless opens neither window
+    (no OpenGL on Windows and macOS, so no capture_view or print); hidden opens
+    neither but renders, so capture_view and print work, and show_session can put
+    its window on screen later (with no display it runs headless: the result's
+    fallback_reason says why). Waits up to ready_timeout seconds (default 45). status="ready" returns a
     session_id and log paths and connects this transport. Large networks can take
     longer: status="starting" means the Viewer is still loading and was left
     running; follow next_step (wait_viewer_session with its launch_id) rather than
@@ -208,6 +211,34 @@ async def start_viewer_session(
             settings_document=settings_document,
             timeout=ready_timeout,
         )
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
+
+
+async def show_viewer_window(ctx: Context[AppContext], session_id: str | None = None) -> dict[str, Any]:
+    """Put a hidden-mode Viewer's window on screen, on top, without taking the keyboard.
+    The taskbar button flashes; the window stays on top (Windows) until the user clicks it.
+    window.foreground says whether the platform also gave it keyboard focus, which Windows
+    and Wayland may refuse; tell the user to click it. While shown, the Viewer behaves like
+    a normal one (dialogs and pages open). Closing the window ends the Viewer. A headless
+    Viewer has no window: the error says why (relaunch with mode='hidden')."""
+    try:
+        result = await _viewer(ctx).window_action("show", session_id)
+    except MCPViewerError as error:
+        raise ToolError(str(error)) from error
+    window = result["window"]
+    if window.get("visible") and not window.get("foreground"):
+        result["message"] = ("The window is on screen but did not take the keyboard (by design, and the platform "
+                             "may refuse); ask the user to click it.")
+    return result
+
+
+async def hide_viewer_window(ctx: Context[AppContext], session_id: str | None = None) -> dict[str, Any]:
+    """Take a hidden-mode Viewer's window off screen again; the Viewer keeps running and its
+    state, capture_view and print keep working. It then refuses dialogs and pages as before.
+    A normal Viewer cannot be hidden, and a headless one has no window."""
+    try:
+        return await _viewer(ctx).window_action("hide", session_id)
     except MCPViewerError as error:
         raise ToolError(str(error)) from error
 
@@ -420,10 +451,12 @@ __all__ = [
     "export_viewer_settings",
     "get_viewer_settings_schema",
     "get_viewer_summary",
+    "hide_viewer_window",
     "list_viewer_sessions",
     "query_viewer_nodes",
     "read_viewer_log",
     "read_viewer_value",
+    "show_viewer_window",
     "start_viewer_session",
     "summarize_viewer_subset",
     "validate_viewer_settings",

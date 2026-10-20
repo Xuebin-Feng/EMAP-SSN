@@ -4590,6 +4590,14 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>This Viewer has no OpenGL context to render with, because {reason}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This headless Viewer has no OpenGL context to render with; start a Viewer in hidden or normal mode to render the view.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Viewer canvas is unavailable</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4599,10 +4607,6 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
     </message>
     <message>
         <source>Viewer canvas capture failed: {error}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>This headless Viewer has no OpenGL context to render with; relaunch it in normal mode to capture the view.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

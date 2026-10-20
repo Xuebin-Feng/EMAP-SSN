@@ -4109,7 +4109,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+338"/>
-        <location line="+35"/>
+        <location line="+38"/>
         <source>Failed to save {format}: {error}</source>
         <translation type="unfinished">保存 {format} 失败：{error}</translation>
     </message>
@@ -4819,7 +4819,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1300"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1382"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -5211,7 +5211,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+186"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+201"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -5241,7 +5241,17 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">此查看器中没有该命令请求，或它已被清除</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Visual_State.py" line="+67"/>
+        <location filename="../../../Viewer_Visual_State.py" line="+76"/>
+        <source>This Viewer has no OpenGL context to render with, because {reason}.</source>
+        <translation type="unfinished">此查看器没有可用于渲染的 OpenGL 上下文，原因：{reason}。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This headless Viewer has no OpenGL context to render with; start a Viewer in hidden or normal mode to render the view.</source>
+        <translation type="unfinished">此无界面查看器没有可用于渲染的 OpenGL 上下文；请以隐藏或正常模式启动查看器以渲染视图。</translation>
+    </message>
+    <message>
+        <location line="+15"/>
         <source>Viewer canvas is unavailable</source>
         <translation type="unfinished">查看器画布不可用</translation>
     </message>
@@ -5256,9 +5266,8 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">截取查看器画布失败：{error}</translation>
     </message>
     <message>
-        <location line="+5"/>
         <source>This headless Viewer has no OpenGL context to render with; relaunch it in normal mode to capture the view.</source>
-        <translation type="unfinished">此无界面查看器没有可用于渲染的 OpenGL 上下文；请以正常模式重新启动它以截取视图。</translation>
+        <translation type="obsolete">此无界面查看器没有可用于渲染的 OpenGL 上下文；请以正常模式重新启动它以截取视图。</translation>
     </message>
     <message>
         <location filename="../../../web_ui/agent_backend.py" line="-171"/>
@@ -5396,7 +5405,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location filename="../../../web_ui/agent_images.py" line="+21"/>
-        <location filename="../../../web_ui/Web_Server.py" line="+667"/>
+        <location filename="../../../web_ui/Web_Server.py" line="+701"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>
@@ -10488,7 +10497,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2396"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2402"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -10530,7 +10539,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1785"/>
+        <location line="+1791"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

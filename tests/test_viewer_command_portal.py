@@ -181,7 +181,45 @@ class PortalTests(PortalFixture, unittest.TestCase):
                 with self.assertRaises(ValueError) as caught:
                     capture_view(self.viewer)
                 self.assertTrue(str(caught.exception).startswith(f'Viewer canvas capture failed: {message}'))
-                self.assertEqual('relaunch it in normal mode' in str(caught.exception), hinted)
+                self.assertEqual('start a Viewer in hidden or normal mode' in str(caught.exception), hinted)
+
+    def test_a_hidden_viewer_that_fell_back_headless_names_its_missing_display_when_capture_fails(self):
+        reason = 'no display was found (DISPLAY and WAYLAND_DISPLAY are not set)'
+        self.viewer.window_fallback_reason = reason
+        self.viewer.headless = True
+        self.viewer.canvas = SimpleNamespace(render=lambda: (_ for _ in ()).throw(RuntimeError('no OpenGL context here')))
+        with mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': 'offscreen'}), self.assertRaises(ValueError) as caught:
+            capture_view(self.viewer)
+        self.assertTrue(str(caught.exception).endswith(f'because {reason}.'), str(caught.exception))
+        self.assertNotIn('start a Viewer in hidden or normal mode', str(caught.exception))
+
+    def test_a_linux_headless_viewer_with_no_display_names_it_when_capture_fails(self):
+        self.viewer.canvas = SimpleNamespace(render=lambda: (_ for _ in ()).throw(RuntimeError('no OpenGL context here')))
+        with mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': 'offscreen'}, clear=True), \
+                mock.patch('Viewer_Visual_State.sys', SimpleNamespace(platform='linux')), \
+                self.assertRaises(ValueError) as caught:
+            capture_view(self.viewer)
+        self.assertIn('because no display was found', str(caught.exception))
+
+    def test_a_hidden_viewer_refuses_dialogs_until_its_window_is_shown(self):
+        self.viewer.window_mode = 'hidden'
+        self.viewer.shows_windows = lambda: False
+        with mock.patch.dict(os.environ, {'SSN_VIEWER_HEADLESS': '0', 'QT_QPA_PLATFORM': ''}), \
+                mock.patch.object(QtWidgets.QFileDialog, 'getOpenFileName') as dialog:
+            result = self.finish(self.portal.submit('hidden-dialog', 'alignment')['request_id'])
+        self.assertEqual(result['status'], 'failed', result)
+        self.assertIn('Show the window first', json.dumps(result))
+        dialog.assert_not_called()
+
+    def test_a_shown_hidden_viewer_opens_dialogs_even_on_the_offscreen_platform(self):
+        # The Viewer answers for itself: the environment of a hidden launch may still say offscreen.
+        self.viewer.shows_windows = lambda: True
+        self.viewer.canvas = SimpleNamespace(native=None)
+        with mock.patch.dict(os.environ, {'SSN_VIEWER_HEADLESS': '1', 'QT_QPA_PLATFORM': 'offscreen'}), \
+                mock.patch.object(QtWidgets.QFileDialog, 'getOpenFileName', return_value=('', '')) as dialog:
+            result = self.finish(self.portal.submit('shown-dialog', 'alignment')['request_id'])
+        self.assertEqual(result['status'], 'cancelled', result)
+        dialog.assert_called_once()
 
     def test_visible_dialog_reports_waiting_then_cancelled(self):
         def choose(*args):

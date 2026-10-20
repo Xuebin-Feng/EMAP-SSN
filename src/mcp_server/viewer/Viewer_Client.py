@@ -24,6 +24,11 @@ from utilities.Viewer_Sessions import (
     session_alias,
 )
 from desktop.Viewer_State import read_viewer_settings, validate_viewer_document, ViewerSettingsError
+from utilities.Viewer_Display import (
+    FALLBACK_ENV as WINDOW_FALLBACK_ENV, HIDDEN_UNAVAILABLE_MARKER, WINDOW_ENV,
+)
+
+LAUNCH_MODES = ("normal", "headless", "hidden")
 
 
 class MCPViewerError(RuntimeError):
@@ -57,7 +62,7 @@ def _read_launch(directory):
     except (OSError, ValueError) as error:
         raise MCPViewerError(f"Cannot read launch record {directory}: {error}") from error
     if (not isinstance(launch, dict) or launch.get("launch_id") != directory.name
-            or launch.get("mode") not in {"normal", "headless"}
+            or launch.get("mode") not in set(LAUNCH_MODES)
             or isinstance(launch.get("started_epoch"), bool)
             or not isinstance(launch.get("started_epoch"), (int, float))
             or not isinstance(launch.get("cache_path"), str)):
@@ -274,8 +279,24 @@ class MCPViewerClient:
 
     async def launch_session(self, *, settings_document=None, settings_path=None, mode="normal",
                              timeout=DEFAULT_READY_TIMEOUT):
-        if mode not in {"normal", "headless"}:
-            raise MCPViewerError("mode: expected normal or headless.")
+        """Launch a Viewer and wait for it. A hidden launch whose native platform has no OpenGL
+        is launched once more headless, and its result says why (fallback_reason)."""
+        if mode not in LAUNCH_MODES:
+            raise MCPViewerError(f"mode: expected one of {', '.join(LAUNCH_MODES)}.")
+        try:
+            return await self._launch(settings_document=settings_document, settings_path=settings_path,
+                                      mode=mode, timeout=timeout)
+        except MCPViewerError as error:
+            text = str(error)
+            if mode != "hidden" or HIDDEN_UNAVAILABLE_MARKER not in text:
+                raise
+        reason = text.split(HIDDEN_UNAVAILABLE_MARKER, 1)[1].lstrip(": ").splitlines()[0].strip()
+        reason = f"the native platform could not open the hidden window ({reason})"
+        return await self._launch(settings_document=settings_document, settings_path=settings_path,
+                                  mode="headless", timeout=timeout, requested="hidden", fallback_reason=reason)
+
+    async def _launch(self, *, settings_document=None, settings_path=None, mode="normal",
+                      timeout=DEFAULT_READY_TIMEOUT, requested=None, fallback_reason=None):
         try:
             document = read_viewer_settings(settings_document=settings_document, settings_path=settings_path,
                                             project_root=self.project_root)
@@ -291,6 +312,8 @@ class MCPViewerClient:
         # outlives this call, including from a restarted backend.
         launch = {"launch_id": launch_id, "mode": mode, "started_epoch": time.time(),
                   "cache_path": settings["inputs"]["TARGET_CACHE_PATH"]}
+        if requested is not None and requested != mode:
+            launch.update(requested_mode=requested, fallback_reason=fallback_reason)
         (directory / "launch.json").write_text(json.dumps(launch), encoding="utf-8")
         stdout_path, stderr_path = directory / "stdout.log", directory / "stderr.log"
         script = Path(self.project_root) / "src" / "EMAPSSN_Config.py"
@@ -301,15 +324,22 @@ class MCPViewerClient:
                        str(directory), *command]
         env = os.environ.copy()
         for key in ("SSN_VIEWER_SETTINGS_PATH", "SSN_TARGET_CACHE_PATH", "SSN_TARGET_CACHE_MODE", "SSN_TARGET_CACHE",
-                    "SSN_VIEWER_HEADLESS", "SSN_VIEWER_EXPLICIT_SETTINGS"):
+                    "SSN_VIEWER_HEADLESS", "SSN_VIEWER_EXPLICIT_SETTINGS", WINDOW_ENV, WINDOW_FALLBACK_ENV):
             env.pop(key, None)
         env[SESSION_DIRECTORY_ENV] = session_directory()
         env[LAUNCH_ID_ENV] = launch_id
         if mode == "headless":
             env["QT_QPA_PLATFORM"] = "offscreen"
             env["SSN_VIEWER_HEADLESS"] = "1"
-        elif env.get("QT_QPA_PLATFORM") == "offscreen":
-            env.pop("QT_QPA_PLATFORM")
+            if fallback_reason:
+                env[WINDOW_FALLBACK_ENV] = fallback_reason
+        else:
+            if env.get("QT_QPA_PLATFORM") == "offscreen":
+                env.pop("QT_QPA_PLATFORM")
+            if mode == "hidden":
+                # The Viewer keeps Qt's native platform and its window off screen, or runs
+                # headless when no display exists (utilities.Viewer_Display).
+                env[WINDOW_ENV] = "hidden"
         # CREATE_NO_WINDOW rather than DETACHED_PROCESS: a venv's python.exe is a
         # redirector that starts the real interpreter as its child, and a
         # redirector without any console makes Windows allocate a new, visible
@@ -361,7 +391,7 @@ class MCPViewerClient:
                 # The headless Viewer launcher, or the terminal command that starts
                 # a normal one; wait_session and close_session reach it through this.
                 identity_path.write_text(json.dumps({"pid": proc.pid, "created": root_process.create_time()}))
-            if sys.platform == "win32" or mode == "headless":
+            if sys.platform == "win32" or mode != "normal":
                 owner = root_process
                 def alive():
                     return _alive(root_process)
@@ -369,8 +399,8 @@ class MCPViewerClient:
                 owner = None  # root_process is the terminal emulator, not the Viewer.
                 def alive():
                     return _terminal_alive(directory, launch["started_epoch"], terminal=proc)
-            # Only a POSIX headless Popen is the Viewer itself; on Windows it is the broker.
-            child = proc if mode == "headless" and sys.platform != "win32" else None
+            # Only a POSIX headless or hidden Popen is the Viewer itself; on Windows it is the broker.
+            child = proc if mode != "normal" and sys.platform != "win32" else None
             result = await self._await_launch(directory, launch, alive, timeout, owner=owner, child=child)
             ready = result["status"] == "ready"
             keep_running = not ready
@@ -412,7 +442,7 @@ class MCPViewerClient:
             session = next((item for item in sessions if item.launch_id == launch_id), None)
             if session is not None:
                 try:
-                    await asyncio.to_thread(self._request, session, "/api/mcp/v1/summary")
+                    summary = await asyncio.to_thread(self._request, session, "/api/mcp/v1/summary")
                 except MCPViewerError as error:
                     # Published, but its Qt thread has not answered yet (for example
                     # during the first paint); keep polling a live Viewer.
@@ -421,12 +451,24 @@ class MCPViewerClient:
                     async with self._selection_lock:
                         self.connected_session_id = session.session_id
                     self._remember_session(session)
-                    return {"status": "ready", "session_id": session.session_id, "pid": session.pid,
-                            "session_alias": session_alias(session.session_id),
-                            "base_url": session.base_url, "started_at": session.started_at,
-                            "mode": launch["mode"], "cache_path": launch["cache_path"], "launch_id": launch_id,
-                            "stdout_log": str(directory / "stdout.log"),
-                            "stderr_log": str(directory / "stderr.log")}
+                    ready = {"status": "ready", "session_id": session.session_id, "pid": session.pid,
+                             "session_alias": session_alias(session.session_id),
+                             "base_url": session.base_url, "started_at": session.started_at,
+                             "mode": launch["mode"], "cache_path": launch["cache_path"], "launch_id": launch_id,
+                             "stdout_log": str(directory / "stdout.log"),
+                             "stderr_log": str(directory / "stderr.log")}
+                    # A hidden launch may be running headless: the Viewer says which, and why.
+                    window = summary.get("window") if isinstance(summary, Mapping) else None
+                    requested = launch.get("requested_mode", launch["mode"])
+                    reason = launch.get("fallback_reason")
+                    if isinstance(window, Mapping):
+                        ready["mode"] = window.get("mode") or ready["mode"]
+                        requested = window.get("requested_mode") or requested
+                        reason = window.get("fallback_reason") or reason
+                    if requested != ready["mode"]:
+                        ready["requested_mode"] = requested
+                        ready["fallback_reason"] = reason
+                    return ready
             elif not await asyncio.to_thread(alive):
                 code = child.poll() if child is not None else None
                 phase, _ = _launch_progress(directory)
@@ -485,7 +527,7 @@ class MCPViewerClient:
         directory = Path(session_directory()) / "launches" / _launch_key(launch_id)
         launch = _read_launch(directory)
         owner = None
-        if sys.platform == "win32" or launch["mode"] == "headless":
+        if sys.platform == "win32" or launch["mode"] != "normal":
             owner = await asyncio.to_thread(_recorded_process, directory / "process.json")
             def alive():
                 return owner is not None and _alive(owner)
@@ -575,6 +617,10 @@ class MCPViewerClient:
                 info = await asyncio.to_thread(self._request, session, "/api/mcp/v1/session")
                 item["inputs"] = info.get("inputs", {})
                 item["inspection_capabilities"] = info.get("inspection_capabilities", [])
+                if info.get("window_mode"):
+                    item["window_mode"] = info["window_mode"]
+                    if info.get("window_fallback_reason"):
+                        item["window_fallback_reason"] = info["window_fallback_reason"]
             except (MCPViewerError, OSError, ValueError, TypeError) as error:
                 item["metadata_error"] = str(error)[:256]
             result["sessions"].append(item)
@@ -598,6 +644,22 @@ class MCPViewerClient:
         if 'commands_v1' not in info.get('inspection_capabilities', []):
             raise MCPViewerError('Viewer does not support the command portal; upgrade and restart the Viewer.')
         return await asyncio.to_thread(self._request, session, '/api/mcp/v1/commands', {'action': action, 'arguments': arguments})
+
+    async def window_action(self, action, session_id=None):
+        """Show or hide a Viewer's window (mode hidden); the state comes back after the platform settles."""
+        if action not in {"show", "hide"}:
+            raise MCPViewerError("Expected show or hide.")
+        target = self._target(session_id)
+        try:
+            session = await asyncio.to_thread(select_viewer_session, target, timeout=self.discovery_timeout)
+        except LookupError as error:
+            raise MCPViewerError(str(error)) from error
+        info = await asyncio.to_thread(self._request, session, "/api/mcp/v1/session")
+        if "window_v1" not in info.get("inspection_capabilities", []):
+            raise MCPViewerError("Viewer does not support showing its window; upgrade and restart the Viewer.")
+        state = await asyncio.to_thread(self._request, session, "/api/mcp/v1/window", {"action": action})
+        return {"session_id": session.session_id, "session_alias": session_alias(session.session_id),
+                "action": action, "window": state}
 
     async def inspect_data(self, action, arguments, session_id=None):
         target = self._target(session_id)

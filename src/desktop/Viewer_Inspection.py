@@ -156,7 +156,7 @@ class SnapshotStore:
             data['overview'] = {'session_id': getattr(v, 'inspection_session_id', None),
                 'captured_at': datetime.now(timezone.utc).isoformat(), 'node_count': n,
                 'inputs': data.pop('inputs'), 'loaded_edge_count': len(getattr(v, 'edges', ())),
-                'window_title': english_window_title(v),
+                'window_title': english_window_title(v), 'window': service.window_state(),
                 'active_threshold': json_value(getattr(v, 'current_slider_threshold', getattr(service._configuration, 'SIMILARITY_THRESHOLD', None))),
                 'threshold_comparison': '>= on viewer edge_scores',
                 'visible_node_count': sum(bool(x) for x in data['visible']), 'selected_node_count': len(data['selected']),
@@ -465,6 +465,28 @@ class ViewerInspectionService:
             raise ValueError('Unknown Viewer command portal action')
         return handlers[action](**arguments)
 
+    def window_state(self):
+        """The Viewer window's mode and on-screen state (desktop.Viewer_Window), or None without a controller."""
+        control = getattr(self._viewer, "window_control", None)
+        return control.state() if control is not None else None
+
+    def window_action(self, action):
+        """Show or hide the Viewer window, or read its state; run on the Qt thread."""
+        from desktop.Viewer_Window import WindowUnavailable
+        control = getattr(self._viewer, "window_control", None)
+        if control is None:
+            raise ViewerInspectionError("This Viewer has no window to show or hide.")
+        try:
+            if action == "show":
+                return control.show()
+            if action == "hide":
+                return control.hide()
+            if action == "state":
+                return control.state()
+        except WindowUnavailable as error:
+            raise ViewerInspectionError(str(error)) from error
+        raise ViewerInspectionError("Unknown window action: expected show, hide or state.")
+
     def _node_count(self):
         viewer = self._viewer
         count = getattr(viewer, "n_nodes", None)
@@ -586,6 +608,7 @@ class ViewerInspectionService:
             "session_id": getattr(viewer, "inspection_session_id", None),
             "session_alias": getattr(viewer, "inspection_session_alias", None),
             "window_title": english_window_title(viewer),
+            "window": self.window_state(),
             "node_count": node_count,
             "edge_count": edge_count,
             "visible_node_count": self._visible_count(node_count),

@@ -31,6 +31,18 @@ def _configure_headless_platform(argv=None, environment=None):
 _configure_headless_platform()
 
 
+def _configure_hidden_platform(environment=None, platform_name=None):
+    """A hidden Viewer (SSN_VIEWER_WINDOW=hidden) keeps Qt's native platform, or falls back to offscreen.
+
+    Before Qt/OpenGL is imported: see utilities.Viewer_Display.
+    """
+    from utilities.Viewer_Display import apply_hidden_environment
+    return apply_hidden_environment(environment, platform_name)
+
+
+_configure_hidden_platform()
+
+
 def _parse_viewer_arguments(argv=None):
     """Parse command-line arguments for EMAPSSN_Viewer.py."""
     import argparse
@@ -164,7 +176,6 @@ from desktop.Desktop_App import (
     install_translations,
     installed_language,
     register_vispy_application_fonts,
-    show_window_in_front,
     startup_language,
     translate,
     vispy_language_face,
@@ -185,6 +196,7 @@ from desktop.Viewer_State import (
     resolve_selected_cache,
 )
 from desktop.Viewer_Inspection import ViewerInspectionService
+from desktop.Viewer_Window import HEADLESS, HIDDEN, NORMAL, ViewerWindow
 from desktop.Viewer_Edges import ViewerEdges
 from desktop.Viewer_Motion import MotionDetail
 from desktop.Viewer_Fps import FPS_GAP, FpsOverlay
@@ -741,6 +753,17 @@ class MainViewer:
             or os.environ.get("QT_QPA_PLATFORM") == "offscreen"
             or os.environ.get("SSN_VIEWER_HEADLESS", "").lower() in {"1", "true", "yes"}
         )
+        # normal, hidden (native platform, window kept off screen) or headless (offscreen platform);
+        # see desktop.Viewer_Window. A hidden request that found no display runs headless.
+        self.requested_window_mode = HIDDEN if os.environ.get("SSN_VIEWER_WINDOW") == "hidden" else (
+            HEADLESS if self.headless else NORMAL)
+        self.window_mode = HEADLESS if self.headless else self.requested_window_mode
+        self.window_fallback_reason = (
+            os.environ.get("SSN_VIEWER_WINDOW_FALLBACK") or None) if self.window_mode != self.requested_window_mode else None
+
+        if self.window_mode == HIDDEN:
+            # Before the network is loaded: a host whose native platform has no OpenGL stops here.
+            self._check_native_opengl()
 
         # --- 1. Viewer State ---
         self.console_mode = False
@@ -1026,6 +1049,11 @@ class MainViewer:
         except Exception as error:
             print(f"Web plugin discovery failed: {error}")
 
+        # A hidden Viewer's window is opened (off screen) before the session is published, so
+        # a platform that cannot give it an OpenGL context fails before a client can connect.
+        if self.window_mode == HIDDEN:
+            self._open_hidden_window()
+
         # Initialize background WebServer
         self.start_web_server()
         
@@ -1037,12 +1065,60 @@ class MainViewer:
         # Ensure the side panel is hidden at startup
         self.set_sidebar_visible(False)
         
-        if not self.headless:
-            show_window_in_front(self.main_window)
+        if self.window_mode == NORMAL:
+            self.window_control.open()
+        if self.window_mode != HEADLESS:
             QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
         
         self._hud_timer.start()
         print("\nViewer Ready. Press [ENTER] to type commands.")
+
+    def shows_windows(self):
+        """Whether the user is at this Viewer, so dialogs, message boxes, browser pages and terminals may open.
+
+        True for a normal Viewer, and for a hidden one while its window is on screen
+        (show_session); false for a headless one and for a hidden one not shown.
+        """
+        if getattr(self, 'headless', False):
+            return False
+        control = getattr(self, 'window_control', None)
+        return control.shows_windows() if control is not None else True
+
+    @staticmethod
+    def _hidden_window_unavailable(error):
+        """End a hidden launch whose platform cannot give the canvas an OpenGL context.
+
+        The MCP client launches the Viewer headless again when it sees the marker line and
+        the exit code. Nothing is published or written yet, so the process just stops.
+        """
+        from utilities.Viewer_Display import HIDDEN_UNAVAILABLE_EXIT_CODE, HIDDEN_UNAVAILABLE_MARKER
+        print(f"{HIDDEN_UNAVAILABLE_MARKER}: {error}", flush=True)
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(HIDDEN_UNAVAILABLE_EXIT_CODE)
+
+    def _check_native_opengl(self):
+        """Make an OpenGL context on the native platform, as a hidden Viewer's canvas will need."""
+        try:
+            # VisPy's backend sets Qt's context-sharing attribute, then makes the QApplication.
+            app.use_app().native
+            context = QtGui.QOpenGLContext()
+            surface = QtGui.QOffscreenSurface()
+            surface.create()
+            if not (context.create() and surface.isValid() and context.makeCurrent(surface)):
+                raise RuntimeError("the native platform cannot create an OpenGL context")
+            context.doneCurrent()
+        except Exception as error:
+            self._hidden_window_unavailable(error)
+
+    def _open_hidden_window(self):
+        """Open the hidden-mode window off screen, and check its canvas has an OpenGL context."""
+        try:
+            self.window_control.open()
+            if not self.canvas.native.isValid():
+                raise RuntimeError("the native platform could not create an OpenGL context for the canvas")
+        except Exception as error:
+            self._hidden_window_unavailable(error)
 
     def _limit_camera_zoom(self):
         """Keep zooming by the wheel or a pinch within the zooms the zoom
@@ -1292,6 +1368,12 @@ class MainViewer:
             QWidget#rightPanel QPushButton { padding-left: 10px; min-height: 24px; }
             QWidget#rightPanel QPushButton:focus { padding-left: 9px; }
         """)
+
+        # The window's mode and, for a hidden Viewer, showing and hiding it (desktop.Viewer_Window).
+        mode = getattr(self, 'window_mode', HEADLESS if getattr(self, 'headless', False) else NORMAL)
+        self.window_control = ViewerWindow(
+            self.main_window, mode, requested=getattr(self, 'requested_window_mode', mode),
+            fallback_reason=getattr(self, 'window_fallback_reason', None))
 
     def _command_line_message(self):
         """The command being typed, with an underscore at the cursor."""
@@ -3264,7 +3346,7 @@ class MainViewer:
         return (
             SIDEBAR_SLIDE_MS > 0
             and not low_resource_animations(cfg)
-            and not getattr(self, 'headless', False)
+            and self.shows_windows()
             and window is not None
             and window.isVisible()
         )

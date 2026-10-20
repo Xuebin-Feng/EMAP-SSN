@@ -209,12 +209,29 @@ generating or selecting a different one.
 MCP Viewer launch runs detached headless Config, which dispatches into Viewer in
 the same process to preserve PID tracking on Windows and Unix. Existing readiness,
 private logs, connection and shutdown handling remain in MCP. `normal` opens a
-visible Viewer; `headless` uses offscreen Qt. Neither opens the Config window.
-Qt's offscreen platform provides no OpenGL context on Windows, so a headless
-Viewer there answers data and command requests but cannot render: `capture_view`
-reports the missing context. Launch in `normal` mode when images are needed.
-On Linux the offscreen platform can render through EGL/GLX (verified with Mesa
-on Ubuntu 24.04); macOS has not been checked.
+visible Viewer; `headless` uses offscreen Qt; `hidden` uses the native platform
+with the Viewer's window kept off screen. None of them opens the Config window.
+Qt's offscreen platform provides no OpenGL context on Windows (nor, it is
+expected, on macOS), so a headless Viewer there answers data and command requests
+but cannot render: `capture_view` and the `print` command report the missing
+context. On Linux the offscreen platform renders only while an X server is
+reachable (it uses GLX; verified with Mesa under WSLg on Ubuntu 24.04 and Debian
+13); with no `DISPLAY` and no `WAYLAND_DISPLAY` a headless Viewer cannot render
+either. Use `hidden` or `normal` when images are needed.
+
+A `hidden` Viewer has a real OpenGL context, so `capture_view` and `print` work,
+yet it opens no window, taskbar button or terminal, and
+`emapssn_viewer_control(action="show_session")` can put its window on screen
+later. It costs more than headless: on the two-node test fixture, about 200 MB
+more memory (903 MB against 726 MB), about 125 MB of GPU memory (more while
+shown), and 1 to 2 s more at start. It needs a display. When none exists (Linux
+without `DISPLAY` or `WAYLAND_DISPLAY`, a Wayland session without XWayland, or a
+macOS process outside a graphical login session such as an SSH login), or when
+the native platform cannot make an OpenGL context, the Viewer runs headless
+instead and the launch result says so: `mode` is `headless`, `requested_mode` is
+`hidden`, and `fallback_reason` gives the cause. The Viewer summary's `window`
+block reports the same. In that state `capture_view` and `print` name the cause
+(no display, so no OpenGL), and `show_session` reports that there is no window.
 
 ### CLI equivalents
 
@@ -228,6 +245,8 @@ python src/EMAPSSN_Config.py --headless generate-layout --settings layout.json
 python src/EMAPSSN_Config.py --headless export --kind viewer --output viewer.json
 python src/EMAPSSN_Config.py --headless launch-viewer --settings viewer.json --viewer-mode normal
 ```
+
+`--viewer-mode` is `normal`, `headless` or `hidden`.
 
 The example filenames are chosen destinations, not pre-existing files. CLI export
 writes a JSON result to stdout; diagnostics go to stderr. Runtime calculation logs
@@ -614,7 +633,7 @@ session information. A disconnected client never automatically reconnects.
 ### Launch with complete JSON
 
 `emapssn_viewer_control(action="start_session")` accepts exactly one of `settings_document` or
-`settings_path`, plus `mode` (`normal` or `headless`) and an optional
+`settings_path`, plus `mode` (`normal`, `headless` or `hidden`) and an optional
 `ready_timeout` in seconds (default 45, at most 600). The old standalone
 `cache_path` argument is no longer accepted. A launch that becomes ready within
 `ready_timeout` returns `status: "ready"` and connects the caller to the new
@@ -644,15 +663,45 @@ record beside its logs.
 Normal MCP launches open a visible terminal alongside the Viewer. Both output
 streams are copied to that terminal and retained in the launch logs, including
 native-library output and partial progress lines. Headless launches retain the
-same logs without opening a terminal. On Linux and macOS the terminal program's
+same logs without opening a terminal, and so do hidden ones. On Linux and macOS the terminal program's
 own messages go to `stderr_log`, and a terminal that cannot start the Viewer is
 an error: at once when it exits with an error (no display, or on macOS no
 permission to control Terminal), or 60 s after the launch when it exits cleanly
 without starting it. A terminal still running, such as macOS's prompt for that
-permission, keeps the launch `starting`. Use `headless` without a desktop session.
+permission, keeps the launch `starting`. Use `headless` or `hidden` without a desktop session.
 `emapssn_viewer_data(action="read_log")` pages either stream using
 byte offsets (`stream`, `offset`, and `limit`); use the full session ID to read
 retained output after disconnecting or closing within the same MCP transport.
+
+### Show and hide a hidden Viewer's window
+
+`emapssn_viewer_control(action="show_session")` puts the window of a `hidden`
+Viewer on screen, and `emapssn_viewer_control(action="hide_session")` takes it off
+again; both take an optional `session_id` and return the `window` state. Hiding and
+showing again keeps everything: selection, camera, threshold, undo history and the
+OpenGL context, and `capture_view` works in every state.
+
+- The window appears on top but does not take the keyboard, and its taskbar
+  button flashes. On Windows it stays above other windows until the user first
+  takes it (clicks or types in it). Windows and Wayland compositors may refuse a
+  program the user is not working in the foreground; `window.foreground` says
+  whether it got the keyboard, and the result then advises asking the user to
+  click it.
+- The state is `mode`, `requested_mode`, `fallback_reason`, `platform`, `visible`,
+  `minimized`, `foreground`, `on_top_until_activated`, `can_show` and `can_hide`.
+  It is also in every Viewer summary as `window`.
+- While the window is shown, a hidden Viewer behaves like a normal one: file
+  dialogs, message boxes and browser pages may open. While it is hidden it behaves
+  like a headless one: a command needing a dialog fails at once, with a note to
+  show the window first.
+- Closing a shown window ends the Viewer, as for any Viewer. `show_session` on a
+  normal Viewer brings it forward; `hide_session` refuses one, since the user
+  closes it. A headless Viewer has no window: both report why.
+- macOS: a hidden Viewer starts as a background application with no Dock icon
+  (`QT_MAC_DISABLE_FOREGROUND_APPLICATION_TRANSFORM` is set for it) and becomes a
+  regular application with a Dock icon while shown; `hide_session` returns it to
+  the background. This is untested on a real Mac. If switching fails, a warning
+  is printed and the window still shows, with a Dock icon.
 
 Closing the Viewer window clears its selected connection automatically (after
 three failed discovery checks, about three seconds). Listing sessions or querying
@@ -771,7 +820,7 @@ result. A worker terminal remaining open is not proof that computation is runnin
 `run` retains file selection and Python-script support; generated commands are
 tracked children (maximum 1000 single-line commands). Manual interaction remains
 available while background work runs, so subsequent commands use current live state.
-Visible dialogs report awaiting_user_input; headless dialog requests fail clearly.
+Visible dialogs report awaiting_user_input; headless dialog requests, and those of a hidden Viewer not shown, fail clearly.
 Agent UI/configuration commands remain available, but model-generated nested model
 requests are rejected. General cancellation and rollback are not exposed.
 

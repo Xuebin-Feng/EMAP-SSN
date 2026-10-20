@@ -63,6 +63,7 @@ modules = [
     "test_viewer_command_portal",
     "test_viewer_connection_output",
     "test_viewer_edges",
+    "test_viewer_hidden_window",
     "test_viewer_inspection",
     "test_viewer_inspection_http",
     "test_viewer_markers",
@@ -108,6 +109,7 @@ modules = [
     "test_pipeline_file_inspection",
     "test_pipeline_jobs",
     "test_pipeline_settings",
+    "test_viewer_hidden_launch",
 ]
 
 [sections.layout]
