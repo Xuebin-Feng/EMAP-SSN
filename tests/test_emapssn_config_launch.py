@@ -266,9 +266,11 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                     ("global", "alignment_length"): {"g_len"},
                 }
                 for (score, normalization), lengths in expected.items():
-                    window.cb_score_mode.setCurrentText(score)
-                    window.cb_norm_mode.setCurrentText(normalization)
-                    assert window.cb_norm_mode.currentText() == normalization, normalization
+                    # By stored value: the dropdowns' labels are words, not the values.
+                    namespace["select_combo_value"](window.cb_score_mode, score)
+                    namespace["select_combo_value"](window.cb_norm_mode, normalization)
+                    assert namespace["combo_value"](window.cb_score_mode) == score, score
+                    assert namespace["combo_value"](window.cb_norm_mode) == normalization, normalization
                     indexed.clear()
                     with mock.patch("h5py.File", RecordingFile):
                         window.run_statistics()

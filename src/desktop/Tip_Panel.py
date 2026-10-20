@@ -412,6 +412,11 @@ def _shown_default(field, unit):
         index = combo.findData(value)
         if index >= 0:
             return combo.itemText(index)
+        if combo.property("persistItemData"):
+            # Its items hold stored values apart from their labels, and it doesn't offer this
+            # one now (Alignment Length with local scores): the value isn't what the dropdown
+            # calls it, so the default is left out, as an option row it lacks is.
+            return None
     if value is None or (isinstance(value, str) and not value.strip()):
         if _is_dropdown(field.widget):
             return None  # nothing is chosen at first: not a fact worth showing

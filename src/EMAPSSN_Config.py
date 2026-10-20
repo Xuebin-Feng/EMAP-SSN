@@ -749,6 +749,20 @@ if __name__ == "__main__":
             f"<tr>{head}</tr>{body}</table>"
         )
 
+    def normalization_names():
+        """What the window calls each normalization mode, by its stored value.
+
+        The Normalization Mode dropdown shows these and the statistics report
+        quotes them, so a mode reads the same in both. Only the labels differ
+        from the stored values (NORM_MODE keeps alignment_length and the rest).
+        """
+        return {
+            "alignment_length": translate("Config", "Alignment Length", "normalization"),
+            "shorter_sequence": translate("Config", "Shorter Sequence", "normalization"),
+            "longer_sequence": translate("Config", "Longer Sequence", "normalization"),
+            "average_sequence": translate("Config", "Average Sequence", "normalization"),
+        }
+
     def statistics_report_text(report):
         """The statistics report's summary lines and column headings, in the window's language.
 
@@ -763,12 +777,7 @@ if __name__ == "__main__":
                 "global": translate("Config", "Global", "alignment score"),
                 "local": translate("Config", "Local", "alignment score"),
             }
-            norm_names = {
-                "alignment_length": translate("Config", "Alignment Length", "normalization"),
-                "shorter_sequence": translate("Config", "Shorter Sequence", "normalization"),
-                "longer_sequence": translate("Config", "Longer Sequence", "normalization"),
-                "average_sequence": translate("Config", "Average Sequence", "normalization"),
-            }
+            norm_names = normalization_names()
             metric = translate(
                 "Config", "Metric: {score} Alignment Score with {normalization} Normalization"
             ).format(
@@ -3645,12 +3654,7 @@ if __name__ == "__main__":
             self.cb_norm_mode.blockSignals(True)
             self.cb_norm_mode.clear()
             
-            labels = {
-                "alignment_length": translate("Config", "alignment_length", "normalization mode"),
-                "shorter_sequence": translate("Config", "shorter_sequence", "normalization mode"),
-                "longer_sequence": translate("Config", "longer_sequence", "normalization mode"),
-                "average_sequence": translate("Config", "average_sequence", "normalization mode"),
-            }
+            labels = normalization_names()
             is_local = combo_value(self.cb_score_mode) == "local"
             if is_local:
                 modes = ["shorter_sequence", "longer_sequence", "average_sequence"]

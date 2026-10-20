@@ -615,23 +615,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3803"/>
+        <location line="+3807"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3802"/>
+        <location line="-3806"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4346"/>
+        <location line="+4350"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4338"/>
+        <location line="-4342"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -672,7 +672,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+629"/>
+        <location line="+638"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -721,12 +721,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3442"/>
+        <location line="+3437"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3439"/>
+        <location line="-3434"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -767,12 +767,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+228"/>
-        <location line="+2205"/>
+        <location line="+2200"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2124"/>
+        <location line="-2119"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1352,12 +1352,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+105"/>
-        <location line="+1246"/>
+        <location line="+1241"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1212"/>
+        <location line="-1207"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1481,57 +1481,53 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">输入与输出</translation>
     </message>
     <message>
-        <location line="+10"/>
         <source>alignment_length</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">比对长度</translation>
+        <translation type="obsolete">比对长度</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>shorter_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">较短序列长度</translation>
+        <translation type="obsolete">较短序列长度</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>longer_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">较长序列长度</translation>
+        <translation type="obsolete">较长序列长度</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>average_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">平均序列长度</translation>
+        <translation type="obsolete">平均序列长度</translation>
     </message>
     <message>
         <source>Computing network statistics... This may take a moment for large HDF5 networks.</source>
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2348"/>
+        <location line="-2335"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+2522"/>
+        <location line="+2517"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3067"/>
+        <location line="-3057"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
     <message>
-        <location line="-562"/>
+        <location line="-576"/>
         <source>Fewer Edges While Moving:</source>
         <translation type="unfinished">移动时减少绘制边：</translation>
     </message>
     <message>
-        <location line="+566"/>
+        <location line="+580"/>
         <source>Global</source>
         <comment>alignment score</comment>
         <translation type="unfinished">全局</translation>
@@ -1543,7 +1539,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">局部</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="-18"/>
         <source>Alignment Length</source>
         <comment>normalization</comment>
         <translation type="unfinished">比对长度</translation>
@@ -1567,7 +1563,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">平均序列长度</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+18"/>
         <source>Metric: {score} Alignment Score with {normalization} Normalization</source>
         <translation type="unfinished">指标：{score}比对得分，按{normalization}归一化</translation>
     </message>
@@ -1648,7 +1644,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">局部（Smith-Waterman）</translation>
     </message>
     <message>
-        <location line="+531"/>
+        <location line="+526"/>
         <source>Network statistics computed successfully.</source>
         <translation type="unfinished">网络统计计算完成。</translation>
     </message>
@@ -1738,7 +1734,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-3183"/>
+        <location line="-3178"/>
         <source>Current color: {value}</source>
         <translation type="unfinished">当前颜色：{value}</translation>
     </message>
@@ -2453,7 +2449,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">默认使用 `$cache_file$`，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="+1156"/>
+        <location line="+1151"/>
         <source>Computing network statistics... {percent} %</source>
         <translation type="unfinished">正在计算网络统计… {percent} %</translation>
     </message>
@@ -4721,7 +4717,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4672"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4676"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -4763,7 +4759,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1410"/>
+        <location line="+1419"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -7214,7 +7210,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>TipPanel</name>
     <message>
-        <location filename="../../../desktop/Tip_Panel.py" line="+418"/>
+        <location filename="../../../desktop/Tip_Panel.py" line="+423"/>
         <source>(empty)</source>
         <translation type="unfinished">（空）</translation>
     </message>
@@ -7394,31 +7390,27 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">局部</translation>
     </message>
     <message>
-        <location line="+75"/>
         <source>alignment_length</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">比对长度</translation>
+        <translation type="obsolete">比对长度</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>shorter_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">较短序列长度</translation>
+        <translation type="obsolete">较短序列长度</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>longer_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">较长序列长度</translation>
+        <translation type="obsolete">较长序列长度</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>average_sequence</source>
         <comment>normalization mode</comment>
-        <translation type="unfinished">平均序列长度</translation>
+        <translation type="obsolete">平均序列长度</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+85"/>
         <source>auto</source>
         <comment>execution mode</comment>
         <translation type="unfinished">自动</translation>
@@ -8171,8 +8163,32 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <source>Overwrite Original File:</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
+    <message>
+        <location line="-1794"/>
+        <source>Alignment Length</source>
+        <comment>normalization mode</comment>
+        <translation type="unfinished">比对长度</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Shorter Sequence</source>
+        <comment>normalization mode</comment>
+        <translation type="unfinished">较短序列长度</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Longer Sequence</source>
+        <comment>normalization mode</comment>
+        <translation type="unfinished">较长序列长度</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Average Sequence</source>
+        <comment>normalization mode</comment>
+        <translation type="unfinished">平均序列长度</translation>
+    </message>
     <message numerus="yes">
-        <location line="-1049"/>
+        <location line="+742"/>
         <source>This computer has %n logical CPU(s).</source>
         <translation type="unfinished">
             <numerusform>这台计算机有 %n 个逻辑 CPU。</numerusform>

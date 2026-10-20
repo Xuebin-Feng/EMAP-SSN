@@ -1,4 +1,4 @@
-<!-- Translation of Others.md, sha256 586be1d0258cbdb725c48e1fafbe45ca026dcce1653053ab23915512e9db2591 -->
+<!-- Translation of Others.md, sha256 b2f079fd5c53d5c0906dcf8a033785102d83c6c3bd577cb172a4e48ce3aa64f0 -->
 # 双序列 embedding 比对 (`Embedding_PWA.py`)
 
 该脚本使用两条序列的残基级语言模型 embedding 对它们进行比对（alignment）。它计算动态规划（dynamic programming）比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列（reference sequence）残基（residue）位置直接映射到目标序列（target sequence）的位置上，便于比较活性位点和其他特征。
@@ -87,7 +87,7 @@
 | 比对模式 **`ALIGNMENT_MODE`** | 搜索所用的比对模式（'global' 全局或 'local' 局部）。 |
 | 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对的空位罚分值。 |
 | 全局空位罚分 **`GLOBAL_GAP_P`** | 全局比对的空位罚分值。 |
-| 得分归一化模式 **`NORM_MODE`** | 得分归一化方法（例如 alignment_length、shorter_sequence、longer_sequence、average_sequence）。局部比对不能使用 `alignment_length`。 |
+| 得分归一化模式 **`NORM_MODE`** | 得分归一化方法（例如比对长度、较短序列长度、较长序列长度、平均序列长度）。局部比对不能使用“比对长度”（`Alignment Length`）。 |
 | CPU 工作线程数 **`WORKERS`** | 分配给并行比对计算的 CPU 线程数。 |
 | 设备 **`DEVICE_SELECTION`** | 选择自动硬件基准测试，或指定一个具体的 CPU/加速器设备。 |
 | 加速器精度 **`ACCELERATOR_PRECISION`** | `automatic_32bit` 在小规模搜索中使用 IEEE FP32，只有目标数达到 4,096 时才会考虑经过验证的 TF32。明确选择 `bf16` 时，矩阵乘法操作数使用 BF16，归一化和后处理使用 FP32，并需要具备相应能力的 CUDA/ROCm、XPU 或 MPS 加速器。此时会打印低精度警告，并针对每种设备/执行变体，在一个单独的、按长度分层的最多 2,048 个目标的样本上报告相对于 FP32 的所选模式长度和原始得分统计。数值差异只要有限，就仅供参考，绝不会因此拒绝 BF16。旧的别名 `auto` 仍然有效。强制使用 TF32 需要 NVIDIA CUDA。 |

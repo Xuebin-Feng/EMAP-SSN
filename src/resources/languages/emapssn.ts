@@ -470,20 +470,6 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Metric: Log10(E-Value)</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Global</source>
-        <comment>alignment score</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Local</source>
-        <comment>alignment score</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Alignment Length</source>
         <comment>normalization</comment>
         <translation type="unfinished"></translation>
@@ -501,6 +487,20 @@
     <message>
         <source>Average Sequence</source>
         <comment>normalization</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Metric: Log10(E-Value)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Global</source>
+        <comment>alignment score</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Local</source>
+        <comment>alignment score</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1423,26 +1423,6 @@
     </message>
     <message>
         <source>Inputs &amp;&amp; Outputs</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>alignment_length</source>
-        <comment>normalization mode</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>shorter_sequence</source>
-        <comment>normalization mode</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>longer_sequence</source>
-        <comment>normalization mode</comment>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>average_sequence</source>
-        <comment>normalization mode</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5301,22 +5281,22 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>alignment_length</source>
+        <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>shorter_sequence</source>
+        <source>Shorter Sequence</source>
         <comment>normalization mode</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>longer_sequence</source>
+        <source>Longer Sequence</source>
         <comment>normalization mode</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>average_sequence</source>
+        <source>Average Sequence</source>
         <comment>normalization mode</comment>
         <translation type="unfinished"></translation>
     </message>

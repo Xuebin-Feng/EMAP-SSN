@@ -308,6 +308,21 @@ class ResolveTests(WithApplication):
                 self.assertEqual(dict(resolve(FieldTip(Tip("x"), field)).facts).get("Default"), shown)
         self.assertNotIn("Default", dict(resolve(FieldTip(Tip("x"), Field(default=MISSING))).facts))
 
+    def test_a_default_the_dropdown_does_not_offer_is_left_out_not_shown_as_its_stored_value(self):
+        # A dropdown that keeps stored values apart from its labels, with a mode hidden for now.
+        combo = combo_of(("Shorter Sequence", "shorter_sequence"), ("Longer Sequence", "longer_sequence"))
+        combo.setProperty("persistItemData", True)
+        facts = dict(resolve(FieldTip(Tip("x"), Field(widget=combo, default="alignment_length"))).facts)
+        self.assertNotIn("Default", facts)
+        combo.insertItem(0, "Alignment Length", "alignment_length")
+        facts = dict(resolve(FieldTip(Tip("x"), Field(widget=combo, default="alignment_length"))).facts)
+        self.assertEqual(facts["Default"], "Alignment Length")
+        # A dropdown whose items are its values has no label to hide behind: the value shows.
+        plain = QComboBox()
+        plain.addItems(["one", "two"])
+        facts = dict(resolve(FieldTip(Tip("x"), Field(widget=plain, default="three"))).facts)
+        self.assertEqual(facts["Default"], "three")
+
     def test_a_unit_follows_a_numeric_default_only(self):
         tip = Tip("x", unit="GiB")
         facts = dict(resolve(FieldTip(tip, Field(default=3))).facts)

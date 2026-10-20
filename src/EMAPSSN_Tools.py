@@ -317,10 +317,10 @@ def alignment_mode_labels(modes):
 
 def normalization_labels(modes):
     labels = {
-        "alignment_length": translate("Tools", "alignment_length", "normalization mode"),
-        "shorter_sequence": translate("Tools", "shorter_sequence", "normalization mode"),
-        "longer_sequence": translate("Tools", "longer_sequence", "normalization mode"),
-        "average_sequence": translate("Tools", "average_sequence", "normalization mode"),
+        "alignment_length": translate("Tools", "Alignment Length", "normalization mode"),
+        "shorter_sequence": translate("Tools", "Shorter Sequence", "normalization mode"),
+        "longer_sequence": translate("Tools", "Longer Sequence", "normalization mode"),
+        "average_sequence": translate("Tools", "Average Sequence", "normalization mode"),
     }
     return [labels[mode] for mode in modes]
 

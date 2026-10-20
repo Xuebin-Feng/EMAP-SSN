@@ -1,4 +1,4 @@
-<!-- Translation of Embedding_MSA.md, sha256 b5f7c5322580423fb82494ac81b6606ac906cb44afc5fbc7e8f0ae154ca756e9 -->
+<!-- Translation of Embedding_MSA.md, sha256 2f60d043d2fd63b47764b121d7b93b78ab7df0909a4fe0e40b5cf291428db5fd -->
 # Embedding 多序列比对 (`Embedding_MSA.py`)
 
 该脚本使用蛋白质语言模型（pLM）embedding 生成渐进式多序列比对（MSA）。它根据网络得分构建完整的引导树（guide tree）距离矩阵（网络稀疏时用回归插补缺失的值），然后使用考虑空位（gap）的动态规划（dynamic programming）逐步比对（alignment）各个序列簇（cluster）。
@@ -25,7 +25,7 @@
 | 使用序列过滤 **`USE_SEQUENCE_FILTER`** | 启用时，比对仅限于网络、embedding 数据库和所选 FASTA 文件共有的序列。禁用时无需 FASTA，比对网络与 embedding 数据库的交集，并使用 embedding 清单中存储的序列。 |
 | 显示回归图 **`SHOW_REGRESSION_PLOT`** | 使用稀疏网络时，切换是否显示诊断用的保序回归图。该图展示平均 embedding 余弦距离与实际比对得分之间的拟合情况。 |
 | 比对评分类型 **`ALIGNMENT_SCORE`** | 选择使用网络中的'global'（全局）还是 'local'（局部）连接得分构建引导树。 |
-| 得分归一化模式 **`NORMALIZATION_MODE`** | 应用于比对得分的归一化（normalization）方法（例如 alignment_length、shorter_sequence、longer_sequence、average_sequence）。局部得分不能使用 `alignment_length`。BLAST 网络下此项禁用。 |
+| 得分归一化模式 **`NORMALIZATION_MODE`** | 应用于比对得分的归一化（normalization）方法（例如比对长度、较短序列长度、较长序列长度、平均序列长度）。局部得分不能使用“比对长度”（`Alignment Length`）。BLAST 网络下此项禁用。 |
 | 建树方法 **`TREE_METHOD`** | “UPGMA（快速）”（`UPGMA (Fast)`）使用平均连接层次聚类（clustering）；“邻接法（慢速）”（`Neighbor-joining (Slow)`）根据同一个完整距离矩阵构建邻接树。所选方法同时用于确定性树和噪声扰动树。 |
 | 噪声扰动一致引导树 **`BOOTSTRAP_TREE`** | 启用时，构建若干随机扰动的引导树重复并取平均。这是一种敏感性集成，而不是经典的自展（bootstrap）支持度。为保持向后兼容，沿用原有的设置键名。 |
 | 扰动树重复数 **`NUM_TREES`** | 用于构建一致引导树的噪声扰动重复树数量。 |
@@ -51,10 +51,10 @@
 
 2. **网络得分归一化**：
      根据 `NORMALIZATION_MODE` 对网络比对得分进行归一化，以消除序列长度差异的影响。
-     * **alignment_length**：$$S_{\text{norm}} = \frac{S_{\text{raw}}}{L_{\text{align}}}$$
-     * **shorter_sequence**：$$S_{\text{norm}} = \frac{S_{\text{raw}}}{\min(L_i, L_j)}$$
-     * **longer_sequence**：$$S_{\text{norm}} = \frac{S_{\text{raw}}}{\max(L_i, L_j)}$$
-     * **average_sequence**：$$S_{\text{norm}} = \frac{S_{\text{raw}}}{\text{mean}(L_i, L_j)}$$
+     * **比对长度**：$$S_{\text{norm}} = \frac{S_{\text{raw}}}{L_{\text{align}}}$$
+     * **较短序列长度**：$$S_{\text{norm}} = \frac{S_{\text{raw}}}{\min(L_i, L_j)}$$
+     * **较长序列长度**：$$S_{\text{norm}} = \frac{S_{\text{raw}}}{\max(L_i, L_j)}$$
+     * **平均序列长度**：$$S_{\text{norm}} = \frac{S_{\text{raw}}}{\text{mean}(L_i, L_j)}$$
 
 3. **距离矩阵构建**：
      将得分反转以表示距离：

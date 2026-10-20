@@ -118,6 +118,129 @@ class NormalizationModeRefreshTests(unittest.TestCase):
         self.assertFalse(window.cb_norm_mode.signalsBlocked())
 
 
+NORMALIZATION_VALUES = ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"]
+NORMALIZATION_WORDS = ["Alignment Length", "Shorter Sequence", "Longer Sequence", "Average Sequence"]
+
+
+class NormalizationModeLabelTests(unittest.TestCase):
+    """The dropdown names each mode in words; what is stored stays as it was saved.
+
+    Only the labels read as words (Alignment Length). The stored values
+    (alignment_length, ...) are what settings files, profiles, caches and the
+    MCP documents hold, so they must not change with the labels.
+    """
+
+    def tearDown(self):
+        _choose_alignment_modes(_WINDOW, "global", "alignment_length")
+
+    def test_a_global_score_offers_the_four_modes_in_words(self):
+        _choose_alignment_modes(_WINDOW, "global", "alignment_length")
+        combo = _WINDOW.cb_norm_mode
+        self.assertEqual([combo.itemText(i) for i in range(combo.count())], NORMALIZATION_WORDS)
+        self.assertEqual(_items(combo), NORMALIZATION_VALUES)
+        self.assertEqual(combo.currentText(), "Alignment Length")
+        self.assertFalse(any("_" in combo.itemText(i) for i in range(combo.count())))
+
+    def test_a_local_score_leaves_alignment_length_out(self):
+        _choose_alignment_modes(_WINDOW, "local", "average_sequence")
+        combo = _WINDOW.cb_norm_mode
+        self.assertEqual([combo.itemText(i) for i in range(combo.count())], NORMALIZATION_WORDS[1:])
+        self.assertEqual(_items(combo), NORMALIZATION_VALUES[1:])
+        self.assertEqual(combo.currentText(), "Average Sequence")
+        # A choice Alignment Length cannot keep becomes the longer sequence.
+        _choose_alignment_modes(_WINDOW, "global", "alignment_length")
+        select_combo_value(_WINDOW.cb_score_mode, "local")
+        self.assertEqual(combo_value(combo), "longer_sequence")
+        self.assertEqual(combo.currentText(), "Longer Sequence")
+
+    def test_the_stored_value_is_read_saved_and_restored_whatever_the_label(self):
+        window = _WINDOW
+        for value, words in zip(NORMALIZATION_VALUES, NORMALIZATION_WORDS):
+            with self.subTest(value=value):
+                _choose_alignment_modes(window, "global", value)
+                self.assertEqual(window.cb_norm_mode.currentText(), words)
+                self.assertEqual(combo_value(window.cb_norm_mode), value)
+                self.assertEqual(window.collect_data()["NORM_MODE"], value)
+                self.assertEqual(window._cache_setting_values()["normalization"], value)
+                saved = window._collect_tab_profile_data("inputs_outputs")
+                self.assertEqual(saved["NORM_MODE"], value)
+                # A profile (saved by an earlier version too) restores by the stored value.
+                profile = dict(_NAMESPACE["TAB_PROFILE_SPECS"]["inputs_outputs"]["defaults"])
+                profile.update(ALIGNMENT_SCORE="global", NORM_MODE=value)
+                _choose_alignment_modes(window, "global", "shorter_sequence")
+                window._apply_profile_data("inputs_outputs", profile)
+                self.assertEqual(combo_value(window.cb_norm_mode), value)
+                self.assertEqual(window.cb_norm_mode.currentText(), words)
+                self.assertEqual(window._collect_tab_profile_data("inputs_outputs")["NORM_MODE"], value)
+
+    def test_saved_settings_hold_the_value_not_the_label(self):
+        window = _WINDOW
+        _choose_alignment_modes(window, "global", "average_sequence")
+        original_custom = dict(window._custom_settings)
+        with tempfile.TemporaryDirectory() as directory:
+            settings_file = pathlib.Path(directory, "viewer_settings.json")
+            try:
+                with mock.patch.dict(
+                    window.save_settings.__globals__, {"DEFAULT_SETTINGS_FILE": str(settings_file)}
+                ):
+                    self.assertTrue(window.save_settings(), window.tip_panel.text())
+            finally:
+                window._custom_settings = original_custom
+            text = settings_file.read_text(encoding="utf-8")
+        self.assertEqual(json.loads(text)["NORM_MODE"], "average_sequence")
+        self.assertNotIn("Average Sequence", text)
+
+    def test_the_tip_and_the_statistics_report_name_the_modes_as_the_dropdown_does(self):
+        from desktop.Tip_Panel import resolve
+
+        window = _WINDOW
+        _choose_alignment_modes(window, "global", "alignment_length")
+        names = _NAMESPACE["normalization_names"]()
+        self.assertEqual(list(names), NORMALIZATION_VALUES)
+        self.assertEqual(list(names.values()), NORMALIZATION_WORDS)
+        model = resolve(window.tip_db[window.cb_norm_mode])
+        self.assertEqual([label for label, _text in model.options], NORMALIZATION_WORDS)
+        # The facts footer keeps naming the setting by its key, and the default by its words.
+        self.assertIn(("Setting", "NORM_MODE"), model.facts)
+        self.assertIn(("Default", "Alignment Length"), model.facts)
+        # The statistics report's metric line quotes the same words.
+        for value, words in zip(NORMALIZATION_VALUES, NORMALIZATION_WORDS):
+            with self.subTest(value=value):
+                summary, _headings = _NAMESPACE["statistics_report_text"]({
+                    "blast": False, "score_mode": "global", "normalization": value,
+                    "model": "E1_RA", "fasta": "a.fasta", "nodes": 3, "stored_edges": 3,
+                    "possible_edges": 3, "maximum": 1.0, "minimum": 0.0, "mean": 0.5,
+                })
+                self.assertIn(f"Metric: Global Alignment Score with {words} Normalization", summary)
+        _choose_alignment_modes(window, "local", "longer_sequence")
+        model = resolve(window.tip_db[window.cb_norm_mode])
+        self.assertEqual([label for label, _text in model.options], NORMALIZATION_WORDS[1:])
+        # Alignment Length is not offered now, and its stored value is not what the tip calls it.
+        self.assertNotIn("Default", dict(model.facts))
+        self.assertNotIn("alignment_length", [value for _label, value in model.facts])
+
+    def test_simplified_chinese_shows_the_reviewed_wording_of_the_report(self):
+        from desktop.Desktop_App import install_translations
+
+        window = _WINDOW
+        # Cleanups run last in, first out: the language goes, then the options are English again.
+        self.addCleanup(window.update_norm_mode_options)
+        installed = install_translations(_APP, "zh_CN")
+        self.addCleanup(installed.remove)
+        _choose_alignment_modes(window, "global", "alignment_length")
+        window.update_norm_mode_options()
+        combo = window.cb_norm_mode
+        shown = [combo.itemText(i) for i in range(combo.count())]
+        self.assertEqual(_items(combo), NORMALIZATION_VALUES)
+        # The statistics report's translations are the dropdown's.
+        self.assertEqual(shown, list(_NAMESPACE["normalization_names"]().values()))
+        for words, chinese in zip(NORMALIZATION_WORDS, shown):
+            with self.subTest(words=words):
+                self.assertNotEqual(chinese, words)
+                self.assertNotIn("_", chinese)
+                self.assertTrue(any("一" <= character <= "鿿" for character in chinese))
+
+
 class BlastNetworkSaveTests(unittest.TestCase):
     """A BLAST network blanks both modes; Save keeps the alignment choice they hide.
 

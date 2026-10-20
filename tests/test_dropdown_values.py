@@ -215,6 +215,95 @@ class ToolsDropdownValueTests(unittest.TestCase):
                 self.assertEqual(self.window._collect_tool_settings(script_path), before)
         self.assertGreater(checked, 0)
 
+    def script(self, name):
+        return next(path for path in self.window.script_data if Path(path).name == name)
+
+    def widget(self, script, variable):
+        return self.window.script_data[self.script(script)]["inputs"][variable]["widget"]
+
+    def test_normalization_modes_read_as_words_and_store_their_values(self):
+        from desktop.Desktop_App import combo_value, select_combo_value
+        from desktop.Tip_Panel import resolve
+
+        values = ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"]
+        words = ["Alignment Length", "Shorter Sequence", "Longer Sequence", "Average Sequence"]
+        combo = self.widget("Embedding_MSA.py", "NORMALIZATION_MODE")
+        self.assertEqual([combo.itemText(i) for i in range(combo.count())], words)
+        self.assertEqual(stored_values(combo), values)
+        self.assertFalse(any("_" in combo.itemText(i) for i in range(combo.count())))
+        # The tip's rows name the options as the dropdown does.
+        model = resolve(self.window.tip_db[combo])
+        self.assertEqual([label for label, _text in model.options], words)
+        self.assertEqual(dict(model.facts)["Default"], "Alignment Length")
+        # Each value is selected and collected as itself, whatever its label says.
+        path = self.script("Embedding_MSA.py")
+        for value, label in zip(values, words):
+            with self.subTest(value=value):
+                self.assertTrue(select_combo_value(combo, value))
+                self.assertEqual(combo.currentText(), label)
+                self.assertEqual(combo_value(combo), value)
+                self.assertEqual(self.window._collect_tool_settings(path)["NORMALIZATION_MODE"], value)
+
+    def test_a_local_score_leaves_alignment_length_out_of_the_dropdown(self):
+        from types import SimpleNamespace
+
+        import EMAPSSN_Tools
+        from Cache_Manifest import NetworkCompletenessInfo
+        from desktop.Desktop_App import combo_value, select_combo_value
+
+        score = self.widget("Embedding_MSA.py", "ALIGNMENT_SCORE")
+        norm = self.widget("Embedding_MSA.py", "NORMALIZATION_MODE")
+        network = self.widget("Embedding_MSA.py", "INPUT_NETWORK").combo
+        complete = NetworkCompletenessInfo(
+            status="complete", sequence_count=10, edge_count=45, expected_edge_count=45,
+        )
+        with mock.patch.object(
+            EMAPSSN_Tools, "validate_network_schema", return_value=SimpleNamespace(network_type="embedding")
+        ), mock.patch.object(EMAPSSN_Tools, "inspect_network_completeness", return_value=complete):
+            network.addItem("embedding.h5")
+            network.setCurrentText("embedding.h5")
+            select_combo_value(norm, "average_sequence")
+            select_combo_value(score, "local")
+            self.assertEqual(
+                [norm.itemText(i) for i in range(norm.count())],
+                ["Shorter Sequence", "Longer Sequence", "Average Sequence"],
+            )
+            self.assertEqual(
+                stored_values(norm), ["shorter_sequence", "longer_sequence", "average_sequence"]
+            )
+            self.assertEqual(norm.currentText(), "Average Sequence")
+            self.assertEqual(combo_value(norm), "average_sequence")
+            # Its tip no longer gives the hidden mode's stored value as the default.
+            from desktop.Tip_Panel import resolve
+
+            model = resolve(self.window.tip_db[norm])
+            self.assertNotIn("Default", dict(model.facts))
+            self.assertNotIn("alignment_length", [value for _label, value in model.facts])
+            # Back to global, the first mode is offered again and the choice stays.
+            select_combo_value(score, "global")
+            self.assertEqual(norm.itemText(0), "Alignment Length")
+            self.assertEqual(combo_value(norm), "average_sequence")
+
+    def test_a_saved_value_selects_its_words(self):
+        from desktop.Desktop_App import combo_value
+
+        # Embedding_SSEARCH has no network to read, so its dropdown shows the saved value at once.
+        isolated_tools_project(
+            self, sections={"Embedding_SSEARCH.py": {"NORM_MODE": "average_sequence"}}
+        )
+        from PySide6.QtWidgets import QTextBrowser
+        from EMAPSSN_Tools import ToolsGUI
+
+        with mock.patch("EMAPSSN_Tools.ResponsiveTextBrowser", QTextBrowser):
+            window = ToolsGUI()
+        self.addCleanup(window.deleteLater)
+        self.addCleanup(window.close)
+        path = next(p for p in window.script_data if Path(p).name == "Embedding_SSEARCH.py")
+        combo = window.script_data[path]["inputs"]["NORM_MODE"]["widget"]
+        self.assertEqual(combo_value(combo), "average_sequence")
+        self.assertEqual(combo.currentText(), "Average Sequence")
+        self.assertEqual(window._collect_tool_settings(path)["NORM_MODE"], "average_sequence")
+
     def test_neighbor_joining_is_recognised_by_value(self):
         from desktop.Desktop_App import select_combo_value
 
