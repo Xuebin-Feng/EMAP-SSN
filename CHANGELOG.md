@@ -246,6 +246,19 @@ still change before version 1.0.0.
   `alignment_length` and the like, as the Network Statistics Report already did. Settings,
   profiles and MCP documents keep the same values. With a local score mode, the field's
   tip no longer gives `alignment_length`, which it doesn't offer, as the default.
+- Other Tools dropdowns that listed machine names show words too. Saved settings, exports
+  and MCP documents keep the same values.
+  - Execution Mode: Auto, Scalar, Tiled.
+  - Precision: FP32 (Full Precision), beside TF32 and BF16.
+  - Saving Mode: Float32 (Full Precision), Float16 (Half Size).
+  - BLAST Layout: Standard (outfmt 6), Fields Header (outfmt 7).
+  - Model Name and Embedding Model: ESM-2 8M to 650M, ESM C 300M to 6B, ProstT5,
+    ProtBERT, and Ankh Base and Ankh Large, which keep their `[non-commercial]` mark. A
+    model plugin can give its models these names with `MODEL_DISPLAY_NAMES`; one that
+    doesn't shows its ids. Messages that quote a file's model, such as the Consistency
+    Check's, still give its id.
+  - The Quick Start and the Tools help pages write Score Mode, Execution Mode, Saving Mode
+    and the models as their dropdowns show them.
 
 ### Fixed
 
