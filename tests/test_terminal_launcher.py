@@ -19,6 +19,8 @@ import time
 import unittest
 from unittest import mock
 
+import psutil
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -753,6 +755,191 @@ class WindowsLaunchTests(unittest.TestCase):
         self.assertEqual(
             direct_exit.exception.code, "Terminal_Launcher.py is an internal utility."
         )
+
+
+class WindowlessLaunchTests(unittest.TestCase):
+    """launch_without_window: a headless Viewer's workers get no console, no
+    terminal and no window, and write their output to a log file."""
+
+    COMMAND = ["python.exe", "worker.py", "a&b", "%PATH%"]
+    NEW_CONSOLE = 0x10
+    DETACHED = 0x8
+    NO_WINDOW = 0x08000000
+
+    def launch_mocked(self, platform_name, **options):
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        log_path = directory / "logs" / "worker.log"
+        with mock.patch.object(launcher.subprocess, "Popen") as popen, \
+                mock.patch.object(launcher, "_find_linux_terminal") as find_terminal, \
+                mock.patch.object(launcher, "_reap_when_done") as reap:
+            process = launcher.launch_without_window(
+                self.COMMAND, cwd=PROJECT_ROOT, log_path=log_path,
+                platform_name=platform_name, **options,
+            )
+        find_terminal.assert_not_called()
+        return popen, process, reap, log_path
+
+    def test_windows_starts_the_command_itself_with_a_hidden_console(self):
+        popen, process, reap, log_path = self.launch_mocked("win32")
+
+        self.assertEqual(popen.call_args.args[0], self.COMMAND)
+        kwargs = popen.call_args.kwargs
+        flags = kwargs["creationflags"]
+        # CREATE_NO_WINDOW: the console exists, hidden, and a venv's real
+        # interpreter inherits it. DETACHED_PROCESS would leave the redirector
+        # without one and Windows would give that child a visible console.
+        self.assertEqual(flags & self.NO_WINDOW, self.NO_WINDOW)
+        self.assertEqual(flags & (self.NEW_CONSOLE | self.DETACHED), 0)
+        self.assertEqual(kwargs["cwd"], str(PROJECT_ROOT))
+        self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+        self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
+        self.assertNotIn("start_new_session", kwargs)
+        # Windows has no zombies to collect.
+        reap.assert_not_called()
+        self.assertIs(process, popen.return_value)
+
+    def test_posix_leads_its_own_session_and_is_collected(self):
+        for platform_name in ("linux", "darwin"):
+            with self.subTest(platform=platform_name):
+                popen, process, reap, _ = self.launch_mocked(platform_name)
+
+                self.assertEqual(popen.call_args.args[0], self.COMMAND)
+                kwargs = popen.call_args.kwargs
+                self.assertIs(kwargs["start_new_session"], True)
+                self.assertNotIn("creationflags", kwargs)
+                self.assertEqual(kwargs["stdin"], subprocess.DEVNULL)
+                self.assertEqual(kwargs["stderr"], subprocess.STDOUT)
+                reap.assert_called_once_with(popen.return_value)
+                self.assertIs(process, reap.return_value)
+
+    def test_output_goes_to_the_log_in_a_folder_that_is_created(self):
+        popen, _, _, log_path = self.launch_mocked("win32")
+
+        log = popen.call_args.kwargs["stdout"]
+        self.assertEqual(Path(log.name), log_path)
+        self.assertEqual(log.mode, "ab")
+        self.assertTrue(log_path.parent.is_dir())
+        # The child has its own copy of the handle; ours is closed.
+        self.assertTrue(log.closed)
+
+    def test_python_output_is_unbuffered_utf8_and_the_environment_is_the_callers(self):
+        popen, _, _, _ = self.launch_mocked("win32", env={"KEEP": "1", "PYTHONUNBUFFERED": "0"})
+
+        environment = popen.call_args.kwargs["env"]
+        self.assertEqual(environment["KEEP"], "1")
+        self.assertEqual(environment["PYTHONIOENCODING"], "utf-8:replace")
+        # A caller that chose a buffering keeps it.
+        self.assertEqual(environment["PYTHONUNBUFFERED"], "0")
+
+        with mock.patch.dict(os.environ, {"ONLY_HERE": "yes"}):
+            os.environ.pop("PYTHONUNBUFFERED", None)
+            popen, _, _, _ = self.launch_mocked("linux")
+        environment = popen.call_args.kwargs["env"]
+        self.assertEqual(environment["ONLY_HERE"], "yes")
+        self.assertEqual(environment["PYTHONUNBUFFERED"], "1")
+
+    def test_a_command_must_be_a_sequence_and_a_failed_start_propagates(self):
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        with self.assertRaises(TypeError):
+            launcher.launch_without_window(
+                "python worker.py", cwd=directory, log_path=directory / "w.log"
+            )
+        with mock.patch.object(
+            launcher.subprocess, "Popen", side_effect=FileNotFoundError("no such python")
+        ):
+            with self.assertRaises(FileNotFoundError):
+                launcher.launch_without_window(
+                    ["missing"], cwd=directory, log_path=directory / "w.log",
+                    platform_name="win32",
+                )
+
+    def stop_tree(self, process):
+        """End process and what it started (behind a venv's redirector, the interpreter is a child)."""
+        try:
+            root = psutil.Process(process.pid)
+            targets = [root, *root.children(recursive=True)]
+        except psutil.Error:
+            targets = []
+        for target in targets:
+            try:
+                target.kill()
+            except psutil.Error:
+                pass
+        process.wait(timeout=30)
+
+    def run_real(self, directory, code, name="worker.log", **options):
+        script = directory / "stand_in.py"
+        script.write_text(code, encoding="utf-8")
+        log_path = directory / "logs" / name
+        process = launcher.launch_without_window(
+            [sys.executable, str(script)], cwd=directory, log_path=log_path, **options
+        )
+        self.addCleanup(self.stop_tree, process)
+        self.assertEqual(process.wait(timeout=60), 0)
+        return log_path
+
+    def test_stdout_and_stderr_both_reach_the_log_and_a_second_launch_appends(self):
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        code = (
+            "import sys\n"
+            "print('to stdout')\n"
+            "print('to stderr', file=sys.stderr)\n"
+            "print('stdin is', repr(sys.stdin.read()))\n"
+        )
+        log_path = self.run_real(directory, code)
+        self.run_real(directory, code)
+
+        text = log_path.read_text(encoding="utf-8")
+        self.assertEqual(text.count("to stdout"), 2, text)
+        self.assertEqual(text.count("to stderr"), 2, text)
+        # No stdin: a worker that asks for input gets end of file, not a hang.
+        self.assertEqual(text.count("stdin is ''"), 2, text)
+
+    def test_a_name_outside_the_ansi_code_page_does_not_crash_the_worker(self):
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        # The caller's environment forces the Windows file encoding on every platform.
+        environment = {**os.environ, "PYTHONIOENCODING": "cp1252", "PYTHONUTF8": "0"}
+        code = "print('\\u03b1-amylase \\u96ea')\n"
+
+        log_path = self.run_real(directory, code, env=environment)
+
+        self.assertIn("α-amylase 雪", log_path.read_text(encoding="utf-8"))
+
+    def test_output_is_in_the_log_while_the_command_still_runs(self):
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        script = directory / "stand_in.py"
+        script.write_text("import time\nprint('started')\ntime.sleep(60)\n", encoding="utf-8")
+        log_path = directory / "worker.log"
+        process = launcher.launch_without_window(
+            [sys.executable, str(script)], cwd=directory, log_path=log_path
+        )
+        self.addCleanup(self.stop_tree, process)
+
+        deadline = time.monotonic() + 30
+        while "started" not in (
+            log_path.read_text(encoding="utf-8") if log_path.exists() else ""
+        ):
+            self.assertLess(time.monotonic(), deadline, "The log stayed empty while the command ran")
+            time.sleep(0.05)
+        self.assertIsNone(process.poll())
+
+    @unittest.skipUnless(sys.platform == "win32", "Windows consoles")
+    def test_no_console_window_exists_for_the_command_or_a_process_it_starts(self):
+        directory = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        # The real interpreter behind a venv's redirector, and a child of its
+        # own: with a hidden console there is no window to show.
+        code = (
+            "import ctypes, subprocess, sys\n"
+            "probe = 'import ctypes; print(ctypes.windll.kernel32.GetConsoleWindow())'\n"
+            "child = subprocess.run([sys.executable, '-c', probe], capture_output=True, text=True)\n"
+            "print('command', ctypes.windll.kernel32.GetConsoleWindow())\n"
+            "print('child', child.stdout.strip())\n"
+        )
+
+        log_path = self.run_real(directory, code)
+
+        lines = log_path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines, ["command 0", "child 0"])
 
 
 class CallerIntegrationTests(unittest.TestCase):

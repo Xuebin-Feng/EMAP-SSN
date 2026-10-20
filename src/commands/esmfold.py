@@ -15,6 +15,7 @@
 
 import os
 import sys
+import uuid
 import Command_Engine
 import EMAPSSN_Config as cfg
 import web_ui.esmfold_backend as esmfold_backend
@@ -25,7 +26,9 @@ from utilities.Terminal_Launcher import (
     HoldMode,
     TerminalUnavailableError,
     launch_in_terminal,
+    launch_without_window,
 )
+from web_ui.Browser_Page import is_headless
 
 def print_help():
     print("""
@@ -48,6 +51,10 @@ def print_help():
 
     Only one folding worker runs at a time: while one is running, esmfold refuses to
     start another. Wait for it to finish, or close its console window.
+
+    A headless Viewer (no screen) opens no console window and no browser page: the
+    worker runs hidden with its output in a log file, which the outcome names, and the
+    outcome gives the structure viewer's address. Closing the Viewer ends the worker.
     """)
 
 # A command's outcome names the selected nodes it skipped when there are this few.
@@ -77,9 +84,12 @@ def _open_structure_viewer(viewer):
     """Open the Mol* page; return whether it opened.
 
     A command run for the MCP or the agent page cannot wait for someone to
-    close the dialog that says the page is already open.
+    close the dialog that says the page is already open. A headless Viewer
+    has no browser to open it in.
     """
     from Viewer_Command_Portal import CURRENT
+    if is_headless(viewer):
+        return False
     if CURRENT.get() is None:
         return esmfold_backend.open_esmfold_ui(viewer)
     return esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
@@ -88,6 +98,18 @@ def _open_structure_viewer(viewer):
 def _structure_viewer_connected(viewer):
     has_event_client = getattr(getattr(viewer, "web_server", None), "has_event_client", None)
     return bool(callable(has_event_client) and has_event_client("esmfold"))
+
+
+def _structure_viewer_address(viewer):
+    """The URL the Viewer serves the Mol* page at, or None while its web server is unavailable."""
+    try:
+        return viewer.get_web_url("/esmfold.html")
+    except RuntimeError:
+        return None
+
+
+def _environment_is_headless():
+    return os.environ.get('SSN_VIEWER_HEADLESS') == '1' or os.environ.get('QT_QPA_PLATFORM') == 'offscreen'
 
 
 def _discard_worker_input(path):
@@ -160,6 +182,7 @@ def run(viewer, args):
     options = _parse_options(viewer, args)
     if options is None:
         return
+    headless = is_headless(viewer)
     is_large = options["large"]
     is_multi = options["multi"]
 
@@ -183,6 +206,12 @@ def run(viewer, args):
                 Command_Engine.command_succeeded(viewer, "Opened the structure viewer; no folding job was requested.")
             elif _structure_viewer_connected(viewer):
                 Command_Engine.command_succeeded(viewer, "The structure viewer is already open; no folding job was requested.")
+            elif headless and (address := _structure_viewer_address(viewer)) is not None:
+                Command_Engine.command_succeeded(
+                    viewer,
+                    f"A headless Viewer opens no browser page; the structure viewer is served at {address}. "
+                    "No folding job was requested.",
+                )
             else:
                 Command_Engine.command_failed(viewer, "The structure viewer was not opened; the Viewer's console line says why.")
             return
@@ -206,13 +235,16 @@ def run(viewer, args):
     # 4b. One worker at a time: a second would load a second large model into
     # GPU memory, so it is refused before any hardware or sequence work.
     if _worker_running(viewer):
-        failure = Message(
-            "An esmfold worker is still running. Wait for it to finish, or close its "
-            "console window, before folding again."
-        )
-        print(f"Error: {failure}")
-        Command_Engine.command_failed(viewer, f'Error: {failure}')
-        _set_console_text(viewer, Message("Error: {error}", error=failure))
+        if headless:
+            refusal = "An esmfold worker is still running. Wait for it to finish before folding again."
+        else:
+            refusal = Message(
+                "An esmfold worker is still running. Wait for it to finish, or close its "
+                "console window, before folding again."
+            )
+        print(f"Error: {refusal}")
+        Command_Engine.command_failed(viewer, f'Error: {refusal}')
+        _set_console_text(viewer, Message("Error: {error}", error=refusal))
         return
     if clicked_note is not None:
         print(clicked_note)
@@ -290,7 +322,7 @@ def run(viewer, args):
         Command_Engine.command_failed(viewer, f'Error: {message}')
         parent = getattr(viewer, 'main_window', None)
         from Viewer_Command_Portal import CURRENT
-        if CURRENT.get() is None:
+        if CURRENT.get() is None and not headless:
             QMessageBox.critical(parent, translate("Viewer", "ESMFold Web Server Error"), message.display())
         _set_console_text(viewer, Message("Error: Viewer web server unavailable."))
         return
@@ -311,7 +343,7 @@ def run(viewer, args):
     abs_worker_script = os.path.abspath(worker_script)
 
     if is_large:
-        print("Launching Biohub ESM3 structure prediction worker in a separate console...")
+        launching = "Biohub ESM3 structure prediction worker"
         cmd = [
             python_exe,
             abs_worker_script,
@@ -325,7 +357,7 @@ def run(viewer, args):
         ]
         terminal_title = "SSN ESMFold Large"
     else:
-        print("Launching local ESM3 3D structure prediction background worker in a separate console...")
+        launching = "local ESM3 3D structure prediction background worker"
         cmd = [
             python_exe,
             abs_worker_script,
@@ -340,23 +372,40 @@ def run(viewer, args):
     from Viewer_Command_Portal import CURRENT
     context = CURRENT.get()
     tracker = None
+    log_path = None
     try:
         if context is not None:
             from Viewer_Worker_Tracking import WorkerTracker
             tracker = WorkerTracker(context)
             cmd += ['--portal-status', str(tracker.path)]
-            if os.environ.get('SSN_VIEWER_HEADLESS') == '1' or os.environ.get('QT_QPA_PLATFORM') == 'offscreen':
-                cmd += ['--noninteractive']
-        process = launch_in_terminal(
-            cmd,
-            cwd=project_root,
-            hold=HoldMode.NEVER,
-            title=terminal_title,
-        )
+        if headless or (context is not None and _environment_is_headless()):
+            cmd += ['--noninteractive']
+        if headless:
+            # No screen: the worker gets no console window, and its output goes to a log.
+            from Viewer_Worker_Tracking import worker_directory
+            log_path = (
+                os.path.splitext(str(tracker.path))[0] + '.log' if tracker is not None
+                else str(worker_directory() / f'esmfold-{uuid.uuid4().hex}.log')
+            )
+            print(f"Launching {launching} without a window; its output goes to {log_path}")
+            process = launch_without_window(cmd, cwd=project_root, log_path=log_path)
+        else:
+            print(f"Launching {launching} in a separate console...")
+            process = launch_in_terminal(
+                cmd,
+                cwd=project_root,
+                hold=HoldMode.NEVER,
+                title=terminal_title,
+            )
     except (OSError, TerminalUnavailableError) as error:
         if tracker is not None:
             tracker.fail(str(error))
         _discard_worker_input(tmp_path)
+        if headless:
+            text = f"Could not launch the ESMFold worker without a window:\n{error}"
+            print(f"Error: {text}")
+            Command_Engine.command_failed(viewer, f'Error: {text}')
+            return
         message = Message("Could not launch the ESMFold worker in a terminal:\n{error}", error=error)
         print(f"Error: {message}")
         Command_Engine.command_failed(viewer, f'Error: {message}')
@@ -376,8 +425,16 @@ def run(viewer, args):
     # A second esmfold is refused while this worker runs (step 4b).
     viewer.esmfold_worker = (process, tracker)
 
-    # 10. Open Mol* web browser tab immediately
-    page_opened = esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
+    # 10. Open Mol* web browser tab immediately. A headless Viewer has no browser to open it in, and
+    # nobody to close a worker's window: it ends the hidden worker when it quits or its job fails.
+    if headless:
+        from Viewer_Worker_Tracking import track_hidden_worker
+        track_hidden_worker(process)
+        if tracker is not None:
+            tracker.attach_hidden(process, log_path)
+        page_opened = False
+    else:
+        page_opened = esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
     mode_label = "Biohub ESM3" if is_large else "local ESM3"
     if is_large:
         spawning = Message("Spawning separate console to fold %n structure(s) with Biohub ESM3...", n=len(nodes_to_fold))
@@ -393,6 +450,13 @@ def run(viewer, args):
     if clicked_note is not None:
         spawning = JoinedMessage([clicked_note, spawning])
         outcome += f" {clicked_note}"
+    if headless:
+        outcome += f" The worker has no window; its output is in {log_path}."
+        address = None if _structure_viewer_connected(viewer) else _structure_viewer_address(viewer)
+        if address is not None:
+            outcome += f" A headless Viewer opens no browser page; the structure viewer is served at {address}."
+        Command_Engine.command_succeeded(viewer, outcome)
+        return
     if not page_opened and not _structure_viewer_connected(viewer):
         outcome += " The structure viewer page was not opened; use the Fold View button if it does not appear."
     _set_console_text(viewer, spawning)

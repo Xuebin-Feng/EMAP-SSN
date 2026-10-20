@@ -27,6 +27,11 @@ from utilities.Localization import Message, display_text
 PENDING_OPEN_SECONDS = 10.0
 
 
+def is_headless(viewer):
+    """Whether viewer is a headless Viewer: it has no screen, so no page or window can be shown on it."""
+    return bool(getattr(viewer, "headless", False))
+
+
 def _set_console_message(viewer, message):
     if getattr(viewer, "console_text", None) is not None:
         import Command_Engine
@@ -74,7 +79,8 @@ def open_browser_page(
 ):
     """Open one bundled page unless that client is connected or opening.
 
-    label names the page in the messages; a Message shows translated.
+    label names the page in the messages; a Message shows translated. A
+    headless Viewer opens no browser; its console line gives the address.
     """
     pending = _pending_opens(viewer)
     now = time.monotonic()
@@ -104,6 +110,10 @@ def open_browser_page(
         url = viewer.get_web_url(path)
     except RuntimeError as error:
         _set_console_message(viewer, Message("{page} unavailable: {error}", page=label, error=error))
+        return False
+
+    if is_headless(viewer):
+        _set_console_message(viewer, Message("Could not open {page}: {url}", page=label, url=url))
         return False
 
     pending[client_id] = now + PENDING_OPEN_SECONDS

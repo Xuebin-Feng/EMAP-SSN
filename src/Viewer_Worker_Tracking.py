@@ -14,25 +14,43 @@ import psutil
 from PySide6 import QtCore
 
 
+def worker_directory():
+    """The folder of the command workers' status files and logs (<project>/temp/command_workers)."""
+    return Path(__file__).resolve().parent.parent / 'temp' / 'command_workers'
+
+
 class WorkerTracker(QtCore.QObject):
     def __init__(self, context):
         super().__init__(context.portal)
         self.context = context
         self.job_id = 'worker-' + uuid.uuid4().hex
-        self.path = Path(__file__).resolve().parent.parent / 'temp' / 'command_workers' / (self.job_id + '.json')
+        self.path = worker_directory() / (self.job_id + '.json')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.created = time.monotonic()
         self.identity = None
         self.previous = None
+        # (process, log path) of a worker that runs with no window of its own, else None.
+        self.hidden = None
         self.log_offsets = {'stdout': 0, 'stderr': 0}
         context.add_job(self.job_id)
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.poll)
         self.timer.start(250)
 
+    def attach_hidden(self, process, log_path):
+        """Record the windowless process that runs this job, and the log its output goes to.
+
+        Nobody can close a window that does not exist, so a job that fails
+        here takes its worker down with it, and its failures name the log in
+        place of the terminal a person would have looked at.
+        """
+        self.hidden = (process, log_path)
+
     def fail(self, message):
         self.context.job_event(self.job_id, 'failed', message)
         self.timer.stop()
+        if self.hidden is not None:
+            end_hidden_worker(self.hidden[0])
 
     def poll(self):
         for stream in self.log_offsets:
@@ -70,9 +88,15 @@ class WorkerTracker(QtCore.QObject):
             except psutil.NoSuchProcess:
                 alive = False
             if not alive:
-                self.fail('Worker exited before reporting a final result')
+                note = '' if self.hidden is None else f'; its output is in {self.hidden[1]}'
+                self.fail('Worker exited before reporting a final result' + note)
+        elif self.hidden is not None and self.hidden[0].poll() is not None and not self.path.exists():
+            # Typically an import error, whose traceback only the log holds.
+            self.fail(f'Worker exited with code {self.hidden[0].returncode} before reporting startup; '
+                      f'its output is in {self.hidden[1]}')
         elif time.monotonic() - self.created > 60:
-            self.fail('Worker did not report startup within 60 seconds; inspect its terminal before retrying')
+            where = 'its terminal' if self.hidden is None else f'its log {self.hidden[1]}'
+            self.fail(f'Worker did not report startup within 60 seconds; inspect {where} before retrying')
 
 
 # The Python command scripts this process runs, until each ends.
@@ -105,6 +129,48 @@ def _end_process_tree(pid, timeout=2.0):
         except psutil.Error:
             pass
     psutil.wait_procs(alive, timeout=timeout)
+
+
+def end_hidden_worker(process):
+    """End the windowless worker process and every process it started.
+
+    Returns whether it was still running. It is the Popen that is asked, not a
+    bare PID: a worker that has ended may have left its PID to another process.
+    """
+    if process.poll() is not None:
+        return False
+    _end_process_tree(process.pid)
+    return True
+
+
+# The windowless workers this process started, until each ends or is stopped.
+_hidden_workers = set()
+_hidden_lock = threading.Lock()
+_hidden_quit_hooked = False
+
+
+def track_hidden_worker(process):
+    """End process, and every process it started, when the application quits.
+
+    A worker with no window can't be closed by anyone, so unless something
+    stops it, closing the Viewer would leave it running unseen.
+    """
+    global _hidden_quit_hooked
+    with _hidden_lock:
+        _hidden_workers.difference_update([worker for worker in _hidden_workers if worker.poll() is not None])
+        _hidden_workers.add(process)
+    application = QtCore.QCoreApplication.instance()
+    if application is not None and not _hidden_quit_hooked:
+        application.aboutToQuit.connect(stop_hidden_workers)
+        _hidden_quit_hooked = True
+
+
+def stop_hidden_workers():
+    """End every windowless worker this process started; return how many were running."""
+    with _hidden_lock:
+        workers = list(_hidden_workers)
+        _hidden_workers.clear()
+    return sum(end_hidden_worker(worker) for worker in workers)
 
 
 class CommandScript:

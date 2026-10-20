@@ -2,7 +2,11 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Launch structured commands in a new terminal on supported desktops."""
+"""Launch structured commands in a new terminal on supported desktops.
+
+A headless Viewer has no screen, so ``launch_without_window`` runs a command
+with no window at all and its output in a log file.
+"""
 
 from __future__ import annotations
 
@@ -513,7 +517,65 @@ def launch_in_terminal(
     return process if platform_name == "win32" else _reap_when_done(process)
 
 
-__all__ = ["HoldMode", "TerminalUnavailableError", "launch_in_terminal"]
+def launch_without_window(
+    command: Sequence[os.PathLike[str] | str],
+    *,
+    cwd: os.PathLike[str] | str,
+    log_path: os.PathLike[str] | str,
+    env: Mapping[str, str] | None = None,
+    platform_name: str | None = None,
+) -> subprocess.Popen:
+    """Run ``command`` where no window can appear, with its output in a log.
+
+    This is for a headless Viewer, which has no screen. ``command`` gets no
+    stdin, and its stdout and stderr both go to ``log_path``, which is opened
+    for appending and whose folder is created. A Python ``command`` prints
+    unbuffered UTF-8 (the log is current, and a name outside the Windows ANSI
+    code page cannot crash it).
+
+    On Windows the command starts with CREATE_NO_WINDOW. Never use
+    DETACHED_PROCESS here: a venv's python.exe is a redirector that starts the
+    real interpreter as its child, and a redirector without a console makes
+    Windows give that child a new, visible one. A hidden console is inherited.
+    On Linux and macOS the command leads its own session, and a background
+    thread collects its exit status (_reap_when_done).
+
+    ``env`` (default: this process's environment) is the command's environment.
+    """
+
+    normalized = _normalize_command(command)
+    platform_name = platform_name or sys.platform
+    environment = dict(os.environ if env is None else env)
+    environment.setdefault("PYTHONUNBUFFERED", "1")
+    environment["PYTHONIOENCODING"] = "utf-8:replace"
+    popen_kwargs: dict[str, object] = {
+        "cwd": os.path.abspath(os.fspath(cwd)),
+        "env": environment,
+        "stdin": subprocess.DEVNULL,
+    }
+    if platform_name == "win32":
+        popen_kwargs["creationflags"] = getattr(
+            subprocess, "CREATE_NO_WINDOW", 0x08000000
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+
+    log_path = os.path.abspath(os.fspath(log_path))
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    # The child gets its own copy of the handle, so ours can close at once.
+    with open(log_path, "ab") as log:
+        process = subprocess.Popen(
+            normalized, stdout=log, stderr=subprocess.STDOUT, **popen_kwargs
+        )
+    return process if platform_name == "win32" else _reap_when_done(process)
+
+
+__all__ = [
+    "HoldMode",
+    "TerminalUnavailableError",
+    "launch_in_terminal",
+    "launch_without_window",
+]
 
 
 if __name__ == "__main__":

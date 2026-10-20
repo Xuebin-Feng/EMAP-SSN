@@ -548,4 +548,198 @@ class WorkerTrackingTests(PortalFixture, unittest.TestCase):
         self.assertIn('select "one"', self.portal.read_output(request_id)['text'])
 
 
+class HiddenWorkerTests(PortalFixture, unittest.TestCase):
+    """A worker with no window (a headless Viewer's) is ended by the Viewer, and its failures name its log.
+
+    Everyone else can close a worker's console; nobody can close a window that does not exist.
+    """
+
+    # Starts a child of its own, records both process IDs, and runs until it is ended.
+    TREE_SCRIPT = (
+        "import os, subprocess, sys, time\n"
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)'])\n"
+        "open(sys.argv[1], 'w').write(f'{os.getpid()} {child.pid}')\n"
+        "time.sleep(120)\n"
+    )
+
+    def setUp(self):
+        super().setUp()
+        import Viewer_Worker_Tracking
+        # No Viewer's workers, and no earlier test's application hook.
+        for name, value in (('_hidden_workers', set()), ('_hidden_quit_hooked', False)):
+            patcher = mock.patch.object(Viewer_Worker_Tracking, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+    def tracked_command(self, submission_id='hidden'):
+        from Viewer_Command_Portal import ExecutionContext
+        request_id = self.portal.submit(submission_id, 'test')['request_id']
+        record = self.portal.requests[request_id]['commands'][0]
+        record.update(dispatched=True, outcome='succeeded', status='running')
+        return request_id, ExecutionContext(self.portal, request_id, record)
+
+    def end_leftovers(self, process):
+        import psutil
+        try:
+            root = psutil.Process(process.pid)
+            targets = [root, *root.children(recursive=True)]
+        except psutil.Error:
+            targets = []
+        for target in targets:
+            try:
+                target.kill()
+            except psutil.Error:
+                pass
+        process.wait(timeout=30)
+
+    def hidden_worker(self, code, *arguments):
+        """Start a windowless worker as the esmfold command does; return (process, log path)."""
+        from utilities.Terminal_Launcher import launch_without_window
+        script = Path(self.directory.name) / 'worker.py'
+        script.write_text(code, encoding='utf-8')
+        log_path = Path(self.directory.name) / 'logs' / 'worker.log'
+        process = launch_without_window([sys.executable, str(script), *map(str, arguments)],
+                                        cwd=self.directory.name, log_path=log_path)
+        self.addCleanup(self.end_leftovers, process)
+        return process, str(log_path)
+
+    def started_tree(self):
+        """A running hidden worker and its child; return (process, log path, [psutil.Process of both])."""
+        import psutil
+        pids = Path(self.directory.name) / 'pids.txt'
+        process, log = self.hidden_worker(self.TREE_SCRIPT, pids)
+        deadline = time.monotonic() + 60
+        while True:
+            fields = pids.read_text().split() if pids.exists() else []
+            if len(fields) == 2:
+                break
+            self.assertLess(time.monotonic(), deadline, 'The hidden worker never started its child')
+            time.sleep(0.05)
+        processes = [psutil.Process(int(field)) for field in fields]
+        self.addCleanup(lambda: [p.kill() for p in processes if p.is_running()])
+        return process, log, processes
+
+    def assert_all_ended(self, process, processes):
+        import psutil
+        _, alive = psutil.wait_procs(processes, timeout=10)
+        self.assertEqual(alive, [], 'A process the hidden worker started is still running')
+        self.assertIsNotNone(process.poll())
+
+    def test_stopping_the_workers_ends_each_with_everything_it_started(self):
+        import Viewer_Worker_Tracking
+        process, _, processes = self.started_tree()
+        Viewer_Worker_Tracking.track_hidden_worker(process)
+
+        self.assertEqual(Viewer_Worker_Tracking.stop_hidden_workers(), 1)
+
+        self.assert_all_ended(process, processes)
+        # Nothing is left to stop, and a worker that ended by itself is not counted.
+        self.assertEqual(Viewer_Worker_Tracking.stop_hidden_workers(), 0)
+        finished, _ = self.hidden_worker('print("done")\n')
+        finished.wait(timeout=60)
+        Viewer_Worker_Tracking.track_hidden_worker(finished)
+        self.assertEqual(Viewer_Worker_Tracking.stop_hidden_workers(), 0)
+
+    def test_quitting_the_application_stops_the_hidden_workers(self):
+        import Viewer_Worker_Tracking
+        process, _, processes = self.started_tree()
+        # A stand-in application: emitting the real aboutToQuit would run every other test's hooks.
+        application = SimpleNamespace(aboutToQuit=mock.Mock())
+        with mock.patch.object(Viewer_Worker_Tracking.QtCore.QCoreApplication, 'instance', return_value=application):
+            Viewer_Worker_Tracking.track_hidden_worker(process)
+            Viewer_Worker_Tracking.track_hidden_worker(process)  # hooked once, however many workers
+        application.aboutToQuit.connect.assert_called_once_with(Viewer_Worker_Tracking.stop_hidden_workers)
+
+        # What the signal then runs.
+        Viewer_Worker_Tracking.stop_hidden_workers()
+
+        self.assert_all_ended(process, processes)
+
+    def test_a_job_that_fails_ends_its_hidden_worker_and_names_the_log(self):
+        import Viewer_Worker_Tracking
+        process, log, processes = self.started_tree()
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.attach_hidden(process, log)
+        # The worker never reports startup.
+        clock = SimpleNamespace(monotonic=lambda: tracker.created + 61)
+        with mock.patch.object(Viewer_Worker_Tracking, 'time', clock):
+            tracker.poll()
+
+        result = self.finish(request_id)
+        self.assertEqual(result['status'], 'failed', result)
+        job = result['commands'][0]['jobs'][0]
+        self.assertEqual(job['message'],
+                         f'Worker did not report startup within 60 seconds; inspect its log {log} before retrying')
+        self.assert_all_ended(process, processes)
+
+    def test_a_worker_that_dies_at_startup_fails_the_job_at_once_with_its_log(self):
+        process, log = self.hidden_worker('raise ImportError("no torch here")\n')
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.attach_hidden(process, log)
+
+        deadline = time.monotonic() + 60
+        while context.record['jobs'][0]['status'] != 'failed':
+            self.assertLess(time.monotonic(), deadline, 'The dead worker was never reported')
+            tracker.poll()
+            time.sleep(0.05)
+
+        self.assertLess(time.monotonic() - tracker.created, 60)
+        result = self.finish(request_id)
+        self.assertEqual(result['status'], 'failed', result)
+        self.assertEqual(result['commands'][0]['jobs'][0]['message'],
+                         f'Worker exited with code 1 before reporting startup; its output is in {log}')
+        # The traceback that a terminal would have shown is where the message points.
+        self.assertIn('ImportError: no torch here', Path(log).read_text(encoding='utf-8'))
+
+    def test_a_status_file_in_flight_is_not_mistaken_for_a_dead_worker(self):
+        # The worker has exited but its status file exists (it may be mid-replace
+        # and unreadable for a moment): the next poll reads its real report.
+        import psutil
+        process = SimpleNamespace(poll=lambda: 0, returncode=0)
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.attach_hidden(process, 'worker.log')
+        tracker.path.write_text('{"half"')  # not valid JSON yet
+
+        tracker.poll()
+        self.assertEqual(context.record['jobs'][0]['status'], 'queued')
+
+        tracker.path.write_text(json.dumps({'pid': os.getpid(), 'created': psutil.Process().create_time(),
+                                            'status': 'succeeded', 'message': 'Structure prediction completed'}))
+        tracker.poll()
+        self.assertEqual(self.finish(request_id)['status'], 'succeeded')
+
+    def test_a_hidden_worker_that_exited_without_a_final_status_names_the_log(self):
+        import psutil
+        import Viewer_Worker_Tracking
+        process = mock.Mock()
+        process.poll.return_value = 0
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.attach_hidden(process, 'worker.log')
+        tracker.path.write_text(json.dumps({'pid': os.getpid(), 'created': psutil.Process().create_time() - 10,
+                                            'status': 'running'}))
+
+        with mock.patch.object(Viewer_Worker_Tracking, '_end_process_tree') as end_tree:
+            tracker.poll()
+
+        self.assertEqual(self.finish(request_id)['commands'][0]['jobs'][0]['message'],
+                         'Worker exited before reporting a final result; its output is in worker.log')
+        # It had ended: no process tree is touched, so a reused PID is safe.
+        end_tree.assert_not_called()
+
+    def test_a_worker_with_a_terminal_is_left_to_its_window(self):
+        import Viewer_Worker_Tracking
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        self.assertIsNone(tracker.hidden)
+
+        with mock.patch.object(Viewer_Worker_Tracking, '_end_process_tree') as end_tree:
+            tracker.fail('Worker did not report startup within 60 seconds; inspect its terminal before retrying')
+
+        end_tree.assert_not_called()
+
+
 if __name__ == '__main__': unittest.main()

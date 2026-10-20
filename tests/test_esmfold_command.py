@@ -1,12 +1,15 @@
 """Regression tests for local and Biohub-backed ESMFold command routing."""
 
+import contextlib
 import io
 import json
 import os
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -16,8 +19,14 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+import psutil
+
+import Viewer_Worker_Tracking
+from Viewer_Command_Portal import CURRENT, ExecutionContext, bind
 from commands import esmfold as esmfold_command
+from tests.viewer_fixtures import PortalFixture
 from utilities import Hardware_Acceleration as Hardware_Utils
+from web_ui import Browser_Page
 
 
 class FakeDevice:
@@ -29,6 +38,17 @@ class FakeDevice:
 
 
 class ESMFoldCommandTests(unittest.TestCase):
+    def setUp(self):
+        # These Viewers are not headless, so the worker must never start without a
+        # window; a stand-in that is called fails the test instead of starting a worker.
+        patcher = mock.patch.object(
+            esmfold_command,
+            "launch_without_window",
+            side_effect=AssertionError("A windowed esmfold must start its worker in a terminal."),
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def make_viewer(self, count=0):
         headers = [f"node_{index} description" for index in range(count)]
         return SimpleNamespace(
@@ -635,6 +655,521 @@ class ESMFoldCommandTests(unittest.TestCase):
         self.addCleanup(CURRENT.reset, token)
         open_ui, _, _ = self.open_page(False, connected=True)
         open_ui.assert_called_once_with(mock.ANY, show_existing_dialog=False)
+
+
+ADDRESS = "http://127.0.0.1:49123"
+# Where the command module under test says the project is, as it computes it.
+COMMAND_SRC = os.path.dirname(os.path.dirname(os.path.abspath(esmfold_command.__file__)))
+COMMAND_PROJECT = os.path.dirname(COMMAND_SRC)
+
+
+def remove_worker_input(launch):
+    """Delete the private input file of the worker a stubbed launch was asked to start."""
+    if launch.called:
+        try:
+            os.unlink(launch.call_args.args[0][2])
+        except OSError:
+            pass
+
+
+class HeadlessESMFoldTests(unittest.TestCase):
+    """In a headless Viewer (no screen) esmfold opens no console window and no browser page.
+
+    The page opens through the Viewer's real opener, so a page that would
+    open reaches the webbrowser mock; only the launchers are stubbed.
+    """
+
+    def make_viewer(self, count=1, *, headless=True, connected=False):
+        headers = [f"node_{index} description" for index in range(count)]
+        viewer = SimpleNamespace(
+            selected_indices=list(range(count)),
+            selected_node_idx=None,
+            full_headers=headers,
+            sequences_map={header: "ACDE" for header in headers},
+            console_text=SimpleNamespace(text=""),
+            get_web_url=lambda path="/": f"{ADDRESS}/{str(path).lstrip('/')}",
+            web_server=SimpleNamespace(
+                has_event_client=lambda client_id: connected and client_id == "esmfold"
+            ),
+            update_console_background=lambda: None,
+        )
+        if headless is not None:
+            viewer.headless = headless
+        viewer._open_web_ui = lambda *args, **kwargs: Browser_Page.open_browser_page(
+            viewer, *args, **kwargs
+        )
+        return viewer
+
+    def run_esmfold(self, viewer, arguments, *, launch=None, tracker=None):
+        """Run the command with only the launchers stubbed; return what happened."""
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        process = mock.Mock()
+        process.poll.return_value = None  # A running worker.
+        hidden_options = {"side_effect": launch} if launch else {"return_value": process}
+        engine = esmfold_command.Command_Engine
+        output = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            enter = stack.enter_context
+            # The worker folder (status files, logs) is <project>/temp/command_workers.
+            enter(mock.patch.object(
+                Viewer_Worker_Tracking, "__file__", str(root / "src" / "Viewer_Worker_Tracking.py")
+            ))
+            enter(mock.patch.object(
+                esmfold_command.esmfold_backend, "get_structures_directory",
+                return_value=str(root / "structures"),
+            ))
+            enter(mock.patch.object(esmfold_command.esmfold_backend, "register"))
+            if "large" not in arguments:
+                enter(mock.patch.object(
+                    Hardware_Utils, "get_optimal_device", return_value=FakeDevice("cuda")
+                ))
+            if tracker is not None:
+                enter(mock.patch.object(Viewer_Worker_Tracking, "WorkerTracker", return_value=tracker))
+            hidden = enter(mock.patch.object(esmfold_command, "launch_without_window", **hidden_options))
+            terminal = enter(mock.patch.object(esmfold_command, "launch_in_terminal", return_value=process))
+            track = enter(mock.patch.object(Viewer_Worker_Tracking, "track_hidden_worker"))
+            browser = enter(mock.patch.object(Browser_Page.webbrowser, "open", return_value=True))
+            critical = enter(mock.patch.object(esmfold_command.QMessageBox, "critical"))
+            information = enter(mock.patch.object(Browser_Page.QMessageBox, "information"))
+            succeeded = enter(mock.patch.object(engine, "command_succeeded"))
+            failed = enter(mock.patch.object(engine, "command_failed"))
+            enter(redirect_stdout(output))
+            try:
+                esmfold_command.run(viewer, arguments)
+            finally:
+                remove_worker_input(hidden)
+                remove_worker_input(terminal)
+        return SimpleNamespace(
+            root=root, process=process, output=output.getvalue(), hidden=hidden, terminal=terminal,
+            track=track, browser=browser, critical=critical, information=information,
+            succeeded=succeeded, failed=failed,
+        )
+
+    def outcome(self, run):
+        run.failed.assert_not_called()
+        [call] = run.succeeded.call_args_list
+        return call.args[1]
+
+    def test_the_worker_runs_hidden_with_its_output_in_a_log(self):
+        for arguments, tail in (
+            ([], ["cuda", "--delete-input", "--action-url", f"{ADDRESS}/api/action", "--noninteractive"]),
+            (["large"], ["--delete-input", "--mode", "large", "--action-url", f"{ADDRESS}/api/action", "--noninteractive"]),
+        ):
+            with self.subTest(arguments=arguments):
+                viewer = self.make_viewer()
+                run = self.run_esmfold(viewer, arguments)
+
+                run.hidden.assert_called_once()
+                command = run.hidden.call_args.args[0]
+                options = run.hidden.call_args.kwargs
+                self.assertEqual(command[-len(tail):], tail)
+                self.assertEqual(os.path.abspath(options["cwd"]), COMMAND_PROJECT)
+                # Without a tracker the log is in the worker folder, named for the run.
+                log_path = Path(options["log_path"])
+                self.assertEqual(log_path.parent, run.root / "temp" / "command_workers")
+                self.assertTrue(log_path.name.startswith("esmfold-") and log_path.suffix == ".log")
+                # No terminal, no page, no dialog; the Viewer ends the worker when it quits.
+                run.terminal.assert_not_called()
+                run.browser.assert_not_called()
+                run.critical.assert_not_called()
+                run.information.assert_not_called()
+                run.track.assert_called_once_with(run.process)
+                self.assertEqual(viewer.esmfold_worker, (run.process, None))
+                self.assertEqual(viewer.console_text.text, "")
+                self.assertEqual(
+                    self.outcome(run),
+                    "Started "
+                    + ("Biohub ESM3" if arguments else "local ESM3")
+                    + " folding for 1 structure(s); waiting for the worker."
+                    + f" The worker has no window; its output is in {log_path}."
+                    + f" A headless Viewer opens no browser page; the structure viewer is served at {ADDRESS}/esmfold.html.",
+                )
+                self.assertIn(f"without a window; its output goes to {log_path}", run.output)
+
+    def test_a_connected_structure_viewer_needs_no_address(self):
+        viewer = self.make_viewer(connected=True)
+        run = self.run_esmfold(viewer, ["large"])
+
+        run.browser.assert_not_called()
+        run.information.assert_not_called()
+        message = self.outcome(run)
+        self.assertIn("The worker has no window; its output is in", message)
+        self.assertNotIn("served at", message)
+
+    def test_skipped_nodes_are_still_reported(self):
+        viewer = self.make_viewer(2)
+        del viewer.sequences_map["node_1 description"]
+        run = self.run_esmfold(viewer, ["large", "multi"])
+
+        self.assertTrue(
+            self.outcome(run).startswith(
+                "Started Biohub ESM3 folding for 1 structure(s); waiting for the worker. "
+                "Skipped 1 selected node without a sequence. (node_1) The worker has no window"
+            )
+        )
+
+    def test_a_tracked_run_keeps_the_status_arguments_and_records_the_log_beside_the_status_file(self):
+        root = Path(tempfile.gettempdir()) / "unused"
+        tracker = SimpleNamespace(
+            path=root / "temp" / "command_workers" / "worker-abc.json",
+            timer=SimpleNamespace(isActive=lambda: True),
+            attach_hidden=mock.Mock(),
+            fail=mock.Mock(),
+        )
+        token = CURRENT.set(object())
+        self.addCleanup(CURRENT.reset, token)
+        viewer = self.make_viewer()
+        run = self.run_esmfold(viewer, ["large"], tracker=tracker)
+
+        command = run.hidden.call_args.args[0]
+        # --portal-status first, then --noninteractive, as in a windowed run.
+        self.assertEqual(command[-3:], ["--portal-status", str(tracker.path), "--noninteractive"])
+        log_path = root / "temp" / "command_workers" / "worker-abc.log"
+        self.assertEqual(Path(run.hidden.call_args.kwargs["log_path"]), log_path)
+        tracker.attach_hidden.assert_called_once_with(run.process, str(log_path))
+        tracker.fail.assert_not_called()
+        self.assertEqual(viewer.esmfold_worker, (run.process, tracker))
+        run.browser.assert_not_called()
+
+    def test_no_page_opens_when_nothing_is_selected_either(self):
+        viewer = self.make_viewer(0)
+        run = self.run_esmfold(viewer, [])
+
+        run.browser.assert_not_called()
+        run.hidden.assert_not_called()
+        run.terminal.assert_not_called()
+        self.assertEqual(
+            self.outcome(run),
+            f"A headless Viewer opens no browser page; the structure viewer is served at {ADDRESS}/esmfold.html. "
+            "No folding job was requested.",
+        )
+
+    def test_an_open_page_is_reported_and_an_unavailable_web_server_fails(self):
+        run = self.run_esmfold(self.make_viewer(0, connected=True), [])
+        self.assertEqual(
+            self.outcome(run), "The structure viewer is already open; no folding job was requested."
+        )
+        # Not even the dialog that says so: nobody is at a headless Viewer to close it.
+        run.information.assert_not_called()
+
+        viewer = self.make_viewer(0)
+        viewer.get_web_url = mock.Mock(side_effect=RuntimeError("bind failed"))
+        run = self.run_esmfold(viewer, [])
+        run.browser.assert_not_called()
+        run.succeeded.assert_not_called()
+        run.failed.assert_called_once()
+        self.assertIn("was not opened", run.failed.call_args.args[1])
+
+    def test_no_dialog_opens_when_the_worker_cannot_start(self):
+        def refused(command, **options):
+            raise OSError("no python")
+
+        viewer = self.make_viewer()
+        run = self.run_esmfold(viewer, ["large"], launch=refused)
+
+        run.succeeded.assert_not_called()
+        run.critical.assert_not_called()
+        run.track.assert_not_called()
+        run.failed.assert_called_once_with(
+            viewer, "Error: Could not launch the ESMFold worker without a window:\nno python"
+        )
+        self.assertFalse(hasattr(viewer, "esmfold_worker"))
+        self.assertFalse(os.path.exists(run.hidden.call_args.args[0][2]))
+
+    def test_no_dialog_opens_when_the_web_server_is_unavailable(self):
+        viewer = self.make_viewer()
+        viewer.get_web_url = mock.Mock(side_effect=RuntimeError("bind failed"))
+        run = self.run_esmfold(viewer, ["large"])
+
+        run.hidden.assert_not_called()
+        run.critical.assert_not_called()
+        run.failed.assert_called_once()
+        self.assertIn("web server is unavailable", run.failed.call_args.args[1])
+
+    def test_a_second_run_is_refused_without_naming_a_console_window(self):
+        viewer = self.make_viewer()
+        worker = mock.Mock()
+        worker.poll.return_value = None
+        viewer.esmfold_worker = (worker, None)
+        run = self.run_esmfold(viewer, ["large"])
+
+        run.hidden.assert_not_called()
+        run.succeeded.assert_not_called()
+        run.failed.assert_called_once_with(
+            viewer, "Error: An esmfold worker is still running. Wait for it to finish before folding again."
+        )
+
+    # --- A windowed Viewer is as it was ------------------------------------
+
+    def test_a_windowed_viewer_still_uses_the_terminal_and_opens_the_page(self):
+        for headless in (False, None):  # None: a stand-in with no flag at all.
+            with self.subTest(headless=headless):
+                viewer = self.make_viewer(headless=headless)
+                run = self.run_esmfold(viewer, [])
+
+                run.hidden.assert_not_called()
+                run.track.assert_not_called()
+                run.terminal.assert_called_once()
+                command = run.terminal.call_args.args[0]
+                self.assertEqual(
+                    command,
+                    [
+                        sys.executable,
+                        os.path.join(COMMAND_SRC, "resources", "esmfold", "esmfold_worker.py"),
+                        command[2],
+                        os.path.abspath(str(run.root / "structures")),
+                        "cuda",
+                        "--delete-input",
+                        "--action-url",
+                        f"{ADDRESS}/api/action",
+                    ],
+                )
+                options = run.terminal.call_args.kwargs
+                self.assertEqual(os.path.abspath(options["cwd"]), COMMAND_PROJECT)
+                self.assertEqual(options["hold"], esmfold_command.HoldMode.NEVER)
+                self.assertEqual(options["title"], "SSN ESMFold")
+                run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new=2)
+                self.assertEqual(
+                    self.outcome(run),
+                    "Started local ESM3 folding for 1 structure(s); waiting for the worker.",
+                )
+                self.assertEqual(
+                    viewer.console_text.text,
+                    "Spawning separate console to fold 1 structure with local ESM3...",
+                )
+                self.assertIn("in a separate console...", run.output)
+                self.assertEqual(viewer.esmfold_worker, (run.process, None))
+
+    def test_a_windowed_viewer_keeps_the_noninteractive_rule_for_tracked_runs(self):
+        # --noninteractive follows the environment for a run the portal tracks,
+        # as before the headless flag existed; an untracked one never gets it.
+        for environment, expected in (
+            ({"SSN_VIEWER_HEADLESS": "1", "QT_QPA_PLATFORM": ""}, ["--portal-status", "status.json", "--noninteractive"]),
+            ({"SSN_VIEWER_HEADLESS": "0", "QT_QPA_PLATFORM": "offscreen"}, ["--portal-status", "status.json", "--noninteractive"]),
+            ({"SSN_VIEWER_HEADLESS": "0", "QT_QPA_PLATFORM": ""}, ["--portal-status", "status.json"]),
+        ):
+            with self.subTest(environment=environment):
+                tracker = SimpleNamespace(
+                    path="status.json", timer=SimpleNamespace(isActive=lambda: True),
+                    attach_hidden=mock.Mock(), fail=mock.Mock(),
+                )
+                token = CURRENT.set(object())
+                self.addCleanup(CURRENT.reset, token)
+                with mock.patch.dict(os.environ, environment):
+                    run = self.run_esmfold(self.make_viewer(headless=False), ["large"], tracker=tracker)
+
+                run.hidden.assert_not_called()
+                command = run.terminal.call_args.args[0]
+                self.assertEqual(command[-len(expected):], expected)
+                tracker.attach_hidden.assert_not_called()
+                self.assertEqual(self.outcome(run), "Started Biohub ESM3 folding for 1 structure(s); waiting for the worker.")
+
+    def test_a_windowed_viewer_still_opens_the_page_when_nothing_is_selected(self):
+        run = self.run_esmfold(self.make_viewer(0, headless=False), [])
+
+        run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new=2)
+        run.hidden.assert_not_called()
+        self.assertEqual(
+            self.outcome(run), "Opened the structure viewer; no folding job was requested."
+        )
+
+    def test_a_windowed_launch_failure_still_shows_the_dialog(self):
+        def refused(command, **options):
+            raise OSError("no terminal")
+
+        viewer = self.make_viewer(headless=False)
+        engine = esmfold_command.Command_Engine
+        with contextlib.ExitStack() as stack:
+            enter = stack.enter_context
+            root = Path(enter(tempfile.TemporaryDirectory()))
+            enter(mock.patch.object(
+                esmfold_command.esmfold_backend, "get_structures_directory",
+                return_value=str(root),
+            ))
+            enter(mock.patch.object(esmfold_command.esmfold_backend, "register"))
+            enter(mock.patch.object(Hardware_Utils, "get_optimal_device", return_value=FakeDevice("cuda")))
+            enter(mock.patch.object(esmfold_command, "launch_in_terminal", side_effect=refused))
+            enter(mock.patch.object(
+                esmfold_command, "launch_without_window",
+                side_effect=AssertionError("A windowed esmfold must start its worker in a terminal."),
+            ))
+            enter(mock.patch.object(engine, "command_failed"))
+            critical = enter(mock.patch.object(esmfold_command.QMessageBox, "critical"))
+            enter(redirect_stdout(io.StringIO()))
+            esmfold_command.run(viewer, [])
+
+        critical.assert_called_once()
+
+
+# Runs the real worker's main() with the folding replaced by a stand-in that
+# writes a one-line PDB per record and tells main()'s notifier, so the status
+# file, the mirrored output and the exit code are the real worker's.
+# argv: the project's src folder, then the worker's own arguments.
+STAND_IN_FOLDING = """
+import os, sys
+src, *arguments = sys.argv[1:]
+sys.path.insert(0, src)
+from resources.esmfold import esmfold_worker as worker
+
+def run_predictions(nodes, structures_dir, *, notifier, **options):
+    print("Folding with a stand-in model: \\u03b1-amylase")
+    for node_id, sequence in nodes:
+        name = worker.prediction_filename(node_id)
+        with open(os.path.join(structures_dir, name), "w") as handle:
+            handle.write("ATOM\\n")
+        notifier(node_id, name)
+    return len(nodes), False
+
+worker.run_predictions = run_predictions
+worker.notify_server = lambda *args, **options: None
+raise SystemExit(worker.main(arguments))
+"""
+
+# Starts a child of its own, records both process IDs, and runs until it is ended.
+STAND_IN_HANGING = """
+import os, subprocess, sys, time
+child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+with open({pids!r}, "w") as handle:
+    handle.write(f"{{os.getpid()}} {{child.pid}}")
+time.sleep(120)
+"""
+
+
+class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
+    """The headless worker as real processes: the real launcher, the real worker's
+    status reporting, the real tracker and a real process tree."""
+
+    def setUp(self):
+        super().setUp()
+        self.root = Path(self.directory.name)
+        for name, value in (("_hidden_workers", set()), ("_hidden_quit_hooked", True)):
+            patcher = mock.patch.object(Viewer_Worker_Tracking, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(
+            Viewer_Worker_Tracking, "__file__", str(self.root / "src" / "Viewer_Worker_Tracking.py")
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.end_workers)
+
+    def end_workers(self):
+        Viewer_Worker_Tracking.stop_hidden_workers()
+
+    def make_viewer(self):
+        viewer = self.viewer
+        viewer.headless = True
+        viewer.selected_indices = [0]
+        viewer.selected_node_idx = None
+        viewer.sequences_map = {"one": "ACDE"}
+        viewer.get_web_url = lambda path="/": f"{ADDRESS}/{str(path).lstrip('/')}"
+        viewer.web_server = SimpleNamespace(has_event_client=lambda client_id: False)
+        viewer._open_web_ui = lambda *args, **kwargs: Browser_Page.open_browser_page(
+            viewer, *args, **kwargs
+        )
+        return viewer
+
+    def run_in_portal(self, script_text):
+        """Run `esmfold large` as a portal command whose worker is script_text; return (request id, context, mocks)."""
+        script = self.root / "stand_in.py"
+        script.write_text(script_text, encoding="utf-8")
+        request_id = self.portal.submit("headless-fold", "test")["request_id"]
+        record = self.portal.requests[request_id]["commands"][0]
+        record.update(dispatched=True, outcome="succeeded", status="running")
+        context = ExecutionContext(self.portal, request_id, record)
+        real_launch = esmfold_command.launch_without_window
+
+        def launch(command, **options):
+            # [python, worker script, input, structures, ...]: the stand-in takes the worker's
+            # place. The real worker deletes its private input (--delete-input); a stand-in
+            # that fails or hangs before reading it leaves the file for the test to remove.
+            self.addCleanup(lambda path=command[2]: os.path.exists(path) and os.unlink(path))
+            return real_launch([command[0], str(script), SRC_DIR, *command[2:]], **options)
+
+        with contextlib.ExitStack() as stack:
+            enter = stack.enter_context
+            enter(mock.patch.object(
+                esmfold_command.esmfold_backend, "get_structures_directory",
+                return_value=str(self.root / "structures"),
+            ))
+            enter(mock.patch.object(esmfold_command.esmfold_backend, "register"))
+            enter(mock.patch.object(esmfold_command, "launch_without_window", side_effect=launch))
+            terminal = enter(mock.patch.object(esmfold_command, "launch_in_terminal"))
+            browser = enter(mock.patch.object(Browser_Page.webbrowser, "open"))
+            critical = enter(mock.patch.object(esmfold_command.QMessageBox, "critical"))
+            enter(redirect_stdout(io.StringIO()))
+            with bind(context):
+                esmfold_command.run(self.make_viewer(), ["large"])
+        self.assertIsNotNone(getattr(self.viewer, "esmfold_worker", None))
+        self.addCleanup(self.viewer.esmfold_worker[1].timer.stop)
+        return request_id, context, SimpleNamespace(terminal=terminal, browser=browser, critical=critical)
+
+    def logs(self):
+        return sorted((self.root / "temp" / "command_workers").glob("*.log"))
+
+    def test_a_hidden_fold_reports_through_the_portal_and_writes_its_log(self):
+        request_id, context, mocks = self.run_in_portal(STAND_IN_FOLDING)
+
+        result = self.finish(request_id)
+
+        self.assertEqual(result["status"], "succeeded", result)
+        [job] = result["commands"][0]["jobs"]
+        self.assertEqual((job["status"], job["message"]), ("succeeded", "Structure prediction completed"))
+        self.assertEqual(job["result"], {"succeeded": 1, "total": 1})
+        pdb = os.path.abspath(self.root / "structures" / "one.pdb")
+        self.assertEqual(result["commands"][0]["artifacts"], [pdb])
+        self.assertTrue(os.path.exists(pdb))
+        # The worker's own output still reaches the portal, and the log holds all of it.
+        self.assertIn("Successfully completed 1 / 1", self.portal.read_output(request_id)["text"])
+        [log] = self.logs()
+        text = log.read_text(encoding="utf-8")
+        self.assertIn("Folding with a stand-in model: α-amylase", text)
+        self.assertIn("Successfully completed 1 / 1", text)
+        self.assertEqual(log.stem, os.path.splitext(os.path.basename(job_status_path(self.root)))[0])
+        # The outcome tells where the log is and where the page is; nothing opened.
+        messages = [entry["text"] for entry in context.record["messages"]]
+        self.assertTrue(any(f"its output is in {log}" in text and f"{ADDRESS}/esmfold.html" in text for text in messages), messages)
+        mocks.terminal.assert_not_called()
+        mocks.browser.assert_not_called()
+        mocks.critical.assert_not_called()
+
+    def test_a_worker_that_fails_to_start_is_reported_with_its_traceback_in_the_log(self):
+        request_id, context, _ = self.run_in_portal("raise ImportError('no torch here')\n")
+
+        result = self.finish(request_id)
+
+        self.assertEqual(result["status"], "failed", result)
+        [log] = self.logs()
+        [job] = result["commands"][0]["jobs"]
+        self.assertEqual(
+            job["message"], f"Worker exited with code 1 before reporting startup; its output is in {log}"
+        )
+        self.assertIn("ImportError: no torch here", log.read_text(encoding="utf-8"))
+
+    def test_closing_the_viewer_ends_the_hidden_worker_and_what_it_started(self):
+        pids = self.root / "pids.txt"
+        request_id, context, _ = self.run_in_portal(STAND_IN_HANGING.format(pids=str(pids)))
+        deadline = time.monotonic() + 60
+        while len(pids.read_text().split() if pids.exists() else []) != 2:
+            self.assertLess(time.monotonic(), deadline, "The stand-in worker never started its child")
+            time.sleep(0.05)
+        processes = [psutil.Process(int(field)) for field in pids.read_text().split()]
+        self.addCleanup(lambda: [p.kill() for p in processes if p.is_running()])
+        process = self.viewer.esmfold_worker[0]
+        self.assertIsNone(process.poll())
+
+        # What the application's aboutToQuit signal runs.
+        self.assertEqual(Viewer_Worker_Tracking.stop_hidden_workers(), 1)
+
+        _, alive = psutil.wait_procs(processes, timeout=10)
+        self.assertEqual(alive, [])
+        self.assertIsNotNone(process.poll())
+
+
+def job_status_path(root):
+    """The one worker status file under root's worker folder."""
+    [path] = (Path(root) / "temp" / "command_workers").glob("worker-*.json")
+    return str(path)
 
 
 if __name__ == "__main__":

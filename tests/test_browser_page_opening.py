@@ -361,6 +361,69 @@ class InstanceUrlRoutingTests(unittest.TestCase):
         )
 
 
+class HeadlessBrowserPageTests(unittest.TestCase):
+    """A headless Viewer has no screen: no browser page opens, from any command."""
+
+    def test_the_shared_opener_opens_no_browser_and_names_where_the_page_is_served(self):
+        viewer = BrowserPageOpeningTests.make_viewer()
+        viewer.headless = True
+        with (
+            mock.patch.object(Browser_Page.webbrowser, "open") as browser_open,
+            mock.patch.object(Browser_Page.QMessageBox, "information") as information,
+        ):
+            self.assertFalse(
+                Browser_Page.open_browser_page(viewer, "/meta.html", "Metadata UI", "meta")
+            )
+
+        browser_open.assert_not_called()
+        information.assert_not_called()
+        self.assertEqual(
+            viewer.console_text.text,
+            "Could not open Metadata UI: http://localhost:49123/meta.html",
+        )
+        # Nothing is pending: the page was never being opened.
+        self.assertFalse(Browser_Page.page_is_open(viewer, "meta"))
+
+    def test_a_page_that_is_already_connected_is_still_reported_as_open(self):
+        viewer = BrowserPageOpeningTests.make_viewer({"meta"})
+        viewer.headless = True
+        with mock.patch.object(Browser_Page.webbrowser, "open") as browser_open:
+            self.assertFalse(
+                Browser_Page.open_browser_page(
+                    viewer, "/meta.html", "Metadata UI", "meta", show_existing_dialog=False
+                )
+            )
+
+        browser_open.assert_not_called()
+        self.assertEqual(
+            viewer.console_text.text, "Metadata UI is already open in your browser."
+        )
+
+    def test_is_headless_reads_the_viewers_own_flag(self):
+        self.assertTrue(Browser_Page.is_headless(SimpleNamespace(headless=True)))
+        self.assertFalse(Browser_Page.is_headless(SimpleNamespace(headless=False)))
+        # A stand-in with no flag is a windowed Viewer.
+        self.assertFalse(Browser_Page.is_headless(SimpleNamespace()))
+
+    def test_agent_meta_and_esmfold_commands_open_no_browser(self):
+        class HeadlessViewer(InstanceUrlRoutingTests.Viewer):
+            headless = True
+
+        viewer = HeadlessViewer()
+        with (
+            tempfile.TemporaryDirectory() as temp_dir,
+            mock.patch.object(agent, "register"),
+            mock.patch.object(meta, "register"),
+            mock.patch.object(meta.cfg, "METADATA_DIR", temp_dir),
+            mock.patch("webbrowser.open") as browser_open,
+        ):
+            agent.run(viewer, [])
+            meta.run(viewer, [])
+            self.assertFalse(esmfold_backend.open_esmfold_ui(viewer))
+
+        browser_open.assert_not_called()
+
+
 class ESMFoldBrowserOpeningTests(unittest.TestCase):
     def test_esmfold_page_opens_through_viewer_shared_opener(self):
         # The default suits the Fold View button; the esmfold command passes
