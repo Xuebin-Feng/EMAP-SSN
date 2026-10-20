@@ -111,6 +111,12 @@ still change before version 1.0.0.
     the window is visible or in front, and what it can do. The MCP server is 0.15.0.
   - **Cost:** a hidden Viewer takes about 150 MB more memory and 125 MB of video memory
     than a headless one, and starts 1 to 2 s later. `mode="headless"` is unchanged.
+- **`esmfold stop`** ends every ESMFold worker this Viewer started, with or without a
+  window, and nothing else.
+  - Structures already saved are kept, and an unfinished one leaves no partial file.
+  - The stopped jobs read "cancelled", not "failed".
+  - With no worker running, it succeeds and says so.
+  - Like `run stop`, it needs approval when the Agent page asks for it.
 
 ### Changed
 
@@ -346,6 +352,15 @@ still change before version 1.0.0.
     command didn't come through MCP.
   Now none of them opens anything where no one sees the Viewer: in a headless Viewer, or
   a hidden one not yet shown. The dialogs report why instead.
+- A `run stop` sent through MCP while a script was running never ran. The Viewer's
+  command queue waited for the running job before taking the next request, and that job
+  only ends when the stop runs. A request made only of stop commands (`run stop`,
+  `esmfold stop`) now runs at once while the queue waits for a job.
+- `esmfold` left its worker's input file in the temporary folder when the worker ended
+  before reading it: an import error, a stop, or the Viewer closing. The Viewer now
+  deletes the input of a worker that has ended, never one still running. The VR tests and
+  tools also stopped leaving a settings file, scripts and build folders in the temporary
+  folder on every run, and a test now checks that they leave nothing.
 
 ## [0.4.0] - 2026-10-16
 
