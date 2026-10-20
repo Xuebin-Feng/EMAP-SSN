@@ -241,6 +241,11 @@ still change before version 1.0.0.
   same exactness conditions, so the three tools share their kernels. The written networks
   are identical and the alignment step itself is about twice as fast there, though a whole
   job gains little, as building each pair's score matrix costs more.
+- The Normalization Mode dropdowns in Config, VR Config and Tools name the modes in words
+  (Alignment Length, Shorter Sequence, Longer Sequence, Average Sequence) instead of
+  `alignment_length` and the like, as the Network Statistics Report already did. Settings,
+  profiles and MCP documents keep the same values. With a local score mode, the field's
+  tip no longer gives `alignment_length`, which it doesn't offer, as the default.
 
 ### Fixed
 
