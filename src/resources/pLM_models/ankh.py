@@ -26,6 +26,11 @@ MODEL_EXECUTION_MODES = {
     "ankh_base": "local",
     "ankh_large": "local",
 }
+# What the Tools dropdowns show; the identifiers above stay what settings and files hold.
+MODEL_DISPLAY_NAMES = {
+    "ankh_base": "Ankh Base",
+    "ankh_large": "Ankh Large",
+}
 MODEL_USAGE_TERMS = {
     "ankh_base": {
         "source_url": "https://huggingface.co/ElnaggarLab/ankh-base",

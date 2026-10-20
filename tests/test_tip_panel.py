@@ -1750,7 +1750,7 @@ class ToolsWindowTipTests(WithApplication):
         self.assertEqual(entry.field.title(), "Execution Mode")
         # The widget's accessible description is the tip as plain text.
         self.assertEqual(combo.toolTip(), tip_plain(entry))
-        self.assertIn("scalar: Processes one pairwise score matrix at a time.", combo.toolTip())
+        self.assertIn("Scalar: Processes one pairwise score matrix at a time.", combo.toolTip())
         batch = self.widget("Align_Similarity_Matrix.py", "BATCH_SIZE")
         self.assertEqual(batch.toolTip(), tip_plain(self.window.tip_db[batch]))
         self.assertIn("Warning: Larger values improve throughput but require more RAM.", batch.toolTip())
@@ -1763,16 +1763,16 @@ class ToolsWindowTipTests(WithApplication):
 
         # The device decides whether "tiled" is offered: try both.
         if combo.findData("tiled") < 0:
-            combo.addItem("tiled", "tiled")
+            combo.addItem("Tiled", "tiled")
         self.enter(combo)
         # The options as the dropdown names them, then the facts: the default and the key.
-        self.assertEqual(chips(self.shown()), listed() + ["auto", "EXECUTION_MODE"])
-        self.assertIn("tiled", listed())
+        self.assertEqual(chips(self.shown()), listed() + ["Auto", "EXECUTION_MODE"])
+        self.assertIn("Tiled", listed())
         self.assertIn("memory-bounded embedding tiles", plain_text(self.shown()))
         combo.removeItem(combo.findData("tiled"))
         self.enter(combo)
-        self.assertEqual(chips(self.shown()), listed() + ["auto", "EXECUTION_MODE"])
-        self.assertNotIn("tiled", listed())
+        self.assertEqual(chips(self.shown()), listed() + ["Auto", "EXECUTION_MODE"])
+        self.assertNotIn("Tiled", listed())
         self.assertNotIn("memory-bounded embedding tiles", plain_text(self.shown()))
         self.assertIn("Processes one pairwise score matrix at a time", plain_text(self.shown()))
 

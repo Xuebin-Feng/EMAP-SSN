@@ -17,6 +17,8 @@ import re
 
 SUPPORTED_MODELS = ["prot_bert"]
 MODEL_EXECUTION_MODES = {"prot_bert": "local"}
+# What the Tools dropdowns show; the identifier above stays what settings and files hold.
+MODEL_DISPLAY_NAMES = {"prot_bert": "ProtBERT"}
 
 # ProtBERT's published preprocessing maps the rare/ambiguous B/Z/U/O codes to
 # X. J and alignment punctuation are also outside that input contract.

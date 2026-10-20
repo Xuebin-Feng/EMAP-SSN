@@ -1422,7 +1422,8 @@ class SettingsLoadReportTests(unittest.TestCase):
             data["inputs"]["SAVING_MODE"]["widget"] for path, data in window.script_data.items()
             if pathlib.Path(path).name == "Generate_Embeddings.py"
         )
-        self.assertEqual(saving_mode.currentText(), "float16")
+        self.assertEqual(saving_mode.currentText(), "Float16 (Half Size)")
+        self.assertEqual(saving_mode.currentData(), "float16")
         with mock.patch.object(tools.QMessageBox, "warning") as warning:
             window.report_settings_load_error()
         warning.assert_not_called()

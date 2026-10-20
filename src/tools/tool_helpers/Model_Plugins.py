@@ -112,6 +112,43 @@ def validate_model_usage_terms(supported, usage_terms):
     return usage_terms
 
 
+def validate_model_display_names(supported, display_names):
+    """Validate the optional readable names a plugin gives its models.
+
+    A name is what a dropdown shows for the model; the identifier in
+    SUPPORTED_MODELS stays what settings, files and caches hold.
+    """
+    if display_names is None:
+        return {}
+    if not isinstance(display_names, dict):
+        raise ValueError("MODEL_DISPLAY_NAMES must be a literal mapping.")
+    unknown_models = sorted(set(display_names) - set(supported))
+    if unknown_models:
+        raise ValueError(
+            "MODEL_DISPLAY_NAMES contains unsupported model(s): "
+            f"{unknown_models}."
+        )
+    for model_name, name in display_names.items():
+        if not isinstance(name, str) or not name or name != name.strip():
+            raise ValueError(
+                f"MODEL_DISPLAY_NAMES['{model_name}'] must be a non-empty "
+                "string without leading or trailing spaces."
+            )
+    if len(set(display_names.values())) != len(display_names):
+        raise ValueError("MODEL_DISPLAY_NAMES gives two models the same name.")
+    return display_names
+
+
+def read_model_display_names(filepath):
+    """Read optional model display names statically without importing a plugin."""
+    supported, _ = read_plugin_metadata(filepath)
+    values = _read_literal_assignments(filepath, {"MODEL_DISPLAY_NAMES"})
+    return validate_model_display_names(
+        supported,
+        values.get("MODEL_DISPLAY_NAMES"),
+    )
+
+
 def read_model_usage_terms(filepath):
     """Read optional model usage terms statically without importing a plugin."""
     supported, _ = read_plugin_metadata(filepath)
@@ -152,6 +189,25 @@ def discover_model_usage_terms(plugin_dir):
     return discovered
 
 
+def discover_model_display_names(plugin_dir):
+    """Return every model's declared display name, rejecting duplicates.
+
+    A model whose plugin declares no name is left out: it shows as its
+    identifier.
+    """
+    discovered = {}
+    for filepath in sorted(glob.glob(os.path.join(plugin_dir, "*.py"))):
+        if os.path.basename(filepath) == "__init__.py":
+            continue
+        for model, name in read_model_display_names(filepath).items():
+            if model in discovered:
+                raise ValueError(f"Model '{model}' is declared by multiple plugins.")
+            discovered[model] = name
+    if len(set(discovered.values())) != len(discovered):
+        raise ValueError("Two models of different plugins have the same display name.")
+    return discovered
+
+
 def validate_loaded_plugin(plugin, model_name):
     """Validate imported metadata and return the selected model's mode."""
     supported = getattr(plugin, "SUPPORTED_MODELS", None)
@@ -169,6 +225,10 @@ def validate_loaded_plugin(plugin, model_name):
     validate_model_usage_terms(
         supported,
         getattr(plugin, "MODEL_USAGE_TERMS", None),
+    )
+    validate_model_display_names(
+        supported,
+        getattr(plugin, "MODEL_DISPLAY_NAMES", None),
     )
     mode = modes[model_name]
     if mode not in ALLOWED_EXECUTION_MODES:
@@ -332,18 +392,21 @@ def format_model_usage_terms(model_name, terms):
     return str(model_usage_terms_message(model_name, terms))
 
 
-def format_model_selector_label(model_name, terms):
-    """Label separately licensed weights without changing the model identifier.
+def format_model_selector_label(model_name, terms, display_name=None):
+    """Label a model for a dropdown without changing the model identifier.
 
-    The label of a model with separate terms is a Message, which a window
-    shows translated (Localization.display_text).
+    The label is the model's display name when its plugin declares one, and
+    its identifier otherwise. The label of a model with separate terms is a
+    Message, which a window shows translated (Localization.display_text);
+    any other label is a plain string, a name no language translates.
     """
+    shown = display_name or model_name
     if not terms:
-        return model_name
+        return shown
     restriction = terms["restriction"].lower()
     if "non-commercial" in restriction:
-        return Message("{model} [non-commercial]", model=model_name)
-    return Message("{model} [separate terms]", model=model_name)
+        return Message("{model} [non-commercial]", model=shown)
+    return Message("{model} [separate terms]", model=shown)
 
 
 def prompt_for_model_license_acceptance(
@@ -387,9 +450,12 @@ __all__ = [
     "USAGE_TERM_FIELDS",
     "read_plugin_metadata",
     "validate_model_usage_terms",
+    "validate_model_display_names",
     "read_model_usage_terms",
+    "read_model_display_names",
     "discover_model_execution_modes",
     "discover_model_usage_terms",
+    "discover_model_display_names",
     "validate_loaded_plugin",
     "PROJECT_ROOT",
     "DEFAULT_ACCEPTANCE_FILE",

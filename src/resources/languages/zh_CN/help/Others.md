@@ -1,4 +1,4 @@
-<!-- Translation of Others.md, sha256 b2f079fd5c53d5c0906dcf8a033785102d83c6c3bd577cb172a4e48ce3aa64f0 -->
+<!-- Translation of Others.md, sha256 a20606a77bb7e07d5b396066e31e7f2115b69db61e8afd2c1d78513c6fac6712 -->
 # 双序列 embedding 比对 (`Embedding_PWA.py`)
 
 该脚本使用两条序列的残基级语言模型 embedding 对它们进行比对（alignment）。它计算动态规划（dynamic programming）比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列（reference sequence）残基（residue）位置直接映射到目标序列（target sequence）的位置上，便于比较活性位点和其他特征。
@@ -21,7 +21,7 @@
 | 手动目标序列 **`TAR_SEQUENCE`** | 仅在 `MANUAL_TAR_SEQ` 开启时使用，并在生成 embedding 之前按规范方式清理；否则按序列标题加载目标序列。 |
 | 高亮映射位置 **`HIGHLIGHT_POSITIONS`** | 以逗号分隔的参考序列残基位置列表（从 1 开始编号），这些位置会被映射到目标序列的比对中并高亮显示。 |
 | Embedding 模型 **`EMBEDDING_MODEL`** | 两条序列都为手动输入时使用的模型。可选模型从 `src/resources/pLM_models` 中发现；只要有一条序列来自 embedding 集，就使用该 embedding 集的模型。 |
-| 比对模式 **`ALIGNMENT_MODE`** | 要运行的比对模式（'global' 全局或 'local' 局部）。 |
+| 比对模式 **`ALIGNMENT_MODE`** | 要运行的比对模式（“全局（Needleman-Wunsch）”或“局部（Smith-Waterman）”）。 |
 | 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对（local alignment）的空位罚分（gap penalty）值。 |
 | 全局空位罚分 **`GLOBAL_GAP_P`** | 全局比对（global alignment）的空位罚分值。 |
 | 生成报告 **`GENERATE_REPORT`** | 切换是否编制并保存一份完整的 HTML 比对报告，展示残基高亮和得分。 |
@@ -44,8 +44,8 @@
      $$\text{Score}(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$
 
 3. **回溯比对**：
-     * **global**：使用 `GLOBAL_GAP_P` 计算 Needleman-Wunsch 递推矩阵。
-     * **local**：将得分减去 2.0，并使用 `LOCAL_GAP_P` 计算 Smith-Waterman 递推矩阵：
+     * **全局（Needleman-Wunsch）**：使用 `GLOBAL_GAP_P` 计算递推矩阵。
+     * **局部（Smith-Waterman）**：将得分减去 2.0，并使用 `LOCAL_GAP_P` 计算递推矩阵：
        $$\text{Score}_{\text{local}}(a, b) = \text{Score}(a, b) - 2.0$$
      
      回溯沿着每个单元格记录的移动进行，因此显示的路径即为最优路径。得分相同时依次优先匹配、删除、插入，与 `Embedding_SSEARCH.py` 的计算内核顺序相同。
@@ -84,7 +84,7 @@
 | 输出电子表格前缀 **`OUTPUT_NAME`** | 导出的搜索结果电子表格以及可选 FASTA 文件的名称前缀。 |
 | 最大数据库命中数 **`TOP_K`** | 输出报告中包含的得分最高的数据库命中的最大数量。 |
 | 归一化得分阈值 **`NORM_THRESHOLD`** | 用于排除归一化相似性低于该阈值的命中。设为 'None' 可停用。 |
-| 比对模式 **`ALIGNMENT_MODE`** | 搜索所用的比对模式（'global' 全局或 'local' 局部）。 |
+| 比对模式 **`ALIGNMENT_MODE`** | 搜索所用的比对模式（“全局（Needleman-Wunsch）”或“局部（Smith-Waterman）”）。 |
 | 局部空位罚分 **`LOCAL_GAP_P`** | 局部比对的空位罚分值。 |
 | 全局空位罚分 **`GLOBAL_GAP_P`** | 全局比对的空位罚分值。 |
 | 得分归一化模式 **`NORM_MODE`** | 得分归一化方法（例如比对长度、较短序列长度、较长序列长度、平均序列长度）。局部比对不能使用“比对长度”（`Alignment Length`）。 |
@@ -119,8 +119,8 @@
      - 计算残基级归一化相似性矩阵：
        $$\text{Score}_j(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$
      - 求解比对得分：
-       * **global**：$$S_{\text{raw}} = \text{NW}(\text{Score}_j, \text{gap}_g)$$
-       * **local**：$$S_{\text{raw}} = \text{SW}(\text{Score}_j - 2.0, \text{gap}_l)$$
+       * **全局（Needleman-Wunsch）**：$$S_{\text{raw}} = \text{NW}(\text{Score}_j, \text{gap}_g)$$
+       * **局部（Smith-Waterman）**：$$S_{\text{raw}} = \text{SW}(\text{Score}_j - 2.0, \text{gap}_l)$$
 
 4. **得分归一化**：
      根据 `NORM_MODE` 应用长度归一化因子：

@@ -194,5 +194,137 @@ class ModelLicenseGateTests(unittest.TestCase):
         self.assertEqual(PLM_Plugin_Utils.validate_model_usage_terms(["ankh_base"], None), {})
 
 
+class ModelDisplayNameTests(unittest.TestCase):
+    """A plugin names its models for the Tools dropdowns; identifiers stay what files hold."""
+
+    SHIPPED = {
+        "ankh_base": "Ankh Base",
+        "ankh_large": "Ankh Large",
+        "esm2_t6_8m": "ESM-2 8M",
+        "esm2_t12_35m": "ESM-2 35M",
+        "esm2_t30_150m": "ESM-2 150M",
+        "esm2_t33_650m": "ESM-2 650M",
+        "esmc_300m": "ESM C 300M",
+        "esmc_600m": "ESM C 600M",
+        "esmc_6b": "ESM C 6B",
+        "prost_t5": "ProstT5",
+        "prot_bert": "ProtBERT",
+    }
+
+    def test_every_shipped_model_has_the_name_the_dropdowns_show(self):
+        plugin_dir = SRC / "resources" / "pLM_models"
+        names = PLM_Plugin_Utils.discover_model_display_names(plugin_dir)
+        self.assertEqual(names, self.SHIPPED)
+        # Every model the plugins support is named, and none is named by its identifier.
+        modes = PLM_Plugin_Utils.discover_model_execution_modes(plugin_dir)
+        self.assertEqual(set(names), set(modes))
+        for model, name in names.items():
+            with self.subTest(model=model):
+                self.assertNotEqual(name, model)
+                self.assertNotIn("_", name)
+
+    def test_a_plugin_that_declares_no_names_shows_its_identifiers(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plugin = pathlib.Path(temp_dir) / "plain.py"
+            plugin.write_text(
+                'SUPPORTED_MODELS = ["plain_model"]\n'
+                'MODEL_EXECUTION_MODES = {"plain_model": "local"}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(PLM_Plugin_Utils.read_model_display_names(plugin), {})
+            self.assertEqual(PLM_Plugin_Utils.discover_model_display_names(temp_dir), {})
+        self.assertEqual(PLM_Plugin_Utils.format_model_selector_label("plain_model", None), "plain_model")
+
+    def test_declared_names_are_read_without_importing_the_plugin(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            plugin = pathlib.Path(temp_dir) / "named.py"
+            plugin.write_text(
+                'import this_module_does_not_exist\n'
+                'SUPPORTED_MODELS = ["m_a", "m_b"]\n'
+                'MODEL_EXECUTION_MODES = {"m_a": "local", "m_b": "local"}\n'
+                'MODEL_DISPLAY_NAMES = {"m_a": "Model A"}\n',
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                PLM_Plugin_Utils.discover_model_display_names(temp_dir), {"m_a": "Model A"}
+            )
+
+    def test_validation_errors(self):
+        cases = {
+            "not a mapping": (["Model"], "MODEL_DISPLAY_NAMES must be a literal mapping."),
+            "unknown model": (
+                {"other": "Other"},
+                "MODEL_DISPLAY_NAMES contains unsupported model(s): ['other'].",
+            ),
+            "blank": (
+                {"model": "  "},
+                "MODEL_DISPLAY_NAMES['model'] must be a non-empty string without leading or trailing spaces.",
+            ),
+            "padded": (
+                {"model": " Model"},
+                "MODEL_DISPLAY_NAMES['model'] must be a non-empty string without leading or trailing spaces.",
+            ),
+            "non-string": (
+                {"model": 5},
+                "MODEL_DISPLAY_NAMES['model'] must be a non-empty string without leading or trailing spaces.",
+            ),
+        }
+        for label, (names, message) in cases.items():
+            with self.subTest(label):
+                with self.assertRaises(ValueError) as raised:
+                    PLM_Plugin_Utils.validate_model_display_names(["model"], names)
+                self.assertEqual(str(raised.exception), message)
+        with self.assertRaisesRegex(ValueError, "same name"):
+            PLM_Plugin_Utils.validate_model_display_names(
+                ["a", "b"], {"a": "Same", "b": "Same"}
+            )
+        valid = {"model": "Model"}
+        self.assertIs(PLM_Plugin_Utils.validate_model_display_names(["model"], valid), valid)
+        self.assertEqual(PLM_Plugin_Utils.validate_model_display_names(["model"], None), {})
+
+    def test_two_plugins_cannot_share_a_name(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            for index in (1, 2):
+                pathlib.Path(temp_dir, f"p{index}.py").write_text(
+                    f'SUPPORTED_MODELS = ["model_{index}"]\n'
+                    f'MODEL_EXECUTION_MODES = {{"model_{index}": "local"}}\n'
+                    'MODEL_DISPLAY_NAMES = {"model_%d": "Same Name"}\n' % index,
+                    encoding="utf-8",
+                )
+            with self.assertRaisesRegex(ValueError, "same display name"):
+                PLM_Plugin_Utils.discover_model_display_names(temp_dir)
+
+    def test_a_loaded_plugin_with_a_bad_name_table_is_rejected(self):
+        plugin = type("Plugin", (), {
+            "SUPPORTED_MODELS": ["model"],
+            "MODEL_EXECUTION_MODES": {"model": "local"},
+            "MODEL_DISPLAY_NAMES": {"model": ""},
+        })
+        with self.assertRaisesRegex(ValueError, "MODEL_DISPLAY_NAMES"):
+            PLM_Plugin_Utils.validate_loaded_plugin(plugin, "model")
+        plugin.MODEL_DISPLAY_NAMES = {"model": "Model"}
+        self.assertEqual(PLM_Plugin_Utils.validate_loaded_plugin(plugin, "model"), "local")
+
+    def test_the_selector_label_names_the_model_and_keeps_the_terms_marker(self):
+        label = PLM_Plugin_Utils.format_model_selector_label
+        # Without separate terms the label is the name alone, a plain string.
+        self.assertEqual(label("esm2_t6_8m", None, "ESM-2 8M"), "ESM-2 8M")
+        self.assertIsInstance(label("esm2_t6_8m", None, "ESM-2 8M"), str)
+        non_commercial = label("ankh_base", dict(TERMS), "Ankh Base")
+        self.assertEqual(str(non_commercial), "Ankh Base [non-commercial]")
+        self.assertEqual(non_commercial.template, "{model} [non-commercial]")
+        other = label("some_model", dict(TERMS, restriction="Custom terms apply."), "Some Model")
+        self.assertEqual(str(other), "Some Model [separate terms]")
+        # No name: the identifier, as before.
+        self.assertEqual(str(label("ankh_base", dict(TERMS))), "ankh_base [non-commercial]")
+
+    def test_the_shipped_plugins_still_load_by_identifier(self):
+        for model in self.SHIPPED:
+            with self.subTest(model=model):
+                plugin = PLM_Plugin_Utils.find_model_plugin(model)
+                self.assertIn(model, plugin.SUPPORTED_MODELS)
+                self.assertEqual(plugin.MODEL_DISPLAY_NAMES[model], self.SHIPPED[model])
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -17,6 +17,8 @@ import re
 
 SUPPORTED_MODELS = ["prost_t5"]
 MODEL_EXECUTION_MODES = {"prost_t5": "local"}
+# What the Tools dropdowns show; the identifier above stays what settings and files hold.
+MODEL_DISPLAY_NAMES = {"prost_t5": "ProstT5"}
 
 # ProstT5's published amino-acid preprocessing maps B/Z/U/O to X. J and
 # alignment punctuation are also outside the model's documented AA input.

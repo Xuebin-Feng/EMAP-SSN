@@ -20,7 +20,7 @@ This script aligns two sequences using their residue-level language model embedd
 | Manual Target String **`TAR_SEQUENCE`** | Used only while `MANUAL_TAR_SEQ` is ON and canonically sanitized before embedding generation; otherwise the target is loaded by header. |
 | Highlight Mapping Positions **`HIGHLIGHT_POSITIONS`** | A comma-separated list of 1-indexed residue positions in the reference sequence to map and highlight in the target sequence alignment. |
 | Embedding Model **`EMBEDDING_MODEL`** | Model used when both sequences are manual. Available choices are discovered from `src/resources/pLM_models`; if either sequence comes from the embedding set, that set's model is used. |
-| Alignment Metric **`ALIGNMENT_MODE`** | The alignment mode to run (either 'global' or 'local'). |
+| Alignment Metric **`ALIGNMENT_MODE`** | The alignment mode to run (either 'global (Needleman-Wunsch)' or 'local (Smith-Waterman)'). |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score for local alignments. |
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score for global alignments. |
 | Generate Report **`GENERATE_REPORT`** | Toggle to compile and save a comprehensive HTML alignment report showing residue highlights and scores. |
@@ -43,8 +43,8 @@ This script aligns two sequences using their residue-level language model embedd
      $$\text{Score}(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$
 
 3. **Traceback Alignment**:
-     * **global**: Computes Needleman-Wunsch recurrence matrix with `GLOBAL_GAP_P`.
-     * **local**: Subtracts 2.0 from the scores and computes Smith-Waterman recurrence matrix with `LOCAL_GAP_P`:
+     * **global (Needleman-Wunsch)**: Computes the recurrence matrix with `GLOBAL_GAP_P`.
+     * **local (Smith-Waterman)**: Subtracts 2.0 from the scores and computes the recurrence matrix with `LOCAL_GAP_P`:
        $$\text{Score}_{\text{local}}(a, b) = \text{Score}(a, b) - 2.0$$
      
      Traceback follows the move recorded for each cell, so the displayed path is the optimal one. Ties resolve as match, then deletion, then insertion, the same order the `Embedding_SSEARCH.py` kernels use.
@@ -83,7 +83,7 @@ This script queries a single sequence against an entire database using residue-l
 | Output Spreadsheet Prefix **`OUTPUT_NAME`** | The prefix for the exported search results spreadsheet and optional FASTA files. |
 | Max Database Hits **`TOP_K`** | The maximum number of top-scoring database hits to include in the output report. |
 | Normalized Score Cutoff **`NORM_THRESHOLD`** | A filter to exclude hits scoring below a normalized similarity cutoff. Set to 'None' to disable. |
-| Alignment Mode **`ALIGNMENT_MODE`** | The search alignment mode (either 'global' or 'local'). |
+| Alignment Mode **`ALIGNMENT_MODE`** | The search alignment mode (either 'global (Needleman-Wunsch)' or 'local (Smith-Waterman)'). |
 | Local Gap Penalty **`LOCAL_GAP_P`** | The gap penalty score for local alignments. |
 | Global Gap Penalty **`GLOBAL_GAP_P`** | The gap penalty score for global alignments. |
 | Score Normalization Mode **`NORM_MODE`** | The score normalization method (e.g., Alignment Length, Shorter Sequence, Longer Sequence, Average Sequence). `Alignment Length` is unavailable for local alignments. |
@@ -118,8 +118,8 @@ This script queries a single sequence against an entire database using residue-l
      - Computes the residue-level normalized similarity matrix:
        $$\text{Score}_j(a, b) = \frac{Z_{\text{row}}(a, b) + Z_{\text{col}}(a, b)}{2}$$
      - Solves alignment scores:
-       * **global**: $$S_{\text{raw}} = \text{NW}(\text{Score}_j, \text{gap}_g)$$
-       * **local**: $$S_{\text{raw}} = \text{SW}(\text{Score}_j - 2.0, \text{gap}_l)$$
+       * **global (Needleman-Wunsch)**: $$S_{\text{raw}} = \text{NW}(\text{Score}_j, \text{gap}_g)$$
+       * **local (Smith-Waterman)**: $$S_{\text{raw}} = \text{SW}(\text{Score}_j - 2.0, \text{gap}_l)$$
 
 4. **Score Normalization**:
      Applies the length normalization factor based on `NORM_MODE`:

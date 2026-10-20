@@ -24,6 +24,8 @@ from resources import Biohub_API
 
 SUPPORTED_MODELS = ["esmc_6b"]
 MODEL_EXECUTION_MODES = {"esmc_6b": "remote_api"}
+# What the Tools dropdowns show; the identifier above stays what settings and files hold.
+MODEL_DISPLAY_NAMES = {"esmc_6b": "ESM C 6B"}
 
 # ESM's sequence tokenizer has distinct tokens for the standard amino acids,
 # the ambiguity codes X/B/U/Z/O, and the alignment symbols "." and "-".

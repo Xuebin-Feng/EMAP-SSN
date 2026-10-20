@@ -84,6 +84,7 @@ from utilities.Localization import QT_TRANSLATE_NOOP, Message, display_text
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from web_ui.Page_Texts import language_tag
 from tools.tool_helpers.Model_Plugins import (
+    discover_model_display_names,
     discover_model_execution_modes,
     discover_model_usage_terms,
     format_model_selector_label,
@@ -127,6 +128,7 @@ from Cache_Manifest import (
 
 MAX_CORES = os.cpu_count() or 16
 HOST_CACHE_MAX_GB = DEFAULT_HOST_CACHE_CAP / GIB
+FP32_PRECISION_LABEL = QT_TRANSLATE_NOOP("Tools", "FP32 (Full Precision)")
 TF32_PRECISION_LABEL = QT_TRANSLATE_NOOP("Tools", "TF32 (Nvidia GPU Only)")
 BF16_PRECISION_LABEL = QT_TRANSLATE_NOOP("Tools", "BF16 (Low Precision)")
 AUTOMATIC_32BIT_PRECISION_LABEL = QT_TRANSLATE_NOOP("Tools", "Automatic 32-bit")
@@ -327,9 +329,9 @@ def normalization_labels(modes):
 
 def execution_mode_labels(modes):
     labels = {
-        "auto": translate("Tools", "auto", "execution mode"),
-        "scalar": translate("Tools", "scalar", "execution mode"),
-        "tiled": translate("Tools", "tiled", "execution mode"),
+        "auto": translate("Tools", "Auto", "execution mode"),
+        "scalar": translate("Tools", "Scalar", "execution mode"),
+        "tiled": translate("Tools", "Tiled", "execution mode"),
     }
     return [labels[mode] for mode in modes]
 
@@ -484,6 +486,17 @@ def get_embedding_model_execution_modes():
     return discover_model_execution_modes(plugin_dir)
 
 
+def get_embedding_model_display_names():
+    """The readable name each model's plugin gives it; a model without one shows as its identifier."""
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    plugin_dir = os.path.join(current_dir, "resources", "pLM_models")
+    try:
+        return discover_model_display_names(plugin_dir)
+    except Exception as error:
+        print(f"Failed to discover pLM model display names: {error}")
+        return {}
+
+
 def get_embedding_model_usage_terms():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     plugin_dir = os.path.join(current_dir, "resources", "pLM_models")
@@ -599,7 +612,9 @@ def confirm_model_usage_terms(parent, model_name, terms):
         dialog.setIcon(QMessageBox.Icon.Warning)
         dialog.setWindowTitle(translate("Tools", "External Model License"))
         dialog.setText(
-            translate("Tools", "{model} weights require separate publisher terms.").format(model=model_name)
+            translate("Tools", "{model} weights require separate publisher terms.").format(
+                model=get_embedding_model_display_names().get(model_name, model_name)
+            )
         )
         dialog.setInformativeText(model_usage_terms_message(model_name, terms).display())
         accept_button = dialog.addButton(
@@ -1608,7 +1623,7 @@ class ToolsGUI(QMainWindow):
                 ),
                 "MODEL_NAME": Tip(
                     translate("Tools", "Protein language model (pLM) architecture used to generate residue embeddings."),
-                    details=(translate("Tools", "Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `esmc_6b` with API key)."),),
+                    details=(translate("Tools", "Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key)."),),
                 ),
                 "SAVING_MODE": Tip(
                     translate("Tools", "Floating-point precision for storing embedding tensors in HDF5."),
@@ -2154,13 +2169,20 @@ class ToolsGUI(QMainWindow):
                             "type": "dropdown",
                             "options": get_supported_embedding_models(),
                             "model_license_labels": True,
+                            # Its row is as wide as when the options were the model identifiers.
+                            "minimum_characters": 20,
                             "display": translate("Tools", "Model Name:")
                         },
                         {
                             "var_name": "SAVING_MODE",
                             "type": "dropdown",
-                            "options": ["float32", "float16"],
-                            "name_options": True,
+                            "options": [
+                                translate("Tools", "Float32 (Full Precision)", "saving mode"),
+                                translate("Tools", "Float16 (Half Size)", "saving mode"),
+                            ],
+                            "option_values": ["float32", "float16"],
+                            # Its row is as wide as when the options read float32 and float16.
+                            "minimum_characters": 2,
                             "display": translate("Tools", "Saving Mode:")
                         },
                         {
@@ -2267,14 +2289,13 @@ class ToolsGUI(QMainWindow):
                     "type": "dropdown",
                     "options": [
                         translate("Tools", AUTOMATIC_32BIT_PRECISION_LABEL),
-                        "float32",
+                        translate("Tools", FP32_PRECISION_LABEL),
                         translate("Tools", TF32_PRECISION_LABEL),
                         translate("Tools", BF16_PRECISION_LABEL),
                     ],
                     "option_values": [
                         "automatic_32bit", "float32", "tf32", "bf16"
                     ],
-                    "name_options": {"float32"},
                     "display": translate("Tools", "Precision:")
                 },
                 {
@@ -2363,11 +2384,10 @@ class ToolsGUI(QMainWindow):
                             "var_name": "BLAST_LAYOUT",
                             "type": "dropdown",
                             "options": [
-                                "standard_outfmt6",
-                                "outfmt7_fields",
+                                translate("Tools", "Standard (outfmt 6)", "BLAST layout"),
+                                translate("Tools", "Fields Header (outfmt 7)", "BLAST layout"),
                                 translate("Tools", "Custom Columns (1-based indexing)")
                             ],
-                            "name_options": {"standard_outfmt6", "outfmt7_fields"},
                             "option_values": [
                                 "standard_outfmt6",
                                 "outfmt7_fields",
@@ -2736,6 +2756,7 @@ class ToolsGUI(QMainWindow):
                             "type": "dropdown",
                             "options": get_supported_embedding_models(),
                             "model_license_labels": True,
+                            "minimum_characters": 20,
                             "display": translate("Tools", "Embedding Model:")
                         },
                         {
@@ -2862,14 +2883,13 @@ class ToolsGUI(QMainWindow):
                             "type": "dropdown",
                             "options": [
                                 translate("Tools", AUTOMATIC_32BIT_PRECISION_LABEL),
-                                "float32",
+                                translate("Tools", FP32_PRECISION_LABEL),
                                 translate("Tools", TF32_PRECISION_LABEL),
                                 translate("Tools", BF16_PRECISION_LABEL),
                             ],
                             "option_values": [
                                 "automatic_32bit", "float32", "tf32", "bf16"
                             ],
-                            "name_options": {"float32"},
                             "display": translate("Tools", "Precision:")
                         },
                         {
@@ -3540,6 +3560,17 @@ class ToolsGUI(QMainWindow):
             
             if s_def['type'] == "dropdown":
                 ui_element = NoScrollComboBox()
+                if s_def.get("minimum_characters"):
+                    # A dropdown with long labels keeps room for this many characters at
+                    # its narrowest, so its row is no wider than before the labels grew.
+                    # Set before anything measures it: a combo box keeps the minimum
+                    # width it first works out.
+                    ui_element.setMinimumContentsLength(s_def["minimum_characters"])
+                    ui_element.setSizeAdjustPolicy(
+                        QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+                    )
+                    # _prepare_responsive_controls keeps it, whenever it first measures the combo.
+                    ui_element.setProperty("minimumCharacters", s_def["minimum_characters"])
                 if s_def.get("option_values") is not None:
                     option_values = s_def["option_values"]
                     if len(option_values) != len(s_def["options"]):
@@ -3554,13 +3585,15 @@ class ToolsGUI(QMainWindow):
                     idx = ui_element.findData(str(actual_val))
                 elif s_def.get("model_license_labels", False):
                     usage_terms = get_embedding_model_usage_terms()
+                    display_names = get_embedding_model_display_names()
                     for model_name in s_def['options']:
                         label = format_model_selector_label(
                             model_name,
                             usage_terms.get(model_name),
+                            display_names.get(model_name),
                         )
                         ui_element.addItem(display_text(label), model_name)
-                        if label == model_name:
+                        if isinstance(label, str):
                             # A model's name alone, which no language translates.
                             mark_name_item(ui_element, ui_element.count() - 1)
                     ui_element.setProperty("persistItemData", True)
@@ -4585,7 +4618,7 @@ class ToolsGUI(QMainWindow):
         for combo in self.findChildren(QComboBox):
             if isinstance(combo, LanguageSelector):
                 continue  # It fits its entries, beside the row's stretch.
-            combo.setMinimumContentsLength(12)
+            combo.setMinimumContentsLength(combo.property("minimumCharacters") or 12)
             combo.setSizeAdjustPolicy(
                 QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
             )

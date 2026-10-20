@@ -360,7 +360,7 @@
             </div>
 
             <!-- SECTION 4: CONFIGURATION GUI -->
-            <div id="gui-config" class="section-divider" data-source-sha256="12e208d47c73e08d4f0be04b658748d7271a639b5beba1605d2de4714dd0ad66">
+            <div id="gui-config" class="section-divider" data-source-sha256="9e3ef1dd83f51e3027fe43a799303a8d1e66e9b7145750a5318889284e66c0ff">
                 <span>4. EMAP-SSN 配置 GUI（EMAPSSN_Config.py）</span>
             </div>
 
@@ -392,7 +392,7 @@
                     <li><strong>MSA 输入（.fasta / _sparse.h5）：</strong>绑定用于残基保守性映射和序列标识图（sequence logo）的多序列比对。</li>
                     <li><strong>Embedding 输入（.h5）：</strong>可选，绑定由 <code>Generate_Embeddings.py</code>（或提取、注入和裁剪工具）写入的逐残基蛋白质语言模型 embedding 数据库，供分析每条序列 embedding 的查看器命令使用。下拉列表列出 <code>.h5</code> 文件，它们位于 <strong>Embedding 目录</strong>中（默认为项目的 <code>Embeddings/</code> 文件夹，与工具中相同）；留空表示不使用。当文件中含有该节点的序列标题，且清理后的序列相同时，该节点就有 embedding；逐残基数据保留在磁盘上，仅在命令需要时才读取。</li>
                     <li><strong>网络边输入（.h5）：</strong>绑定全对全的成对相似性矩阵或期望值矩阵。</li>
-                    <li><strong>得分模式与归一化模式：</strong>指定得分的解读方式（<code>global</code> 与 <code>local</code>）以及得分的归一化方式（<code>Alignment Length</code>、<code>Shorter Sequence</code>、<code>Longer Sequence</code> 或 <code>Average Sequence</code>；<code>Alignment Length</code> 仅适用于全局得分）。</li>
+                    <li><strong>得分模式与归一化模式：</strong>指定得分的解读方式（<code>global (Needleman-Wunsch)</code> 即“全局（Needleman-Wunsch）”，<code>local (Smith-Waterman)</code> 即“局部（Smith-Waterman）”）以及得分的归一化方式（<code>Alignment Length</code> 即“比对长度”、<code>Shorter Sequence</code> 即“较短序列长度”、<code>Longer Sequence</code> 即“较长序列长度”、<code>Average Sequence</code> 即“平均序列长度”；<code>Alignment Length</code> 仅适用于全局得分）。</li>
                     <li><strong>比对参考 ID 与偏移量：</strong>指定一个蛋白质，用其原生残基坐标锚定比对。该值会与网络中的序列标题匹配，优先精确匹配整个标题，其次匹配开头的标识符，再次是子串或通配符匹配；当 MSA 中含有解析出的标题时，比对即锚定在该标题上。随后，所有残基命令（例如 <code>color K188 red</code>）的编号都与这个参考蛋白质的原生残基坐标一一对应（1:1）。若没有任何匹配，或 MSA 中没有解析出的标题，查看器会在启动时发出警告，改用占有率（occupancy）编号，并忽略偏移量。</li>
                     <li><strong>改用 UMAP 绘图：</strong>开启时，绘制 UMAP 非线性流形投影，而不运行力导向物理模拟，并提供可调的 <code>UMAP Nearest Neighbors</code> 和 <code>UMAP Min Distance</code>，二者取代“相似性阈值”和“保留高分边 %”输入项。</li>
                     <li><strong>最低占有率 %：</strong>比对列要在序列标识图、保守性等残基分析中被保留，所需的最低非空位（gap）字符百分比。默认为 10。</li>
@@ -645,7 +645,7 @@
             </div>
 
             <!-- SECTION 6: STEP-BY-STEP TUTORIAL -->
-            <div id="hands-on-tutorial" class="section-divider" data-source-sha256="4c98841ac4b7f88bd8fd6e3f02e5aacbad69b112d58f7e4b7d0a5bca33ba6d19">
+            <div id="hands-on-tutorial" class="section-divider" data-source-sha256="1dc17b1bc3e0220b9dc00661f0d7c74001588f321799798959119c34091186ad">
                 <span>6. 动手实践分步教程</span>
             </div>
 
@@ -678,7 +678,7 @@
                             仍在<em>序列与 embedding 准备</em>选项卡中，转到<strong>生成 embedding</strong>。选择 <code>kinase_family_sanitized.fasta</code> 作为输入 FASTA。
                         </p>
                         <p>
-                            选择所需模型，例如 <code>esm2_t33_650m</code>（受支持的最大 ESM-2 模型）。确认已启用 GPU 加速。点击<strong>保存并运行</strong>。
+                            选择所需模型，例如 <code>ESM-2 650M</code>（受支持的最大 ESM-2 模型）。确认已启用 GPU 加速。点击<strong>保存并运行</strong>。
                         </p>
                         <div class="callout callout-tip" style="margin-bottom: 0;">
                             <strong>结果：</strong>一个 HDF5 数据库（<code>kinase_family_sanitized_[esm2_t33_650m]_embeddings.h5</code>）写入 <code>Embeddings/</code>，其中包含高维的逐残基 embedding 向量。
@@ -694,7 +694,7 @@
                             切换到<em>序列相似性计算</em>选项卡。运行<strong>动态规划 embedding 比对</strong>（<code>Align_Similarity_Matrix.py</code>），或运行<strong>替换矩阵比对</strong>（<code>Align_Substitution_Matrix.py</code>）以进行传统 BLAST。点击<strong>保存并运行</strong>以计算全对全相似性矩阵。
                         </p>
                         <p>
-                            接下来，切换到 <em>Embedding MSA</em> 选项卡，运行 <strong>Embedding 多序列比对</strong>（<code>Embedding_MSA.py</code>），将得分模式设置为 <code>global</code>，归一化模式设置为 <code>Alignment Length</code>。这会根据网络的得分构建引导树，并利用序列的 embedding 逐步比对成全局 MSA。
+                            接下来，切换到 <em>Embedding MSA</em> 选项卡，运行 <strong>Embedding 多序列比对</strong>（<code>Embedding_MSA.py</code>），将得分模式设置为 <code>global (Needleman-Wunsch)</code>（“全局（Needleman-Wunsch）”），归一化模式设置为 <code>Alignment Length</code>（“比对长度”）。这会根据网络的得分构建引导树，并利用序列的 embedding 逐步比对成全局 MSA。
                         </p>
                         <div class="callout callout-tip" style="margin-bottom: 0;">
                             <strong>结果：</strong><code>Input_Files/Networks_EValues/</code> 中的成对网络 HDF5 文件，以及 <code>Input_Files/Multiple_Alignments/</code> 中整合的 MSA 文件。

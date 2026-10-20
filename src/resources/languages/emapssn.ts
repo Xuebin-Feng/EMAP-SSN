@@ -5183,6 +5183,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>FP32 (Full Precision)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -5301,17 +5305,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>auto</source>
+        <source>Auto</source>
         <comment>execution mode</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>scalar</source>
+        <source>Scalar</source>
         <comment>execution mode</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>tiled</source>
+        <source>Tiled</source>
         <comment>execution mode</comment>
         <translation type="unfinished"></translation>
     </message>
@@ -5525,7 +5529,7 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `esmc_6b` with API key).</source>
+        <source>Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6329,6 +6333,16 @@ covered by these commands, install the package that provides it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Float32 (Full Precision)</source>
+        <comment>saving mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Float16 (Half Size)</source>
+        <comment>saving mode</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Saving Mode:</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6426,6 +6440,16 @@ covered by these commands, install the package that provides it.</source>
     </message>
     <message>
         <source>BLAST Results (.tabular/.txt/.tab/.tsv):</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Standard (outfmt 6)</source>
+        <comment>BLAST layout</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fields Header (outfmt 7)</source>
+        <comment>BLAST layout</comment>
         <translation type="unfinished"></translation>
     </message>
     <message>

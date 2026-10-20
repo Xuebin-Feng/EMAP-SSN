@@ -1,4 +1,4 @@
-<!-- Translation of Embedding_and_Network_Tools.md, sha256 621964417425c7f0ea4966b8527b7cce96fbae17c59b11b9cbce51e7be5333ed -->
+<!-- Translation of Embedding_and_Network_Tools.md, sha256 a8fdfe5f89aeffb5e2571717c21dd5c4ab54bf5e7ce28f35d3bb1736f2435f66 -->
 # Embedding 注入 (`Embedding_Injection.py`)
 
 该脚本把新序列的 embedding 注入（injection）到已有的 HDF5 embedding 数据库中。它扫描传入的 FASTA 序列列表，对已有的匹配项直接从数据库中取出预先计算的 embedding，只为新增的序列计算 embedding，以节省计算时间。
@@ -122,7 +122,7 @@
 | CPU 工作进程数 **`WORKERS`** | CPU 处理方案使用的工作进程数，也是调优加速器方案时的并发参数。该工具会在具有代表性的待计算序列对上对可用的 CPU/加速器方案做基准测试，必要时依次回退到其他成功的方案。 |
 | 处理批大小 **`BATCH_SIZE`** | 每个写入块计算的序列比对数量，可降低内存占用并优化文件写入性能。 |
 | 设备 **`DEVICE_SELECTION`** | 选择自动硬件基准测试，或指定一个具体设备来计算新的残基（residue）得分矩阵。 |
-| 执行模式 **`EXECUTION_MODE`** | `auto` 在支持时比较标量方案与分块（tile）方案。`scalar` 将调优和正式计算限制为一次处理一个矩阵的方案。`tiled` 强制在 CUDA/ROCm 或 XPU 上使用内存受限的 embedding 分块和填充后的微批次（microbatch）；若没有兼容的加速器，会提前失败。 |
+| 执行模式 **`EXECUTION_MODE`** | `Auto`（自动）在支持时比较标量方案与分块（tile）方案。`Scalar`（标量）将调优和正式计算限制为一次处理一个矩阵的方案。`Tiled`（分块）强制在 CUDA/ROCm 或 XPU 上使用内存受限的 embedding 分块和填充后的微批次（microbatch）；若没有兼容的加速器，会提前失败。 |
 | 主机缓存 **`HOST_CACHE_GB`** | 跨批次（batch）保留打包 embedding 所用的最大内存（GiB）；`auto` 使用一个安全的内存预算，上限为 128 GiB，`0` 则停用缓存。 |
 | 矩阵乘法精度 | 继承自 `OLD_NETWORK`。旧版网络为 IEEE FP32；TF32 网络需要 NVIDIA CUDA，以免复制的边（edge）与新计算的边混用精度。BF16 网络需要具备相应能力的加速器。计算新边之前，网络注入会打印低精度警告，并在最多 2,048 个具有代表性的序列对上报告相对于 FP32 的比对长度和原始得分统计；只要数值差异是有限值，就不会拒绝 BF16。 |
 

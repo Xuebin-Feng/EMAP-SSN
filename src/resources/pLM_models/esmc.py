@@ -20,6 +20,11 @@ MODEL_EXECUTION_MODES = {
     "esmc_300m": "local",
     "esmc_600m": "local",
 }
+# What the Tools dropdowns show; the identifiers above stay what settings and files hold.
+MODEL_DISPLAY_NAMES = {
+    "esmc_300m": "ESM C 300M",
+    "esmc_600m": "ESM C 600M",
+}
 
 # ESM's sequence tokenizer has distinct tokens for the standard amino acids,
 # the ambiguity codes X/B/U/Z/O, and the alignment symbols "." and "-".

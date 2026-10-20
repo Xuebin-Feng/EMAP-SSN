@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_Similarity_Calculations.md, sha256 fd4f37641e8291b8f1ea61b460a08911a62efd8af0e0482a72dff0fbd6239a3d -->
+<!-- Translation of Sequence_Similarity_Calculations.md, sha256 3252042b1ab59214cc8aa2bbe29bb0cf73bdde92a7c2031df47ccf5645ad1287 -->
 # 动态规划 embedding 比对 (`Align_Similarity_Matrix.py`)
 
 该脚本使用残基级蛋白质 embedding 计算全对全的序列相似性网络（SSN）。它不使用传统的氨基酸替换矩阵（substitution matrix），而是通过比较每个残基（residue）稠密的高维 embedding 向量来计算相似性矩阵。
@@ -23,7 +23,7 @@
 | 全局空位罚分 **`GLOBAL_GAP_P`** | 全局比对（global alignment）使用的空位罚分值。 |
 | 处理批大小 **`BATCH_SIZE`** | 每个分块（tile）中处理、随后写入磁盘的序列对数量（整数）。批次（batch）越大，资源利用率可能越高，但内存占用也越大。 |
 | 计算设备 **`DEVICE_SELECTION`** | 为构建残基得分矩阵选择 `auto` 或某个可用的 CPU、CUDA、XPU 或 MPS 设备。自动选择设备时会估算工作内存，在最多 256 个按成本分层的序列对上调优安全的并行通道数，并在最多 2,048 个按正式计算顺序排列的序列对上确认候选方案。动态规划（dynamic programming）打分始终在 CPU 上进行。 |
-| 执行模式 **`EXECUTION_MODE`** | `auto` 在支持时比较标量方案与分块方案。`scalar` 在每个加速器通道（lane）上一次处理一个双序列得分矩阵，在 CPU 和受支持的加速器上始终可用。`tiled` 强制在 CUDA/ROCm 或 XPU 上使用内存受限的 embedding 分块和填充后的微批次（microbatch）；若没有兼容的加速器，会在处理序列对之前失败。 |
+| 执行模式 **`EXECUTION_MODE`** | `Auto`（自动）在支持时比较标量方案与分块方案。`Scalar`（标量）在每个加速器通道（lane）上一次处理一个双序列得分矩阵，在 CPU 和受支持的加速器上始终可用。`Tiled`（分块）强制在 CUDA/ROCm 或 XPU 上使用内存受限的 embedding 分块和填充后的微批次（microbatch）；若没有兼容的加速器，会在处理序列对之前失败。 |
 | 主机缓存 **`HOST_CACHE_GB`** | 打包 embedding 缓存可使用的主机内存上限（GiB）。`auto` 至少保留 8 GiB 或物理内存的 25%，并将缓存上限设为 128 GiB；`0` 则只使用有界的 HDF5 分块。 |
 | 加速器精度 **`ACCELERATOR_PRECISION`** | `automatic_32bit` 会在最多 2,048 个按正式计算顺序排列的序列对上，用 `EXECUTION_MODE` 允许的每种执行模式测试 IEEE FP32 和 TF32。只有当这些方案保持比对长度不变、通过逐残基的得分容差检查、结果均为有限值，且最快的 TF32 方案比最快的 FP32 方案至少快 10% 时，才会选用 TF32。`bf16` 表示明确的低精度执行：归一化（normalization）和得分后处理仍用 FP32，而归一化后的矩阵乘法操作数使用 BF16。它需要具备相应能力的加速器，会打印低精度警告，并针对每种设备/执行变体，在最多 2,048 个具有代表性的序列对上报告相对于 FP32 的比对长度和原始得分统计。有限的数值差异仅供参考，不会导致拒绝 BF16。旧的输入别名 `auto` 会被当作 `automatic_32bit`。 |
 

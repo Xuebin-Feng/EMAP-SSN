@@ -1,4 +1,4 @@
-<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 45e55e2ca99b38005ec96322a9fe7e171e031d85f8ba2b31056af12808cbb4ef -->
+<!-- Translation of Sequence_and_Embedding_Preparation.md, sha256 aaf083f755a13e2623d504c291fb71503338259c23b356dd353f1bcf43a78673 -->
 # 清理序列 (`Sanitize_Sequences.py`)
 
 该脚本清理（sanitize）原始 FASTA 序列数据库，为语言模型生成 embedding 做好准备。它会过滤掉长度超出目标范围的序列，排除序列标题（FASTA header）中含有特定关键词（例如片段或不完整序列）的序列，替换不安全的非标准字符，并报告序列长度分布。
@@ -74,11 +74,11 @@
 
 | 参数 | 说明 |
 | :--- | :--- |
-| 模型名称 **`MODEL_NAME`** | 要使用的蛋白质语言模型（pLM）架构，也是写入输出文件名的标签。标识符始终为小写（例如 `esmc_600m`、`esmc_6b`、`esm2_t33_650m`、`esm2_t30_150m`、`ankh_base`、`prot_bert`、`prost_t5`）。 |
-| 保存精度 **`SAVING_MODE`** | 在 HDF5 中存储向量所用的数值精度格式（`float16` 或 `float32`）。`float16` 所占的 embedding 存储空间约为 `float32` 的一半，但数值精度较低；若下游对数值精度的要求比文件大小更重要，请使用 `float32`。 |
+| 模型名称 **`MODEL_NAME`** | 要使用的蛋白质语言模型（pLM）架构。下拉列表给出每个模型的名称，例如 ESM-2 650M 或 ESM C 6B；设置中保存的是它的标识符，标识符也是写入输出文件名的标签。标识符始终为小写（例如 `esmc_600m`、`esmc_6b`、`esm2_t33_650m`、`esm2_t30_150m`、`ankh_base`、`prot_bert`、`prost_t5`）。 |
+| 保存精度 **`SAVING_MODE`** | 在 HDF5 中存储向量所用的数值精度格式（`Float32 (Full Precision)` 即“Float32（全精度）”，或 `Float16 (Half Size)` 即“Float16（体积减半）”）。`Float16 (Half Size)` 所占的 embedding 存储空间约为 `Float32 (Full Precision)` 的一半，但数值精度较低；若下游对数值精度的要求比文件大小更重要，请使用 `Float32 (Full Precision)`。 |
 | 计算设备 **`DEVICE_SELECTION`** | `auto` 会在具有代表性的序列长度上对可用、且经安装程序验证的 CPU/加速器候选设备进行基准测试，使用最快的成功设备；若运行时出错，可回退到排名中的下一个设备。指定某个 CPU、CUDA、XPU 或 MPS 设备时，生成过程固定在该设备上，出错时报告错误，而不会悄悄切换设备。 |
 
-> **共享 Biohub API 访问：** 选择 `esmc_6b`；插件会把这个便于用作文件名的标签映射为 Biohub 的 `esmc-6b-2024-12` API 标识符。首次使用时，`Generate_Embeddings.py` 的终端会提示输入一个隐藏的令牌，并将其存入被 Git 忽略的 `src/resources/Biohub_API.json`。同一个令牌和可选的 `ESM_API_URL` 也供 `esmfold large` 使用；当共享文件和 `ESM_API_KEY` 环境变量都不存在时，其工作进程终端会使用同样的隐藏提示。
+> **共享 Biohub API 访问：** 选择 ESM C 6B（`esmc_6b`）；插件会把这个便于用作文件名的标识符映射为 Biohub 的 `esmc-6b-2024-12` API 标识符。首次使用时，`Generate_Embeddings.py` 的终端会提示输入一个隐藏的令牌，并将其存入被 Git 忽略的 `src/resources/Biohub_API.json`。同一个令牌和可选的 `ESM_API_URL` 也供 `esmfold large` 使用；当共享文件和 `ESM_API_KEY` 环境变量都不存在时，其工作进程终端会使用同样的隐藏提示。
 
 > **模型条款：** 模型权重单独下载，并保留其发布者的许可证。特别是，Ankh Base 和 Ankh Large 的权重采用 CC-BY-NC-SA-4.0 许可，程序在访问前要求用户确认。模型清单见 `THIRD_PARTY_LICENSES.md`。这些模型条款不会改变 Apache-2.0 程序源代码的许可。
 

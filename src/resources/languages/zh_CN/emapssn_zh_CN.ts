@@ -5063,7 +5063,7 @@ Command-line usage:
         <translation type="unfinished">下载元数据出错：{error}</translation>
     </message>
     <message>
-        <location filename="../../../tools/tool_helpers/Model_Plugins.py" line="+314"/>
+        <location filename="../../../tools/tool_helpers/Model_Plugins.py" line="+374"/>
         <source>Model: {model}
 Weights license: {license}
 Restriction: {restriction}
@@ -5080,7 +5080,7 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
 EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权重并非如此。</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+34"/>
         <source>{model} [non-commercial]</source>
         <translation type="unfinished">{model} [非商业]</translation>
     </message>
@@ -7284,7 +7284,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Tools.py" line="+130"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+132"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>
@@ -7410,25 +7410,22 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">平均序列长度</translation>
     </message>
     <message>
-        <location line="+85"/>
         <source>auto</source>
         <comment>execution mode</comment>
-        <translation type="unfinished">自动</translation>
+        <translation type="obsolete">自动</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>scalar</source>
         <comment>execution mode</comment>
-        <translation type="unfinished">标量</translation>
+        <translation type="obsolete">标量</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>tiled</source>
         <comment>execution mode</comment>
-        <translation type="unfinished">分块</translation>
+        <translation type="obsolete">分块</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+93"/>
         <source>The network metadata could not be validated.</source>
         <translation type="unfinished">无法验证网络元数据。</translation>
     </message>
@@ -7490,7 +7487,7 @@ Visualizes the isotonic regression fit between mean embedding cosine distances a
 展示平均 embedding 余弦距离与网络得分之间的保序回归拟合。</translation>
     </message>
     <message>
-        <location line="+197"/>
+        <location line="+208"/>
         <source>External Model License</source>
         <translation type="unfinished">外部模型许可</translation>
     </message>
@@ -7500,7 +7497,7 @@ Visualizes the isotonic regression fit between mean embedding cosine distances a
         <translation type="unfinished">{model} 的权重需要接受发布方的单独条款。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+6"/>
         <source>I Accept These Terms</source>
         <translation type="unfinished">我接受这些条款</translation>
     </message>
@@ -8143,13 +8140,13 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     <message>
         <location line="+9"/>
         <location line="+46"/>
-        <location line="+210"/>
-        <location line="+56"/>
+        <location line="+216"/>
+        <location line="+55"/>
         <source>Sequence Set (.fasta):</source>
         <translation type="unfinished">序列集（.fasta）：</translation>
     </message>
     <message>
-        <location line="-307"/>
+        <location line="-312"/>
         <source>Show Length Histogram:</source>
         <translation type="unfinished">显示长度直方图：</translation>
     </message>
@@ -8164,7 +8161,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1794"/>
+        <location line="-1807"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -8188,7 +8185,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">平均序列长度</translation>
     </message>
     <message numerus="yes">
-        <location line="+742"/>
+        <location line="+755"/>
         <source>This computer has %n logical CPU(s).</source>
         <translation type="unfinished">
             <numerusform>这台计算机有 %n 个逻辑 CPU。</numerusform>
@@ -8305,12 +8302,11 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">用于生成残基 embedding 的蛋白质语言模型（pLM）架构。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `esmc_6b` with API key).</source>
-        <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `esmc_6b`）。</translation>
+        <translation type="obsolete">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `esmc_6b`）。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Floating-point precision for storing embedding tensors in HDF5.</source>
         <translation type="unfinished">在 HDF5 中存储 embedding 张量时使用的浮点精度。</translation>
     </message>
@@ -9289,26 +9285,38 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">Embedding 生成设置：</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+18"/>
         <source>Model Name:</source>
         <translation type="unfinished">模型名称：</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+6"/>
+        <source>Float32 (Full Precision)</source>
+        <comment>saving mode</comment>
+        <translation type="unfinished">Float32（全精度）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Float16 (Half Size)</source>
+        <comment>saving mode</comment>
+        <translation type="unfinished">Float16（体积减半）</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Saving Mode:</source>
         <translation type="unfinished">保存模式：</translation>
     </message>
     <message>
         <location line="+5"/>
         <location line="+94"/>
-        <location line="+255"/>
+        <location line="+253"/>
         <location line="+117"/>
-        <location line="+223"/>
+        <location line="+224"/>
         <source>Device:</source>
         <translation type="unfinished">设备：</translation>
     </message>
     <message>
-        <location line="-682"/>
+        <location line="-681"/>
         <source>Embedding Cropping Settings:</source>
         <translation type="unfinished">Embedding 裁剪设置：</translation>
     </message>
@@ -9324,90 +9332,90 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+11"/>
-        <location line="+197"/>
+        <location line="+195"/>
         <source>Input &amp; Output Settings:</source>
         <translation type="unfinished">输入与输出设置：</translation>
     </message>
     <message>
-        <location line="-188"/>
-        <location line="+211"/>
+        <location line="-186"/>
+        <location line="+209"/>
         <location line="+267"/>
-        <location line="+90"/>
+        <location line="+91"/>
         <source>Embedding Set (.h5):</source>
         <translation type="unfinished">Embedding 集（.h5）：</translation>
     </message>
     <message>
-        <location line="-563"/>
+        <location line="-562"/>
         <source>Edge Prefiltering:</source>
         <translation type="unfinished">边预过滤：</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+1215"/>
+        <location line="+1213"/>
         <source>Strength (%):</source>
         <translation type="unfinished">强度（%）：</translation>
     </message>
     <message>
-        <location line="-1210"/>
-        <location line="+265"/>
+        <location line="-1208"/>
+        <location line="+263"/>
         <source>Alignment Settings:</source>
         <translation type="unfinished">比对设置：</translation>
     </message>
     <message>
-        <location line="-260"/>
-        <location line="+520"/>
+        <location line="-258"/>
+        <location line="+519"/>
         <location line="+85"/>
         <source>Local Align Gap Penalty:</source>
         <translation type="unfinished">局部比对空位罚分：</translation>
     </message>
     <message>
-        <location line="-600"/>
-        <location line="+520"/>
+        <location line="-599"/>
+        <location line="+519"/>
         <location line="+85"/>
         <source>Global Align Gap Penalty:</source>
         <translation type="unfinished">全局比对空位罚分：</translation>
     </message>
     <message>
-        <location line="-600"/>
+        <location line="-599"/>
         <source>Hardware Settings:</source>
         <translation type="unfinished">硬件设置：</translation>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+72"/>
-        <location line="+188"/>
+        <location line="+71"/>
+        <location line="+187"/>
         <location line="+112"/>
-        <location line="+228"/>
+        <location line="+229"/>
         <source>CPU Workers:</source>
         <translation type="unfinished">CPU 工作进程数：</translation>
     </message>
     <message>
-        <location line="-595"/>
-        <location line="+72"/>
-        <location line="+300"/>
+        <location line="-594"/>
+        <location line="+71"/>
+        <location line="+299"/>
         <source>Batch Size:</source>
         <translation type="unfinished">批大小：</translation>
     </message>
     <message>
-        <location line="-352"/>
-        <location line="+595"/>
+        <location line="-351"/>
+        <location line="+594"/>
         <source>Precision:</source>
         <translation type="unfinished">精度：</translation>
     </message>
     <message>
-        <location line="-588"/>
-        <location line="+357"/>
+        <location line="-587"/>
+        <location line="+356"/>
         <source>Execution Mode:</source>
         <translation type="unfinished">执行模式：</translation>
     </message>
     <message>
-        <location line="-352"/>
-        <location line="+357"/>
+        <location line="-351"/>
+        <location line="+356"/>
         <source>Host Cache (GiB):</source>
         <translation type="unfinished">主机缓存（GiB）：</translation>
     </message>
     <message>
-        <location line="-350"/>
+        <location line="-349"/>
         <source>Input Settings:</source>
         <translation type="unfinished">输入设置：</translation>
     </message>
@@ -9442,12 +9450,24 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">BLAST 结果（.tabular/.txt/.tab/.tsv）：</translation>
     </message>
     <message>
-        <location line="+17"/>
+        <location line="+15"/>
+        <source>Standard (outfmt 6)</source>
+        <comment>BLAST layout</comment>
+        <translation type="unfinished">标准（outfmt 6）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Fields Header (outfmt 7)</source>
+        <comment>BLAST layout</comment>
+        <translation type="unfinished">字段标题行（outfmt 7）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Custom Columns (1-based indexing)</source>
         <translation type="unfinished">自定义列（从 1 开始编号）</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+7"/>
         <source>BLAST Layout:</source>
         <translation type="unfinished">BLAST 列格式：</translation>
     </message>
@@ -9523,12 +9543,12 @@ Outputs the query sequence followed by ranked matching sequences.</source>
     </message>
     <message>
         <location line="+7"/>
-        <location line="+350"/>
+        <location line="+351"/>
         <source>Normalization Mode:</source>
         <translation type="unfinished">归一化模式：</translation>
     </message>
     <message>
-        <location line="-345"/>
+        <location line="-346"/>
         <source>Include Imputed Pairs in Final Consensus:</source>
         <translation type="unfinished">在最终一致树中纳入插补的序列对：</translation>
     </message>
@@ -9643,7 +9663,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">高亮位置（如 1, 4-6）：</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <source>Embedding Model:</source>
         <translation type="unfinished">Embedding 模型：</translation>
     </message>
@@ -9705,7 +9725,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">归一化得分下限（可选）：</translation>
     </message>
     <message>
-        <location line="+61"/>
+        <location line="+60"/>
         <source>Generate FASTA File:</source>
         <translation type="unfinished">生成 FASTA 文件：</translation>
     </message>
@@ -9805,25 +9825,25 @@ The window shows the default values, and the file was left unchanged. Saving dir
     </message>
     <message>
         <location line="+10"/>
-        <location line="+532"/>
+        <location line="+545"/>
         <location line="+1069"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1598"/>
-        <location line="+647"/>
+        <location line="-1611"/>
+        <location line="+660"/>
         <source>Browse...</source>
         <translation type="unfinished">浏览…</translation>
     </message>
     <message>
-        <location line="-624"/>
-        <location line="+628"/>
+        <location line="-637"/>
+        <location line="+641"/>
         <source>Select Directory</source>
         <translation type="unfinished">选择目录</translation>
     </message>
     <message>
-        <location line="-600"/>
+        <location line="-613"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
@@ -9844,14 +9864,14 @@ The file was left unchanged. Correct it, or delete it to start over from the def
     <message>
         <location line="+10"/>
         <location line="+13"/>
-        <location line="+1554"/>
+        <location line="+1567"/>
         <location line="+452"/>
         <location line="+26"/>
         <source>Error</source>
         <translation type="unfinished">错误</translation>
     </message>
     <message>
-        <location line="-2044"/>
+        <location line="-2057"/>
         <source>Failed to save directories:
 {error}</source>
         <translation type="unfinished">保存目录失败：
@@ -9908,7 +9928,7 @@ The file was left unchanged. Correct it, or delete it to start over from the def
         <translation type="obsolete">启用长度过滤</translation>
     </message>
     <message>
-        <location line="+288"/>
+        <location line="+301"/>
         <source>Unavailable saved model [{model}]</source>
         <translation type="unfinished">不可用的已保存模型 [{model}]</translation>
     </message>
@@ -10176,12 +10196,17 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-4987"/>
+        <location line="-5018"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-122"/>
+        <source>FP32 (Full Precision)</source>
+        <translation type="unfinished">FP32（全精度）</translation>
+    </message>
+    <message>
+        <location line="+123"/>
         <source>Sparse MSA Converter</source>
         <translation type="unfinished">稀疏 MSA 转换器</translation>
     </message>
@@ -10258,7 +10283,25 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished">局部（Smith-Waterman）</translation>
     </message>
     <message>
-        <location line="+422"/>
+        <location line="+17"/>
+        <source>Auto</source>
+        <comment>execution mode</comment>
+        <translation type="unfinished">自动</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Scalar</source>
+        <comment>execution mode</comment>
+        <translation type="unfinished">标量</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Tiled</source>
+        <comment>execution mode</comment>
+        <translation type="unfinished">分块</translation>
+    </message>
+    <message>
+        <location line="+416"/>
         <source>EMAP-SSN Tools could not load QtWebEngine, which renders the documentation panel.
 
   {error}
@@ -10306,7 +10349,12 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+1028"/>
+        <location line="+876"/>
+        <source>Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
+        <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
+    </message>
+    <message>
+        <location line="+152"/>
         <source>Selects whether to weight guide tree branches using global or local network scores.</source>
         <translation type="unfinished">选择用“全局”还是“局部”网络得分为引导树分支加权。</translation>
     </message>
@@ -10316,7 +10364,7 @@ Fedora / RHEL：
         <translation type="unfinished">自动模式会先对搜索的一小部分计时，选出最快的设备和方案；估计耗时不超过 1 秒的搜索仍留在 CPU 上。你指定的设备仍会为其调优出最快的方案。</translation>
     </message>
     <message>
-        <location line="+980"/>
+        <location line="+985"/>
         <location line="+177"/>
         <source>Global Directory Settings</source>
         <translation type="unfinished">全局目录设置</translation>
@@ -10343,12 +10391,12 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+167"/>
-        <location line="+1420"/>
+        <location line="+1433"/>
         <source>Benchmark</source>
         <translation type="unfinished">基准测试</translation>
     </message>
     <message>
-        <location line="-1405"/>
+        <location line="-1418"/>
         <source>Internal Documentation</source>
         <translation type="unfinished">内部文档</translation>
     </message>
@@ -10358,7 +10406,7 @@ Fedora / RHEL：
         <translation type="unfinished">缺少文档</translation>
     </message>
     <message>
-        <location line="+1977"/>
+        <location line="+1990"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>

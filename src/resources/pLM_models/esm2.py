@@ -27,6 +27,13 @@ MODEL_EXECUTION_MODES = {
     "esm2_t30_150m": "local",
     "esm2_t33_650m": "local",
 }
+# What the Tools dropdowns show; the identifiers above stay what settings and files hold.
+MODEL_DISPLAY_NAMES = {
+    "esm2_t6_8m": "ESM-2 8M",
+    "esm2_t12_35m": "ESM-2 35M",
+    "esm2_t30_150m": "ESM-2 150M",
+    "esm2_t33_650m": "ESM-2 650M",
+}
 
 # ESM-2 uses the same sequence alphabet as ESM-C: X/B/U/Z/O, ".", and
 # "-" are native tokens, while J must be represented as X.
