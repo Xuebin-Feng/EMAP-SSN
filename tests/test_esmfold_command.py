@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -47,6 +48,10 @@ class ESMFoldCommandTests(unittest.TestCase):
             side_effect=AssertionError("A windowed esmfold must start its worker in a terminal."),
         )
         patcher.start()
+        self.addCleanup(patcher.stop)
+        # The workers here are stand-ins: they are not entered in the real registry.
+        patcher = mock.patch.object(Viewer_Worker_Tracking, "track_worker")
+        self.track_worker = patcher.start()
         self.addCleanup(patcher.stop)
 
     def make_viewer(self, count=0):
@@ -614,6 +619,94 @@ class ESMFoldCommandTests(unittest.TestCase):
         self.assertEqual(str(message), "Error: Duplicate esmfold keyword: large")
         self.assertIsInstance(message.values["error"], esmfold_command.Message)
 
+    # --- esmfold stop -------------------------------------------------------
+
+    def run_stop(self, arguments, *, ended):
+        """Run `esmfold stop ...` with stop_workers stubbed to end `ended` workers; return what it reported."""
+        viewer = self.make_viewer()
+        engine = esmfold_command.Command_Engine
+        with (
+            mock.patch.object(Viewer_Worker_Tracking, "stop_workers", return_value=ended) as stop_workers,
+            mock.patch.object(esmfold_command, "launch_in_terminal") as launch,
+            mock.patch.object(esmfold_command.esmfold_backend, "open_esmfold_ui") as open_ui,
+            mock.patch.object(engine, "command_succeeded") as succeeded,
+            mock.patch.object(engine, "command_failed") as failed,
+            redirect_stdout(io.StringIO()) as output,
+        ):
+            esmfold_command.run(viewer, arguments)
+        launch.assert_not_called()
+        open_ui.assert_not_called()
+        return SimpleNamespace(
+            viewer=viewer, stop_workers=stop_workers, succeeded=succeeded, failed=failed, output=output.getvalue()
+        )
+
+    def test_stop_ends_the_workers_and_says_how_many(self):
+        for arguments in (["stop"], ["STOP"], ["Stop"]):
+            with self.subTest(arguments=arguments):
+                run = self.run_stop(arguments, ended=2)
+                run.stop_workers.assert_called_once_with("ESMFold worker stopped")
+                run.failed.assert_not_called()
+                text = "Stopped 2 ESMFold workers; structures already saved are kept."
+                run.succeeded.assert_called_once()
+                self.assertEqual(str(run.succeeded.call_args.args[1]), text)
+                self.assertEqual(run.viewer.console_text.text, text)
+                self.assertIn(text, run.output)
+
+        run = self.run_stop(["stop"], ended=1)
+        self.assertEqual(
+            str(run.succeeded.call_args.args[1]), "Stopped 1 ESMFold worker; structures already saved are kept."
+        )
+
+    def test_stop_with_no_worker_running_succeeds_with_a_note(self):
+        run = self.run_stop(["stop"], ended=0)
+
+        run.failed.assert_not_called()
+        run.succeeded.assert_called_once()
+        self.assertEqual(str(run.succeeded.call_args.args[1]), "No ESMFold worker is running.")
+        self.assertEqual(run.viewer.console_text.text, "No ESMFold worker is running.")
+
+    def test_stop_takes_no_other_keyword(self):
+        for arguments in (["stop", "large"], ["stop", "multi"], ["stop", "stop"]):
+            with self.subTest(arguments=arguments):
+                run = self.run_stop(arguments, ended=1)
+                run.stop_workers.assert_not_called()
+                run.succeeded.assert_not_called()
+                run.failed.assert_called_once_with(run.viewer, "Error: Stop cannot be combined with other keywords.")
+                self.assertIn("Usage: esmfold [large] [multi]", run.output)
+                self.assertTrue(run.viewer.console_text.text.startswith("Error:"), run.viewer.console_text.text)
+
+        # As a keyword after others, it is still not a keyword.
+        viewer = self.make_viewer(1)
+        with redirect_stdout(io.StringIO()):
+            esmfold_command.run(viewer, ["large", "stop"])
+        self.assertEqual(viewer.console_text.text, "Error: Unknown esmfold keyword: stop")
+
+    def test_stop_is_in_the_help(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            esmfold_command.print_help()
+        self.assertIn("esmfold stop", output.getvalue())
+
+    def test_a_started_worker_is_registered_for_stop_and_its_input_is_the_marker(self):
+        viewer = self.make_viewer(1)
+        _, _, launch = self.run_reporting(viewer, ["large"])
+        command = launch.call_args.args[0]
+
+        self.track_worker.assert_called_once()
+        [process] = self.track_worker.call_args.args
+        self.assertIs(process, launch.return_value)
+        # The registry finds the worker by its input file: that argument is the command's third.
+        self.assertEqual(self.track_worker.call_args.kwargs["input_path"], command[2])
+        self.assertEqual(self.track_worker.call_args.kwargs["output_dir"], command[3])
+        self.assertIsNone(self.track_worker.call_args.kwargs["tracker"])
+
+    def test_no_worker_is_registered_when_none_started(self):
+        def refused_launch(command, **options):
+            raise OSError("no terminal")
+
+        self.run_reporting(self.make_viewer(1), ["large"], launch=refused_launch)
+        self.track_worker.assert_not_called()
+
     # --- Opening the page --------------------------------------------------
 
     def open_page(self, opened, connected=False):
@@ -728,6 +821,7 @@ class HeadlessESMFoldTests(unittest.TestCase):
             hidden = enter(mock.patch.object(esmfold_command, "launch_without_window", **hidden_options))
             terminal = enter(mock.patch.object(esmfold_command, "launch_in_terminal", return_value=process))
             track = enter(mock.patch.object(Viewer_Worker_Tracking, "track_hidden_worker"))
+            registered = enter(mock.patch.object(Viewer_Worker_Tracking, "track_worker"))
             browser = enter(mock.patch.object(Browser_Page.webbrowser, "open", return_value=True))
             critical = enter(mock.patch.object(esmfold_command.QMessageBox, "critical"))
             information = enter(mock.patch.object(Browser_Page.QMessageBox, "information"))
@@ -741,7 +835,7 @@ class HeadlessESMFoldTests(unittest.TestCase):
                 remove_worker_input(terminal)
         return SimpleNamespace(
             root=root, process=process, output=output.getvalue(), hidden=hidden, terminal=terminal,
-            track=track, browser=browser, critical=critical, information=information,
+            track=track, registered=registered, browser=browser, critical=critical, information=information,
             succeeded=succeeded, failed=failed,
         )
 
@@ -775,6 +869,10 @@ class HeadlessESMFoldTests(unittest.TestCase):
                 run.information.assert_not_called()
                 run.track.assert_called_once_with(run.process)
                 self.assertEqual(viewer.esmfold_worker, (run.process, None))
+                # Hidden or windowed, a worker is registered for `esmfold stop`.
+                run.registered.assert_called_once_with(
+                    run.process, input_path=command[2], output_dir=command[3], tracker=None
+                )
                 self.assertEqual(viewer.console_text.text, "")
                 self.assertEqual(
                     self.outcome(run),
@@ -1082,6 +1180,40 @@ time.sleep(120)
 """
 
 
+# Folds the first record, half writes the second (<name>.<pid>.partial, as the worker does while it
+# writes a structure), starts a child of its own, records both process IDs, and runs until it is ended.
+STAND_IN_FOLD_THEN_HANG = """
+import os, subprocess, sys, time
+src, *arguments = sys.argv[1:]
+sys.path.insert(0, src)
+from resources.esmfold import esmfold_worker as worker
+
+def run_predictions(nodes, structures_dir, *, notifier, **options):
+    first, second = nodes
+    name = worker.prediction_filename(first[0])
+    with open(os.path.join(structures_dir, name), "w") as handle:
+        handle.write("ATOM\\n")
+    notifier(first[0], name)
+    partial = worker.prediction_filename(second[0]) + f".{{os.getpid()}}.partial"
+    with open(os.path.join(structures_dir, partial), "w") as handle:
+        handle.write("ATO")
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    with open({pids!r}, "w") as handle:
+        handle.write(f"{{os.getpid()}} {{child.pid}}")
+    time.sleep(120)
+    return 2, False
+
+worker.run_predictions = run_predictions
+worker.notify_server = lambda *args, **options: None
+raise SystemExit(worker.main(arguments))
+"""
+
+# What a console window runs: the command as a child, until it ends (the Windows wrapper's way)...
+STAND_IN_CONSOLE = "import subprocess, sys\nraise SystemExit(subprocess.run(sys.argv[1:]).returncode)\n"
+# ...or a window that hands the command to another process and ends at once (some Linux terminals).
+STAND_IN_HAND_OFF = "import subprocess, sys\nsubprocess.Popen(sys.argv[1:])\n"
+
+
 class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
     """The headless worker as real processes: the real launcher, the real worker's
     status reporting, the real tracker and a real process tree."""
@@ -1089,7 +1221,11 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.root = Path(self.directory.name)
-        for name, value in (("_hidden_workers", set()), ("_hidden_quit_hooked", True)):
+        self.inputs = []
+        for name, value in (
+            ("_hidden_workers", set()), ("_hidden_quit_hooked", True),
+            ("_started_workers", []), ("_started_quit_hooked", True),
+        ):
             patcher = mock.patch.object(Viewer_Worker_Tracking, name, value)
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -1102,13 +1238,17 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
 
     def end_workers(self):
         Viewer_Worker_Tracking.stop_hidden_workers()
+        Viewer_Worker_Tracking.stop_workers("test over")
+        for path in self.inputs:
+            if os.path.exists(path):
+                os.unlink(path)
 
-    def make_viewer(self):
+    def make_viewer(self, headless=True, selected=(0,)):
         viewer = self.viewer
-        viewer.headless = True
-        viewer.selected_indices = [0]
+        viewer.headless = headless
+        viewer.selected_indices = list(selected)
         viewer.selected_node_idx = None
-        viewer.sequences_map = {"one": "ACDE"}
+        viewer.sequences_map = {"one": "ACDE", "two": "ACDF"}
         viewer.get_web_url = lambda path="/": f"{ADDRESS}/{str(path).lstrip('/')}"
         viewer.web_server = SimpleNamespace(has_event_client=lambda client_id: False)
         viewer._open_web_ui = lambda *args, **kwargs: Browser_Page.open_browser_page(
@@ -1116,8 +1256,13 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
         )
         return viewer
 
-    def run_in_portal(self, script_text):
-        """Run `esmfold large` as a portal command whose worker is script_text; return (request id, context, mocks)."""
+    def run_in_portal(self, script_text, arguments=("large",), console=None, selected=(0,)):
+        """Run esmfold as a portal command whose worker is script_text; return (request id, context, mocks).
+
+        By default the Viewer is headless and the worker runs hidden. With console set to
+        STAND_IN_CONSOLE or STAND_IN_HAND_OFF the Viewer is windowed, and its "terminal" is that
+        script, run hidden, with the worker command as its arguments.
+        """
         script = self.root / "stand_in.py"
         script.write_text(script_text, encoding="utf-8")
         request_id = self.portal.submit("headless-fold", "test")["request_id"]
@@ -1130,8 +1275,17 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
             # [python, worker script, input, structures, ...]: the stand-in takes the worker's
             # place. The real worker deletes its private input (--delete-input); a stand-in
             # that fails or hangs before reading it leaves the file for the test to remove.
-            self.addCleanup(lambda path=command[2]: os.path.exists(path) and os.unlink(path))
+            self.inputs.append(command[2])
             return real_launch([command[0], str(script), SRC_DIR, *command[2:]], **options)
+
+        def terminal(command, **options):
+            window = self.root / "window.py"
+            window.write_text(console, encoding="utf-8")
+            self.inputs.append(command[2])
+            return real_launch(
+                [command[0], str(window), command[0], str(script), SRC_DIR, *command[2:]],
+                cwd=options["cwd"], log_path=self.root / "window.log",
+            )
 
         with contextlib.ExitStack() as stack:
             enter = stack.enter_context
@@ -1141,12 +1295,14 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
             ))
             enter(mock.patch.object(esmfold_command.esmfold_backend, "register"))
             enter(mock.patch.object(esmfold_command, "launch_without_window", side_effect=launch))
-            terminal = enter(mock.patch.object(esmfold_command, "launch_in_terminal"))
+            terminal = enter(mock.patch.object(
+                esmfold_command, "launch_in_terminal", side_effect=terminal if console else None
+            ))
             browser = enter(mock.patch.object(Browser_Page.webbrowser, "open"))
             critical = enter(mock.patch.object(esmfold_command.QMessageBox, "critical"))
             enter(redirect_stdout(io.StringIO()))
             with bind(context):
-                esmfold_command.run(self.make_viewer(), ["large"])
+                esmfold_command.run(self.make_viewer(headless=console is None, selected=selected), list(arguments))
         self.assertIsNotNone(getattr(self.viewer, "esmfold_worker", None))
         self.addCleanup(self.viewer.esmfold_worker[1].timer.stop)
         return request_id, context, SimpleNamespace(terminal=terminal, browser=browser, critical=critical)
@@ -1211,6 +1367,136 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
         _, alive = psutil.wait_procs(processes, timeout=10)
         self.assertEqual(alive, [])
         self.assertIsNotNone(process.poll())
+
+
+    # --- esmfold stop, against real worker processes of each kind of launch: hidden, a console
+    # window that runs the worker as its child, and a window that hands the worker over and exits.
+
+    def start_folding(self, console=None):
+        """Start a fold of two nodes whose worker folds one and hangs on the second; return its pieces."""
+        pids = self.root / "pids.txt"
+        request_id, context, _ = self.run_in_portal(
+            STAND_IN_FOLD_THEN_HANG.format(pids=str(pids)),
+            arguments=("large", "multi"), console=console, selected=(0, 1),
+        )
+        deadline = time.monotonic() + 60
+        while len(pids.read_text().split() if pids.exists() else []) != 2:
+            self.assertLess(time.monotonic(), deadline, "The stand-in worker never started its child")
+            time.sleep(0.05)
+        processes = [psutil.Process(int(field)) for field in pids.read_text().split()]
+        self.addCleanup(lambda: [p.kill() for p in processes if p.is_running()])
+        # The tracker reads the worker's status: the folded structure is reported before the stop.
+        deadline = time.monotonic() + 30
+        while not self.portal.requests[request_id]["commands"][0]["artifacts"]:
+            self.assertLess(time.monotonic(), deadline, "The first structure was never reported")
+            self.app.processEvents()
+            time.sleep(0.02)
+        return request_id, context, processes
+
+    def stop_through_the_portal(self, text="esmfold stop"):
+        """Submit `esmfold stop` behind the fold request, which still waits for its worker."""
+        request = self.portal.submit("stop-" + text.replace(" ", "-"), text)
+        return self.finish(request["request_id"])
+
+    def assert_stopped(self, request_id, processes):
+        structures = self.root / "structures"
+        pdb = os.path.abspath(structures / "one.pdb")
+        # The fold request ends cancelled, not failed, with its job cancelled and the finished structure kept.
+        result = self.finish(request_id)
+        self.assertEqual(result["status"], "cancelled", result)
+        [job] = result["commands"][0]["jobs"]
+        self.assertEqual((job["status"], job["message"]), ("cancelled", "ESMFold worker stopped"))
+        self.assertEqual(result["commands"][0]["artifacts"], [pdb])
+        self.assertTrue(os.path.exists(pdb))
+        # The half-written structure leaves no file, under any name.
+        self.assertEqual(sorted(path.name for path in structures.iterdir()), ["one.pdb"])
+        _, alive = psutil.wait_procs(processes, timeout=10)
+        self.assertEqual(alive, [])
+        self.assertFalse([path for path in self.inputs if os.path.exists(path)])
+        self.assertEqual(list((self.root / "temp" / "command_workers").glob("*.partial")), [])
+
+    def test_a_hidden_worker_is_stopped_while_its_own_request_waits(self):
+        request_id, context, processes = self.start_folding()
+        self.assertEqual(self.portal.get(request_id)["status"], "running")
+
+        stop = self.stop_through_the_portal()
+
+        self.assertEqual(stop["status"], "succeeded", stop)
+        [message] = [entry["text"] for entry in stop["commands"][0]["messages"]]
+        self.assertEqual(message, "Stopped 1 ESMFold worker; structures already saved are kept.")
+        self.assert_stopped(request_id, processes)
+        # A second stop finds nothing running.
+        again = self.stop_through_the_portal("esmfold  STOP")
+        self.assertEqual(again["status"], "succeeded", again)
+        self.assertEqual(again["commands"][0]["messages"][-1]["text"], "No ESMFold worker is running.")
+
+    def test_a_console_window_worker_is_stopped_through_its_console_tree(self):
+        request_id, context, processes = self.start_folding(console=STAND_IN_CONSOLE)
+        window = self.viewer.esmfold_worker[0]
+        self.assertIsNone(window.poll())  # The window's own process is still there, with the worker below it.
+
+        stop = self.stop_through_the_portal()
+
+        self.assertEqual(stop["status"], "succeeded", stop)
+        self.assertIsNotNone(window.poll())
+        self.assert_stopped(request_id, processes)
+
+    def test_a_worker_handed_to_another_process_is_found_by_its_input_file(self):
+        request_id, context, processes = self.start_folding(console=STAND_IN_HAND_OFF)
+        window = self.viewer.esmfold_worker[0]
+        window.wait(timeout=30)  # The window's process has ended; the worker did not.
+        # Something else with a command line of its own, which a stop must leave alone.
+        bystander = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)", "esmfold_worker.py"])
+        self.addCleanup(lambda: (bystander.kill(), bystander.wait(timeout=10)))
+
+        stop = self.stop_through_the_portal()
+
+        self.assertEqual(stop["status"], "succeeded", stop)
+        self.assert_stopped(request_id, processes)
+        self.assertIsNone(bystander.poll())
+
+    def test_a_worker_is_stopped_before_it_reports_startup(self):
+        request_id, context, _ = self.run_in_portal("import time\ntime.sleep(120)\n")
+        worker, tracker = self.viewer.esmfold_worker
+        self.assertIsNone(worker.poll())
+        self.assertIsNone(tracker.identity)  # It has reported nothing.
+
+        stop = self.stop_through_the_portal()
+
+        self.assertEqual(stop["status"], "succeeded", stop)
+        result = self.finish(request_id)
+        self.assertEqual(result["status"], "cancelled", result)
+        [job] = result["commands"][0]["jobs"]
+        self.assertEqual((job["status"], job["message"]), ("cancelled", "ESMFold worker stopped"))
+        self.assertIsNotNone(worker.poll())
+        self.assertFalse(tracker.timer.isActive())
+        self.assertFalse([path for path in self.inputs if os.path.exists(path)])
+        # Nothing later turns the cancelled job into a failure.
+        for _ in range(5):
+            tracker.poll()
+        self.assertEqual(self.portal.get(request_id)["status"], "cancelled")
+
+    def test_a_worker_that_already_finished_is_not_stopped(self):
+        request_id, context, mocks = self.run_in_portal(STAND_IN_FOLDING)
+        self.assertEqual(self.finish(request_id)["status"], "succeeded")
+
+        stop = self.stop_through_the_portal()
+
+        self.assertEqual(stop["commands"][0]["messages"][-1]["text"], "No ESMFold worker is running.")
+        self.assertTrue(os.path.exists(self.root / "structures" / "one.pdb"))
+
+    def test_only_the_workers_this_viewer_started_are_stopped(self):
+        # A worker of another Viewer: the same script and the same shape of command line.
+        script = self.root / "other_worker.py"
+        script.write_text("import time\ntime.sleep(120)\n", encoding="utf-8")
+        other = subprocess.Popen([sys.executable, str(script), str(self.root / "someone_elses_input.json")])
+        self.addCleanup(lambda: (other.kill(), other.wait(timeout=10)))
+        request_id, context, processes = self.start_folding()
+
+        self.stop_through_the_portal()
+
+        self.assert_stopped(request_id, processes)
+        self.assertIsNone(other.poll())
 
 
 def job_status_path(root):

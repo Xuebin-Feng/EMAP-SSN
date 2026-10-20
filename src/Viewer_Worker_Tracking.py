@@ -31,6 +31,8 @@ class WorkerTracker(QtCore.QObject):
         self.previous = None
         # (process, log path) of a worker that runs with no window of its own, else None.
         self.hidden = None
+        # The StartedWorker that runs this job, once track_worker has it.
+        self.worker = None
         self.log_offsets = {'stdout': 0, 'stderr': 0}
         context.add_job(self.job_id)
         self.timer = QtCore.QTimer(self)
@@ -51,6 +53,13 @@ class WorkerTracker(QtCore.QObject):
         self.timer.stop()
         if self.hidden is not None:
             end_hidden_worker(self.hidden[0])
+        if self.worker is not None:
+            self.worker.tidy()
+
+    def cancel(self, message):
+        """End the job as cancelled, because its worker was stopped; the tracker polls no more."""
+        self.timer.stop()
+        self.context.job_event(self.job_id, 'cancelled', message)
 
     def poll(self):
         for stream in self.log_offsets:
@@ -117,6 +126,11 @@ def _end_process_tree(pid, timeout=2.0):
         targets = [root, *root.children(recursive=True)]
     except psutil.Error:
         return
+    _end_processes(targets, timeout)
+
+
+def _end_processes(targets, timeout=2.0):
+    """End the psutil processes in targets: ask, then force whatever is left."""
     for target in targets:
         try:
             target.terminate()
@@ -170,7 +184,189 @@ def stop_hidden_workers():
     with _hidden_lock:
         workers = list(_hidden_workers)
         _hidden_workers.clear()
-    return sum(end_hidden_worker(worker) for worker in workers)
+    count = sum(end_hidden_worker(worker) for worker in workers)
+    tidy_workers()
+    return count
+
+
+def _discard(path):
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _command_lines():
+    """(process, command line) of every process that can be read: one snapshot to look workers up in."""
+    lines = []
+    for candidate in psutil.process_iter(['cmdline']):
+        try:
+            lines.append((candidate, candidate.info['cmdline'] or ()))
+        except psutil.Error:
+            pass
+    return lines
+
+
+def _timer_active(tracker):
+    try:
+        return bool(tracker.timer.isActive())
+    except RuntimeError:
+        return False  # The tracker's Qt object is already deleted.
+
+
+class StartedWorker:
+    """A worker process a command started, in a console window or hidden, kept so that it can be stopped.
+
+    ``process`` is what the launcher returned: the hidden worker itself, or on
+    Windows the console wrapper, which has the worker as a child. A terminal that
+    hands its window to another process (some on Linux, osascript on macOS) exits
+    at once, so the worker is also found by ``input_path``, its private input
+    file, whose name no other process has on its command line (the file is gone
+    once the worker has read it, the name stays), and by the process the worker's
+    status file names (``tracker.identity``, checked against its start time).
+    Only processes found that way are ever ended.
+
+    ``output_dir`` is where the worker writes its structures: ``<name>.<pid>.partial``
+    while one is half written.
+    """
+
+    def __init__(self, process, *, input_path=None, output_dir=None, tracker=None):
+        self.process = process
+        self.input_path = input_path
+        self.output_dir = output_dir
+        self.tracker = tracker
+        self.pids = set()
+
+    def processes(self, command_lines=None):
+        """The running processes of this worker and of what it started.
+
+        ``command_lines`` is a snapshot from _command_lines(), for a caller that asks about several workers.
+        """
+        found = {}
+
+        def add(root):
+            try:
+                for process in (root, *root.children(recursive=True)):
+                    if process.pid != os.getpid() and process.status() != psutil.STATUS_ZOMBIE:
+                        found[(process.pid, process.create_time())] = process
+            except psutil.Error:
+                pass
+
+        if self.process.poll() is None:
+            try:
+                add(psutil.Process(self.process.pid))
+            except psutil.Error:
+                pass
+        if self.input_path:
+            for candidate, command_line in (_command_lines() if command_lines is None else command_lines):
+                if self.input_path in command_line:
+                    add(candidate)
+        identity = getattr(self.tracker, 'identity', None)
+        if identity is not None:
+            try:
+                reported = psutil.Process(identity[0])
+                if reported.create_time() == identity[1]:
+                    add(reported)
+            except psutil.Error:
+                pass
+        return list(found.values())
+
+    def running(self, command_lines=None):
+        return bool(self.processes(command_lines))
+
+    def tidy(self, command_lines=None):
+        """Delete what a worker that has ended left: its unread input and a half-written status file.
+
+        A running worker is left alone, whatever its state. Returns whether it had ended.
+        """
+        if self.running(command_lines):
+            return False
+        if self.input_path:
+            _discard(self.input_path)
+        if self.tracker is not None:
+            _discard(str(self.tracker.path) + '.partial')
+        return True
+
+    def stop(self, message):
+        """End the worker and everything it started, and report its job cancelled; return whether it was running.
+
+        Structures it had saved stay (it writes each whole, then renames it into
+        place); the half-written one it leaves is deleted.
+        """
+        tracker = self.tracker
+        if tracker is not None and _timer_active(tracker):
+            tracker.poll()  # One more look: a structure just saved, or a result that ended the job.
+        targets = self.processes()
+        if not targets:
+            self.tidy()
+            return False
+        self.pids.update(target.pid for target in targets)
+        _end_processes(targets)
+        self._remove_partial_structures()
+        self.tidy()
+        if tracker is not None and _timer_active(tracker):
+            tracker.cancel(message)
+        return True
+
+    def _remove_partial_structures(self):
+        if not self.output_dir:
+            return
+        for pid in self.pids:
+            for path in Path(self.output_dir).glob(f'*.{pid}.partial'):
+                _discard(path)
+
+
+# Every worker a command started, until it has ended and been tidied up.
+_started_workers = []
+_started_lock = threading.Lock()
+_started_quit_hooked = False
+
+
+def track_worker(process, *, input_path=None, output_dir=None, tracker=None):
+    """Keep a worker a command just started, so stop_workers() can end it and its input file is not left.
+
+    The workers that have ended since the last call are tidied up first: one that
+    died before it read its input leaves the file, and nothing else would delete it.
+    """
+    global _started_quit_hooked
+    worker = StartedWorker(process, input_path=input_path, output_dir=output_dir, tracker=tracker)
+    if tracker is not None:
+        tracker.worker = worker
+    with _started_lock:
+        earlier = list(_started_workers)
+    lines = _command_lines() if earlier else []
+    ended = [started for started in earlier if started.tidy(lines)]
+    with _started_lock:
+        _started_workers[:] = [started for started in _started_workers if started not in ended]
+        _started_workers.append(worker)
+    application = QtCore.QCoreApplication.instance()
+    if application is not None and not _started_quit_hooked:
+        application.aboutToQuit.connect(tidy_workers)
+        _started_quit_hooked = True
+    return worker
+
+
+def stop_workers(message):
+    """End every worker a command started that is still running; return how many were.
+
+    Each worker's job is reported cancelled, with message. Nothing else is ended.
+    """
+    with _started_lock:
+        workers = list(_started_workers)
+    count = sum(worker.stop(message) for worker in workers)
+    with _started_lock:
+        _started_workers[:] = [started for started in _started_workers if started not in workers or started.running()]
+    return count
+
+
+def tidy_workers():
+    """Delete the input files of the workers that have ended, and forget those workers."""
+    with _started_lock:
+        workers = list(_started_workers)
+    lines = _command_lines() if workers else []
+    ended = [worker for worker in workers if worker.tidy(lines)]
+    with _started_lock:
+        _started_workers[:] = [started for started in _started_workers if started not in ended]
 
 
 class CommandScript:

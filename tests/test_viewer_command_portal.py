@@ -9,6 +9,7 @@ import io
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import threading
@@ -656,7 +657,7 @@ class WorkerTrackingTests(PortalFixture, unittest.TestCase):
         self.assertIn('select "one"', self.portal.read_output(request_id)['text'])
 
 
-class HiddenWorkerTests(PortalFixture, unittest.TestCase):
+class HiddenWorkerFixture(PortalFixture):
     """A worker with no window (a headless Viewer's) is ended by the Viewer, and its failures name its log.
 
     Everyone else can close a worker's console; nobody can close a window that does not exist.
@@ -732,6 +733,12 @@ class HiddenWorkerTests(PortalFixture, unittest.TestCase):
         _, alive = psutil.wait_procs(processes, timeout=10)
         self.assertEqual(alive, [], 'A process the hidden worker started is still running')
         self.assertIsNotNone(process.poll())
+
+class HiddenWorkerTests(HiddenWorkerFixture, unittest.TestCase):
+    """A worker with no window (a headless Viewer's) is ended by the Viewer, and its failures name its log.
+
+    Everyone else can close a worker's console; nobody can close a window that does not exist.
+    """
 
     def test_stopping_the_workers_ends_each_with_everything_it_started(self):
         import Viewer_Worker_Tracking
@@ -848,6 +855,369 @@ class HiddenWorkerTests(PortalFixture, unittest.TestCase):
             tracker.fail('Worker did not report startup within 60 seconds; inspect its terminal before retrying')
 
         end_tree.assert_not_called()
+
+
+class StartedWorkerTests(HiddenWorkerFixture, unittest.TestCase):
+    """Workers a command started, in a console or hidden: `esmfold stop` ends them, and none leaves its input file.
+
+    The worker is a real process; its input file is a real private file the registry is told about.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import Viewer_Worker_Tracking
+        for name, value in (('_started_workers', []), ('_started_quit_hooked', True)):
+            patcher = mock.patch.object(Viewer_Worker_Tracking, name, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.addCleanup(Viewer_Worker_Tracking.stop_workers, 'test over')
+
+    def input_file(self, name='input.json'):
+        path = Path(self.directory.name) / name
+        path.write_text('[["one", "ACDE"]]', encoding='utf-8')
+        return str(path)
+
+    def tracked_worker(self, code, *, tracker=None, input_path=None, output_dir=None, extra=()):
+        """A real worker running code, entered in the registry; its input file's name is its first argument."""
+        import Viewer_Worker_Tracking
+        input_path = input_path or self.input_file()
+        process, log = self.hidden_worker(code, input_path, *extra)
+        worker = Viewer_Worker_Tracking.track_worker(
+            process, input_path=input_path, output_dir=output_dir, tracker=tracker)
+        return process, log, worker, input_path
+
+    def test_stop_ends_the_worker_and_its_children_and_cancels_its_job(self):
+        import Viewer_Worker_Tracking
+        process, log, processes = self.started_tree()
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.timer.start(250)  # As a command's tracker polls while its job runs.
+        self.addCleanup(tracker.timer.stop)
+        Viewer_Worker_Tracking.track_worker(process, input_path=self.input_file(), tracker=tracker)
+
+        self.assertEqual(Viewer_Worker_Tracking.stop_workers('ESMFold worker stopped'), 1)
+
+        self.assert_all_ended(process, processes)
+        result = self.finish(request_id)
+        self.assertEqual(result['status'], 'cancelled', result)
+        job = result['commands'][0]['jobs'][0]
+        self.assertEqual((job['status'], job['message']), ('cancelled', 'ESMFold worker stopped'))
+        self.assertFalse(tracker.timer.isActive())
+        # The tracker does not turn the ended worker into a failure afterwards.
+        tracker.poll()
+        self.assertEqual(self.portal.get(request_id)['status'], 'cancelled')
+
+    def test_stop_reports_a_structure_saved_just_before_it_ended_the_worker(self):
+        import psutil
+        import Viewer_Worker_Tracking
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.timer.start(600000)  # It would not read the status file for ten minutes.
+        self.addCleanup(tracker.timer.stop)
+        process, log, worker, input_path = self.tracked_worker('import time\ntime.sleep(120)\n', tracker=tracker)
+        tracker.path.write_text(json.dumps({
+            'pid': process.pid, 'created': psutil.Process(process.pid).create_time(), 'status': 'running',
+            'message': 'Folded one', 'artifacts': ['one.pdb'], 'result': {'succeeded': 1, 'total': 2}}))
+
+        self.assertEqual(Viewer_Worker_Tracking.stop_workers('ESMFold worker stopped'), 1)
+
+        result = self.finish(request_id)
+        self.assertEqual(result['status'], 'cancelled', result)
+        self.assertEqual(len(result['commands'][0]['artifacts']), 1)
+        job = result['commands'][0]['jobs'][0]
+        self.assertEqual((job['status'], job['message'], job['result']),
+                         ('cancelled', 'ESMFold worker stopped', {'succeeded': 1, 'total': 2}))
+
+    def test_a_worker_its_status_file_names_is_found_without_its_input_file(self):
+        import psutil
+        import Viewer_Worker_Tracking
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.timer.start(600000)
+        self.addCleanup(tracker.timer.stop)
+        window, _ = self.hidden_worker('pass\n')  # The window's process, ended at once.
+        window.wait(timeout=60)
+        worker, _ = self.hidden_worker('import time\ntime.sleep(120)\n')
+        # The worker has told the Viewer who it is (the first status it writes).
+        tracker.identity = (worker.pid, psutil.Process(worker.pid).create_time())
+        Viewer_Worker_Tracking.track_worker(window, tracker=tracker)
+
+        self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 1)
+
+        self.assertIsNotNone(worker.poll())
+        self.assertEqual(self.finish(request_id)['status'], 'cancelled')
+
+    def test_stop_ends_only_what_the_registry_started(self):
+        import Viewer_Worker_Tracking
+        process, log, worker, input_path = self.tracked_worker('import time\ntime.sleep(120)\n')
+        other = Path(self.directory.name) / 'other.py'
+        other.write_text('import time\ntime.sleep(120)\n', encoding='utf-8')
+        bystander = subprocess.Popen([sys.executable, str(other), self.input_file('someone_elses.json')])
+        self.addCleanup(lambda: (bystander.kill(), bystander.wait(timeout=10)))
+
+        self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 1)
+
+        self.assertIsNotNone(process.poll())
+        self.assertIsNone(bystander.poll())
+        self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 0)
+
+    def test_a_worker_is_found_by_its_input_file_after_its_window_handed_it_over(self):
+        import Viewer_Worker_Tracking
+        input_path = self.input_file()
+        script = Path(self.directory.name) / 'worker.py'
+        script.write_text('import time\ntime.sleep(120)\n', encoding='utf-8')
+        window = Path(self.directory.name) / 'window.py'
+        window.write_text('import subprocess, sys\nsubprocess.Popen(sys.argv[1:])\n', encoding='utf-8')
+        from utilities.Terminal_Launcher import launch_without_window
+        process = launch_without_window(
+            [sys.executable, str(window), sys.executable, str(script), input_path],
+            cwd=self.directory.name, log_path=Path(self.directory.name) / 'window.log')
+        process.wait(timeout=30)  # The window's process is gone; the worker it started is not.
+        self.addCleanup(self.end_leftovers, process)
+        Viewer_Worker_Tracking.track_worker(process, input_path=input_path)
+        import psutil
+        found = [p for p in psutil.process_iter(['cmdline']) if input_path in (p.info['cmdline'] or ())]
+        self.assertTrue(found)
+        self.addCleanup(lambda: [p.kill() for p in found if p.is_running()])
+
+        self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 1)
+
+        _, alive = psutil.wait_procs(found, timeout=10)
+        self.assertEqual(alive, [])
+        self.assertFalse(os.path.exists(input_path))
+
+    def test_stop_deletes_the_half_written_structure_and_keeps_the_finished_one(self):
+        import Viewer_Worker_Tracking
+        structures = Path(self.directory.name) / 'structures'
+        structures.mkdir()
+        code = (
+            "import os, sys, time\n"
+            "folder = sys.argv[2]\n"
+            "open(os.path.join(folder, 'one.pdb'), 'w').write('ATOM\\n')\n"
+            "open(os.path.join(folder, 'two.pdb.%d.partial' % os.getpid()), 'w').write('ATO')\n"
+            "open(os.path.join(folder, 'ready'), 'w').close()\n"
+            "time.sleep(120)\n")
+        process, log, worker, input_path = self.tracked_worker(code, output_dir=str(structures), extra=(structures,))
+        deadline = time.monotonic() + 60
+        while not (structures / 'ready').exists():
+            self.assertLess(time.monotonic(), deadline, 'The stand-in worker never wrote its files')
+            time.sleep(0.05)
+        (structures / 'ready').unlink()
+        # A partial file of someone else's process, which stays.
+        (structures / 'three.pdb.1.partial').write_text('x')
+
+        self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 1)
+
+        self.assertEqual(sorted(p.name for p in structures.iterdir()), ['one.pdb', 'three.pdb.1.partial'])
+        self.assertFalse(os.path.exists(input_path))
+
+    def test_a_worker_that_died_before_reading_its_input_leaves_no_file(self):
+        process, log, worker, input_path = self.tracked_worker('raise ImportError("no torch here")\n')
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        tracker.attach_hidden(process, log)
+        worker.tracker = tracker
+        tracker.worker = worker
+        process.wait(timeout=60)
+        self.assertTrue(os.path.exists(input_path))  # It never read it.
+
+        deadline = time.monotonic() + 60
+        while context.record['jobs'][0]['status'] != 'failed':
+            self.assertLess(time.monotonic(), deadline, 'The dead worker was never reported')
+            tracker.poll()
+            time.sleep(0.05)
+
+        self.assertFalse(os.path.exists(input_path))
+
+    def test_a_worker_still_running_keeps_its_input_whatever_its_job_says(self):
+        import Viewer_Worker_Tracking
+        request_id, context = self.tracked_command()
+        tracker = worker_tracker(context, self.directory.name)
+        process, log, worker, input_path = self.tracked_worker('import time\ntime.sleep(120)\n', tracker=tracker)
+        tracker.worker = worker
+        # A console worker that is slow to start: the job fails after 60 s, the worker may still start.
+        clock = SimpleNamespace(monotonic=lambda: tracker.created + 61)
+        with mock.patch.object(Viewer_Worker_Tracking, 'time', clock):
+            tracker.poll()
+
+        self.assertEqual(context.record['jobs'][0]['status'], 'failed')
+        self.assertIsNone(process.poll())
+        self.assertTrue(os.path.exists(input_path))
+        self.assertFalse(worker.tidy())
+
+    def test_the_next_worker_tidies_the_input_of_one_that_ended_unread(self):
+        import Viewer_Worker_Tracking
+        first, _, _, first_input = self.tracked_worker('print("never reads its input")\n')
+        first.wait(timeout=60)
+        self.assertTrue(os.path.exists(first_input))
+        second_input = self.input_file('second.json')
+
+        process, _, _, _ = self.tracked_worker(
+            'import time\ntime.sleep(120)\n', input_path=second_input)
+
+        self.assertFalse(os.path.exists(first_input))
+        self.assertTrue(os.path.exists(second_input))
+        self.assertEqual(len(Viewer_Worker_Tracking._started_workers), 1)
+
+    def test_quitting_deletes_the_input_of_a_hidden_worker_it_ended(self):
+        import Viewer_Worker_Tracking
+        process, log, worker, input_path = self.tracked_worker('import time\ntime.sleep(120)\n')
+        Viewer_Worker_Tracking.track_hidden_worker(process)
+        self.assertTrue(os.path.exists(input_path))
+
+        # What the application's aboutToQuit signal runs for a hidden worker.
+        self.assertEqual(Viewer_Worker_Tracking.stop_hidden_workers(), 1)
+
+        self.assertIsNotNone(process.poll())
+        self.assertFalse(os.path.exists(input_path))
+
+    def test_the_quit_hook_for_every_worker_is_connected_once(self):
+        import Viewer_Worker_Tracking
+        application = SimpleNamespace(aboutToQuit=mock.Mock())
+        with mock.patch.object(Viewer_Worker_Tracking, '_started_quit_hooked', False), \
+                mock.patch.object(Viewer_Worker_Tracking.QtCore.QCoreApplication, 'instance', return_value=application):
+            process = SimpleNamespace(poll=lambda: 0, pid=0)
+            Viewer_Worker_Tracking.track_worker(process)
+            Viewer_Worker_Tracking.track_worker(process)
+        application.aboutToQuit.connect.assert_called_once_with(Viewer_Worker_Tracking.tidy_workers)
+
+
+class StopRequestTests(PortalFixture, unittest.TestCase):
+    """A request that holds only stop commands runs at once, even while the request at the head waits for its job."""
+
+    def head_waiting_for_a_job(self):
+        """Submit a request whose command starts a job that stays running; return (request id, finish_job)."""
+        started = {}
+
+        def run(viewer, args):
+            context = CURRENT.get()
+            context.add_job('job-1')
+            context.job_event('job-1', 'running')
+            started['context'] = context
+            ce.command_succeeded(viewer)
+
+        stack = fake_test_command(run)
+        stack.start()
+        self.addCleanup(stack.stop)
+        request_id = self.portal.submit('head', 'test')['request_id']
+        deadline = time.monotonic() + 30
+        while 'context' not in started:
+            self.assertLess(time.monotonic(), deadline, 'The head request never started its job')
+            self.app.processEvents()
+            time.sleep(0.005)
+        self.assertEqual(self.portal.get(request_id)['status'], 'running')
+        return request_id, lambda status='succeeded': started['context'].job_event('job-1', status)
+
+    def stop_commands(self, name='esmfold'):
+        """Stand-ins for `esmfold stop` and `run stop`, which record that they ran."""
+        calls = []
+
+        def run(viewer, args):
+            calls.append((name, list(args)))
+            ce.command_succeeded(viewer, 'stopped')
+
+        stack = fake_test_command(run, command=name)
+        stack.start()
+        self.addCleanup(stack.stop)
+        return calls
+
+    def test_a_stop_request_runs_while_the_head_waits_and_the_head_goes_on_when_its_job_ends(self):
+        head, end_job = self.head_waiting_for_a_job()
+        calls = self.stop_commands('esmfold')
+
+        stop = self.finish(self.portal.submit('stop', 'esmfold stop')['request_id'])
+
+        self.assertEqual(stop['status'], 'succeeded', stop)
+        self.assertEqual(calls, [('esmfold', ['stop'])])
+        self.assertEqual(self.portal.get(head)['status'], 'running')
+        end_job('cancelled')
+        self.assertEqual(self.finish(head)['status'], 'cancelled')
+
+    def test_run_stop_runs_ahead_too_and_case_and_spacing_do_not_matter(self):
+        head, end_job = self.head_waiting_for_a_job()
+        run_calls = self.stop_commands('run')
+
+        self.finish(self.portal.submit('a', 'Run  STOP')['request_id'])
+
+        self.assertEqual(run_calls, [('run', ['STOP'])])
+        end_job()
+        self.assertEqual(self.finish(head)['status'], 'succeeded')
+
+    def test_several_stops_run_in_order_and_other_requests_keep_their_place(self):
+        head, end_job = self.head_waiting_for_a_job()
+        calls = self.stop_commands('esmfold')
+        with fake_test_command(lambda viewer, args: ce.command_succeeded(viewer), command='select'):
+            later = self.portal.submit('later', 'select "one"')['request_id']
+            first = self.finish(self.portal.submit('s1', 'esmfold stop')['request_id'])
+            second = self.finish(self.portal.submit('s2', ['esmfold stop', 'esmfold stop'])['request_id'])
+
+            self.assertEqual((first['status'], second['status']), ('succeeded', 'succeeded'))
+            self.assertEqual(len(calls), 3)
+            # The request that is not a stop waits behind the head, as before.
+            self.assertEqual(self.portal.get(later)['status'], 'queued')
+            end_job()
+            self.assertEqual(self.finish(head)['status'], 'succeeded')
+            self.assertEqual(self.finish(later)['status'], 'succeeded')
+
+    def test_only_a_request_of_nothing_but_stops_runs_ahead(self):
+        head, end_job = self.head_waiting_for_a_job()
+        calls = self.stop_commands('esmfold')
+        self.stop_commands('run')
+        submitted = {
+            'mixed': self.portal.submit('mixed', ['esmfold stop', 'select "one"'])['request_id'],
+            'extra word': self.portal.submit('extra', 'esmfold stop large')['request_id'],
+            'bare': self.portal.submit('bare', 'esmfold')['request_id'],
+        }
+        for _ in range(30):
+            self.app.processEvents()
+            time.sleep(0.005)
+
+        for label, request_id in submitted.items():
+            with self.subTest(label):
+                self.assertEqual(self.portal.get(request_id)['status'], 'queued')
+        self.assertEqual(calls, [])
+        end_job()
+        for request_id in submitted.values():
+            self.finish(request_id)
+
+    def test_a_stop_waiting_for_an_agent_review_does_not_run_ahead(self):
+        head, end_job = self.head_waiting_for_a_job()
+        calls = self.stop_commands('esmfold')
+        request = self.portal.submit('agent stop', 'esmfold stop', source='web_agent')['request_id']
+        for _ in range(30):
+            self.app.processEvents()
+            time.sleep(0.005)
+        self.assertEqual(self.portal.get(request)['status'], 'queued')
+        self.assertEqual(calls, [])
+
+        command_id = self.portal.requests[request]['commands'][0]['command_id']
+        # Not yet its turn to be reviewed: it waits behind the head. Once the head ends, it asks.
+        end_job()
+        self.finish(head)
+        deadline = time.monotonic() + 30
+        while self.portal.get(request)['status'] != 'awaiting_user_input':
+            self.assertLess(time.monotonic(), deadline, self.portal.get(request))
+            self.app.processEvents()
+            time.sleep(0.005)
+        self.portal.decide(request, command_id, True)
+        self.assertEqual(self.finish(request)['status'], 'succeeded')
+        self.assertEqual(calls, [('esmfold', ['stop'])])
+
+    def test_a_head_that_waits_for_the_user_does_not_let_a_stop_run_ahead(self):
+        # Nothing is running to stop: the head has not started, it waits for its Agent review.
+        calls = self.stop_commands('esmfold')
+        waiting = self.portal.submit('review', 'run', source='web_agent')['request_id']
+        stop = self.portal.submit('stop', 'esmfold stop')['request_id']
+        for _ in range(30):
+            self.app.processEvents()
+            time.sleep(0.005)
+
+        self.assertEqual(self.portal.get(waiting)['status'], 'awaiting_user_input')
+        self.assertEqual(self.portal.get(stop)['status'], 'queued')
+        self.assertEqual(calls, [])
+        self.portal.discard_pending(waiting)
+        self.finish(waiting)
+        self.assertEqual(self.finish(stop)['status'], 'succeeded')
 
 
 if __name__ == '__main__': unittest.main()

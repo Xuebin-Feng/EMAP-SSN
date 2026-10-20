@@ -817,6 +817,10 @@ exit loses this in-memory history. Disconnecting does not cancel work.
 Agent batches are sequential and stop after failure/cancellation; completed effects
 are not rolled back. Label/logo jobs and ESMFold workers are tracked to their final
 result. A worker terminal remaining open is not proof that computation is running.
+`esmfold stop` ends the folding workers the Viewer started, hidden or in a console
+window, and reports their jobs cancelled; `run stop` ends the Python scripts the same
+way. A request that holds only stop commands runs at once, even while the request it
+ends is waiting for its job, which would otherwise keep it queued behind that request.
 `run` retains file selection and Python-script support; generated commands are
 tracked children (maximum 1000 single-line commands). Manual interaction remains
 available while background work runs, so subsequent commands use current live state.

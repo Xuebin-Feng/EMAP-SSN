@@ -3027,8 +3027,8 @@ Command-line usage:
         <location line="+6"/>
         <location filename="../../../commands/agent.py" line="+74"/>
         <location line="+127"/>
-        <location filename="../../../commands/esmfold.py" line="+80"/>
-        <location line="+167"/>
+        <location filename="../../../commands/esmfold.py" line="+85"/>
+        <location line="+194"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
         <location filename="../../../commands/logo.py" line="-221"/>
@@ -3055,7 +3055,7 @@ Command-line usage:
         <location filename="../../../commands/cluster.py" line="+304"/>
         <location filename="../../../commands/color.py" line="+95"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
-        <location filename="../../../commands/esmfold.py" line="-69"/>
+        <location filename="../../../commands/esmfold.py" line="-76"/>
         <location filename="../../../commands/export.py" line="+108"/>
         <location filename="../../../commands/group.py" line="+138"/>
         <location filename="../../../commands/label.py" line="+18"/>
@@ -3268,8 +3268,20 @@ Command-line usage:
             <numerusform>已跳过 %n 个没有颜色、缩放倍数或形状的表达式：{skipped}。</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <location filename="../../../commands/esmfold.py" line="-65"/>
+        <source>Stopped %n ESMFold worker(s); structures already saved are kept.</source>
+        <translation type="unfinished">
+            <numerusform>已停止 %n 个 ESMFold 工作进程；已保存的结构予以保留。</numerusform>
+        </translation>
+    </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="-29"/>
+        <location line="+2"/>
+        <source>No ESMFold worker is running.</source>
+        <translation type="unfinished">没有正在运行的 ESMFold 工作进程。</translation>
+    </message>
+    <message>
+        <location line="+34"/>
         <source>Unknown esmfold keyword: {keyword}</source>
         <translation type="unfinished">未知的 esmfold 关键字：{keyword}</translation>
     </message>
@@ -3284,7 +3296,12 @@ Command-line usage:
         <translation type="unfinished">help 不能与其他关键字同时使用。</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+9"/>
+        <source>Stop cannot be combined with other keywords.</source>
+        <translation type="unfinished">stop 不能与其他关键字同时使用。</translation>
+    </message>
+    <message>
+        <location line="+20"/>
         <source>Nothing is selected, so the last clicked node is folded: {node}.</source>
         <translation type="unfinished">未选择任何节点，因此将折叠最后点击的节点的结构：{node}。</translation>
     </message>
@@ -3338,7 +3355,7 @@ Command-line usage:
         <translation type="unfinished">错误：无法启动 ESMFold 终端。</translation>
     </message>
     <message numerus="yes">
-        <location line="+24"/>
+        <location line="+26"/>
         <source>Spawning separate console to fold %n structure(s) with Biohub ESM3...</source>
         <translation type="unfinished">
             <numerusform>正在打开单独的控制台，用 Biohub ESM3 折叠 %n 个结构…</numerusform>
@@ -5211,7 +5228,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+208"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+213"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -5231,7 +5248,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">查看器的命令队列已满；请稍后用相同的 submission_id 重试</translation>
     </message>
     <message>
-        <location line="+97"/>
+        <location line="+134"/>
         <source>That command is not waiting to be run or discarded.</source>
         <translation type="unfinished">该命令当前不处于待运行或待丢弃状态。</translation>
     </message>
@@ -10466,7 +10483,7 @@ Fedora / RHEL：
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="-119"/>
+        <location filename="../../../commands/esmfold.py" line="-121"/>
         <source>ESMFold Web Server Error</source>
         <translation type="unfinished">ESMFold Web 服务器错误</translation>
     </message>

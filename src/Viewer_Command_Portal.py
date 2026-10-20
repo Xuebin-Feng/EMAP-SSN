@@ -33,6 +33,11 @@ APPROVAL = {'run': None, 'approve': 'pending', 'refuse': 'refused'}
 REFUSED = 'Agent replies cannot run this command; type it in the Viewer terminal instead.'
 # The most commands a run script may hold, typed or sent through the portal.
 MAX_SCRIPT_COMMANDS = 1000
+# Commands that end background work, as their lower-case words. The request at the
+# head of the queue waits for its jobs to end, so a stop command queued behind it
+# would wait as long: a request that holds only these runs at once instead
+# (ViewerCommandPortal._run_stop_requests).
+STOP_COMMANDS = frozenset({('esmfold', 'stop'), ('run', 'stop')})
 
 
 def now():
@@ -297,6 +302,8 @@ class ViewerCommandPortal(QtCore.QObject):
                 elif not self._advance(request_id, record):
                     request['status'] = record['status']
                     self.publish(request_id)
+                    if record['dispatched']:
+                        self._run_stop_requests()
                     return
                 elif record['status'] in {'failed', 'cancelled'}:
                     failure = record['status']
@@ -308,6 +315,41 @@ class ViewerCommandPortal(QtCore.QObject):
             QtCore.QTimer.singleShot(0, self.pump)
         finally:
             self._busy = False
+
+    @staticmethod
+    def _is_stop(record):
+        """Whether record is a stop command that may run now: not still waiting for an Agent review."""
+        return tuple(record['command'].lower().split()) in STOP_COMMANDS and record.get('approval') in (None, 'approved')
+
+    def _run_stop_requests(self):
+        """Run the queued requests that hold only stop commands, while the request at the head waits for its jobs.
+
+        `esmfold stop` and `run stop` end the very jobs that keep the head waiting, so
+        behind it they could never run. The head stays where it is: its job ends
+        cancelled, and the queue goes on from there.
+        """
+        for request_id in list(self.queue[1:]):
+            request = self.requests[request_id]
+            if request['status'] != 'queued' or not all(self._is_stop(record) for record in request['commands']):
+                continue
+            request['status'] = 'running'
+            failure = None
+            finished = True
+            for record in request['commands']:
+                if failure:
+                    self._skip(record)
+                elif not self._advance(request_id, record):
+                    finished = False  # A stop command has no jobs to wait for; the queue takes it from here.
+                    break
+                elif record['status'] in {'failed', 'cancelled'}:
+                    failure = record['status']
+            if not finished:
+                continue
+            request.update(status=failure or 'succeeded', finished_at=now())
+            self.queue.remove(request_id)
+            self.publish(request_id)
+            self.completed.emit(request_id)
+            self._prune()
 
     def _changed(self, request_id):
         self.publish(request_id)

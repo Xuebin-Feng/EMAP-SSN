@@ -46,11 +46,16 @@ def print_help():
       esmfold large multi
       esmfold multi large
           Folds all selected nodes sequentially through the configured Biohub ESM3 API model.
+      esmfold stop
+          Ends every folding worker this Viewer started, with the processes each started: a
+          worker in a console window and a hidden one alike. Structures already saved are
+          kept, a half-written one is deleted, and each worker's job is reported cancelled.
+          With none running it succeeds and says so.
       esmfold help
           Displays this help message.
 
     Only one folding worker runs at a time: while one is running, esmfold refuses to
-    start another. Wait for it to finish, or close its console window.
+    start another. Wait for it to finish, run esmfold stop, or close its console window.
 
     A headless Viewer (no screen) opens no console window and no browser page: the
     worker runs hidden with its output in a log file, which the outcome names, and the
@@ -119,6 +124,26 @@ def _discard_worker_input(path):
         pass
 
 
+def _stop_workers(viewer):
+    """`esmfold stop`: end every folding worker this Viewer started, and what each started.
+
+    A worker with no window and one in a console window are both ended, however
+    the Viewer shows its windows now. Structures already saved stay, a half-written
+    one is deleted, and each worker's job is reported cancelled. With none running,
+    it is a valid no-op that says so.
+    """
+    from Viewer_Worker_Tracking import stop_workers
+    count = stop_workers("ESMFold worker stopped")
+    if count:
+        msg = Message("Stopped %n ESMFold worker(s); structures already saved are kept.", n=count)
+    else:
+        msg = Message("No ESMFold worker is running.")
+    if hasattr(viewer, 'console_text'):
+        Command_Engine.show_status(viewer, msg)
+    print(msg)
+    Command_Engine.command_succeeded(viewer, msg)
+
+
 def _worker_running(viewer):
     """Whether the folding worker this Viewer started is still running.
 
@@ -177,6 +202,13 @@ def run(viewer, args):
         print_help()
         _set_console_text(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        return
+
+    if args and args[0].lower() == 'stop':
+        if len(args) != 1:
+            _report_usage_error(viewer, Message("Stop cannot be combined with other keywords."))
+            return
+        _stop_workers(viewer)
         return
 
     options = _parse_options(viewer, args)
@@ -422,8 +454,10 @@ def run(viewer, args):
             tracker.fail(str(error))
         _discard_worker_input(tmp_path)
         raise
-    # A second esmfold is refused while this worker runs (step 4b).
+    # A second esmfold is refused while this worker runs (step 4b), and `esmfold stop` ends it.
     viewer.esmfold_worker = (process, tracker)
+    from Viewer_Worker_Tracking import track_worker
+    track_worker(process, input_path=tmp_path, output_dir=abs_structures_dir, tracker=tracker)
 
     # 10. Open Mol* web browser tab immediately. A headless Viewer has no browser to open it in, and
     # nobody to close a worker's window: it ends the hidden worker when it quits or its job fails.

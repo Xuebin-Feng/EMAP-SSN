@@ -2207,6 +2207,16 @@ Command-line usage:
         <source>Load failed. Reverted to previous embedding.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>Stopped %n ESMFold worker(s); structures already saved are kept.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>No ESMFold worker is running.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message>
         <source>Unknown esmfold keyword: {keyword}</source>
         <translation type="unfinished"></translation>
@@ -2217,6 +2227,10 @@ Command-line usage:
     </message>
     <message>
         <source>Help cannot be combined with other keywords.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stop cannot be combined with other keywords.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
