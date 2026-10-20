@@ -24,7 +24,7 @@ import psutil
 import Viewer_Worker_Tracking
 from Viewer_Command_Portal import CURRENT, ExecutionContext, bind
 from commands import esmfold as esmfold_command
-from tests.viewer_fixtures import PortalFixture
+from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, PortalFixture, apply_window_state
 from utilities import Hardware_Acceleration as Hardware_Utils
 from web_ui import Browser_Page
 
@@ -782,9 +782,56 @@ class HeadlessESMFoldTests(unittest.TestCase):
                     + ("Biohub ESM3" if arguments else "local ESM3")
                     + " folding for 1 structure(s); waiting for the worker."
                     + f" The worker has no window; its output is in {log_path}."
-                    + f" A headless Viewer opens no browser page; the structure viewer is served at {ADDRESS}/esmfold.html.",
+                    + f" A Viewer with no window opens no browser page; the structure viewer is served at {ADDRESS}/esmfold.html.",
                 )
                 self.assertIn(f"without a window; its output goes to {log_path}", run.output)
+
+    def test_the_worker_and_the_page_follow_whether_a_user_is_at_the_viewer(self):
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                viewer = apply_window_state(self.make_viewer(headless=None), state)
+                run = self.run_esmfold(viewer, [])
+                if state in NO_WINDOW_STATES:
+                    run.hidden.assert_called_once()
+                    run.terminal.assert_not_called()
+                    run.browser.assert_not_called()
+                    run.critical.assert_not_called()
+                    run.information.assert_not_called()
+                    self.assertIn("The worker has no window", self.outcome(run))
+                    self.assertIn(f"served at {ADDRESS}/esmfold.html", self.outcome(run))
+                else:
+                    run.hidden.assert_not_called()
+                    run.terminal.assert_called_once()
+                    run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new=2)
+                    self.assertEqual(
+                        self.outcome(run),
+                        "Started local ESM3 folding for 1 structure(s); waiting for the worker.",
+                    )
+
+    def test_the_bare_command_opens_the_page_or_gives_its_address_by_state(self):
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                run = self.run_esmfold(apply_window_state(self.make_viewer(0, headless=None), state), [])
+                if state in NO_WINDOW_STATES:
+                    run.browser.assert_not_called()
+                    self.assertEqual(
+                        self.outcome(run),
+                        f"A Viewer with no window opens no browser page; the structure viewer is served at "
+                        f"{ADDRESS}/esmfold.html. No folding job was requested.",
+                    )
+                else:
+                    run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new=2)
+                    self.assertEqual(self.outcome(run), "Opened the structure viewer; no folding job was requested.")
+
+    def test_a_launch_failure_shows_its_dialog_only_where_a_user_is(self):
+        def refused(command, **options):
+            raise OSError("no python")
+
+        for state in NO_WINDOW_STATES:
+            with self.subTest(state=state):
+                run = self.run_esmfold(apply_window_state(self.make_viewer(headless=None), state), ["large"], launch=refused)
+                run.critical.assert_not_called()
+                run.succeeded.assert_not_called()
 
     def test_a_connected_structure_viewer_needs_no_address(self):
         viewer = self.make_viewer(connected=True)
@@ -840,7 +887,7 @@ class HeadlessESMFoldTests(unittest.TestCase):
         run.terminal.assert_not_called()
         self.assertEqual(
             self.outcome(run),
-            f"A headless Viewer opens no browser page; the structure viewer is served at {ADDRESS}/esmfold.html. "
+            f"A Viewer with no window opens no browser page; the structure viewer is served at {ADDRESS}/esmfold.html. "
             "No folding job was requested.",
         )
 

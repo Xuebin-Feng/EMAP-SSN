@@ -209,7 +209,7 @@ def run(viewer, args):
             elif headless and (address := _structure_viewer_address(viewer)) is not None:
                 Command_Engine.command_succeeded(
                     viewer,
-                    f"A headless Viewer opens no browser page; the structure viewer is served at {address}. "
+                    f"A Viewer with no window opens no browser page; the structure viewer is served at {address}. "
                     "No folding job was requested.",
                 )
             else:
@@ -454,7 +454,7 @@ def run(viewer, args):
         outcome += f" The worker has no window; its output is in {log_path}."
         address = None if _structure_viewer_connected(viewer) else _structure_viewer_address(viewer)
         if address is not None:
-            outcome += f" A headless Viewer opens no browser page; the structure viewer is served at {address}."
+            outcome += f" A Viewer with no window opens no browser page; the structure viewer is served at {address}."
         Command_Engine.command_succeeded(viewer, outcome)
         return
     if not page_opened and not _structure_viewer_connected(viewer):

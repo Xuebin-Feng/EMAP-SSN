@@ -21,6 +21,7 @@ import webbrowser
 from PySide6.QtWidgets import QMessageBox
 
 from desktop.Desktop_App import translate
+from desktop.Viewer_Window import viewer_shows_windows
 from utilities.Localization import Message, display_text
 
 
@@ -28,8 +29,19 @@ PENDING_OPEN_SECONDS = 10.0
 
 
 def is_headless(viewer):
-    """Whether viewer is a headless Viewer: it has no screen, so no page or window can be shown on it."""
-    return bool(getattr(viewer, "headless", False))
+    """Whether viewer shows no windows: a headless Viewer, or a hidden one while its window is not shown.
+
+    It has no screen to show a page, a dialog or a terminal on.
+    """
+    return not viewer_shows_windows(viewer)
+
+
+def page_address(viewer, path):
+    """The URL viewer serves ``path`` at, or None while its web server is unavailable."""
+    try:
+        return viewer.get_web_url(path)
+    except RuntimeError:
+        return None
 
 
 def _set_console_message(viewer, message):
@@ -44,7 +56,8 @@ def _set_console_message(viewer, message):
 
 def _report_existing_page(viewer, message, show_dialog):
     _set_console_message(viewer, message)
-    if show_dialog:
+    # Nobody is at a Viewer that shows no windows to close the dialog.
+    if show_dialog and not is_headless(viewer):
         QMessageBox.information(
             getattr(viewer, "main_window", None),
             translate("Viewer", "Browser Page Already Open"),

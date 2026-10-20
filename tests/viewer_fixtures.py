@@ -156,3 +156,26 @@ class SnapshotFixture:
         self.sid=self.service.capture_snapshot()
         self.store=self.service.snapshots
     def call(self, action, **kwargs): return self.store.execute(action,self.sid,**kwargs)
+
+
+# The four states a Viewer's windows can be in: where no user is at the Viewer
+# (headless, or hidden and not shown) nothing may open a dialog, page, terminal or
+# file manager; where one is (hidden and shown, or normal) everything works as ever.
+WINDOW_STATES = ('headless', 'hidden_unshown', 'hidden_shown', 'normal')
+NO_WINDOW_STATES = ('headless', 'hidden_unshown')
+
+
+def apply_window_state(viewer, state):
+    """Make a stand-in ``viewer`` answer shows_windows() as a real Viewer in ``state`` does.
+
+    It is MainViewer's own method, reading the same attributes (headless and the
+    window controller), so a change to how the Viewer decides reaches these tests.
+    """
+    import types
+    from EMAPSSN_Viewer import MainViewer
+    shown = state in ('hidden_shown', 'normal')
+    viewer.headless = state == 'headless'
+    viewer.window_mode = {'hidden_unshown': 'hidden', 'hidden_shown': 'hidden'}.get(state, state)
+    viewer.window_control = SimpleNamespace(shows_windows=lambda: shown)
+    viewer.shows_windows = types.MethodType(MainViewer.shows_windows, viewer)
+    return viewer

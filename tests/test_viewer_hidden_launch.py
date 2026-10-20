@@ -26,7 +26,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 from PIL import Image
 from tests import test_mcp_viewer_lifecycle as lifecycle
 from tests import layout_fixtures as fixtures
-from mcp_server.viewer.Viewer_Client import MCPViewerClient
+from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
 from utilities.Viewer_Display import display_unavailable_reason
 
 
@@ -70,10 +70,24 @@ class HiddenViewerTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(lifecycle._stop_recorded_launches, sessions)
         self.results = fixture.root / "results"
         fixture.document["directories"]["ANALYSIS_RESULT_DIR"] = str(self.results)
+        fixture.document["directories"]["METADATA_DIR"] = str(fixture.root / "meta")
         return fixture, sessions
 
+    async def answered(self, call):
+        """await call(), again (up to twice) when the Viewer's Qt thread was too busy to answer in time.
+
+        A machine running a whole test suite beside this Viewer can hold a render past the client's
+        request timeout; the retry is for that and for nothing else.
+        """
+        for attempt in range(3):
+            try:
+                return await call()
+            except MCPViewerError as error:
+                if "timed out" not in str(error) or attempt == 2:
+                    raise
+
     async def capture(self, client, session_id):
-        reply = await client.command_action("capture_view", {}, session_id=session_id)
+        reply = await self.answered(lambda: client.command_action("capture_view", {}, session_id=session_id))
         image = Image.open(io.BytesIO(base64.b64decode(reply["image_base64"]))).convert("RGB")
         self.assertGreater(image.width, 100)
         self.assertGreater(image.height, 100)
@@ -82,14 +96,14 @@ class HiddenViewerTests(unittest.IsolatedAsyncioTestCase):
         return image
 
     async def run_command(self, client, session_id, text, name):
-        record = await client.command_action("execute_commands", {"submission_id": name, "commands": [text]},
-                                             session_id=session_id)
+        record = await self.answered(lambda: client.command_action(
+            "execute_commands", {"submission_id": name, "commands": [text]}, session_id=session_id))
         for _ in range(300):
             if record["status"] in {"succeeded", "failed", "cancelled", "skipped"}:
                 break
             await asyncio.sleep(0.2)
-            record = await client.command_action("get_command_request", {"request_id": record["request_id"]},
-                                                 session_id=session_id)
+            record = await self.answered(lambda: client.command_action(
+                "get_command_request", {"request_id": record["request_id"]}, session_id=session_id))
         return record
 
     async def test_a_hidden_viewer_renders_hides_shows_and_closes_with_its_window(self):
@@ -113,9 +127,10 @@ class HiddenViewerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(info["mode"], "hidden")
             self.assertNotIn("requested_mode", info)
             on_windows = sys.platform == "win32"
-            window = (await client.get_summary(session_id))["window"]
+            window = (await self.answered(lambda: client.get_summary(session_id)))["window"]
             self.assertEqual((window["mode"], window["visible"], window["can_show"], window["can_hide"]),
                              ("hidden", False, True, True))
+            print(f"hidden Viewer platform: {window['platform']}", file=sys.stderr)
             if on_windows:
                 self.assertEqual(visible_windows(process_tree(pid)), [], "a hidden Viewer opens no window")
 
@@ -135,7 +150,14 @@ class HiddenViewerTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(refused["status"], "failed", refused)
             self.assertIn("Show the window first", json.dumps(refused))
 
-            shown = (await client.window_action("show", session_id))["window"]
+            # Pages and the folding worker need a user too: the commands answer with where the page is
+            # served instead of opening a browser (this test would open one on this desktop if they did).
+            for command in ("agent", "meta", "esmfold"):
+                record = await self.run_command(client, session_id, command, f"page-{command}")
+                self.assertEqual(record["status"], "succeeded", record)
+                self.assertIn("opens no browser page", json.dumps(record), command)
+
+            shown = (await self.answered(lambda: client.window_action("show", session_id)))["window"]
             self.assertTrue(shown["visible"], shown)
             self.assertFalse(shown["minimized"])
             if on_windows:
@@ -143,18 +165,18 @@ class HiddenViewerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(len(titles), 1, titles)
                 self.assertIn(f"[{info['session_alias']}]", titles[0])
             await self.capture(client, session_id)
-            self.assertTrue((await client.get_summary(session_id))["window"]["visible"])
+            self.assertTrue((await self.answered(lambda: client.get_summary(session_id)))["window"]["visible"])
 
-            hidden = (await client.window_action("hide", session_id))["window"]
+            hidden = (await self.answered(lambda: client.window_action("hide", session_id)))["window"]
             self.assertFalse(hidden["visible"], hidden)
             if on_windows:
                 self.assertEqual(visible_windows(process_tree(pid)), [])
             await self.capture(client, session_id)
-            self.assertEqual((await client.get_summary(session_id))["node_count"], 2)
+            self.assertEqual((await self.answered(lambda: client.get_summary(session_id)))["node_count"], 2)
             self.assertEqual(hidden_image.size, (await self.capture(client, session_id)).size)
 
             # Closing a window the client showed ends the Viewer, as for any Viewer.
-            self.assertTrue((await client.window_action("show", session_id))["window"]["visible"])
+            self.assertTrue((await self.answered(lambda: client.window_action("show", session_id)))["window"]["visible"])
             if on_windows:
                 import ctypes
                 from ctypes import wintypes

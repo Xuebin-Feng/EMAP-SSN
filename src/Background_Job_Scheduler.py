@@ -28,6 +28,7 @@ import weakref
 
 from PySide6 import QtCore
 from desktop.Desktop_App import open_in_file_manager
+from desktop.Viewer_Window import viewer_shows_windows
 from utilities.Localization import Message
 
 
@@ -240,11 +241,14 @@ class BackgroundJobScheduler(QtCore.QObject):
         self._set_viewer_status(message)
 
         reveal_directory = result.get("reveal_directory")
+        # print and label ask for their folder to be shown; where no user is at the Viewer, none is.
         if reveal_directory:
-            try:
-                open_in_file_manager(reveal_directory)
-            except Exception as error:
-                print(f"Could not reveal output directory: {error}")
+            viewer = self._viewer_ref()
+            if viewer is None or viewer_shows_windows(viewer):
+                try:
+                    open_in_file_manager(reveal_directory)
+                except Exception as error:
+                    print(f"Could not reveal output directory: {error}")
 
         if job.command_context is not None:
             job.command_context.job_event(job.job_id, "succeeded", message, [job.output_path])

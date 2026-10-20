@@ -18,6 +18,7 @@ if str(SRC_DIR) not in sys.path:
 from commands import agent, meta  # noqa: E402
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
 from web_ui import Browser_Page, esmfold_backend  # noqa: E402
+from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_state  # noqa: E402
 
 
 class FakeWebServer:
@@ -563,3 +564,112 @@ class ViewerPageOpenerTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class WindowStateBrowserPageTests(unittest.TestCase):
+    """Pages, their dialogs and the bare agent and meta commands in the four window states."""
+
+    def test_a_page_opens_only_where_a_user_is_at_the_viewer(self):
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                viewer = apply_window_state(BrowserPageOpeningTests.make_viewer(), state)
+                with mock.patch.object(Browser_Page.webbrowser, "open", return_value=True) as browser_open:
+                    opened = Browser_Page.open_browser_page(viewer, "/meta.html", "Metadata UI", "meta")
+                self.assertEqual(Browser_Page.is_headless(viewer), state in NO_WINDOW_STATES)
+                self.assertEqual(opened, state not in NO_WINDOW_STATES)
+                self.assertEqual(browser_open.called, opened)
+                self.assertEqual(
+                    viewer.console_text.text,
+                    "Metadata UI opened at http://localhost:49123/meta.html" if opened
+                    else "Could not open Metadata UI: http://localhost:49123/meta.html",
+                )
+
+    def test_the_already_open_dialog_needs_a_user_to_close_it(self):
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                viewer = apply_window_state(BrowserPageOpeningTests.make_viewer({"meta"}), state)
+                with (
+                    mock.patch.object(Browser_Page.webbrowser, "open") as browser_open,
+                    mock.patch.object(Browser_Page.QMessageBox, "information") as information,
+                ):
+                    self.assertFalse(Browser_Page.open_browser_page(viewer, "/meta.html", "Metadata UI", "meta"))
+                browser_open.assert_not_called()
+                self.assertEqual(viewer.console_text.text, "Metadata UI is already open in your browser.")
+                self.assertEqual(information.called, state not in NO_WINDOW_STATES)
+
+    def run_bare(self, command, state, connected=False):
+        viewer = apply_window_state(InstanceUrlRoutingTests.Viewer(), state)
+        if connected:
+            viewer.web_server = FakeWebServer({"agent", "meta"})
+        engine = command.Command_Engine
+        with tempfile.TemporaryDirectory() as temp_dir, \
+                mock.patch.object(command, "register"), \
+                mock.patch.object(meta.cfg, "METADATA_DIR", temp_dir), \
+                mock.patch.object(Browser_Page.QMessageBox, "information"), \
+                mock.patch("webbrowser.open", return_value=True) as browser_open, \
+                mock.patch.object(engine, "command_succeeded") as succeeded, \
+                mock.patch.object(engine, "command_failed") as failed:
+            command.run(viewer, [])
+        return browser_open, succeeded, failed
+
+    def test_bare_agent_opens_the_page_or_gives_its_address(self):
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                browser_open, succeeded, failed = self.run_bare(agent, state)
+                failed.assert_not_called()
+                [call] = succeeded.call_args_list
+                if state in NO_WINDOW_STATES:
+                    browser_open.assert_not_called()
+                    self.assertEqual(
+                        call.args[1],
+                        "A Viewer with no window opens no browser page; the Agent interface is served at "
+                        "http://127.0.0.1:49123/agent.html. No model request was started.",
+                    )
+                else:
+                    browser_open.assert_called_once_with("http://127.0.0.1:49123/agent.html", new=2)
+                    self.assertEqual(call.args[1], "Opened the Agent interface; no model request was started.")
+
+    def test_bare_meta_opens_the_page_or_gives_its_address(self):
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                browser_open, succeeded, failed = self.run_bare(meta, state)
+                failed.assert_not_called()
+                [call] = succeeded.call_args_list
+                if state in NO_WINDOW_STATES:
+                    browser_open.assert_not_called()
+                    self.assertEqual(
+                        call.args[1],
+                        "A Viewer with no window opens no browser page; the metadata interface is served at "
+                        "http://127.0.0.1:49123/meta.html.",
+                    )
+                else:
+                    browser_open.assert_called_once_with("http://127.0.0.1:49123/meta.html", new=2)
+                    self.assertEqual(call.args[1], "Opened the metadata interface.")
+
+    def test_a_page_already_open_is_reported_the_same_in_every_state(self):
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                browser_open, succeeded, failed = self.run_bare(agent, state, connected=True)
+                browser_open.assert_not_called()
+                failed.assert_not_called()
+                self.assertEqual(
+                    succeeded.call_args.args[1],
+                    "The Agent interface is already open; no model request was started.",
+                )
+
+    def test_without_a_web_server_a_bare_command_still_fails_in_every_state(self):
+        for command in (agent, meta):
+            for state in WINDOW_STATES:
+                with self.subTest(command=command.__name__, state=state):
+                    viewer = apply_window_state(InstanceUrlRoutingTests.Viewer(), state)
+                    viewer.get_web_url = mock.Mock(side_effect=RuntimeError("bind failed"))
+                    engine = command.Command_Engine
+                    with tempfile.TemporaryDirectory() as temp_dir, \
+                            mock.patch.object(command, "register"), \
+                            mock.patch.object(meta.cfg, "METADATA_DIR", temp_dir), \
+                            mock.patch("webbrowser.open", return_value=True), \
+                            mock.patch.object(engine, "command_succeeded") as succeeded, \
+                            mock.patch.object(engine, "command_failed") as failed:
+                        command.run(viewer, [])
+                    succeeded.assert_not_called()
+                    failed.assert_called_once()

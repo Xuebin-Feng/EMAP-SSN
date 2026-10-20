@@ -21,6 +21,7 @@ if SRC_DIR not in sys.path:
 import EMAPSSN_Config as cfg
 from commands import export as export_command
 from tests.command_fixtures import one_node_viewer, reported_outcomes
+from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_state
 from tests.folder_case_fixtures import ignores_case, make_case_sensitive
 
 
@@ -406,6 +407,38 @@ class ExportBranchTests(unittest.TestCase):
         self.assertEqual([os.path.basename(path) for path in self.written()], ["beta.fasta"])
         # One file was written, so its folder is still shown.
         export_command.open_in_file_manager.assert_called_once()
+
+    def test_the_folder_is_shown_only_where_a_user_is_at_the_viewer(self):
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                export_command.open_in_file_manager.reset_mock()
+                viewer = apply_window_state(self.groups_viewer([{"alpha"}, {"beta"}]), state)
+                with mock.patch.object(export_command.Command_Engine, "command_artifact"), \
+                        reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
+                    export_command.run(viewer, ["groups"])
+                succeeded.assert_called_once()
+                failed.assert_not_called()
+                self.assertEqual(export_command.open_in_file_manager.called, state not in NO_WINDOW_STATES)
+
+    def test_a_partial_export_shows_its_folder_only_where_a_user_is_too(self):
+        real_write = export_command.write_fasta_atomic
+
+        def fail_alpha(path, headers, sequences):
+            if os.path.basename(path) == "alpha.fasta":
+                raise OSError("disk full")
+            return real_write(path, headers, sequences)
+
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                export_command.open_in_file_manager.reset_mock()
+                viewer = apply_window_state(self.groups_viewer([{"alpha"}, {"beta"}]), state)
+                with mock.patch.object(export_command, "write_fasta_atomic", side_effect=fail_alpha), \
+                        mock.patch.object(export_command.Command_Engine, "command_artifact"), \
+                        reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
+                    export_command.run(viewer, ["groups"])
+                failed.assert_called()
+                succeeded.assert_not_called()
+                self.assertEqual(export_command.open_in_file_manager.called, state not in NO_WINDOW_STATES)
 
     def test_no_folder_is_opened_when_no_file_is_written(self):
         viewer = self.groups_viewer([{"alpha"}, {"beta"}])

@@ -19,6 +19,7 @@ import re
 import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
 from desktop.Desktop_App import open_in_file_manager
+from desktop.Viewer_Window import viewer_shows_windows
 from utilities.Localization import Message
 from utilities.Output_Names import (
     first_case_collision,
@@ -386,7 +387,7 @@ def run(viewer, args):
         )
         Command_Engine.show_status(viewer, msg)
         print(f"\n{msg}")
-        if files_written:
+        if files_written and viewer_shows_windows(viewer):
             open_in_file_manager(out_dir)
         Command_Engine.command_failed(viewer, msg)
         return
@@ -399,6 +400,7 @@ def run(viewer, args):
     Command_Engine.show_status(viewer, msg)
     print(f"\nSuccess! {msg}")
     
-    # Auto-open the output folder in the system file manager
-    open_in_file_manager(out_dir)
+    # Auto-open the output folder in the system file manager, if a user is at the Viewer
+    if viewer_shows_windows(viewer):
+        open_in_file_manager(out_dir)
     Command_Engine.command_succeeded(viewer, msg)

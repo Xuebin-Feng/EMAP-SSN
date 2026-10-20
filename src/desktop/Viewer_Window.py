@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import os
 import sys
 
 from PySide6 import QtCore, QtWidgets
@@ -36,6 +37,23 @@ NORMAL = "normal"
 HIDDEN = "hidden"
 HEADLESS = "headless"
 MODES = (NORMAL, HIDDEN, HEADLESS)
+
+
+def viewer_shows_windows(viewer, *, environment=False):
+    """Whether the user is at ``viewer``, so a dialog, message box, browser page, terminal or file manager may open.
+
+    The Viewer answers for itself (MainViewer.shows_windows). A stand-in without
+    that method is a Viewer with no windows when its ``headless`` flag is set and,
+    with ``environment``, when the environment says it runs headless.
+    """
+    shows_windows = getattr(viewer, "shows_windows", None)
+    if callable(shows_windows):
+        return bool(shows_windows())
+    if getattr(viewer, "headless", False):
+        return False
+    if environment and (os.environ.get("SSN_VIEWER_HEADLESS") == "1" or os.environ.get("QT_QPA_PLATFORM") == "offscreen"):
+        return False
+    return True
 
 
 class WindowUnavailable(RuntimeError):
@@ -328,7 +346,7 @@ class ViewerWindow:
         if self.fallback_reason:
             text += f" It was asked to be hidden but fell back to headless because {self.fallback_reason}."
         else:
-            text += " Start it with mode='hidden' to be able to show it."
+            text += " Start it with mode='hidden' to be able to show and hide its window."
         return text
 
     # ---- state

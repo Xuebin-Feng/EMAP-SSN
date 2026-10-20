@@ -28,7 +28,7 @@ from Metadata_Core import show_property_name
 from Viewer_Command_Portal import CURRENT
 from desktop.Desktop_App import translate
 from utilities.Localization import Message
-from web_ui.Browser_Page import page_is_open
+from web_ui.Browser_Page import is_headless, page_address, page_is_open
 from web_ui.meta_backend import (
     MetadataColumnDeleteError,
     delete_metadata_columns,
@@ -141,6 +141,11 @@ def run(viewer, args):
             Command_Engine.command_succeeded(viewer, "Opened the metadata interface.")
         elif page_is_open(viewer, "meta"):
             Command_Engine.command_failed(viewer, "The metadata interface is already open in your browser.")
+        elif is_headless(viewer) and (address := page_address(viewer, "/meta.html")) is not None:
+            Command_Engine.command_succeeded(
+                viewer,
+                f"A Viewer with no window opens no browser page; the metadata interface is served at {address}.",
+            )
         else:
             Command_Engine.command_failed(viewer, "Could not open the metadata interface.")
         return

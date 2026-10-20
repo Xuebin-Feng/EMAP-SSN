@@ -19,6 +19,7 @@ import uuid
 
 from PySide6 import QtCore
 
+from desktop.Viewer_Window import viewer_shows_windows as _viewer_shows_windows
 from utilities.Localization import Message
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'skipped'}
@@ -87,23 +88,29 @@ def viewer_shows_windows(viewer):
     """Whether the user is at ``viewer``: false for a headless Viewer and a hidden one not shown.
 
     The Viewer answers for itself (MainViewer.shows_windows); a stand-in without
-    that method counts as headless when the environment says so.
+    that method counts as headless when its flag or the environment says so.
     """
-    shows_windows = getattr(viewer, 'shows_windows', None)
-    if callable(shows_windows):
-        return bool(shows_windows())
-    return not (os.environ.get('SSN_VIEWER_HEADLESS') == '1' or os.environ.get('QT_QPA_PLATFORM') == 'offscreen')
+    return _viewer_shows_windows(viewer, environment=True)
 
 
 @contextmanager
 def user_interaction(viewer, description):
+    """Wrap a dialog that needs the user, and refuse it where nobody can answer it.
+
+    A Viewer that shows no windows (headless, or hidden and not shown) fails the
+    command, whether or not a portal command is running it. A command from the
+    portal also reports awaiting_user_input while the dialog is open.
+    """
     context = CURRENT.get()
-    if context is not None and context.portal.viewer is viewer:
-        if not viewer_shows_windows(viewer):
-            hint = ''
-            if getattr(viewer, 'window_mode', None) == 'hidden':
-                hint = " Show the window first (emapssn_viewer_control action='show_session')."
-            raise CommandInteractionError(f'{description} requires a visible Viewer and user input.{hint}')
+    bound = context is not None and context.portal.viewer is viewer
+    # Without a portal command, a stand-in viewer is judged by its own flag; the environment
+    # of the process speaks for the Viewer only when a portal command runs in it.
+    if not _viewer_shows_windows(viewer, environment=bound):
+        hint = ''
+        if getattr(viewer, 'window_mode', None) == 'hidden':
+            hint = " Show the window first (emapssn_viewer_control action='show_session')."
+        raise CommandInteractionError(f'{description} requires a visible Viewer and user input.{hint}')
+    if bound:
         context.record['status'] = 'awaiting_user_input'
         context.portal.requests[context.request_id]['status'] = 'awaiting_user_input'
         context.report(message=description)

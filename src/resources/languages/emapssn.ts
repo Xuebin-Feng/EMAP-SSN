@@ -4783,11 +4783,11 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Could not open {page}: {error}</source>
+        <source>Could not open {page}: {url}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Could not open {page}: {url}</source>
+        <source>Could not open {page}: {error}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4796,6 +4796,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>ESMFold Mol* UI</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Importing metadata opens a file dialog, which a Viewer that shows no windows cannot offer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Exporting metadata opens a file dialog, which a Viewer that shows no windows cannot offer.</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

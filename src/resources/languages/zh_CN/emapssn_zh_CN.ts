@@ -2741,7 +2741,7 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
-        <location filename="../../../Background_Job_Scheduler.py" line="+112"/>
+        <location filename="../../../Background_Job_Scheduler.py" line="+113"/>
         <source>The background job scheduler is shutting down.</source>
         <translation type="unfinished">后台任务调度器正在关闭。</translation>
     </message>
@@ -2784,7 +2784,7 @@ Command-line usage:
         <translation type="unfinished">后台任务 #{job} 已完成，用时 {seconds} 秒：{detail}</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+25"/>
         <source>Background job #{job} failed after {seconds}s ({command}): {error}</source>
         <translation type="unfinished">后台任务 #{job} 运行 {seconds} 秒后失败（{command}）：{error}</translation>
     </message>
@@ -3025,17 +3025,17 @@ Command-line usage:
     </message>
     <message>
         <location line="+6"/>
-        <location filename="../../../commands/agent.py" line="+73"/>
-        <location line="+121"/>
-        <location filename="../../../commands/esmfold.py" line="+73"/>
-        <location line="+142"/>
+        <location filename="../../../commands/agent.py" line="+74"/>
+        <location line="+127"/>
+        <location filename="../../../commands/esmfold.py" line="+80"/>
+        <location line="+167"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
         <location filename="../../../commands/logo.py" line="-221"/>
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
-        <location filename="../../../commands/meta.py" line="+172"/>
+        <location filename="../../../commands/meta.py" line="+177"/>
         <location line="+119"/>
         <location filename="../../../commands/print.py" line="-77"/>
         <location line="+52"/>
@@ -3045,18 +3045,18 @@ Command-line usage:
         <location filename="../../../commands/reset.py" line="+114"/>
         <location filename="../../../commands/select.py" line="-194"/>
         <location filename="../../../web_ui/agent_backend.py" line="+280"/>
-        <location filename="../../../web_ui/meta_backend.py" line="+56"/>
+        <location filename="../../../web_ui/meta_backend.py" line="+57"/>
         <source>Error: {error}</source>
         <translation type="unfinished">错误：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/agent.py" line="-87"/>
+        <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+49"/>
         <location filename="../../../commands/cluster.py" line="+304"/>
         <location filename="../../../commands/color.py" line="+95"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
-        <location filename="../../../commands/esmfold.py" line="-59"/>
-        <location filename="../../../commands/export.py" line="+107"/>
+        <location filename="../../../commands/esmfold.py" line="-69"/>
+        <location filename="../../../commands/export.py" line="+108"/>
         <location filename="../../../commands/group.py" line="+138"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
@@ -3072,7 +3072,7 @@ Command-line usage:
         <translation type="unfinished">帮助信息已打印到终端</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location line="+58"/>
         <source>Error: Model Custom Name &apos;{name}&apos; not found in configured model cards.</source>
         <translation type="unfinished">错误：在已配置的模型卡中找不到自定义模型名称“{name}”。</translation>
     </message>
@@ -3284,12 +3284,12 @@ Command-line usage:
         <translation type="unfinished">help 不能与其他关键字同时使用。</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+22"/>
         <source>Nothing is selected, so the last clicked node is folded: {node}.</source>
         <translation type="unfinished">未选择任何节点，因此将折叠最后点击的节点的结构：{node}。</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+25"/>
         <source>Error: No nodes selected.</source>
         <translation type="unfinished">错误：未选择任何节点。</translation>
     </message>
@@ -3299,7 +3299,7 @@ Command-line usage:
         <translation type="unfinished">错误：选择了多个节点。请使用 &apos;esmfold multi&apos;。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+10"/>
         <source>An esmfold worker is still running. Wait for it to finish, or close its console window, before folding again.</source>
         <translation type="unfinished">一个 esmfold 工作进程仍在运行。请等它结束或关闭它的控制台窗口，然后再折叠新的结构。</translation>
     </message>
@@ -3326,7 +3326,7 @@ Command-line usage:
         <translation type="unfinished">错误：查看器的 Web 服务器不可用。</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+82"/>
         <source>Could not launch the ESMFold worker in a terminal:
 {error}</source>
         <translation type="unfinished">无法在终端中启动 ESMFold 工作进程：
@@ -3338,7 +3338,7 @@ Command-line usage:
         <translation type="unfinished">错误：无法启动 ESMFold 终端。</translation>
     </message>
     <message numerus="yes">
-        <location line="+16"/>
+        <location line="+24"/>
         <source>Spawning separate console to fold %n structure(s) with Biohub ESM3...</source>
         <translation type="unfinished">
             <numerusform>正在打开单独的控制台，用 Biohub ESM3 折叠 %n 个结构…</numerusform>
@@ -5211,7 +5211,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+201"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+208"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -5241,12 +5241,12 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">此查看器中没有该命令请求，或它已被清除</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Visual_State.py" line="+76"/>
+        <location filename="../../../Viewer_Visual_State.py" line="+77"/>
         <source>This Viewer has no OpenGL context to render with, because {reason}.</source>
         <translation type="unfinished">此查看器没有可用于渲染的 OpenGL 上下文，原因：{reason}。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+3"/>
         <source>This headless Viewer has no OpenGL context to render with; start a Viewer in hidden or normal mode to render the view.</source>
         <translation type="unfinished">此无界面查看器没有可用于渲染的 OpenGL 上下文；请以隐藏或正常模式启动查看器以渲染视图。</translation>
     </message>
@@ -5475,7 +5475,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">无效的 PNG 附件。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/Browser_Page.py" line="+88"/>
+        <location filename="../../../web_ui/Browser_Page.py" line="+107"/>
         <source>{page} is already open in your browser.</source>
         <translation type="unfinished">{page}已在浏览器中打开。</translation>
     </message>
@@ -5490,12 +5490,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">{page}不可用：{error}</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+12"/>
         <source>Could not open {page}: {error}</source>
         <translation type="unfinished">无法打开{page}：{error}</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="-8"/>
+        <location line="+13"/>
         <source>Could not open {page}: {url}</source>
         <translation type="unfinished">无法打开{page}：{url}</translation>
     </message>
@@ -6773,6 +6774,16 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+20"/>
         <source>Load failed. Reverted to previous embedding.</source>
         <translation type="unfinished">加载失败，已恢复为之前的 embedding。</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/meta_backend.py" line="+74"/>
+        <source>Importing metadata opens a file dialog, which a Viewer that shows no windows cannot offer.</source>
+        <translation type="unfinished">导入元数据需要打开文件对话框，而不显示任何窗口的查看器无法提供该对话框。</translation>
+    </message>
+    <message>
+        <location line="+38"/>
+        <source>Exporting metadata opens a file dialog, which a Viewer that shows no windows cannot offer.</source>
+        <translation type="unfinished">导出元数据需要打开文件对话框，而不显示任何窗口的查看器无法提供该对话框。</translation>
     </message>
 </context>
 <context>
@@ -10455,12 +10466,12 @@ Fedora / RHEL：
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="-94"/>
+        <location filename="../../../commands/esmfold.py" line="-119"/>
         <source>ESMFold Web Server Error</source>
         <translation type="unfinished">ESMFold Web 服务器错误</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <location line="+88"/>
         <source>ESMFold Launch Error</source>
         <translation type="unfinished">ESMFold 启动错误</translation>
     </message>
@@ -10558,7 +10569,7 @@ Fedora / RHEL：
         <translation type="unfinished">在浏览器中打开 AI 智能体对话控制台</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/Browser_Page.py" line="-77"/>
+        <location filename="../../../web_ui/Browser_Page.py" line="-82"/>
         <source>Browser Page Already Open</source>
         <translation type="unfinished">浏览器页面已打开</translation>
     </message>
@@ -10577,7 +10588,7 @@ Fedora / RHEL：
         <translation type="unfinished">打开 ESMFold 与 Mol* 结构查看器</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/meta_backend.py" line="+81"/>
+        <location filename="../../../web_ui/meta_backend.py" line="-20"/>
         <source>Import Metadata Spreadsheet</source>
         <translation type="unfinished">导入元数据电子表格</translation>
     </message>
@@ -10587,7 +10598,7 @@ Fedora / RHEL：
         <translation type="unfinished">Excel/CSV 文件 (*.xlsx *.xls *.csv)</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+38"/>
         <source>Export Metadata Spreadsheet</source>
         <translation type="unfinished">导出元数据电子表格</translation>
     </message>

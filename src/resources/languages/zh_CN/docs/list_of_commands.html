@@ -913,7 +913,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-esmfold" data-source-sha256="77a2aea42cc3a4f608e17bbb3a9e89d76b66244da6b4f26ac77e3bb39eef0f99">
+            <section class="command-card" id="cmd-esmfold" data-source-sha256="a38f27c5f8505fbd96c7042d1d101949116b06f3ca277123af7f9146d70f137e">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">esmfold</span>
@@ -939,7 +939,7 @@
                 <ul>
                     <li><strong>本地加速：</strong>本地推理会自动在已安装的运行时所支持的 CUDA/ROCm、Intel XPU、Apple Metal（MPS）和 CPU 设备中进行选择。</li>
                     <li><strong>Biohub 模式：</strong>远程推理绕过本地硬件选择，把本地和远程的 PDB 文件分开存放，并在首次使用时于工作进程的终端中提示输入隐藏的共享 API 令牌。</li>
-                    <li><strong>工作进程：</strong>作为独立的后台控制台窗口启动，以免桌面查看器卡死。同一时间只运行一个工作进程：已有一个在运行时，<code>esmfold</code> 会拒绝启动另一个，因为那会把第二个模型加载到 GPU 内存中。请等待该工作进程结束，或关闭它的控制台窗口。在没有选中或点击任何节点时打开 Mol* 不会被拒绝。</li>
+                    <li><strong>工作进程：</strong>作为独立的后台控制台窗口启动，以免桌面查看器卡死。没有窗口的查看器（无界面的，或窗口未显示的隐藏查看器）则改为无窗口运行该工作进程，输出写入日志文件，也不打开 Mol* 页面：命令的结果会给出日志的位置和 Mol* 页面的服务地址。同一时间只运行一个工作进程：已有一个在运行时，<code>esmfold</code> 会拒绝启动另一个，因为那会把第二个模型加载到 GPU 内存中。请等待该工作进程结束，或关闭它的控制台窗口（没有窗口的查看器会在查看器关闭时结束其工作进程）。在没有选中或点击任何节点时打开 Mol* 不会被拒绝。</li>
                     <li><strong>Mol* 界面：</strong>托管一个 Web 服务器，在丰富的交互式三维查看器中加载预测出的结构。</li>
                 </ul>
 

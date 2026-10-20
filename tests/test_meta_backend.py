@@ -18,6 +18,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from web_ui.Plugin_Manager import WebPluginRegistry  # noqa: E402
+from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_state  # noqa: E402
 
 
 class MetadataHighlightActionTests(unittest.TestCase):
@@ -140,6 +141,64 @@ class MetadataExportFormatTests(unittest.TestCase):
         ):
             with self.subTest(chosen_filter=chosen_filter, chosen_file=chosen_file):
                 self.assertEqual(self.export(chosen_file, chosen_filter), saved)
+
+
+class MetadataFileDialogWindowStateTests(unittest.TestCase):
+    """The page's import and export open a modal file dialog: only where a user can answer it.
+
+    Elsewhere the action fails with a message instead of blocking the Qt thread for good.
+    """
+
+    def run_handler(self, handler, state):
+        from PySide6.QtCore import Qt
+        from PySide6.QtWidgets import QDialog, QFileDialog
+        from web_ui import meta_backend
+
+        opened = []
+
+        class RejectingFileDialog:
+            FileMode, AcceptMode = QFileDialog.FileMode, QFileDialog.AcceptMode
+
+            def __init__(self, parent):
+                opened.append(parent)
+
+            def windowFlags(self):
+                return Qt.WindowType.Dialog
+
+            def exec(self):
+                return QDialog.DialogCode.Rejected
+
+            def __getattr__(self, name):
+                return lambda *args: None
+
+        viewer = apply_window_state(SimpleNamespace(main_window=mock.Mock()), state)
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        engine = meta_backend.Command_Engine
+        with mock.patch.object(meta_backend.QtWidgets, "QFileDialog", RejectingFileDialog), \
+                mock.patch.object(meta_backend.cfg, "METADATA_DIR", folder.name, create=True), \
+                mock.patch.object(engine, "command_failed") as failed, \
+                mock.patch("builtins.print"):
+            handler(viewer, {})
+        return opened, failed
+
+    def test_import_and_export_need_a_user_at_the_viewer(self):
+        from web_ui import meta_backend
+        for handler, noun in ((meta_backend.handle_import_metadata, "Importing"),
+                              (meta_backend.handle_export_metadata, "Exporting")):
+            for state in WINDOW_STATES:
+                with self.subTest(handler=handler.__name__, state=state):
+                    opened, failed = self.run_handler(handler, state)
+                    if state in NO_WINDOW_STATES:
+                        self.assertEqual(opened, [])
+                        failed.assert_called_once()
+                        self.assertEqual(
+                            str(failed.call_args.args[1]),
+                            f"{noun} metadata opens a file dialog, which a Viewer that shows no windows cannot offer.",
+                        )
+                    else:
+                        self.assertEqual(len(opened), 1)
+                        failed.assert_not_called()
 
 
 if __name__ == "__main__":

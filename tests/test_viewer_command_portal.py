@@ -23,7 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from PySide6 import QtWidgets
 import Command_Engine as ce
 from Viewer_Command_Portal import ViewerCommandPortal, CURRENT, bind, user_interaction
-from tests.viewer_fixtures import PortalFixture, Viewer
+from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, PortalFixture, Viewer, apply_window_state
 from Background_Job_Scheduler import BackgroundJobScheduler
 from Viewer_Visual_State import edge_stages, capture_view
 from desktop.Command_Metadata import get_command_metadata
@@ -176,7 +176,8 @@ class PortalTests(PortalFixture, unittest.TestCase):
         for platform, message, hinted in (('offscreen', no_context, True), ('offscreen', 'disk full', False),
                                           ('windows', no_context, False)):
             with self.subTest(platform=platform, message=message), \
-                    mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': platform}):
+                    mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': platform}), \
+                    mock.patch('Viewer_Visual_State.sys', SimpleNamespace(platform='win32')):
                 self.viewer.canvas = failing(message)
                 with self.assertRaises(ValueError) as caught:
                     capture_view(self.viewer)
@@ -193,13 +194,82 @@ class PortalTests(PortalFixture, unittest.TestCase):
         self.assertTrue(str(caught.exception).endswith(f'because {reason}.'), str(caught.exception))
         self.assertNotIn('start a Viewer in hidden or normal mode', str(caught.exception))
 
-    def test_a_linux_headless_viewer_with_no_display_names_it_when_capture_fails(self):
-        self.viewer.canvas = SimpleNamespace(render=lambda: (_ for _ in ()).throw(RuntimeError('no OpenGL context here')))
-        with mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': 'offscreen'}, clear=True), \
+    def test_a_linux_headless_viewer_with_no_display_names_it_whatever_the_render_error_says(self):
+        # With no X server Qt's offscreen platform has no OpenGL at all; VisPy reports it as an
+        # IndexError from its own framebuffer stack, not as a missing context.
+        for message in ('no OpenGL context here', 'list index out of range'):
+            with self.subTest(message=message):
+                self.viewer.canvas = SimpleNamespace(render=lambda: (_ for _ in ()).throw(RuntimeError(message)))
+                with mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': 'offscreen'}, clear=True), \
+                        mock.patch('Viewer_Visual_State.sys', SimpleNamespace(platform='linux')), \
+                        mock.patch('utilities.Viewer_Display.sys', SimpleNamespace(platform='linux')), \
+                        self.assertRaises(ValueError) as caught:
+                    capture_view(self.viewer)
+                self.assertIn(f'Viewer canvas capture failed: {message}', str(caught.exception))
+                self.assertTrue(str(caught.exception).endswith(
+                    'because no display was found (DISPLAY and WAYLAND_DISPLAY are not set).'), str(caught.exception))
+        # With a display the offscreen platform may render, and an unrelated failure keeps its own text.
+        self.viewer.canvas = SimpleNamespace(render=lambda: (_ for _ in ()).throw(RuntimeError('disk full')))
+        with mock.patch.dict(os.environ, {'QT_QPA_PLATFORM': 'offscreen', 'DISPLAY': ':0'}, clear=True), \
                 mock.patch('Viewer_Visual_State.sys', SimpleNamespace(platform='linux')), \
+                mock.patch('utilities.Viewer_Display.sys', SimpleNamespace(platform='linux')), \
                 self.assertRaises(ValueError) as caught:
             capture_view(self.viewer)
-        self.assertIn('because no display was found', str(caught.exception))
+        self.assertEqual(str(caught.exception), 'Viewer canvas capture failed: disk full')
+
+    def test_a_file_dialog_opens_only_where_a_user_is_at_the_viewer_command_or_not(self):
+        from Viewer_Command_Portal import CommandInteractionError
+        # Run as a portal command: the environment of this offscreen run says headless, the Viewer says otherwise.
+        for state in WINDOW_STATES:
+            with self.subTest(state=state, bound=True):
+                apply_window_state(self.viewer, state)
+                self.viewer.canvas = SimpleNamespace(native=None)
+                with mock.patch.dict(os.environ, {'SSN_VIEWER_HEADLESS': '1', 'QT_QPA_PLATFORM': 'offscreen'}), \
+                        mock.patch.object(QtWidgets.QFileDialog, 'getOpenFileName', return_value=('', '')) as dialog:
+                    result = self.finish(self.portal.submit(f'state-{state}', 'alignment')['request_id'])
+                if state in NO_WINDOW_STATES:
+                    self.assertEqual(result['status'], 'failed', result)
+                    dialog.assert_not_called()
+                else:
+                    self.assertEqual(result['status'], 'cancelled', result)
+                    dialog.assert_called_once()
+        # Not run by the portal: still the Viewer's state that decides, whatever the environment says.
+        for state in WINDOW_STATES:
+            with self.subTest(state=state, bound=False):
+                viewer = apply_window_state(SimpleNamespace(), state)
+                with mock.patch.dict(os.environ, {'SSN_VIEWER_HEADLESS': '1', 'QT_QPA_PLATFORM': 'offscreen'}):
+                    if state in NO_WINDOW_STATES:
+                        with self.assertRaisesRegex(CommandInteractionError, 'requires a visible Viewer'):
+                            with user_interaction(viewer, 'Pick a file'):
+                                self.fail('the dialog must not open')
+                    else:
+                        with user_interaction(viewer, 'Pick a file'):
+                            pass
+        # A stand-in with nothing to answer for it is windowed outside a portal command, as before.
+        with mock.patch.dict(os.environ, {'SSN_VIEWER_HEADLESS': '1', 'QT_QPA_PLATFORM': 'offscreen'}):
+            with user_interaction(SimpleNamespace(), 'Pick a file'):
+                pass
+
+    def test_an_unbound_picker_command_fails_cleanly_in_a_viewer_with_no_window(self):
+        import commands.alignment as alignment_command
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                viewer = apply_window_state(SimpleNamespace(canvas=SimpleNamespace(native=None),
+                                                            console_text=SimpleNamespace(text='')), state)
+                with mock.patch.object(QtWidgets.QFileDialog, 'getOpenFileName', return_value=('', '')) as dialog, \
+                        mock.patch.object(ce, 'command_failed') as failed, \
+                        mock.patch.object(ce, 'command_cancelled') as cancelled, \
+                        mock.patch.object(ce, 'print_help'), redirect_stdout(io.StringIO()):
+                    alignment_command.run(viewer, [])
+                if state in NO_WINDOW_STATES:
+                    dialog.assert_not_called()
+                    failed.assert_called_once()
+                    self.assertIn('requires a visible Viewer', str(failed.call_args.args[1]))
+                    cancelled.assert_not_called()
+                else:
+                    dialog.assert_called_once()
+                    failed.assert_not_called()
+                    cancelled.assert_called_once()
 
     def test_a_hidden_viewer_refuses_dialogs_until_its_window_is_shown(self):
         self.viewer.window_mode = 'hidden'

@@ -21,6 +21,7 @@ All backend logic lives in web_ui/agent_backend.py.
 
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+from web_ui.Browser_Page import is_headless, page_address
 
 from web_ui.agent_backend import (
     activate_agent_from_card,
@@ -114,6 +115,12 @@ def run(viewer, args):
             Command_Engine.command_succeeded(viewer, "Opened the Agent interface; no model request was started.")
         elif _agent_page_connected(viewer):
             Command_Engine.command_succeeded(viewer, "The Agent interface is already open; no model request was started.")
+        elif is_headless(viewer) and (address := page_address(viewer, "/agent.html")) is not None:
+            Command_Engine.command_succeeded(
+                viewer,
+                f"A Viewer with no window opens no browser page; the Agent interface is served at {address}. "
+                "No model request was started.",
+            )
         else:
             Command_Engine.command_failed(viewer, "The Agent interface was not opened; the Viewer's console line says why.")
         return

@@ -19,6 +19,7 @@ from PySide6 import QtWidgets, QtCore
 import Command_Engine
 import EMAPSSN_Config as cfg
 from desktop.Desktop_App import translate
+from desktop.Viewer_Window import viewer_shows_windows
 from utilities.Localization import Message, display_text
 from web_ui.Plugin_Manager import ensure_registry
 # The metadata data model lives in Metadata_Core so the headless VR front
@@ -122,7 +123,18 @@ def handle_edit_cell(viewer, data):
     _refresh_metadata_hud(viewer, col, row)
     return True
 
+def _refuse_file_dialog(viewer, message):
+    """Fail a metadata page action that needs a file dialog where no user can answer one."""
+    if viewer_shows_windows(viewer):
+        return False
+    print(message)
+    Command_Engine.command_failed(viewer, message)
+    return True
+
+
 def handle_import_metadata(viewer, data):
+    if _refuse_file_dialog(viewer, Message("Importing metadata opens a file dialog, which a Viewer that shows no windows cannot offer.")):
+        return
     try:
         parent_widget = getattr(viewer, 'main_window', None)
         if not parent_widget and hasattr(viewer, 'canvas'):
@@ -159,6 +171,8 @@ def handle_import_metadata(viewer, data):
         Command_Engine.command_failed(viewer, f'Error picking file for metadata import: {e}')
 
 def handle_export_metadata(viewer, data):
+    if _refuse_file_dialog(viewer, Message("Exporting metadata opens a file dialog, which a Viewer that shows no windows cannot offer.")):
+        return
     try:
         parent_widget = getattr(viewer, 'main_window', None)
         if not parent_widget and hasattr(viewer, 'canvas'):

@@ -20,6 +20,7 @@ if SRC_DIR not in sys.path:
 from PySide6 import QtCore
 
 from Background_Job_Scheduler import BackgroundJobScheduler
+from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_state
 
 
 class ViewerStub:
@@ -80,6 +81,47 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
             )
         del application
         gc.collect()
+
+    def test_a_folder_a_job_asks_to_reveal_opens_only_where_a_user_is_at_the_viewer(self):
+        # print and label finish with reveal_directory; the scheduler is the one place that acts on it.
+        for state in WINDOW_STATES:
+            with self.subTest(state=state):
+                viewer = apply_window_state(ViewerStub(), state)
+                scheduler = BackgroundJobScheduler(viewer)
+                self.addCleanup(scheduler.shutdown)
+                done = []
+                scheduler.job_succeeded.connect(lambda job, result, elapsed: done.append(job.job_id))
+                with tempfile.TemporaryDirectory() as directory, mock.patch(
+                    "Background_Job_Scheduler.open_in_file_manager"
+                ) as reveal:
+                    scheduler.enqueue(
+                        "print", "reveal test", "payload",
+                        lambda payload: {"message": "finished", "reveal_directory": directory},
+                        os.path.join(directory, "one.png"),
+                    )
+                    self.assertTrue(wait_for(lambda: bool(done)))
+                    wait_for(lambda: False, 0.1)   # let the success report run
+                self.assertEqual(reveal.called, state not in NO_WINDOW_STATES)
+                if reveal.called:
+                    reveal.assert_called_once_with(directory)
+
+    def test_a_viewer_that_is_gone_still_reveals(self):
+        scheduler = BackgroundJobScheduler(ViewerStub())
+        self.addCleanup(scheduler.shutdown)
+        scheduler._viewer_ref = lambda: None
+        done = []
+        scheduler.job_succeeded.connect(lambda job, result, elapsed: done.append(job.job_id))
+        with tempfile.TemporaryDirectory() as directory, mock.patch(
+            "Background_Job_Scheduler.open_in_file_manager"
+        ) as reveal:
+            scheduler.enqueue(
+                "print", "reveal test", "payload",
+                lambda payload: {"message": "finished", "reveal_directory": directory},
+                os.path.join(directory, "one.png"),
+            )
+            self.assertTrue(wait_for(lambda: bool(done)))
+            wait_for(lambda: False, 0.1)
+        reveal.assert_called_once_with(directory)
 
     def test_mixed_jobs_are_fifo_nonoverlapping_and_continue_after_failure(self):
         viewer = ViewerStub()

@@ -57,15 +57,16 @@ def visual_overview(viewer, configuration):
 
 
 def opengl_failure_note(viewer, error):
-    """Why a headless Viewer could not render, a Message, when ``error`` is its missing OpenGL context; else None.
+    """Why a headless Viewer could not render, a Message, when the cause is its missing OpenGL context; else None.
 
     Qt's offscreen platform has no OpenGL context on Windows and macOS, and on
     Linux only through an X server, so a headless Viewer there cannot render
     (capture_view, print). A hidden-mode Viewer has one, unless it found no
-    display and fell back to headless. Other failures keep their own text.
+    display and fell back to headless. With a known cause (the fallback's reason,
+    or on Linux no display at all) any failure to render is that cause, whatever
+    VisPy's error says; otherwise only an error naming the missing OpenGL context
+    is. Other failures keep their own text.
     """
-    if 'OpenGL context' not in str(error):
-        return None
     if not (os.environ.get('QT_QPA_PLATFORM') == 'offscreen' or getattr(viewer, 'headless', False)):
         return None
     reason = getattr(viewer, 'window_fallback_reason', None)
@@ -74,6 +75,8 @@ def opengl_failure_note(viewer, error):
         reason = display_unavailable_reason()
     if reason:
         return Message('This Viewer has no OpenGL context to render with, because {reason}.', reason=reason)
+    if 'OpenGL context' not in str(error):
+        return None
     return Message(
         'This headless Viewer has no OpenGL context to render with;'
         ' start a Viewer in hidden or normal mode to render the view.'
