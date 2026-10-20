@@ -89,6 +89,28 @@ still change before version 1.0.0.
   screen in the last second, the GPU time of a recent frame and, while edges are thinned,
   the step, for example `60 fps · GPU 4.1 ms · edges 1/16`. It reads Idle when nothing is
   being drawn. It never makes the Viewer redraw and never appears in prints or captures.
+- **Hidden Viewers that MCP can bring on screen.** MCP `start_session` takes
+  `mode="hidden"`.
+  - **Launch and drawing:** the Viewer starts with no window, taskbar button or terminal,
+    but draws as a normal one does. On Windows, `capture_view` and `print` work in it
+    (they don't in a headless Viewer).
+  - **Show and hide:** `show_session` brings the window up with its state intact
+    (selection, camera, threshold, undo history). The window comes up above other
+    windows without taking the keyboard, and flashes its taskbar button until clicked.
+    The result says whether Windows let it come to the front. `hide_session` takes it
+    away again.
+  - **While hidden:** the Viewer opens no dialogs, browser pages, terminals or file
+    manager windows, and asks for the window to be shown first. Once shown, it behaves
+    like a normal Viewer. Closing the shown window ends the Viewer.
+  - **When it falls back to headless:** with no display (a Linux or macOS SSH login),
+    or when no OpenGL context can be made, a hidden request starts headless and says
+    why.
+  - **macOS:** a hidden Viewer has no Dock icon until it is shown. This is untested on
+    a real Mac.
+  - **Summaries:** every session summary has a `window` section with the mode, whether
+    the window is visible or in front, and what it can do. The MCP server is 0.15.0.
+  - **Cost:** a hidden Viewer takes about 150 MB more memory and 125 MB of video memory
+    than a headless one, and starts 1 to 2 s later. `mode="headless"` is unchanged.
 
 ### Changed
 
@@ -313,8 +335,17 @@ still change before version 1.0.0.
     instead of after 60 s.
   - Closing the Viewer or a failed job ends the worker and its child processes.
   - `agent`, `meta` and the sidebar's page buttons open no browser in a headless Viewer
-    either.
+    either. A bare `agent` or `meta` there succeeds and gives the page's address.
   - A Viewer with a window behaves as before.
+- A headless Viewer also opened other windows, or could hang:
+  - `export`, `print` and `label` opened Explorer or a file manager on their output
+    folder.
+  - The Meta Data page's import and export opened a file dialog that blocked the Viewer
+    for good.
+  - A file picker (`alignment`, `embedding` or `run` with no file) opened when the
+    command didn't come through MCP.
+  Now none of them opens anything where no one sees the Viewer: in a headless Viewer, or
+  a hidden one not yet shown. The dialogs report why instead.
 
 ## [0.4.0] - 2026-10-16
 
