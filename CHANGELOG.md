@@ -289,6 +289,19 @@ still change before version 1.0.0.
   lanes on CUDA) are measured before the CPU pool, even when the budget is spent. On a
   44,000-target test the benchmark now picks the tiled plan: 38 s in all, against
   about 100 s before. The tool's help describes the benchmark as it now works.
+- `esmfold` in a headless Viewer (MCP `start_session` with `mode="headless"`) opened a
+  console window for its folding worker and the structure page in the default browser.
+  - The worker now runs without a window. Its output goes to
+    `temp/command_workers/<job>.log`, which the job's outcome names, and MCP
+    `read_command_output` still shows it.
+  - The outcome gives the structure page's address instead of opening it.
+  - The job, its progress and the PDB still reach MCP `get_command_request` as before.
+  - A worker that dies at startup now fails the job at once with its exit code and log,
+    instead of after 60 s.
+  - Closing the Viewer or a failed job ends the worker and its child processes.
+  - `agent`, `meta` and the sidebar's page buttons open no browser in a headless Viewer
+    either.
+  - A Viewer with a window behaves as before.
 
 ## [0.4.0] - 2026-10-16
 
