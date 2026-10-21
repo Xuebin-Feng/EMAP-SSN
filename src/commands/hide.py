@@ -18,6 +18,18 @@ import numpy as np
 import EMAPSSN_Config as cfg
 from utilities.Localization import JoinedMessage, Message
 
+
+def _drop_hidden_from_selection(viewer, selection):
+    """Leave selection, less its hidden nodes, as the selection; hidden nodes leave the live one too.
+
+    The live selection may be one made by hand after this command was given,
+    which stays (Command_Engine.set_command_selection); a hidden node is never
+    selected, whichever selection it is in.
+    """
+    kept = [i for i in selection if viewer.visible_mask[i]]
+    if not Command_Engine.set_command_selection(viewer, kept):
+        viewer.selected_indices = [i for i in viewer.selected_indices if viewer.visible_mask[i]]
+
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:
         # The console line shows the first line; the terminal shows it all, in English.
@@ -88,7 +100,7 @@ def run(viewer, args):
         
         # Clean up selection if any selected nodes were hidden
         if hasattr(viewer, 'selected_indices'):
-            viewer.selected_indices = [i for i in viewer.selected_indices if viewer.visible_mask[i]]
+            _drop_hidden_from_selection(viewer, Command_Engine.command_selection(viewer))
             
         viewer.hovered_node_idx = None
         viewer.selected_node_idx = None
@@ -148,7 +160,7 @@ def run(viewer, args):
 
         # Clean up selection if any selected nodes were hidden
         if hasattr(viewer, 'selected_indices'):
-            viewer.selected_indices = [i for i in viewer.selected_indices if viewer.visible_mask[i]]
+            _drop_hidden_from_selection(viewer, Command_Engine.command_selection(viewer))
             
         viewer.hovered_node_idx = None
         viewer.selected_node_idx = None
@@ -162,16 +174,17 @@ def run(viewer, args):
         
     else:
         # Default to hiding selected nodes
-        if not getattr(viewer, 'selected_indices', []):
+        selected = Command_Engine.command_selection(viewer)
+        if not selected:
             msg = Message("Error: No nodes currently selected.")
             Command_Engine.command_failed(viewer, msg)
             Command_Engine.print_help(viewer, msg)
             return
         
         viewer._save_state()
-        viewer.visible_mask[viewer.selected_indices] = False
-        num_hidden = len(viewer.selected_indices)
-        viewer.selected_indices = []
+        viewer.visible_mask[selected] = False
+        num_hidden = len(selected)
+        _drop_hidden_from_selection(viewer, [])
         
         viewer.hovered_node_idx = None
         viewer.selected_node_idx = None

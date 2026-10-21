@@ -73,6 +73,7 @@ FULLY_MARKED = frozenset({"Config", "Tools", "Viewer window"})
 CANVAS_MARKED = frozenset({
     "Background_Job_Scheduler.py",
     "Command_Engine.py",
+    "Command_Queue.py",
     "EMAPSSN_Viewer.py",
     "Metadata_Core.py",
     "commands/agent.py",
@@ -84,6 +85,7 @@ CANVAS_MARKED = frozenset({
     "commands/export.py",
     "commands/group.py",
     "commands/hide.py",
+    "commands/jobs.py",
     "commands/label.py",
     "commands/logo.py",
     "commands/meta.py",

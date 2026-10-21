@@ -73,6 +73,9 @@ COMMAND_METADATA = {
     'hide': entry('Hide selected or matching visible nodes and their connected edges.',
         argument('action', 'single hides nodes with no active edges at the current threshold; reset unhides all nodes. Without arguments, hide selected nodes. single, free and reset take no other arguments: a word after one is refused.', choice('single', 'free'), choice('reset')),
         argument('expression', EXPRESSION + ' Exactly one expression word: more are refused, so a quoted header with a space, as in "node 1", is refused rather than matching nothing.')),
+    'jobs': entry('List the commands that wait or run and the files being written, or cancel them. Commands run one at a time in the order given; a slow one computes in the background while the Viewer responds. jobs itself runs at once.',
+        argument('action', 'Omit to list the jobs, numbered, with the last few finished. cancel alone cancels the newest command that waits or runs; a computing one stops at its next step or runs on in the background and its result is thrown away.', choice('cancel')),
+        argument('jobs', 'After cancel: job numbers (14 or #14), every one of which must name a waiting or running job, or nothing is cancelled; a file that is being written cannot be cancelled. all cancels every command that waits or runs and every file not started.', choice('all'))),
     'label': entry('Queue an XLSX subset-conservation report; requires a nonempty MSA, active reference and background scheduler.',
         argument('action', 'reset clears cluster labels without running analysis.', choice('reset')),
         argument('target', 'Omit to analyze all available cluster/group results; an explicit target requires its memberships.', choice('clusters', 'cluster'), choice('groups', 'group')),
@@ -165,6 +168,8 @@ AGENT_POLICY = {
     'export': policy('approve'),
     'group': policy('run'),
     'hide': policy('run'),
+    # Cancelling throws away the user's own commands.
+    'jobs': policy('run', {'cancel': 'approve'}),
     'label': policy('approve', {'reset': 'run'}),
     'logo': policy('approve'),
     # A bare filename imports a file, like upload.

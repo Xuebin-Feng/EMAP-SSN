@@ -52,6 +52,17 @@ def run(viewer, args):
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
+    # Typed by hand while commands wait, redo would change the network under
+    # them. They come after the undone steps, as a new action does, and a new
+    # action leaves nothing to redo.
+    queue = getattr(viewer, 'command_queue', None)
+    if queue is not None and not getattr(queue, 'in_turn', False) and queue.pending():
+        msg = Message("Nothing to redo: the undone steps were followed by %n waiting command(s).",
+                      n=len(queue.pending()))
+        Command_Engine.show_status(viewer, msg)
+        print(msg)
+        Command_Engine.command_succeeded(viewer, msg)
+        return
     if not args:
         changed = viewer._do_redo()
         Command_Engine.command_succeeded(viewer, "Redo successful." if changed else "Nothing to redo.")

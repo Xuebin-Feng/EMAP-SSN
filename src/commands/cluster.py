@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass
+
 import Command_Engine
 import numpy as np
 from utilities import Network_Kernels as network_clustering
@@ -296,14 +298,54 @@ def print_help():
       subcluster_0_2 or subcluster_001_2, are kept.
     """)
 
-def run(viewer, args):
+# --- The command, in the steps the Viewer's command queue runs (Command_Queue) ---
+# plan() reads the arguments when the command is given; start() checks the
+# network and the libraries at its turn; compute() clusters, on the queue's
+# worker thread (Leiden, Jaccard and MCL release the GIL); apply() writes the
+# clusters and colours and saves the undo state, on the GUI thread. run() does
+# all four at once, as the VR viewer and the tests run the command.
+
+
+@dataclass(frozen=True)
+class ClusterPlan:
+    mode: str
+    param1: float
+    min_size: int
+    heavy = True
+
+
+@dataclass(frozen=True)
+class ClusterListPlan:
+    """cluster list: it reads the clusters at its turn, after a clustering given before it."""
+    heavy = False
+
+
+@dataclass(frozen=True)
+class ClusterInputs:
+    plan: ClusterPlan
+    n_nodes: int
+    edges: object
+    scores: object
+
+
+@dataclass(frozen=True)
+class ClusterResult:
+    labels: object
+    unique_labels: object
+    label_slots: object
+    counts: object
+    color_map: dict
+
+
+def plan(viewer, args):
+    """Read the arguments: a ClusterPlan or ClusterListPlan, or None when help ran or they were refused."""
     # --- 1. Help Check ---
     if args and args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
-        return
+        return None
 
     # --- LIST COMMAND ---
     if args and args[0].lower() == 'list':
@@ -311,43 +353,8 @@ def run(viewer, args):
             refusal = extra_argument_error(args[1], "cluster list")
             Command_Engine.print_help(viewer, refusal, report_message=False)
             Command_Engine.command_failed(viewer, refusal)
-            return
-        if getattr(viewer, 'cluster_labels', None) is None:
-            msg = Message("No clusters are currently defined.")
-            Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer, msg)
-            return
-            
-        labels = viewer.cluster_labels
-        n_nodes = viewer.n_nodes
-        unique_labels, counts = np.unique(labels, return_counts=True)
-        label_counts = dict(zip(unique_labels, counts))
-
-        sorted_clusters = sorted([k for k in label_counts.keys() if k != -1])
-        color_map = get_cluster_color_map(sorted_clusters)
-
-        print(f"\n{'='*54}")
-        print(f"--- Current Cluster Statistics (Total: {n_nodes}) ---")
-        print(f"{'='*54}")
-        print(f"| {'Cluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |")
-        print(f"|{'-'*24}+{'-'*12}+{'-'*12}|")
-        
-        noise_count = label_counts.get(-1, 0)
-        noise_pct = (noise_count / n_nodes) * 100
-        noise_name_padded = get_colored_cluster_name(-1, f"{'Noise (Unclustered)':<20}", color_map)
-        print(f"| {noise_name_padded} | {noise_count:>10} | {noise_pct:>9.2f}% |")
-        
-        for cid in sorted_clusters:
-            c_count = label_counts[cid]
-            c_pct = (c_count / n_nodes) * 100
-            c_name_padded = get_colored_cluster_name(cid, f"{f'Cluster {cid}':<20}", color_map)
-            print(f"| {c_name_padded} | {c_count:>10} | {c_pct:>9.2f}% |")
-        print(f"{'='*54}\n")
-        
-        msg = Message("Listed %n cluster(s) in console.", n=len(sorted_clusters))
-        Command_Engine.show_status(viewer, msg)
-        Command_Engine.command_succeeded(viewer, msg)
-        return
+            return None
+        return ClusterListPlan()
 
     # --- 2. Parse Arguments ---
     mode = "leiden"
@@ -355,23 +362,23 @@ def run(viewer, args):
     min_sz = 10
     # [MODE] PARAM_1 MIN_SIZE take three arguments; a bare PARAM_1 MIN_SIZE two.
     taken = 3
-    
+
     if len(args) >= 1:
         first_arg = args[0].lower()
         if first_arg in ['jaccard', 'mcl', 'leiden']:
             mode = first_arg
-            if len(args) >= 2: 
+            if len(args) >= 2:
                 try: param1 = float(args[1])
                 except ValueError:
                     print("Error: Parameter must be a number.")
                     Command_Engine.command_failed(viewer, "Error: Parameter must be a number.")
-                    return
-            if len(args) >= 3: 
+                    return None
+            if len(args) >= 3:
                 try: min_sz = int(args[2])
                 except ValueError:
                     print("Error: Min Size must be an integer.")
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
-                    return
+                    return None
         else:
             taken = 2
             # A bare number is the resolution of the default mode, Leiden.
@@ -379,20 +386,20 @@ def run(viewer, args):
             except ValueError:
                 print(f"Error: Unknown mode or invalid number '{args[0]}'")
                 Command_Engine.command_failed(viewer, f"Error: Unknown mode or invalid number '{args[0]}'")
-                return
-            if len(args) >= 2: 
+                return None
+            if len(args) >= 2:
                 try: min_sz = int(args[1])
                 except ValueError:
                     print("Error: Min Size must be an integer.")
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
-                    return
+                    return None
 
     # Nothing may follow the arguments the form takes.
     if len(args) > taken:
         refusal = extra_argument_error(args[taken], "cluster [MODE] [PARAM_1] [MIN_SIZE]")
         Command_Engine.print_help(viewer, refusal, report_message=False)
         Command_Engine.command_failed(viewer, refusal)
-        return
+        return None
 
     # Apply defaults if param1 wasn't provided
     if param1 is None:
@@ -404,14 +411,98 @@ def run(viewer, args):
     if refusal:
         Command_Engine.print_help(viewer, refusal, report_message=False)
         Command_Engine.command_failed(viewer, refusal)
+        return None
+    return ClusterPlan(mode, param1, min_sz)
+
+
+def list_clusters(viewer):
+    """cluster list: print the current cluster statistics."""
+    if getattr(viewer, 'cluster_labels', None) is None:
+        msg = Message("No clusters are currently defined.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer, msg)
         return
 
+    labels = viewer.cluster_labels
     n_nodes = viewer.n_nodes
-    edges = np.array(viewer.edges, dtype=np.int32).reshape(-1, 2)
-    labels = np.full(n_nodes, -1, dtype=int)
-    
+    unique_labels, counts = np.unique(labels, return_counts=True)
+    label_counts = dict(zip(unique_labels, counts))
+
+    sorted_clusters = sorted([k for k in label_counts.keys() if k != -1])
+    color_map = get_cluster_color_map(sorted_clusters)
+
+    print(f"\n{'='*54}")
+    print(f"--- Current Cluster Statistics (Total: {n_nodes}) ---")
+    print(f"{'='*54}")
+    print(f"| {'Cluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |")
+    print(f"|{'-'*24}+{'-'*12}+{'-'*12}|")
+
+    noise_count = label_counts.get(-1, 0)
+    noise_pct = (noise_count / n_nodes) * 100
+    noise_name_padded = get_colored_cluster_name(-1, f"{'Noise (Unclustered)':<20}", color_map)
+    print(f"| {noise_name_padded} | {noise_count:>10} | {noise_pct:>9.2f}% |")
+
+    for cid in sorted_clusters:
+        c_count = label_counts[cid]
+        c_pct = (c_count / n_nodes) * 100
+        c_name_padded = get_colored_cluster_name(cid, f"{f'Cluster {cid}':<20}", color_map)
+        print(f"| {c_name_padded} | {c_count:>10} | {c_pct:>9.2f}% |")
+    print(f"{'='*54}\n")
+
+    msg = Message("Listed %n cluster(s) in console.", n=len(sorted_clusters))
+    Command_Engine.show_status(viewer, msg)
+    Command_Engine.command_succeeded(viewer, msg)
+
+
+def start(viewer, plan):
+    """At its turn: check the libraries and the scores the mode needs; return ClusterInputs, or None."""
+    if isinstance(plan, ClusterListPlan):
+        list_clusters(viewer)
+        return None
+
+    mode, param1, min_sz = plan.mode, plan.param1, plan.min_size
     Command_Engine.show_status(viewer, Message("Clustering ({mode})...", mode=mode.upper()))
     print(f"Running {mode.upper()} Clustering (Param={param1}, MinSize={min_sz})...")
+    scores = viewer.edge_scores if hasattr(viewer, 'edge_scores') else None
+
+    if mode == "mcl":
+        try:
+            import markov_clustering as mc  # noqa: F401  (availability check)
+            import networkx as nx  # noqa: F401
+            import scipy.sparse as sp  # noqa: F401
+        except ImportError:
+            msg = Message("Missing libraries! Run: {command}", command="pip install markov_clustering networkx scipy")
+            print(f"Error: {msg}")
+            Command_Engine.command_failed(viewer, f'Error: {msg}')
+            Command_Engine.show_status(viewer, msg)
+            return None
+
+        score_error = mcl_edge_score_error(scores)
+        if score_error:
+            Command_Engine.print_help(viewer, score_error, report_message=False)
+            Command_Engine.command_failed(viewer, score_error)
+            return None
+
+    elif mode == "leiden":
+        try:
+            import graspologic_native  # noqa: F401  (availability check)
+        except ImportError:
+            msg = Message("Missing library! Run: {command}", command="pip install graspologic-native")
+            print(f"Error: {msg}")
+            Command_Engine.command_failed(viewer, f'Error: {msg}')
+            Command_Engine.show_status(viewer, msg)
+            return None
+
+    # The edges and scores never change while the Viewer runs, so the worker reads them as they are.
+    return ClusterInputs(plan, viewer.n_nodes, viewer.edges, scores)
+
+
+def compute(inputs, progress):
+    """Cluster the network. No viewer and no Qt: this runs on the command queue's worker thread."""
+    mode, param1, min_sz = inputs.plan.mode, inputs.plan.param1, inputs.plan.min_size
+    n_nodes = inputs.n_nodes
+    edges = np.array(inputs.edges, dtype=np.int32).reshape(-1, 2)
+    labels = np.full(n_nodes, -1, dtype=int)
 
     # =======================================================
     # MODE 1: JACCARD (Topology Filtering + BFS)
@@ -429,38 +520,13 @@ def run(viewer, args):
     # =======================================================
     elif mode == "mcl":
         inflation = param1
-        try:
-            import markov_clustering as mc
-            import networkx as nx
-            import scipy.sparse as sp
-        except ImportError:
-            msg = Message("Missing libraries! Run: {command}", command="pip install markov_clustering networkx scipy")
-            print(f"Error: {msg}")
-            Command_Engine.command_failed(viewer, f'Error: {msg}')
-            Command_Engine.show_status(viewer, msg)
-            return
-
-        score_error = mcl_edge_score_error(
-            viewer.edge_scores if hasattr(viewer, 'edge_scores') else None
-        )
-        if score_error:
-            Command_Engine.print_help(viewer, score_error, report_message=False)
-            Command_Engine.command_failed(viewer, score_error)
-            return
-
         print("Building Sparse Adjacency Matrix...")
         # The edge scores weigh the edges when the viewer has them; otherwise each weighs 1.
-        matrix = mcl_adjacency(edges, getattr(viewer, 'edge_scores', None), n_nodes)
+        matrix = mcl_adjacency(edges, inputs.scores, n_nodes)
 
-        # Suppress SciPy sparsity warnings triggered by MCL, for this call only.
-        import warnings
-        from scipy.sparse import SparseEfficiencyWarning
-        
         print(f"Running MCL (Inflation = {inflation}). This may take a moment...")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
-            clusters = network_clustering.markov_clusters(matrix, inflation)
-        
+        clusters = network_clustering.markov_clusters(matrix, inflation, progress=progress)
+
         labels = label_mcl_clusters(clusters, n_nodes, min_sz)
 
     # =======================================================
@@ -468,23 +534,13 @@ def run(viewer, args):
     # =======================================================
     elif mode == "leiden":
         resolution = param1
-        try:
-            import graspologic_native  # noqa: F401  (availability check)
-        except ImportError:
-            msg = Message("Missing library! Run: {command}", command="pip install graspologic-native")
-            print(f"Error: {msg}")
-            Command_Engine.command_failed(viewer, f'Error: {msg}')
-            Command_Engine.show_status(viewer, msg)
-            return
-
         print("Building Edge List & Mapping Edge Weights...")
 
         # Automatically harness the physics edge weights if available!
-        if hasattr(viewer, 'edge_scores'):
-            weights = viewer.edge_scores
+        weights = inputs.scores
+        if weights is not None:
             print(f"Running Leiden (Resolution = {resolution}, Weighted).")
         else:
-            weights = None
             print(f"Running Leiden (Resolution = {resolution}, Unweighted).")
 
         # A node with no edge is a singleton cluster when min_sz is 1, as in
@@ -496,26 +552,35 @@ def run(viewer, args):
     # Canonicalize IDs across every clustering mode without changing membership.
     labels = renumber_clusters_by_size(labels)
 
-    # --- 6. Update Viewer ---
-    
-    # ---> NEW: Save the state before applying new clusters and colors for Undo/Redo
-    viewer._save_state()
-    
-    viewer.cluster_labels = labels
-
-    # The generated subcluster groups name nodes of the clusters just replaced.
-    removed_subclusters = group_cmd.remove_generated_subcluster_groups(viewer)
-    
-    # Store parameters as strings so external commands (align.py, etc.) know what was used
-    viewer.last_cluster_params = (f"{mode.upper()}_{param1}", min_sz)
-    
-    # Apply Colors
     unique_labels, label_slots, counts = np.unique(
         labels, return_inverse=True, return_counts=True
     )
     unique_clusters = [k for k in unique_labels if k != -1]
-    color_map = get_cluster_color_map(unique_clusters)
+    return ClusterResult(labels, unique_labels, label_slots, counts, get_cluster_color_map(unique_clusters))
 
+
+def apply(viewer, plan, result):
+    """Write the clusters and their colours, as one undo step, and report them."""
+    mode, param1, min_sz = plan.mode, plan.param1, plan.min_size
+    n_nodes = viewer.n_nodes
+    labels = result.labels
+    unique_labels, label_slots, counts, color_map = (
+        result.unique_labels, result.label_slots, result.counts, result.color_map)
+
+    # --- 6. Update Viewer ---
+
+    # ---> NEW: Save the state before applying new clusters and colors for Undo/Redo
+    viewer._save_state()
+
+    viewer.cluster_labels = labels
+
+    # The generated subcluster groups name nodes of the clusters just replaced.
+    removed_subclusters = group_cmd.remove_generated_subcluster_groups(viewer)
+
+    # Store parameters as strings so external commands (align.py, etc.) know what was used
+    viewer.last_cluster_params = (f"{mode.upper()}_{param1}", min_sz)
+
+    # Apply Colors
     slot_colors = np.empty((len(unique_labels), 4))
     for slot, lbl in enumerate(unique_labels):
         if lbl == -1:
@@ -524,23 +589,23 @@ def run(viewer, args):
             r, g, b = color_map[lbl]
             slot_colors[slot] = (r, g, b, 1.0)
     viewer.current_colors[:n_nodes] = slot_colors[label_slots]
-        
+
     viewer.update_nodes()
-    
+
     # --- 7. Print Statistics ---
     label_counts = dict(zip(unique_labels, counts))
-    
+
     print(f"\n{'='*54}")
     print(f"--- {mode.upper()} Clustering Stats (Total Nodes: {n_nodes}) ---")
     print(f"{'='*54}")
     print(f"| {'Cluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |")
     print(f"|{'-'*24}+{'-'*12}+{'-'*12}|")
-    
+
     noise_count = label_counts.get(-1, 0)
     noise_pct = (noise_count / n_nodes) * 100
     noise_name_padded = get_colored_cluster_name(-1, f"{'Noise (Unclustered)':<20}", color_map)
     print(f"| {noise_name_padded} | {noise_count:>10} | {noise_pct:>9.2f}% |")
-    
+
     sorted_clusters = sorted([k for k in label_counts.keys() if k != -1])
     for cid in sorted_clusters:
         c_count = label_counts[cid]
@@ -548,7 +613,7 @@ def run(viewer, args):
         c_name_padded = get_colored_cluster_name(cid, f"{f'Cluster {cid}':<20}", color_map)
         print(f"| {c_name_padded} | {c_count:>10} | {c_pct:>9.2f}% |")
     print(f"{'='*54}\n")
-    
+
     n_clusters = len(sorted_clusters)
     msg = Message("Done! Found %n cluster(s) via {mode}.", n=n_clusters, mode=mode.upper())
     parts = [msg]
@@ -574,3 +639,18 @@ def run(viewer, args):
     Command_Engine.show_status(viewer, msg)
     print(msg)
     Command_Engine.command_succeeded(viewer, msg)
+
+
+def _no_progress(text=None):
+    """run() reports no progress."""
+
+
+def run(viewer, args):
+    """Run the command at once: its plan, start, compute and apply steps in a row."""
+    command_plan = plan(viewer, args)
+    if command_plan is None:
+        return
+    inputs = start(viewer, command_plan)
+    if inputs is None:
+        return
+    apply(viewer, command_plan, compute(inputs, _no_progress))

@@ -1143,11 +1143,62 @@ def parse_selection_expression(text):
     raise SelectionExpressionError(Message("'{text}' is not a Boolean selection expression.", text=text))
 
 
+# --- The selection a command uses -------------------------------------------
+# A command the Viewer's command queue (Command_Queue) runs later than it was
+# given uses the selection as it stood when it was given: the select commands
+# given before it count, even if they ran later, and a selection made by hand
+# after it was given does not. While such a command runs its steps, the queue
+# sets _COMMAND_JOB to its job, which answers bound_selection(viewer) with that
+# selection, or None when the live one is it (nothing was selected by hand in
+# between), and leave_selection(viewer, indices) with whether the selection the
+# command leaves may become the live one.
+_COMMAND_JOB = ContextVar('command_job', default=None)
+
+
+@contextmanager
+def command_job(job):
+    """Run the block as one of job's steps: command_selection and set_command_selection follow job."""
+    token = _COMMAND_JOB.set(job)
+    try:
+        yield
+    finally:
+        _COMMAND_JOB.reset(token)
+
+
+def command_selection(viewer):
+    """The selected node indices the running command uses, as a new list.
+
+    Commands read the selection through this, not viewer.selected_indices, so
+    that a queued command uses the selection it was given (see _COMMAND_JOB).
+    """
+    job = _COMMAND_JOB.get()
+    bound = job.bound_selection(viewer) if job is not None else None
+    if bound is not None:
+        return [int(index) for index in bound]
+    selected = getattr(viewer, 'selected_indices', None)
+    return [] if selected is None else list(selected)
+
+
+def set_command_selection(viewer, indices):
+    """Leave indices as the selection the running command made.
+
+    Returns whether they became the live selection: they do not when nodes were
+    selected by hand after the command was given, whose selection is newer and
+    stays (the commands given after this one still use these indices).
+    """
+    indices = list(indices)
+    job = _COMMAND_JOB.get()
+    if job is not None and not job.leave_selection(viewer, indices):
+        return False
+    viewer.selected_indices = indices
+    return True
+
+
 def get_selected_mask(viewer):
-    """Return the current UI selection as a stable node-length Boolean mask."""
+    """Return the selection the running command uses as a stable node-length Boolean mask."""
     n_nodes = int(getattr(viewer, "n_nodes", len(getattr(viewer, "full_headers", []))))
     mask = np.zeros(n_nodes, dtype=bool)
-    for index in getattr(viewer, "selected_indices", []) or []:
+    for index in command_selection(viewer):
         try:
             index = int(index)
         except (TypeError, ValueError):
@@ -1329,7 +1380,15 @@ def show_status(viewer, message):
     Every write to the line goes through here, because it is the one place
     command feedback is translated: the terminal and the command portal (MCP
     clients and the agent page) keep a Message's English text.
+
+    A command the queue runs later than it was given does not take the line
+    from a command being typed: its feedback goes to the status line above it.
     """
+    job = _COMMAND_JOB.get()
+    if (job is not None and getattr(job, 'deferred', False) and getattr(viewer, 'console_mode', False)
+            and hasattr(viewer, 'set_background_job_status')):
+        viewer.set_background_job_status(message)
+        return
     viewer.console_text.text = display_text(message)
 
 def print_help(viewer, msg, *, terminal_msg=None, report_message=True):
@@ -1546,6 +1605,62 @@ def command_artifact(viewer, path):
     from Viewer_Command_Portal import report
     report(artifact=path, viewer=viewer)
 
+# --- Which commands wait their turn --------------------------------------------
+# A Viewer with a command queue (Command_Queue) runs the commands that read or
+# change the network one at a time, in the order they were given; each runs on
+# the network as the commands before it left it. Help, the job and stop
+# commands, the camera and the pages run at once: they read nothing a waiting
+# command would change, or they act on the commands that wait. Undo and redo
+# typed by hand run at once too, since they take back a waiting command; from a
+# script or the command portal they wait their turn like any other command.
+INSTANT = 'instant'
+ORDERED = 'ordered'
+_HELP_WORDS = frozenset({'help', '-h', '--help', '-?'})
+_AGENT_SETTINGS = frozenset({'off', 'deactivate'})
+
+# Where the command being dispatched comes from: 'typed' at the Viewer's command
+# line, 'script' for the lines of a script typed there (run), 'portal' for the
+# command portal (MCP and the Agent page), which binds an execution context.
+_COMMAND_SOURCE = ContextVar('command_source', default='typed')
+
+
+@contextmanager
+def typed_script():
+    """Dispatch the commands of a script typed at the command line inside this block."""
+    token = _COMMAND_SOURCE.set('script')
+    try:
+        yield
+    finally:
+        _COMMAND_SOURCE.reset(token)
+
+
+def command_source():
+    """'portal', 'script' or 'typed': where the command being dispatched comes from."""
+    from Viewer_Command_Portal import CURRENT
+    return 'portal' if CURRENT.get() is not None else _COMMAND_SOURCE.get()
+
+
+def queue_kind(command_name, args, source='typed'):
+    """INSTANT for a command that runs at once, ORDERED for one that waits its turn."""
+    first = args[0].lower() if args else ''
+    if first in _HELP_WORDS or first == '--register-only':
+        return INSTANT
+    if command_name in ('jobs', 'zoom', 'run'):
+        # run opens its dialog at once; the commands of the script then wait their turn.
+        return INSTANT
+    if command_name == 'esmfold' and first == 'stop':
+        return INSTANT
+    if command_name in ('undo', 'redo') and source == 'typed':
+        return INSTANT
+    if command_name == 'meta' and not args:
+        return INSTANT
+    if command_name == 'agent':
+        argument = ' '.join(args)
+        if not args or first in _AGENT_SETTINGS or (argument.startswith('<') and argument.endswith('>')):
+            return INSTANT
+    return ORDERED
+
+
 def execute_command(viewer, cmd_str, record_history=True, silent=False):
     from Viewer_Command_Portal import CURRENT, bind
     from PySide6 import QtCore
@@ -1572,7 +1687,6 @@ def execute_command(viewer, cmd_str, record_history=True, silent=False):
 def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
     import os
     import importlib
-    from vispy import app
     cmd_str = cmd_str.strip()
     if not cmd_str:
         command_failed(viewer, "Empty command")
@@ -1609,51 +1723,91 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
     args = parts[1:]
 
     # --- 6. DYNAMIC EXTERNAL COMMANDS ---
+    queue = getattr(viewer, 'command_queue', None)
     try:
         module = importlib.import_module(f"commands.{command_name}")
-        if getattr(module, "__spec__", None) is not None:
+        # A module a queued command still has to run is not reloaded under it.
+        if getattr(module, "__spec__", None) is not None and not (
+                queue is not None and queue.uses_module(command_name)):
             importlib.reload(module)
 
-        if hasattr(module, 'run'):
-            if not silent and hasattr(viewer, 'console_text'):
-                show_status(viewer, Message("Running {command}...", command=command_name))
-            if not silent and hasattr(viewer, 'update_console_background'):
-                viewer.update_console_background()
-            if hasattr(app, 'process_events'):
-                app.process_events()
-            module.run(viewer, args)
-            if not silent and hasattr(viewer, 'update_console_background'):
-                viewer.update_console_background()
-            # Broadcast a complete browser state, including metadata shape.
-            viewer.broadcast_metadata_state()
-        else:
+        if not hasattr(module, 'run'):
             command_failed(viewer, f"No run entry point in {command_name}")
             if not silent and hasattr(viewer, 'console_text'):
                 show_status(viewer, Message("Error: No 'run' in {command}", command=command_name))
             if not silent and hasattr(viewer, 'update_console_background'):
                 viewer.update_console_background()
+        elif queue is not None and queue_kind(command_name, args, command_source()) == ORDERED:
+            # It runs in its turn, after the commands given before it (Command_Queue).
+            queue.dispatch(module, command_name, args, cmd_str, source=command_source(), silent=silent)
+        else:
+            _run_module(viewer, module, command_name, args, silent)
 
     except ModuleNotFoundError as error:
-        command_failed(viewer, f"Unknown command: {command_name}" if error.name == f"commands.{command_name}" else f"Command dependency unavailable: {error.name}")
-        if not silent and hasattr(viewer, 'console_text'):
-            show_status(viewer, Message("Unknown command: {command}", command=command_name))
-        if not silent and hasattr(viewer, 'update_console_background'):
-            viewer.update_console_background()
+        _report_module_not_found(viewer, command_name, error, silent)
     except Exception as e:
-        command_failed(viewer, str(e))
-        if not silent and hasattr(viewer, 'console_text'):
-            show_status(viewer, Message("Error: {error}", error=e))
-        if not silent and hasattr(viewer, 'update_console_background'):
-            viewer.update_console_background()
-        print(f"Command Error: {e}")
-        import traceback
-        traceback.print_exc()
+        _report_command_error(viewer, e, silent)
     finally:
-        # Whatever the command did, however it ended, the info card shows the session as it now is (a
-        # command can change a file it lists, as alignment does). Nothing happens while the card is closed.
-        refresh_card = getattr(viewer, '_refresh_session_card', None)
-        if refresh_card is not None:
-            try:
-                refresh_card()
-            except Exception as error:
-                print(f"Warning: the info card could not be refreshed ({error})")
+        _refresh_info_card(viewer)
+
+
+def _run_module(viewer, module, command_name, args, silent=False):
+    from vispy import app
+    if not silent and hasattr(viewer, 'console_text'):
+        show_status(viewer, Message("Running {command}...", command=command_name))
+    if not silent and hasattr(viewer, 'update_console_background'):
+        viewer.update_console_background()
+    if hasattr(app, 'process_events'):
+        app.process_events()
+    module.run(viewer, args)
+    if not silent and hasattr(viewer, 'update_console_background'):
+        viewer.update_console_background()
+    # Broadcast a complete browser state, including metadata shape.
+    viewer.broadcast_metadata_state()
+
+
+def run_command_module(viewer, module, command_name, args, silent=False):
+    """Run a command module's run(viewer, args) now, on the GUI thread, as a typed command runs.
+
+    What it raises is reported as the command's failure, and the info card is
+    refreshed afterwards. The command queue runs a waiting command this way when
+    its turn comes.
+    """
+    try:
+        _run_module(viewer, module, command_name, args, silent)
+    except ModuleNotFoundError as error:
+        _report_module_not_found(viewer, command_name, error, silent)
+    except Exception as e:
+        _report_command_error(viewer, e, silent)
+    finally:
+        _refresh_info_card(viewer)
+
+
+def _report_module_not_found(viewer, command_name, error, silent):
+    command_failed(viewer, f"Unknown command: {command_name}" if error.name == f"commands.{command_name}" else f"Command dependency unavailable: {error.name}")
+    if not silent and hasattr(viewer, 'console_text'):
+        show_status(viewer, Message("Unknown command: {command}", command=command_name))
+    if not silent and hasattr(viewer, 'update_console_background'):
+        viewer.update_console_background()
+
+
+def _report_command_error(viewer, e, silent):
+    command_failed(viewer, str(e))
+    if not silent and hasattr(viewer, 'console_text'):
+        show_status(viewer, Message("Error: {error}", error=e))
+    if not silent and hasattr(viewer, 'update_console_background'):
+        viewer.update_console_background()
+    print(f"Command Error: {e}")
+    import traceback
+    traceback.print_exc()
+
+
+def _refresh_info_card(viewer):
+    # Whatever the command did, however it ended, the info card shows the session as it now is (a
+    # command can change a file it lists, as alignment does). Nothing happens while the card is closed.
+    refresh_card = getattr(viewer, '_refresh_session_card', None)
+    if refresh_card is not None:
+        try:
+            refresh_card()
+        except Exception as error:
+            print(f"Warning: the info card could not be refreshed ({error})")

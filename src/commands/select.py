@@ -149,7 +149,7 @@ def run(viewer, args):
         )
         save_path = os.path.join(save_dir, filename)
         
-        selected_indices = getattr(viewer, 'selected_indices', [])
+        selected_indices = Command_Engine.command_selection(viewer)
         if not selected_indices:
             msg = Message("Warning: No nodes are currently selected.")
             Command_Engine.print_help(viewer, msg)
@@ -280,13 +280,14 @@ def run(viewer, args):
             Command_Engine.print_help(viewer, msg)
             return
             
-        current_selection = set(getattr(viewer, 'selected_indices', []))
+        current_selection = set(Command_Engine.command_selection(viewer))
         all_visible = set(np.where(viewer.visible_mask)[0].tolist())
         
         final_selection = all_visible.difference(current_selection)
         
-        viewer.selected_indices = list(final_selection)
-        viewer.update_selection_visual()
+        # A selection made by hand after this command was given stays (it is newer).
+        if Command_Engine.set_command_selection(viewer, final_selection):
+            viewer.update_selection_visual()
         
         new_selected = len(final_selection)
         un_selected = len(current_selection)
@@ -328,7 +329,7 @@ def run(viewer, args):
         Command_Engine.report_selection_error(viewer, expr, e, Message("Selection"))
         return
 
-    current_selection = set(getattr(viewer, 'selected_indices', []))
+    current_selection = set(Command_Engine.command_selection(viewer))
     
     if mode == "change":
         final_selection = new_indices
@@ -378,8 +379,9 @@ def run(viewer, args):
         Command_Engine.print_help(viewer, msg)
         return
 
-    viewer.selected_indices = list(final_selection)
-    viewer.update_selection_visual()
+    # A selection made by hand after this command was given stays (it is newer).
+    if Command_Engine.set_command_selection(viewer, final_selection):
+        viewer.update_selection_visual()
     
     Command_Engine.print_help(viewer, msg)
     Command_Engine.command_succeeded(viewer, msg)

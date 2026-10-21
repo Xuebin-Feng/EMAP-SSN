@@ -1530,7 +1530,25 @@ def _mcl_get_clusters(matrix):
     return sorted(clusters)
 
 
-def markov_clusters(matrix, inflation):
+# _mcl_prune puts each column's maximum back into the pruned matrix, which
+# SciPy reports as a SparseEfficiencyWarning when pruning had dropped it. The
+# warning says nothing to a user, and the commands used to silence it around
+# each run with warnings.catch_warnings(), which is not thread-safe: the
+# command queue clusters on a worker thread, and the GUI thread's warning
+# filters would change under it. One filter for that message, set here once,
+# replaces it.
+try:
+    import warnings as _warnings
+    from scipy.sparse import SparseEfficiencyWarning as _SparseEfficiencyWarning
+except ImportError:  # SciPy is optional for the rest of this module.
+    pass
+else:
+    _warnings.filterwarnings(
+        "ignore", message="Changing the sparsity structure", category=_SparseEfficiencyWarning
+    )
+
+
+def markov_clusters(matrix, inflation, progress=None):
     """Return ``get_clusters(run_mcl(matrix, inflation=inflation))`` of
     ``markov_clustering``, with the library's defaults and arithmetic, except
     for the self-loops: each node's loop weighs its strongest edge (1 without
@@ -1540,11 +1558,16 @@ def markov_clusters(matrix, inflation):
     Its DOK-based pruning and cluster-extraction steps are replaced by array
     code producing identical matrices, which ``matrix`` (canonical CSR from
     ``csr_matrix((data, (row, col)))``) guarantees.
+
+    ``progress``, when given, is called with a short text before each
+    iteration; it may raise to stop the run (the command queue's cancel).
     """
     from markov_clustering import mcl
 
     matrix = mcl.normalize(_mcl_add_self_loops(matrix))
     for _iteration in range(100):
+        if progress is not None:
+            progress(f"MCL iteration {_iteration + 1}")
         last_mat = matrix.copy()
         matrix = mcl.iterate(matrix, 2, inflation)
         matrix = _mcl_prune(matrix, 0.001)

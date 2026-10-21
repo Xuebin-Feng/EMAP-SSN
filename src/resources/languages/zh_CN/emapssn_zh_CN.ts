@@ -2741,7 +2741,7 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
-        <location filename="../../../Background_Job_Scheduler.py" line="+113"/>
+        <location filename="../../../Background_Job_Scheduler.py" line="+139"/>
         <source>The background job scheduler is shutting down.</source>
         <translation type="unfinished">后台任务调度器正在关闭。</translation>
     </message>
@@ -2769,7 +2769,7 @@ Command-line usage:
         <translation type="unfinished">已排队后台任务 #{job}：{command}（第 {position} 位）→ {file}</translation>
     </message>
     <message>
-        <location line="+86"/>
+        <location line="+93"/>
         <source>Running background job #{job}: {description}</source>
         <translation type="unfinished">正在运行后台任务 #{job}：{description}</translation>
     </message>
@@ -2784,7 +2784,12 @@ Command-line usage:
         <translation type="unfinished">后台任务 #{job} 已完成，用时 {seconds} 秒：{detail}</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+24"/>
+        <source>Background job #{job} was cancelled before it started: {description}</source>
+        <translation type="unfinished">后台任务 #{job} 在开始前已取消：{description}</translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>Background job #{job} failed after {seconds}s ({command}): {error}</source>
         <translation type="unfinished">后台任务 #{job} 运行 {seconds} 秒后失败（{command}）：{error}</translation>
     </message>
@@ -2894,7 +2899,7 @@ Command-line usage:
     <message>
         <location line="+15"/>
         <location filename="../../../commands/select.py" line="+272"/>
-        <location line="+56"/>
+        <location line="+57"/>
         <source>Selection</source>
         <translation type="unfinished">选择</translation>
     </message>
@@ -2974,7 +2979,7 @@ Command-line usage:
         <translation type="unfinished">“{text}”不是布尔选择表达式。</translation>
     </message>
     <message>
-        <location line="+69"/>
+        <location line="+120"/>
         <source>Unsupported Boolean operator &apos;{operator}&apos;.</source>
         <translation type="unfinished">不支持的布尔运算符“{operator}”。</translation>
     </message>
@@ -3004,27 +3009,27 @@ Command-line usage:
         <translation type="unfinished">布尔表达式没有为每个 SSN 节点得出一个选择值。请检查是否有空的或格式错误的目标。</translation>
     </message>
     <message>
-        <location line="+186"/>
+        <location line="+194"/>
         <source>Reset successful: {targets}.</source>
         <translation type="unfinished">已重置：{targets}。</translation>
     </message>
     <message>
-        <location line="+139"/>
+        <location line="+218"/>
         <source>Running {command}...</source>
         <translation type="unfinished">正在运行 {command}…</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="-20"/>
         <source>Error: No &apos;run&apos; in {command}</source>
         <translation type="unfinished">错误：{command} 中没有 &apos;run&apos;</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+52"/>
         <source>Unknown command: {command}</source>
         <translation type="unfinished">未知命令：{command}</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+8"/>
         <location filename="../../../commands/agent.py" line="+74"/>
         <location line="+127"/>
         <location filename="../../../commands/esmfold.py" line="+94"/>
@@ -3043,7 +3048,7 @@ Command-line usage:
         <location line="+10"/>
         <location filename="../../../commands/query.py" line="+583"/>
         <location filename="../../../commands/reset.py" line="+114"/>
-        <location filename="../../../commands/select.py" line="-194"/>
+        <location filename="../../../commands/select.py" line="-195"/>
         <location filename="../../../web_ui/agent_backend.py" line="+280"/>
         <location filename="../../../web_ui/meta_backend.py" line="+57"/>
         <source>Error: {error}</source>
@@ -3052,12 +3057,13 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+49"/>
-        <location filename="../../../commands/cluster.py" line="+304"/>
+        <location filename="../../../commands/cluster.py" line="+346"/>
         <location filename="../../../commands/color.py" line="+95"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
         <location filename="../../../commands/esmfold.py" line="-76"/>
         <location filename="../../../commands/export.py" line="+108"/>
         <location filename="../../../commands/group.py" line="+138"/>
+        <location filename="../../../commands/jobs.py" line="+186"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
@@ -3067,7 +3073,7 @@ Command-line usage:
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+181"/>
-        <location filename="../../../commands/subcluster.py" line="+148"/>
+        <location filename="../../../commands/subcluster.py" line="+192"/>
         <source>Help information printed to the terminal</source>
         <translation type="unfinished">帮助信息已打印到终端</translation>
     </message>
@@ -3089,7 +3095,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/alignment.py" line="+22"/>
         <location filename="../../../commands/embedding.py" line="+20"/>
-        <location filename="../../../commands/run.py" line="+199"/>
+        <location filename="../../../commands/run.py" line="+220"/>
         <source>Error opening file dialog: {error}</source>
         <translation type="unfinished">打开文件对话框出错：{error}</translation>
     </message>
@@ -3127,7 +3133,7 @@ Command-line usage:
         <translation type="unfinished">加载失败，已恢复为之前的比对。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-188"/>
+        <location filename="../../../commands/cluster.py" line="-228"/>
         <source>Error: MCL inflation must be between {low} and {high}; got {inflation}.</source>
         <translation type="unfinished">错误：MCL inflation 必须介于 {low} 和 {high} 之间；实际为 {inflation}。</translation>
     </message>
@@ -3159,7 +3165,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+129"/>
+        <location line="+232"/>
         <source>No clusters are currently defined.</source>
         <translation type="unfinished">当前未定义任何簇。</translation>
     </message>
@@ -3171,13 +3177,13 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+12"/>
         <source>Clustering ({mode})...</source>
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../Command_Engine.py" line="-163"/>
-        <location filename="../../../commands/cluster.py" line="+143"/>
+        <location filename="../../../Command_Engine.py" line="-256"/>
+        <location filename="../../../commands/cluster.py" line="+157"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
@@ -3195,19 +3201,19 @@ Command-line usage:
         <translation type="obsolete">错误：缺少 Numba 库。</translation>
     </message>
     <message>
-        <location line="-130"/>
-        <location filename="../../../commands/subcluster.py" line="+194"/>
+        <location line="-158"/>
+        <location filename="../../../commands/subcluster.py" line="+169"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message>
-        <location line="+37"/>
-        <location filename="../../../commands/subcluster.py" line="+35"/>
+        <location line="+16"/>
+        <location filename="../../../commands/subcluster.py" line="+9"/>
         <source>Missing library! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message numerus="yes">
-        <location line="+79"/>
+        <location line="+128"/>
         <source>Done! Found %n cluster(s) via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 找到 %n 个簇。</numerusform>
@@ -3514,7 +3520,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/group.py" line="+7"/>
         <location line="+11"/>
-        <location filename="../../../commands/subcluster.py" line="-217"/>
+        <location filename="../../../commands/subcluster.py" line="-73"/>
         <source>No groups are currently defined.</source>
         <translation type="unfinished">当前未定义任何分组。</translation>
     </message>
@@ -3612,17 +3618,18 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-385"/>
-        <location filename="../../../commands/hide.py" line="+25"/>
+        <location filename="../../../commands/cluster.py" line="-448"/>
+        <location filename="../../../commands/hide.py" line="+37"/>
+        <location filename="../../../commands/jobs.py" line="+11"/>
         <location filename="../../../commands/meta.py" line="+10"/>
         <location filename="../../../commands/redo.py" line="+48"/>
-        <location line="+15"/>
+        <location line="+26"/>
         <location filename="../../../commands/reference.py" line="+84"/>
         <location filename="../../../commands/run.py" line="-47"/>
         <location filename="../../../commands/save.py" line="+31"/>
-        <location filename="../../../commands/subcluster.py" line="-82"/>
+        <location filename="../../../commands/subcluster.py" line="-217"/>
         <location filename="../../../commands/undo.py" line="+48"/>
-        <location line="+16"/>
+        <location line="+13"/>
         <location filename="../../../commands/zoom.py" line="+285"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
@@ -3667,7 +3674,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>Error: No nodes currently selected.</source>
         <translation type="unfinished">错误：当前未选择任何节点。</translation>
     </message>
@@ -4329,12 +4336,12 @@ Command-line usage:
         <translation type="unfinished">未知的重置目标：{targets}。未重置任何内容。</translation>
     </message>
     <message>
-        <location filename="../../../commands/run.py" line="-79"/>
+        <location filename="../../../commands/run.py" line="-96"/>
         <source>Error: The script holds {count} commands, more than the {limit} a script may run. None were run.</source>
         <translation type="unfinished">错误：该脚本含有 {count} 条命令，超过了脚本最多可运行的 {limit} 条。未运行任何命令。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+18"/>
         <source>Batch stopped at command {index} of {total}: &apos;{command}&apos; failed.</source>
         <translation type="unfinished">批量执行在第 {index} 条命令（共 {total} 条）处停止：“{command}”失败。</translation>
     </message>
@@ -4351,7 +4358,19 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+46"/>
+        <location line="+9"/>
+        <source>Batch given: %n command(s). Waiting their turn: {waiting}; the first of them that fails cancels the ones after it.</source>
+        <translation type="unfinished">
+            <numerusform>已提交批处理：%n 条命令。排队等待：{waiting} 条；其中第一条失败的命令会取消其后的命令。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+45"/>
+        <source>Cancelled by run stop.</source>
+        <translation type="unfinished">已被 run stop 取消。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
         <source>Stopped %n Python script(s).</source>
         <translation type="unfinished">
             <numerusform>已停止 %n 个 Python 脚本。</numerusform>
@@ -4361,6 +4380,13 @@ Command-line usage:
         <location line="+2"/>
         <source>No Python script is running.</source>
         <translation type="unfinished">没有正在运行的 Python 脚本。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>Cancelled %n waiting script command(s).</source>
+        <translation type="unfinished">
+            <numerusform>已取消 %n 条等待中的脚本命令。</numerusform>
+        </translation>
     </message>
     <message>
         <location line="+52"/>
@@ -4378,7 +4404,7 @@ Command-line usage:
         <translation type="unfinished">正在执行 Python 脚本…</translation>
     </message>
     <message>
-        <location line="-101"/>
+        <location line="-109"/>
         <source>Error: Python script failed (exit code {code}):</source>
         <translation type="unfinished">错误：Python 脚本运行失败（退出代码 {code}）：</translation>
     </message>
@@ -4397,7 +4423,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+25"/>
-        <location line="+123"/>
+        <location line="+131"/>
         <source>Error reading/executing command file: {error}</source>
         <translation type="unfinished">读取或执行命令文件出错：{error}</translation>
     </message>
@@ -4495,7 +4521,7 @@ Command-line usage:
         <translation type="unfinished">错误：&apos;invert&apos; 不接受表达式。请改用 &apos;!EXPR&apos;。</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+16"/>
         <source>Inverted selection. Selected {selected}, Un-selected {unselected}.</source>
         <translation type="unfinished">已反选。选中 {selected}，取消选中 {unselected}。</translation>
     </message>
@@ -4639,7 +4665,7 @@ Command-line usage:
         <translation type="unfinished">错误：无法识别的 subcluster 参数“{argument}”。</translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+231"/>
         <source>No subcluster groups to clear.</source>
         <translation type="unfinished">没有要清除的子簇分组。</translation>
     </message>
@@ -4651,7 +4677,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="-114"/>
         <source>Error: First argument must be &apos;clear&apos; or a cluster name like &apos;cluster_N&apos; (got &apos;{argument}&apos;).</source>
         <translation type="unfinished">错误：第一个参数必须是 &apos;clear&apos; 或形如 &apos;cluster_N&apos; 的簇名称（实际为“{argument}”）。</translation>
     </message>
@@ -4661,32 +4687,32 @@ Command-line usage:
         <translation type="unfinished">错误：请将簇写成 {canonical}，不要带前导零。</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+119"/>
         <source>Error: No clusters are currently defined. Run &apos;cluster&apos; first.</source>
         <translation type="unfinished">错误：当前未定义任何簇。请先运行 &apos;cluster&apos;。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+6"/>
         <source>Error: Cluster {cluster} is empty or does not exist.</source>
         <translation type="unfinished">错误：簇 {cluster} 为空或不存在。</translation>
     </message>
     <message>
-        <location line="+67"/>
+        <location line="+5"/>
         <source>Subclustering {cluster} ({mode})...</source>
         <translation type="unfinished">正在对 {cluster} 进行子聚类（{mode}）…</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+45"/>
         <source>Error: No edges exist within {cluster} to perform subclustering.</source>
         <translation type="unfinished">错误：{cluster} 内部没有边，无法进行子聚类。</translation>
     </message>
     <message>
-        <location line="+98"/>
+        <location line="+93"/>
         <source>No subcluster of {cluster} reached the minimum size {min_size}; nothing was changed.</source>
         <translation type="unfinished">{cluster} 中没有子簇达到最小簇大小 {min_size}；未做任何更改。</translation>
     </message>
     <message numerus="yes">
-        <location line="+77"/>
+        <location line="+73"/>
         <source>Done! Found %n subcluster(s) in {cluster} via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 在 {cluster} 中找到 %n 个子簇。</numerusform>
@@ -4869,7 +4895,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1382"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1401"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -4879,7 +4905,7 @@ Command-line usage:
         <translation type="unfinished">已撤销。</translation>
     </message>
     <message>
-        <location filename="../../../commands/undo.py" line="+13"/>
+        <location filename="../../../commands/undo.py" line="+30"/>
         <location filename="../../../EMAPSSN_Viewer.py" line="+3"/>
         <source>Nothing to undo.</source>
         <translation type="unfinished">没有可撤销的操作。</translation>
@@ -4896,7 +4922,7 @@ Command-line usage:
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+770"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+773"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -4937,7 +4963,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+383"/>
+        <location line="+426"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -4957,7 +4983,7 @@ Command-line usage:
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+284"/>
+        <location line="+294"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -5261,7 +5287,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+213"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+215"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -5281,7 +5307,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">查看器的命令队列已满；请稍后用相同的 submission_id 重试</translation>
     </message>
     <message>
-        <location line="+134"/>
+        <location line="+137"/>
         <source>That command is not waiting to be run or discarded.</source>
         <translation type="unfinished">该命令当前不处于待运行或待丢弃状态。</translation>
     </message>
@@ -6653,8 +6679,8 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">将 FASTA 加载到内存时出错：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/redo.py" line="-44"/>
-        <location filename="../../../commands/undo.py" line="-45"/>
+        <location filename="../../../commands/redo.py" line="-55"/>
+        <location filename="../../../commands/undo.py" line="-59"/>
         <source>Error: {syntax} takes a positive whole number of steps, not &apos;{value}&apos;.</source>
         <translation type="unfinished">错误：{syntax} 的步数必须为正整数，而不是“{value}”。</translation>
     </message>
@@ -6665,14 +6691,22 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">错误：{syntax} 只接受一个步数；未使用“{argument}”。</translation>
     </message>
     <message numerus="yes">
-        <location line="+37"/>
+        <location line="+23"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-534"/>
+        <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
+        <translation type="unfinished">
+            <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+25"/>
         <source>Redid %n step(s).</source>
         <translation type="unfinished">
             <numerusform>已重做 %n 步。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/undo.py" line="+38"/>
+        <location filename="../../../commands/undo.py" line="+52"/>
         <source>Undid %n step(s).</source>
         <translation type="unfinished">
             <numerusform>已撤销 %n 步。</numerusform>
@@ -6826,7 +6860,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">加载失败，已恢复为之前的 embedding。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/meta_backend.py" line="+74"/>
+        <location filename="../../../web_ui/meta_backend.py" line="+75"/>
         <source>Importing metadata opens a file dialog, which a Viewer that shows no windows cannot offer.</source>
         <translation type="unfinished">导入元数据需要打开文件对话框，而不显示任何窗口的查看器无法提供该对话框。</translation>
     </message>
@@ -6836,7 +6870,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">导出元数据需要打开文件对话框，而不显示任何窗口的查看器无法提供该对话框。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/residue_layers.py" line="+82"/>
+        <location filename="../../../web_ui/residue_layers.py" line="+81"/>
         <source>Very high (pLDDT &gt; 90)</source>
         <translation type="unfinished">极高（pLDDT &gt; 90）</translation>
     </message>
@@ -6856,12 +6890,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">极低（pLDDT &lt; 50）</translation>
     </message>
     <message>
-        <location line="+138"/>
+        <location line="+139"/>
         <source>The per-residue data file was made for a different protein than this structure holds.</source>
         <translation type="unfinished">此逐残基数据文件是为另一种蛋白质生成的，与该结构所含的蛋白质不同。</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+5"/>
         <source>The structure file cannot be read for its residues.</source>
         <translation type="unfinished">无法读取该结构文件中的残基。</translation>
     </message>
@@ -6946,6 +6980,134 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+19"/>
         <source>The per-residue data of this structure holds no usable property.</source>
         <translation type="unfinished">此结构的逐残基数据中没有可用的属性。</translation>
+    </message>
+    <message>
+        <location filename="../../../Command_Queue.py" line="+312"/>
+        <source>The command queue is shutting down.</source>
+        <translation type="unfinished">命令队列正在关闭。</translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>#{job} {command}: waiting for #{ahead} {ahead_command}.</source>
+        <translation type="unfinished">#{job} {command}：正在等待 #{ahead} {ahead_command}。</translation>
+    </message>
+    <message>
+        <location line="+204"/>
+        <source>Cancelled: #{job}, given before it, failed.</source>
+        <translation type="unfinished">已取消：在它之前提交的 #{job} 失败了。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>Cancelled %n command(s) given after #{job}, which failed: {commands}. Press Up at the command line to recall the ones you typed.</source>
+        <translation type="unfinished">
+            <numerusform>#{job} 失败，已取消在它之后提交的 %n 条命令：{commands}。在命令行按向上键可找回您输入的命令。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>Cancelled before it finished.</source>
+        <translation type="unfinished">在完成前已取消。</translation>
+    </message>
+    <message>
+        <location line="+20"/>
+        <source>Cancelled by undo before it finished.</source>
+        <translation type="unfinished">在完成前已被撤销取消。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>Undo: cancelled %n command(s) that had not finished: {commands}.</source>
+        <translation type="unfinished">
+            <numerusform>撤销：已取消 %n 条尚未完成的命令：{commands}。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Cancelled: the Viewer closed.</source>
+        <translation type="unfinished">已取消：查看器已关闭。</translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Running #{job} {command}: {progress} ({seconds} s).</source>
+        <translation type="unfinished">正在运行 #{job} {command}：{progress}（{seconds} 秒）。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Running #{job} {command} ({seconds} s).</source>
+        <translation type="unfinished">正在运行 #{job} {command}（{seconds} 秒）。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <location line="+14"/>
+        <source>%n more command(s) waiting.</source>
+        <translation type="unfinished">
+            <numerusform>另有 %n 条命令在等待。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="-4"/>
+        <source>#{job} {command} finished in {seconds} s.</source>
+        <translation type="unfinished">#{job} {command} 已完成，用时 {seconds} 秒。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>#{job} {command} failed after {seconds} s.</source>
+        <translation type="unfinished">#{job} {command} 在 {seconds} 秒后失败。</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../../../commands/jobs.py" line="-78"/>
+        <source>%n job(s) waiting or running; the list is in the terminal.</source>
+        <translation type="unfinished">
+            <numerusform>有 %n 个任务在等待或运行；列表已输出到终端。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No commands wait or run, and no file is being written.</source>
+        <translation type="unfinished">没有等待或运行中的命令，也没有正在写入的文件。</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Cancelled with jobs cancel.</source>
+        <translation type="unfinished">已用 jobs cancel 取消。</translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>Error: &apos;{word}&apos; is not a job number. Use jobs cancel N, or jobs cancel all.</source>
+        <translation type="unfinished">错误：“{word}”不是任务编号。请使用 jobs cancel N 或 jobs cancel all。</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Error: No job #{job} waits or runs; nothing was cancelled.</source>
+        <translation type="unfinished">错误：没有等待或运行中的任务 #{job}；未取消任何任务。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Error: Job #{job} is writing its file and cannot be cancelled; nothing was cancelled.</source>
+        <translation type="unfinished">错误：任务 #{job} 正在写入文件，无法取消；未取消任何任务。</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Nothing to cancel: no command waits or runs.</source>
+        <translation type="unfinished">没有可取消的内容：没有等待或运行中的命令。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>Cancelled %n job(s): {jobs}.</source>
+        <translation type="unfinished">
+            <numerusform>已取消 %n 个任务：{jobs}。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>Error: Unrecognized jobs argument &apos;{argument}&apos;.</source>
+        <translation type="unfinished">错误：无法识别的 jobs 参数“{argument}”。</translation>
+    </message>
+    <message numerus="yes">
+        <location filename="../../../desktop/Viewer_Jobs.py" line="+27"/>
+        <source>%n job(s)</source>
+        <translation type="unfinished">
+            <numerusform>%n 个任务</numerusform>
+        </translation>
     </message>
 </context>
 <context>
@@ -10670,7 +10832,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2402"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-1924"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -10712,7 +10874,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1791"/>
+        <location line="+1794"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

@@ -36,8 +36,10 @@ MAX_SCRIPT_COMMANDS = 1000
 # Commands that end background work, as their lower-case words. The request at the
 # head of the queue waits for its jobs to end, so a stop command queued behind it
 # would wait as long: a request that holds only these runs at once instead
-# (ViewerCommandPortal._run_stop_requests).
+# (ViewerCommandPortal._run_stop_requests). So do the jobs commands, which list
+# and cancel the commands the Viewer's command queue holds (Command_Queue).
 STOP_COMMANDS = frozenset({('esmfold', 'stop'), ('run', 'stop')})
+CONTROL_COMMANDS = frozenset({'jobs'})
 
 
 def now():
@@ -264,7 +266,8 @@ class ViewerCommandPortal(QtCore.QObject):
                         Command_Engine.execute_command(self.viewer, record['command'])
                     except Exception as error:
                         context.report('failed', str(error))
-            if record['outcome'] is None:
+            # A command that waits its turn in the Viewer's command queue reports when it has run.
+            if record['outcome'] is None and not any(j['status'] not in TERMINAL for j in record['jobs']):
                 context.report('failed', 'Command handler did not report an explicit outcome.')
             self.publish(request_id)
         if any(j['status'] not in TERMINAL for j in record['jobs']):
@@ -318,8 +321,10 @@ class ViewerCommandPortal(QtCore.QObject):
 
     @staticmethod
     def _is_stop(record):
-        """Whether record is a stop command that may run now: not still waiting for an Agent review."""
-        return tuple(record['command'].lower().split()) in STOP_COMMANDS and record.get('approval') in (None, 'approved')
+        """Whether record is a stop or jobs command that may run now: not still waiting for an Agent review."""
+        words = tuple(record['command'].lower().split())
+        return ((words in STOP_COMMANDS or (bool(words) and words[0] in CONTROL_COMMANDS))
+                and record.get('approval') in (None, 'approved'))
 
     def _run_stop_requests(self):
         """Run the queued requests that hold only stop commands, while the request at the head waits for its jobs.

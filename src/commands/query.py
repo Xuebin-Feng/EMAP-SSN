@@ -539,7 +539,7 @@ def run(viewer, args):
         expr = " ".join(args) # Join the remaining tokens as one expression, as hide does
 
     # Smart Fallback to ALL Nodes
-    if expr == "$sele$" and not getattr(viewer, 'selected_indices', []):
+    if expr == "$sele$" and not Command_Engine.command_selection(viewer):
         expr = '"*"'  # The wildcard string matches all headers
         if hasattr(viewer, 'console_text'):
             Command_Engine.show_status(viewer, Message("No selection found. Defaulting to ALL nodes."))

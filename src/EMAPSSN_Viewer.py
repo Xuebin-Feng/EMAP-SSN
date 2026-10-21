@@ -157,6 +157,7 @@ if _startup_settings is not None:
 import Command_Engine
 import Cache_Manifest as cache_manifest
 from Background_Job_Scheduler import BackgroundJobScheduler
+from Command_Queue import CommandQueue
 from utilities.Sequence_Utils import (
     load_sanitized_fasta,
 )
@@ -199,7 +200,8 @@ from desktop.Viewer_Inspection import ViewerInspectionService
 from desktop.Viewer_Window import HEADLESS, HIDDEN, NORMAL, ViewerWindow
 from desktop.Viewer_Edges import ViewerEdges
 from desktop.Viewer_Motion import MotionDetail
-from desktop.Viewer_Fps import FPS_GAP, FpsOverlay
+from desktop.Viewer_Fps import FPS_GAP, FPS_HEIGHT, FpsOverlay
+from desktop.Viewer_Jobs import BADGE_GAP, JobsBadge, job_lines
 from desktop.Viewer_Markers import HoverMarkers, MarkerPicker, symbol_codes_of, uniform_symbol
 from web_ui.Browser_Page import open_browser_page
 
@@ -872,6 +874,10 @@ class MainViewer:
         
         # ---> NEW: Selection & Drag State <---
         self.selected_indices = []
+        # Counts the selections made by hand (clicks, boxes): a command waiting
+        # in the command queue uses the selection it was given, and its own
+        # selection replaces only one older than it (Command_Queue.Job).
+        self.selection_epoch = 0
         self.is_box_selecting = False
         self._box_selection_unsent = False
         self.is_multi_dragging = False
@@ -966,8 +972,19 @@ class MainViewer:
         # --- 4. Draw Initial State ---
         self.draw_network()
         self.create_hud()
-        self.background_job_scheduler = BackgroundJobScheduler(self)
+        # One count numbers the commands that wait their turn and the files being written.
+        self._job_numbers = itertools.count(1)
+        self.background_job_scheduler = BackgroundJobScheduler(self, job_numbers=self._job_numbers)
+        # Commands that read or change the network run here, one at a time, in the order given.
+        self.command_queue = CommandQueue(self, job_numbers=self._job_numbers)
+        self.command_queue.changed.connect(self._refresh_jobs_badge)
+        for signal in (self.background_job_scheduler.job_started, self.background_job_scheduler.job_succeeded,
+                       self.background_job_scheduler.job_failed, self.background_job_scheduler.job_cancelled):
+            signal.connect(lambda *_args: self._refresh_jobs_badge())
         if hasattr(self.canvas.events, "close"):
+            self.canvas.events.close.connect(
+                lambda _event: self.command_queue.shutdown()
+            )
             self.canvas.events.close.connect(
                 lambda _event: self.background_job_scheduler.shutdown()
             )
@@ -975,6 +992,7 @@ class MainViewer:
                 lambda _event: self.shutdown_web_server()
             )
         if qapp:
+            qapp.aboutToQuit.connect(self.command_queue.shutdown)
             qapp.aboutToQuit.connect(self.background_job_scheduler.shutdown)
             qapp.aboutToQuit.connect(self.shutdown_web_server)
         
@@ -1032,6 +1050,7 @@ class MainViewer:
         # --- 6. Set up MainWindow & WebServer ---
         self._build_main_window()
         self._build_fps_overlay()
+        self._build_jobs_badge()
         
         # Initialize thread-safe QtCommunicator for server commands
         from web_ui import Web_Server
@@ -2801,11 +2820,11 @@ class MainViewer:
             
             # Handle Undo / Redo
             if (key_name.lower() == 'z') and is_modifier_active:
-                self._do_undo()
+                self.undo_by_hand()
                 event.handled = True
                 return
             if (key_name.lower() == 'y') and is_modifier_active:
-                self._do_redo()
+                self.redo_by_hand()
                 event.handled = True
                 return
 
@@ -2851,6 +2870,7 @@ class MainViewer:
                 self._save_state()
 
                 # Modifier logic for individual node clicking
+                before = list(self.selected_indices)
                 if 'Shift' in event.modifiers:
                     if nearest_idx not in self.selected_indices:
                         self.selected_indices.append(nearest_idx)
@@ -2860,6 +2880,8 @@ class MainViewer:
                 else:
                     if nearest_idx not in self.selected_indices:
                         self.selected_indices = [nearest_idx]
+                if self.selected_indices != before:
+                    self._note_hand_selection()
 
                 starts_drag = nearest_idx in self.selected_indices and not getattr(cfg, 'UMAP_MODE', False)
                 # The web pages (the Meta Data sheet) hear of the selection once
@@ -3232,6 +3254,10 @@ class MainViewer:
             overlay = getattr(self, 'fps_overlay', None)
             if overlay is not None:
                 overlay.place(self._fps_overlay_right(left), 25)
+            badge = getattr(self, 'jobs_badge', None)
+            if badge is not None:
+                # Under the frame rate's row (the toggle's), right-aligned with it.
+                badge.place(self._fps_overlay_right(left), 25 + FPS_HEIGHT / 2 + BADGE_GAP)
 
     def _fps_overlay_right(self, left):
         """The frame rate's right edge, in canvas px, with the sidebar's room starting at left:
@@ -3240,6 +3266,45 @@ class MainViewer:
         if button is not None and not button.isHidden():
             return left - 40 - FPS_GAP
         return left - 10
+
+    def _build_jobs_badge(self):
+        """The jobs badge (desktop.Viewer_Jobs): shown while commands wait or run, or files are written."""
+        self.jobs_badge = JobsBadge(self.canvas)
+        self.reposition_expand_btn()
+
+    def _refresh_jobs_badge(self):
+        badge = getattr(self, 'jobs_badge', None)
+        if badge is not None:
+            badge.show_jobs(job_lines(getattr(self, 'command_queue', None),
+                                      getattr(self, 'background_job_scheduler', None)))
+
+    def _note_hand_selection(self):
+        """A selection was made by hand: it is newer than every command given so far."""
+        self.selection_epoch = getattr(self, 'selection_epoch', 0) + 1
+
+    def undo_by_hand(self):
+        """Ctrl+Z and the Meta Data sheet's undo: take back the newest command that waits or runs, else undo.
+
+        A command that has not finished has not happened yet: undoing it is not
+        doing it. Returns whether anything was taken back.
+        """
+        queue = getattr(self, 'command_queue', None)
+        if queue is not None and queue.pending():
+            _cancelled, message = queue.take_back(1)
+            Command_Engine.show_status(self, message)
+            return True
+        return self._do_undo()
+
+    def redo_by_hand(self):
+        """Ctrl+Y and the sheet's redo: nothing to redo while commands wait (they come after the undone steps)."""
+        queue = getattr(self, 'command_queue', None)
+        if queue is not None and queue.pending():
+            message = Message("Nothing to redo: the undone steps were followed by %n waiting command(s).",
+                              n=len(queue.pending()))
+            Command_Engine.show_status(self, message)
+            print(message)
+            return False
+        return self._do_redo()
 
     def _build_fps_overlay(self):
         """The frame rate over the canvas's top right, if Config's Show FPS is on (desktop.Viewer_Fps)."""
@@ -3647,6 +3712,7 @@ class MainViewer:
                     current_selection = box_indices                     # Replace
                     
                 self.selected_indices = list(current_selection)
+                self._note_hand_selection()
                 # Under Low Resource Mode's Webserver Communication the web
                 # pages (the Meta Data sheet) hear of it once, on release.
                 unsent = low_resource_webserver(cfg)
@@ -3667,6 +3733,12 @@ class MainViewer:
             if hovered != previous:
                 self.hovered_node_idx = hovered
                 self._show_hover_change(previous)
+
+    def _resume_command_queue(self):
+        """A drag or box selection ended: a command result that waited for it applies now."""
+        queue = getattr(self, 'command_queue', None)
+        if queue is not None and queue.pending():
+            queue.resume()
 
     def pick_hovered_node(self, cursor):
         """The node a cursor at canvas position cursor hovers: the topmost one
@@ -3701,6 +3773,7 @@ class MainViewer:
             self.is_multi_dragging = False
             self.update_selection_visual(broadcast=getattr(self, '_drag_selection_unsent', True))
             self._drag_selection_unsent = False
+            self._resume_command_queue()
             event.handled = True
             return
             
@@ -3740,6 +3813,7 @@ class MainViewer:
                     current_selection = box_indices                     # Replace
                     
                 self.selected_indices = list(current_selection)
+                self._note_hand_selection()
                 self.update_selection_visual()
                 self._box_selection_unsent = False
 
@@ -3747,6 +3821,7 @@ class MainViewer:
             if drag_dist_screen < 5.0:
                 if 'Shift' not in event.modifiers and 'Control' not in event.modifiers and 'Meta' not in event.modifiers:
                     self.selected_indices = []
+                    self._note_hand_selection()
                     self.update_selection_visual()
                     self._box_selection_unsent = False
             # A live box under Webserver Communication sent nothing as it moved.
@@ -3759,6 +3834,7 @@ class MainViewer:
                 self._show_click_status(Message("Selected %n node(s).", n=len(self.selected_indices)))
             else:
                 self._show_click_status(Message("Selection cleared."))
+            self._resume_command_queue()
                 
             event.handled = True
             return

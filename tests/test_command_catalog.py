@@ -78,7 +78,7 @@ reset hide
         with mock.patch('Command_Engine.execute_command', side_effect=AssertionError('executed')):
             general = command_catalog()
             detailed = command_catalog('reset')['commands'][0]
-        self.assertEqual(len(general['commands']), 25)
+        self.assertEqual(len(general['commands']), 26)
         self.assertTrue(all(c['help'] is None and isinstance(c['syntax'], list)
                             for c in general['commands']))
         self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['syntax'])
@@ -191,12 +191,12 @@ class AgentPolicyTests(unittest.TestCase):
         cases = {
             'run': ['select "a"', 'select invert', 'color "a" red', 'zoom 10', 'hide single', 'cluster',
                     'subcluster cluster_1', 'group "a" g1', 'spectrum {GRAVY}', 'query [1-3]', 'reset colors',
-                    'undo', 'redo', 'offset 2', 'reference P12', 'label reset', 'meta', 'meta show GRAVY',
+                    'undo', 'redo', 'offset 2', 'reference P12', 'label reset', 'meta', 'meta show GRAVY', 'jobs',
                     'meta delete GRAVY', 'meta HELP'],
             'approve': ['select save picked.txt', 'SELECT Save picked.fasta', 'save', 'save x.h5', 'print svg',
                         'export clusters', 'logo [1-3]', 'label', 'label clusters 40 98', 'esmfold',
                         'esmfold large multi', 'run', 'alignment msa.fasta', 'embedding emb.h5', 'meta upload a.csv',
-                        'meta download', 'meta table.csv', 'unknown_command'],
+                        'meta download', 'meta table.csv', 'unknown_command', 'jobs cancel', 'JOBS cancel all'],
             'refuse': ['agent', 'agent off', 'agent <Local>', 'agent "hello"', 'AGENT help'],
         }
         for expected, commands in cases.items():

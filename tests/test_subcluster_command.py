@@ -415,9 +415,9 @@ class MCLPrecisionTests(unittest.TestCase):
         captured = []
         real = subcluster_command.network_clustering.markov_clusters
 
-        def capture(matrix, inflation):
+        def capture(matrix, inflation, **options):
             captured.append(matrix.copy())
-            return real(matrix, inflation)
+            return real(matrix, inflation, **options)
 
         with mock.patch.object(
             subcluster_command.network_clustering, "markov_clusters", side_effect=capture

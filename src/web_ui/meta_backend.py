@@ -85,13 +85,14 @@ def _refresh_metadata_hud(viewer, column=None, row=None):
 
 
 def handle_metadata_undo(viewer, _data):
-    # The viewer's undo and redo redraw the metadata HUD themselves.
-    return bool(viewer._do_undo())
+    # The viewer's undo and redo redraw the metadata HUD themselves. Done by
+    # hand, as here, undo first takes back a command that waits or runs.
+    return bool(getattr(viewer, 'undo_by_hand', viewer._do_undo)())
 
 
 def handle_metadata_redo(viewer, _data):
     # The viewer's undo and redo redraw the metadata HUD themselves.
-    return bool(viewer._do_redo())
+    return bool(getattr(viewer, 'redo_by_hand', viewer._do_redo)())
 
 
 def handle_edit_cell(viewer, data):

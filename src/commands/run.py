@@ -78,6 +78,10 @@ def run_script_lines(viewer, command_lines):
     holds at most MAX_SCRIPT_COMMANDS commands, and the first command that
     fails, or is cancelled, ends the run. The later commands often depend on
     it, so none of them runs.
+
+    In a Viewer with a command queue, a command that has to wait its turn (one
+    given while another computes, and every one after it) is queued; the queue
+    then cancels the script's later commands if it fails (Command_Queue).
     """
     commands = script_commands(command_lines)
     total = len(commands)
@@ -88,10 +92,15 @@ def run_script_lines(viewer, command_lines):
         Command_Engine.print_help(viewer, msg, report_message=False)
         return
 
+    queue = getattr(viewer, 'command_queue', None)
+    waiting = 0
     for index, cmd_line in enumerate(commands, 1):
         print(f"[Run] Executing: {cmd_line}")
-        with Command_Engine.recorded_outcome() as outcome:
+        with Command_Engine.recorded_outcome() as outcome, Command_Engine.typed_script():
             Command_Engine._dispatch_user_command(viewer, cmd_line, record_history=False)
+        if outcome['status'] is None and queue is not None and queue.pending():
+            waiting += 1
+            continue
         if outcome['status'] not in ('failed', 'cancelled'):
             continue
         if outcome['status'] == 'failed':
@@ -110,7 +119,11 @@ def run_script_lines(viewer, command_lines):
         Command_Engine.print_help(viewer, msg, report_message=False)
         return
 
-    msg = Message("Batch execution completed: %n command(s) run.", n=total)
+    if waiting:
+        msg = Message("Batch given: %n command(s). Waiting their turn: {waiting}; the first of them that fails "
+                      "cancels the ones after it.", n=total, waiting=waiting)
+    else:
+        msg = Message("Batch execution completed: %n command(s) run.", n=total)
     Command_Engine.print_help(viewer, msg)
     Command_Engine.command_succeeded(viewer, msg)
 
@@ -143,14 +156,22 @@ def finish_script(viewer, result):
 def stop_scripts(viewer):
     """`run stop`: end the Python command scripts the Viewer is running, and every process they started.
 
-    Their commands are not run. With none running, it is a valid no-op that says so.
+    Their commands are not run, nor are the commands of typed scripts that
+    still wait their turn in the command queue. With none of either, it is a
+    valid no-op that says so.
     """
     from Viewer_Worker_Tracking import stop_command_scripts
     count = stop_command_scripts()
+    queue = getattr(viewer, 'command_queue', None)
+    lines = [job for job in queue.pending() if job.source == 'script'] if queue is not None else []
+    for job in lines:
+        queue.cancel(job, Message("Cancelled by run stop."))
     if count:
         msg = Message("Stopped %n Python script(s).", n=count)
     else:
         msg = Message("No Python script is running.")
+    if lines:
+        msg = JoinedMessage([msg, Message("Cancelled %n waiting script command(s).", n=len(lines))])
     if hasattr(viewer, 'console_text'):
         Command_Engine.show_status(viewer, msg)
     print(msg)

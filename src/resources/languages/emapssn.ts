@@ -1842,6 +1842,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Background job #{job} was cancelled before it started: {description}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Background job #{job} failed after {seconds}s ({command}): {error}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2024,11 +2028,11 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <source>Running {command}...</source>
+        <source>Error: No &apos;run&apos; in {command}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: No &apos;run&apos; in {command}</source>
+        <source>Running {command}...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2037,6 +2041,64 @@ Command-line usage:
     </message>
     <message>
         <source>Error: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The command queue is shutting down.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>#{job} {command}: waiting for #{ahead} {ahead_command}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancelled: #{job}, given before it, failed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Cancelled %n command(s) given after #{job}, which failed: {commands}. Press Up at the command line to recall the ones you typed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Cancelled before it finished.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancelled by undo before it finished.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Undo: cancelled %n command(s) that had not finished: {commands}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Cancelled: the Viewer closed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Running #{job} {command}: {progress} ({seconds} s).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Running #{job} {command} ({seconds} s).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n more command(s) waiting.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>#{job} {command} finished in {seconds} s.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>#{job} {command} failed after {seconds} s.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2523,6 +2585,46 @@ Command-line usage:
             <numerusform></numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <source>%n job(s) waiting or running; the list is in the terminal.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>No commands wait or run, and no file is being written.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancelled with jobs cancel.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;{word}&apos; is not a job number. Use jobs cancel N, or jobs cancel all.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: No job #{job} waits or runs; nothing was cancelled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Job #{job} is writing its file and cannot be cancelled; nothing was cancelled.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nothing to cancel: no command waits or runs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Cancelled %n job(s): {jobs}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Error: Unrecognized jobs argument &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message>
         <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
         <translation type="unfinished"></translation>
@@ -2980,6 +3082,12 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
+        <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <source>Redid %n step(s).</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -3060,6 +3168,12 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
+        <source>Batch given: %n command(s). Waiting their turn: {waiting}; the first of them that fails cancels the ones after it.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
         <source>Batch execution completed: %n command(s) run.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
@@ -3073,6 +3187,10 @@ Command-line usage:
         <source>Error reading/executing command file: {error}</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Cancelled by run stop.</source>
+        <translation type="unfinished"></translation>
+    </message>
     <message numerus="yes">
         <source>Stopped %n Python script(s).</source>
         <translation type="unfinished">
@@ -3082,6 +3200,12 @@ Command-line usage:
     <message>
         <source>No Python script is running.</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Cancelled %n waiting script command(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
         <source>File selection cancelled.</source>
@@ -3288,6 +3412,14 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: First argument must be &apos;clear&apos; or a cluster name like &apos;cluster_N&apos; (got &apos;{argument}&apos;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Write the cluster as {canonical}, without leading zeros.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No subcluster groups to clear.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3296,14 +3428,6 @@ Command-line usage:
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
-    </message>
-    <message>
-        <source>Error: First argument must be &apos;clear&apos; or a cluster name like &apos;cluster_N&apos; (got &apos;{argument}&apos;).</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Write the cluster as {canonical}, without leading zeros.</source>
-        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: No clusters are currently defined. Run &apos;cluster&apos; first.</source>
@@ -3380,6 +3504,12 @@ Command-line usage:
     <message>
         <source>SSN Application Failure</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n job(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message>
         <source>Enter a profile name.</source>

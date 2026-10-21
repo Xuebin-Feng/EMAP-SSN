@@ -13,6 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from dataclasses import dataclass
+
 import Command_Engine
 import numpy as np
 import re
@@ -140,14 +142,56 @@ def print_help():
       subcluster clear
     """)
 
-def run(viewer, args):
+# --- The command, in the steps the Viewer's command queue runs (Command_Queue) ---
+# plan() reads the arguments when the command is given; start() checks, at its
+# turn, that the cluster exists (an earlier cluster command may make it) and
+# copies the clusters; compute() subclusters, on the queue's worker thread;
+# apply() writes the groups and colours and saves the undo state, on the GUI
+# thread. run() does all four at once, as the VR viewer and the tests run it.
+
+
+@dataclass(frozen=True)
+class SubclusterPlan:
+    cluster_id: int
+    mode: str
+    param1: float
+    min_size: int
+    heavy = True
+
+
+@dataclass(frozen=True)
+class SubclusterClearPlan:
+    """subcluster clear: it clears the groups at its turn, after the commands given before it."""
+    heavy = False
+
+
+@dataclass(frozen=True)
+class SubclusterInputs:
+    plan: SubclusterPlan
+    cluster_labels: object
+    edges: object
+    scores: object
+
+
+@dataclass(frozen=True)
+class SubclusterResult:
+    refusal: object = None
+    nothing_reached: bool = False
+    subgraph_nodes: object = None
+    local_labels: object = None
+    sub_counts: dict = None
+    color_map: dict = None
+
+
+def plan(viewer, args):
+    """Read the arguments: a SubclusterPlan or SubclusterClearPlan, or None when help ran or they were refused."""
     # --- 1. Help Check ---
     if not args or args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
             Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
-        return
+        return None
 
     # --- CLEAR COMMAND ---
     if args[0].lower() == 'clear':
@@ -155,38 +199,8 @@ def run(viewer, args):
             refusal = extra_argument_error(args[1], "subcluster clear")
             Command_Engine.print_help(viewer, refusal, report_message=False)
             Command_Engine.command_failed(viewer, refusal)
-            return
-        if not hasattr(viewer, 'group_labels') or viewer.group_labels is None:
-            msg = Message("No groups are currently defined.")
-            Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer, msg)
-            return
-            
-        generated = [
-            [g for g in g_set if group_cmd.is_generated_subcluster_name(g)]
-            for g_set in viewer.group_labels
-        ]
-        total_removed = sum(len(names) for names in generated)
-
-        # Nothing to clear is not an error, but it must not add an undo step.
-        if total_removed == 0:
-            msg = Message("No subcluster groups to clear.")
-            Command_Engine.print_help(viewer, msg)
-            Command_Engine.command_succeeded(viewer, msg)
-            return
-
-        viewer._save_state()
-
-        for g_set, names in zip(viewer.group_labels, generated):
-            for g in names:
-                g_set.remove(g)
-
-        viewer.update_nodes()
-        
-        msg = Message("Cleared all subcluster groups (removed %n label instance(s)).", n=total_removed)
-        Command_Engine.print_help(viewer, msg)
-        Command_Engine.command_succeeded(viewer, msg)
-        return
+            return None
+        return SubclusterClearPlan()
 
     # --- Parse Cluster Name ---
     match = re.match(r'^cluster_(\d+)$', args[0].lower())
@@ -198,7 +212,7 @@ def run(viewer, args):
         )
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_failed(viewer, msg)
-        return
+        return None
 
     # Expressions know #cluster_N# only without leading zeros, as group.py's
     # canonical cluster names are, so cluster_01 names a cluster no expression
@@ -211,24 +225,9 @@ def run(viewer, args):
         )
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_failed(viewer, msg)
-        return
+        return None
 
     cluster_id = int(match.group(1))
-
-    if getattr(viewer, 'cluster_labels', None) is None:
-        msg = Message("Error: No clusters are currently defined. Run 'cluster' first.")
-        Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_failed(viewer, msg)
-        return
-
-    target_mask = (viewer.cluster_labels == cluster_id)
-    subgraph_nodes = np.where(target_mask)[0]
-
-    if len(subgraph_nodes) == 0:
-        msg = Message("Error: Cluster {cluster} is empty or does not exist.", cluster=cluster_id)
-        Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_failed(viewer, msg)
-        return
 
     # --- 2. Parse Other Parameters ---
     sub_args = args[1:]
@@ -237,23 +236,23 @@ def run(viewer, args):
     min_sz = 10
     # [MODE] PARAM_1 MIN_SIZE take three arguments; a bare PARAM_1 MIN_SIZE two.
     taken = 3
-    
+
     if len(sub_args) >= 1:
         first_arg = sub_args[0].lower()
         if first_arg in ['jaccard', 'mcl', 'leiden']:
             mode = first_arg
-            if len(sub_args) >= 2: 
+            if len(sub_args) >= 2:
                 try: param1 = float(sub_args[1])
                 except ValueError:
                     print("Error: Parameter must be a number.")
                     Command_Engine.command_failed(viewer, "Error: Parameter must be a number.")
-                    return
-            if len(sub_args) >= 3: 
+                    return None
+            if len(sub_args) >= 3:
                 try: min_sz = int(sub_args[2])
                 except ValueError:
                     print("Error: Min Size must be an integer.")
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
-                    return
+                    return None
         else:
             taken = 2
             # A bare number is the resolution of the default mode, Leiden.
@@ -261,13 +260,13 @@ def run(viewer, args):
             except ValueError:
                 print(f"Error: Unknown mode or invalid number '{sub_args[0]}'")
                 Command_Engine.command_failed(viewer, f"Error: Unknown mode or invalid number '{sub_args[0]}'")
-                return
-            if len(sub_args) >= 2: 
+                return None
+            if len(sub_args) >= 2:
                 try: min_sz = int(sub_args[1])
                 except ValueError:
                     print("Error: Min Size must be an integer.")
                     Command_Engine.command_failed(viewer, "Error: Min Size must be an integer.")
-                    return
+                    return None
 
     # Nothing may follow the arguments the form takes.
     if len(sub_args) > taken:
@@ -276,7 +275,7 @@ def run(viewer, args):
         )
         Command_Engine.print_help(viewer, refusal, report_message=False)
         Command_Engine.command_failed(viewer, refusal)
-        return
+        return None
 
     # Apply defaults if param1 wasn't provided
     if param1 is None:
@@ -288,7 +287,65 @@ def run(viewer, args):
     if refusal:
         Command_Engine.print_help(viewer, refusal, report_message=False)
         Command_Engine.command_failed(viewer, refusal)
+        return None
+    return SubclusterPlan(cluster_id, mode, param1, min_sz)
+
+
+def clear_subclusters(viewer):
+    """subcluster clear: remove the generated subcluster groups, as one undo step."""
+    if not hasattr(viewer, 'group_labels') or viewer.group_labels is None:
+        msg = Message("No groups are currently defined.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer, msg)
         return
+
+    generated = [
+        [g for g in g_set if group_cmd.is_generated_subcluster_name(g)]
+        for g_set in viewer.group_labels
+    ]
+    total_removed = sum(len(names) for names in generated)
+
+    # Nothing to clear is not an error, but it must not add an undo step.
+    if total_removed == 0:
+        msg = Message("No subcluster groups to clear.")
+        Command_Engine.print_help(viewer, msg)
+        Command_Engine.command_succeeded(viewer, msg)
+        return
+
+    viewer._save_state()
+
+    for g_set, names in zip(viewer.group_labels, generated):
+        for g in names:
+            g_set.remove(g)
+
+    viewer.update_nodes()
+
+    msg = Message("Cleared all subcluster groups (removed %n label instance(s)).", n=total_removed)
+    Command_Engine.print_help(viewer, msg)
+    Command_Engine.command_succeeded(viewer, msg)
+
+
+def _refuse(viewer, msg):
+    Command_Engine.print_help(viewer, msg, report_message=False)
+    Command_Engine.command_failed(viewer, msg)
+
+
+def start(viewer, plan):
+    """At its turn: check that the cluster exists and the libraries load; return SubclusterInputs, or None."""
+    if isinstance(plan, SubclusterClearPlan):
+        clear_subclusters(viewer)
+        return None
+
+    cluster_id, mode, param1, min_sz = plan.cluster_id, plan.mode, plan.param1, plan.min_size
+    if getattr(viewer, 'cluster_labels', None) is None:
+        _refuse(viewer, Message("Error: No clusters are currently defined. Run 'cluster' first."))
+        return None
+
+    # A copy: the worker reads it while the GUI thread carries on.
+    cluster_labels = np.array(viewer.cluster_labels)
+    if not np.any(cluster_labels == cluster_id):
+        _refuse(viewer, Message("Error: Cluster {cluster} is empty or does not exist.", cluster=cluster_id))
+        return None
 
     if hasattr(viewer, 'console_text'):
         Command_Engine.show_status(
@@ -296,23 +353,56 @@ def run(viewer, args):
         )
     print(f"Running {mode.upper()} Subclustering for cluster_{cluster_id} (Param={param1}, MinSize={min_sz})...")
 
+    if mode == "mcl":
+        try:
+            import markov_clustering as mc  # noqa: F401  (availability check)
+            import scipy.sparse as sp  # noqa: F401
+        except ImportError:
+            msg = Message("Missing libraries! Run: {command}", command="pip install markov_clustering networkx scipy")
+            print(f"Error: {msg}")
+            Command_Engine.command_failed(viewer, f'Error: {msg}')
+            Command_Engine.show_status(viewer, msg)
+            return None
+    elif mode == "leiden":
+        try:
+            import graspologic_native  # noqa: F401  (availability check)
+        except ImportError:
+            msg = Message("Missing library! Run: {command}", command="pip install graspologic-native")
+            print(f"Error: {msg}")
+            Command_Engine.command_failed(viewer, f'Error: {msg}')
+            Command_Engine.show_status(viewer, msg)
+            return None
+
+    # The edges and scores never change while the Viewer runs, so the worker reads them as they are.
+    scores = viewer.edge_scores if hasattr(viewer, 'edge_scores') else None
+    return SubclusterInputs(plan, cluster_labels, viewer.edges, scores)
+
+
+def compute(inputs, progress):
+    """Subcluster the cluster. No viewer and no Qt: this runs on the command queue's worker thread.
+
+    A refusal found here (no edge inside the cluster, unusable scores) comes
+    back as the result's refusal, which apply() reports before anything changes.
+    """
+    cluster_id, mode, param1, min_sz = (
+        inputs.plan.cluster_id, inputs.plan.mode, inputs.plan.param1, inputs.plan.min_size)
+    target_mask = (inputs.cluster_labels == cluster_id)
+    subgraph_nodes = np.where(target_mask)[0]
+
     # --- 3. Extract Subgraph Edges ---
-    edges = np.array(viewer.edges, dtype=np.int32).reshape(-1, 2)
+    edges = np.array(inputs.edges, dtype=np.int32).reshape(-1, 2)
     inside = target_mask[edges[:, 0]] & target_mask[edges[:, 1]]
 
     if not inside.any():
-        msg = Message(
+        return SubclusterResult(refusal=Message(
             "Error: No edges exist within {cluster} to perform subclustering.", cluster=f"cluster_{cluster_id}"
-        )
-        Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_failed(viewer, msg)
-        return
+        ))
 
     global_to_local = np.full(len(target_mask), -1, dtype=np.int32)
     global_to_local[subgraph_nodes] = np.arange(len(subgraph_nodes), dtype=np.int32)
     local_edges = global_to_local[edges[inside]]
-    if hasattr(viewer, 'edge_scores'):
-        local_edge_scores = np.asarray(viewer.edge_scores)[inside]
+    if inputs.scores is not None:
+        local_edge_scores = np.asarray(inputs.scores)[inside]
     else:
         local_edge_scores = None
 
@@ -335,35 +425,17 @@ def run(viewer, args):
     # =======================================================
     elif mode == "mcl":
         inflation = param1
-        try:
-            import markov_clustering as mc
-            import scipy.sparse as sp
-        except ImportError:
-            msg = Message("Missing libraries! Run: {command}", command="pip install markov_clustering networkx scipy")
-            print(f"Error: {msg}")
-            Command_Engine.command_failed(viewer, f'Error: {msg}')
-            Command_Engine.show_status(viewer, msg)
-            return
-
         score_error = cluster_cmd.mcl_edge_score_error(local_edge_scores)
         if score_error:
-            Command_Engine.print_help(viewer, score_error, report_message=False)
-            Command_Engine.command_failed(viewer, score_error)
-            return
+            return SubclusterResult(refusal=score_error)
 
         print("Building Sparse Adjacency Matrix...")
         # As cluster builds it: float32, so MCL starts from the same precision.
         matrix = cluster_cmd.mcl_adjacency(local_edges, local_edge_scores, n_sub)
-        
-        # Suppress SciPy sparsity warnings triggered by MCL, for this call only.
-        import warnings
-        from scipy.sparse import SparseEfficiencyWarning
-        
+
         print(f"Running MCL (Inflation = {inflation}). This may take a moment...")
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", category=SparseEfficiencyWarning)
-            clusters = network_clustering.markov_clusters(matrix, inflation)
-        
+        clusters = network_clustering.markov_clusters(matrix, inflation, progress=progress)
+
         local_labels = cluster_cmd.label_mcl_clusters(clusters, n_sub, min_sz)
 
     # =======================================================
@@ -371,15 +443,6 @@ def run(viewer, args):
     # =======================================================
     elif mode == "leiden":
         resolution = param1
-        try:
-            import graspologic_native  # noqa: F401  (availability check)
-        except ImportError:
-            msg = Message("Missing library! Run: {command}", command="pip install graspologic-native")
-            print(f"Error: {msg}")
-            Command_Engine.command_failed(viewer, f'Error: {msg}')
-            Command_Engine.show_status(viewer, msg)
-            return
-
         print("Building Edge List & Mapping Edge Weights...")
 
         if local_edge_scores is not None:
@@ -399,6 +462,31 @@ def run(viewer, args):
     # No subcluster reaches MIN_SIZE: change nothing, so the cluster keeps its
     # colours and its earlier subclusters, and no undo step is added.
     if not np.any(local_labels != -1):
+        return SubclusterResult(nothing_reached=True)
+
+    sub_ids, sub_sizes = np.unique(local_labels[local_labels != -1], return_counts=True)
+    sub_counts = dict(zip(sub_ids.tolist(), sub_sizes.tolist()))
+
+    # Compute color map for subclusters
+    sorted_subs = sorted(sub_counts.keys())
+    n_subclusters = len(sorted_subs)
+    if n_subclusters > 0:
+        sub_colors = get_subcluster_colors(n_subclusters)
+        color_map = {sid: sub_colors[idx % len(sub_colors)] for idx, sid in enumerate(sorted_subs)}
+    else:
+        color_map = {}
+    return SubclusterResult(
+        subgraph_nodes=subgraph_nodes, local_labels=local_labels, sub_counts=sub_counts, color_map=color_map,
+    )
+
+
+def apply(viewer, plan, result):
+    """Write the subcluster groups and colours, as one undo step, and report them."""
+    cluster_id, mode, min_sz = plan.cluster_id, plan.mode, plan.min_size
+    if result.refusal is not None:
+        _refuse(viewer, result.refusal)
+        return
+    if result.nothing_reached:
         msg = Message(
             "No subcluster of {cluster} reached the minimum size {min_size}; "
             "nothing was changed.",
@@ -410,6 +498,10 @@ def run(viewer, args):
         print(msg)
         Command_Engine.command_succeeded(viewer, msg)
         return
+
+    subgraph_nodes, local_labels = result.subgraph_nodes, result.local_labels
+    sub_counts, color_map = result.sub_counts, result.color_map
+    n_sub = len(subgraph_nodes)
 
     # --- 4. Update Viewer State ---
     viewer._save_state()
@@ -426,22 +518,14 @@ def run(viewer, args):
         for g in to_remove:
             g_set.remove(g)
 
-    # Assign new ones and calculate counts
-    sub_ids, sub_sizes = np.unique(local_labels[local_labels != -1], return_counts=True)
-    sub_counts = dict(zip(sub_ids.tolist(), sub_sizes.tolist()))
+    # Assign new ones
     group_names = {m: f"subcluster_{cluster_id}_{m}" for m in sub_counts}
     for global_idx, m in zip(subgraph_nodes.tolist(), local_labels.tolist()):
         if m != -1:
             viewer.group_labels[global_idx].add(group_names[m])
 
-    # Compute color map for subclusters
     sorted_subs = sorted(sub_counts.keys())
     n_subclusters = len(sorted_subs)
-    if n_subclusters > 0:
-        sub_colors = get_subcluster_colors(n_subclusters)
-        color_map = {sid: sub_colors[idx % len(sub_colors)] for idx, sid in enumerate(sorted_subs)}
-    else:
-        color_map = {}
 
     # Assign colors to viewer.current_colors for nodes in the subclustered target
     unique_local, local_slots = np.unique(local_labels, return_inverse=True)
@@ -462,13 +546,13 @@ def run(viewer, args):
     print(f"{'='*54}")
     print(f"| {'Subcluster Name':<22} | {'Node Count':>10} | {'Percent':>10} |")
     print(f"|{'-'*24}+{'-'*12}+{'-'*12}|")
-    
+
     noise_count = np.sum(local_labels == -1)
     noise_pct = (noise_count / n_sub) * 100
-    
+
     noise_name_padded = get_colored_subcluster_name(-1, f"{'Noise (Unclustered)':<20}", color_map)
     print(f"| {noise_name_padded} | {noise_count:>10} | {noise_pct:>9.2f}% |")
-    
+
     for m in sorted_subs:
         count = sub_counts[m]
         pct = (count / n_sub) * 100
@@ -486,3 +570,18 @@ def run(viewer, args):
         Command_Engine.show_status(viewer, msg)
     print(msg)
     Command_Engine.command_succeeded(viewer, msg)
+
+
+def _no_progress(text=None):
+    """run() reports no progress."""
+
+
+def run(viewer, args):
+    """Run the command at once: its plan, start, compute and apply steps in a row."""
+    command_plan = plan(viewer, args)
+    if command_plan is None:
+        return
+    inputs = start(viewer, command_plan)
+    if inputs is None:
+        return
+    apply(viewer, command_plan, compute(inputs, _no_progress))

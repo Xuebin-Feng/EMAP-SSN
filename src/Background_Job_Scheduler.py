@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import itertools
 import os
 import queue
 import threading
@@ -53,10 +54,11 @@ class BackgroundJobScheduler(QtCore.QObject):
     job_succeeded = QtCore.Signal(object, object, float)
     # The error itself, not its text, so a Message it holds shows translated.
     job_failed = QtCore.Signal(object, object, str, float)
+    job_cancelled = QtCore.Signal(object)
 
     _STOP = object()
 
-    def __init__(self, viewer):
+    def __init__(self, viewer, job_numbers=None):
         super().__init__()
         self._viewer_ref = weakref.ref(viewer)
         self._jobs = queue.Queue()
@@ -64,13 +66,19 @@ class BackgroundJobScheduler(QtCore.QObject):
         self._accepting = True
         self._active_job = None
         self._outstanding_count = 0
-        self._next_job_id = 1
+        # Job numbers: the Viewer's command queue draws from the same count, so
+        # every job the Viewer lists has a number of its own.
+        self._job_numbers = job_numbers if job_numbers is not None else itertools.count(1)
         self._reserved_output_paths = set()
+        # The jobs not yet finished, in the order queued, and those cancelled before they started.
+        self._waiting = {}
+        self._cancelled = set()
 
         queued = QtCore.Qt.ConnectionType.QueuedConnection
         self.job_started.connect(self._report_started, queued)
         self.job_succeeded.connect(self._report_succeeded, queued)
         self.job_failed.connect(self._report_failed, queued)
+        self.job_cancelled.connect(self._report_cancelled, queued)
 
         self._thread = threading.Thread(
             target=self._worker_loop,
@@ -88,6 +96,24 @@ class BackgroundJobScheduler(QtCore.QObject):
         """Return the number of running and queued jobs."""
         with self._lock:
             return self._outstanding_count
+
+    def listing(self):
+        """The jobs not yet finished, oldest first, as (job, running) pairs."""
+        with self._lock:
+            active = self._active_job
+            return [(job, job is active) for job in self._waiting.values()]
+
+    def cancel(self, job_id):
+        """Cancel a job that has not started; return whether there was one.
+
+        A job that writes its file already is left to finish.
+        """
+        with self._lock:
+            job = self._waiting.get(job_id)
+            if job is None or job is self._active_job or job_id in self._cancelled:
+                return False
+            self._cancelled.add(job_id)
+        return True
 
     def is_output_path_reserved(self, path):
         key = self._output_key(path)
@@ -118,8 +144,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                     "Output file is already reserved by a background job: {path}", path=output_path
                 ))
 
-            job_id = self._next_job_id
-            self._next_job_id += 1
+            job_id = next(self._job_numbers)
             queue_position = self._outstanding_count + 1
             job = BackgroundJob(
                 job_id=job_id,
@@ -132,6 +157,7 @@ class BackgroundJobScheduler(QtCore.QObject):
             )
             self._reserved_output_paths.add(output_key)
             self._outstanding_count += 1
+            self._waiting[job_id] = job
             if command_context is not None:
                 command_context.add_job(job_id, output_path=output_path)
             self._jobs.put(job)
@@ -165,6 +191,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                         self._output_key(item.output_path)
                     )
                     self._outstanding_count -= 1
+                    self._waiting.pop(item.job_id, None)
             self._jobs.task_done()
         self._jobs.put(self._STOP)
 
@@ -176,12 +203,17 @@ class BackgroundJobScheduler(QtCore.QObject):
                 return
 
             with self._lock:
-                if not self._accepting:
+                cancelled = job.job_id in self._cancelled
+                if not self._accepting or cancelled:
                     self._reserved_output_paths.discard(
                         self._output_key(job.output_path)
                     )
                     self._outstanding_count -= 1
+                    self._waiting.pop(job.job_id, None)
+                    self._cancelled.discard(job.job_id)
                     self._jobs.task_done()
+                    if cancelled and self._accepting:
+                        self.job_cancelled.emit(job)
                     continue
                 self._active_job = job
 
@@ -210,6 +242,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                         self._output_key(job.output_path)
                     )
                     self._outstanding_count -= 1
+                    self._waiting.pop(job.job_id, None)
                 self._jobs.task_done()
 
     def _set_viewer_status(self, message):
@@ -252,6 +285,15 @@ class BackgroundJobScheduler(QtCore.QObject):
 
         if job.command_context is not None:
             job.command_context.job_event(job.job_id, "succeeded", message, [job.output_path])
+
+    @QtCore.Slot(object)
+    def _report_cancelled(self, job):
+        message = Message("Background job #{job} was cancelled before it started: {description}",
+                          job=job.job_id, description=job.description)
+        print(message)
+        self._set_viewer_status(message)
+        if job.command_context is not None:
+            job.command_context.job_event(job.job_id, 'cancelled', str(message))
 
     @QtCore.Slot(object, object, str, float)
     def _report_failed(self, job, error, detail, elapsed):

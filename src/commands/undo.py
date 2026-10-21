@@ -53,17 +53,31 @@ def run(viewer, args):
         Command_Engine.print_help(viewer, msg, report_message=False)
         Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
         return
+    steps = 1
+    if args:
+        steps, refusal = _steps_argument(args)
+        if refusal is not None:
+            # Refused before anything changes; the usage follows the error in the terminal.
+            message = JoinedMessage([refusal, Message("Usage: {syntax}", syntax="undo [N]")], separator="\n")
+            Command_Engine.print_help(viewer, message, report_message=False)
+            Command_Engine.command_failed(viewer, message)
+            return
+
+    # Typed by hand while commands wait, undo takes back the newest of them
+    # first: they have not happened yet. The steps left undo the network.
+    cancelled_message = None
+    queue = _waiting_queue(viewer)
+    if queue is not None:
+        cancelled, cancelled_message = queue.take_back(steps)
+        steps -= len(cancelled)
+        if not steps:
+            Command_Engine.show_status(viewer, cancelled_message)
+            Command_Engine.command_succeeded(viewer, cancelled_message)
+            return
+
     if not args:
         changed = viewer._do_undo()
         Command_Engine.command_succeeded(viewer, "Undo successful." if changed else "Nothing to undo.")
-        return
-
-    steps, refusal = _steps_argument(args)
-    if refusal is not None:
-        # Refused before anything changes; the usage follows the error in the terminal.
-        message = JoinedMessage([refusal, Message("Usage: {syntax}", syntax="undo [N]")], separator="\n")
-        Command_Engine.print_help(viewer, message, report_message=False)
-        Command_Engine.command_failed(viewer, message)
         return
 
     # Each step is quiet; the viewer is refreshed once, and the total reported.
@@ -75,6 +89,21 @@ def run(viewer, args):
         msg = Message("Undid %n step(s).", n=done)
     else:
         msg = Message("Nothing to undo.")
+    if cancelled_message is not None:
+        msg = JoinedMessage([cancelled_message, msg])
     Command_Engine.show_status(viewer, msg)
     print(msg)
     Command_Engine.command_succeeded(viewer, msg)
+
+
+def _waiting_queue(viewer):
+    """The Viewer's command queue when this undo is done by hand while commands wait, else None.
+
+    By hand means typed at the command line, where Command_Engine runs undo at
+    once. An undo that waited its turn, from a script or the command portal,
+    runs inside the queue's turn and undoes the network.
+    """
+    queue = getattr(viewer, 'command_queue', None)
+    if queue is None or getattr(queue, 'in_turn', False) or not queue.pending():
+        return None
+    return queue
