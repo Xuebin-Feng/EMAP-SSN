@@ -13,15 +13,101 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import contextlib
+import functools
+import inspect
+import sys
+import threading
+import warnings
+
 import numpy as np
 import pandas as pd
-import warnings
 
 try:
     import umap
     UMAP_AVAILABLE = True
 except ImportError:
     UMAP_AVAILABLE = False
+
+
+# --- Seeded ARPACK ---------------------------------------------------------------------
+# umap's spectral start calls scipy.sparse.linalg.eigsh for every connected component of
+# the fuzzy graph (and scikit-learn's SpectralEmbedding calls it to place the components).
+# SciPy 1.18's ARPACK draws a random vector whenever its Krylov space runs out, as it does
+# at once on a small component of interchangeable nodes (a clique of equal scores), and
+# takes it from a Generator that eigsh builds from its `rng` argument. umap never passes
+# `rng`, so each such call starts from fresh operating-system entropy: the spectral start,
+# and through it the whole layout, differs between runs of the same seed, with a cold or a
+# warm Numba cache alike. Inside _seeded_arpack every eigsh call made by the running thread
+# gets rng=<layout seed>. When ARPACK never needs a random vector the argument goes unused
+# and the layout is bit-identical to an unwrapped run.
+_ARPACK_SEEDS = threading.local()
+_ARPACK_LOCK = threading.Lock()
+_ARPACK_PATCH = {'users': 0, 'original': None, 'wrapper': None, 'holders': []}
+_ARPACK_HOLDER_PREFIXES = ('sklearn.', 'umap.', 'pynndescent.')
+
+
+def _seeding_eigsh(original):
+    @functools.wraps(original)
+    def eigsh(*args, **kwargs):
+        seed = getattr(_ARPACK_SEEDS, 'value', None)
+        if seed is not None and kwargs.get('rng') is None:
+            kwargs['rng'] = seed
+        return original(*args, **kwargs)
+    return eigsh
+
+
+def _holds_eigsh(module, original):
+    try:
+        return module is not None and getattr(module, 'eigsh', None) is original
+    except Exception:  # a lazy or half-imported module that cannot answer is not a holder
+        return False
+
+
+def _install_seeding_eigsh():
+    """Put the seeding wrapper where umap and scikit-learn look eigsh up (reference counted)."""
+    import scipy.sparse.linalg as sparse_linalg
+    with _ARPACK_LOCK:
+        patch = _ARPACK_PATCH
+        if patch['users'] == 0:
+            original = sparse_linalg.eigsh
+            if 'rng' in inspect.signature(original).parameters:
+                wrapper = _seeding_eigsh(original)
+                holders = [sparse_linalg] + [
+                    module for name, module in list(sys.modules.items())
+                    if name.startswith(_ARPACK_HOLDER_PREFIXES) and _holds_eigsh(module, original)
+                ]
+                for module in holders:
+                    module.eigsh = wrapper
+                patch.update(original=original, wrapper=wrapper, holders=holders)
+        patch['users'] += 1
+
+
+def _remove_seeding_eigsh():
+    with _ARPACK_LOCK:
+        patch = _ARPACK_PATCH
+        patch['users'] -= 1
+        if patch['users'] == 0 and patch['wrapper'] is not None:
+            for module in patch['holders']:
+                if getattr(module, 'eigsh', None) is patch['wrapper']:
+                    module.eigsh = patch['original']
+            patch.update(original=None, wrapper=None, holders=[])
+
+
+@contextlib.contextmanager
+def _seeded_arpack(seed):
+    """Give every eigsh call this thread makes rng=seed; a seed of None leaves eigsh unseeded."""
+    if seed is None:
+        yield
+        return
+    previous = getattr(_ARPACK_SEEDS, 'value', None)
+    _install_seeding_eigsh()
+    _ARPACK_SEEDS.value = seed
+    try:
+        yield
+    finally:
+        _ARPACK_SEEDS.value = previous
+        _remove_seeding_eigsh()
 
 
 def _resolve_seed(params):
@@ -123,7 +209,7 @@ def calculate_layout(connectivity, n_nodes, params):
           f"up to {real_neighbors} available + self, min_dist={min_dist})")
     warnings.filterwarnings('ignore', category=UserWarning, module='umap')
     X_dummy = np.zeros((n_nodes, 1), dtype=np.float32)
-    with warnings.catch_warnings():
+    with warnings.catch_warnings(), _seeded_arpack(layout_seed):
         warnings.simplefilter("ignore")
         reducer = umap.UMAP(
             n_components=dimensions,

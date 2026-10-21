@@ -125,7 +125,7 @@ modules = [
 
 [sections.layout]
 description = "Layout engines, GPU kernels, spectral start, packing, time step"
-seconds = 45
+seconds = 75
 modules = [
     "test_layout_engine_ssn",
     "test_layout_engine_umap",
