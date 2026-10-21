@@ -161,6 +161,18 @@ class ShellWebglTests(unittest.TestCase):
         self.assertIsNone(found["pinnedAfterEscape"])
         self.assertEqual(found["markedAfterEscape"], 0)
 
+    def test_a_session_saved_by_an_earlier_mol_star_puts_the_camera_back_with_the_structures_in_view(self):
+        # tests/esmfold_saved_sessions.py: sessions of a page with a canvas, which carry the camera, by both routes.
+        saved = self.found["savedCamera"]
+        self.assertEqual(sorted(saved), ["marked/file", "marked/viewer", "pair/file", "pair/viewer"])
+        for name, found in saved.items():
+            with self.subTest(scene=name):
+                self.assertEqual(found["structures"], 2)
+                self.assertLess(distance(found["restored"]["target"], found["saved"]["target"]), 1e-3)
+                self.assertLess(distance(found["restored"]["position"], found["saved"]["position"]), 1e-3)
+                self.assertAlmostEqual(found["restored"]["radius"], found["saved"]["radius"], places=3)
+                self.assertGreater(found["drawn"], 0.002)
+
     def test_the_page_draws_its_canvas_in_simplified_chinese_too(self):
         self.assertEqual((self.found["chineseHeader"], self.found["chineseView"]), ("EMAP-SSN 结构视图", "ready"))
 

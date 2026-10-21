@@ -259,7 +259,11 @@ PAGE_POLICY = {
 }
 # Mol* compiles code while it loads: its MP4 encoder is built with embind,
 # which calls new Function, and compiles WebAssembly (also allowed by
-# 'unsafe-eval') fetched from a data: URL. Mol* also contacts public servers
+# 'unsafe-eval') fetched from a data: URL. Mol* 5.12 dropped its other uses of
+# new Function, but embind's remain: 5.13.1 without 'unsafe-eval' stops at the
+# first of them while the bundle loads, and the page never starts
+# (tests/test_esmfold_shell.py, ScriptPolicyTests, pins that, so that a Mol*
+# that no longer needs it shows up there). Mol* also contacts public servers
 # when asked to download structures, maps or saved states. esmfold.html turns
 # off its list of remote states, which it would otherwise fetch on load.
 PAGE_POLICY_ADDITIONS = {

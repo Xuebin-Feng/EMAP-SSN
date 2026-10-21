@@ -26,7 +26,7 @@ for folder in (SRC, ROOT):
         sys.path.insert(0, str(folder))
 
 from tests import esmfold_layer_fixtures as fixtures
-from tests.esmfold_page_harness import FoldViewPageMixin, FoldViewServerMixin
+from tests.esmfold_page_harness import FoldViewPageMixin, FoldViewServerMixin, http_get
 from tests.esmfold_session_fixture import session_before_the_redesign, write_session_structures
 from tests.translation_fixtures import pseudo_language
 
@@ -343,6 +343,46 @@ class ShellTests(PageTestCase):
         self.assertEqual(self.script("return loadedStructures().length"), 2)
         self.script("setConnection('connected'); return 1")
         self.assertFalse(self.js(banner))
+
+
+class ScriptPolicyTests(PageTestCase):
+    """The page's script policy (Web_Server.PAGE_POLICY_ADDITIONS) keeps 'unsafe-eval' because Mol*'s bundle needs it to load."""
+
+    def test_the_bundle_cannot_load_without_unsafe_eval_because_of_embinds_new_function(self):
+        from unittest import mock
+        from web_ui import Web_Server
+
+        additions = {"esmfold.html": {"connect-src": "https: data:"}}
+        with mock.patch.dict(Web_Server.PAGE_POLICY_ADDITIONS, additions):
+            self.view.page().scripts().insert(self.record_script())
+            self.load_page()
+            self.pump(3)
+            _, headers, _ = http_get(self.server, "/esmfold.html")
+            self.assertIn("script-src 'self'", headers["Content-Security-Policy"])
+            self.assertNotIn("unsafe-eval", headers["Content-Security-Policy"])
+            # The bundle stops where its MP4 encoder's embind code makes a named function with new Function, as it did in
+            # 5.10.1 (that was the version this check was first made on), so there is no `molstar` for the page to use.
+            self.assertEqual(self.js("typeof molstar"), "undefined")
+            errors = json.loads(self.js("JSON.stringify(window.__errors)"))
+            self.assertTrue(errors, "the bundle did not fail: 'unsafe-eval' may be droppable (see Web_Server.py)")
+            self.assertIn("unsafe-eval", errors[0][0])
+            self.assertIn("at new Function", errors[0][1])
+            self.assertIn("/esmfold/molstar.js", errors[0][1])
+            self.assertEqual(self.js("document.body.dataset.view"), "starting")
+
+    def record_script(self):
+        """A script that runs before the page's own, keeping what the page's scripts fail with."""
+        from PySide6.QtWebEngineCore import QWebEngineScript
+
+        script = QWebEngineScript()
+        script.setName("errors")
+        script.setInjectionPoint(QWebEngineScript.InjectionPoint.DocumentCreation)
+        script.setWorldId(QWebEngineScript.ScriptWorldId.MainWorld)
+        script.setSourceCode(
+            "window.__errors = []; window.addEventListener('error', event => window.__errors.push("
+            "[String(event.message), event.error && event.error.stack ? String(event.error.stack) : '']));")
+        self.addCleanup(self.view.page().scripts().remove, script)
+        return script
 
 
 if __name__ == "__main__":

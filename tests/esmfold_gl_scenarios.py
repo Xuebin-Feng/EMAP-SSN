@@ -50,6 +50,7 @@ from PySide6.QtTest import QTest  # noqa: E402
 
 from tests import esmfold_layer_fixtures as fixtures  # noqa: E402
 from tests.esmfold_page_harness import FoldViewPageMixin, FoldViewServerMixin  # noqa: E402
+from tests.esmfold_saved_sessions import saved_scene, write_saved_structures  # noqa: E402
 
 # What the page's canvas draws at a pixel, as the colour the screenshot helper gives it, and how much of the canvas is not background.
 PIXELS = """
@@ -359,6 +360,30 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         self.pump(1.0)
         FACTS["closedSameCanvas"] = self.script("return plugin.canvas3d === window.__canvas")
         FACTS["closedDrawn"] = self.script("return (await canvasPixels()).drawn")
+
+        # Sessions saved by an earlier Mol* (tests/esmfold_saved_sessions.py) carry the camera of a page with a canvas:
+        # it comes back, by the Viewer's route and from the downloaded file, and the structures are in view.
+        FACTS["savedCamera"] = {}
+        for name in ("pair", "marked"):
+            scene = saved_scene(name)
+            write_saved_structures(self.directory)
+            for route in ("viewer", "file"):
+                if route == "viewer":
+                    self.session = json.loads(json.dumps(scene["session"]))
+                    self.open_page()
+                    self.js(PIXELS)
+                else:
+                    self.session = None
+                    self.open_page()
+                    self.js(PIXELS)
+                    self.script("await openSessionFile(new File([%s], 'saved.molj')); await structureQueue; return 1" % json.dumps(scene["molj"]))
+                self.wait(2000)
+                current = scene["session"]["camera"]["current"]
+                FACTS["savedCamera"][f"{name}/{route}"] = {
+                    "saved": {key: current[key] for key in ("target", "position", "radius")},
+                    "restored": self.script("return cameraNow()"), "drawn": self.script("return (await canvasPixels()).drawn"),
+                    "structures": self.script("return loadedStructures().length")}
+        self.session = None
 
         # A narrow window, in light, opened narrow as a person's window would be.
         self.view.resize(600, 800)
