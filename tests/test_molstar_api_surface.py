@@ -43,12 +43,15 @@ def run_probe(extra=()):
 
 
 class MolstarApiSurfaceTests(unittest.TestCase):
+    # The vendored bundle's version, which THIRD_PARTY_LICENSES.md and src/resources/esmfold/ name too.
+    VERSION = "5.10.1"
+
     @classmethod
     def setUpClass(cls):
         cls.found = run_probe()
 
     def test_the_bundle_is_the_pinned_version_with_the_extensions_the_page_uses(self):
-        self.assertEqual(self.found["version"], "5.10.1")
+        self.assertEqual(self.found["version"], self.VERSION)
         # mvs colours the layers, ma-quality-assessment is where the pLDDT theme comes from.
         self.assertEqual(self.found["extensions"], ["mvs", "ma-quality-assessment", "backgrounds"])
         self.assertEqual(self.found["libPlugin"], ["PluginContext", "DefaultPluginSpec", "PluginConfig", "StateTransforms"])
@@ -111,6 +114,75 @@ class MolstarApiSurfaceTests(unittest.TestCase):
             "id", "data", "behaviour", "animation", "startAnimation", "camera", "canvas3dContext", "canvas3d",
             "interactivity", "structureFocus", "structureSelection", "structureComponentManager", "durationInMs"])
 
+    def test_the_pointer_events_are_subjects_the_page_both_hears_and_feeds_and_a_loci_names_its_residue(self):
+        found = self.found
+        self.assertEqual(found["subjects"], {
+            "hover": True, "click": True, "measurement": True, "hierarchySelection": True, "cellStateUpdated": True,
+            "log": ["info", "warn", "error"]})
+        # What is pushed into the hover subject reaches a subscriber as it is (the page's tests, and its own tools, push events).
+        self.assertTrue(found["hoverDelivered"])
+        residue = found["residue"]
+        self.assertTrue(residue["structureFound"])
+        self.assertEqual((residue["chain"], residue["number"], residue["name"], residue["bfactor"]), ("A", 5, "TYR", 87))
+        self.assertIn(residue["secondary"], (None, "Helix", "Strand", "Turn"))
+        self.assertEqual(found["secondaryFlags"], {"flags": ["Helix", "Beta", "Turn"], "is": "function"})
+
+    def test_a_group_of_the_representations_render_object_is_a_residue_and_a_click_focuses_it_with_tagged_nodes(self):
+        found = self.found
+        # The tests, and a real pointer's pick, turn a group of render object 0 into the loci of residue group + 1.
+        self.assertEqual(found["pick"], {"renderObjects": True, "residue": 6, "structureLoci": True})
+        # A click puts the residue in focus with five nodes of its own (two selections, the target, the surroundings and their
+        # contacts), tagged structure-focus-*: esmfold_residue.js finds them by that tag, and a pinned residue lets go of them.
+        click = found["focusClick"]
+        self.assertEqual(click["nodes"], 5)
+        self.assertTrue(click["focus"])
+        self.assertEqual(click["roots"], 2)
+        self.assertEqual(click["grown"], 5)
+        self.assertEqual(click["tags"], [
+            "structure-focus-surr-nci-repr", "structure-focus-surr-repr", "structure-focus-surr-sel",
+            "structure-focus-target-repr", "structure-focus-target-sel"])
+        # The session keeps them and the focus (the page leaves both out of what it saves), and deleting the two roots takes all five.
+        self.assertEqual(found["focusInSnapshot"], {"tags": 5, "focusKeys": ["current"]})
+        self.assertEqual(found["focusReleased"], {"nodes": 0, "focus": False, "back": True})
+
+    def test_the_measurement_manager_draws_a_distance_and_a_label_in_a_group_that_a_delete_clears(self):
+        found = self.found
+        self.assertEqual(found["measurementBefore"]["stateKeys"], [
+            "angles", "dihedrals", "distances", "labels", "options", "orientations", "planes"])
+        self.assertEqual(found["measurement"], {
+            "distances": 1, "labels": 1, "groupKeys": ["ref", "root", "state"], "groupRef": "string", "groupState": "object",
+            "heard": True})
+        self.assertEqual(found["measurementCleared"]["distances"], 0)
+        self.assertEqual(found["measurementCleared"]["labels"], 0)
+
+    def test_the_colour_legends_the_card_draws_and_the_layers_properties_are_there_under_their_names(self):
+        found = self.found
+        self.assertEqual(found["legends"]["secondary"]["kind"], "table-legend")
+        self.assertTrue(set(["alphaHelix", "betaStrand", "coil"]) <= set(found["legends"]["secondary"]["names"]))
+        self.assertTrue(found["legends"]["secondary"]["colors"])
+        self.assertEqual(found["legends"]["position"], {"kind": "scale-legend", "colors": True})
+        # The layers' MolViewSpec property names are not documented: these are what tests/test_esmfold_layers.py colours through.
+        self.assertEqual(found["annotationTheme"], ["annotationId", "fieldName", "palette"])
+        self.assertEqual(found["mvsProperties"], {
+            "model": ["mvs-is-mvs-model", "mvs-annotations"], "structure": ["mvs-annotation-tooltips"]})
+
+    def test_a_representation_is_added_with_its_defaults_its_colours_changed_and_removed(self):
+        found = self.found
+        self.assertEqual(found["addRepresentation"], {
+            "added": 1, "type": "ball-and-stick", "alpha": 0.5, "theme": "uniform", "value": 0xff0000})
+        self.assertEqual(found["themeUpdate"], [["uniform", 0x00ff00]] * 2)
+        self.assertTrue(found["representationRemoved"])
+
+    def test_a_session_file_and_a_snapshot_each_bring_the_scene_back(self):
+        found = self.found
+        file = found["serialize"]
+        self.assertTrue(file["blob"])
+        self.assertEqual((file["keys"], file["entries"], file["entryKeys"]), (["current", "entries", "playback", "timestamp", "version"], 1, ["snapshot", "timestamp"]))
+        self.assertEqual(file["version"], self.VERSION)
+        for key in ("id", "data", "animation", "camera", "canvas3d", "interactivity", "structureFocus", "structureComponentManager"):
+            self.assertIn(key, file["snapshotKeys"])
+        self.assertEqual(found["sessionRoundTrip"], {"cleared": 0, "opened": 1, "setSnapshot": 1})
+
     def test_the_plddt_theme_comes_from_an_extension_a_plugin_must_ask_for(self):
         # Restoring a session into a plugin without it silently falls back to chain colours.
         self.assertFalse(self.found["plddtWithoutExtension"])
@@ -122,6 +194,24 @@ class MolstarApiSurfaceTests(unittest.TestCase):
         self.assertTrue(self.found["screenshot"])
         self.assertTrue(self.found["project"])
         self.assertTrue(self.found["transparentBackground"])
+        self.assertEqual(self.found["cameraState"], ["position", "target", "up", "radius"])
+
+    def test_the_picture_the_page_saves_is_transparent_or_not_without_axes_at_the_size_asked(self):
+        if not self.found["webgl"]:
+            self.skipTest("this machine gave the child process no WebGL")
+        pictures = self.found["pictures"]
+        # esmfold_image.js reads and puts back these values of the screenshot helper, and gives it a resolution of its own.
+        self.assertEqual(pictures["values"], ["axes", "format", "illumination", "resolution", "transparent"])
+        self.assertTrue(pictures["transparentIsBoolean"])
+        self.assertEqual((pictures["axesName"], pictures["resolutionName"]), ("off", "viewport"))
+        self.assertTrue(pictures["viewportIsCanvas"])
+        self.assertTrue(pictures["customSize"])
+        self.assertEqual((pictures["opaqueAlpha"], pictures["transparentAlpha"]), (255, 0))
+
+    def test_the_page_sets_the_canvas_background_and_puts_the_axes_gizmo_in_a_corner(self):
+        if not self.found["webgl"]:
+            self.skipTest("this machine gave the child process no WebGL")
+        self.assertEqual(self.found["canvasProps"], {"background": True, "axes": "on", "location": "bottom-right"})
 
     def test_the_probe_still_answers_with_no_gpu_flags_where_the_suite_has_none(self):
         found = run_probe(["--no-webgl"])

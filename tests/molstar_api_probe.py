@@ -4,9 +4,11 @@
 
 """What the bundled Mol* offers the Fold View page, probed in a browser of its own.
 
-The page builds its controls on the Mol* 5.10.1 bundle's public surface: the
+The page builds its controls on the bundled Mol*'s public surface: the
 Viewer's options that hide its interface, the layout call that brings it back,
-the hover labels, the managers, the colour themes the layers need. This script
+the hover labels, the pointer events and the click's focus nodes, the managers
+(measurement, snapshots, components), the picture helper, the colour themes and
+legends, the layers' MolViewSpec properties. This script
 runs that surface in Qt WebEngine and prints what it found as one JSON line,
 so that tests/test_molstar_api_surface.py can pin it, and so that a newer Mol*
 (the vendored files in src/resources/esmfold/) can be accepted only when it
@@ -129,6 +131,150 @@ out.transforms = ['TransformStructureConformation', 'CustomModelProperties', 'Cu
 const snapshot = plugin.state.getSnapshot({camera: !!plugin.canvas3d});
 out.snapshotKeys = Object.keys(snapshot);
 
+// ---- What the page's pointer, pin, tools, representations, legends, session and picture rely on, beyond the names above.
+const subject = value => !!value && typeof value.subscribe === 'function' && typeof value.next === 'function' && 'value' in value;
+const interaction = plugin.behaviors.interaction;
+out.subjects = {
+    hover: subject(interaction.hover), click: subject(interaction.click),
+    measurement: subject(m.structure.measurement.behaviors.state),
+    hierarchySelection: typeof m.structure.hierarchy.behaviors.selection.subscribe === 'function',
+    cellStateUpdated: typeof plugin.state.data.events.cell.stateUpdated.subscribe === 'function',
+    log: has(plugin.log, ['info', 'warn', 'error'])
+};
+const hierarchy = () => m.structure.hierarchy.current.structures;
+const stateCells = () => plugin.state.data.cells;
+// The residue under a pointer, as esmfold_residue.js reads it from a loci.
+const residueOf = candidate => {
+    const entry = hierarchy().find(item => item.model?.cell.obj.data === candidate.structure.model);
+    const location = L.StructureElement.Loci.getFirstLocation(candidate);
+    const flags = L.StructureProperties.residue.secondary_structure_type(location);
+    const types = L.Types.SecondaryStructureType;
+    return {structureFound: !!entry, chain: L.StructureProperties.chain.auth_asym_id(location),
+            number: L.StructureProperties.residue.auth_seq_id(location), name: L.StructureProperties.atom.label_comp_id(location),
+            bfactor: L.StructureProperties.atom.B_iso_or_equiv(location),
+            secondary: types.is(flags, types.Flag.Helix) ? 'Helix' : types.is(flags, types.Flag.Beta) ? 'Strand' : types.is(flags, types.Flag.Turn) ? 'Turn' : null};
+};
+out.residue = residueOf(loci);
+const secondaryTypes = L.Types.SecondaryStructureType;
+out.secondaryFlags = {flags: ['Helix', 'Beta', 'Turn'].filter(name => typeof secondaryTypes.Flag[name] === 'number'), is: typeof secondaryTypes.is};
+// A pointer event is whatever is pushed into the subject, and reaches its subscribers as it is.
+const NO_KEYS = {shift: false, alt: false, control: false, meta: false};
+{
+    const heard = [];
+    const hearing = interaction.hover.subscribe(event => heard.push(event));
+    const event = {current: {loci}, modifiers: {}, buttons: 0, button: 0};
+    interaction.hover.next(event);
+    hearing.unsubscribe();
+    out.hoverDelivered = heard.length >= 2 && heard[heard.length - 1] === event;
+}
+// The representation's picking: a group of a render object is a residue (the tests, and a real pointer, rely on it).
+const reprOf = () => hierarchy()[0].components[0].representations[0].cell.obj.data.repr;
+const pick = group => ({loci: reprOf().getLoci({objectId: reprOf().renderObjects[0].id, instanceId: 0, groupId: group}), repr: reprOf()});
+out.pick = {renderObjects: reprOf().renderObjects.length > 0, residue: residueOf(pick(5).loci).number, structureLoci: L.StructureElement.Loci.is(pick(5).loci)};
+// Mol*'s own click puts the residue in focus with nodes of its own, tagged structure-focus-*: the page lets go of them.
+const focusCells = () => [...stateCells().values()].filter(cell => cell.transform.tags?.some(tag => tag.startsWith('structure-focus-')));
+const cellsBefore = stateCells().size;
+interaction.click.next({current: pick(5), modifiers: NO_KEYS, buttons: 1, button: 1});
+await wait(700);
+out.focusClick = {nodes: focusCells().length, focus: !!m.structure.focus.current,
+                  tags: [...new Set(focusCells().flatMap(cell => cell.transform.tags.filter(tag => tag.startsWith('structure-focus-'))))].sort(),
+                  roots: focusCells().filter(cell => cell.transform.tags.some(tag => tag.endsWith('-sel'))).length,
+                  grown: stateCells().size - cellsBefore};
+{
+    const raw = plugin.state.getSnapshot({camera: false});
+    out.focusInSnapshot = {tags: raw.data.tree.transforms.filter(node => (node.tags || []).some(tag => tag.startsWith('structure-focus-'))).length,
+                           focusKeys: Object.keys(raw.structureFocus || {}).sort()};
+}
+m.structure.focus.clear();
+await wait(400);
+{
+    const state = plugin.state.data, update = state.build();
+    for (const cell of focusCells().filter(item => item.transform.tags.some(tag => tag.endsWith('-sel')))) update.delete(cell.transform.ref);
+    await plugin.runTask(state.updateTree(update));
+    out.focusReleased = {nodes: focusCells().length, focus: !!m.structure.focus.current, back: stateCells().size === cellsBefore};
+}
+// The tools: a distance between two CA atoms and a label, in the measurement manager's own group, which Clear deletes.
+const residueLoci = number => L.StructureSelection.toLociWithSourceUnits(L.Queries.generators.atoms({
+    residueTest: c => L.StructureProperties.residue.auth_seq_id(c.element) === number})(new L.QueryContext(structure)));
+const caLoci = number => L.StructureSelection.toLociWithSourceUnits(L.Queries.generators.atoms({
+    residueTest: c => L.StructureProperties.residue.auth_seq_id(c.element) === number,
+    atomTest: c => L.StructureProperties.atom.label_atom_id(c.element) === 'CA'})(new L.QueryContext(structure)));
+{
+    const measurement = m.structure.measurement;
+    let heard = 0;
+    const hearing = measurement.behaviors.state.subscribe(() => { heard++; });
+    out.measurementBefore = {group: !!measurement.getGroup(), stateKeys: Object.keys(measurement.state).sort()};
+    await measurement.addDistance(caLoci(2), caLoci(8));
+    await measurement.addLabel(residueLoci(4));
+    const group = measurement.getGroup();
+    out.measurement = {distances: measurement.state.distances.length, labels: measurement.state.labels.length,
+                       groupKeys: group ? Object.keys(group).sort() : null, groupRef: group ? typeof group.ref : null,
+                       groupState: group ? typeof group.state : null, heard: heard > 1};
+    const state = plugin.state.data;
+    await plugin.runTask(state.updateTree(state.build().delete(group.ref)));
+    hearing.unsubscribe();
+    out.measurementCleared = {distances: measurement.state.distances.length, labels: measurement.state.labels.length, group: !!measurement.getGroup()};
+}
+// Colour legends of the built-in themes, as the Color by card draws them.
+{
+    const registry = plugin.representation.structure.themes.colorThemeRegistry;
+    const ss = registry.create('secondary-structure', {structure}, {}).legend;
+    const position = registry.create('sequence-id', {structure}, {}).legend;
+    const integers = list => Array.isArray(list) && list.length > 1 && list.every(Number.isInteger);
+    out.legends = {
+        secondary: {kind: ss?.kind, names: (ss?.table || []).map(row => row[0]).sort(), colors: integers((ss?.table || []).map(row => row[1]))},
+        position: {kind: position?.kind, colors: integers(position?.colors)}
+    };
+    const annotation = registry.get('mvs-annotation');
+    out.annotationTheme = ['annotationId', 'fieldName', 'palette'].filter(name => name in annotation.getParams({structure}));
+}
+// The undocumented MolViewSpec properties the page's layers attach (esmfold_layers.js).
+out.mvsProperties = {
+    model: ['mvs-is-mvs-model', 'mvs-annotations'].filter(name => !!plugin.customModelProperties.get(name)),
+    structure: ['mvs-annotation-tooltips'].filter(name => !!plugin.customStructureProperties.get(name))
+};
+// Another representation with Mol*'s defaults and its own colours, the colours of every representation changed, a representation removed.
+{
+    const component = hierarchy()[0].components[0];
+    const before = component.representations.length;
+    await plugin.builders.structure.representation.addRepresentation(component.cell, {
+        type: 'ball-and-stick', typeParams: {alpha: 0.5}, color: 'uniform', colorParams: {value: 0xff0000}});
+    await wait(400);
+    const made = hierarchy()[0].components[0].representations;
+    const params = made[made.length - 1].cell.transform.params;
+    out.addRepresentation = {added: made.length - before, type: params.type.name, alpha: params.type.params.alpha,
+                             theme: params.colorTheme.name, value: params.colorTheme.params.value};
+    await m.structure.component.updateRepresentationsTheme(hierarchy()[0].components, {color: 'uniform', colorParams: {value: 0x00ff00}});
+    await wait(300);
+    out.themeUpdate = hierarchy()[0].components[0].representations.map(item => [item.cell.transform.params.colorTheme.name, item.cell.transform.params.colorTheme.params.value]);
+    const state = plugin.state.data;
+    await plugin.runTask(state.updateTree(state.build().delete(made[made.length - 1].cell.transform.ref)));
+    out.representationRemoved = hierarchy()[0].components[0].representations.length === before;
+}
+// The session: Mol*'s own file (what the Session menu downloads and opens) and the plain snapshot the page posts to the Viewer.
+{
+    const camera = !!plugin.canvas3d;
+    const taken = plugin.state.getSnapshot({camera});
+    const blob = await m.snapshot.serialize({params: {camera}});
+    const file = JSON.parse(await blob.text());
+    out.serialize = {blob: blob instanceof Blob, keys: Object.keys(file).sort(), entries: file.entries.length,
+                     entryKeys: Object.keys(file.entries[0]).sort(), version: file.version, snapshotKeys: Object.keys(file.entries[0].snapshot)};
+    const clear = async () => {
+        const state = plugin.state.data, update = state.build();
+        for (const ref of state.tree.children.get(state.tree.root.ref).toArray()) update.delete(ref);
+        await plugin.runTask(state.updateTree(update));
+    };
+    await clear();
+    const cleared = hierarchy().length;
+    await m.snapshot.open(new File([JSON.stringify(file)], 'probe.molj'));
+    await wait(500);
+    const opened = hierarchy().length;
+    await clear();
+    await plugin.state.setSnapshot(taken);
+    await wait(500);
+    out.sessionRoundTrip = {cleared, opened, setSnapshot: hierarchy().length};
+}
+
 // A plugin without the Viewer's interface: pLDDT colours need the quality-assessment extension.
 const headless = async extensions => {
     const spec = molstar.lib.plugin.DefaultPluginSpec();
@@ -146,6 +292,41 @@ if (plugin.canvas3d) {
     out.screenshot = uri.startsWith('data:image/png;base64,') && uri.length > 2000;
     out.project = typeof plugin.canvas3d.camera.project === 'function';
     out.transparentBackground = typeof plugin.canvas3d.setProps === 'function';
+    // The picture the page saves: transparent or not, without the axes, at the canvas's size or a size asked for.
+    const helper = plugin.helpers.viewportScreenshot;
+    const kept = helper.behaviors.values.value;
+    const canvas = document.querySelector('#viewer canvas');
+    const decode = async options => {
+        helper.behaviors.values.next({...kept, axes: {name: 'off', params: {}}, ...options});
+        const image = new Image();
+        image.src = await helper.getImageDataUri();
+        await image.decode();
+        const picture = document.createElement('canvas');
+        picture.width = image.width;
+        picture.height = image.height;
+        const context = picture.getContext('2d', {willReadFrequently: true});
+        context.drawImage(image, 0, 0);
+        return {size: [image.width, image.height], alpha: context.getImageData(2, 2, 1, 1).data[3]};
+    };
+    try {
+        const viewport = await decode({transparent: false, resolution: {name: 'viewport', params: {}}});
+        const custom = await decode({transparent: false, resolution: {name: 'custom', params: {width: 2 * canvas.width, height: 2 * canvas.height}}});
+        const clear = await decode({transparent: true, resolution: {name: 'viewport', params: {}}});
+        out.pictures = {values: Object.keys(kept).sort(), transparentIsBoolean: typeof kept.transparent === 'boolean',
+                        axesName: kept.axes && kept.axes.name, resolutionName: kept.resolution && kept.resolution.name,
+                        viewportIsCanvas: viewport.size[0] === canvas.width && viewport.size[1] === canvas.height,
+                        customSize: custom.size[0] === 2 * canvas.width && custom.size[1] === 2 * canvas.height,
+                        opaqueAlpha: viewport.alpha, transparentAlpha: clear.alpha};
+    } finally {
+        helper.behaviors.values.next(kept);
+    }
+    // What the page sets on the canvas whatever a session says: the background, and the axes gizmo in a corner.
+    const axes = plugin.canvas3d.props.camera.helper.axes;
+    plugin.canvas3d.setProps({renderer: {backgroundColor: 0x123456},
+                              camera: {helper: {axes: axes.name === 'on' ? {name: 'on', params: {...axes.params, location: 'bottom-right'}} : axes}}});
+    out.canvasProps = {background: plugin.canvas3d.props.renderer.backgroundColor === 0x123456, axes: plugin.canvas3d.props.camera.helper.axes.name,
+                       location: (plugin.canvas3d.props.camera.helper.axes.params || {}).location};
+    out.cameraState = ['position', 'target', 'up', 'radius'].filter(name => name in plugin.canvas3d.camera.state);
 } else {
     out.screenshot = null;
 }
