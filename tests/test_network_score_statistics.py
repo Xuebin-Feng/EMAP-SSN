@@ -584,6 +584,28 @@ class ChunkedStatisticsAreExact(unittest.TestCase):
                 for before, after in zip(kept, (first.scores, first.sources, first.targets)):
                     self.assertEqual(before.tolist(), after.tolist())
 
+    def test_pair_positions_are_the_stored_offsets_of_the_kept_pairs(self):
+        # read(positions=True) says where each kept pair sits among the stored pairs, whether or
+        # not a node subset removed some of its slice, and costs nothing when not asked for.
+        with h5py.File(self.networks.folder / "random.h5", "r") as hf:
+            sources, targets = hf["i"][:], hf["j"][:]
+            kept = np.arange(len(hf["headers"])) % 2 == 0
+            valid = kept[sources] & kept[targets]
+            for mask in (None, kept):
+                source = stats.ScoreSource(hf, is_blast=False, kept_mask=mask)
+                for start, stop in ((0, 1), (0, 997), (997, 2500), (11_000, 12_000)):
+                    with self.subTest(subset=mask is not None, start=start, stop=stop):
+                        piece = source.read(start, stop, nodes=True, positions=True)
+                        expected = np.arange(start, stop)
+                        if mask is not None:
+                            expected = expected[valid[start:stop]]
+                        self.assertEqual(piece.positions.dtype, np.int64)
+                        np.testing.assert_array_equal(piece.positions, expected)
+                        self.assertEqual(len(piece.positions), len(piece.scores))
+                        self.assertIsNone(source.read(start, stop, nodes=True).positions)
+            empty = stats.ScoreSource(hf, is_blast=False).read(0, 0, nodes=True, positions=True)
+            self.assertEqual(len(empty.positions), 0)
+
     def test_a_cancelled_run_stops_and_says_so(self):
         path, fasta = self.networks.folder / "random.h5", self.networks.folder / "random.all.fasta"
         calls = []

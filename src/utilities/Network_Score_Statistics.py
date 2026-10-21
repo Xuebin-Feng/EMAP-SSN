@@ -162,14 +162,15 @@ def statistics_normalize(raw_scores, alignment_lengths, source_lengths, target_l
 
 
 class Slice:
-    """The scored pairs of one slice: scores, and the nodes of each pair when asked for."""
+    """The scored pairs of one slice: scores, and the nodes and stored positions of each pair when asked for."""
 
-    __slots__ = ("scores", "sources", "targets")
+    __slots__ = ("scores", "sources", "targets", "positions")
 
-    def __init__(self, scores, sources=None, targets=None):
+    def __init__(self, scores, sources=None, targets=None, positions=None):
         self.scores = scores
         self.sources = sources
         self.targets = targets
+        self.positions = positions
 
 
 class ScoreSource:
@@ -243,8 +244,12 @@ class ScoreSource:
         dataset.read_direct(buffer, source_sel=np.s_[start:stop], dest_sel=np.s_[0:count])
         return buffer[:count]
 
-    def read(self, start, stop, nodes=False, check_nodes=False):
-        """The scored pairs of slice start:stop. check_nodes also checks the pair indices against node_count."""
+    def read(self, start, stop, nodes=False, check_nodes=False, positions=False):
+        """The scored pairs of slice start:stop. check_nodes also checks the pair indices against node_count.
+
+        positions=True also returns where each kept pair sits among the stored pairs
+        (start + its offset), as int64: the pair order a caller can break ties by.
+        """
         raw_scores = self._read(self.score_name, start, stop)
         if not self.is_blast and self.cast_float32:
             raw_scores = raw_scores.astype(np.float32, copy=False)
@@ -261,8 +266,11 @@ class ScoreSource:
             alignment_lengths = self._read(self.length_name, start, stop)
             if self.cast_float32:
                 alignment_lengths = alignment_lengths.astype(np.float32)
+        pair_positions = None
         if self.kept_mask is not None:
             valid = self.kept_mask[sources] & self.kept_mask[targets]
+            if positions:
+                pair_positions = np.flatnonzero(valid) + np.int64(start)
             raw_scores = raw_scores[valid]
             sources = sources[valid]
             targets = targets[valid]
@@ -282,11 +290,13 @@ class ScoreSource:
             scores = self.normalize(
                 raw_scores, alignment_lengths, source_lengths, target_lengths, self.norm_mode
             )
+        if positions and pair_positions is None:
+            pair_positions = np.arange(start, start + len(scores), dtype=np.int64)
         if nodes:
             if self.kept_mask is None:  # still views of the buffers
                 sources, targets = sources.copy(), targets.copy()
-            return Slice(scores, sources, targets)
-        return Slice(scores)
+            return Slice(scores, sources, targets, pair_positions)
+        return Slice(scores, positions=pair_positions)
 
 
 # --- Running a pass over the slices ---------------------------------------------------

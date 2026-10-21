@@ -854,11 +854,47 @@ def _read_pair_scores(data, settings, pair_mask, valid_sources, valid_targets):
     )
 
 
+def _strongest_pairs(data, settings, *, kept_mask, keep_limit):
+    """The pairs that are among the best ``keep_limit`` of their source or of their target.
+
+    Returns the stored node indices of each pair and its score, in the order of
+    the stored pairs, streaming the network instead of loading its columns. A
+    node's best pairs are the highest scores; equal scores go to the pair stored
+    first. A subset of nodes (``kept_mask``) ranks only the pairs between its
+    nodes, as the network's columns would be filtered before ranking.
+    """
+    from utilities import Network_Score_Statistics as scan
+    from utilities import Network_Top_Edges as top
+
+    total_nodes = len(kept_mask)
+    all_kept = bool(kept_mask.all())
+    score_mode, norm_mode = "global", "alignment_length"
+    if not settings.INPUT_IS_EVALUE:  # E-value scores are stored as they are used
+        score_mode = "global" if settings.ALIGNMENT_SCORE == "global" else "local"
+        norm_mode = settings.NORM_MODE
+    source = scan.ScoreSource(
+        data,
+        is_blast=settings.INPUT_IS_EVALUE,
+        score_mode=score_mode,
+        norm_mode=norm_mode,
+        kept_mask=None if all_kept else kept_mask,
+        # This module's own normalization, on the columns as stored.
+        normalize=_normalize_score,
+        cast_float32=False,
+        # With every node kept, a pair index past the header count is an error
+        # that no mask would catch; with a subset, the mask's lookup raises it.
+        node_count=total_nodes if all_kept else None,
+    )
+    _, sources, targets, scores = top.strongest_edges(source, total_nodes, keep_limit)
+    return sources, targets, scores
+
+
 def prepare_network(data, *, settings, selected_fasta_headers):
     """Return filtered ``(headers, edges, scores)`` for an open network file.
 
     Only nodes named in ``selected_fasta_headers`` (the selected FASTA's
-    sanitized headers) are kept.
+    sanitized headers) are kept. In UMAP mode only each node's best
+    ``UMAP_NEIGHBORS`` edges, as a source and as a target, are returned.
     """
     metadata = cache_manifest.validate_network_schema(data)
     settings.INPUT_IS_EVALUE = metadata.network_type == "blast"
@@ -869,9 +905,6 @@ def prepare_network(data, *, settings, selected_fasta_headers):
         for header in raw_headers
     ]
     total_nodes = len(headers)
-
-    sources = data["i"][:]
-    targets = data["j"][:]
 
     print(f"Raw Data: {total_nodes} sequences.")
     if not settings.INPUT_IS_EVALUE:
@@ -928,6 +961,28 @@ def prepare_network(data, *, settings, selected_fasta_headers):
     index_map = np.zeros(total_nodes, dtype=np.int32)
     index_map[kept_indices] = np.arange(len(kept_indices))
 
+    if getattr(settings, "UMAP_MODE", False):
+        # The pairs are streamed: a network can hold close to a billion of them, and
+        # their columns, a sorted copy and the group codes need far more memory.
+        print(
+            "UMAP Mode enabled: Bypassing global threshold. Filtering top k "
+            "edges per node..."
+        )
+        keep_limit = int(getattr(settings, "UMAP_NEIGHBORS", 15))
+        edge_sources, edge_targets, edge_scores = _strongest_pairs(
+            data, settings, kept_mask=kept_mask, keep_limit=keep_limit
+        )
+        print(
+            f"Kept {len(edge_scores)} edges for UMAP topology "
+            f"(max {keep_limit} per node direction)."
+        )
+        edges = np.column_stack(
+            (index_map[edge_sources], index_map[edge_targets])
+        ).astype(np.int32)
+        return filtered_headers, edges, edge_scores
+
+    sources = data["i"][:]
+    targets = data["j"][:]
     if kept_mask.all():
         # Every pair is valid, so skip the pair mask and its full-length
         # copies (seconds on networks with tens of millions of pairs). The
@@ -944,7 +999,7 @@ def prepare_network(data, *, settings, selected_fasta_headers):
     )
 
     top_percent = getattr(settings, "TOP_EDGE_PERCENT", None)
-    if top_percent is not None and not getattr(settings, "UMAP_MODE", False):
+    if top_percent is not None:
         active_nodes = len(kept_indices)
         theoretical_max_edges = (active_nodes * (active_nodes - 1)) / 2.0
         edge_count = int(theoretical_max_edges * (top_percent / 100.0))
@@ -966,34 +1021,7 @@ def prepare_network(data, *, settings, selected_fasta_headers):
         print(f"Calculated {mode_label} Cutoff: {calculated_cutoff:.5f}")
         settings.SIMILARITY_THRESHOLD = calculated_cutoff
 
-    if getattr(settings, "UMAP_MODE", False):
-        print(
-            "UMAP Mode enabled: Bypassing global threshold. Filtering top k "
-            "edges per node..."
-        )
-        keep_limit = int(getattr(settings, "UMAP_NEIGHBORS", 15))
-        import pandas as pd
-
-        frame = pd.DataFrame(
-            {
-                "u": valid_sources,
-                "v": valid_targets,
-                "score": valid_scores,
-                "idx": np.arange(len(valid_scores)),
-            }
-        )
-        sorted_frame = frame.sort_values("score", ascending=False)
-        top_sources = sorted_frame.groupby("u").head(keep_limit)["idx"]
-        top_targets = sorted_frame.groupby("v").head(keep_limit)["idx"]
-        kept_edge_indices = pd.concat([top_sources, top_targets]).unique()
-        threshold_mask = np.zeros(len(valid_scores), dtype=bool)
-        threshold_mask[kept_edge_indices] = True
-        print(
-            f"Kept {len(kept_edge_indices)} edges for UMAP topology "
-            f"(max {keep_limit} per node direction)."
-        )
-    else:
-        threshold_mask = valid_scores >= settings.SIMILARITY_THRESHOLD
+    threshold_mask = valid_scores >= settings.SIMILARITY_THRESHOLD
 
     final_sources = index_map[valid_sources[threshold_mask]]
     final_targets = index_map[valid_targets[threshold_mask]]
