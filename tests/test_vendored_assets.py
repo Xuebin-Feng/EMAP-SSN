@@ -29,7 +29,7 @@ VENDORED = {
 }
 
 
-# Mol* 5.10.1: the files of the Fold View, each with a three-line banner before
+# Mol* 5.13.1: the files of the Fold View, each with a three-line banner before
 # the upstream body, whose SHA-256 THIRD_PARTY_LICENSES.md records.
 MOL_STAR = ("resources/esmfold/molstar.js", "resources/esmfold/molstar.css", "resources/esmfold/molstar-dark.css")
 

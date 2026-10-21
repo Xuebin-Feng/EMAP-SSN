@@ -22,7 +22,7 @@ body is otherwise unchanged.
 
 | Component | Version | License | Location | License text |
 |---|---|---|---|---|
-| [Mol*](https://github.com/molstar/molstar) | 5.10.1 | MIT; its bundle compiles in RxJS (Apache-2.0) and 77 MIT, ISC and 0BSD packages | `src/resources/esmfold/molstar.js`, `molstar.css`, `molstar-dark.css` | [`LICENSE.molstar`](src/resources/esmfold/LICENSE.molstar); bundled packages: [`NOTICES.molstar-bundle`](src/resources/esmfold/NOTICES.molstar-bundle) |
+| [Mol*](https://github.com/molstar/molstar) | 5.13.1 | MIT; its bundle compiles in RxJS (Apache-2.0) and 77 MIT, ISC and 0BSD packages | `src/resources/esmfold/molstar.js`, `molstar.css`, `molstar-dark.css` | [`LICENSE.molstar`](src/resources/esmfold/LICENSE.molstar); bundled packages: [`NOTICES.molstar-bundle`](src/resources/esmfold/NOTICES.molstar-bundle) |
 | [Tabulator](https://github.com/olifolkerd/tabulator) | 6.2.1 | MIT | `src/resources/meta/tabulator.min.js`, `tabulator.min.css` | [`LICENSE.tabulator`](src/resources/meta/LICENSE.tabulator) |
 | [marked](https://github.com/markedjs/marked) | 18.0.9 | MIT | `src/resources/agent/marked.umd.js` | [`LICENSE.marked`](src/resources/agent/LICENSE.marked) |
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT; the fonts SIL OFL 1.1 (also MIT per the KaTeX repository) | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex); fonts: [`LICENSE.OFL`](src/resources/fonts/LICENSE.OFL) |
@@ -32,15 +32,20 @@ body is otherwise unchanged.
 | [UniProtKB/Swiss-Prot](https://www.uniprot.org/) sequences | Release 2026_03, 952 entries of InterPro IPR001279 | CC BY 4.0 | `src/resources/benchmark/benchmark_sequences.fasta`, `injection_sequences.fasta` | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); attribution in [`README.md`](src/resources/benchmark/README.md) |
 
 - Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15 from
-  the official npm package `molstar@5.10.1`, whose version is embedded in the
-  JavaScript bundle. After removing only this project's three-line attribution
-  banner, the three files match the official jsDelivr npm artifacts
-  byte-for-byte:
-  `molstar.js` SHA-256 `5567eb19fa8e7a7b3b161d4b96807c4db244cecd2f3e7c87f99c052b8b5b5b30`;
-  `molstar.css` SHA-256 `5b68ceb6d3642549b4e9b2c071e58e41b98a5350ae269180587b39da86925d55`;
+  the official npm package `molstar@5.10.1` and replaced on 2026-10-21 by
+  `molstar@5.13.1`, whose version is embedded in the JavaScript bundle. The
+  5.13.1 tarball came from `registry.npmjs.org` and matched the registry's
+  `dist.integrity`
+  (`sha512-iExD98bJN2P4JK6+pVMwdJlPePldBH8oNT0pZhs8ucxOp086NU2b/gThKwYMC3SWkdmv++a1g4fGwKfu4Glx1w==`);
+  the 5.10.1 bytes this project had vendored were the same files as that
+  version's tarball. After removing only this project's three-line attribution
+  banner, the three files are the package's, byte-for-byte:
+  `molstar.js` SHA-256 `4fc6493c2471db8834dcc391151b344d7017e4eb8a4eb76c152be5f9dbd23874`;
+  `molstar.css` SHA-256 `22fbf73b75c11ef57687d08437c95dbfe8430ea895264f6da2b9b01e28bacc49`;
   `molstar-dark.css` (the package's `build/viewer/theme/dark.css`, added
   2026-10-21 so the Fold View's Advanced view follows the page's dark theme)
-  SHA-256 `9616828308fa7ed02b54103b1923986ad86afe23b96e8761e6628958d278a3b8`.
+  SHA-256 `5269a2ca53024decd4e6cfb51ec7c78e7f5eba2c887ae0d0041555219f22cc5b`.
+  The package's `LICENSE` is the same MIT text in both versions.
   - Bundled packages: `molstar.js` compiles in 78 npm packages, which
     [`NOTICES.molstar-bundle`](src/resources/esmfold/NOTICES.molstar-bundle)
     lists with their versions and copyright lines, followed by the text of each
@@ -55,8 +60,15 @@ body is otherwise unchanged.
     react-markdown with remark-gfm and the unified, remark, micromark, mdast,
     hast, unist and vfile packages they use; `@ungap/structured-clone` is ISC
     and tslib is 0BSD. The list comes from the source map published with the
-    bundle, at the versions in Mol* v5.10.1's `package-lock.json`, and each
-    package's npm tarball matched that lockfile's sha512.
+    bundle (the same 78 packages as in 5.10.1). The versions are those of
+    Mol* v5.10.1's `package-lock.json`, whose npm tarballs matched that
+    lockfile's sha512, except six packages whose bundled files changed in
+    5.13.1: for each, the version is the only published one whose tarball
+    (checked against its `dist.integrity`) holds exactly the text the source
+    map carries (`@ungap/structured-clone` 1.3.3, `decode-named-character-reference`
+    1.3.0, `immutable` 5.1.9, `mdast-util-from-markdown` 2.0.3,
+    `property-information` 7.2.0, `unist-util-visit` 5.1.0). Their licence files
+    and copyright lines are unchanged.
 - Tabulator: Copyright (c) 2015-2024 Oli Folkerd. Vendored 2026-07-04 and moved
   unchanged to `src/resources/meta/` on 2026-07-07.
 - marked: Copyright (c) 2018+, MarkedJS; Copyright (c) 2011-2018, Christopher
@@ -450,7 +462,14 @@ attribution banner where the project uses one (Mol* and Tabulator). For Mol*,
 re-verify the recorded SHA-256 values (the bundle and both style sheets) with
 the banner removed, and remake
 `NOTICES.molstar-bundle` from the new bundle's source map and Mol*'s
-`package-lock.json` as its header describes. When a ported function changes or
+`package-lock.json` as its header describes. (The lock file is not in the npm
+package. Without it, compare each bundled package's text in the new source map
+with the old one's, and for a package whose text changed take the published
+version whose tarball holds exactly the new text, as for 5.13.1.) The Fold View
+page and its Mol* tests are part of the same refresh: `tests/molstar_api_probe.py`
+with `tests/test_molstar_api_surface.py` (the surface the page uses),
+`tests/test_esmfold_saved_sessions.py` (sessions saved by the earlier Mol*) and
+the MolViewSpec property names of `tests/test_esmfold_layers.py`. When a ported function changes or
 another is ported, update "Derived code". Regenerate both
 `fonts.css` copies together. When `ESM_VERSION` changes, re-derive
 `src/esm_runtime_requirements.txt` from the new release's metadata. Whenever a

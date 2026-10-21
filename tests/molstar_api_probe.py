@@ -56,6 +56,9 @@ out.libPlugin = ['PluginContext', 'DefaultPluginSpec', 'PluginConfig', 'StateTra
 out.libStructure = ['StructureElement', 'StructureProperties', 'Unit', 'Queries', 'QueryContext', 'StructureSelection']
     .filter(name => name in molstar.lib.structure);
 out.libMath = ['LinearAlgebra'].filter(name => name in molstar.lib.math);
+// Mol*'s superposition algorithms are not on the global, which is why esmfold_superposition.js has its own.
+out.superposition = Object.entries(molstar.lib).flatMap(([group, namespace]) => Object.keys(namespace || {}).map(name => group + '.' + name))
+    .filter(name => /superpos|tmalign|alignandsuperpose/i.test(name));
 
 // The Viewer as the page makes it: no Mol* interface, only the canvas.
 const viewer = await molstar.Viewer.create('viewer', {
@@ -329,6 +332,27 @@ if (plugin.canvas3d) {
     out.cameraState = ['position', 'target', 'up', 'radius'].filter(name => name in plugin.canvas3d.camera.state);
 } else {
     out.screenshot = null;
+}
+
+// Mol*'s own remove of a structure takes the structure and leaves the nodes it came from (the download or raw data,
+// its parse and its model), which esmfold_structures.js deletes itself from the top of the chain (structureDataRoot).
+{
+    const kinds = () => {
+        const counts = {};
+        for (const cell of stateCells().values()) {
+            const id = cell.transform.transformer.id.replace('ms-plugin.', '');
+            counts[id] = (counts[id] || 0) + 1;
+        }
+        return counts;
+    };
+    const before = kinds();
+    await m.structure.hierarchy.remove(hierarchy());
+    await wait(500);
+    const left = kinds();
+    const state = plugin.state.data, update = state.build();
+    for (const ref of state.tree.children.get(state.tree.root.ref).toArray()) update.delete(ref);
+    await plugin.runTask(state.updateTree(update));
+    out.hierarchyRemove = {before, left, structures: hierarchy().length, afterRootDelete: stateCells().size};
 }
 return out;
 """

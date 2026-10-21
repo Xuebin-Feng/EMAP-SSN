@@ -44,7 +44,7 @@ def run_probe(extra=()):
 
 class MolstarApiSurfaceTests(unittest.TestCase):
     # The vendored bundle's version, which THIRD_PARTY_LICENSES.md and src/resources/esmfold/ name too.
-    VERSION = "5.10.1"
+    VERSION = "5.13.1"
 
     @classmethod
     def setUpClass(cls):
@@ -59,6 +59,11 @@ class MolstarApiSurfaceTests(unittest.TestCase):
             "StructureElement", "StructureProperties", "Unit", "Queries", "QueryContext", "StructureSelection"])
         self.assertEqual(self.found["libMath"], ["LinearAlgebra"])
         self.assertEqual(self.found["viewerMethods"], ["loadStructureFromData", "loadStructureFromUrl", "handleResize"])
+
+    def test_the_global_still_has_no_superposition_of_mol_stars_for_the_page_to_use(self):
+        # esmfold_superposition.js fits structures itself because Mol*'s alignAndSuperpose and tmAlign are not on the global
+        # If one appears here, the page's own fit could be compared with it, and its comment in esmfold_superposition.js is stale.
+        self.assertEqual(self.found["superposition"], [])
 
     def test_the_viewer_draws_no_interface_of_its_own_but_for_two_buttons_the_page_hides(self):
         self.assertEqual(self.found["hiddenRegions"], {"left": 0, "right": 0, "top": 0, "bottom": 0})
@@ -182,6 +187,16 @@ class MolstarApiSurfaceTests(unittest.TestCase):
         for key in ("id", "data", "animation", "camera", "canvas3d", "interactivity", "structureFocus", "structureComponentManager"):
             self.assertIn(key, file["snapshotKeys"])
         self.assertEqual(found["sessionRoundTrip"], {"cleared": 0, "opened": 1, "setSnapshot": 1})
+
+    def test_mol_stars_own_remove_takes_the_structure_and_leaves_the_nodes_it_came_from(self):
+        removed = self.found["hierarchyRemove"]
+        # esmfold_structures.js deletes the top of the chain itself (structureDataRoot); if Mol* ever took the whole chain
+        # this would change, and the page's own deletion could be simplified, not before.
+        self.assertEqual(removed["structures"], 0)
+        self.assertEqual(removed["left"], {
+            "build-in.root": 1, "raw-data": 1, "trajectory-from-pdb": 1, "model-from-trajectory": 1, "custom-model-properties": 1})
+        self.assertNotIn("structure-from-model", removed["left"])
+        self.assertEqual(removed["afterRootDelete"], 1)
 
     def test_the_plddt_theme_comes_from_an_extension_a_plugin_must_ask_for(self):
         # Restoring a session into a plugin without it silently falls back to chain colours.
