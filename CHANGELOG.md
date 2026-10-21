@@ -361,8 +361,21 @@ still change before version 1.0.0.
   deletes the input of a worker that has ended, never one still running. The VR tests and
   tools also stopped leaving a settings file, scripts and build folders in the temporary
   folder on every run, and a test now checks that they leave nothing.
-
-## [0.4.0] - 2026-10-16
+- UMAP mode stalled on large networks at "Filtering top k edges per node...".
+  - **Before:** it loaded every pair, then sorted and grouped all of them in pandas. That
+    is about 91 bytes per pair, or about 88 GB for a 44,000-sequence network of 974
+    million pairs, so it paged for hours on a 48 GB machine.
+  - **Now:** it reads the network in slices and keeps only each node's strongest
+    UMAP_NEIGHBORS edges as it goes. The same network takes about 6 s and 0.4 GB, and a
+    whole 44,000-sequence UMAP layout about 30 s.
+  - **Where it applies:** layout generation, opening a UMAP cache in the Viewer and the
+    VR viewer, and the benchmark.
+  - **Ties:** where edges tie at a node's last kept place, the kept edges are now the
+    same on every computer (higher score first, then the pair stored first in the
+    network file). Before, they depended on the CPU and NumPy build. Networks without
+    such ties keep exactly the same edges. Networks with many tied scores keep a
+    different choice among the tied edges: about 14 % of kept edges on a 13,000-sequence
+    BLAST network, where many E-values are 0.
 
 ### Highlights
 
