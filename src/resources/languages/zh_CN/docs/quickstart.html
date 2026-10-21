@@ -506,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="690b05f86fe2c6d2a297c081604448206f1d209c8708274eb83b732992386639">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="253cc04dc9193a378e0ef545c139efb20dadc2180f7a4c5692c78419137b49af">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -631,6 +631,9 @@
                         <h4><svg class="icon" aria-hidden="true"><use href="#i-dna"/></svg><span>结构视图：Mol* 3D 结构查看器</span></h4>
                         <p style="font-size: 0.88rem;">
                             点击<strong>结构视图</strong>会打开 Mol* 结构查看器，用于查看由 <code>esmfold</code> 命令预测的结构。选中一个节点并运行 <code>esmfold</code>，即可用本地的 ESM3 1.4B 模型预测其结构；运行 <code>esmfold large</code>，则通过 Biohub 的 API 使用 ESM3 Large；<code>multi</code> 允许同时处理多个选中的节点。预测结果在 Mol* 中打开，把网络视图与原子结构衔接起来。
+                        </p>
+                        <p style="font-size: 0.88rem;">
+                            在该页面中，<strong>着色依据</strong>可按 pLDDT、按结构颜色或按残基图层（如由折叠时查看器中已加载的比对计算出的保守性）为结构着色。将指针悬停在残基上会显示其数值，单击可固定该残基，画布下方的序列条显示相同的残基。工具栏可测量两个残基之间的距离、标注残基，并保存带图例的图片。可通过<strong>会话</strong>菜单添加 PDB 或 mmCIF 文件，也可直接将文件拖放到页面上。
                         </p>
                     </div>
                 </div>

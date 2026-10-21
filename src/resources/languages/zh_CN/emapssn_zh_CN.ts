@@ -3565,12 +3565,12 @@ Command-line usage:
     <message>
         <location line="+2"/>
         <location line="+0"/>
-        <location line="+110"/>
+        <location line="+114"/>
         <source>Save an image</source>
         <translation type="unfinished">保存图片</translation>
     </message>
     <message>
-        <location line="-109"/>
+        <location line="-113"/>
         <location line="+0"/>
         <source>Full screen</source>
         <translation type="unfinished">全屏</translation>
@@ -3627,11 +3627,66 @@ Command-line usage:
         <translation type="unfinished">运行 &lt;code&gt;esmfold&lt;/code&gt; 或 &lt;code&gt;esmfold multi&lt;/code&gt;。</translation>
     </message>
     <message>
+        <location line="+57"/>
+        <source>Pin a residue</source>
+        <translation type="unfinished">固定残基</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Click it, in 3D or in the sequence; click empty space to let go</source>
+        <translation type="unfinished">在 3D 视图或序列中单击它；单击空白处可取消固定</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Measure or label</source>
+        <translation type="unfinished">测量或标注</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Choose the ruler or the tag in the toolbar, then click two residues (one for a label)</source>
+        <translation type="unfinished">在工具栏中选择尺子或标签，然后单击两个残基（标注只需一个）</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Moves through the controls; the 3D view and the sequence are one stop each</source>
+        <translation type="unfinished">在各控件间移动；3D 视图和序列各占一个停靠点</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Arrow keys</source>
+        <translation type="unfinished">方向键</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Pin the next or previous residue; in the sequence, Up and Down move ten</source>
+        <translation type="unfinished">固定下一个或上一个残基；在序列中，上下键一次移动十个</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>F</source>
+        <translation type="unfinished">F</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Comes to the pinned residue</source>
+        <translation type="unfinished">缩放到已固定的残基</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>R</source>
+        <translation type="unfinished">R</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Resets the view</source>
+        <translation type="unfinished">重置视图</translation>
+    </message>
+    <message>
         <source>This Viewer has no window. Run &lt;code&gt;esmfold&lt;/code&gt; from its command line or an MCP client: the structures appear here.</source>
         <translation type="obsolete">此查看器没有窗口。请在它的命令行或 MCP 客户端中运行 &lt;code&gt;esmfold&lt;/code&gt;：结构会显示在这里。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-63"/>
         <source>This Viewer has no window. An MCP client, or whatever else drives it, selects a node and runs &lt;code&gt;esmfold&lt;/code&gt;; the structure appears here.</source>
         <translation type="unfinished">此查看器没有窗口。由 MCP 客户端（或其他驱动它的程序）选择节点并运行 &lt;code&gt;esmfold&lt;/code&gt;；结构会显示在这里。</translation>
     </message>
@@ -3643,7 +3698,7 @@ Command-line usage:
     <message>
         <location line="+4"/>
         <source>3D graphics are not available</source>
-        <translation type="unfinished">三维图形不可用</translation>
+        <translation type="unfinished">3D 图形不可用</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -3728,39 +3783,40 @@ Command-line usage:
         <translation type="unfinished">按住右键拖动，或 Shift + 拖动</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Focus a residue</source>
-        <translation type="unfinished">聚焦残基</translation>
+        <translation type="obsolete">聚焦残基</translation>
     </message>
     <message>
-        <location line="+0"/>
         <source>Click it; click empty space to clear</source>
-        <translation type="unfinished">单击残基；单击空白处取消</translation>
+        <translation type="obsolete">单击残基；单击空白处取消</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+4"/>
         <source>Keyboard</source>
         <translation type="unfinished">键盘</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Moves through the controls</source>
-        <translation type="unfinished">在控件间移动</translation>
+        <translation type="obsolete">在控件间移动</translation>
     </message>
     <message>
-        <location line="+0"/>
+        <location line="+2"/>
         <source>Tab</source>
         <translation type="unfinished">Tab</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Closes this dialog, or leaves the Advanced view</source>
-        <translation type="unfinished">关闭此对话框，或退出高级视图</translation>
+        <translation type="obsolete">关闭此对话框，或退出高级视图</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Esc</source>
+        <translation type="unfinished">Esc</translation>
     </message>
     <message>
         <location line="+0"/>
-        <source>Esc</source>
-        <translation type="unfinished">Esc</translation>
+        <source>Closes a dialog, leaves Measure or Labels, lets go of the pin, or leaves the Advanced view, in that order</source>
+        <translation type="unfinished">依次：关闭对话框、退出测量或标注、取消固定、退出高级视图</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -3841,7 +3897,7 @@ Command-line usage:
     <message>
         <location line="+113"/>
         <source>3D structure view. Arrow keys step through the residues, F comes to the pinned one, R resets the view, Escape lets go of it.</source>
-        <translation type="unfinished">三维结构视图。方向键逐个选择残基，F 缩放到已固定的残基，R 重置视图，Esc 取消固定。</translation>
+        <translation type="unfinished">3D 结构视图。方向键逐个选择残基，F 缩放到已固定的残基，R 重置视图，Esc 取消固定。</translation>
     </message>
     <message>
         <location filename="../../../web_ui/esmfold_image.js" line="+102"/>

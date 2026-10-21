@@ -261,6 +261,29 @@ class ShellTests(PageTestCase):
         closed = self.script("return {open: document.getElementById('help-modal').classList.contains('open'), focus: document.activeElement.id, adv: document.body.dataset.adv}")
         self.assertEqual(closed, {"open": False, "focus": "help-btn", "adv": "0"})
 
+    def test_the_help_dialog_lists_every_way_to_use_the_canvas_the_page_has(self):
+        # The strip's and the canvas's keys (esmfold_sequence.js), the tools' clicks (esmfold_tools.js) and Escape's order
+        # (esmfold_shell.js) are each tested where they live; the dialog has to say them, in the page's words.
+        self.open_page()
+        mouse, keyboard = self.script("""
+            return [...document.querySelectorAll('#help-modal table')].map(table =>
+                [...table.rows].map(row => [...row.cells].map(cell => cell.textContent)));
+            """)
+        self.assertEqual(mouse, [
+            ["Rotate", "Drag with the left button"],
+            ["Zoom", "Scroll wheel, or pinch"],
+            ["Move", "Drag with the right button, or Shift + drag"],
+            ["Pin a residue", "Click it, in 3D or in the sequence; click empty space to let go"],
+            ["Measure or label", "Choose the ruler or the tag in the toolbar, then click two residues (one for a label)"],
+        ])
+        self.assertEqual(keyboard, [
+            ["Tab", "Moves through the controls; the 3D view and the sequence are one stop each"],
+            ["Arrow keys", "Pin the next or previous residue; in the sequence, Up and Down move ten"],
+            ["F", "Comes to the pinned residue"],
+            ["R", "Resets the view"],
+            ["Esc", "Closes a dialog, leaves Measure or Labels, lets go of the pin, or leaves the Advanced view, in that order"],
+        ])
+
     # The layers' own names are the data of the residue file, not the page's words, and the residues of the
     # sequence strip (their letters and three-letter names) are the structure's data too.
     SHOWN = """(() => {

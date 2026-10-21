@@ -2535,11 +2535,19 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Focus a residue</source>
+        <source>Pin a residue</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Click it; click empty space to clear</source>
+        <source>Click it, in 3D or in the sequence; click empty space to let go</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Measure or label</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Choose the ruler or the tag in the toolbar, then click two residues (one for a label)</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2551,7 +2559,31 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Moves through the controls</source>
+        <source>Moves through the controls; the 3D view and the sequence are one stop each</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Arrow keys</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pin the next or previous residue; in the sequence, Up and Down move ten</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>F</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Comes to the pinned residue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>R</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Resets the view</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2559,7 +2591,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Closes this dialog, or leaves the Advanced view</source>
+        <source>Closes a dialog, leaves Measure or Labels, lets go of the pin, or leaves the Advanced view, in that order</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
