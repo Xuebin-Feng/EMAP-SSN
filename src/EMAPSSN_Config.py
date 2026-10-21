@@ -61,6 +61,8 @@ NORM_MODE = None
 UMAP_MODE = None
 UMAP_NEIGHBORS = None
 UMAP_MIN_DIST = None
+LAYOUT_METHOD = None
+PACMAP_NEIGHBORS = None
 TARGET_CACHE_FILE = os.environ.get("SSN_TARGET_CACHE", None)
 TARGET_CACHE_PATH = os.environ.get("SSN_TARGET_CACHE_PATH", None)
 TARGET_CACHE_MODE = os.environ.get("SSN_TARGET_CACHE_MODE", None)
@@ -764,6 +766,16 @@ if __name__ == "__main__":
             "shorter_sequence": translate("Config", "Shorter Sequence", "normalization"),
             "longer_sequence": translate("Config", "Longer Sequence", "normalization"),
             "average_sequence": translate("Config", "Average Sequence", "normalization"),
+        }
+
+    # The methods of a manifold layout, in the order the Layout Method dropdown lists them.
+    LAYOUT_METHOD_ORDER = ("umap", "pacmap")
+
+    def layout_method_names():
+        """What the window calls each layout method, by its stored value (LAYOUT_METHOD)."""
+        return {
+            "umap": translate("Config", "UMAP", "layout method"),
+            "pacmap": translate("Config", "PaCMAP", "layout method"),
         }
 
     def statistics_report_text(report):
@@ -2475,7 +2487,7 @@ if __name__ == "__main__":
                     notes=(
                         TipNote("info", translate("Config", "Prints and captures always draw every edge.")),
                         TipNote("info", translate("Config", "The environment variable `SSN_EDGE_MOTION_LOD=0` turns it off whatever this switch says.")),
-                        TipNote("info", translate("Config", "With Plot UMAP Instead on, only the selected nodes' edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.")),
+                        TipNote("info", translate("Config", "With Plot Manifold Instead on, only the selected nodes' edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.")),
                         TipNote("warning", translate("Config", "While it is on, the graphics card holds thinned copies of the drawn edges: about a third more memory for them.")),
                     ),
                 ),
@@ -2491,7 +2503,7 @@ if __name__ == "__main__":
                         translate("Config", "A right-button selection box colours the selected nodes and their neighbours only when you let go."),
                     ),
                     notes=(
-                        TipNote("info", translate("Config", "With Plot UMAP Instead on, nodes cannot be dragged, so only the threshold slider and the selection box apply.")),
+                        TipNote("info", translate("Config", "With Plot Manifold Instead on, nodes cannot be dragged, so only the threshold slider and the selection box apply.")),
                     ),
                 ),
                 "LOW_RESOURCE_WEBSERVER": Tip(
@@ -2501,7 +2513,7 @@ if __name__ == "__main__":
                         translate("Config", "It updates once a right-button selection box is let go, instead of at each move of the box."),
                     ),
                     notes=(
-                        TipNote("info", translate("Config", "With Plot UMAP Instead on, nodes cannot be dragged, so only the selection box applies.")),
+                        TipNote("info", translate("Config", "With Plot Manifold Instead on, nodes cannot be dragged, so only the selection box applies.")),
                     ),
                 ),
                 "SHOW_FPS": Tip(
@@ -2571,18 +2583,38 @@ if __name__ == "__main__":
                     details=(translate("Config", "Smaller cells pack components more tightly but take longer; the clearance kept between components does not change."),),
                 ),
                 "UMAP_MODE": Tip(
-                    translate("Config", "Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances."),
+                    translate("Config", "Uses a manifold method (UMAP or PaCMAP, chosen by Layout Method) to compute the 2D coordinates directly from each node's strongest edges, instead of simulating physics."),
                     details=(translate("Config", "Provides fast non-linear dimensionality reduction as an alternative to iterative physics simulations."),),
                 ),
-                "UMAP_NEIGHBORS": Tip(
+                "LAYOUT_METHOD": Tip(
+                    translate("Config", "The manifold method that computes the layout while Plot Manifold Instead is on."),
+                    options=(
+                        TipOption("umap", translate("Config", "Keeps each node close to its nearest neighbors; clusters land wherever the optimizer leaves them.")),
+                        TipOption("pacmap", translate("Config", "Also looks up the stored scores of random pairs of nodes, so clusters end up in a meaningful order relative to each other.")),
+                    ),
+                    notes=(
+                        TipNote("info", translate("Config", "Both use only each node's strongest edges, so neither uses the Similarity Threshold or Top Edge %.")),
+                    ),
+                ),
+"UMAP_NEIGHBORS": Tip(
                     translate("Config", "Maximum number of other nodes in each UMAP neighborhood (K excludes self)."),
                     details=(translate("Config", "`K=15` supplies up to 15 neighbors plus self to UMAP."), translate("Config", "Smaller values emphasize local sub-clusters; larger values preserve broad global relationships.")),
                 ),
                 "UMAP_MIN_DIST": Tip(
                     translate("Config", "Minimum distance between points in low-dimensional UMAP space (`0.0` to `1.0`)."),
                     details=(translate("Config", "Lower values produce tight, dense point clusters; larger values distribute nodes more evenly."),),
+                    notes=(
+                        TipNote("info", translate("Config", "PaCMAP does not use it.")),
+                    ),
                 ),
-                "FASTA_DIR": Tip(
+                "PACMAP_NEIGHBORS": Tip(
+                    translate("Config", "Number of each node's strongest edges that PaCMAP keeps close together (`2` to `50`)."),
+                    details=(
+                        translate("Config", "These are also the edges kept and drawn for each node, as a source and as a target."),
+                        translate("Config", "Smaller values emphasize local sub-clusters; larger values hold clusters together more firmly."),
+                    ),
+                ),
+"FASTA_DIR": Tip(
                     translate("Config", "Directory containing input FASTA files for sequence sets and subsets."),
                     details=(translate("Config", "Populates the Sequence Set dropdown in the Inputs tab."),),
                     live=self._folder_note("FASTA_DIR"),
@@ -2866,6 +2898,8 @@ if __name__ == "__main__":
                 "normalization": combo_value(self.cb_norm_mode) or None,
                 "umap_mode": self.check_umap.isChecked(),
                 "umap_neighbors": self.spin_umap_k.value(),
+                "layout_method": combo_value(self.cb_layout_method) or "umap",
+                "pacmap_neighbors": self.spin_pacmap_k.value(),
                 "top_edge_percent": top_value,
                 "similarity_threshold": threshold_value,
             }
@@ -3391,10 +3425,12 @@ if __name__ == "__main__":
             self.labels["ALIGNMENT_OFFSET"] = self.lbl_alignment_offset
             self.inputs["ALIGNMENT_OFFSET"] = self.spin_alignment_offset
             
-            # --- UMAP Controls ---
-            
+            # --- UMAP and PaCMAP Controls ---
+            # The switch means "a manifold layout instead of physics" (UMAP_MODE); the Layout
+            # Method dropdown under the filters says which one (LAYOUT_METHOD).
+
             self.check_umap = ToggleSwitch()
-            
+
             umap_mode_val = globals().get("UMAP_MODE", False)
             if isinstance(umap_mode_val, str):
                 umap_mode_val = umap_mode_val.lower() in ['true', '1', 't', 'y', 'yes']
@@ -3402,12 +3438,18 @@ if __name__ == "__main__":
             
             lbl_k = QLabel(translate("Config", "UMAP Nearest Neighbors:"))
             lbl_md = QLabel(translate("Config", "UMAP Min Distance:"))
-            
+            lbl_pk = QLabel(translate("Config", "PaCMAP Nearest Neighbors:"))
+
             self.spin_umap_k = NoScrollSpinBox()
             self.spin_umap_k.setRange(2, 500)
             self.spin_umap_k.setValue(int(globals().get("UMAP_NEIGHBORS") or 15))
             self.spin_umap_k.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
-            
+
+            self.spin_pacmap_k = NoScrollSpinBox()
+            self.spin_pacmap_k.setRange(*PROFILE_RANGES["PACMAP_NEIGHBORS"])
+            self.spin_pacmap_k.setValue(int(globals().get("PACMAP_NEIGHBORS") or INPUT_PROFILE_DEFAULTS["PACMAP_NEIGHBORS"]))
+            self.spin_pacmap_k.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+
             self.spin_umap_md = NoScrollDoubleSpinBox()
             self.spin_umap_md.setRange(0.0, 1.0)
             self.spin_umap_md.setSingleStep(0.1)
@@ -3424,19 +3466,31 @@ if __name__ == "__main__":
                 self.spin_alignment_offset,
                 self.spin_umap_k,
                 self.spin_umap_md,
+                self.spin_pacmap_k,
             ):
                 spinbox.setFixedHeight(input_spinbox_height)
-            
+
+            self.cb_layout_method = NoScrollComboBox()
+            add_combo_options(self.cb_layout_method, list(LAYOUT_METHOD_ORDER), [
+                layout_method_names()[method] for method in LAYOUT_METHOD_ORDER
+            ])
+            select_combo_value(self.cb_layout_method, str(globals().get("LAYOUT_METHOD") or "umap"))
+
             self.check_umap.toggled.connect(self.update_live_validators)
             self.spin_umap_k.valueChanged.connect(self.update_live_validators)
-            self.labels["UMAP_MODE"] = QLabel(translate("Config", "Plot UMAP Instead:"))
+            self.spin_pacmap_k.valueChanged.connect(self.update_live_validators)
+            self.cb_layout_method.currentIndexChanged.connect(self.update_live_validators)
+            self.labels["UMAP_MODE"] = QLabel(translate("Config", "Plot Manifold Instead:"))
 
             self.inputs["UMAP_MODE"] = self.check_umap
             self.inputs["UMAP_NEIGHBORS"] = self.spin_umap_k
             self.inputs["UMAP_MIN_DIST"] = self.spin_umap_md
+            self.inputs["PACMAP_NEIGHBORS"] = self.spin_pacmap_k
+            self.inputs["LAYOUT_METHOD"] = self.cb_layout_method
             self.labels["UMAP_NEIGHBORS"] = lbl_k
             self.labels["UMAP_MIN_DIST"] = lbl_md
-            
+            self.labels["PACMAP_NEIGHBORS"] = lbl_pk
+
             self.spin_thresh = OptionalNoScrollDoubleSpinBox(-1000000000.0, 0.0)
             self.spin_thresh.setDecimals(5)
             self.spin_thresh.setRange(-1000000000.0, 1000000000.0)
@@ -3474,7 +3528,7 @@ if __name__ == "__main__":
             self.btn_clear_top_edge = QPushButton(translate("Config", "Clear"))
             self.btn_clear_top_edge.setObjectName("clearTopEdgeButton")
             self.btn_clear_top_edge.setToolTip(translate(
-                "Config", "Unset Top Edge % to use Similarity Threshold when UMAP is off."
+                "Config", "Unset Top Edge % to use Similarity Threshold when the manifold layout is off."
             ))
             self.btn_clear_top_edge.clicked.connect(
                 lambda: self.spin_top.setOptionalValue(None)
@@ -3490,15 +3544,18 @@ if __name__ == "__main__":
 
             # Keep separate widgets and settings for each mode while sharing two slots.
             self._input_mode_stacks = []
-            def mode_stack(ssn_widget, umap_widget):
+            def mode_stack(ssn_widget, *manifold_widgets):
                 stack = QStackedWidget()
                 stack.addWidget(ssn_widget)
-                stack.addWidget(umap_widget)
+                for widget in manifold_widgets:
+                    stack.addWidget(widget)
                 self._input_mode_stacks.append(stack)
                 return stack
 
-            threshold_label = mode_stack(lbl_thresh, lbl_k)
-            threshold_control = mode_stack(self.spin_thresh, self.spin_umap_k)
+            # The first pair also has a page for PaCMAP's neighbour count; PaCMAP has no
+            # minimum distance, so the second pair keeps UMAP's page, greyed out.
+            threshold_label = mode_stack(lbl_thresh, lbl_k, lbl_pk)
+            threshold_control = mode_stack(self.spin_thresh, self.spin_umap_k, self.spin_pacmap_k)
             top_label = mode_stack(lbl_top, lbl_md)
             top_control = mode_stack(top_edge_control, self.spin_umap_md)
             self._make_field_group(
@@ -3508,8 +3565,9 @@ if __name__ == "__main__":
                 trailing=True, control_stretches=(1, 1, 0),
             )
             layout.addRow(filter_container)
+            add_row("LAYOUT_METHOD", translate("Config", "Layout Method:"), self.cb_layout_method)
 
-            # Coordinate all three rows. Normalization spans columns two and
+            # Coordinate all three rows.Normalization spans columns two and
             # three; the two other rows retain a compact, right-aligned last field.
             aligned_rows = [mode_container.layout(), ref_container.layout(),
                             filter_container.layout()]
@@ -3696,12 +3754,20 @@ if __name__ == "__main__":
             self._update_statistics_button()
 
             is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
+            is_pacmap = is_umap and combo_value(self.cb_layout_method) == "pacmap"
             for stack in getattr(self, "_input_mode_stacks", ()):
-                stack.setCurrentIndex(int(is_umap))
+                # Physics, then UMAP, then PaCMAP where the pair has a page for it.
+                stack.setCurrentIndex(min(stack.count() - 1, int(is_umap) + int(is_pacmap)))
             if hasattr(self, "spin_umap_k"):
-                for key in ("UMAP_NEIGHBORS", "UMAP_MIN_DIST"):
-                    self.inputs[key].setEnabled(is_umap)
-                    self.labels[key].setEnabled(is_umap)
+                enabled = {
+                    "UMAP_NEIGHBORS": is_umap and not is_pacmap,
+                    "UMAP_MIN_DIST": is_umap and not is_pacmap,
+                    "PACMAP_NEIGHBORS": is_pacmap,
+                    "LAYOUT_METHOD": is_umap,
+                }
+                for key, state in enabled.items():
+                    self.inputs[key].setEnabled(state)
+                    self.labels[key].setEnabled(state)
             physics_selector = self.profile_selectors.get("simulation_physics")
             physics_profile_editable = (
                 physics_selector is None

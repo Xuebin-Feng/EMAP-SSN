@@ -424,7 +424,7 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
             self.assertNotIn("pan/zoom", text[key])
             self.assertNotIn("hides", text[key])
 
-    # What each switch still does in a Viewer opened in UMAP mode (Plot UMAP Instead
+    # What each switch still does in a Viewer opened in UMAP mode (Plot Manifold Instead
     # on) is shown in test_low_resource_mode.UmapModeTests: Fewer Edges Drawn While
     # Moving, for a selection of 250,000 edges or more; the zoom and sidebar
     # animations and the frame rate, in full; Update Colors After Mouse Release, for
@@ -435,7 +435,7 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
     def test_the_tips_tell_which_parts_do_not_apply_in_umap_mode(self):
         window = self.window
         umap = window.labels["UMAP_MODE"].text().rstrip(":")
-        self.assertEqual(umap, "Plot UMAP Instead")
+        self.assertEqual(umap, "Plot Manifold Instead")
         tips = window.tip_db_keys
 
         def text(key):

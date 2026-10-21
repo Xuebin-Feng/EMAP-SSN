@@ -490,6 +490,16 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>UMAP</source>
+        <comment>layout method</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>PaCMAP</source>
+        <comment>layout method</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1002,7 +1012,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>With Plot UMAP Instead on, only the selected nodes&apos; edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.</source>
+        <source>With Plot Manifold Instead on, only the selected nodes&apos; edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1034,7 +1044,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>With Plot UMAP Instead on, nodes cannot be dragged, so only the threshold slider and the selection box apply.</source>
+        <source>With Plot Manifold Instead on, nodes cannot be dragged, so only the threshold slider and the selection box apply.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1050,7 +1060,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>With Plot UMAP Instead on, nodes cannot be dragged, so only the selection box applies.</source>
+        <source>With Plot Manifold Instead on, nodes cannot be dragged, so only the selection box applies.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1178,11 +1188,27 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Uses UMAP manifold learning to compute 2D coordinates directly from sequence distances.</source>
+        <source>Uses a manifold method (UMAP or PaCMAP, chosen by Layout Method) to compute the 2D coordinates directly from each node&apos;s strongest edges, instead of simulating physics.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Provides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The manifold method that computes the layout while Plot Manifold Instead is on.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keeps each node close to its nearest neighbors; clusters land wherever the optimizer leaves them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Also looks up the stored scores of random pairs of nodes, so clusters end up in a meaningful order relative to each other.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Both use only each node&apos;s strongest edges, so neither uses the Similarity Threshold or Top Edge %.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1203,6 +1229,22 @@
     </message>
     <message>
         <source>Lower values produce tight, dense point clusters; larger values distribute nodes more evenly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>PaCMAP does not use it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Number of each node&apos;s strongest edges that PaCMAP keeps close together (`2` to `50`).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>These are also the edges kept and drawn for each node, as a source and as a target.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Smaller values emphasize local sub-clusters; larger values hold clusters together more firmly.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1394,7 +1436,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Plot UMAP Instead:</source>
+        <source>PaCMAP Nearest Neighbors:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Plot Manifold Instead:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1402,7 +1448,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Unset Top Edge % to use Similarity Threshold when UMAP is off.</source>
+        <source>Unset Top Edge % to use Similarity Threshold when the manifold layout is off.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1411,6 +1457,10 @@
     </message>
     <message>
         <source>Top Edge %:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Layout Method:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
