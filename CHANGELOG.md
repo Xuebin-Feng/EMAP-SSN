@@ -392,6 +392,15 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- A seeded UMAP layout could come out differently from one run to the next, although the
+  docs say it reproduces exactly. umap's spectral start asks SciPy's ARPACK for each
+  connected part of the network, and on a small part of interchangeable nodes (such as
+  six sequences with equal scores to one another) ARPACK draws a random vector that umap
+  never seeds. On a 13,000-sequence BLAST network this gave one of two different maps at
+  random. The layout seed now seeds those draws too, so a seeded layout repeats exactly.
+  Every network where ARPACK never needed a random vector gets bit for bit the layout it
+  got before; the BLAST network now always gets one of its two maps. Layouts with no
+  seed are unchanged.
 - A long dropdown list in Config, Tools or VR Config scrolled by itself while the mouse
   rested on its partly visible last row, and a click after a drag to that row picked a
   row further down than the one pointed at. An open list now scrolls only with the mouse
