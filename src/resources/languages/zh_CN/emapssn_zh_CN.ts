@@ -5455,7 +5455,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location filename="../../../web_ui/agent_images.py" line="+21"/>
-        <location filename="../../../web_ui/Web_Server.py" line="+701"/>
+        <location filename="../../../web_ui/Web_Server.py" line="+746"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>
@@ -6834,6 +6834,98 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+38"/>
         <source>Exporting metadata opens a file dialog, which a Viewer that shows no windows cannot offer.</source>
         <translation type="unfinished">导出元数据需要打开文件对话框，而不显示任何窗口的查看器无法提供该对话框。</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/residue_layers.py" line="+74"/>
+        <source>Very high (pLDDT &gt; 90)</source>
+        <translation type="unfinished">极高（pLDDT &gt; 90）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Confident (pLDDT 70 to 90)</source>
+        <translation type="unfinished">较高（pLDDT 70 至 90）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Low (pLDDT 50 to 70)</source>
+        <translation type="unfinished">较低（pLDDT 50 至 70）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Very low (pLDDT &lt; 50)</source>
+        <translation type="unfinished">极低（pLDDT &lt; 50）</translation>
+    </message>
+    <message>
+        <location line="+111"/>
+        <source>No per-residue data was saved with this structure.</source>
+        <translation type="unfinished">此结构没有保存逐残基数据。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The per-residue data file of this structure is too large.</source>
+        <translation type="unfinished">此结构的逐残基数据文件过大。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>The per-residue data file of this structure cannot be read.</source>
+        <translation type="unfinished">无法读取此结构的逐残基数据文件。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The per-residue data file of this structure is not in a known format.</source>
+        <translation type="unfinished">此结构的逐残基数据文件不是已知格式。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The per-residue data file of this structure has an unsupported version.</source>
+        <translation type="unfinished">此结构的逐残基数据文件版本不受支持。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The per-residue data file belongs to another structure.</source>
+        <translation type="unfinished">该逐残基数据文件属于另一个结构。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>The per-residue data file does not say how the residues are numbered.</source>
+        <translation type="unfinished">该逐残基数据文件未说明残基的编号方式。</translation>
+    </message>
+    <message>
+        <location line="+51"/>
+        <source>{label} {value} (MSA column {column})</source>
+        <translation type="unfinished">{label} {value}（MSA 第 {column} 列）</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+31"/>
+        <source>From {file}, computed when folded, using %n sequence(s)</source>
+        <translation type="unfinished">
+            <numerusform>来自 {file}，折叠时使用 %n 条序列计算</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>From {file}, computed when folded</source>
+        <translation type="unfinished">来自 {file}，折叠时计算</translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>The model&apos;s confidence in each residue, stored in the B-factor column of the PDB file.</source>
+        <translation type="unfinished">模型对每个残基的置信度，保存在 PDB 文件的 B 因子列中。</translation>
+    </message>
+    <message>
+        <location line="+14"/>
+        <source>Color by</source>
+        <translation type="unfinished">着色依据</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No data</source>
+        <translation type="unfinished">无数据</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>The per-residue data of this structure holds no usable property.</source>
+        <translation type="unfinished">此结构的逐残基数据中没有可用的属性。</translation>
     </message>
 </context>
 <context>

@@ -27,7 +27,7 @@ import os
 import re
 import secrets
 from datetime import datetime, timezone
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 from PySide6 import QtCore, QtWidgets
 
 from desktop.Desktop_App import installed_language, language_web_font_css, translate
@@ -36,6 +36,7 @@ from desktop.Viewer_Inspection import (
     ViewerInspectionError,
     ViewerInspectionService,
 )
+from web_ui import residue_layers
 from web_ui.Page_Texts import translated_file
 from utilities.Localization import Message, display_text
 from utilities.Viewer_Sessions import (
@@ -380,6 +381,9 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         if clean_path == "/api/events":
             self.handle_sse(event_client_from_path(self.path))
             return
+        if clean_path.startswith(residue_layers.ROUTE_PREFIX):
+            self.handle_residue_layers(clean_path)
+            return
 
         # Strip query parameters (e.g. ?v=1)
         if clean_path == "/" or clean_path == "":
@@ -413,6 +417,47 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         ext = os.path.splitext(filepath)[1].lower()
         content_type = MIME_TYPES.get(ext, "application/octet-stream")
         self.serve_file(filepath, content_type)
+
+    def handle_residue_layers(self, clean_path):
+        """Answer the Fold View page's request for a structure's per-residue layers.
+
+        /api/esmfold/layers/<structure>.pdb lists the layers offered for the
+        structure, and .../<structure>.pdb/<property> is one layer as a
+        MolViewSpec annotation (web_ui/residue_layers.py). Both read the
+        residue data file beside the structure in the folder the /structures/
+        route serves, and name their files through contained_path as that
+        route does, so a request can't reach anything it couldn't fetch there.
+        """
+        directory = self.server.static_routes.get("/structures/")
+        parts = [unquote(part) for part in clean_path[len(residue_layers.ROUTE_PREFIX):].split("/")]
+        structure = parts[0]
+        sidecar = residue_layers.sidecar_name(structure)
+        if (directory is None or sidecar is None or len(parts) not in (1, 2) or not parts[-1]
+                or os.path.basename(structure) != structure or "\\" in structure):
+            self._send_json(404, {"error": "Not a structure layer."})
+            return
+        structure_path = contained_path(directory, structure)
+        sidecar_path = contained_path(directory, sidecar)
+        if structure_path is None or sidecar_path is None:
+            self._send_json(403, {"error": "Forbidden"})
+            return
+        if not os.path.isfile(structure_path):
+            self._send_json(404, {"error": "Structure not found."})
+            return
+        if len(parts) == 1:
+            self._send_json(200, residue_layers.layer_listing(structure, sidecar_path))
+            return
+        try:
+            annotation = residue_layers.layer_annotation(
+                residue_layers.read_residue_data(structure, sidecar_path), parts[1]
+            )
+        except residue_layers.ResidueDataError as error:
+            self._send_json(404, {"error": str(error)})
+            return
+        if annotation is None:
+            self._send_json(404, {"error": "This structure has no such layer."})
+            return
+        self._send_json(200, annotation)
 
     def _send_json(self, status, payload, *, headers=None):
         body = json.dumps(payload, cls=NumpyEncoder, ensure_ascii=False, separators=(",", ":")).encode("utf-8")

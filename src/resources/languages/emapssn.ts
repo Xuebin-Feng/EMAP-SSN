@@ -4848,6 +4848,80 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <source>Exporting metadata opens a file dialog, which a Viewer that shows no windows cannot offer.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Very high (pLDDT &gt; 90)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Confident (pLDDT 70 to 90)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Low (pLDDT 50 to 70)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Very low (pLDDT &lt; 50)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No per-residue data was saved with this structure.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The per-residue data file of this structure is too large.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The per-residue data file of this structure cannot be read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The per-residue data file of this structure is not in a known format.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The per-residue data file of this structure has an unsupported version.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The per-residue data file belongs to another structure.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The per-residue data file does not say how the residues are numbered.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{label} {value} (MSA column {column})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>From {file}, computed when folded, using %n sequence(s)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>From {file}, computed when folded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The model&apos;s confidence in each residue, stored in the B-factor column of the PDB file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Color by</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No data</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The per-residue data of this structure holds no usable property.</source>
+        <translation type="unfinished"></translation>
+    </message>
 </context>
 <context>
     <name>MetadataPage</name>

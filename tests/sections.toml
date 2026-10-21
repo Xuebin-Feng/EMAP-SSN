@@ -91,6 +91,7 @@ modules = [
     "test_esmc_6b_api",
     "test_esmfold_backend",
     "test_esmfold_command",
+    "test_esmfold_layers",
     "test_esmfold_worker",
     "test_meta_backend",
     "test_residue_data",
