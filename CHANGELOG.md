@@ -338,6 +338,24 @@ still change before version 1.0.0.
     Check's, still give its id.
   - The Quick Start and the Tools help pages write Score Mode, Execution Mode, Saving Mode
     and the models as their dropdowns show them.
+- The Fold View page has a Studio frame of its own around the Mol* canvas, like the Agent
+  and Meta Data pages:
+  - **Header:** a Dark Mode / Light Mode switch, Help and the connection badge. The page
+    follows the Viewer's theme colour, and Mol*'s own panels use their dark skin in dark
+    mode.
+  - **Structures card:** each structure with its colour, "Pivot" or its RMSD to the pivot,
+    and its residue count, with buttons to show or hide it, zoom to it and remove it. A
+    removal can be undone from the message that follows.
+  - **Canvas:** Reset view, Full screen, and Advanced, which opens Mol*'s own panels on the
+    same scene and session (English only). Esc or "Back to simple view" returns.
+  - **States:** the page says what to do when there are no structures yet, and says so when
+    WebGL is missing, while a saved session is restored and when the connection to the
+    Viewer is lost.
+  - **Narrow windows:** the side panel becomes a drawer at 1040 px wide or less, and a strip
+    under the canvas at 700 px or less.
+  - **Language:** the page follows the program's language; in 0.4.0 it stayed English.
+    Mol*'s own panels still do.
+  - Sessions saved before still load, and the "Color by" card works as before.
 
 ### Fixed
 
