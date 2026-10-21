@@ -438,6 +438,8 @@ still change before version 1.0.0.
   - **Narrow windows:** the side panel becomes a drawer at 1040 px wide or less, and at
     700 px or less a strip under the canvas with Structures, Color and Residue tabs. The
     sequence strip is hidden there.
+  - **Help** lists every mouse and keyboard control the page has, and the Quick Start's
+    Fold View card (in English and Chinese) describes the new cards and tools.
   - **Language:** the page follows the program's language; in 0.4.0 it stayed English.
     Mol*'s own panels still do.
   - Sessions saved before still load.
