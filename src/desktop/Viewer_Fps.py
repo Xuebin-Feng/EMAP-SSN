@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Viewer's frame rate, over the canvas's top right (Config's Show FPS).
+"""The Viewer's frame rate, over the canvas's top right (Config's Show Frame Rate (FPS)).
 
 The display is a QLabel on the canvas, not a VisPy visual: a new text
 repaints the label alone, never the canvas, and canvas.render() (print, MCP

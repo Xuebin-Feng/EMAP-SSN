@@ -1181,7 +1181,7 @@ class MainViewer:
         camera = self.view.camera
         # VisPy's zoom a notch, about the point under the cursor, played out
         # over a few frames (desktop.Viewer_Zoom) rather than in one; Low
-        # Resource Mode's Basic Animations zooms at once, sparing the frames between.
+        # Resource Mode's No Zoom or Sidebar Animation zooms at once, sparing the frames between.
         if (event.type == 'mouse_wheel' and not event.handled and camera.interactive
                 and not low_resource_animations(cfg)):
             center = camera._scene_transform.imap(event.pos)
@@ -2235,7 +2235,7 @@ class MainViewer:
         self.selection_highlight.visible = False
 
     def _move_dragged_nodes(self):
-        """A drag move under Low Resource Mode's Node and Edge Drawing: the
+        """A drag move under Low Resource Mode's Update Colors After Mouse Release: the
         markers and the edges go where the nodes now are, with the colours
         update_nodes last gave them. The selection and neighbour colouring,
         and the hover pick, are worked out again on release
@@ -2258,7 +2258,7 @@ class MainViewer:
 
         broadcast=False leaves the web pages, such as the Meta Data sheet, to
         hear of the selection later, as a node drag under Low Resource Mode's
-        Webserver Communication does on release.
+        Update Web Pages After Mouse Release does on release.
         """
         if hasattr(self, 'selection_highlight'):
             self.selection_highlight.visible = False
@@ -2296,7 +2296,7 @@ class MainViewer:
     def on_slider_value_changed(self, value):
         self.current_slider_threshold = self.threshold_box.value_at(value)
         self.threshold_box.show_value(self.current_slider_threshold)
-        # Under Low Resource Mode's Node and Edge Drawing a drag shows the
+        # Under Low Resource Mode's Update Colors After Mouse Release a drag shows the
         # threshold as it goes and redraws the edges once, when let go
         # (_on_slider_released).
         slider = getattr(self, 'slider', None)
@@ -2305,7 +2305,7 @@ class MainViewer:
         self.update_edges()
 
     def _on_slider_released(self):
-        """Redraw the edges for the threshold a slider drag under Node and Edge Drawing ended on."""
+        """Redraw the edges for the threshold a slider drag under Update Colors After Mouse Release ended on."""
         if low_resource_drawing(cfg):
             self.update_edges()
 
@@ -2617,7 +2617,7 @@ class MainViewer:
                 symbol=marker_shapes.tolist() if symbol is None else symbol,
             )
             self.markers.set_data(pos=self.pos[marker_node_order], **marker_data)
-            # What a node drag under Node and Edge Drawing sends again, moved (_move_dragged_nodes).
+            # What a node drag under Update Colors After Mouse Release sends again, moved (_move_dragged_nodes).
             self._submitted_marker_data = marker_data
             # What a hover then changes is two face colours (_show_hover_change).
             self._hover_markers = HoverMarkers(
@@ -2885,8 +2885,8 @@ class MainViewer:
 
                 starts_drag = nearest_idx in self.selected_indices and not getattr(cfg, 'UMAP_MODE', False)
                 # The web pages (the Meta Data sheet) hear of the selection once
-                # a drag: now, or under Low Resource Mode's Webserver
-                # Communication on release (on_mouse_release).
+                # a drag: now, or under Low Resource Mode's Update Web Pages
+                # After Mouse Release on release (on_mouse_release).
                 unsent = starts_drag and low_resource_webserver(cfg)
                 self.update_selection_visual(broadcast=not unsent)
 
@@ -3307,7 +3307,7 @@ class MainViewer:
         return self._do_redo()
 
     def _build_fps_overlay(self):
-        """The frame rate over the canvas's top right, if Config's Show FPS is on (desktop.Viewer_Fps)."""
+        """The frame rate over the canvas's top right, if Config's Show Frame Rate (FPS) is on (desktop.Viewer_Fps)."""
         self.fps_overlay = None
         if not getattr(cfg, 'SHOW_FPS', False):
             return
@@ -3406,7 +3406,7 @@ class MainViewer:
 
     def _sidebar_can_slide(self):
         """Whether the sidebar slides: only in a shown window, with a slide time,
-        and not under Low Resource Mode's Basic Animations, which switches it at once."""
+        and not under Low Resource Mode's No Zoom or Sidebar Animation, which switches it at once."""
         window = getattr(self, 'main_window', None)
         return (
             SIDEBAR_SLIDE_MS > 0
@@ -3713,7 +3713,7 @@ class MainViewer:
                     
                 self.selected_indices = list(current_selection)
                 self._note_hand_selection()
-                # Under Low Resource Mode's Webserver Communication the web
+                # Under Low Resource Mode's Update Web Pages After Mouse Release the web
                 # pages (the Meta Data sheet) hear of it once, on release.
                 unsent = low_resource_webserver(cfg)
                 self.update_selection_visual(broadcast=not unsent)
@@ -3824,7 +3824,7 @@ class MainViewer:
                     self._note_hand_selection()
                     self.update_selection_visual()
                     self._box_selection_unsent = False
-            # A live box under Webserver Communication sent nothing as it moved.
+            # A live box under Update Web Pages After Mouse Release sent nothing as it moved.
             if getattr(self, '_box_selection_unsent', False):
                 self._box_selection_unsent = False
                 self.broadcast_event({"type": "selection_changed", "indices": self.selected_indices})

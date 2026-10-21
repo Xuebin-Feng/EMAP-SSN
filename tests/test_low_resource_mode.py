@@ -2,19 +2,20 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Low Resource Mode by category, and Show FPS (desktop/Viewer_State.py,
+"""Low Resource Mode by category, and Show Frame Rate (FPS) (desktop/Viewer_State.py,
 EMAPSSN_Config.py, EMAPSSN_Viewer.py, desktop/Viewer_Fps.py).
 
 The Visual Effects tab's Low Resource Mode section has a switch per category
-(Fewer Edges While Moving, Basic Animations, Node and Edge Drawing,
-Webserver Communication) and Show FPS, all off by default. These tests check
-the old single switch's migration in settings files and settings documents;
-that each category's helper reads its own switch and the Viewer asks the
-helpers; that a node drag never leaves edges out and moves them with the
-nodes, Node and Edge Drawing putting the colouring off to the release; and
-the frame-rate display: off by default,
-left of the sidebar toggle in every sidebar state, resting when idle,
-counting only the canvas's own frames and never in a capture.
+(Fewer Edges Drawn While Moving, No Zoom or Sidebar Animation, Update Colors
+After Mouse Release, Update Web Pages After Mouse Release) and Show Frame Rate
+(FPS), all off by default. These tests check the old single switch's migration
+in settings files and settings documents; that each category's helper reads
+its own switch and the Viewer asks the helpers; that a node drag never leaves
+edges out and moves them with the nodes, Update Colors After Mouse Release
+putting the colouring off to the release; what each switch still does in a
+Viewer opened in UMAP mode; and the frame-rate display: off by default, left
+of the sidebar toggle in every sidebar state, resting when idle, counting
+only the canvas's own frames and never in a capture.
 """
 import ast
 import json
@@ -95,7 +96,7 @@ class SettingsTests(unittest.TestCase):
             with self.subTest(old=old):
                 migrated = migrate_low_resource_mode({LEGACY_LOW_RESOURCE_KEY: old, "NODE_SIZE": 12})
                 self.assertEqual(migrated, {"NODE_SIZE": 12, **{key: old for key in OLD_CATEGORIES}})
-        # Fewer Edges While Moving keeps its own value, or its default (off).
+        # Fewer Edges Drawn While Moving keeps its own value, or its default (off).
         kept = migrate_low_resource_mode({LEGACY_LOW_RESOURCE_KEY: True, "FEWER_EDGES_WHILE_MOVING": True})
         self.assertEqual(kept, {"FEWER_EDGES_WHILE_MOVING": True, **{key: True for key in OLD_CATEGORIES}})
 
@@ -125,7 +126,7 @@ class SettingsTests(unittest.TestCase):
         detail = MotionDetail(setting=False, report=reports.append, gpu_timer=SimpleNamespace(available=True))
         self.assertFalse(detail.enabled)
         detail.report_once(True)
-        self.assertIn("Fewer Edges While Moving is off", reports[0])
+        self.assertIn("Fewer Edges Drawn While Moving is off", reports[0])
         with mock.patch.dict(os.environ, {"SSN_EDGE_MOTION_LOD": "0"}):
             self.assertFalse(MotionDetail(setting=True).enabled)
             self.assertEqual(MotionDetail(setting=True).off_by, "environment")
@@ -243,7 +244,7 @@ class CategoryHelperTests(unittest.TestCase):
 
 
 # =====================================================================
-# Node drags: no edge left out, Node and Edge Drawing colours on release
+# Node drags: no edge left out, Update Colors After Mouse Release colours on release
 # =====================================================================
 
 class NodeDragTests(unittest.TestCase):
@@ -345,14 +346,14 @@ class NodeDragTests(unittest.TestCase):
 
 class BoxSelectionTests(unittest.TestCase):
     """A right-button selection box tells the web pages (the Meta Data sheet)
-    of its selection at each move, or, under Webserver Communication, once on
-    release; Node and Edge Drawing selects only on release, so it sends once
+    of its selection at each move, or, under Update Web Pages After Mouse Release, once on
+    release; Update Colors After Mouse Release selects only on release, so it sends once
     there either way."""
 
-    def run_box(self, webserver, drawing):
+    def run_box(self, webserver, drawing, umap=False):
         maker = marker_tests.DraggedNodePickTests("test_a_dragged_node_can_be_dragged_again")
         event = marker_tests.DraggedNodePickTests.event
-        with mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+        with mock.patch.object(cfg, "UMAP_MODE", umap, create=True), \
                 mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", webserver), \
                 mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
             viewer = maker.make_viewer()        # nodes at (0, 0), (40, 0), (80, 0) ...
@@ -389,7 +390,153 @@ class BoxSelectionTests(unittest.TestCase):
 
 
 # =====================================================================
-# Show FPS
+# UMAP mode (Plot UMAP Instead on)
+# =====================================================================
+
+class UmapModeTests(unittest.TestCase):
+    """What each switch still does in a Viewer opened in UMAP mode.
+
+    There the Viewer draws only the selected nodes' edges (edges_follow_selection);
+    the threshold slider is built as always and filters them by score; a right-button
+    selection box works as always; and a selected node cannot be dragged
+    (on_mouse_press). So:
+
+    * Fewer Edges Drawn While Moving still thins a selection of MIN_SUBSET_SEGMENTS
+      edges (250,000) or more, and is never in effect for fewer;
+    * No Zoom or Sidebar Animation and Show Frame Rate (FPS) never look at the mode;
+    * Update Colors After Mouse Release keeps the threshold slider and the selection
+      box, and loses the node drag;
+    * Update Web Pages After Mouse Release keeps the selection box, and loses the
+      node drag.
+
+    No switch has lost every effect, so the Config greys none of them, and its tips
+    say which parts do not apply (test_emapssn_config_low_resource).
+    """
+
+    def test_the_viewer_reads_the_mode_only_where_these_effects_depend_on_it(self):
+        mentions = {}
+        for path in ("EMAPSSN_Viewer.py", "Viewer_Visual_State.py"):
+            source = (SRC / path).read_text(encoding="utf-8")
+            for function in ast.walk(ast.parse(source)):
+                if isinstance(function, ast.FunctionDef) and "UMAP_MODE" in ast.get_source_segment(source, function):
+                    mentions.setdefault(path, set()).add(function.name)
+        # The cache lookup, the drag, and the selection's edges: nothing else reads the mode, so
+        # nothing else makes a switch's effect differ there. A new reader needs this list
+        # (and the Config's greying) thought through again.
+        self.assertEqual(mentions, {
+            "EMAPSSN_Viewer.py": {"load_and_simulate", "on_mouse_press"},
+            "Viewer_Visual_State.py": {"edge_stages", "edges_follow_selection"},
+        })
+        for path in sorted((SRC / "desktop").glob("Viewer_*.py")):
+            if path.name != "Viewer_State.py":              # the settings, not behaviour
+                with self.subTest(path=path.name):
+                    self.assertNotIn("UMAP_MODE", path.read_text(encoding="utf-8"))
+
+    def test_the_zoom_and_sidebar_animations_and_the_frame_rate_ignore_the_mode(self):
+        import inspect
+        for function in (MainViewer._camera_mouse_event, MainViewer._sidebar_can_slide):
+            with self.subTest(function=function.__name__):
+                source = inspect.getsource(function)
+                self.assertNotIn("UMAP", source)
+                self.assertIn("low_resource_animations(cfg)", source)
+        # The frame rate is drawn by desktop/Viewer_Fps.py, which the scan above shows never reads
+        # the mode either, and the Viewer reads it only in the two functions listed there.
+
+    def test_a_selected_node_cannot_be_dragged_so_a_press_sends_the_selection_at_once(self):
+        maker = marker_tests.DraggedNodePickTests("test_a_dragged_node_can_be_dragged_again")
+        event = marker_tests.DraggedNodePickTests.event
+        for umap in (False, True):
+            for webserver in (False, True):
+                with self.subTest(umap=umap, webserver=webserver), \
+                        mock.patch.object(cfg, "UMAP_MODE", umap, create=True), \
+                        mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", webserver):
+                    viewer = maker.make_viewer()
+                    viewer.selected_indices = [1]
+                    viewer.on_mouse_press(event(40, 0, button=2, buttons=[2]))
+                    self.assertEqual(viewer.is_multi_dragging, not umap)
+                    # Update Web Pages After Mouse Release holds back only a node drag's selection.
+                    held_back = webserver and not umap
+                    self.assertEqual(viewer.broadcast_event.call_count, 0 if held_back else 1)
+                    viewer.on_mouse_release(event(40, 0, button=2))
+                    self.assertEqual(viewer.broadcast_event.call_count, 1)
+
+    def test_a_selection_box_still_follows_the_two_mouse_release_switches(self):
+        box = BoxSelectionTests("test_each_move_tells_the_web_pages_without_webserver_communication")
+        for webserver, drawing in ((False, False), (True, False), (True, True), (False, True)):
+            with self.subTest(webserver=webserver, drawing=drawing):
+                sent, per_move = box.run_box(webserver, drawing, umap=True)
+                expected_sent, expected_moves = box.run_box(webserver, drawing, umap=False)
+                self.assertEqual(per_move, expected_moves)
+                self.assertEqual(len(sent), len(expected_sent))
+                self.assertEqual(sorted(sent[-1]["indices"]), [1, 2])
+        # The two ways the web pages hear of the box: at each move, or once on release.
+        self.assertEqual(box.run_box(False, False, umap=True)[1], [1, 2])
+        self.assertEqual(box.run_box(True, False, umap=True)[1], [0, 0])
+        self.assertEqual(len(box.run_box(True, False, umap=True)[0]), 1)
+
+    def make_umap_viewer(self):
+        """A Viewer in UMAP mode with edges (0,1) .9, (1,2) .9, (2,3) .1, (3,4) .6 and nodes 1, 2 selected."""
+        maker = edge_tests.UpdateEdgesTests("test_the_threshold_and_hidden_nodes_choose_the_prefix")
+        viewer = maker.make_viewer()
+        self.addCleanup(maker.doCleanups)
+        patcher = mock.patch.object(cfg, "UMAP_MODE", True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        viewer.selected_indices = [1, 2]
+        viewer.slider_down = False
+        viewer.slider = SimpleNamespace(isSliderDown=lambda: viewer.slider_down)
+        viewer.threshold_box = SimpleNamespace(value_at=lambda position: position / 100.0,
+                                               show_value=mock.Mock())
+        return viewer
+
+    def test_the_threshold_slider_still_filters_the_selections_edges(self):
+        viewer = self.make_umap_viewer()
+        self.assertTrue(edges_follow_selection(viewer, cfg))
+        for threshold, drawn in ((0.0, 3), (0.5, 2), (0.95, 0)):
+            with self.subTest(threshold=threshold):
+                viewer.current_slider_threshold = threshold
+                viewer.update_edges()
+                self.assertEqual(viewer.edge_layer.drawn_edge_count, drawn)
+
+    def test_update_colors_after_mouse_release_redraws_the_selections_edges_on_release_of_the_slider(self):
+        for drawing in (False, True):
+            viewer = self.make_umap_viewer()       # its patches come first, then the switch's
+            with self.subTest(drawing=drawing), mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
+                viewer.update_edges()
+                self.assertEqual(viewer.edge_layer.drawn_edge_count, 2)       # threshold .5
+                viewer.slider_down = True
+                viewer.on_slider_value_changed(5)                              # to threshold .05
+                self.assertAlmostEqual(viewer.current_slider_threshold, 0.05)
+                viewer.threshold_box.show_value.assert_called_with(0.05)       # the box follows either way
+                self.assertEqual(viewer.edge_layer.drawn_edge_count, 2 if drawing else 3)
+                viewer.slider_down = False
+                viewer._on_slider_released()
+                self.assertEqual(viewer.edge_layer.drawn_edge_count, 3)
+
+    def test_a_large_selection_gets_thinned_copies_only_while_fewer_edges_is_on(self):
+        edges, scores, positions = edge_tests.random_network(3, nodes=60, edges=900)
+        with mock.patch.object(Viewer_Edges, "MIN_SUBSET_SEGMENTS", 100), \
+                mock.patch.object(cfg, "UMAP_MODE", True):
+            for enabled in (False, True):
+                for selected, thinned in ((list(range(60)), True), ([0], False)):
+                    with self.subTest(fewer_edges=enabled, selected=len(selected)):
+                        layer = edge_tests.recording_layer(edges, scores, positions,
+                                                           motion=MotionDetail(enabled=enabled))
+                        viewer = MainViewer.__new__(MainViewer)
+                        viewer.n_nodes, viewer.edges, viewer.edge_scores = 60, edges, scores
+                        viewer.pos, viewer.visible_mask = positions, np.ones(60, dtype=bool)
+                        viewer.current_slider_threshold = 0.0
+                        viewer.selected_indices = selected
+                        viewer.edge_layer = layer
+                        viewer._refresh_session_card = mock.Mock()
+                        viewer.update_edges()
+                        self.assertEqual(layer.drawn_edge_count >= 100, thinned)
+                        levels = (1, 4, 16, 64) if enabled and thinned else (1,)
+                        self.assertEqual(tuple(layer.visual.available_levels()), levels)
+
+
+# =====================================================================
+# Show Frame Rate (FPS)
 # =====================================================================
 
 class FrameRateTests(unittest.TestCase):

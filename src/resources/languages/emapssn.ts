@@ -422,23 +422,23 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Fewer Edges While Moving:</source>
+        <source>Fewer Edges Drawn While Moving:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Basic Animations:</source>
+        <source>No Zoom or Sidebar Animation:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Node and Edge Drawing:</source>
+        <source>Update Colors After Mouse Release:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Webserver Communication:</source>
+        <source>Update Web Pages After Mouse Release:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Show FPS:</source>
+        <source>Show Frame Rate (FPS):</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -990,11 +990,19 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Fewer than 250,000 edges are always drawn in full.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Prints and captures always draw every edge.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>The environment variable `SSN_EDGE_MOTION_LOD=0` turns it off whatever this switch says.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>With Plot UMAP Instead on, only the selected nodes&apos; edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1026,6 +1034,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>With Plot UMAP Instead on, nodes cannot be dragged, so only the threshold slider and the selection box apply.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Sends the Viewer&apos;s web pages fewer updates while you work in the network.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1035,6 +1047,10 @@
     </message>
     <message>
         <source>It updates once a right-button selection box is let go, instead of at each move of the box.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>With Plot UMAP Instead on, nodes cannot be dragged, so only the selection box applies.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

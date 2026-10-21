@@ -799,13 +799,20 @@ def language_web_font_css(language: str | None, url_prefix: str) -> str:
 # =====================================================================
 
 class ResponsiveFieldLayout(QLayout):
-    """Lay out existing label/control pairs horizontally, or as readable rows."""
+    """Lay out existing label/control pairs horizontally, or as readable rows.
+
+    Stacked, every pair's label is as wide as the row's widest, so the
+    controls line up; stacked_label_width widens that to a width shared with
+    other rows, whose own labels differ. Such a row also takes no part in the
+    window's shared label column, which stacked rows otherwise move into.
+    """
 
     def __init__(self, parent, pairs, ratios, *, field_ratios=False,
                  trailing=False, spacing=30, column_spacing=None,
                  equal_fields=False, control_stretches=None, wrap_labels=True,
-                 column_width_provider=None):
+                 column_width_provider=None, stacked_label_width=None):
         super().__init__(parent)
+        self.stacked_label_width = stacked_label_width
         self.wrap_labels = wrap_labels
         self.pairs = pairs
         self.ratios = ratios
@@ -856,7 +863,7 @@ class ResponsiveFieldLayout(QLayout):
     def minimumSize(self):
         width = max(self._minimum(w).width() for pair in self.pairs for w in pair)
         if not self.wrap_labels:
-            width = (max(self._label_width(label) for label, _ in self.pairs)
+            width = (self._shared_label_width()
                      + self.spacing()
                      + max(self._minimum(control).width() for _, control in self.pairs))
         return QSize(width, max(self._minimum(w).height()
@@ -868,6 +875,11 @@ class ResponsiveFieldLayout(QLayout):
 
     def _label_width(self, label):
         return max(label.minimumWidth(), label.sizeHint().width())
+
+    def _shared_label_width(self):
+        """The width every label has when the pairs stack."""
+        return max([self._label_width(label) for label, _ in self.pairs]
+                   + [self.stacked_label_width or 0])
 
     def _column_minima(self):
         gap = self.spacing()
@@ -912,7 +924,7 @@ class ResponsiveFieldLayout(QLayout):
         wide = rect.width() >= self._wide_width()
         if apply:
             self.parentWidget().setProperty("stacked", not wide)
-        shared_label = max(self._label_width(label) for label, _ in self.pairs)
+        shared_label = self._shared_label_width()
 
         def place_pair(index, x, y, width, label_width):
             label_item, control_item = self._items[2 * index:2 * index + 2]

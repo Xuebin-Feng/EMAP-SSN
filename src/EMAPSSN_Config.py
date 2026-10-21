@@ -194,15 +194,15 @@ DIRECTORY_LABELS = {
 # The Visual Effects tab's Low Resource Mode section: a switch per category,
 # then the frame rate, in this order.
 LOW_RESOURCE_SWITCH_LABELS = {
-    "FEWER_EDGES_WHILE_MOVING": QT_TRANSLATE_NOOP("Config", "Fewer Edges While Moving:"),
-    "LOW_RESOURCE_ANIMATIONS": QT_TRANSLATE_NOOP("Config", "Basic Animations:"),
-    "LOW_RESOURCE_DRAWING": QT_TRANSLATE_NOOP("Config", "Node and Edge Drawing:"),
-    "LOW_RESOURCE_WEBSERVER": QT_TRANSLATE_NOOP("Config", "Webserver Communication:"),
-    "SHOW_FPS": QT_TRANSLATE_NOOP("Config", "Show FPS:"),
+    "FEWER_EDGES_WHILE_MOVING": QT_TRANSLATE_NOOP("Config", "Fewer Edges Drawn While Moving:"),
+    "LOW_RESOURCE_ANIMATIONS": QT_TRANSLATE_NOOP("Config", "No Zoom or Sidebar Animation:"),
+    "LOW_RESOURCE_DRAWING": QT_TRANSLATE_NOOP("Config", "Update Colors After Mouse Release:"),
+    "LOW_RESOURCE_WEBSERVER": QT_TRANSLATE_NOOP("Config", "Update Web Pages After Mouse Release:"),
+    "SHOW_FPS": QT_TRANSLATE_NOOP("Config", "Show Frame Rate (FPS):"),
 }
-# Their rows on the tab's grid, in the colour rows' two label/field column
-# pairs, two to a row in the order above (the user's choice). The second
-# column fits its longest label, "Webserver Communication:".
+# Their rows in the section's own two columns, two to a row in the order
+# above (the user's choice). Each column's labels are as wide as its longest,
+# and take no part in the window's shared label column.
 LOW_RESOURCE_SWITCH_ROWS = (
     ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS"),
     ("LOW_RESOURCE_DRAWING", "LOW_RESOURCE_WEBSERVER"),
@@ -249,6 +249,9 @@ CONFIG_TAB_ROW_SPACING = 12
 CONFIG_FIELD_HORIZONTAL_SPACING = 12
 CONFIG_SEPARATOR_THICKNESS = 2  # the theme's separator_thickness (desktop.Studio_Theme.GEOMETRY)
 CONFIG_SEPARATOR_PADDING = 24
+# Between the Low Resource Mode section's two columns, from the left switch to
+# the right label, in px.
+LOW_RESOURCE_COLUMN_SPACING = 24
 # How long Save & Run stays greyed out once clicked, in ms, so a double click
 # launches once; as a tool's Save & Run (EMAPSSN_Tools.RUN_BUTTON_PAUSE_MS).
 CONFIG_RUN_BUTTON_PAUSE_MS = 1000
@@ -1504,7 +1507,6 @@ if __name__ == "__main__":
 
             self._align_label_column()
             self._prepare_responsive_layouts()
-            self._match_switch_fields_to_colour_fields()
             self._align_report_with_tabs()
             self._initializing_profiles = False
             if carried is None:
@@ -1547,13 +1549,14 @@ if __name__ == "__main__":
             The first label of every row, on every tab, shares one column, so
             fields line up across the tabs. A row of paired fields that stacks
             in a narrow window moves its other labels into that column too, so
-            they count toward its width.
+            they count toward its width, unless the row gives its own labels
+            a stacked width (the Low Resource Mode section does).
             """
             labels = list(dict.fromkeys(self._label_column))
             width = max(label.sizeHint().width() for label in labels)
             for group in self.findChildren(QWidget):
                 layout = group.layout()
-                if isinstance(layout, ResponsiveFieldLayout):
+                if isinstance(layout, ResponsiveFieldLayout) and layout.stacked_label_width is None:
                     width = max([width] + [layout._label_width(label)
                                            for label, _ in layout.pairs[1:]])
             for label in labels:
@@ -2465,10 +2468,14 @@ if __name__ == "__main__":
                 ),
                 "FEWER_EDGES_WHILE_MOVING": Tip(
                     translate("Config", "While you pan, zoom or drag nodes, draws every 4th, 16th or 64th edge in score order, and every edge again a moment after the view stops."),
-                    details=(translate("Config", "The step follows how long the edges take to draw on this computer. The edges drawn are made more opaque, so dense regions keep their shade."),),
+                    details=(
+                        translate("Config", "The step follows how long the edges take to draw on this computer. The edges drawn are made more opaque, so dense regions keep their shade."),
+                        translate("Config", "Fewer than 250,000 edges are always drawn in full."),
+                    ),
                     notes=(
                         TipNote("info", translate("Config", "Prints and captures always draw every edge.")),
                         TipNote("info", translate("Config", "The environment variable `SSN_EDGE_MOTION_LOD=0` turns it off whatever this switch says.")),
+                        TipNote("info", translate("Config", "With Plot UMAP Instead on, only the selected nodes' edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.")),
                         TipNote("warning", translate("Config", "While it is on, the graphics card holds thinned copies of the drawn edges: about a third more memory for them.")),
                     ),
                 ),
@@ -2483,12 +2490,18 @@ if __name__ == "__main__":
                         translate("Config", "A right-button drag of selected nodes moves them and their edges as they are drawn; the selection and neighbour colouring is worked out again when you let go."),
                         translate("Config", "A right-button selection box colours the selected nodes and their neighbours only when you let go."),
                     ),
+                    notes=(
+                        TipNote("info", translate("Config", "With Plot UMAP Instead on, nodes cannot be dragged, so only the threshold slider and the selection box apply.")),
+                    ),
                 ),
                 "LOW_RESOURCE_WEBSERVER": Tip(
                     translate("Config", "Sends the Viewer's web pages fewer updates while you work in the network."),
                     details=(
                         translate("Config", "The Meta Data sheet updates only when a node drag ends, instead of when it starts."),
                         translate("Config", "It updates once a right-button selection box is let go, instead of at each move of the box."),
+                    ),
+                    notes=(
+                        TipNote("info", translate("Config", "With Plot UMAP Instead on, nodes cannot be dragged, so only the selection box applies.")),
                     ),
                 ),
                 "SHOW_FPS": Tip(
@@ -4019,36 +4032,67 @@ if __name__ == "__main__":
                 self.inputs[key] = le
                 self.color_swatches[key] = swatch
 
-            visual_row = color_row_start + (len(color_keys) + 1) // 2
+            visual_rows = self._responsive_grid_rows(visual_grid, "visual")
+            main_layout.addLayout(visual_rows)
 
             # Low Resource Mode, under a line like the saved-config row's: a
-            # switch per category of work the Viewer can be spared, on the
-            # tab's grid like the colours.
+            # switch per category of work the Viewer can be spared, in a
+            # section of its own below the grid, on the same spacing.
             self.low_resource_separator = self._add_padded_separator(None, "lowResourceSeparator")
-            visual_grid.addWidget(self.low_resource_separator.wrapper, visual_row, 0, 1, 5)
-            visual_row += 1
-            for keys in LOW_RESOURCE_SWITCH_ROWS:
-                for column, key in zip((0, 3), keys):
-                    label, field = self._low_resource_switch(key)
-                    visual_grid.addWidget(label, visual_row, column)
-                    visual_grid.addWidget(field, visual_row, column + 1)
-                visual_row += 1
-
-            main_layout.addLayout(self._responsive_grid_rows(visual_grid, "visual"))
+            visual_rows.addWidget(self.low_resource_separator.wrapper)
+            visual_rows.addWidget(self._low_resource_section())
             main_layout.addStretch()
-            
+
             self._add_scroll_tab(tab, translate("Config", "Visual Effects"))
-            
-        def _match_switch_fields_to_colour_fields(self):
-            """Give the Low Resource Mode switches' fields a colour field's
-            minimum width, so their rows need the colour rows' room and stack
-            in a narrow window exactly when those do. The switch keeps its
-            size, at the field's start."""
-            colour = self.inputs["INITIAL_NODE_COLOR"].parentWidget()
-            width = ResponsiveFieldLayout._minimum(colour).width()
-            for key in LOW_RESOURCE_SWITCH_LABELS:
-                field = self.inputs[key].parentWidget()
-                field.setMinimumWidth(max(width, field.minimumWidth()))
+
+        def _low_resource_section(self):
+            """The Low Resource Mode switches, two to a row in the order of
+            LOW_RESOURCE_SWITCH_ROWS, stacking to one a line, in that order,
+            when the page is too narrow for two.
+
+            The section has its own columns, apart from the colours above
+            it: each column's labels are as wide as its longest, so its
+            switches line up with each other, not with the fields above.
+            Stacked, every label is as wide as the longest of all, so the
+            switches still line up. Its labels take no part in the window's
+            shared label column (_align_label_column), and it needs no more
+            room than its own labels and switches.
+            """
+            section = QWidget()
+            section.setObjectName("lowResourceSection")
+            section_layout = QVBoxLayout(section)
+            section_layout.setContentsMargins(0, 0, 0, 0)
+            section_layout.setSpacing(CONFIG_TAB_ROW_SPACING)
+            rows = [[self._low_resource_switch(key) for key in keys]
+                    for keys in LOW_RESOURCE_SWITCH_ROWS]
+            column_widths = [
+                max(row[column][0].sizeHint().width() for row in rows if len(row) > column)
+                for column in range(max(len(row) for row in rows))
+            ]
+            for row in rows:
+                for column, (label, _field) in enumerate(row):
+                    label.setFixedWidth(column_widths[column])
+            # A column is its label, a spacing and a switch's field. Every row,
+            # the single one too, stacks at the width the two columns need,
+            # so all stack together and their switches stay in line.
+            field_width = max(ResponsiveFieldLayout._minimum(field).width()
+                              for row in rows for _label, field in row)
+            columns = [width + CONFIG_FIELD_HORIZONTAL_SPACING + field_width for width in column_widths]
+            wide_width = sum(columns) + LOW_RESOURCE_COLUMN_SPACING
+            for index, row in enumerate(rows):
+                group = QWidget()
+                group.setObjectName(f"lowResourceRow{index}")
+                ResponsiveFieldLayout(
+                    group, row, tuple(1 for _ in row),
+                    spacing=CONFIG_FIELD_HORIZONTAL_SPACING,
+                    column_spacing=LOW_RESOURCE_COLUMN_SPACING,
+                    wrap_labels=False,
+                    column_width_provider=lambda width, count=len(row): (
+                        wide_width if width is None else columns[:count]),
+                    stacked_label_width=max(column_widths),
+                )
+                section_layout.addWidget(group)
+            return section
 
         def _low_resource_switch(self, key):
             """A Low Resource Mode switch and its label, the switch in a field

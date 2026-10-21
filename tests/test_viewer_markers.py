@@ -457,7 +457,7 @@ class DraggedNodePickTests(unittest.TestCase):
         viewer.on_mouse_release(self.event(*end, button=2))
         self.assertFalse(viewer.is_multi_dragging)
 
-    # Low Resource Mode's Node and Edge Drawing moves only the markers during
+    # Low Resource Mode's Update Colors After Mouse Release moves only the markers during
     # a drag and remakes the pick on release; both ways must pick the moved nodes.
 
     def test_a_dragged_node_can_be_dragged_again(self):

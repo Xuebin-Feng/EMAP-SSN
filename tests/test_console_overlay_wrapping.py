@@ -518,7 +518,7 @@ class ShippedCommandLineTests(unittest.TestCase):
         self.assertFalse([key for key in layout if key.startswith("instr")])
 
     def test_the_command_box_stops_short_of_the_frame_rate(self):
-        """With Show FPS on, a long command wraps before the frame-rate card's room."""
+        """With Show Frame Rate (FPS) on, a long command wraps before the frame-rate card's room."""
         from desktop.Viewer_Fps import FPS_GAP
         long_text = "Cmd: " + "select " * 600
         edges = {}

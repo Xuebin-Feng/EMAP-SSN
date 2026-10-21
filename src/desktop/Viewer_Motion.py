@@ -27,7 +27,7 @@ it lasts, so the detail never flickers between levels:
   k that draws at most FALLBACK_EDGES_PER_FRAME edges, or the k the last
   motion ended with if higher, and frames FALLBACK_SLOW_FRAME_MS apart raise k.
 
-Config's Fewer Edges While Moving switch (FEWER_EDGES_WHILE_MOVING)
+Config's Fewer Edges Drawn While Moving switch (FEWER_EDGES_WHILE_MOVING)
 turns it off, and so does SSN_EDGE_MOTION_LOD=0, whatever the switch says.
 While it is off no thinned copies are made, so they take no memory.
 """
@@ -306,7 +306,7 @@ class MotionDetail:
             return
         self._reported = True
         if not self.enabled and self.off_by == "setting":
-            self._report("Edges: motion detail off (Fewer Edges While Moving is off in the Config).")
+            self._report("Edges: motion detail off (Fewer Edges Drawn While Moving is off in the Config).")
         elif not self.enabled:
             self._report(f"Edges: motion detail off ({MOTION_ENVIRONMENT_VARIABLE}=0).")
         elif not thinned:

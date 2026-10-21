@@ -69,8 +69,10 @@ class ResponsiveConfigTests(unittest.TestCase):
     def assert_fields_follow_the_label_column(self, window):
         """Each label at a tab's left edge shows its whole text, and its field starts
         a field spacing after the label column. The column's own labels span it;
-        a stacked row's later labels keep their width. Returns how many labels
-        were checked."""
+        a stacked row's later labels keep their width. The Low Resource Mode
+        section has columns of its own and is left out (its labels are checked
+        in test_emapssn_config_low_resource). Returns how many labels were
+        checked."""
         from PySide6.QtCore import QPoint
         from PySide6.QtWidgets import QLabel, QWidget
         margin = self.namespace["CONFIG_TAB_CONTENT_MARGIN"]
@@ -82,8 +84,10 @@ class ResponsiveConfigTests(unittest.TestCase):
             window.tabs.setCurrentIndex(index)
             self.flush()
             page = window.tabs.currentWidget().widget()
+            section = page.findChild(QWidget, "lowResourceSection")
             visible = [widget for widget in page.findChildren(QWidget)
-                       if widget.isVisibleTo(page)]
+                       if widget.isVisibleTo(page)
+                       and not (section is not None and section.isAncestorOf(widget))]
             corner = {widget: widget.mapTo(page, QPoint()) for widget in visible}
             for label in visible:
                 if not isinstance(label, QLabel) or not label.text():
@@ -602,6 +606,33 @@ class ResponsiveConfigTests(unittest.TestCase):
             with self.subTest(width=width):
                 self.assertGreater(self.assert_fields_follow_the_label_column(window), 30)
 
+    def test_the_low_resource_switches_labels_leave_the_shared_columns_alone(self):
+        """The Visual Effects tab's Low Resource Mode section has columns of its own,
+        so however long its labels are, the label column all tabs share and the colour
+        grid's second column stay as they were, and every tab's fields stay in line."""
+        QLabel = self.namespace["QLabel"]
+        switch_labels = {self.window.labels[key].text()
+                         for key in self.namespace["LOW_RESOURCE_SWITCH_LABELS"]}
+        self.assertEqual(len(switch_labels), 5)
+
+        class LongSwitchLabel(QLabel):
+            def __init__(self, text="", *args, **kwargs):
+                if text in switch_labels:
+                    text = f"{text} {'~' * 40}"
+                super().__init__(text, *args, **kwargs)
+
+        window = self.open_window_with(QLabel=LongSwitchLabel)
+        longest = max(self.natural_width(window.labels[key])
+                      for key in self.namespace["LOW_RESOURCE_SWITCH_LABELS"])
+        self.assertGreater(longest, self.window.label_column_width + 100)
+        self.assertEqual(window.label_column_width, self.window.label_column_width)
+        for key in ("INITIAL_NODE_COLOR", "CONNECTED_NODE_COLOR", "NODE_BOUNDARY_COLOR"):
+            self.assertEqual(window.labels[key].width(), self.window.labels[key].width(), key)
+        for width in (1600, 700):
+            self.resize_panel(width, window)
+            with self.subTest(width=width):
+                self.assertGreater(self.assert_fields_follow_the_label_column(window), 30)
+
     def test_longer_labels_widen_the_column_without_clipping(self):
         """Labels and switch texts half again as long, as a translation may make
         them, move the fields and widen the switches; nothing overlaps or clips."""
@@ -833,3 +864,63 @@ class ResponsiveColumnsLayoutTests(unittest.TestCase):
             self.app.processEvents()
         self.assertEqual(switches, [False, True])
 
+
+
+class StackedLabelWidthTests(unittest.TestCase):
+    """ResponsiveFieldLayout(stacked_label_width=...): rows whose labels differ stack with
+    their controls in one line, and stay out of the window's shared label column."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+
+        cls.app = QApplication.instance() or QApplication([])
+
+    def row(self, texts, **options):
+        from PySide6.QtWidgets import QLabel, QLineEdit, QWidget
+        from desktop.Desktop_App import ResponsiveFieldLayout
+
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        pairs = [(QLabel(text), QLineEdit()) for text in texts]
+        layout = ResponsiveFieldLayout(host, pairs, tuple(1 for _ in pairs), spacing=12,
+                                       wrap_labels=False, **options)
+        return host, layout
+
+    def stacked_control_x(self, host, layout):
+        from PySide6.QtCore import QRect
+        layout.setGeometry(QRect(0, 0, 40, 400))      # narrower than any one column
+        self.assertIs(host.property("stacked"), True)
+        return [control.geometry().x() for _label, control in layout.pairs]
+
+    def test_stacked_rows_share_the_given_label_width(self):
+        _, bare = self.row(["Short:", "A longer label:"])
+        bare_hints = [bare._label_width(label) for label, _ in bare.pairs]
+        # Without it, a row's labels are as wide as its widest, which differs row to row.
+        host_a, plain = self.row(["Short:", "A longer label:"])
+        host_b, plain_single = self.row(["Brief:"])
+        self.assertEqual(self.stacked_control_x(host_a, plain), [max(bare_hints) + 12] * 2)
+        self.assertNotEqual(self.stacked_control_x(host_b, plain_single)[0], max(bare_hints) + 12)
+        # With it, they share it, whatever their own labels.
+        width = max(bare_hints) + 40
+        host_a, row_a = self.row(["Short:", "A longer label:"], stacked_label_width=width)
+        host_b, row_b = self.row(["Brief:"], stacked_label_width=width)
+        self.assertEqual(self.stacked_control_x(host_a, row_a), [width + 12] * 2)
+        self.assertEqual(self.stacked_control_x(host_b, row_b), [width + 12])
+        # A label wider than the given width keeps its room.
+        host_c, row_c = self.row(["A longer label:"], stacked_label_width=5)
+        self.assertEqual(self.stacked_control_x(host_c, row_c), [bare._label_width(bare.pairs[1][0]) + 12])
+
+    def test_the_minimum_counts_the_stacked_label_width_and_wide_rows_are_unchanged(self):
+        from PySide6.QtCore import QRect
+        host, layout = self.row(["Short:", "A longer label:"], stacked_label_width=300)
+        control = max(layout._minimum(control).width() for _, control in layout.pairs)
+        self.assertEqual(layout.minimumSize().width(), 300 + 12 + control)
+        # Wide, each pair keeps its own label's width.
+        _, plain = self.row(["Short:", "A longer label:"])
+        for candidate in (layout, plain):
+            candidate.setGeometry(QRect(0, 0, 2000, 400))
+        self.assertIs(host.property("stacked"), False)
+        self.assertEqual([control.geometry().x() for _l, control in layout.pairs],
+                         [control.geometry().x() for _l, control in plain.pairs])
+        self.assertIsNone(plain.stacked_label_width)

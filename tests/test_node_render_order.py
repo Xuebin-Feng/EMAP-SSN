@@ -613,7 +613,7 @@ class MouseSelectionTimingTests(unittest.TestCase):
             viewer.on_mouse_move(event)
 
         self.assertEqual(viewer.selected_indices, [0, 1])
-        # The web pages hear of each change (unless Webserver Communication is on).
+        # The web pages hear of each change (unless Update Web Pages After Mouse Release is on).
         viewer.update_selection_visual.assert_called_once_with(broadcast=True)
 
     def test_node_and_edge_drawing_box_selection_defers_until_release(self):

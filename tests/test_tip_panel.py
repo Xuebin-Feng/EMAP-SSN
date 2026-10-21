@@ -1642,7 +1642,7 @@ class ConfigWindowTipTests(WithApplication):
             self.assertEqual(bar.isVisible(), needed > available, (key, needed, available))
             self.assertFalse(panel.horizontalScrollBar().isVisible(), key)
             heights[key] = needed
-        # Fewer Edges While Moving's tip, with its three notes, is the
+        # Fewer Edges Drawn While Moving's tip, with its four notes, is the
         # longest, longer than the one with the options table, and scrolls;
         # the shortest fits.
         longest = max(heights, key=heights.get)

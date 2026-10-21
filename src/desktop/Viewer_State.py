@@ -60,18 +60,18 @@ VISUAL_PROFILE_DEFAULTS = {
 # the Viewer can be spared, all off by default. The Viewer asks each through
 # its helper below, so a category can come to cover more without new reads.
 LOW_RESOURCE_DEFAULTS = {
-    # Basic Animations: the wheel zoom without its glide, the sidebar without its slide.
+    # No Zoom or Sidebar Animation: the wheel zoom without its glide, the sidebar without its slide.
     "LOW_RESOURCE_ANIMATIONS": False,
-    # Node and Edge Drawing: the threshold slider redraws the edges when let
+    # Update Colors After Mouse Release: the threshold slider redraws the edges when let
     # go; a right-drag of nodes leaves their edges out, and a selection box
     # colours its nodes and their edges, only once the button is released.
     "LOW_RESOURCE_DRAWING": False,
-    # Webserver Communication: the Meta Data sheet hears of a node drag's
+    # Update Web Pages After Mouse Release: the Meta Data sheet hears of a node drag's
     # selection when the drag ends.
     "LOW_RESOURCE_WEBSERVER": False,
 }
 VISUAL_PROFILE_DEFAULTS.update({
-    # Fewer Edges While Moving: every k-th edge while the view moves
+    # Fewer Edges Drawn While Moving: every k-th edge while the view moves
     # (desktop.Viewer_Motion). The first category; the old single switch
     # never stood for it.
     "FEWER_EDGES_WHILE_MOVING": False,
@@ -82,32 +82,33 @@ VISUAL_PROFILE_DEFAULTS.update({
 
 
 def fewer_edges_while_moving(configuration):
-    """Fewer Edges While Moving: whether the Viewer may thin the edges
+    """Fewer Edges Drawn While Moving: whether the Viewer may thin the edges
     while the view moves (SSN_EDGE_MOTION_LOD=0 still turns it off)."""
     return bool(getattr(configuration, "FEWER_EDGES_WHILE_MOVING", False))
 
 
 def low_resource_animations(configuration):
-    """Basic Animations: whether the wheel zoom and the sidebar skip their animations."""
+    """No Zoom or Sidebar Animation: whether the wheel zoom and the sidebar skip their animations."""
     return bool(getattr(configuration, "LOW_RESOURCE_ANIMATIONS", False))
 
 
 def low_resource_drawing(configuration):
-    """Node and Edge Drawing: whether the Viewer redraws the edges and the
+    """Update Colors After Mouse Release: whether the Viewer redraws the edges and the
     selection's colouring only when a slider drag, a node drag or a
     selection box ends."""
     return bool(getattr(configuration, "LOW_RESOURCE_DRAWING", False))
 
 
 def low_resource_webserver(configuration):
-    """Webserver Communication: whether the web pages hear of a node drag's
+    """Update Web Pages After Mouse Release: whether the web pages hear of a node drag's
     selection only when the drag ends."""
     return bool(getattr(configuration, "LOW_RESOURCE_WEBSERVER", False))
 
 
-# The one switch the categories replaced, which turned Basic Animations, Node
-# and Edge Drawing and Webserver Communication on or off together. Settings
-# files, saved profiles and settings documents written before may hold it.
+# The one switch the categories replaced, which turned No Zoom or Sidebar
+# Animation, Update Colors After Mouse Release and Update Web Pages After Mouse
+# Release on or off together. Settings files, saved profiles and settings
+# documents written before may hold it.
 LEGACY_LOW_RESOURCE_KEY = "LOW_RESOURCE_MODE"
 
 
@@ -115,7 +116,7 @@ def migrate_low_resource_mode(values):
     """values with LOW_RESOURCE_MODE taken out, as the categories it stood for.
 
     When values holds none of LOW_RESOURCE_DEFAULTS, each takes the old key's
-    value; Fewer Edges While Moving keeps its own (off unless set). A
+    value; Fewer Edges Drawn While Moving keeps its own (off unless set). A
     category already there wins, and the old key is dropped either way. A
     dict without the old key is returned as it is.
     """
@@ -228,7 +229,7 @@ OPTIONAL_DOCUMENT_KEYS = {
     "viewer": {
         "EMBED_FILE": INPUT_PROFILE_DEFAULTS["EMBED_FILE"],
         "EMBED_DIR": DIRECTORY_PROFILE_DEFAULTS["EMBED_DIR"],
-        # The Low Resource Mode categories and Show FPS came after
+        # The Low Resource Mode categories and Show Frame Rate (FPS) came after
         # LOW_RESOURCE_MODE, which a document may hold instead
         # (migrate_low_resource_mode).
         **{key: VISUAL_PROFILE_DEFAULTS[key] for key in (
