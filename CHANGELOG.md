@@ -442,7 +442,12 @@ still change before version 1.0.0.
     Fold View card (in English and Chinese) describes the new cards and tools.
   - **Language:** the page follows the program's language; in 0.4.0 it stayed English.
     Mol*'s own panels still do.
-  - Sessions saved before still load.
+  - **Mol* 5.13.1** in place of 5.10.1. The page looks and works the same. A hovered or
+    pinned residue keeps its own colours inside a thinner, smoother outline, where 5.10.1
+    also tinted it. The Advanced view's Superposition panel adds TM-align. Mol* still
+    needs the page's `'unsafe-eval'` script permission to start, and a test now says so
+    if a later Mol* stops needing it.
+  - Sessions saved before still load, including ones saved by the page under Mol* 5.10.1.
 
 ### Fixed
 
