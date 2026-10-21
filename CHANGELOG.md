@@ -186,9 +186,14 @@ still change before version 1.0.0.
     sequences, BLAST and embedding scores), the rank correlation between distance on the
     map and score, over random pairs, rose from 0.12–0.25 to 0.54–0.62, while close
     neighbours were kept about as well as by UMAP.
-  - **Speed:** a 44,000-sequence layout takes about 23 s from the network file, against
-    about 40 s for UMAP, and peaks at 0.47 GiB of memory against 0.66 GiB. The fit itself
-    takes 0.5 s.
+  - **Speed:** a 44,000-sequence layout takes about 20 s from the network file, against
+    about 40 s for UMAP, and peaks at 0.45 GiB of memory against 0.66 GiB. The fit itself
+    takes 0.5 s. The pair file is read once: the sampled pairs' scores are picked up in
+    the same pass that finds each node's strongest edges. A network with a sequence that
+    has no stored pair at all needs a second read, as before.
+  - **Benchmark:** a new stage 11, PaCMAP layout, times it on the same network and seed
+    as the UMAP stage. Stages 1 to 10 keep their numbers and settings, so earlier reports
+    read as before.
   - **Reproducible:** a seeded PaCMAP layout is the same bit for bit on any number of
     threads. It runs on the project's own Numba code, adapted from the `pacmap` package
     (Apache-2.0; Wang, Huang, Rudin and Shaposhnik, JMLR 2021), with no new dependency.
