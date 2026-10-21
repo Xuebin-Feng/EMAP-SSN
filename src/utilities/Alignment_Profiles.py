@@ -18,8 +18,9 @@
 The sequence-logo letter heights, the identity-neighbour weights that
 reweight redundant sequences, and the helpers that encode and decode aligned
 rows for them. They were part of the `logo` command; `logo` and `label` use
-them from here. The module is Qt-free and reads no settings, so the Viewer,
-the VR viewer and the command scripts can all import it.
+them from here, and so does the residue data `esmfold` writes
+(utilities.Residue_Data). The module is Qt-free and reads no settings, so the
+Viewer, the VR viewer and the command scripts can all import it.
 """
 
 import os
@@ -508,6 +509,40 @@ def calculate_logo_matrix(
 
     result = (matrix, weights, weighting_metadata)
     return result if return_weighting_metadata else result[:2]
+
+
+def logo_column_heights(counts, total_rows):
+    """The height in bits of each column's stack of letters, as `logo` draws it by default.
+
+    COUNTS is (columns, 20): how many of the TOTAL_ROWS aligned sequences have
+    each standard amino acid in the column, gaps and every other symbol not
+    counted. Each height is that of calculate_logo_matrix with mode "bits",
+    gap_mode "with_gap" and no identity threshold, summed over the letters:
+    the information log2(20) - (entropy + 19 / (2 ln 2 n)) of the n sequences
+    that have a residue in the column, floored at 0, times n / TOTAL_ROWS. A
+    column with no residue is 0 tall.
+
+    The same formula, worked out from the counts for every column at once; the
+    matrix function cuts each column out of a list of strings, which costs
+    seconds on a 44,000-row alignment. The two agree to rounding (the matrix
+    sums its letters one by one), which tests hold them to.
+    """
+    counts = np.asarray(counts, dtype=np.float64)
+    observed = counts.sum(axis=1)
+    has_residues = observed > 0
+    probabilities = np.divide(
+        counts, observed[:, None], out=np.zeros_like(counts), where=has_residues[:, None]
+    )
+    entropy = -np.sum(
+        probabilities
+        * np.log2(probabilities, out=np.zeros_like(probabilities), where=probabilities > 0),
+        axis=1,
+    )
+    correction = np.divide(
+        19.0, 2.0 * np.log(2) * observed, out=np.zeros_like(observed), where=has_residues
+    )
+    information = np.maximum(0.0, np.log2(20) - (entropy + correction))
+    return np.where(has_residues, information * (observed / total_rows), 0.0)
 
 
 _DECODE_BLOCK_ROWS = 2048

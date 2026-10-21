@@ -556,6 +556,47 @@ class LogoIdentityKernelThreadTests(unittest.TestCase):
         )
 
 
+class LogoColumnHeightTests(unittest.TestCase):
+    """Alignment_Profiles.logo_column_heights is calculate_logo_matrix's default column height, from counts."""
+
+    @staticmethod
+    def counts_of(sequences):
+        encoded = Alignment_Profiles.encode_standard_amino_acids(sequences)
+        counts = np.zeros((encoded.shape[1], 20), dtype=np.int64)
+        for column in range(encoded.shape[1]):
+            counts[column] = np.bincount(encoded[:, column][encoded[:, column] >= 0], minlength=20)
+        return counts
+
+    def test_it_equals_the_matrix_functions_column_sums_on_random_alignments(self):
+        rng = np.random.default_rng(42)
+        alphabet = list("ACDEFGHIKLMNPQRSTVWY") + ["-", "-", "-", "X", "x", "a"]
+        for rows, columns in ((1, 6), (2, 9), (7, 12), (60, 25), (200, 40)):
+            with self.subTest(rows=rows, columns=columns):
+                sequences = ["".join(rng.choice(alphabet, size=columns)) for _ in range(rows)]
+                # One column of gaps only, and one conserved column.
+                sequences = [row[:1] + "-" + row[2:3] + "A" + row[4:] for row in sequences]
+                matrix, _ = calculate_logo_matrix(sequences, list(range(columns)), mode="bits", gap_mode="with_gap")
+                heights = Alignment_Profiles.logo_column_heights(self.counts_of(sequences), rows)
+                np.testing.assert_allclose(heights, matrix.sum(axis=1), rtol=1e-12, atol=1e-12)
+                self.assertEqual(heights[1], 0.0)
+
+    def test_hand_computed_columns(self):
+        log2_20 = np.log2(20)
+        # 40 of 40 rows have A: no entropy, only the small-sample correction.
+        conserved = Alignment_Profiles.logo_column_heights([[40] + [0] * 19], 40)
+        self.assertAlmostEqual(float(conserved[0]), log2_20 - 19.0 / (2.0 * np.log(2) * 40), places=12)
+        # 20 of 40 rows have A and the rest have gaps: the same information, half as tall.
+        gapped = Alignment_Profiles.logo_column_heights([[20] + [0] * 19], 40)
+        self.assertAlmostEqual(float(gapped[0]), (log2_20 - 19.0 / (2.0 * np.log(2) * 20)) / 2, places=12)
+        # Two sequences carry less than the correction takes away.
+        self.assertEqual(float(Alignment_Profiles.logo_column_heights([[2] + [0] * 19], 2)[0]), 0.0)
+        # An empty column, or a count table with no columns.
+        self.assertEqual(float(Alignment_Profiles.logo_column_heights([[0] * 20], 5)[0]), 0.0)
+        self.assertEqual(Alignment_Profiles.logo_column_heights(np.zeros((0, 20)), 5).shape, (0,))
+        # Equal shares of all twenty residues: the entropy is log2(20) and nothing is left.
+        self.assertEqual(float(Alignment_Profiles.logo_column_heights([[10] * 20], 200)[0]), 0.0)
+
+
 class LogoUtilityAliasTests(unittest.TestCase):
     """The computation lives in utilities.Alignment_Profiles; logo keeps the names it always had for it."""
 

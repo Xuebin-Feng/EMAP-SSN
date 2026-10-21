@@ -2747,9 +2747,9 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../../commands/label.py" line="+1267"/>
+        <location filename="../../../commands/label.py" line="+1268"/>
         <location line="+447"/>
-        <location filename="../../../commands/logo.py" line="+691"/>
+        <location filename="../../../commands/logo.py" line="+239"/>
         <location line="+59"/>
         <location filename="../../../commands/print.py" line="+1310"/>
         <source>Output file already exists: {path}</source>
@@ -2758,7 +2758,7 @@ Command-line usage:
     <message>
         <location line="+2"/>
         <location filename="../../../commands/label.py" line="+140"/>
-        <location filename="../../../commands/logo.py" line="+685"/>
+        <location filename="../../../commands/logo.py" line="+640"/>
         <location filename="../../../commands/print.py" line="+217"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
@@ -3027,8 +3027,8 @@ Command-line usage:
         <location line="+6"/>
         <location filename="../../../commands/agent.py" line="+74"/>
         <location line="+127"/>
-        <location filename="../../../commands/esmfold.py" line="+85"/>
-        <location line="+194"/>
+        <location filename="../../../commands/esmfold.py" line="+94"/>
+        <location line="+280"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
         <location filename="../../../commands/logo.py" line="-221"/>
@@ -3269,7 +3269,40 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/esmfold.py" line="-65"/>
+        <location filename="../../../commands/esmfold.py" line="-150"/>
+        <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
+        <translation type="unfinished">
+            <numerusform>%n 个结构没有逐残基比对数据：不在比对中。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>No per-residue alignment data for %n structure(s): the sequence differs from the alignment&apos;s.</source>
+        <translation type="unfinished">
+            <numerusform>%n 个结构没有逐残基比对数据：序列与比对中的不一致。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+4"/>
+        <source>No per-residue alignment data for %n structure(s): it could not be computed.</source>
+        <translation type="unfinished">
+            <numerusform>%n 个结构没有逐残基比对数据：无法计算。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+55"/>
+        <source>Per-residue alignment data from {file} will be saved beside %n structure(s): {properties}.</source>
+        <translation type="unfinished">
+            <numerusform>来自 {file} 的逐残基比对数据将保存在 %n 个结构旁：{properties}。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>No per-residue alignment data is saved: no alignment is loaded.</source>
+        <translation type="unfinished">未保存逐残基比对数据：未加载比对。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+17"/>
         <source>Stopped %n ESMFold worker(s); structures already saved are kept.</source>
         <translation type="unfinished">
             <numerusform>已停止 %n 个 ESMFold 工作进程；已保存的结构予以保留。</numerusform>
@@ -3326,7 +3359,7 @@ Command-line usage:
         <translation type="unfinished">错误：缺少 PyTorch/Hardware_Utils</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+47"/>
         <source>Error: Sequence retrieval failed.</source>
         <translation type="unfinished">错误：获取序列失败。</translation>
     </message>
@@ -3343,7 +3376,7 @@ Command-line usage:
         <translation type="unfinished">错误：查看器的 Web 服务器不可用。</translation>
     </message>
     <message>
-        <location line="+82"/>
+        <location line="+84"/>
         <source>Could not launch the ESMFold worker in a terminal:
 {error}</source>
         <translation type="unfinished">无法在终端中启动 ESMFold 工作进程：
@@ -3791,7 +3824,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/logo.py" line="-911"/>
+        <location filename="../../../commands/logo.py" line="-574"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -3811,7 +3844,7 @@ Command-line usage:
         <translation type="unfinished">序列标识图重新加权只能提供一个一致性阈值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+471"/>
+        <location line="+179"/>
         <source>Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个已比对节点的 {gap_mode} {mode} 序列标识图保存到 {file}</numerusform>
@@ -3825,7 +3858,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location line="+21"/>
         <location filename="../../../commands/print.py" line="-66"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
@@ -10483,12 +10516,12 @@ Fedora / RHEL：
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="-121"/>
+        <location filename="../../../commands/esmfold.py" line="-123"/>
         <source>ESMFold Web Server Error</source>
         <translation type="unfinished">ESMFold Web 服务器错误</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+90"/>
         <source>ESMFold Launch Error</source>
         <translation type="unfinished">ESMFold 启动错误</translation>
     </message>

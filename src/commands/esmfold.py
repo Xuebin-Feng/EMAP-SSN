@@ -21,6 +21,7 @@ import EMAPSSN_Config as cfg
 import web_ui.esmfold_backend as esmfold_backend
 from PySide6.QtWidgets import QApplication, QMessageBox
 from desktop.Desktop_App import translate
+from utilities import Residue_Data
 from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Launcher import (
     HoldMode,
@@ -56,6 +57,14 @@ def print_help():
 
     Only one folding worker runs at a time: while one is running, esmfold refuses to
     start another. Wait for it to finish, run esmfold stop, or close its console window.
+
+    Per-residue data: while an alignment is loaded, each structure folded for a node the
+    alignment holds gets a file beside its PDB, <pdb name>.residues.json, with two values
+    for every residue from the whole loaded alignment: Information Content (the logo
+    command's column height, as a percentage of log2(20) bits) and Residue Agreement (the
+    share of aligned sequences with a standard amino acid in the column that have this
+    protein's residue). The command's result says what was saved, and why not for a node
+    when no alignment is loaded, the alignment lacks the node, or holds another sequence.
 
     A headless Viewer (no screen) opens no console window and no browser page: the
     worker runs hidden with its output in a log file, which the outcome names, and the
@@ -122,6 +131,92 @@ def _discard_worker_input(path):
         os.unlink(path)
     except OSError:
         pass
+
+
+def _residue_data_inputs(viewer):
+    """What the per-residue data providers read from the Viewer: its alignment, and each node's row in it."""
+    alignment = getattr(viewer, "alignment", None)
+    if alignment is None or getattr(alignment, "aln", None) is None:
+        return Residue_Data.ViewerInputs()
+    mapping, _ = Command_Engine.get_alignment_mapping(viewer)
+    return Residue_Data.ViewerInputs(alignment, mapping, tuple(viewer.full_headers))
+
+
+def _residue_data_note(kind, count):
+    """The sentence for `count` structures that get no per-residue data, because of `kind`."""
+    if kind == Residue_Data.NOT_IN_ALIGNMENT:
+        return Message("No per-residue alignment data for %n structure(s): not in the alignment.", n=count)
+    if kind == Residue_Data.SEQUENCE_DIFFERS:
+        return Message(
+            "No per-residue alignment data for %n structure(s): the sequence differs from the alignment's.",
+            n=count,
+        )
+    return Message("No per-residue alignment data for %n structure(s): it could not be computed.", n=count)
+
+
+def _worker_records(viewer, indices, nodes):
+    """(the records of the worker's input file, what to say about their per-residue data).
+
+    A record is [name, sequence], or, for a node with per-residue data from the
+    loaded alignment (utilities.Residue_Data), [name, sequence, extra] where
+    extra is {"header": the node's full header, "properties": {...}}. The worker
+    writes the data beside the node's PDB. Without an alignment, for a node the
+    alignment lacks or whose sequence it holds differently, no property exists
+    and the record keeps its two items. The second value is a list of
+    (Message, names) pairs: the names of the structures the sentence is about,
+    for the outcome to list when there are few.
+    """
+    try:
+        inputs = _residue_data_inputs(viewer)
+        failure = None
+    except Exception as error:  # Per-residue data must never stop a structure from being folded.
+        inputs, failure = Residue_Data.ViewerInputs(), error
+        print(f"Warning: Could not read the loaded alignment for per-residue data: {error}")
+    records = []
+    labels = {}
+    with_data = []
+    missing = {}
+    no_alignment = False
+    for index, (rec_id, sequence) in zip(indices, nodes):
+        if failure is not None:
+            records.append([rec_id, sequence])
+            missing.setdefault(Residue_Data.FAILED, []).append(rec_id)
+            continue
+        result = Residue_Data.compute_residue_data(inputs, index, sequence)
+        for error in result.unavailable.values():
+            if error.kind == Residue_Data.FAILED:
+                print(f"Warning: Could not compute per-residue data for {rec_id}: {error.reason}")
+            elif error.kind != Residue_Data.NO_ALIGNMENT:
+                print(f"Note: No per-residue alignment data for {rec_id}: {error.reason}.")
+        if result.properties:
+            records.append([rec_id, sequence, {
+                "header": viewer.full_headers[index],
+                "properties": result.properties,
+            }])
+            with_data.append(rec_id)
+            labels.update({data["label"]: None for data in result.properties.values()})
+        else:
+            records.append([rec_id, sequence])
+            reasons = [error.kind for error in result.unavailable.values()]
+            if Residue_Data.NO_ALIGNMENT in reasons:
+                no_alignment = True
+            elif reasons:
+                missing.setdefault(reasons[0], []).append(rec_id)
+
+    notes = []
+    if with_data:
+        msa_file = getattr(inputs.alignment, "msa_file", None)
+        notes.append((Message(
+            "Per-residue alignment data from {file} will be saved beside %n structure(s): {properties}.",
+            n=len(with_data),
+            file=os.path.basename(str(msa_file)) if msa_file else "the loaded alignment",
+            properties=", ".join(labels),
+        ), []))
+    if no_alignment:
+        notes.append((Message("No per-residue alignment data is saved: no alignment is loaded."), []))
+    for kind, names in missing.items():
+        notes.append((_residue_data_note(kind, len(names)), names))
+    return records, notes
 
 
 def _stop_workers(viewer):
@@ -314,6 +409,7 @@ def run(viewer, args):
 
     # Resolve target sequences to fold
     nodes_to_fold = []
+    fold_indices = []
     skipped_ids = []
     for idx in selected_indices:
         full_header = viewer.full_headers[idx]
@@ -327,6 +423,7 @@ def run(viewer, args):
             
         if sequence:
             nodes_to_fold.append((rec_id, sequence))
+            fold_indices.append(idx)
         else:
             print(f"Warning: Sequence not found in FASTA for node: {rec_id}")
             skipped_ids.append(rec_id)
@@ -359,11 +456,13 @@ def run(viewer, args):
         _set_console_text(viewer, Message("Error: Viewer web server unavailable."))
         return
 
-    # 9. Save nodes to fold to a temporary JSON file and spawn background worker process
+    # 9. Save nodes to fold to a temporary JSON file and spawn background worker process.
+    # A node's record also carries its per-residue data from the loaded alignment, if any.
     import json
     import tempfile
+    records, residue_notes = _worker_records(viewer, fold_indices, nodes_to_fold)
     with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w", encoding="utf-8") as tmp:
-        json.dump(nodes_to_fold, tmp, indent=2)
+        json.dump(records, tmp, indent=2)
         tmp_path = tmp.name
 
     python_exe = sys.executable
@@ -484,6 +583,12 @@ def run(viewer, args):
     if clicked_note is not None:
         spawning = JoinedMessage([clicked_note, spawning])
         outcome += f" {clicked_note}"
+    for note, names in residue_notes:
+        print(note)
+        spawning = JoinedMessage([spawning, note])
+        outcome += f" {note}"
+        if names and len(names) <= MAX_LISTED_SKIPPED:
+            outcome += f" ({', '.join(names)})"
     if headless:
         outcome += f" The worker has no window; its output is in {log_path}."
         address = None if _structure_viewer_connected(viewer) else _structure_viewer_address(viewer)

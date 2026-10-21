@@ -1,5 +1,6 @@
 """Mocked tests for local/remote ESMFold worker behavior."""
 
+import fnmatch
 import io
 import json
 import os
@@ -21,6 +22,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
+import Viewer_Worker_Tracking
 from resources.esmfold import esmfold_worker
 from web_ui import esmfold_backend
 from web_ui.Plugin_Manager import WebPluginRegistry
@@ -673,6 +675,446 @@ class PortalStatusTests(unittest.TestCase):
                 handle.read().count("Warning: Could not update the worker status file (running)"),
                 2,
             )
+
+
+def pdb_text(sequence, chain="A", first=1):
+    """The backbone atoms of a structure of ``sequence`` as ESM writes them: one chain, residues numbered on."""
+    lines = []
+    serial = 1
+    for offset, _ in enumerate(sequence):
+        for atom in ("N", "CA", "C"):
+            lines.append(
+                f"ATOM  {serial:5d}  {atom:<3} ALA {chain}{first + offset:4d}    "
+                f"{0.0:8.3f}{0.0:8.3f}{0.0:8.3f}  1.00 50.00           C  "
+            )
+            serial += 1
+    return "\n".join(lines) + "\nEND\n"
+
+
+def conservation(values, label="Agreement"):
+    """A property as a provider (utilities.Residue_Data) returns it, with ``values`` for its residues."""
+    return {
+        "label": label, "unit": "%", "range": [0, 100], "description": "Test data.",
+        "values": list(values),
+        "source": {"kind": "msa", "file": "family.fasta", "alignment_id": "sha256:" + "0" * 64,
+                   "columns": list(range(len(values))), "sequences": 7},
+    }
+
+
+def extra_for(header, *value_lists):
+    """The third item of a node's record: its header and one property per list of values."""
+    names = ("information_content", "same_residue_pct")
+    return {"header": header, "properties": {
+        name: conservation(values, label=name) for name, values in zip(names, value_lists)
+    }}
+
+
+class ResidueDataFileTests(unittest.TestCase):
+    """The sidecar a structure gets: its name, its numbering, its content, and how it is written."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+
+    def write_structure(self, name="node_a.pdb", sequence="ACDE", **numbering):
+        Path(self.directory, name).write_text(pdb_text(sequence, **numbering), encoding="utf-8")
+        return name
+
+    def read(self, name):
+        return json.loads(Path(self.directory, name).read_text(encoding="utf-8"))
+
+    def test_the_file_is_named_for_the_pdb_actually_written(self):
+        for pdb, expected in (
+            ("XP_123.1.pdb", "XP_123.1.residues.json"),
+            ("XP_123.1_esm3-large-2024-03.pdb", "XP_123.1_esm3-large-2024-03.residues.json"),
+            ("name.PDB", "name.residues.json"),
+            ("no_extension", "no_extension.residues.json"),
+        ):
+            with self.subTest(pdb=pdb):
+                self.assertEqual(esmfold_worker.residue_data_filename(pdb), expected)
+
+    def test_residue_numbering_is_read_from_the_structure(self):
+        numbering = esmfold_worker.pdb_residue_numbering
+        self.assertEqual(numbering(pdb_text("ACDE"), 4), ("A", 1))
+        self.assertEqual(numbering(pdb_text("ACDE", chain="B", first=5), 4), ("B", 5))
+        self.assertEqual(numbering(pdb_text("ACDE", first=-2), 4), ("A", -2))
+        # No atoms to read: the numbering ESM writes.
+        self.assertEqual(numbering("ATOM\n", 4), ("A", 1))
+        self.assertEqual(numbering("", 4), ("A", 1))
+
+    def test_residue_numbering_that_cannot_index_the_values_is_refused(self):
+        numbering = esmfold_worker.pdb_residue_numbering
+        gap = pdb_text("AC").replace("   2    ", "   3    ")
+        two_chains = pdb_text("AC") + pdb_text("AC", chain="B")
+        insertion = pdb_text("AC").replace("   2    ", "   2A   ")
+        for label, text, length, reason in (
+            ("a gap in the numbers", gap, 2, "not the 2 of the sequence"),
+            ("two chains", two_chains, 2, "2 chains"),
+            ("an insertion code", insertion, 2, "insertion codes"),
+            ("another length", pdb_text("ACD"), 4, "not the 4 of the sequence"),
+        ):
+            with self.subTest(label), self.assertRaisesRegex(ValueError, reason):
+                numbering(text, length)
+
+    def test_properties_without_one_value_per_residue_are_dropped(self):
+        kept, problems = esmfold_worker.checked_properties(
+            {"good": conservation([1, 2, 3]), "short": conservation([1, 2]), "none": {"values": None}, "odd": 7}, 3
+        )
+        self.assertEqual(list(kept), ["good"])
+        self.assertEqual(len(problems), 3)
+        self.assertIn("short has 2 values for 3 residues", problems)
+
+    def test_the_file_holds_the_documented_fields(self):
+        name = self.write_structure("node_a.pdb", "ACDE", chain="B", first=5)
+        extra = extra_for("node_a some description", [10.0, None, 30.5, 40.25], [90.0, 80.0, None, 60.0])
+        output = io.StringIO()
+        with redirect_stdout(output):
+            written = esmfold_worker._write_residue_data(self.directory, name, "node_a", "ACDE", extra)
+
+        self.assertEqual(written, "node_a.residues.json")
+        document = self.read(written)
+        self.assertEqual(
+            list(document),
+            ["format", "version", "structure", "header", "sequence", "residue_numbering", "properties"],
+        )
+        self.assertEqual(document["format"], "emapssn-residue-data")
+        self.assertEqual(document["version"], 1)
+        self.assertEqual(document["structure"], "node_a.pdb")
+        self.assertEqual(document["header"], "node_a some description")
+        self.assertEqual(document["sequence"], "ACDE")
+        self.assertEqual(document["residue_numbering"], {"chain": "B", "first": 5})
+        self.assertEqual(list(document["properties"]), ["information_content", "same_residue_pct"])
+        self.assertEqual(document["properties"]["information_content"]["values"], [10.0, None, 30.5, 40.25])
+        self.assertEqual(document["properties"]["same_residue_pct"], extra["properties"]["same_residue_pct"])
+        self.assertEqual(sorted(os.listdir(self.directory)), ["node_a.pdb", "node_a.residues.json"])
+
+    def test_the_header_defaults_to_the_record_name(self):
+        name = self.write_structure()
+        with redirect_stdout(io.StringIO()):
+            written = esmfold_worker._write_residue_data(
+                self.directory, name, "node_a", "ACDE", {"properties": {"p": conservation([1, 2, 3, 4])}}
+            )
+        self.assertEqual(self.read(written)["header"], "node_a")
+
+    def test_non_ascii_headers_are_kept_as_text(self):
+        name = self.write_structure()
+        extra = {"header": "α-amylase 淀粉酶", "properties": {"p": conservation([1, 2, 3, 4])}}
+        with redirect_stdout(io.StringIO()):
+            written = esmfold_worker._write_residue_data(self.directory, name, "node_a", "ACDE", extra)
+        self.assertEqual(self.read(written)["header"], "α-amylase 淀粉酶")
+
+    def test_nothing_is_written_without_a_property(self):
+        name = self.write_structure()
+        for label, extra in (
+            ("no extra", None), ("not an object", [1, 2]), ("no properties", {"header": "h"}),
+            ("empty properties", {"properties": {}}), ("properties not an object", {"properties": [1]}),
+        ):
+            with self.subTest(label):
+                self.assertIsNone(esmfold_worker._write_residue_data(self.directory, name, "node_a", "ACDE", extra))
+        self.assertEqual(os.listdir(self.directory), ["node_a.pdb"])
+
+    def test_a_property_of_the_wrong_length_is_dropped_with_a_warning(self):
+        name = self.write_structure()
+        extra = {"properties": {"good": conservation([1, 2, 3, 4]), "bad": conservation([1, 2])}}
+        output = io.StringIO()
+        with redirect_stdout(output):
+            written = esmfold_worker._write_residue_data(self.directory, name, "node_a", "ACDE", extra)
+        self.assertEqual(list(self.read(written)["properties"]), ["good"])
+        self.assertIn("Dropped a residue-data property for node_a: bad has 2 values for 4 residues", output.getvalue())
+
+        only_bad = {"properties": {"bad": conservation([1, 2])}}
+        with redirect_stdout(io.StringIO()):
+            self.assertIsNone(esmfold_worker._write_residue_data(self.directory, name, "node_b", "ACDE", only_bad))
+        self.assertNotIn("node_b.residues.json", os.listdir(self.directory))
+
+    def test_a_structure_that_is_not_this_sequence_gets_no_file(self):
+        extra = extra_for("h", [1, 2, 3, 4])
+        for label, pdb in (("another length", "node_a.pdb"), ("missing", "gone.pdb")):
+            with self.subTest(label):
+                self.write_structure("node_a.pdb", "ACDEFG")
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    written = esmfold_worker._write_residue_data(self.directory, pdb, "node_a", "ACDE", extra)
+                self.assertIsNone(written)
+                self.assertIn("Warning: Could not write the residue data for node_a", output.getvalue())
+        self.assertEqual(sorted(os.listdir(self.directory)), ["node_a.pdb"])
+
+    def test_values_that_are_not_json_leave_no_file_and_no_partial(self):
+        name = self.write_structure()
+        for label, bad in (("nan", float("nan")), ("infinity", float("inf")), ("an object", object())):
+            with self.subTest(label):
+                extra = {"properties": {"p": conservation([1, 2, 3, bad])}}
+                output = io.StringIO()
+                with redirect_stdout(output):
+                    self.assertIsNone(esmfold_worker._write_residue_data(self.directory, name, "node_a", "ACDE", extra))
+                self.assertIn("Could not write the residue data", output.getvalue())
+        self.assertEqual(os.listdir(self.directory), ["node_a.pdb"])
+
+    def test_the_file_is_published_whole_or_not_at_all(self):
+        name = self.write_structure()
+        extra = extra_for("h", [1, 2, 3, 4])
+        previous = Path(self.directory, "node_a.residues.json")
+        previous.write_text('{"old": true}', encoding="utf-8")
+        seen = []
+
+        def replace(source, target):
+            seen.append((os.path.basename(source), os.path.exists(target)))
+            raise OSError("disk full")
+
+        with mock.patch.object(esmfold_worker.os, "replace", side_effect=replace), \
+                mock.patch.object(esmfold_worker.time, "sleep"), redirect_stdout(io.StringIO()) as output:
+            self.assertIsNone(esmfold_worker._write_residue_data(self.directory, name, "node_a", "ACDE", extra))
+
+        # Written under a .partial name first, and never over the old file in place.
+        self.assertEqual(seen, [(f"node_a.residues.json.{os.getpid()}.partial", True)])
+        self.assertEqual(previous.read_text(encoding="utf-8"), '{"old": true}')
+        self.assertEqual(sorted(os.listdir(self.directory)), ["node_a.pdb", "node_a.residues.json"])
+        self.assertIn("disk full", output.getvalue())
+
+    def test_the_partial_name_is_the_one_esmfold_stop_deletes(self):
+        # StartedWorker._remove_partial_structures removes <output dir>/*.<pid>.partial of a worker it ended.
+        name = self.write_structure()
+        names = []
+
+        def replace(source, target):
+            names.append(os.path.basename(source))
+            raise OSError("interrupted")
+
+        with mock.patch.object(esmfold_worker.os, "replace", side_effect=replace), \
+                mock.patch.object(esmfold_worker.time, "sleep"), redirect_stdout(io.StringIO()):
+            esmfold_worker._write_residue_data(self.directory, name, "node_a", "ACDE", extra_for("h", [1, 2, 3, 4]))
+        [partial] = names
+        pid = os.getpid()
+        self.assertTrue(fnmatch.fnmatch(partial, f"*.{pid}.partial"), partial)
+        Path(self.directory, partial).write_text("{", encoding="utf-8")
+        worker = Viewer_Worker_Tracking.StartedWorker(mock.Mock(), output_dir=self.directory)
+        worker.pids.add(pid)
+        worker._remove_partial_structures()
+        self.assertEqual(os.listdir(self.directory), ["node_a.pdb"])
+
+
+class ResidueDataPredictionTests(unittest.TestCase):
+    """run_predictions with records that carry per-residue data."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.structures = directory.name
+
+    def run_local(self, records, **options):
+        model = mock.Mock()
+        model.generate.side_effect = lambda protein, config: FakeOutput(pdb=pdb_text(protein.sequence))
+        events = []
+        output = io.StringIO()
+
+        def notifier(node_id, pdb_filename):
+            sidecar = esmfold_worker.residue_data_filename(pdb_filename)
+            # What the page finds when it is told: the structure, and its data if there is any.
+            events.append(("notified", node_id, os.path.exists(os.path.join(self.structures, sidecar))))
+
+        def saved(path):
+            events.append(("saved", os.path.basename(path)))
+
+        with (
+            mock.patch.dict(sys.modules, fake_esm_modules()),
+            mock.patch.object(esmfold_worker, "_load_local_model", return_value=model),
+            redirect_stdout(output),
+        ):
+            result = esmfold_worker.run_predictions(
+                records, self.structures, mode="local", target_device="cpu",
+                notifier=notifier, residue_data_saved=saved, **options,
+            )
+        return result, model, events, output.getvalue()
+
+    def files(self):
+        return sorted(os.listdir(self.structures))
+
+    def read(self, name):
+        return json.loads(Path(self.structures, name).read_text(encoding="utf-8"))
+
+    def test_the_old_pair_form_writes_a_structure_and_nothing_else(self):
+        result, model, events, output = self.run_local([["node_a", "ACDE"], ["node_b", "DEFG"]])
+        self.assertEqual(result, (2, False))
+        self.assertEqual(self.files(), ["node_a.pdb", "node_b.pdb"])
+        self.assertEqual(events, [("notified", "node_a", False), ("notified", "node_b", False)])
+        self.assertNotIn("residue data", output)
+
+    def test_a_record_with_data_gets_its_file_before_the_viewer_is_told(self):
+        extra = extra_for("node_a first protein", [1.0, 2.0, 3.0, 4.0], [5.0, 6.0, 7.0, 8.0])
+        result, _, events, output = self.run_local([["node_a", "ACDE", extra], ["node_b", "DEFG"]])
+
+        self.assertEqual(result, (2, False))
+        self.assertEqual(self.files(), ["node_a.pdb", "node_a.residues.json", "node_b.pdb"])
+        # The file exists when the notifier runs, and is reported as saved right after it.
+        self.assertEqual(events, [
+            ("notified", "node_a", True), ("saved", "node_a.residues.json"), ("notified", "node_b", False),
+        ])
+        document = self.read("node_a.residues.json")
+        self.assertEqual(document["structure"], "node_a.pdb")
+        self.assertEqual(document["header"], "node_a first protein")
+        self.assertEqual(document["sequence"], "ACDE")
+        self.assertEqual(document["residue_numbering"], {"chain": "A", "first": 1})
+        self.assertEqual(document["properties"]["same_residue_pct"]["values"], [5.0, 6.0, 7.0, 8.0])
+        self.assertIn("Saved residue data to:", output)
+
+    def test_the_file_of_a_large_run_carries_the_models_suffix_of_its_pdb(self):
+        client = FakeClient([FakeOutput(pdb=pdb_text("ACDE"))])
+        settings = {"ESM_API_TOKEN": "hidden", "ESM_API_URL": "https://biohub.ai", "ESM3_MODEL": "esm3-large-2024-03"}
+        extra = extra_for("node/name x", [1, 2, 3, 4])
+        with (
+            mock.patch.dict(sys.modules, fake_esm_modules()),
+            mock.patch.object(esmfold_worker, "_load_large_client", return_value=(client, settings)),
+            redirect_stdout(io.StringIO()),
+        ):
+            esmfold_worker.run_predictions(
+                [["node/name", "ACDE", extra]], self.structures, mode="large", notifier=mock.Mock()
+            )
+        self.assertEqual(self.files(), ["node_name_esm3-large-2024-03.pdb", "node_name_esm3-large-2024-03.residues.json"])
+        self.assertEqual(self.read("node_name_esm3-large-2024-03.residues.json")["structure"], "node_name_esm3-large-2024-03.pdb")
+
+    def test_a_record_that_is_neither_a_pair_nor_a_triple_is_invalid(self):
+        result, _, _, output = self.run_local([["node_a", "ACDE", {}, "extra"], ["node_b"], "node_c", ["node_d", "DEFG"]])
+        self.assertEqual(result, (1, True))
+        self.assertEqual(output.count("Error: Invalid node record"), 3)
+        self.assertEqual(self.files(), ["node_d.pdb"])
+
+    def test_data_that_is_not_an_object_is_ignored_and_the_structure_still_folded(self):
+        result, _, events, output = self.run_local([["node_a", "ACDE", [1, 2, 3, 4]]])
+        self.assertEqual(result, (1, False))
+        self.assertEqual(self.files(), ["node_a.pdb"])
+        self.assertIn("Warning: Ignoring the residue data of node_a", output)
+
+    def test_a_failure_to_write_the_data_does_not_fail_the_structure(self):
+        extra = extra_for("h", [1, 2, 3])  # Three values for four residues.
+        result, _, events, output = self.run_local([["node_a", "ACDE", extra]])
+        self.assertEqual(result, (1, False))
+        self.assertEqual(self.files(), ["node_a.pdb"])
+        self.assertEqual(events, [("notified", "node_a", False)])
+
+    def test_skip_existing_refreshes_the_data_of_a_structure_it_keeps(self):
+        Path(self.structures, "node_a.pdb").write_text(pdb_text("ACDE"), encoding="utf-8")
+        Path(self.structures, "node_a.residues.json").write_text('{"old": true}', encoding="utf-8")
+        extra = extra_for("node_a now", [9.0, 9.0, 9.0, 9.0], [1.0, 1.0, 1.0, 1.0])
+        before = Path(self.structures, "node_a.pdb").read_bytes()
+
+        result, model, events, output = self.run_local([["node_a", "ACDE", extra], ["node_b", "DEFG"]], skip_existing=True)
+
+        self.assertEqual(result, (2, False))
+        self.assertEqual(model.generate.call_count, 1)  # Only node_b was folded.
+        self.assertEqual(Path(self.structures, "node_a.pdb").read_bytes(), before)
+        document = self.read("node_a.residues.json")
+        self.assertEqual(document["header"], "node_a now")
+        self.assertEqual(document["properties"]["information_content"]["values"], [9.0, 9.0, 9.0, 9.0])
+        # The kept structure is not announced again, but its refreshed data is reported saved.
+        self.assertEqual(events, [("saved", "node_a.residues.json"), ("notified", "node_b", False)])
+        self.assertIn("Keeping existing structure for node_a", output)
+        self.assertIn("Refreshed the residue data of the kept structure from the alignment now loaded: node_a.residues.json", output)
+        self.assertIn("Kept 1 existing structure(s) without predicting them again.", output)
+        self.assertIn("Refreshed the residue data of 1 of them.", output)
+
+    def test_skip_existing_without_data_leaves_the_old_file_as_it_is(self):
+        Path(self.structures, "node_a.pdb").write_text(pdb_text("ACDE"), encoding="utf-8")
+        Path(self.structures, "node_a.residues.json").write_text('{"old": true}', encoding="utf-8")
+        result, _, events, output = self.run_local([["node_a", "ACDE"]], skip_existing=True)
+        self.assertEqual(result, (1, False))
+        self.assertEqual(self.read("node_a.residues.json"), {"old": True})
+        self.assertEqual(events, [])
+        self.assertNotIn("Refreshed", output)
+
+    def test_skip_existing_refreshes_nothing_for_a_structure_of_another_sequence(self):
+        Path(self.structures, "node_a.pdb").write_text(pdb_text("ACDEFG"), encoding="utf-8")
+        result, _, events, output = self.run_local([["node_a", "ACDE", extra_for("h", [1, 2, 3, 4])]], skip_existing=True)
+        self.assertEqual(result, (1, False))
+        self.assertEqual(self.files(), ["node_a.pdb"])
+        self.assertEqual(events, [])
+        self.assertIn("Warning: Could not write the residue data for node_a", output)
+
+    def test_a_refold_without_data_leaves_an_earlier_file_beside_the_new_structure(self):
+        # Data from an earlier alignment is not deleted: a run with no alignment writes none, and removes none.
+        extra = extra_for("h", [1, 2, 3, 4])
+        self.run_local([["node_a", "ACDE", extra]])
+        self.run_local([["node_a", "ACDE"]])
+        self.assertEqual(self.files(), ["node_a.pdb", "node_a.residues.json"])
+
+
+class ResidueDataMainTests(unittest.TestCase):
+    """main(): the input file in both forms, and what the job reports."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = directory.name
+        self.status_path = os.path.join(self.directory, "status.json")
+        self.structures = os.path.join(self.directory, "structures")
+        portal = mock.patch.multiple(
+            esmfold_worker, _portal_path=self.status_path, _portal_noninteractive=True, _portal_state={"artifacts": []},
+        )
+        portal.start()
+        self.addCleanup(portal.stop)
+
+    def run_main(self, records, *arguments):
+        path = os.path.join(self.directory, "records.json")
+        Path(path).write_text(json.dumps(records), encoding="utf-8")
+        model = mock.Mock()
+        model.generate.side_effect = lambda protein, config: FakeOutput(pdb=pdb_text(protein.sequence))
+        with (
+            mock.patch.dict(sys.modules, fake_esm_modules()),
+            mock.patch.object(esmfold_worker, "_load_local_model", return_value=model),
+            redirect_stdout(io.StringIO()) as output,
+            redirect_stderr(io.StringIO()),
+        ):
+            result = esmfold_worker.main(
+                [path, self.structures, "cpu", "--portal-status", self.status_path, "--noninteractive", *arguments]
+            )
+        with open(self.status_path, encoding="utf-8") as handle:
+            return result, json.load(handle), model, output.getvalue()
+
+    def test_the_input_file_holds_pairs_and_triples_alike(self):
+        path = os.path.join(self.directory, "records.json")
+        records = [["a", "AC"], ["b", "DE", {"header": "b x", "properties": {"p": {"values": [1, 2]}}}]]
+        Path(path).write_text(json.dumps(records), encoding="utf-8")
+        self.assertEqual(esmfold_worker._load_nodes(path), records)
+        self.assertEqual(esmfold_worker._load_nodes(path, delete=True), records)
+        self.assertFalse(os.path.exists(path))
+
+    def test_the_artifacts_list_each_structure_then_its_data_and_the_counts_stay_per_structure(self):
+        records = [
+            ["node_a", "ACDE", extra_for("node_a x", [1, 2, 3, 4], [4, 3, 2, 1])],
+            ["node_b", "DEFG"],
+            ["node_c", "GHIK", extra_for("node_c x", [5, 6, 7, 8])],
+        ]
+        result, status, model, output = self.run_main(records)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(status["status"], "succeeded")
+        names = [os.path.basename(path) for path in status["artifacts"]]
+        self.assertEqual(
+            names, ["node_a.pdb", "node_a.residues.json", "node_b.pdb", "node_c.pdb", "node_c.residues.json"]
+        )
+        self.assertTrue(all(os.path.isabs(path) for path in status["artifacts"]))
+        # Three structures were folded; the two data files are not counted among them.
+        self.assertEqual(status["result"], {"succeeded": 3, "total": 3})
+        self.assertEqual(status["message"], "Structure prediction completed; per-residue data saved for 2 structure(s)")
+        self.assertEqual(sorted(os.listdir(self.structures)), sorted(names))
+
+    def test_a_run_without_data_reports_as_before(self):
+        result, status, _, _ = self.run_main([["node_a", "AC"], ["node_b", "DE"]])
+        self.assertEqual(result, 0)
+        self.assertEqual(status["message"], "Structure prediction completed")
+        self.assertEqual([os.path.basename(path) for path in status["artifacts"]], ["node_a.pdb", "node_b.pdb"])
+
+    def test_skip_existing_reports_the_refreshed_file_as_an_artifact(self):
+        os.makedirs(self.structures)
+        Path(self.structures, "node_a.pdb").write_text(pdb_text("ACDE"), encoding="utf-8")
+        result, status, model, output = self.run_main(
+            [["node_a", "ACDE", extra_for("node_a x", [1, 2, 3, 4])]], "--skip-existing"
+        )
+        self.assertEqual(result, 0)
+        model.generate.assert_not_called()
+        self.assertEqual([os.path.basename(path) for path in status["artifacts"]], ["node_a.residues.json"])
+        self.assertEqual(status["result"], {"succeeded": 1, "total": 1})
+        self.assertIn("Refreshed the residue data of 1 of them.", output)
 
 
 if __name__ == "__main__":

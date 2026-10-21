@@ -44,10 +44,10 @@ from utilities.Sequence_Utils import (
 LOGO_DIRECTORY = os.path.join("$analysis_result$", "Sequence_Logos")
 
 # The computation these names stand for is in utilities.Alignment_Profiles, which
-# `label` uses too. The names imported above and assigned below are the ones
-# this module and its tests have always had, and they are the same objects. To
-# change what the computation does (a Numba switch, a stand-in kernel), patch
-# the utility, not these.
+# `label` and the residue data of `esmfold` use too. The names imported above
+# and assigned below are the ones this module and its tests have always had,
+# and they are the same objects. To change what the computation does (a Numba
+# switch, a stand-in kernel), patch the utility, not these.
 _ASCII_TO_STANDARD_CODE = _profiles._ASCII_TO_STANDARD_CODE
 _DECODE_BLOCK_ROWS = _profiles._DECODE_BLOCK_ROWS
 _IDENTITY_CHUNKS_PER_THREAD = _profiles._IDENTITY_CHUNKS_PER_THREAD

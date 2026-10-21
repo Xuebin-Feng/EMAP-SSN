@@ -2208,6 +2208,34 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
+        <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>No per-residue alignment data for %n structure(s): the sequence differs from the alignment&apos;s.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>No per-residue alignment data for %n structure(s): it could not be computed.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Per-residue alignment data from {file} will be saved beside %n structure(s): {properties}.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>No per-residue alignment data is saved: no alignment is loaded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
         <source>Stopped %n ESMFold worker(s); structures already saved are kept.</source>
         <translation type="unfinished">
             <numerusform></numerusform>

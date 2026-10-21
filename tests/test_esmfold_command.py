@@ -20,14 +20,20 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+import numpy as np
 import psutil
 
 import Viewer_Worker_Tracking
 from Viewer_Command_Portal import CURRENT, ExecutionContext, bind
 from commands import esmfold as esmfold_command
+from tests.sparse_alignment import sparse_alignment
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, PortalFixture, apply_window_state
 from utilities import Hardware_Acceleration as Hardware_Utils
 from web_ui import Browser_Page
+
+
+# What every run says about per-residue data while no alignment is loaded, as the stand-in Viewers here are.
+NO_ALIGNMENT = "No per-residue alignment data is saved: no alignment is loaded."
 
 
 class FakeDevice:
@@ -343,12 +349,12 @@ class ESMFoldCommandTests(unittest.TestCase):
         self.assertEqual(
             message,
             "Started Biohub ESM3 folding for 2 structure(s); waiting for the worker. "
-            "Skipped 1 selected node without a sequence. (node_1)",
+            f"Skipped 1 selected node without a sequence. (node_1) {NO_ALIGNMENT}",
         )
         self.assertEqual(
             viewer.console_text.text,
             "Spawning separate console to fold 2 structures with Biohub ESM3... "
-            "Skipped 1 selected node without a sequence.",
+            f"Skipped 1 selected node without a sequence. {NO_ALIGNMENT}",
         )
 
     def test_many_skipped_nodes_are_counted_without_listing_them(self):
@@ -358,22 +364,131 @@ class ESMFoldCommandTests(unittest.TestCase):
         succeeded, _, _ = self.run_reporting(viewer, ["multi", "large"])
 
         [(_, message)] = [call.args for call in succeeded.call_args_list]
-        self.assertTrue(message.endswith("Skipped 8 selected nodes without a sequence."), message)
+        self.assertIn("Skipped 8 selected nodes without a sequence. " + NO_ALIGNMENT, message)
         self.assertNotIn("node_1", message)
 
-    def test_a_run_that_skips_nothing_reports_as_before(self):
+    def test_a_run_that_skips_nothing_reports_only_that_no_alignment_is_loaded(self):
         viewer = self.make_viewer(2)
         succeeded, failed, _ = self.run_reporting(viewer, ["large", "multi"])
 
         failed.assert_not_called()
         self.assertEqual(
             succeeded.call_args.args[1],
-            "Started Biohub ESM3 folding for 2 structure(s); waiting for the worker.",
+            f"Started Biohub ESM3 folding for 2 structure(s); waiting for the worker. {NO_ALIGNMENT}",
         )
         self.assertEqual(
             viewer.console_text.text,
-            "Spawning separate console to fold 2 structures with Biohub ESM3...",
+            f"Spawning separate console to fold 2 structures with Biohub ESM3... {NO_ALIGNMENT}",
         )
+
+    # --- Per-residue data from the loaded alignment ---------------------------
+
+    def alignment_viewer(self):
+        """Three nodes, "ACDE" each. The alignment has node_0 as it is, node_1 under another sequence, and not node_2."""
+        viewer = self.make_viewer(3)
+        aln = sparse_alignment([("a", "AC-DE"), ("b", "ACGDE")])
+        viewer.alignment = SimpleNamespace(
+            aln=aln, msa_file="D:/alignments/family.fasta", viewer_to_aln=np.array([0, 1, -1])
+        )
+        return viewer
+
+    def worker_records(self, viewer, arguments=("large", "multi"), **options):
+        """Run the command with a stand-in launch; return (the records the worker was given, outcome, output)."""
+        records = []
+
+        def launch(command, **launch_options):
+            with open(command[2], "r", encoding="utf-8") as handle:
+                records.extend(json.load(handle))
+
+        output = io.StringIO()
+        with contextlib.ExitStack() as stack:
+            for patch in options.get("patches", ()):
+                stack.enter_context(patch)
+            succeeded, failed, _ = self.run_reporting(viewer, list(arguments), launch=launch, output=output)
+        failed.assert_not_called()
+        return records, succeeded.call_args.args[1], output.getvalue()
+
+    def test_nodes_in_the_loaded_alignment_get_their_data_in_the_workers_input(self):
+        viewer = self.alignment_viewer()
+        records, outcome, output = self.worker_records(viewer)
+
+        # node_0: [name, sequence, extra], with both properties in the order the page lists them.
+        name, sequence, extra = records[0]
+        self.assertEqual((name, sequence), ("node_0", "ACDE"))
+        self.assertEqual(extra["header"], "node_0 description")
+        self.assertEqual(list(extra["properties"]), ["information_content", "same_residue_pct"])
+        agreement = extra["properties"]["same_residue_pct"]
+        self.assertEqual(len(agreement["values"]), 4)
+        self.assertEqual(agreement["source"]["file"], "family.fasta")
+        self.assertEqual(agreement["source"]["columns"], [0, 1, 3, 4])
+        self.assertEqual(agreement["source"]["sequences"], 2)
+        # The other two keep the pair form the worker always read.
+        self.assertEqual(records[1:], [["node_1", "ACDE"], ["node_2", "ACDE"]])
+
+        self.assertEqual(
+            outcome,
+            "Started Biohub ESM3 folding for 3 structure(s); waiting for the worker. "
+            "Per-residue alignment data from family.fasta will be saved beside 1 structure: "
+            "Information Content, Residue Agreement. "
+            "No per-residue alignment data for 1 structure: the sequence differs from the alignment's. (node_1) "
+            "No per-residue alignment data for 1 structure: not in the alignment. (node_2)",
+        )
+        self.assertEqual(
+            viewer.console_text.text,
+            "Spawning separate console to fold 3 structures with Biohub ESM3... "
+            "Per-residue alignment data from family.fasta will be saved beside 1 structure: "
+            "Information Content, Residue Agreement. "
+            "No per-residue alignment data for 1 structure: the sequence differs from the alignment's. "
+            "No per-residue alignment data for 1 structure: not in the alignment.",
+        )
+        self.assertIn("Note: No per-residue alignment data for node_1: its sequence (4 residues) differs", output)
+        self.assertIn("Note: No per-residue alignment data for node_2: it is not in the alignment.", output)
+
+    def test_every_node_with_data_needs_no_other_sentence(self):
+        viewer = self.alignment_viewer()
+        viewer.alignment.viewer_to_aln = np.array([0, 0, 0])
+        records, outcome, _ = self.worker_records(viewer)
+        self.assertEqual([len(record) for record in records], [3, 3, 3])
+        self.assertTrue(
+            outcome.endswith(
+                "Per-residue alignment data from family.fasta will be saved beside 3 structures: "
+                "Information Content, Residue Agreement."
+            ),
+            outcome,
+        )
+
+    def test_an_alignment_with_no_rows_loaded_counts_as_no_alignment(self):
+        viewer = self.make_viewer(2)
+        viewer.alignment = SimpleNamespace(aln=None, msa_file="x.fasta")
+        records, outcome, _ = self.worker_records(viewer)
+        self.assertEqual(records, [["node_0", "ACDE"], ["node_1", "ACDE"]])
+        self.assertTrue(outcome.endswith("No per-residue alignment data is saved: no alignment is loaded."), outcome)
+
+    def test_a_provider_that_fails_costs_the_data_and_not_the_fold(self):
+        def broken(inputs, node_index, sequence):
+            raise RuntimeError("boom")
+
+        viewer = self.alignment_viewer()
+        patch = mock.patch.dict(esmfold_command.Residue_Data.PROVIDERS, {"broken": broken}, clear=True)
+        records, outcome, output = self.worker_records(viewer, patches=[patch])
+
+        self.assertEqual([len(record) for record in records], [2, 2, 2])
+        self.assertIn("Warning: Could not compute per-residue data for node_0: RuntimeError: boom", output)
+        self.assertIn(
+            "No per-residue alignment data for 3 structures: it could not be computed. (node_0, node_1, node_2)", outcome
+        )
+
+    def test_a_failure_to_read_the_alignment_costs_the_data_and_not_the_fold(self):
+        viewer = self.alignment_viewer()
+        patch = mock.patch.object(
+            esmfold_command.Command_Engine, "get_alignment_mapping", side_effect=RuntimeError("bad mapping")
+        )
+        records, outcome, output = self.worker_records(viewer, patches=[patch])
+
+        self.assertEqual([len(record) for record in records], [2, 2, 2])
+        self.assertIn("Warning: Could not read the loaded alignment for per-residue data: bad mapping", output)
+        self.assertIn("No per-residue alignment data for 3 structures: it could not be computed.", outcome)
+        self.assertNotIn("no alignment is loaded", outcome)
 
     def test_an_unopened_page_is_mentioned_after_the_job_started(self):
         viewer = self.make_viewer(1)
@@ -433,7 +548,7 @@ class ESMFoldCommandTests(unittest.TestCase):
                 failed.assert_not_called()
                 launch.assert_called_once()
                 self.assertIn(self.CLICKED, output.getvalue())
-                self.assertTrue(succeeded.call_args.args[1].endswith(self.CLICKED), succeeded.call_args.args[1])
+                self.assertIn(self.CLICKED, succeeded.call_args.args[1])
                 self.assertTrue(viewer.console_text.text.startswith(self.CLICKED), viewer.console_text.text)
                 self.assertIn("Spawning separate console to fold 1 structure", viewer.console_text.text)
 
@@ -878,7 +993,7 @@ class HeadlessESMFoldTests(unittest.TestCase):
                     self.outcome(run),
                     "Started "
                     + ("Biohub ESM3" if arguments else "local ESM3")
-                    + " folding for 1 structure(s); waiting for the worker."
+                    + f" folding for 1 structure(s); waiting for the worker. {NO_ALIGNMENT}"
                     + f" The worker has no window; its output is in {log_path}."
                     + f" A Viewer with no window opens no browser page; the structure viewer is served at {ADDRESS}/esmfold.html.",
                 )
@@ -903,7 +1018,7 @@ class HeadlessESMFoldTests(unittest.TestCase):
                     run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new=2)
                     self.assertEqual(
                         self.outcome(run),
-                        "Started local ESM3 folding for 1 structure(s); waiting for the worker.",
+                        f"Started local ESM3 folding for 1 structure(s); waiting for the worker. {NO_ALIGNMENT}",
                     )
 
     def test_the_bare_command_opens_the_page_or_gives_its_address_by_state(self):
@@ -949,7 +1064,7 @@ class HeadlessESMFoldTests(unittest.TestCase):
         self.assertTrue(
             self.outcome(run).startswith(
                 "Started Biohub ESM3 folding for 1 structure(s); waiting for the worker. "
-                "Skipped 1 selected node without a sequence. (node_1) The worker has no window"
+                f"Skipped 1 selected node without a sequence. (node_1) {NO_ALIGNMENT} The worker has no window"
             )
         )
 
@@ -1076,11 +1191,11 @@ class HeadlessESMFoldTests(unittest.TestCase):
                 run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new=2)
                 self.assertEqual(
                     self.outcome(run),
-                    "Started local ESM3 folding for 1 structure(s); waiting for the worker.",
+                    f"Started local ESM3 folding for 1 structure(s); waiting for the worker. {NO_ALIGNMENT}",
                 )
                 self.assertEqual(
                     viewer.console_text.text,
-                    "Spawning separate console to fold 1 structure with local ESM3...",
+                    f"Spawning separate console to fold 1 structure with local ESM3... {NO_ALIGNMENT}",
                 )
                 self.assertIn("in a separate console...", run.output)
                 self.assertEqual(viewer.esmfold_worker, (run.process, None))
@@ -1107,7 +1222,10 @@ class HeadlessESMFoldTests(unittest.TestCase):
                 command = run.terminal.call_args.args[0]
                 self.assertEqual(command[-len(expected):], expected)
                 tracker.attach_hidden.assert_not_called()
-                self.assertEqual(self.outcome(run), "Started Biohub ESM3 folding for 1 structure(s); waiting for the worker.")
+                self.assertEqual(
+                    self.outcome(run),
+                    f"Started Biohub ESM3 folding for 1 structure(s); waiting for the worker. {NO_ALIGNMENT}",
+                )
 
     def test_a_windowed_viewer_still_opens_the_page_when_nothing_is_selected(self):
         run = self.run_esmfold(self.make_viewer(0, headless=False), [])
@@ -1197,6 +1315,60 @@ def run_predictions(nodes, structures_dir, *, notifier, **options):
     partial = worker.prediction_filename(second[0]) + f".{{os.getpid()}}.partial"
     with open(os.path.join(structures_dir, partial), "w") as handle:
         handle.write("ATO")
+    child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
+    with open({pids!r}, "w") as handle:
+        handle.write(f"{{os.getpid()}} {{child.pid}}")
+    time.sleep(120)
+    return 2, False
+
+worker.run_predictions = run_predictions
+worker.notify_server = lambda *args, **options: None
+raise SystemExit(worker.main(arguments))
+"""
+
+# Folds each record as a stand-in, saves its residue data with the real worker's writer, and reports it as
+# the real run_predictions does: the data file is written before the notifier, and reported saved after it.
+STAND_IN_FOLDING_WITH_DATA = """
+import os, sys
+src, *arguments = sys.argv[1:]
+sys.path.insert(0, src)
+from resources.esmfold import esmfold_worker as worker
+
+def run_predictions(nodes, structures_dir, *, notifier, residue_data_saved, **options):
+    for node_id, sequence, extra in nodes:
+        name = worker.prediction_filename(node_id)
+        with open(os.path.join(structures_dir, name), "w") as handle:
+            handle.write("ATOM\\n")
+        sidecar = worker._write_residue_data(structures_dir, name, node_id, sequence, extra)
+        notifier(node_id, name)
+        residue_data_saved(os.path.join(structures_dir, sidecar))
+    return len(nodes), False
+
+worker.run_predictions = run_predictions
+worker.notify_server = lambda *args, **options: None
+raise SystemExit(worker.main(arguments))
+"""
+
+# Folds the first record with its data file, half writes the second's structure and data file
+# (<name>.<pid>.partial, as the worker does while it writes), starts a child, and runs until it is ended.
+STAND_IN_FOLD_WITH_DATA_THEN_HANG = """
+import os, subprocess, sys, time
+src, *arguments = sys.argv[1:]
+sys.path.insert(0, src)
+from resources.esmfold import esmfold_worker as worker
+
+def run_predictions(nodes, structures_dir, *, notifier, residue_data_saved, **options):
+    first, second = nodes
+    name = worker.prediction_filename(first[0])
+    with open(os.path.join(structures_dir, name), "w") as handle:
+        handle.write("ATOM\\n")
+    sidecar = worker._write_residue_data(structures_dir, name, first[0], first[1], first[2])
+    notifier(first[0], name)
+    residue_data_saved(os.path.join(structures_dir, sidecar))
+    second_name = worker.prediction_filename(second[0])
+    for partial in (second_name, worker.residue_data_filename(second_name)):
+        with open(os.path.join(structures_dir, partial + f".{{os.getpid()}}.partial"), "w") as handle:
+            handle.write("{{")
     child = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(120)"])
     with open({pids!r}, "w") as handle:
         handle.write(f"{{os.getpid()}} {{child.pid}}")
@@ -1336,6 +1508,54 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
         mocks.browser.assert_not_called()
         mocks.critical.assert_not_called()
 
+    def with_alignment(self):
+        """The Viewer holds an alignment with nodes one and two, so both get per-residue data."""
+        aln = sparse_alignment([("a", "AC-DE"), ("b", "AC-DF")])
+        self.viewer.alignment = SimpleNamespace(
+            aln=aln, msa_file="D:/alignments/family.fasta", viewer_to_aln=np.array([0, 1, -1])
+        )
+
+    def test_a_fold_with_an_alignment_reports_each_structure_and_its_data_file_as_artifacts(self):
+        self.with_alignment()
+        request_id, context, _ = self.run_in_portal(
+            STAND_IN_FOLDING_WITH_DATA, arguments=("large", "multi"), selected=(0, 1)
+        )
+
+        result = self.finish(request_id)
+
+        self.assertEqual(result["status"], "succeeded", result)
+        structures = self.root / "structures"
+        names = ["one.pdb", "one.residues.json", "two.pdb", "two.residues.json"]
+        self.assertEqual(result["commands"][0]["artifacts"], [os.path.abspath(structures / name) for name in names])
+        self.assertEqual(sorted(path.name for path in structures.iterdir()), names)
+        [job] = result["commands"][0]["jobs"]
+        self.assertEqual(job["result"], {"succeeded": 2, "total": 2})
+        self.assertEqual(job["message"], "Structure prediction completed; per-residue data saved for 2 structure(s)")
+        # The file is the documented one, for the structure it sits beside.
+        document = json.loads((structures / "one.residues.json").read_text(encoding="utf-8"))
+        self.assertEqual(document["format"], "emapssn-residue-data")
+        self.assertEqual((document["structure"], document["header"], document["sequence"]), ("one.pdb", "one", "ACDE"))
+        self.assertEqual(list(document["properties"]), ["information_content", "same_residue_pct"])
+        self.assertEqual(document["properties"]["same_residue_pct"]["source"]["file"], "family.fasta")
+        self.assertEqual(document["properties"]["same_residue_pct"]["values"], [100.0, 100.0, 100.0, 50.0])
+
+    def test_stop_keeps_the_saved_data_file_and_leaves_no_partial_one(self):
+        self.with_alignment()
+        request_id, context, processes = self.start_folding(script=STAND_IN_FOLD_WITH_DATA_THEN_HANG)
+        structures = self.root / "structures"
+        # Before the stop: one finished structure with its data, and the half-written pair of the second.
+        listed = sorted(path.name for path in structures.iterdir())
+        self.assertEqual(
+            [name for name in listed if not name.endswith(".partial")], ["one.pdb", "one.residues.json"]
+        )
+        self.assertEqual(len([name for name in listed if name.endswith(".partial")]), 2)
+
+        stop = self.stop_through_the_portal()
+
+        self.assertEqual(stop["status"], "succeeded", stop)
+        self.assert_stopped(request_id, processes, kept=("one.pdb", "one.residues.json"))
+        json.loads((structures / "one.residues.json").read_text(encoding="utf-8"))  # Whole, not truncated.
+
     def test_a_worker_that_fails_to_start_is_reported_with_its_traceback_in_the_log(self):
         request_id, context, _ = self.run_in_portal("raise ImportError('no torch here')\n")
 
@@ -1372,11 +1592,11 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
     # --- esmfold stop, against real worker processes of each kind of launch: hidden, a console
     # window that runs the worker as its child, and a window that hands the worker over and exits.
 
-    def start_folding(self, console=None):
+    def start_folding(self, console=None, script=STAND_IN_FOLD_THEN_HANG):
         """Start a fold of two nodes whose worker folds one and hangs on the second; return its pieces."""
         pids = self.root / "pids.txt"
         request_id, context, _ = self.run_in_portal(
-            STAND_IN_FOLD_THEN_HANG.format(pids=str(pids)),
+            script.format(pids=str(pids)),
             arguments=("large", "multi"), console=console, selected=(0, 1),
         )
         deadline = time.monotonic() + 60
@@ -1387,7 +1607,8 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
         self.addCleanup(lambda: [p.kill() for p in processes if p.is_running()])
         # The tracker reads the worker's status: the folded structure is reported before the stop.
         deadline = time.monotonic() + 30
-        while not self.portal.requests[request_id]["commands"][0]["artifacts"]:
+        expected = 2 if script is STAND_IN_FOLD_WITH_DATA_THEN_HANG else 1
+        while len(self.portal.requests[request_id]["commands"][0]["artifacts"]) < expected:
             self.assertLess(time.monotonic(), deadline, "The first structure was never reported")
             self.app.processEvents()
             time.sleep(0.02)
@@ -1398,7 +1619,7 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
         request = self.portal.submit("stop-" + text.replace(" ", "-"), text)
         return self.finish(request["request_id"])
 
-    def assert_stopped(self, request_id, processes):
+    def assert_stopped(self, request_id, processes, kept=("one.pdb",)):
         structures = self.root / "structures"
         pdb = os.path.abspath(structures / "one.pdb")
         # The fold request ends cancelled, not failed, with its job cancelled and the finished structure kept.
@@ -1406,10 +1627,12 @@ class HeadlessESMFoldProcessTests(PortalFixture, unittest.TestCase):
         self.assertEqual(result["status"], "cancelled", result)
         [job] = result["commands"][0]["jobs"]
         self.assertEqual((job["status"], job["message"]), ("cancelled", "ESMFold worker stopped"))
-        self.assertEqual(result["commands"][0]["artifacts"], [pdb])
+        self.assertEqual(
+            result["commands"][0]["artifacts"], [os.path.abspath(structures / name) for name in kept]
+        )
         self.assertTrue(os.path.exists(pdb))
-        # The half-written structure leaves no file, under any name.
-        self.assertEqual(sorted(path.name for path in structures.iterdir()), ["one.pdb"])
+        # The half-written structure, and its half-written data, leave no file, under any name.
+        self.assertEqual(sorted(path.name for path in structures.iterdir()), sorted(kept))
         _, alive = psutil.wait_procs(processes, timeout=10)
         self.assertEqual(alive, [])
         self.assertFalse([path for path in self.inputs if os.path.exists(path)])

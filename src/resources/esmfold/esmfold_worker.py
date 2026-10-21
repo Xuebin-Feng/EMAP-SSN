@@ -50,6 +50,81 @@ def prediction_filename(rec_id, model_suffix=None):
     return f"{sanitize_filename(rec_id)}{suffix}.pdb"
 
 
+# Per-residue data (what the Viewer computed from its alignment) is written beside a
+# structure, as <pdb stem>.residues.json. The Mol* page reads it from there.
+RESIDUE_DATA_FORMAT = "emapssn-residue-data"
+RESIDUE_DATA_VERSION = 1
+RESIDUE_DATA_SUFFIX = ".residues.json"
+# ESM's PDB writer names the chain A and numbers the residues from 1.
+DEFAULT_CHAIN = "A"
+DEFAULT_FIRST_RESIDUE = 1
+
+
+def residue_data_filename(pdb_filename):
+    """The residue-data file beside a PDB: ``XP_1.pdb`` gives ``XP_1.residues.json``."""
+    stem, extension = os.path.splitext(pdb_filename)
+    return (stem if extension.lower() == ".pdb" else pdb_filename) + RESIDUE_DATA_SUFFIX
+
+
+def pdb_residue_numbering(pdb_text, length):
+    """The (chain, first residue number) of the ``length`` residues a PDB holds.
+
+    The residues must be one chain, numbered consecutively without insertion
+    codes, or ValueError says why they are not (a value in the file would then
+    point at the wrong residue). A text with no atoms at all gets the numbering
+    ESM writes.
+    """
+    residues = []
+    for line in pdb_text.splitlines():
+        if line.startswith("ATOM  "):
+            residue = (line[21], line[22:27])
+            if not residues or residues[-1] != residue:
+                residues.append(residue)
+    if not residues:
+        return DEFAULT_CHAIN, DEFAULT_FIRST_RESIDUE
+    chains = {chain for chain, _ in residues}
+    if len(chains) != 1:
+        raise ValueError(f"the structure has {len(chains)} chains")
+    try:
+        numbers = [int(number) for _, number in residues]
+    except ValueError:
+        raise ValueError("the structure's residue numbers have insertion codes") from None
+    first = numbers[0]
+    if numbers != list(range(first, first + length)):
+        raise ValueError(f"the structure's {len(numbers)} numbered residues are not the {length} of the sequence")
+    return chains.pop().strip() or DEFAULT_CHAIN, first
+
+
+def checked_properties(properties, length):
+    """(the properties that hold one value per residue, a message for each one dropped)."""
+    kept, problems = {}, []
+    for property_id, data in properties.items():
+        values = data.get("values") if isinstance(data, dict) else None
+        if not isinstance(values, list) or len(values) != length:
+            held = len(values) if isinstance(values, list) else "no"
+            problems.append(f"{property_id} has {held} values for {length} residues")
+        else:
+            kept[property_id] = data
+    return kept, problems
+
+
+def build_sidecar(structure, header, sequence, chain, first, properties):
+    """The document of ``<pdb stem>.residues.json``.
+
+    ``values[i]`` of each property belongs to residue i + 1 of ``sequence``,
+    which is residue number ``first + i`` of ``chain`` in the structure.
+    """
+    return {
+        "format": RESIDUE_DATA_FORMAT,
+        "version": RESIDUE_DATA_VERSION,
+        "structure": structure,
+        "header": header,
+        "sequence": sequence,
+        "residue_numbering": {"chain": chain, "first": first},
+        "properties": properties,
+    }
+
+
 def notify_server(node_id, pdb_filename, action_url=None):
     """Tell the Viewer at ``action_url`` about a new structure; no URL, no request."""
     if not action_url:
@@ -292,6 +367,24 @@ def _generate_remote_structure(model, protein, generation_config, auth_state):
     return result
 
 
+def _publish_text(path, text):
+    """Write ``text`` to ``path`` as a whole file or not at all.
+
+    The text goes to ``<path>.<pid>.partial`` first, which is renamed into place,
+    so an interrupted run never leaves a truncated file (a later --skip-existing
+    run would keep a truncated PDB). The Viewer's `esmfold stop` deletes the
+    ``*.<pid>.partial`` files of a worker it ended.
+    """
+    partial_path = f"{path}.{os.getpid()}.partial"
+    try:
+        with open(partial_path, "w", encoding="utf-8", newline="\n") as handle:
+            handle.write(text)
+        _replace_file(partial_path, path)
+    finally:
+        if os.path.exists(partial_path):
+            os.remove(partial_path)
+
+
 def _write_prediction(output_protein, rec_id, structures_dir, model_suffix=None):
     pdb_filename = prediction_filename(rec_id, model_suffix)
     pdb_path = os.path.join(structures_dir, pdb_filename)
@@ -301,17 +394,43 @@ def _write_prediction(output_protein, rec_id, structures_dir, model_suffix=None)
     # pre-scale here: a second factor of 100 overflows the 6-column PDB
     # temperature-factor field and biotite rejects the structure.
     pdb_content = output_protein.to_pdb_string()
-    # Publish whole files only, so an interrupted run never leaves a truncated
-    # PDB that a later --skip-existing run would keep.
-    partial_path = f"{pdb_path}.{os.getpid()}.partial"
-    try:
-        with open(partial_path, "w", encoding="utf-8", newline="\n") as handle:
-            handle.write(pdb_content)
-        _replace_file(partial_path, pdb_path)
-    finally:
-        if os.path.exists(partial_path):
-            os.remove(partial_path)
+    _publish_text(pdb_path, pdb_content)
     return pdb_filename, pdb_path
+
+
+def _write_residue_data(structures_dir, pdb_filename, rec_id, sequence, extra):
+    """Write the per-residue data beside the PDB ``pdb_filename``; return the file's name, or None.
+
+    ``extra`` is the third item of the node's record: ``{"header": ..., "properties": {...}}``.
+    Nothing is written when it holds no usable property. The structure is read
+    back from disk for its residue numbering, so a kept structure from an older
+    run whose residues are not these (another sequence under the same name) gets
+    no file instead of one that points at the wrong residues. A failure only
+    costs this file: the structure itself is saved already.
+    """
+    properties = extra.get("properties") if isinstance(extra, dict) else None
+    if not isinstance(properties, dict) or not properties:
+        return None
+    properties, problems = checked_properties(properties, len(sequence))
+    for problem in problems:
+        print(f"Warning: Dropped a residue-data property for {rec_id}: {problem}.")
+    if not properties:
+        return None
+    sidecar_filename = residue_data_filename(pdb_filename)
+    try:
+        with open(os.path.join(structures_dir, pdb_filename), encoding="utf-8") as handle:
+            chain, first = pdb_residue_numbering(handle.read(), len(sequence))
+        document = build_sidecar(
+            pdb_filename, extra.get("header") or rec_id, sequence, chain, first, properties
+        )
+        _publish_text(
+            os.path.join(structures_dir, sidecar_filename),
+            json.dumps(document, ensure_ascii=False, allow_nan=False, separators=(",", ":")),
+        )
+    except (OSError, ValueError, TypeError) as error:
+        print(f"Warning: Could not write the residue data for {rec_id}: {error}")
+        return None
+    return sidecar_filename
 
 
 def run_predictions(
@@ -323,11 +442,21 @@ def run_predictions(
     token_prompt=None,
     notifier=notify_server,
     skip_existing=False,
+    residue_data_saved=None,
 ):
-    """Fold each [rec_id, sequence]; return (completed, errors_occurred).
+    """Fold each [rec_id, sequence] or [rec_id, sequence, extra]; return (completed, errors_occurred).
+
+    ``extra`` is what the Viewer computed for the node from its alignment,
+    ``{"header": ..., "properties": {...}}``: it is written beside the PDB as
+    ``<pdb stem>.residues.json`` (see _write_residue_data) before ``notifier`` is
+    told, so the page finds it when it loads the structure. Without ``extra``
+    nothing is written, and an older file is left as it is.
 
     Records kept because their PDB already exists (``skip_existing``) count
-    as completed but are not passed to ``notifier``.
+    as completed but are not passed to ``notifier``; their residue data is still
+    written, since the alignment behind it may have changed since the structure
+    was folded. ``residue_data_saved(path)`` is called with each residue-data
+    file saved (after ``notifier`` for a structure just folded).
     """
     from esm.sdk.api import ESMProtein, ESMProteinError, GenerationConfig
 
@@ -357,17 +486,24 @@ def run_predictions(
 
     folded_count = 0
     skipped_count = 0
+    refreshed_count = 0
     errors_occurred = False
     total = len(nodes_to_fold)
     claimed_names = {}
     try:
         for index, node_record in enumerate(nodes_to_fold, 1):
             try:
-                rec_id, sequence = node_record
+                if not isinstance(node_record, (list, tuple)) or len(node_record) not in (2, 3):
+                    raise ValueError(node_record)
+                rec_id, sequence = node_record[:2]
+                extra = node_record[2] if len(node_record) == 3 else None
             except (TypeError, ValueError):
                 print(f"Error: Invalid node record at position {index}: {node_record!r}")
                 errors_occurred = True
                 continue
+            if extra is not None and not isinstance(extra, dict):
+                print(f"Warning: Ignoring the residue data of {rec_id}: it is not a JSON object.")
+                extra = None
 
             model_suffix = auth_state["settings"]["ESM3_MODEL"] if mode == "large" else None
             pdb_filename = prediction_filename(rec_id, model_suffix)
@@ -378,6 +514,12 @@ def run_predictions(
                       "only one structure can be kept under that name.")
             if skip_existing and os.path.exists(pdb_path):
                 print(f"\n[{index}/{total}] Keeping existing structure for {rec_id}: {pdb_path}")
+                sidecar = _write_residue_data(structures_dir, pdb_filename, rec_id, sequence, extra)
+                if sidecar:
+                    print(f"Refreshed the residue data of the kept structure from the alignment now loaded: {sidecar}")
+                    refreshed_count += 1
+                    if residue_data_saved is not None:
+                        residue_data_saved(os.path.join(structures_dir, sidecar))
                 skipped_count += 1
                 continue
 
@@ -406,13 +548,21 @@ def run_predictions(
                     model_suffix=model_suffix,
                 )
                 print(f"Saved predicted structure to: {pdb_path}")
+                # Before the Viewer is told, so the page finds the file when it loads the structure.
+                sidecar = _write_residue_data(structures_dir, pdb_filename, rec_id, sequence, extra)
+                if sidecar:
+                    print(f"Saved residue data to: {os.path.join(structures_dir, sidecar)}")
                 notifier(rec_id, pdb_filename)
+                if sidecar and residue_data_saved is not None:
+                    residue_data_saved(os.path.join(structures_dir, sidecar))
                 folded_count += 1
             except Exception as error:
                 print(f"Error folding sequence {rec_id}: {error}")
                 errors_occurred = True
         if skipped_count:
             print(f"\nKept {skipped_count} existing structure(s) without predicting them again.")
+            if refreshed_count:
+                print(f"Refreshed the residue data of {refreshed_count} of them.")
     finally:
         if close_model and model is not None:
             try:
@@ -463,10 +613,23 @@ def main(argv=None):
 
     warnings.filterwarnings("ignore", category=UserWarning, module="esm")
     try:
+        folded = []
+
         def notifier(node_id, pdb_filename):
             notify_server(node_id, pdb_filename, arguments.action_url)
+            folded.append(node_id)
             _portal_state['artifacts'].append(os.path.abspath(os.path.join(arguments.structures_dir, pdb_filename)))
-            portal_event('running', f'Folded {node_id}', succeeded=len(_portal_state['artifacts']), total=len(nodes_to_fold))
+            portal_event('running', f'Folded {node_id}', succeeded=len(folded), total=len(nodes_to_fold))
+
+        def residue_data_saved(path):
+            # An artifact too, listed after its structure and reported at once, so that a worker
+            # stopped before its next update has still told what it saved.
+            _portal_state['artifacts'].append(os.path.abspath(path))
+            portal_event(
+                'running', f'Saved per-residue data {os.path.basename(path)}',
+                succeeded=len(folded), total=len(nodes_to_fold),
+            )
+
         folded_count, errors_occurred = run_predictions(
             nodes_to_fold,
             arguments.structures_dir,
@@ -474,6 +637,7 @@ def main(argv=None):
             target_device=arguments.device,
             notifier=notifier,
             skip_existing=arguments.skip_existing,
+            residue_data_saved=residue_data_saved,
         )
     except Exception as error:
         print(f"Error initializing ESM3 prediction: {error}")
@@ -489,7 +653,11 @@ def main(argv=None):
         portal_event("failed", "One or more structures failed", succeeded=folded_count, total=len(nodes_to_fold))
         portal_pause("\nErrors occurred. Press Enter to close this window...")
         return 1
-    portal_event("succeeded", "Structure prediction completed", succeeded=folded_count, total=len(nodes_to_fold))
+    residue_files = sum(path.endswith(RESIDUE_DATA_SUFFIX) for path in _portal_state["artifacts"])
+    message = "Structure prediction completed"
+    if residue_files:
+        message += f"; per-residue data saved for {residue_files} structure(s)"
+    portal_event("succeeded", message, succeeded=folded_count, total=len(nodes_to_fold))
     return 0
 
 

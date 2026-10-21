@@ -913,7 +913,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-esmfold" data-source-sha256="23d4b4de50c58208926957e8a8e1ca0a23fa000ba57194a88b5738c6a6ffce72">
+            <section class="command-card" id="cmd-esmfold" data-source-sha256="54072a65e4e3ddcf8924870cc54bb4bbbbba995aaf9446d2355a34773d82e723">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">esmfold</span>
@@ -942,6 +942,7 @@
                     <li><strong>Biohub 模式：</strong>远程推理绕过本地硬件选择，把本地和远程的 PDB 文件分开存放，并在首次使用时于工作进程的终端中提示输入隐藏的共享 API 令牌。</li>
                     <li><strong>工作进程：</strong>作为独立的后台控制台窗口启动，以免桌面查看器卡死。没有窗口的查看器（无界面的，或窗口未显示的隐藏查看器）则改为无窗口运行该工作进程，输出写入日志文件，也不打开 Mol* 页面：命令的结果会给出日志的位置和 Mol* 页面的服务地址。同一时间只运行一个工作进程：已有一个在运行时，<code>esmfold</code> 会拒绝启动另一个，因为那会把第二个模型加载到 GPU 内存中。请等待该工作进程结束，运行 <code>esmfold stop</code>，或关闭它的控制台窗口（没有窗口的查看器会在查看器关闭时结束其工作进程）。在没有选中或点击任何节点时打开 Mol* 不会被拒绝。</li>
                     <li><strong>Mol* 界面：</strong>托管一个 Web 服务器，在丰富的交互式三维查看器中加载预测出的结构。</li>
+                    <li><strong>逐残基数据：</strong>已加载比对时，为比对中包含的节点折叠出的每个结构，会在其 PDB 文件旁生成 <code>&lt;pdb name&gt;.residues.json</code> 文件，其中为每个残基给出两个值，均由整个已加载的比对计算（包括已隐藏的节点）：信息含量，即 <code>logo</code> 命令默认绘制的列高度，以 log2(20) = 4.32 比特为 100%；以及残基一致率，即该列中带有标准氨基酸的比对序列里，与本蛋白质该位置氨基酸相同者所占的比例（本蛋白质自身也计入）。该文件还会写明所用比对、已加载行的标识以及每个残基对应的比对列。比对中没有的节点，或比对中以另一条序列收录的节点，不生成该文件；未加载比对时所有节点都不生成。命令的结果会说明具体原因。结构查看器页面会读取这些文件。</li>
                 </ul>
 
                 <div class="subheading">示例</div>
