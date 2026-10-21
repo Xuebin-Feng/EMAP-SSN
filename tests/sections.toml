@@ -94,8 +94,10 @@ modules = [
     "test_esmfold_backend",
     "test_esmfold_command",
     "test_esmfold_layers",
+    "test_esmfold_shell",
     "test_esmfold_worker",
     "test_meta_backend",
+    "test_molstar_api_surface",
     "test_residue_data",
     "test_vendored_assets",
 ]
