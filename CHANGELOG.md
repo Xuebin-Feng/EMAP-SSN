@@ -362,9 +362,14 @@ still change before version 1.0.0.
   - **Session menu:** the session saves itself after every change, and "Save now" saves at
     once. "Download session file (.molj)" saves it in Mol*'s own format, which "Open
     session file..." reads back, as does the Advanced view. "Open structure file..." adds a
-    .pdb, .ent, .cif or .mmcif file, coloured by pLDDT and aligned like a folded one; a
-    file dropped on the view does the same. "Clear scene..." asks first. Opening and
-    clearing can be undone like a removal.
+    .pdb, .ent, .cif or .mmcif file, aligned like a folded one; a file dropped on the view
+    does the same. "Clear scene..." asks first. Opening and clearing can be undone like a
+    removal.
+  - **Opened files** start in their own structure color even while the scene shows pLDDT,
+    since their B-factor column may hold experimental B-factors rather than confidence;
+    pLDDT is one click away in the row's details. Shown in pLDDT, they carry a note that
+    the colours are the file's B-factors, and the tooltip names the value "B-factor".
+    Folded structures are coloured as before.
   - **Fixed along the way:** removing a structure left its downloaded and parsed data in
     the saved session, and the session could not be saved on a computer without WebGL.
   - **Canvas:** Reset view, Full screen, and Advanced, which opens Mol*'s own panels on the
