@@ -4865,6 +4865,18 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>The per-residue data file was made for a different protein than this structure holds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The structure file cannot be read for its residues.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The residues of this structure are not numbered as its per-residue data file expects.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No per-residue data was saved with this structure.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4890,6 +4902,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>The per-residue data file does not say how the residues are numbered.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The per-residue data file does not hold the sequence it was made for.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

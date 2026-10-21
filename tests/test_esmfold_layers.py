@@ -12,6 +12,10 @@ These tests cover the three parts of that:
   MolViewSpec annotation of a layer;
 * the Viewer's /api/esmfold/layers/ route serves both, under the same-origin
   and containment rules of every other route;
+* the files the real writer makes: esmfold's own records (commands/esmfold.py),
+  the Residue_Data providers over an alignment the production loader read, and
+  the worker's run_predictions with a stand-in model, nothing folded, read back
+  through the route;
 * esmfold.html, in Qt WebEngine over the real server and the real bundled
   Mol*, attaches a layer to a structure it has already loaded and takes it off
   again: pLDDT stays the default and comes back exactly, each structure has
@@ -25,7 +29,9 @@ the colours the colour theme gives each residue and the labels it gives a
 hovered one, not pixels.
 """
 
+import contextlib
 import http.client
+import io
 import json
 import os
 from pathlib import Path
@@ -33,6 +39,7 @@ import re
 import sys
 import tempfile
 import time
+import types
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -50,7 +57,11 @@ from PySide6.QtCore import QUrl
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication
 
+from commands import esmfold as esmfold_command
+from resources.esmfold import esmfold_worker
 from tests import esmfold_layer_fixtures as fixtures
+from tests.sparse_alignment import load_manager, write_fasta
+from tests.test_esmfold_worker import FakeClient, FakeOutput, fake_esm_modules
 from tests.translation_fixtures import pseudo_language
 from web_ui import residue_layers
 from web_ui.residue_layers import (
@@ -93,11 +104,14 @@ class ResidueLayerTestCase(unittest.TestCase):
     def sidecar_path(self, name=FIRST):
         return os.path.join(self.directory, name[:-len(".pdb")] + ".residues.json")
 
+    def structure_path(self, name=FIRST):
+        return os.path.join(self.directory, name)
+
     def listing(self, name=FIRST):
-        return layer_listing(name, self.sidecar_path(name))
+        return layer_listing(name, self.structure_path(name), self.sidecar_path(name))
 
     def data(self, name=FIRST):
-        return read_residue_data(name, self.sidecar_path(name))
+        return read_residue_data(name, self.structure_path(name), self.sidecar_path(name))
 
     def layer(self, listing, layer_id):
         return next(entry for entry in listing["layers"] if entry["id"] == layer_id)
@@ -113,7 +127,10 @@ class ResidueDataTests(ResidueLayerTestCase):
         information = self.layer(listing, "information_content")
         self.assertEqual((information["label"], information["unit"], information["range"]),
                          ("Information Content", "%", [0, 100]))
-        self.assertEqual((information["residues"], information["covered"]), (33, 32))
+        # The writer leaves no residue out of information content, and the non-standard ones out of agreement.
+        self.assertEqual((information["residues"], information["covered"]), (33, 33))
+        agreement = self.layer(listing, "same_residue_pct")
+        self.assertEqual((agreement["residues"], agreement["covered"]), (33, 32))
         self.assertEqual(information["source"], "From fixture_alignment.fasta, computed when folded, using 12 sequences")
         self.assertTrue(information["description"])
         self.assertTrue(information["annotation"].startswith(
@@ -138,6 +155,11 @@ class ResidueDataTests(ResidueLayerTestCase):
             "a newer version": ("unsupported version", {"version": 2}),
             "another structure": ("belongs to another structure", {"structure": "other.pdb"}),
             "no numbering": ("does not say how the residues are numbered", {"residue_numbering": {"chain": "A"}}),
+            "no sequence": ("does not hold the sequence", {"sequence": None}),
+            "another protein": ("different protein", {"sequence": fixtures.SECOND_SEQUENCE}),
+            "a shorter protein": ("different protein", {"sequence": fixtures.FIRST_SEQUENCE[:-1]}),
+            "another chain": ("different protein", {"residue_numbering": {"chain": "B", "first": 1}}),
+            "other residue numbers": ("not numbered as", {"residue_numbering": {"chain": "A", "first": 5}}),
             "no properties": ("holds no usable property", {"properties": {}}),
             "only unusable ones": ("holds no usable property", {"properties": {
                 "all_null": score_property([None] * 33), "not_a_list": {"values": 5},
@@ -155,6 +177,20 @@ class ResidueDataTests(ResidueLayerTestCase):
                 self.assertIn(reason, listing["unavailable"])
                 self.assertEqual(listing["layers"][0]["legend"]["kind"], "bands")
 
+    def test_what_cannot_be_compared_and_a_chain_the_file_is_not_about_do_not_refuse_it(self):
+        # The PDB has UNK at residue 4 and the file an X at residue 7, in lower case: neither can be compared.
+        pdb_sequence = fixtures.FIRST_SEQUENCE[:3] + "X" + fixtures.FIRST_SEQUENCE[4:]
+        file_sequence = fixtures.FIRST_SEQUENCE[:6] + "X" + fixtures.FIRST_SEQUENCE[7:]
+        fixtures.write_structure(self.directory, FIRST, pdb_sequence, sidecar=False)
+        fixtures.write_sidecar(self.directory, FIRST, fixtures.residue_data(FIRST, file_sequence.lower()))
+        self.assertEqual([entry["id"] for entry in self.listing()["layers"]],
+                         ["plddt", "information_content", "same_residue_pct"])
+        # Another chain in the PDB is not what the file is about.
+        both = fixtures.helix_pdb(pdb_sequence, fixtures.plddt_values(33)).replace("TER\nEND\n", "")
+        both += fixtures.helix_pdb(fixtures.SECOND_SEQUENCE, fixtures.plddt_values(33), chain="B")
+        Path(self.structure_path()).write_text(both, encoding="utf-8")
+        self.assertEqual(len(self.listing()["layers"]), 3)
+
     def test_a_file_too_large_to_read_is_refused(self):
         self.write()
         with mock.patch.object(residue_layers, "MAX_SIDECAR_BYTES", 100):
@@ -168,7 +204,7 @@ class ResidueDataTests(ResidueLayerTestCase):
 
     def test_the_annotation_selects_residues_by_the_pdbs_chain_and_numbering(self):
         self.write(chain="B", first=17)
-        rows = layer_annotation(self.data(), "information_content")
+        rows = layer_annotation(self.data(), "same_residue_pct")
         # Residue 4 of the structure has no value, so it has no row.
         self.assertEqual(len(rows), 32)
         self.assertEqual([row["auth_seq_id"] for row in rows[:4]], [17, 18, 19, 21])
@@ -184,10 +220,17 @@ class ResidueDataTests(ResidueLayerTestCase):
     def test_the_tooltip_names_the_value_its_unit_and_the_one_based_alignment_column(self):
         self.write()
         rows = {row["auth_seq_id"]: row for row in layer_annotation(self.data(), "information_content")}
-        # Residue 1 sits in 0-based column 100; residue 2's column is not known.
+        # Residue 1 sits in 0-based column 100 and residue 2 in column 102.
+        self.assertEqual(rows[1]["tooltip"], "Information Content 0.5 % (MSA column 101)")
+        self.assertEqual(rows[2]["tooltip"], "Information Content 7.5 % (MSA column 103)")
+        self.assertEqual(rows[1]["value"], 0.5)
+
+    def test_a_residue_whose_column_is_null_has_a_tooltip_without_one(self):
+        columns = [None if index == 1 else 100 + index for index in range(33)]
+        fixtures.write_structure(self.directory, FIRST, fixtures.FIRST_SEQUENCE, columns=columns)
+        rows = {row["auth_seq_id"]: row for row in layer_annotation(self.data(), "information_content")}
         self.assertEqual(rows[1]["tooltip"], "Information Content 0.5 % (MSA column 101)")
         self.assertEqual(rows[2]["tooltip"], "Information Content 7.5 %")
-        self.assertEqual(rows[1]["value"], 0.5)
 
     def test_colours_run_along_the_scale_across_the_range_the_file_gives(self):
         properties = {
@@ -321,6 +364,112 @@ class ResidueDataTests(ResidueLayerTestCase):
         reason = self.listing()["unavailable"]
         self.assertNotEqual(reason, "No per-residue data was saved with this structure.")
         self.assertEqual(re.findall("[A-Za-z]", reason), [], reason)
+        # So is each reason a file is not shown on a structure it does not describe.
+        for damage in ({"sequence": fixtures.SECOND_SEQUENCE}, {"sequence": None},
+                       {"residue_numbering": {"chain": "A", "first": 5}}):
+            fixtures.write_sidecar(self.directory, FIRST, {
+                **fixtures.residue_data(FIRST, fixtures.FIRST_SEQUENCE), **damage})
+            reason = self.listing()["unavailable"]
+            with self.subTest(damage=list(damage)):
+                self.assertNotEqual(reason, "")
+                self.assertEqual(re.findall("[A-Za-z]", reason), [], reason)
+
+
+# The alignment of the writer tests: five nodes of two families, 36 columns wide, whose rows hold their residues
+# in other columns than their positions (gaps), and node_c has a residue the providers do not count (X).
+THIRD_SEQUENCE = fixtures.FIRST_SEQUENCE[:3] + "X" + fixtures.FIRST_SEQUENCE[4:]
+SEQUENCES = {
+    "node_a": fixtures.FIRST_SEQUENCE,
+    "node_b": fixtures.SECOND_SEQUENCE,
+    "node_c": THIRD_SEQUENCE,
+    "node_d": fixtures.FIRST_SEQUENCE[:9] + "E" + fixtures.FIRST_SEQUENCE[10:],
+    "node_e": fixtures.SECOND_SEQUENCE[:5] + "L" + fixtures.SECOND_SEQUENCE[6:],
+}
+GAPS = {"node_a": {3, 10, 11}, "node_b": {0, 20, 21}, "node_c": {3, 10, 11}, "node_d": {3, 10, 11}, "node_e": {0, 20, 21}}
+LARGE_MODEL = "esm3-large-2024-03"
+
+
+def aligned(sequence, gaps, width=36):
+    """``sequence`` laid into ``width`` columns with a gap at each column of ``gaps``."""
+    residues = iter(sequence)
+    return "".join("-" if column in gaps else next(residues) for column in range(width))
+
+
+ROWS = [(name, aligned(sequence, GAPS[name])) for name, sequence in SEQUENCES.items()]
+
+
+def residue_columns(name):
+    """The 0-based column of each residue of a node: where its aligned row has a symbol."""
+    return [column for column, symbol in enumerate(dict(ROWS)[name]) if symbol != "-"]
+
+
+class WriterPathMixin:
+    """Folds nodes through the real writer path with a stand-in model, into self.directory.
+
+    The records are the ones `esmfold` puts in the worker's input file
+    (commands.esmfold._worker_records over the Viewer's alignment and the
+    Residue_Data providers); the worker's run_predictions writes the PDB the
+    stand-in model returns and the sidecar beside it. Nothing is folded.
+    """
+
+    def viewer_for(self, rows=ROWS, name="family.fasta"):
+        """A stand-in Viewer whose alignment the production loader read from a FASTA file of ``rows``."""
+        path = os.path.join(self.outer, name)
+        write_fasta(path, rows)
+        headers = [header for header, _ in rows]
+        return SimpleNamespace(alignment=load_manager(path, headers), full_headers=headers)
+
+    def fold(self, names, *, viewer=None, data=True, mode="local", sequences=None, numbering=None):
+        """Fold ``names``; return the written files' names.
+
+        ``data`` false gives the worker records of the old pair form, as when no alignment is loaded.
+        ``numbering`` gives a node's PDB another chain and first residue.
+        """
+        sequences = sequences or {name: SEQUENCES[name] for name in names}
+        nodes = [(name, sequences[name]) for name in names]
+        if data:
+            viewer = viewer or self.viewer_for()
+            with contextlib.redirect_stdout(io.StringIO()):
+                records, _ = esmfold_command._worker_records(
+                    viewer, [viewer.full_headers.index(name) for name in names], nodes)
+        else:
+            records = [list(node) for node in nodes]
+        # The worker reads the records from a JSON file.
+        records = json.loads(json.dumps(records))
+        options = {sequences[name]: (numbering or {}).get(name, {}) for name in names}
+
+        def structure_of(sequence):
+            return FakeOutput(pdb=fixtures.helix_pdb(sequence, fixtures.plddt_values(len(sequence)), **options[sequence]))
+
+        before = set(os.listdir(self.directory))
+        # A local run reads its device from torch, which only needs to name one: the stand-in is no torch, so
+        # the real one is not imported (a second import of it in this process would crash it).
+        torch = types.ModuleType("torch")
+        torch.device = lambda name: SimpleNamespace(type=name, __str__=lambda self: name)
+        with (mock.patch.dict(sys.modules, {**fake_esm_modules(), "torch": torch}),
+              contextlib.redirect_stdout(io.StringIO())):
+            if mode == "large":
+                client = FakeClient([structure_of(sequence) for _, sequence in nodes])
+                settings = {"ESM_API_TOKEN": "hidden", "ESM_API_URL": "https://biohub.ai", "ESM3_MODEL": LARGE_MODEL}
+                with mock.patch.object(esmfold_worker, "_load_large_client", return_value=(client, settings)):
+                    result = esmfold_worker.run_predictions(records, self.directory, mode="large", notifier=mock.Mock())
+            else:
+                model = mock.Mock()
+                model.generate.side_effect = lambda protein, config: structure_of(protein.sequence)
+                with mock.patch.object(esmfold_worker, "_load_local_model", return_value=model):
+                    result = esmfold_worker.run_predictions(
+                        records, self.directory, mode="local", target_device="cpu", notifier=mock.Mock())
+        self.assertEqual(result, (len(names), False))
+        return sorted(set(os.listdir(self.directory)) - before)
+
+    def pdb_residues(self, pdb_name):
+        """(chain, number) of each residue of a PDB in the folder, in file order."""
+        residues = []
+        with open(os.path.join(self.directory, pdb_name), encoding="utf-8") as handle:
+            for line in handle:
+                if line.startswith("ATOM  ") and (not residues or residues[-1] != (line[21], int(line[22:26]))):
+                    residues.append((line[21], int(line[22:26])))
+        return residues
 
 
 def http_get(server, path, headers=None):
@@ -497,7 +646,127 @@ class LayerRouteTests(ServedLayerTestCase):
         self.assertEqual(http_get(self.server, "/structures/protein_a.pdb", page_headers(self.server))[0], 200)
 
 
-class LayerPageTests(ServedLayerTestCase):
+class WriterOutputTests(WriterPathMixin, ServedLayerTestCase):
+    """What the real writer makes, read back through the route and the listing."""
+
+    def test_the_files_the_worker_writes_are_listed_and_annotated_as_they_describe(self):
+        # node_b's PDB is chain B from residue 7, which the writer reads from the PDB itself.
+        numbering = {"node_b": {"chain": "B", "first": 7}}
+        viewer = self.viewer_for()
+        names = self.fold(["node_a", "node_c"], viewer=viewer) + self.fold(
+            ["node_b"], viewer=viewer, mode="large", numbering=numbering)
+        self.assertEqual(names, [
+            "node_a.pdb", "node_a.residues.json", "node_c.pdb", "node_c.residues.json",
+            f"node_b_{LARGE_MODEL}.pdb", f"node_b_{LARGE_MODEL}.residues.json",
+        ])
+        for pdb_name, node, expected in (
+                ("node_a.pdb", "node_a", ("A", 1)), ("node_c.pdb", "node_c", ("A", 1)),
+                (f"node_b_{LARGE_MODEL}.pdb", "node_b", ("B", 7))):
+            with self.subTest(pdb_name):
+                self.check_a_structure(pdb_name, node, *expected)
+
+    def check_a_structure(self, pdb_name, node, chain, first):
+        sidecar_name = residue_layers.sidecar_name(pdb_name)
+        text = Path(self.directory, sidecar_name).read_text(encoding="utf-8")
+        sidecar = json.loads(text)
+        # Compact JSON in the writer's key order, named for the PDB's own stem, model suffix included.
+        self.assertTrue(text.startswith('{"format":"emapssn-residue-data","version":1,"structure":"' + pdb_name + '","header":'))
+        self.assertEqual(list(sidecar), ["format", "version", "structure", "header", "sequence", "residue_numbering", "properties"])
+        self.assertEqual(list(sidecar["properties"]), ["information_content", "same_residue_pct"])
+        self.assertEqual(sidecar["sequence"], SEQUENCES[node])
+        self.assertEqual(sidecar["residue_numbering"], {"chain": chain, "first": first})
+        self.assertEqual(self.pdb_residues(pdb_name), [(chain, first + index) for index in range(33)])
+
+        status, _, listing = self.get_json(f"/api/esmfold/layers/{pdb_name}")
+        self.assertEqual(status, 200)
+        self.assertEqual(listing["unavailable"], "")
+        self.assertEqual([(layer["id"], layer["label"], layer["unit"], layer.get("range")) for layer in listing["layers"]], [
+            ("plddt", "pLDDT", "", None),
+            ("information_content", "Information Content", "%", [0, 100]),
+            ("same_residue_pct", "Residue Agreement", "%", [0, 100]),
+        ])
+        information, agreement = listing["layers"][1:]
+        self.assertEqual((information["residues"], information["covered"]), (33, 33))
+        standard = [letter != "X" for letter in SEQUENCES[node]]
+        self.assertEqual((agreement["residues"], agreement["covered"]), (33, sum(standard)))
+        self.assertEqual(information["source"], "From family.fasta, computed when folded, using 5 sequences")
+        for layer in (information, agreement):
+            self.assertTrue(layer["description"])
+            self.assertEqual(layer["annotation"].split("?")[0], f"/api/esmfold/layers/{pdb_name}/{layer['id']}")
+
+        columns = residue_columns(node)
+        for layer, entry in zip((information, agreement), sidecar["properties"].values()):
+            status, _, rows = self.get_json(layer["annotation"])
+            self.assertEqual(status, 200)
+            self.assertEqual(entry["source"]["columns"], columns)
+            # A row for each residue with a value, selecting it by the PDB's own chain and number...
+            expected = [index for index, value in enumerate(entry["values"]) if value is not None]
+            self.assertEqual([(row["auth_asym_id"], row["auth_seq_id"]) for row in rows],
+                             [(chain, first + index) for index in expected])
+            for row, index in zip(rows, expected):
+                value = entry["values"][index]
+                self.assertEqual(row["value"], value)
+                # ...with the tooltip naming the alignment column of that residue, counted from 1.
+                self.assertEqual(row["tooltip"], f"{layer['label']} {round(value, 2):g} % (MSA column {columns[index] + 1})")
+                self.assertEqual(row["color"], residue_layers.property_color(self.data(pdb_name).properties[layer["id"]], value))
+
+        # Information content is never null; residue agreement is null at the residue the providers do not count.
+        values = sidecar["properties"]["information_content"]["values"]
+        self.assertTrue(all(isinstance(value, (int, float)) for value in values))
+        agreement_values = sidecar["properties"]["same_residue_pct"]["values"]
+        self.assertEqual([index for index, value in enumerate(agreement_values) if value is None],
+                         [index for index, ok in enumerate(standard) if not ok])
+
+    def test_a_refold_that_gets_no_data_leaves_a_file_that_is_not_shown_on_another_protein(self):
+        self.fold(["node_a"])
+        self.assertEqual([layer["id"] for layer in self.get_json("/api/esmfold/layers/node_a.pdb")[2]["layers"]],
+                         ["plddt", "information_content", "same_residue_pct"])
+        # The same name folded again with another protein and no data: the worker leaves the old file where it is.
+        self.fold(["node_a"], data=False, sequences={"node_a": SEQUENCES["node_b"]})
+        self.assertTrue(os.path.exists(self.sidecar_path("node_a.pdb")))
+        status, _, listing = self.get_json("/api/esmfold/layers/node_a.pdb")
+        self.assertEqual(status, 200)
+        self.assertEqual([layer["id"] for layer in listing["layers"]], ["plddt"])
+        self.assertIn("different protein", listing["unavailable"])
+        status, _, body = self.get_json("/api/esmfold/layers/node_a.pdb/information_content")
+        self.assertEqual(status, 404)
+        self.assertIn("different protein", body["error"])
+
+        # The same protein folded again without data is the protein the old file describes, so it is shown,
+        # and its source line names the alignment it came from.
+        self.fold(["node_a"], data=False)
+        listing = self.get_json("/api/esmfold/layers/node_a.pdb")[2]
+        self.assertEqual([layer["id"] for layer in listing["layers"]], ["plddt", "information_content", "same_residue_pct"])
+        self.assertIn("family.fasta", listing["layers"][1]["source"])
+        # A newer file from another alignment replaces it and the page sees the change.
+        before = listing["layers"][1]["annotation"]
+        smaller = self.viewer_for([row for row in ROWS if row[0] in ("node_a", "node_d")], name="smaller.fasta")
+        self.fold(["node_a"], viewer=smaller)
+        layer = self.get_json("/api/esmfold/layers/node_a.pdb")[2]["layers"][1]
+        self.assertEqual(layer["source"], "From smaller.fasta, computed when folded, using 2 sequences")
+        self.assertNotEqual(layer["annotation"], before)
+
+    def test_a_structure_whose_residues_were_renumbered_since_is_not_given_the_numbers_of_the_old_ones(self):
+        self.fold(["node_a"])
+        pdb = Path(self.directory, "node_a.pdb")
+        pdb.write_text(fixtures.helix_pdb(SEQUENCES["node_a"], fixtures.plddt_values(33), first=5), encoding="utf-8")
+        listing = self.get_json("/api/esmfold/layers/node_a.pdb")[2]
+        self.assertEqual([layer["id"] for layer in listing["layers"]], ["plddt"])
+        self.assertIn("not numbered as", listing["unavailable"])
+
+    def test_a_node_the_alignment_lacks_gets_no_file_and_so_plddt_alone(self):
+        viewer = self.viewer_for([row for row in ROWS if row[0] != "node_e"])
+        viewer.full_headers = viewer.full_headers + ["node_e"]
+        viewer.alignment.network_headers = list(viewer.full_headers)
+        # The alignment has no row for node_e, so the command writes it no data, and so no file.
+        names = self.fold(["node_a"], viewer=viewer) + self.fold(["node_e"], viewer=viewer)
+        self.assertEqual(names, ["node_a.pdb", "node_a.residues.json", "node_e.pdb"])
+        listing = self.get_json("/api/esmfold/layers/node_e.pdb")[2]
+        self.assertEqual([layer["id"] for layer in listing["layers"]], ["plddt"])
+        self.assertIn("No per-residue data was saved", listing["unavailable"])
+
+
+class LayerPageTests(WriterPathMixin, ServedLayerTestCase):
     """esmfold.html in Qt WebEngine over the real server, with the real Mol*."""
 
     GREY = "#dcdcdc"
@@ -634,19 +903,37 @@ class LayerPageTests(ServedLayerTestCase):
         self.assertEqual(layered["theme"]["name"], "mvs-annotation")
         self.assertTrue(layered["state"]["isMvs"])
         self.assertEqual([a["id"] for a in layered["state"]["annotations"]], ["information_content"])
-        # Each residue the file has a number for takes the colour of its row; the rest are grey.
+        # Each residue the file has a number for takes the colour of its row.
         by_number = {str(row["auth_seq_id"]): row["color"] for row in layered["rows"]}
+        self.assertEqual(len(by_number), 33)
         for number in range(1, 34):
-            self.assertEqual(layered["colors"][str(number)], by_number.get(str(number), self.GREY), number)
-        self.assertEqual(layered["colors"]["4"], self.GREY)
+            self.assertEqual(layered["colors"][str(number)], by_number[str(number)], number)
         self.assertNotEqual(layered["colors"], start["colors"])
         self.assertEqual(layered["panel"]["selected"], ["information_content"])
         self.assertTrue(layered["panel"]["legend_bar"])
         self.assertEqual(layered["panel"]["legend_ends"], ["0 %", "100 %"])
-        self.assertEqual(layered["panel"]["legend_swatches"], ["No data"])
+        # Information content has a value for every residue, so its legend has no "No data".
+        self.assertEqual(layered["panel"]["legend_swatches"], [])
         self.assertIn("From fixture_alignment.fasta, computed when folded", layered["panel"]["note"])
         # Hovering residue 6 shows Mol*'s own label and the layer's tooltip for it.
         self.assertIn("Information Content 35.5 % (MSA column 111)", layered["tooltip"])
+
+        # Residue agreement has no value for residue 4: grey, with a legend entry for it.
+        agreement = self.script("""
+            await applyLayer(loadedStructures()[0], 'same_residue_pct');
+            const rows = await (await fetch('/api/esmfold/layers/protein_a.pdb/same_residue_pct')).json();
+            const theme = reprThemes()[0];
+            return {state: layerState(0), rows, colors: colors(0, 'mvs-annotation', theme.params),
+                    tooltip: await tooltip(0, 5), panel: await panelNow()};
+            """)
+        self.assertEqual([a["id"] for a in agreement["state"]["annotations"]], ["same_residue_pct"])
+        by_number = {str(row["auth_seq_id"]): row["color"] for row in agreement["rows"]}
+        self.assertEqual(len(by_number), 32)
+        for number in range(1, 34):
+            self.assertEqual(agreement["colors"][str(number)], by_number.get(str(number), self.GREY), number)
+        self.assertEqual(agreement["colors"]["4"], self.GREY)
+        self.assertEqual(agreement["panel"]["legend_swatches"], ["No data"])
+        self.assertIn("Residue Agreement 65 % (MSA column 111)", agreement["tooltip"])
 
         restored = self.script("""
             await restorePlddt(loadedStructures()[0]);
@@ -659,6 +946,45 @@ class LayerPageTests(ServedLayerTestCase):
         self.assertEqual(restored["panel"]["selected"], ["plddt"])
         self.assertEqual(len(restored["tooltip"]), 1, restored["tooltip"])
         self.assertNotIn("Information Content", restored["tooltip"][0])
+
+    def test_structures_the_writer_made_get_both_layers_and_no_data_where_it_has_none(self):
+        self.fold(["node_a", "node_c"])
+        self.open_page()
+        self.push("node_a.pdb")
+        self.push("node_c.pdb")
+        sidecar = json.loads(Path(self.sidecar_path("node_c.pdb")).read_text(encoding="utf-8"))
+        columns = residue_columns("node_c")
+        result = self.script("""
+            const out = {options: panel().options, states: [0, 1].map(layerState)};
+            for (const id of ['information_content', 'same_residue_pct']) {
+                await applyLayer(loadedStructures()[1], id);
+                const rows = await (await fetch('/api/esmfold/layers/node_c.pdb/' + id)).json();
+                out[id] = {rows, colors: colors(1, 'mvs-annotation', reprThemes()[1].params),
+                           tooltip: await tooltip(1, 5), panel: await panelNow(), fit: fit(1)};
+            }
+            return out;
+            """)
+        self.assertEqual(result["options"], [["plddt", "pLDDT"], ["information_content", "Information Content"],
+                                             ["same_residue_pct", "Residue Agreement"]])
+        self.assertEqual([state["active"] for state in result["states"]], ["plddt", "plddt"])
+        for layer_id, label, rows_expected, swatches in (
+                ("information_content", "Information Content", 33, []), ("same_residue_pct", "Residue Agreement", 32, ["No data"])):
+            shown = result[layer_id]
+            by_number = {str(row["auth_seq_id"]): row["color"] for row in shown["rows"]}
+            self.assertEqual(len(by_number), rows_expected, layer_id)
+            for number in range(1, 34):
+                self.assertEqual(shown["colors"][str(number)], by_number.get(str(number), self.GREY), (layer_id, number))
+            # The first structure's pLDDT legend is in the card too; only "No data" is this layer's.
+            self.assertEqual([key for key in shown["panel"]["legend_swatches"] if key == "No data"], swatches, layer_id)
+            self.assertEqual(shown["panel"]["selected"], ["plddt", layer_id])
+            self.assertIn("From family.fasta, computed when folded, using 5 sequences", shown["panel"]["note"])
+            # The hovered residue (the 6th) shows the writer's value and the alignment column it came from.
+            value = sidecar["properties"][layer_id]["values"][5]
+            self.assertIn(f"{label} {round(value, 2):g} % (MSA column {columns[5] + 1})", shown["tooltip"], layer_id)
+            self.assertTrue(shown["fit"]["transformed"])
+        # The residue the writer has no agreement for is grey, and the information content of it is not.
+        self.assertEqual(result["same_residue_pct"]["colors"]["4"], self.GREY)
+        self.assertNotEqual(result["information_content"]["colors"]["4"], self.GREY)
 
     def test_the_card_switches_a_layer_and_plddt_again(self):
         self.write(name=FIRST)

@@ -25,6 +25,13 @@ property is coloured is the LAYER_STYLES entry for its id, or DEFAULT_SCALE;
 supporting another property (hydrophobicity, an embedding-derived score) is
 the writer adding it to the file, and at most one entry here.
 
+A file is shown on a structure only when it describes that structure: its
+name is the structure's, and its sequence and residue numbers are the ones the
+PDB holds, which are read from the PDB itself. An older file of the same
+protein is fine (its source line names the alignment it came from); a file of
+another protein, left beside a structure folded again under the same name
+without data, is refused with the reason.
+
 The module imports no Qt and reads no Viewer state, so the web server's
 request threads can call it. Texts it makes for the page (the tooltip of a
 residue, a layer's source, the reason a structure has no layers) are Messages,
@@ -174,13 +181,75 @@ def _read_property(property_id, entry):
     )
 
 
-def read_residue_data(structure_name, sidecar_path):
-    """The ResidueData in the file ``sidecar_path`` for the structure ``structure_name``.
+# The three-letter names of the twenty amino acids, and selenomethionine, which stands for M.
+THREE_TO_ONE = {
+    "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C", "GLN": "Q", "GLU": "E", "GLY": "G",
+    "HIS": "H", "ILE": "I", "LEU": "L", "LYS": "K", "MET": "M", "PHE": "F", "PRO": "P", "SER": "S",
+    "THR": "T", "TRP": "W", "TYR": "Y", "VAL": "V", "MSE": "M",
+}
+STANDARD_LETTERS = frozenset("ACDEFGHIKLMNPQRSTVWY")
+
+
+def _structure_chains(path):
+    """The residues of the PDB at ``path`` by chain: {chain: ((number, residue name), ...)}, in file order.
+
+    A residue's number includes its insertion code. It is read at each
+    request, not kept: a file rewritten within the file system's clock tick
+    and to the same size (another protein of the same length) would pass for
+    the old one, and reading a few thousand lines takes milliseconds.
+    """
+    chains = {}
+    last = None
+    with open(path, "r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if not line.startswith("ATOM  "):
+                continue
+            residue = (line[21], line[22:27].strip())
+            if residue != last:
+                chains.setdefault(line[21], []).append((residue[1], line[17:20].strip()))
+                last = residue
+    return {chain: tuple(residues) for chain, residues in chains.items()}
+
+
+def _check_structure(structure_path, chain, first, sequence):
+    """Raise ResidueDataError unless the PDB holds the protein ``sequence``, numbered from ``first`` in ``chain``.
+
+    The PDB's residues of the chain must be as many as the sequence's, with
+    those numbers, and each standard residue must be the sequence's letter at
+    its place. A residue the PDB names otherwise (UNK, SEC) and a letter that
+    is not a standard amino acid (X) are not compared.
+    """
+    different = ResidueDataError(
+        Message("The per-residue data file was made for a different protein than this structure holds.")
+    )
+    try:
+        residues = _structure_chains(structure_path).get(chain, ())
+    except OSError:
+        raise ResidueDataError(Message("The structure file cannot be read for its residues.")) from None
+    if len(residues) != len(sequence):
+        raise different
+    for (number, name), letter in zip(residues, sequence.upper()):
+        expected = THREE_TO_ONE.get(name)
+        if expected is not None and letter in STANDARD_LETTERS and letter != expected:
+            raise different
+    try:
+        numbers = [int(number) for number, _ in residues]
+    except ValueError:
+        numbers = None
+    if numbers != list(range(first, first + len(sequence))):
+        raise ResidueDataError(
+            Message("The residues of this structure are not numbered as its per-residue data file expects.")
+        )
+
+
+def read_residue_data(structure_name, structure_path, sidecar_path):
+    """The ResidueData in the file ``sidecar_path`` for the structure ``structure_name``, the PDB at ``structure_path``.
 
     Raises ResidueDataError, with a translated reason, when the file is
-    missing or is not residue data for this structure. A property that is not
-    usable (no numbers, or numbers for another count of residues than its
-    sequence) is left out, and the others stay.
+    missing, or is not residue data for this structure: its name is not the
+    structure's, or its sequence or numbering is not what the PDB holds. A
+    property that is not usable (no numbers, or numbers for another count of
+    residues than its sequence) is left out, and the others stay.
     """
     try:
         status = os.stat(sidecar_path)
@@ -205,14 +274,19 @@ def read_residue_data(structure_name, sidecar_path):
     if not isinstance(chain, str) or not chain.strip() or first is None:
         raise ResidueDataError(Message("The per-residue data file does not say how the residues are numbered."))
     sequence = document.get("sequence")
+    if not isinstance(sequence, str) or not sequence:
+        raise ResidueDataError(Message("The per-residue data file does not hold the sequence it was made for."))
+    _check_structure(structure_path, chain, first, sequence)
     properties = {}
     entries = document.get("properties")
     for property_id, entry in (entries.items() if isinstance(entries, dict) else ()):
         layer = _read_property(property_id, entry)
-        if layer is None or (isinstance(sequence, str) and len(sequence) != len(layer.values)):
+        if layer is None or len(sequence) != len(layer.values):
             continue
         properties[property_id] = layer
-    return ResidueData(structure_name, chain, first, properties, f"{status.st_mtime_ns}-{status.st_size}")
+    structure_status = os.stat(structure_path)
+    token = f"{status.st_mtime_ns}-{status.st_size}-{structure_status.st_mtime_ns}"
+    return ResidueData(structure_name, chain, first, properties, token)
 
 
 def _hex_to_rgb(color):
@@ -339,8 +413,8 @@ def layer_texts():
     }
 
 
-def layer_listing(structure_name, sidecar_path):
-    """What the page needs to offer layers for ``structure_name``.
+def layer_listing(structure_name, structure_path, sidecar_path):
+    """What the page needs to offer layers for ``structure_name``, the PDB at ``structure_path``.
 
     The result always lists pLDDT first. "unavailable" says why no other
     layer is offered, and is empty when at least one is.
@@ -348,7 +422,7 @@ def layer_listing(structure_name, sidecar_path):
     layers = [plddt_layer()]
     unavailable = ""
     try:
-        data = read_residue_data(structure_name, sidecar_path)
+        data = read_residue_data(structure_name, structure_path, sidecar_path)
     except ResidueDataError as error:
         unavailable = str(error)
     else:

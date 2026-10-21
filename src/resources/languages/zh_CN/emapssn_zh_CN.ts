@@ -5455,7 +5455,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location filename="../../../web_ui/agent_images.py" line="+21"/>
-        <location filename="../../../web_ui/Web_Server.py" line="+746"/>
+        <location filename="../../../web_ui/Web_Server.py" line="+747"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>
@@ -6836,7 +6836,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">导出元数据需要打开文件对话框，而不显示任何窗口的查看器无法提供该对话框。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/residue_layers.py" line="+74"/>
+        <location filename="../../../web_ui/residue_layers.py" line="+82"/>
         <source>Very high (pLDDT &gt; 90)</source>
         <translation type="unfinished">极高（pLDDT &gt; 90）</translation>
     </message>
@@ -6856,7 +6856,22 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">极低（pLDDT &lt; 50）</translation>
     </message>
     <message>
-        <location line="+111"/>
+        <location line="+138"/>
+        <source>The per-residue data file was made for a different protein than this structure holds.</source>
+        <translation type="unfinished">此逐残基数据文件是为另一种蛋白质生成的，与该结构所含的蛋白质不同。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>The structure file cannot be read for its residues.</source>
+        <translation type="unfinished">无法读取该结构文件中的残基。</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>The residues of this structure are not numbered as its per-residue data file expects.</source>
+        <translation type="unfinished">此结构的残基编号与其逐残基数据文件所预期的不一致。</translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <source>No per-residue data was saved with this structure.</source>
         <translation type="unfinished">此结构没有保存逐残基数据。</translation>
     </message>
@@ -6891,7 +6906,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">该逐残基数据文件未说明残基的编号方式。</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+3"/>
+        <source>The per-residue data file does not hold the sequence it was made for.</source>
+        <translation type="unfinished">此逐残基数据文件未包含其对应的序列。</translation>
+    </message>
+    <message>
+        <location line="+53"/>
         <source>{label} {value} (MSA column {column})</source>
         <translation type="unfinished">{label} {value}（MSA 第 {column} 列）</translation>
     </message>

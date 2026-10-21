@@ -19,7 +19,7 @@ import os
 THREE_LETTER = {
     "A": "ALA", "R": "ARG", "N": "ASN", "D": "ASP", "C": "CYS", "Q": "GLN", "E": "GLU", "G": "GLY",
     "H": "HIS", "I": "ILE", "L": "LEU", "K": "LYS", "M": "MET", "F": "PHE", "P": "PRO", "S": "SER",
-    "T": "THR", "W": "TRP", "Y": "TYR", "V": "VAL",
+    "T": "THR", "W": "TRP", "Y": "TYR", "V": "VAL", "X": "UNK",
 }
 # Two proteins of one family: the same helix with a few other residues.
 FIRST_SEQUENCE = "MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQ"
@@ -77,32 +77,37 @@ def plddt_values(length, offset=0):
 
 
 def information_content(length, offset=0):
-    """A fixture's information content (%) for each residue, with none for residue 4 (a gappy column)."""
-    return [None if index == 3 else round((index * 7 + offset) % 101 + 0.5, 1) for index in range(length)]
+    """A fixture's information content (%) for each residue. The writer never leaves one out."""
+    return [round((index * 7 + offset) % 101 + 0.5, 1) for index in range(length)]
 
 
 def same_residue_pct(length, offset=0):
-    """A fixture's residue agreement (%) for each residue."""
-    return [float((index * 13 + offset) % 101) for index in range(length)]
+    """A fixture's residue agreement (%) for each residue, with none for residue 4 (a non-standard residue)."""
+    return [None if index == 3 else float((index * 13 + offset) % 101) for index in range(length)]
 
 
 def residue_data(structure_name, sequence, *, header=None, chain="A", first=1, offset=0, properties=None,
-                 column_start=100, sequences=12):
+                 column_start=100, sequences=12, columns=None):
     """The residue data of ``structure_name`` as the dict esmfold writes it.
 
     The default properties are the two the writer starts with: information
-    content and residue agreement, in file order. ``properties`` replaces them
-    with {id: property dict}, whose "values" may be built with
-    ``residue_property``.
+    content and residue agreement, in file order, with the writer's source
+    fields. The alignment columns skip every other column, as the columns of
+    a row with gaps do. ``properties`` replaces the properties with
+    {id: property dict}, whose "values" may be built with ``residue_property``,
+    and ``columns`` the columns (the writer gives an integer for each residue;
+    the format allows null).
     """
     length = len(sequence)
-    columns = [column_start + 2 * index for index in range(length)]
-    columns[1] = None
-    source = {"kind": "msa", "file": MSA_FILE, "alignment_id": "fixture", "columns": columns, "sequences": sequences}
+    if columns is None:
+        columns = [column_start + 2 * index for index in range(length)]
+    source = {"kind": "msa", "file": MSA_FILE, "alignment_id": "sha256:" + "ab" * 32, "columns": columns,
+              "sequences": sequences}
     if properties is None:
         properties = {
             "information_content": residue_property(
-                "Information Content", "%", [0, 100], information_content(length, offset), source,
+                "Information Content", "%", [0, 100], information_content(length, offset),
+                {**source, "measure": "logo bits, with_gap, small-sample corrected", "max_bits": 4.3219},
                 "How far the alignment column of each residue is from a column of all twenty amino acids at random.",
             ),
             "same_residue_pct": residue_property(
@@ -152,8 +157,8 @@ def helix_numbering(helix):
 
 
 def write_sidecar(directory, structure_name, data):
-    """Write ``data`` as the residue data file of ``structure_name``; returns its path."""
+    """Write ``data`` as the residue data file of ``structure_name``, compact as the writer does; returns its path."""
     path = os.path.join(directory, structure_name[:-len(".pdb")] + ".residues.json")
     with open(path, "w", encoding="utf-8", newline="\n") as handle:
-        json.dump(data, handle)
+        handle.write(json.dumps(data, ensure_ascii=False, separators=(",", ":")))
     return path

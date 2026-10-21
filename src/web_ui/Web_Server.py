@@ -427,6 +427,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         residue data file beside the structure in the folder the /structures/
         route serves, and name their files through contained_path as that
         route does, so a request can't reach anything it couldn't fetch there.
+        The data is shown only when it describes the PDB (residue_layers.py).
         """
         directory = self.server.static_routes.get("/structures/")
         parts = [unquote(part) for part in clean_path[len(residue_layers.ROUTE_PREFIX):].split("/")]
@@ -445,11 +446,11 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             self._send_json(404, {"error": "Structure not found."})
             return
         if len(parts) == 1:
-            self._send_json(200, residue_layers.layer_listing(structure, sidecar_path))
+            self._send_json(200, residue_layers.layer_listing(structure, structure_path, sidecar_path))
             return
         try:
             annotation = residue_layers.layer_annotation(
-                residue_layers.read_residue_data(structure, sidecar_path), parts[1]
+                residue_layers.read_residue_data(structure, structure_path, sidecar_path), parts[1]
             )
         except residue_layers.ResidueDataError as error:
             self._send_json(404, {"error": str(error)})
