@@ -153,7 +153,7 @@ and filling missing values from the tool defaults. Empty selectors remain editab
 
 The two Config export actions accept `output_path` and `settings_path`:
 
-- `emapssn_pipeline(action="export_layout_settings")`: generation inputs, filtering, physics/UMAP settings and output
+- `emapssn_pipeline(action="export_layout_settings")`: generation inputs, filtering, physics/UMAP/PaCMAP settings and output
   destination. Visual settings and MSA display settings are excluded.
 - `emapssn_viewer_control(action="export_settings")`: a version 2 snapshot of inputs, alignment, embedding, visualization and
   directories, with the selected existing cache. Generation settings are cache-derived. This is configuration, not window state.
@@ -565,8 +565,8 @@ The existing individual-parameter and `settings_document` forms remain supported
 omitting `cache_filename` in the individual-parameter form now selects automatic naming.
 
 The layout section's `LAYOUT_DIMENSIONS` is `2` (default) or `3`. 3D caches are
-written to separate `_3D`-suffixed folders and record `physics_3d` or `umap_3d` as
-their layout mode; the desktop Viewer opens only 2D caches. `LAYOUT_SEED` is a
+written to separate `_3D`-suffixed folders and record `physics_3d`, `umap_3d` or `pacmap_3d` as
+their layout mode;the desktop Viewer opens only 2D caches. `LAYOUT_SEED` is a
 non-negative integer (default `42`) or `null` for an unseeded run. With a fixed seed,
 UMAP layouts and CPU physics layouts reproduce exactly, and so do GPU physics layouts
 on the same GPU model while its compiled layout kernels are in use. The PyTorch
@@ -574,6 +574,19 @@ fallback (Intel and Apple GPUs, or a GPU whose kernels are unavailable) can diff
 slightly between runs, and CPU and GPU layouts differ slightly from each other.
 Layout documents exported before these keys existed load with the defaults. In the
 individual-parameter form, pass either key through `parameters`.
+
+`UMAP_MODE` (a manifold layout instead of physics) is paired with `LAYOUT_METHOD`:
+`umap` (the default) or `pacmap`. `PACMAP_NEIGHBORS` (2 to 50, default 10) is the number
+of each node's strongest edges that PaCMAP treats as near pairs, and so the number the
+layout keeps and the Viewer draws per node; PaCMAP ignores `UMAP_NEIGHBORS` and
+`UMAP_MIN_DIST`. In the individual-parameter form choose it with `umap_mode=true` and
+`parameters={"LAYOUT_METHOD": "pacmap", "PACMAP_NEIGHBORS": 10}`. A PaCMAP cache's manifest
+records `layout_mode` `pacmap` (`pacmap_3d` in 3D), a `pacmap_revision` and the edge filter
+`pacmap_neighbors`, and its folder name ends in `_PACMAP_k<n>`. PaCMAP reads the network's
+stored pairs once more than UMAP does, to look up the scores of sampled node pairs (a few
+seconds at 44,000 nodes), runs on CPU threads only, and gives the same layout for the same
+`LAYOUT_SEED` on any number of threads. Layout documents, settings files and caches written
+before `LAYOUT_METHOD` existed are UMAP or physics ones and open as before.
 
 ## Benchmark (server 0.14.0)
 
@@ -743,7 +756,7 @@ normalized version 2 document without generation parameters.
 Layout exports require `kind: "layout"`, `schema_version: 2`, and sections:
 `inputs`, `network`, `layout`, `simulation`, `physics`, `packing`, and `output`.
 Inputs are FASTA/network paths; network holds score interpretation and edge filters;
-layout holds UMAP mode/parameters, `LAYOUT_DIMENSIONS`, and `LAYOUT_SEED`;
+layout holds UMAP/PaCMAP mode and parameters, `LAYOUT_DIMENSIONS`, and `LAYOUT_SEED`;
 simulation holds device, timestep (with `AUTO_DT` true, each stage picks its own
 and `DT` is ignored), convergence, and step limits; physics holds forces/damping;
 packing holds geometry and box settings; output holds the directory, cache path,
@@ -752,7 +765,7 @@ Layout exports exclude visualization and MSA display settings.
 
 Viewer JSON never contains generation settings or a `cache_fallback` section.
 Verified cache attributes and the folder manifest provide alignment score mode,
-normalization, edge filters, UMAP settings, and box scale internally. Source-file
+normalization, edge filters, UMAP or PaCMAP settings, and box scale internally.Source-file
 fingerprints and cache headers are checked. Explicit source paths remain necessary:
 metadata stores basenames and fingerprints, not full source locations. Changing
 an explicit cache uses its provenance even if current saved generation settings differ.
@@ -862,7 +875,7 @@ normal mode as the remedy.
 
 `get_summary` includes camera rectangle, canvas dimensions, and loaded,
 threshold-qualified, visible-endpoint (after threshold), and rendered edge counts.
-Rendering and inspection share filtering rules, including UMAP and dragging.
+Rendering and inspection share filtering rules, including UMAP, PaCMAP and dragging.
 Pass `include_visual=true` when capturing a snapshot, then request
 `visual_fields=["position", "color", "size"]` in `query_nodes` for bounded visual
 node records. These fields are opt-in; existing metadata and byte bounds remain.

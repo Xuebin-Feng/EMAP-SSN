@@ -208,7 +208,7 @@ during MCP initialization.
 
 ### ⚙️ EMAP-SSN Configuration GUI
 
-The configuration GUI in `EMAPSSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. The **Simulation & Physics** tab configures the SSN force-directed physics layout solver; UMAP remains available as an optional non-physics layout mode on the Inputs & Outputs tab. Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)`, offered on every tab except Inputs & Outputs, loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, `$analysis_result$`, or `$embedding$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
+The configuration GUI in `EMAPSSN_Config.py` simplifies input file selection and parameter tuning for SSN generation. The **Simulation & Physics** tab configures the SSN force-directed physics layout solver; UMAP and PaCMAP remain available as optional non-physics layout methods on the Inputs & Outputs tab.Each tab has a **Saved Config** selector: `(custom)` values are kept together in the project-root `viewer_settings.json`, while named per-tab JSON profiles are stored below the directory selected on the Directories tab. Its default expression is `$cache_file$/Saved_Config`, which resolves to `Cache_Files/Saved_Config/` with the default Cache File Directory. Selecting `(default)`, offered on every tab except Inputs & Outputs, loads read-only built-in values, and `(new)` creates a named profile from the settings currently shown. Directory values may begin with `$input_file$`, `$cache_file$`, `$analysis_result$`, or `$embedding$` to resolve beneath the corresponding configurable base directory; ordinary relative and absolute paths retain their existing behavior.
 
 The GUI also features a **Compute Network Statistics** utility that analyzes network density and outputs a report in the right panel to guide selection of an optimal similarity cutoff. The **Consistency Check** utility compares the similarity network against the Multiple Sequence Alignment (MSA) to ensure sequence headers and indexes match across all files.
 
@@ -312,13 +312,24 @@ network. The desktop workflow is:
 5. **Explore and export.** Use the Viewer console to select, color, cluster,
    inspect residues, and export figures or sequence subsets.
 
-The default layout uses a force-directed physics solver. **UMAP Mode** offers a
-manifold layout based on network scores and uses the `umap-learn` dependency
+The default layout uses a force-directed physics solver. **Plot Manifold Instead**
+(`UMAP_MODE`) offers a manifold layout based on network scores, by the **Layout
+Method** `UMAP` (the default) or `PaCMAP`. UMAP uses the `umap-learn` dependency
 already included in the managed installation. `UMAP_NEIGHBORS` counts up to $k$
 other nodes per sequence; the implementation adds a separate self-neighbor slot.
 Missing connections remain missing rather than becoming zero-distance matches.
-UMAP uses its neighbor topology instead of the physics layout's similarity and
-top-edge filters.
+PaCMAP (Wang, Huang, Rudin and Shaposhnik, *J. Mach. Learn. Res.* 22(201), 2021)
+is the project's own Numba port of the published optimizer, with no extra
+dependency: each node's `PACMAP_NEIGHBORS` strongest edges (2 to 50, default 10)
+are its near pairs and the edges kept and drawn, and it gets half as many mid-near
+partners and twice as many further partners. A mid-near partner is the second
+best of six random nodes by the network's stored score, looked up in one extra
+pass over the stored pairs; that is what places clusters in a meaningful order
+relative to each other (with random partners PaCMAP is no more global than
+UMAP). A PaCMAP layout takes seconds, uses only CPU threads, has no minimum
+distance, and repeats exactly for a given `LAYOUT_SEED` on any number of threads.
+UMAP and PaCMAP use their neighbor topology instead of the physics layout's
+similarity and top-edge filters.
 
 ![System Workflow](docs/assets/work_flow.png)
 
@@ -673,7 +684,7 @@ Layout execution JSON uses `schema_version: 2`, `kind: "layout"`, and named
 `inputs`, `network`, `layout`, `simulation`, `physics`, `packing`, and `output`
 sections. It contains generation settings only. Viewer JSON uses `kind: "viewer"`
 and `inputs`, `alignment`, `visualization`, and `directories` sections. Score
-interpretation, edge filters, UMAP settings, and box scale are read from verified
+interpretation, edge filters, UMAP or PaCMAP settings, and box scale are read from verified
 cache provenance, never repeated in Viewer JSON. Both exports inherit relevant
 saved preferences; old execution JSON must be re-exported. Personal settings
 and pipeline-document formats are unchanged. See [MCP settings](docs/mcp_settings.md)
@@ -769,7 +780,7 @@ EMAP-SSN/
 │   ├── EMAPSSN_Tools.py          # GUI for preparing sequences, embeddings, networks, and alignments
 │   ├── EMAPSSN_Config.py         # GUI configuration manager for inputs, thresholds, and models
 │   ├── EMAPSSN_MCP_Server.py     # Three local STDIO MCP workflow entry points
-│   ├── Layout_Cache_Generator.py # Standalone physics/UMAP layout-cache generation
+│   ├── Layout_Cache_Generator.py # Standalone physics/UMAP/PaCMAP layout-cache generation
 │   │
 │   ├── bin/                  # Startup scripts and launchers
 │   │   ├── EMAPSSN.bat          # Windows platform startup script

@@ -193,7 +193,7 @@
             </div>
 
             <!-- SECTION 2: COMPLETE WORKFLOW -->
-            <div id="workflow" class="section-divider" data-source-sha256="2550f429fb20a51e2e24a8b1face78009144cf9c73265d0f806ba904bf3f422c">
+            <div id="workflow" class="section-divider" data-source-sha256="db4972e90951bd516c362b908d9aad59261edff7978d0f6fc5866c7bac5b2e8d">
                 <span>2. 完整的端到端系统工作流程</span>
             </div>
 
@@ -259,7 +259,7 @@
 
                 <h3>布局生成与流形拓扑</h3>
                 <p>
-                    无论成对得分来自 BLAST 期望值还是 pLM embedding 比对，都可以通过两种不同的数学引擎将成对相似性矩阵求解为空间坐标：
+                    无论成对得分来自 BLAST 期望值还是 pLM embedding 比对，都可以通过三种不同的数学引擎将成对相似性矩阵求解为空间坐标：
                 </p>
                 <ul>
                     <li>
@@ -268,9 +268,12 @@
                     <li>
                         <strong>UMAP 非线性流形投影：</strong>将 UMAP（Uniform Manifold Approximation and Projection）应用于由网络成对得分构建的 $k$ 最近邻图，同时保留局部簇微观结构和全局家族几何。
                     </li>
+                    <li>
+                        <strong>PaCMAP 非线性流形投影：</strong>将 PaCMAP（Pairwise Controlled Manifold Approximation Projection）应用于每个节点最强的边，并且还会抽取随机节点对、查询它们已存储的得分，使各簇既保留微观结构，又以有意义的次序彼此排布。它在 CPU 线程上数秒即可完成，且无论线程数多少都生成相同的布局。
+                    </li>
                 </ul>
                 <p>
-                    两个引擎默认都会生成 2D 坐标，桌面查看器会显示这些坐标。将 <code>LAYOUT_DIMENSIONS</code> 设置为 <code>3</code> 的布局设置文档会生成单独的 3D 缓存，桌面查看器不会打开该缓存。<code>LAYOUT_SEED</code>（默认 <code>42</code>）为两个引擎设定随机种子，因此 UMAP 布局和 CPU 物理布局可以精确重现。
+                    每个引擎默认都会生成 2D 坐标，桌面查看器会显示这些坐标。将 <code>LAYOUT_DIMENSIONS</code> 设置为 <code>3</code> 的布局设置文档会生成单独的 3D 缓存，桌面查看器不会打开该缓存。<code>LAYOUT_SEED</code>（默认 <code>42</code>）为这三个引擎设定随机种子，因此 UMAP 布局和 CPU 物理布局可以精确重现。
                 </p>
             </div>
 
@@ -360,7 +363,7 @@
             </div>
 
             <!-- SECTION 4: CONFIGURATION GUI -->
-            <div id="gui-config" class="section-divider" data-source-sha256="a3f98189340a0eca10b8563c210b73a757653bbe1ad3a0271e24e11b473d91ce">
+            <div id="gui-config" class="section-divider" data-source-sha256="7799b2f7a369db9c646d70154115a42072b270c5c3399cef3ffe84d25f8692d3">
                 <span>4. EMAP-SSN 配置 GUI（EMAPSSN_Config.py）</span>
             </div>
 
@@ -394,7 +397,7 @@
                     <li><strong>网络边输入（.h5）：</strong>绑定全对全的成对相似性矩阵或期望值矩阵。</li>
                     <li><strong>得分模式与归一化模式：</strong>指定得分的解读方式（<code>global (Needleman-Wunsch)</code> 即“全局（Needleman-Wunsch）”，<code>local (Smith-Waterman)</code> 即“局部（Smith-Waterman）”）以及得分的归一化方式（<code>Alignment Length</code> 即“比对长度”、<code>Shorter Sequence</code> 即“较短序列长度”、<code>Longer Sequence</code> 即“较长序列长度”、<code>Average Sequence</code> 即“平均序列长度”；<code>Alignment Length</code> 仅适用于全局得分）。</li>
                     <li><strong>比对参考 ID 与偏移量：</strong>指定一个蛋白质，用其原生残基坐标锚定比对。该值会与网络中的序列标题匹配，优先精确匹配整个标题，其次匹配开头的标识符，再次是子串或通配符匹配；当 MSA 中含有解析出的标题时，比对即锚定在该标题上。随后，所有残基命令（例如 <code>color K188 red</code>）的编号都与这个参考蛋白质的原生残基坐标一一对应（1:1）。若没有任何匹配，或 MSA 中没有解析出的标题，查看器会在启动时发出警告，改用占有率（occupancy）编号，并忽略偏移量。</li>
-                    <li><strong>改用 UMAP 绘图：</strong>开启时，绘制 UMAP 非线性流形投影，而不运行力导向物理模拟，并提供可调的 <code>UMAP Nearest Neighbors</code> 和 <code>UMAP Min Distance</code>，二者取代“相似性阈值”和“保留高分边 %”输入项。</li>
+                    <li><strong>改用流形布局绘图：</strong>开启时，绘制 UMAP 或 PaCMAP 非线性流形投影，而不运行力导向物理模拟。<code>Layout Method</code>（布局方法）选择其一：UMAP，提供可调的 <code>UMAP Nearest Neighbors</code> 和 <code>UMAP Min Distance</code>；或 PaCMAP，提供 <code>PaCMAP Nearest Neighbors</code>（2 到 50），即每个节点最强的、保持靠近且由查看器绘制的边的数量。这些输入项取代“相似性阈值”和“保留高分边 %”输入项。</li>
                     <li><strong>最低占有率 %：</strong>比对列要在序列标识图、保守性等残基分析中被保留，所需的最低非空位（gap）字符百分比。默认为 10。</li>
                     <li><strong>相似性阈值与保留高分边 %：</strong>修剪低于给定相似性得分的边，或在整个网络中只保留得分最高的前 $X\%$ 的边，以消除拓扑噪声。“保留高分边 %”会覆盖阈值；其<strong>清除</strong>按钮可取消这一设置，此时采用相似性阈值。</li>
                     <li><strong>目标缓存与所选缓存文件：</strong>自动扫描 <code>Cache_Files/Saved_Layouts/</code> 中的预计算布局坐标。如果找到，查看器会立即加载已有布局，无需重新计算。选择 <code>(New Layout Cache)</code> 会启动一次全新的模拟。</li>
@@ -503,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="bf44dcabef26d8a72b0a8f337f8eeaa41e227136fa0e99b0686707d65d8280fe">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="690b05f86fe2c6d2a297c081604448206f1d209c8708274eb83b732992386639">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -570,7 +573,7 @@
                             <tr>
                                 <td><strong>移动选中节点</strong></td>
                                 <td><span class="kbd">右键单击</span> + 在选中节点上拖动</td>
-                                <td>移动选中节点以分离重叠的簇，用于制作发表用的图（UMAP 模式下不可用）；拖动过程中滚动可旋转这些节点。用 <span class="kbd">Ctrl+Z</span> 撤销，用 <span class="kbd">Ctrl+Y</span> 重做。</td>
+                                <td>移动选中节点以分离重叠的簇，用于制作发表用的图（UMAP 或 PaCMAP 模式下不可用）；拖动过程中滚动可旋转这些节点。用 <span class="kbd">Ctrl+Z</span> 撤销，用 <span class="kbd">Ctrl+Y</span> 重做。</td>
                             </tr>
                             <tr>
                                 <td><strong>复制序列标题/序列</strong></td>

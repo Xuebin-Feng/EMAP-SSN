@@ -118,8 +118,8 @@ Both execution formats require schema_version=2 and the matching kind. Layout
 sections are inputs, network, layout, simulation, physics, packing, and output.
 Viewer sections are inputs, alignment, visualization, and directories. Never add
 network, layout, physics, BOX_SCALE, or cache_fallback to Viewer JSON: verified
-cache provenance supplies score mode, normalization, edge filters, UMAP settings,
-and box scale internally. Input FASTA/network paths remain explicit because cache
+cache provenance supplies score mode, normalization, edge filters, UMAP/PaCMAP settings,
+and box scale internally.Input FASTA/network paths remain explicit because cache
 metadata records fingerprints and basenames, not source locations.
 
 Launch modes: `normal` opens a visible Viewer and terminal. `hidden` opens no window

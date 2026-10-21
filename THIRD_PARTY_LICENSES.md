@@ -195,6 +195,27 @@ notice below applies to it as well.
   SOFTWARE.
   ```
 
+- **PaCMAP** (Apache-2.0): `src/Layout_Engine_PaCMAP.py` is a Numba port of the
+  optimizer of the `pacmap` package, version 0.9.1
+  ([YingfanWang/PaCMAP](https://github.com/YingfanWang/PaCMAP), Copyright 2020
+  Yingfan Wang, Haiyang Huang, Cynthia Rudin, Yaron Shaposhnik): the three-term
+  loss, the three-phase weight schedule, Adam with its parameters, and the start
+  scaled by 1e-4. The port runs them on pairs that `src/utilities/PaCMAP_Pairs.py`
+  builds from a network's own scores (the package builds them from a feature
+  matrix). The gradient is summed per node from
+  incidence lists rather than written to shared memory, so a layout is the same on
+  any number of threads and equal to the package's in distribution, not in value;
+  `tests/test_layout_engine_pacmap.py` holds the metrics the package gave on the
+  same pairs and start. `pacmap` is not a dependency, and neither is the Faiss
+  library it requires. The method is from Y. Wang, H. Huang, C. Rudin and
+  Y. Shaposhnik, "Understanding How Dimension Reduction Tools Work: An Empirical
+  Approach to Deciphering t-SNE, UMAP, TriMap, and PaCMAP for Data Visualization",
+  *Journal of Machine Learning Research* 22(201), 1-73 (2021),
+  [jmlr.org/papers/v22/20-1061.html](https://jmlr.org/papers/v22/20-1061.html).
+  The Apache License 2.0, under which the package is distributed, is the license
+  of this project too ([LICENSE](LICENSE)); the package's copyright line is the
+  notice that applies to the port.
+
 ## 2. Remotely loaded assets
 
 **None.** As of 2026-08-06 the user interface fetches no third-party assets at
