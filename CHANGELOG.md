@@ -30,6 +30,10 @@ still change before version 1.0.0.
   documents saved by v0.4.0 keep working here: their `LOW_RESOURCE_MODE` turns No Zoom or
   Sidebar Animation, Update Colors After Mouse Release and Update Web Pages After Mouse
   Release on or off.
+- Inputs & Outputs profiles saved by this version hold `LAYOUT_METHOD` and
+  `PACMAP_NEIGHBORS`, so v0.4.0 refuses them, and Viewer settings documents exported now
+  for the same reason. Profiles, documents and caches saved by v0.4.0 keep working here
+  and mean UMAP, as before.
 
 ### Added
 
@@ -168,6 +172,28 @@ still change before version 1.0.0.
   - **Still freezing for now:** switching `alignment` or `reference` (5 to 6 s at
     44,000 sequences) and importing an Excel sheet (about 3 s). Other commands wait
     their turn and then run as before, in under 0.05 s at that size.
+- **PaCMAP, a second manifold layout beside UMAP.**
+  - **Choosing it:** the "Plot UMAP Instead" switch is now "Plot Manifold Instead". A new
+    Layout Method dropdown below it picks UMAP, still the default, or PaCMAP, in Config
+    and VR Config. PaCMAP Nearest Neighbors (2 to 50, default 10) takes the place of
+    UMAP's neighbour field: it sets how many of each node's strongest edges PaCMAP uses
+    and the Viewer draws. UMAP Min Distance does not apply to it. MCP's
+    `start_layout_job` takes `LAYOUT_METHOD` and `PACMAP_NEIGHBORS` among its parameters.
+  - **What it does better:** UMAP keeps each node's close neighbours together but places
+    the groups almost at random relative to one another. PaCMAP also pulls moderately
+    similar groups toward each other, using pairs it samples from the network file
+    beyond each node's strongest edges. On three test networks (13,000 and 44,000
+    sequences, BLAST and embedding scores), the rank correlation between distance on the
+    map and score, over random pairs, rose from 0.12–0.25 to 0.54–0.62, while close
+    neighbours were kept about as well as by UMAP.
+  - **Speed:** a 44,000-sequence layout takes about 23 s from the network file, against
+    about 40 s for UMAP, and peaks at 0.47 GiB of memory against 0.66 GiB. The fit itself
+    takes 0.5 s.
+  - **Reproducible:** a seeded PaCMAP layout is the same bit for bit on any number of
+    threads. It runs on the project's own Numba code, adapted from the `pacmap` package
+    (Apache-2.0; Wang, Huang, Rudin and Shaposhnik, JMLR 2021), with no new dependency.
+  - **Caches:** a PaCMAP cache is kept apart from UMAP's, in a folder ending
+    `_PACMAP_k10` for 10 neighbours. It opens in the desktop Viewer in 2D and in VR in 3D.
 
 ### Changed
 
@@ -280,10 +306,10 @@ still change before version 1.0.0.
   Effects tab, all off by default. They sit two to a row, lined up within their own
   section rather than with the colour fields above, so their names can say what they do,
   and stack into one column on a narrow window. The Viewer reads them when it starts.
-  With Plot UMAP Instead on, every switch still does something, so none is greyed out:
-  nodes can't be dragged there, but the selection box, the threshold slider, the zoom
-  glide and the thinning of a selection with 250,000 edges or more remain. Their tips say
-  which parts apply.
+  With Plot Manifold Instead on, every switch still does something, so none is greyed
+  out: nodes can't be dragged there, but the selection box, the threshold slider, the
+  zoom glide and the thinning of a selection with 250,000 edges or more remain. Their tips
+  say which parts apply.
   - **Fewer Edges Drawn While Moving:** while you pan, zoom, pinch, use the Zoom box or drag
     nodes, the Viewer draws every 4th, 16th or 64th edge in score order, made more opaque
     so dense areas keep their tone, and draws every edge again 150 ms after the motion
