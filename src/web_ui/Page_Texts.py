@@ -50,6 +50,8 @@ PAGE_CONTEXTS = {
     "web_ui/esmfold_superposition.js": "EsmfoldPage",
     "web_ui/esmfold_structures.js": "EsmfoldPage",
     "web_ui/esmfold_session.js": "EsmfoldPage",
+    "web_ui/esmfold_color.js": "EsmfoldPage",
+    "web_ui/esmfold_residue.js": "EsmfoldPage",
 }
 MARK = "data-i18n"
 TEXT_ATTRIBUTES = frozenset({"title", "placeholder", "aria-label", "alt"})

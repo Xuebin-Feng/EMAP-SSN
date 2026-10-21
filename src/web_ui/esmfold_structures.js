@@ -263,6 +263,32 @@ function structureDetails(structure, pivot) {
     });
     kind.append(kindLabel, kindSelect);
 
+    // Color: the scene's, or one of its own
+    const coloring = make('div');
+    const coloringLabelNode = make('label', 'field-label', t("Color"));
+    coloringLabelNode.htmlFor = 'col-' + id;
+    const coloringSelect = focusable(make('select', 'select'), ref + ':coloring');
+    coloringSelect.id = 'col-' + id;
+    const scene = make('option', undefined, t("Same as the scene"));
+    scene.value = '';
+    const choices = structureColoringOptions(structure).map(([value, label]) => {
+        const option = make('option', undefined, label);
+        option.value = value;
+        return option;
+    });
+    const shown = coloringOf(structure);
+    const own = shown === colorMode || shown === NO_DATA ? '' : shown;
+    if (own && !choices.some(option => option.value === own)) {
+        const other = make('option', undefined, coloringLabel(own));
+        other.value = own;
+        other.disabled = true;
+        choices.unshift(other);
+    }
+    coloringSelect.append(scene, ...choices);
+    coloringSelect.value = own;
+    coloringSelect.addEventListener('change', () => setStructureColoring(ref, coloringSelect.value));
+    coloring.append(coloringLabelNode, coloringSelect);
+
     // Opacity
     const opacity = make('div');
     const opacityLabel = make('label', 'field-label', t("Opacity"));
@@ -282,7 +308,7 @@ function structureDetails(structure, pivot) {
         applyOpacity(ref, Number(slider.value));
     });
     opacity.append(opacityLabel, slider);
-    body.append(kind, opacity);
+    body.append(kind, coloring, opacity);
 
     // What is known about the structure and its alignment
     const facts = make('dl', 'kv');
@@ -347,7 +373,7 @@ function structureRow(structure, index, pivot) {
     row.dataset.ref = ref;
     const main = make('div', 'srow-main');
     const swatch = make('span', 'srow-swatch');
-    swatch.style.setProperty('--sw', STRUCTURE_COLORS[index % STRUCTURE_COLORS.length]);
+    swatch.style.setProperty('--sw', structureColor(ref));
     const text = make('div', 'srow-text');
     text.addEventListener('click', () => toggleRow(ref));
     const nameLine = make('div', 'srow-name', name);
@@ -364,8 +390,9 @@ function structureRow(structure, index, pivot) {
     } else if (structure.transform) {
         badge = chip(t("Aligned"), 'ok', t("Aligned to the pivot."));
     }
+    const noData = coloringOf(structure) === NO_DATA ? chip(t("No data"), 'warn', t("This structure has no values for the layer the scene is colored by.")) : null;
     const count = make('span', undefined, t("{n} residues", {n: residueCount(structure)}));
-    sub.append(...(badge ? [badge] : []), count);
+    sub.append(...(badge ? [badge] : []), ...(noData ? [noData] : []), count);
     text.append(sub);
 
     const eyeLabel = hidden ? t("Show {name}", {name}) : t("Hide {name}", {name});
@@ -419,6 +446,8 @@ function renderStructures() {
     }
     byId('struct-count').textContent = structures.length ? '(' + structures.length + ')' : '';
     updateView();
+    renderColorCard();
+    refreshResidue();
     if (focused) list.querySelector('[data-focus-key="' + focused.replace(/["\\]/g, '\\$&') + '"]')?.focus();
 }
 
@@ -465,7 +494,7 @@ function removeStructure(structure) {
         const target = structureByRef(ref);
         if (target) await deleteStructureData(target);
         fitStats.delete(ref);
-        renderLayerPanel();
+        renderColorCard();
         scheduleStructures();
         setTimeout(saveSession, 1500);
     }).catch(err => reportFailure("Could not remove the structure:", err));
@@ -488,6 +517,7 @@ function undoSceneChange(snapshot) {
         await plugin.state.setSnapshot(snapshot);
         await reconcileLayers();
         syncCanvasProps();
+        deriveColorMode();
         scheduleStructures();
         setTimeout(saveSession, 1500);
     });

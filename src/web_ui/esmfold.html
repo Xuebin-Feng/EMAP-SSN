@@ -361,8 +361,7 @@
         .adv-banner span { flex: 1; }
         body[data-adv="1"] .adv-banner { display: flex; }
         body[data-adv="1"] #viewer { top: 46px; }
-        /* !important: the layer card sets its own display from script. */
-        body[data-adv="1"] .view-toolbar, body[data-adv="1"] #layer-panel, body[data-adv="1"] .empty { display: none !important; }
+        body[data-adv="1"] .view-toolbar, body[data-adv="1"] .empty { display: none !important; }
         @container app (min-width: 1041px) { body[data-adv="1"] .side { display: none; } }
 
         /* The status line, drawn as the windows' tooltips are */
@@ -397,29 +396,67 @@
         .empty .hint { margin: 0; }
         code { font-family: var(--font-mono); font-size: 12px; background: var(--code-inline-bg); color: var(--code-inline-text); padding: 2px 6px; border-radius: 6px; }
 
-        /* The colors of a structure's layers: the card the Viewer's listing fills (until it is redrawn) */
-        #layer-panel {
-            position: absolute; top: 12px; left: 12px; z-index: 6;
-            width: 232px; max-height: calc(100% - 24px); overflow-y: auto;
-            background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border);
-            padding: 8px 10px; border-radius: var(--radius);
-            box-shadow: 0 4px 12px var(--tip-shadow);
-            font-size: 12px; line-height: 1.4;
-            display: none;
+        /* The canvas's own legend: the chosen coloring in small, bottom left (the axes are bottom right) */
+        .canvas-legend {
+            position: absolute; left: 12px; bottom: 12px; z-index: 4; display: none; min-width: 150px; max-width: 220px;
+            padding: 7px 10px 8px; border: 1px solid var(--border-color); border-radius: 10px;
+            background: color-mix(in srgb, var(--bg-card) 94%, transparent); box-shadow: var(--shadow-card);
+            font-size: 11.5px;
         }
-        #layer-panel .layer-title { font-weight: 600; margin-bottom: 4px; }
-        #layer-panel .layer-row + .layer-row { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--tip-border); }
-        #layer-panel .layer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.75; }
-        #layer-panel select {
-            width: 100%; margin: 2px 0 4px; padding: 3px 4px;
-            background: var(--tip-border); color: var(--tip-text);
-            border: 1px solid var(--tip-border); border-radius: 4px; font: inherit;
-        }
-        #layer-panel .layer-bar { height: 8px; border-radius: 4px; }
-        #layer-panel .layer-ends { display: flex; justify-content: space-between; opacity: 0.75; font-size: 11px; }
-        #layer-panel .layer-key { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: 0.85; }
-        #layer-panel .layer-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
-        #layer-panel .layer-note { margin-top: 4px; opacity: 0.6; font-size: 11px; }
+        body[data-view="ready"] .canvas-legend[data-shown="1"] { display: block; }
+        body[data-adv="1"] .canvas-legend { display: none !important; }
+        .canvas-legend .t { font-size: 12px; font-weight: 600; margin-bottom: 5px; }
+        .canvas-legend .t small, .legend .t small { font-weight: 400; color: var(--text-subtle); font-size: 11px; }
+        .canvas-legend .ramp { height: 8px; }
+        .canvas-legend .band { font-size: 11px; }
+        .canvas-legend .compact-keys { gap: 2px; }
+
+        /* Color by */
+        .seg { display: flex; flex-wrap: wrap; gap: 6px; }
+        .seg-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; background: var(--bg-card); border: 1px solid var(--field-border); border-radius: var(--radius); font-size: 12.5px; color: var(--text-primary); cursor: pointer; outline: none; transition: background-color 0.15s, border-color 0.15s; box-shadow: var(--shadow-control); }
+        .seg-btn:hover { background: var(--bg-muted); }
+        .seg-btn[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+        .seg-btn:focus-visible { border-color: var(--accent); box-shadow: var(--focus-ring); }
+        .seg-btn .cov { font-size: 10.5px; font-weight: 400; color: var(--warning); background: var(--warning-soft); border-radius: 9999px; padding: 0 5px; }
+        .seg.scroll { max-height: 188px; overflow-y: auto; padding: 2px; margin: -2px; }
+        .group-label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-subtle); margin: 10px 0 6px; }
+        .group-label:first-child { margin-top: 0; }
+        .more-toggle { display: flex; align-items: center; gap: 4px; margin-top: 10px; background: none; border: 0; padding: 2px 4px 2px 0; color: var(--text-secondary); font-size: 12px; cursor: pointer; border-radius: 6px; outline: none; }
+        .more-toggle:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
+        .more-toggle .icon { width: 14px; height: 14px; transition: transform 0.2s ease; }
+        .more-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
+        .more-colorings { margin-top: 8px; }
+        .legend { margin-top: 12px; padding: 10px 10px 9px; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-card); }
+        .legend .t { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; }
+        .ramp { height: 10px; border-radius: 5px; }
+        .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-subtle); margin-top: 3px; font-variant-numeric: tabular-nums; }
+        .bands { display: grid; gap: 4px; }
+        .band { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+        .band i { width: 14px; height: 10px; border-radius: 3px; flex: none; background: var(--bc); border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent); }
+        .band span { flex: 1; }
+        .legend .band-nodata { margin-top: 6px; }
+        .legend-note { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+        .legend .src { margin-top: 9px; padding-top: 8px; border-top: 1px solid var(--border-color); font-size: 11.5px; color: var(--text-subtle); line-height: 1.45; }
+        .legend .src summary { display: flex; gap: 6px; align-items: center; cursor: pointer; list-style: none; border-radius: 6px; outline: none; }
+        .legend .src summary::-webkit-details-marker { display: none; }
+        .legend .src summary:focus-visible { box-shadow: 0 0 0 1px var(--accent); }
+        .legend .src summary > span { flex: 1; }
+        .legend .src .icon { width: 13px; height: 13px; }
+        .legend .src .chev { transition: transform 0.2s ease; }
+        .legend .src[open] .chev { transform: rotate(180deg); }
+        .legend .src p { margin: 6px 0 0 19px; }
+        .legend .nodata { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11.5px; color: var(--warning); background: var(--warning-soft); border-radius: 6px; padding: 5px 8px; }
+        .legend .nodata i { width: 14px; height: 10px; border-radius: 3px; background: #dcdcdc; border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent); flex: none; }
+        .empty-layers { display: flex; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-subtle); line-height: 1.45; }
+        .filter { height: 28px; margin: 0 0 8px; width: 100%; padding: 0 10px; border: 1px solid var(--field-border); border-radius: var(--radius); background: var(--input-bg); color: var(--input-text); font-size: 12.5px; outline: none; }
+        .filter:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
+        .chip.warn { background: var(--warning-soft); color: var(--warning); }
+
+        /* The panel's tabs, on a phone: Structures and Color take turns in the strip */
+        .side-tabs { display: none; padding: 8px 10px 0; gap: 4px; border-bottom: 1px solid var(--border-color); }
+        .side-tabs button { flex: 1; height: 32px; background: none; border: 0; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 13px; cursor: pointer; outline: none; }
+        .side-tabs button[aria-selected="true"] { color: var(--text-primary); border-bottom-color: var(--accent); font-weight: 600; }
+        .side-tabs button:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); border-radius: 6px; }
 
         /* ── Side panel ──────────────────────────────────── */
         .side { width: 340px; flex-shrink: 0; background: var(--bg-card); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; min-height: 0; }
@@ -501,6 +538,31 @@
         }
         .stage.dropping .drop-hint { display: flex; }
 
+        /* The tooltip: what the pointer is over, at the pointer, drawn as the windows' tips are */
+        .tip { position: absolute; z-index: 8; pointer-events: none; min-width: 200px; max-width: 330px; padding: 8px 10px; border-radius: var(--radius); background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border); box-shadow: 0 4px 12px var(--tip-shadow); font-size: 12px; line-height: 1.4; display: none; }
+        .tip.show { display: block; }
+        body[data-adv="1"] .tip { display: none !important; }
+        .tip .h { font-weight: 600; display: flex; justify-content: space-between; gap: 10px; }
+        .tip .h span { color: var(--tip-muted); font-weight: 400; }
+        .tip table { border-collapse: collapse; width: 100%; margin-top: 4px; }
+        .tip td { padding: 1px 0; vertical-align: baseline; }
+        .tip td:first-child { color: var(--tip-muted); padding-right: 12px; white-space: nowrap; }
+        .tip td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+        .tip .swatch-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; vertical-align: -0.5px; }
+        .tip .pinned-note { margin-top: 5px; color: var(--tip-muted); font-size: 11px; }
+
+        /* The Residue card */
+        .res-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+        .res-head span { font-weight: 400; color: var(--text-subtle); font-size: 12px; }
+        .res-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+        .res-table th { text-align: left; font-weight: 600; color: var(--text-subtle); padding: 2px 0 4px; font-size: 11px; }
+        .res-table th:not(:first-child), .res-table td:not(:first-child) { text-align: right; padding-left: 8px; }
+        .res-table td { padding: 3px 0; border-top: 1px solid var(--border-color); font-variant-numeric: tabular-nums; }
+        .res-table td:first-child { color: var(--text-secondary); }
+        .res-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+        .res-note { margin-top: 8px; font-size: 11.5px; color: var(--text-subtle); line-height: 1.5; }
+        .res-foot { display: flex; gap: 6px; margin-top: 10px; }
+
         /* Dialog, as the Metadata page's help */
         .modal-overlay { position: fixed; inset: 0; background: var(--overlay); display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
         .modal-overlay.open { display: flex; }
@@ -544,7 +606,11 @@
             .side-grip:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
             .side-grip::before { content: ""; position: absolute; top: 7px; width: 36px; height: 4px; border-radius: 2px; background: var(--field-border); }
             .toast { top: 8px; bottom: auto; left: 8px; transform: none; max-width: calc(100% - 170px); }
-            #layer-panel { max-height: 34%; }
+            .side-tabs { display: flex; }
+            body[data-panel="0"] .side .side-tabs { display: none; }
+            .sec[data-tab] { display: none; }
+            body[data-tab="structures"] .sec[data-tab="structures"], body[data-tab="color"] .sec[data-tab="color"], body[data-tab="residue"] .sec[data-tab="residue"] { display: block; }
+            .canvas-legend { left: 8px; bottom: 8px; max-width: 170px; min-width: 120px; }
             header .saved-note { display: none; }
             .empty { padding: 16px; }
             .empty h2 { font-size: 14px; }
@@ -566,7 +632,7 @@
         })();
     </script>
 </head>
-<body data-view="starting" data-count="0" data-panel="1" data-adv="0" data-offline="0">
+<body data-view="starting" data-count="0" data-panel="1" data-tab="structures" data-adv="0" data-offline="0">
     <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
     <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
         <symbol id="i-dna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></symbol>
@@ -591,6 +657,8 @@
         <symbol id="i-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></symbol>
         <symbol id="i-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></symbol>
         <symbol id="i-file-input" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M2 15h10"/><path d="m9 18 3-3-3-3"/></symbol>
+        <symbol id="i-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+        <symbol id="i-mouse-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 12.586 19 19"/><path d="M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"/></symbol>
     </svg>
     <a class="skip-link" href="#side" data-i18n>Skip to the controls</a>
 
@@ -636,8 +704,9 @@
                             <span class="sep" role="separator"></span>
                             <button class="btn btn-icon" id="t-adv" type="button" aria-pressed="false" title="Advanced: Mol*'s own panels" aria-label="Advanced: Mol*'s own panels"><svg class="icon" aria-hidden="true"><use href="#i-sliders-horizontal"/></svg></button>
                         </div>
-                        <div id="layer-panel"></div>
+                        <div class="canvas-legend" id="canvas-legend" aria-hidden="true"></div>
                         <div class="toast" id="toast"></div>
+                        <div class="tip" id="tip" role="tooltip"></div>
                         <div class="drop-hint" aria-hidden="true"><span data-i18n>Drop a PDB or mmCIF file to add it</span></div>
 
                         <div class="empty" data-for="starting"><div class="empty-card">
@@ -670,10 +739,23 @@
 
             <aside class="side" id="side" aria-label="Scene">
                 <button class="side-grip" id="side-grip" type="button" aria-expanded="true" aria-controls="side-scroll"><span data-i18n>Scene</span></button>
+                <div class="side-tabs" role="tablist" aria-label="Scene panels">
+                    <button type="button" role="tab" id="tab-structures" data-tab="structures" aria-selected="true" data-i18n>Structures</button>
+                    <button type="button" role="tab" id="tab-color" data-tab="color" aria-selected="false" data-i18n>Color</button>
+                    <button type="button" role="tab" id="tab-residue" data-tab="residue" aria-selected="false" data-i18n>Residue</button>
+                </div>
                 <div class="side-scroll" id="side-scroll">
-                    <section class="sec" aria-labelledby="h-structures">
+                    <section class="sec" data-tab="structures" aria-labelledby="h-structures">
                         <div class="sec-head"><h2 class="sec-title" id="h-structures"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span data-i18n>Structures</span> <span class="count" id="struct-count"></span></h2></div>
                         <div class="sec-body flush" id="struct-list"></div>
+                    </section>
+                    <section class="sec" data-tab="color" aria-labelledby="h-color">
+                        <div class="sec-head"><h2 class="sec-title" id="h-color"><svg class="icon" aria-hidden="true"><use href="#i-palette"/></svg><span data-i18n>Color by</span></h2></div>
+                        <div class="sec-body" id="color-body"></div>
+                    </section>
+                    <section class="sec" data-tab="residue" aria-labelledby="h-residue">
+                        <div class="sec-head"><h2 class="sec-title" id="h-residue"><svg class="icon" aria-hidden="true"><use href="#i-mouse-pointer"/></svg><span data-i18n>Residue</span></h2></div>
+                        <div class="sec-body" id="residue-body"></div>
                     </section>
                 </div>
             </aside>
@@ -718,5 +800,7 @@
     <script src="/esmfold_shell.js"></script>
     <script src="/esmfold_structures.js"></script>
     <script src="/esmfold_session.js"></script>
+    <script src="/esmfold_color.js"></script>
+    <script src="/esmfold_residue.js"></script>
 </body>
 </html>

@@ -286,6 +286,8 @@ class PageHandler(FixtureHandler):
         "/esmfold_superposition.js": SRC / "web_ui" / "esmfold_superposition.js",
         "/esmfold_structures.js": SRC / "web_ui" / "esmfold_structures.js",
         "/esmfold_session.js": SRC / "web_ui" / "esmfold_session.js",
+        "/esmfold_color.js": SRC / "web_ui" / "esmfold_color.js",
+        "/esmfold_residue.js": SRC / "web_ui" / "esmfold_residue.js",
         "/esmfold/molstar.js": SRC / "resources" / "esmfold" / "molstar.js",
     }
 
@@ -301,6 +303,8 @@ SERVED_TEXTS = {
     "/esmfold_superposition.js": "structure data is not loaded",
     "/esmfold_structures.js": "Make pivot",
     "/esmfold_session.js": "Session saved.",
+    "/esmfold_color.js": "More colorings",
+    "/esmfold_residue.js": "Pinned. Escape clears it.",
 }
 
 
@@ -633,7 +637,7 @@ class AgentPageTests(WebPageTestCase):
         # translations, so its files come as they are, and the Advanced view,
         # which shows Mol*'s own panels, says they are English only.
         for name in ("esmfold.html", "esmfold_shell.js", "esmfold_layers.js", "esmfold_superposition.js",
-                     "esmfold_structures.js", "esmfold_session.js"):
+                     "esmfold_structures.js", "esmfold_session.js", "esmfold_color.js", "esmfold_residue.js"):
             self.assertIn(f"web_ui/{name}", PAGE_CONTEXTS)
         mol_star = (SRC / "resources" / "esmfold" / "molstar.js").read_bytes()
         response, body = request(self.server, "GET", "/esmfold/molstar.js")

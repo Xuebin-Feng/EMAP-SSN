@@ -1701,6 +1701,106 @@ Command-line usage:
 <context>
     <name>EsmfoldPage</name>
     <message>
+        <source>Structure color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Secondary structure</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Residue position</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No data</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Other (set in Advanced)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not color {file} by that layer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Very high (pLDDT &gt; 90)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Confident (pLDDT 70 to 90)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Low (pLDDT 50 to 70)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Very low (pLDDT &lt; 50)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each structure has its own color, the one beside its name.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Helix</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Strand</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Coil</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>N-terminus</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>C-terminus</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No data: {names}. This layer has no values for them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Color by</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Layers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Filter layers</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{n} of {total}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No layer matches.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Layers such as conservation need an alignment: fold with one loaded in the Viewer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>More colorings</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>the structure has no properties nodes</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1709,7 +1809,39 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Could not color {file} by that layer.</source>
+        <source>Turn</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>chain {chain} · {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pinned. Escape clears it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hover a residue to see its values here. Click it to pin it; Escape clears the pin.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Structure</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cα–Cα (Å)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each structure shows the residue at the same place of the alignment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Zoom to</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1845,10 +1977,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Structure</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Cartoon</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1889,7 +2017,11 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Other (set in Advanced)</source>
+        <source>Color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Same as the scene</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1970,6 +2102,10 @@ Command-line usage:
     </message>
     <message>
         <source>Aligned to the pivot.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This structure has no values for the layer the scene is colored by.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2129,7 +2265,15 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Scene panels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Structures</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Residue</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

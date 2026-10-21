@@ -250,7 +250,7 @@ class FoldViewPageMixin:
             self.pump(0.1)
         else:
             self.fail(f"{name} was not loaded")
-        self.script("await structureQueue; await panelNow(); return 1")
+        self.script("await structureQueue; await cardNow(); return 1")
 
 
 # Test-side readers of the page's Mol* state. Everything they return is plain JSON.
@@ -312,22 +312,29 @@ window.fit = function (index) {
     const node = structure.transform ? structure.transform.cell.transform.params : null;
     return {transformed: !!structure.transform, rmsd: Math.sqrt(sum / n), matrix: node ? Array.from(node.transform.params.data) : null};
 };
-window.panel = function () {
-    const rows = [...layerPanel.querySelectorAll('.layer-row')];
-    const first = layerPanel.querySelector('select');
+// The Color by card as a person sees it: its buttons, the legend of the chosen coloring, the notes.
+window.card = function () {
+    const body = document.getElementById('color-body');
+    const chips = [...body.querySelectorAll('[role="radio"]')];
+    const legend = body.querySelector('#color-legend');
+    const compact = document.getElementById('canvas-legend');
+    const text = node => (node ? node.textContent : null);
+    const chosen = chips.find(chip => chip.getAttribute('aria-checked') === 'true');
     return {
-        rows: rows.length, selects: layerPanel.querySelectorAll('select').length,
-        title: (layerPanel.querySelector('.layer-title') || {}).textContent,
-        names: rows.map(r => r.querySelector('.layer-name').textContent),
-        options: first ? [...first.options].map(o => [o.value, o.textContent]) : [],
-        selected: [...layerPanel.querySelectorAll('select')].map(s => s.value),
-        legend_bar: !!layerPanel.querySelector('.layer-bar'),
-        legend_ends: [...layerPanel.querySelectorAll('.layer-ends span')].map(s => s.textContent),
-        legend_swatches: [...layerPanel.querySelectorAll('.layer-key')].map(k => k.textContent),
-        note: [...layerPanel.querySelectorAll('.layer-note')].map(n => n.textContent).join(' | '),
-        notes: [...layerPanel.querySelectorAll('.layer-note')].map(n => n.textContent),
-        shown: layerPanel.style.display
+        title: text(document.getElementById('h-color')),
+        chips: chips.map(chip => [chip.dataset.coloring, chip.firstChild.textContent, text(chip.querySelector('.cov')) || '']),
+        selected: chosen ? chosen.dataset.coloring : null,
+        legendTitle: legend ? legend.querySelector('.t').firstChild.textContent : null,
+        legendUnit: legend ? text(legend.querySelector('.t small')) : null,
+        bar: !!(legend && legend.querySelector('.ramp')),
+        ends: legend ? [...legend.querySelectorAll('.ticks span')].map(s => s.textContent) : [],
+        keys: legend ? [...legend.querySelectorAll('.band')].map(k => k.textContent) : [],
+        noData: legend ? text(legend.querySelector('.nodata span')) : null,
+        source: legend ? text(legend.querySelector('.src summary span')) : null,
+        description: legend ? text(legend.querySelector('.src p')) : null,
+        layerNotes: [...body.querySelectorAll('.empty-layers div > div')].map(n => n.textContent),
+        compact: {shown: compact.dataset.shown, title: text(compact.querySelector('.t')), ends: [...compact.querySelectorAll('.ticks span')].map(s => s.textContent)}
     };
 };
-window.panelNow = async function () { await renderLayerPanel(); return panel(); };
+window.cardNow = async function () { await renderColorCard(true); return card(); };
 """

@@ -24,13 +24,12 @@
 //   applyLayer(structure, id)     attach layer `id` and colour by it
 //   restorePlddt(structure)       detach the layer and colour by pLDDT
 //   reconcileLayers()             after a session restore: re-attach or drop
-//   renderLayerPanel()            draw the colour switch and legend
 // and a 'esmfold-layers' event on window, after a layer changes, with
-// detail.structures: [{ref, file, active, layers: [ids]}].
+// detail.structures: [{ref, file, active, layers: [ids]}]. The card that
+// offers the layers and draws their legends is esmfold_color.js.
 const LAYER_ROUTE = '/api/esmfold/layers/';
 const PLDDT_LAYER = 'plddt';
 const layerListings = new Map();
-const layerPanel = document.getElementById('layer-panel');
 
 // Runs `task` after the structure loads and layer changes queued before it.
 function runExclusive(task) {
@@ -162,7 +161,7 @@ async function reconcileLayers() {
 }
 
 function layersChanged() {
-    renderLayerPanel();
+    renderColorCard();
     window.dispatchEvent(new CustomEvent('esmfold-layers', { detail: { structures: layerSummary() } }));
     setTimeout(saveSession, 1500);
 }
@@ -173,100 +172,4 @@ function layerSummary() {
         file: structureFile(structure),
         active: activeLayerId(structure)
     }));
-}
-
-// The colour switch and legend: plain controls over the functions above.
-let panelRenderId = 0;
-const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-
-// The card is placed by the page's style (top left of the stage), over the canvas.
-
-function element(tag, className, text) {
-    const node = document.createElement(tag);
-    if (className) node.className = className;
-    if (text !== undefined) node.textContent = text;
-    return node;
-}
-
-function legendKey(color, text) {
-    const key = element('div', 'layer-key');
-    const swatch = element('span', 'layer-swatch');
-    if (HEX_COLOR.test(color)) swatch.style.background = color;
-    const label = element('span', undefined, text);
-    key.append(swatch, label);
-    return key;
-}
-
-function layerLegend(layer, listing) {
-    const legend = element('div', 'layer-legend');
-    const shape = layer.legend;
-    if (shape.kind === 'gradient') {
-        const span = shape.max - shape.min;
-        const stops = shape.stops.filter(([, color]) => HEX_COLOR.test(color))
-            .map(([value, color]) => `${color} ${(100 * (value - shape.min) / span).toFixed(1)}%`);
-        const bar = element('div', 'layer-bar');
-        bar.style.background = `linear-gradient(to right, ${stops.join(', ')})`;
-        const unit = layer.unit ? ` ${layer.unit}` : '';
-        const ends = element('div', 'layer-ends');
-        const low = element('span', undefined, `${shape.min}${unit}`);
-        const high = element('span', undefined, `${shape.max}${unit}`);
-        ends.append(low, high);
-        legend.append(bar, ends);
-        if (layer.covered < layer.residues) legend.append(legendKey(listing.background, listing.texts.no_data));
-    } else {
-        for (const band of shape.bands) legend.append(legendKey(band.color, band.label));
-    }
-    return legend;
-}
-
-async function renderLayerPanel() {
-    if (!plugin) return;
-    const renderId = ++panelRenderId;
-    const rows = [];
-    let title = '';
-    for (const structure of loadedStructures()) {
-        const file = structureFile(structure);
-        const listing = file && await layerListing(file);
-        if (!listing) continue;
-        const active = listing.layers.find(entry => entry.id === activeLayerId(structure)) || listing.layers[0];
-        const row = element('div', 'layer-row');
-        const name = element('div', 'layer-name', file.replace(/\.pdb$/i, ''));
-        row.append(name);
-        if (listing.layers.length > 1) {
-            const select = element('select');
-            select.setAttribute('aria-label', `${listing.texts.color_by} ${file}`);
-            for (const entry of listing.layers) {
-                const option = element('option', undefined, entry.label);
-                option.value = entry.id;
-                option.selected = entry === active;
-                select.append(option);
-            }
-            const ref = structure.cell.transform.ref;
-            select.addEventListener('change', () => runExclusive(async () => {
-                const target = loadedStructures().find(s => s.cell.transform.ref === ref);
-                try {
-                    if (target) await applyLayer(target, select.value);
-                } catch (err) {
-                    console.warn("Could not apply the layer:", err);
-                    showStatus(t("Could not color {file} by that layer.", {file}));
-                    renderLayerPanel();
-                }
-            }));
-            row.append(select);
-        }
-        row.title = active.description || '';
-        row.append(layerLegend(active, listing));
-        for (const words of [active.source, listing.layers.length === 1 && listing.unavailable]) {
-            if (!words) continue;
-            const note = element('div', 'layer-note', words);
-            row.append(note);
-        }
-        title = title || listing.texts.color_by;
-        rows.push(row);
-    }
-    // A newer render replaces this one, which an await made stale.
-    if (renderId !== panelRenderId) return;
-    const heading = rows.length ? [element('div', 'layer-title', title)] : [];
-    layerPanel.replaceChildren(...heading, ...rows);
-    layerPanel.style.display = rows.length ? 'block' : 'none';
 }

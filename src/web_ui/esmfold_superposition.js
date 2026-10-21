@@ -38,13 +38,16 @@ const BLOSUM62 = [
 ];
 
 // CA atoms of standard amino acids in chain order: residue codes
-// (indices into AMINO_ACIDS) and coordinates.
+// (indices into AMINO_ACIDS), coordinates, and each residue's [chain,
+// number] as the PDB gives them (auth_asym_id, auth_seq_id), and its B-factor (pLDDT).
 function readCaTrace(structure) {
     const { StructureElement, StructureProperties, Unit } = molstar.lib.structure;
-    const { atom, residue } = StructureProperties;
+    const { atom, chain, residue } = StructureProperties;
     const location = StructureElement.Location.create(structure);
     const codes = [];
     const coords = [];
+    const ids = [];
+    const plddt = [];
     for (const unit of structure.units) {
         if (!Unit.isAtomic(unit)) continue;
         location.unit = unit;
@@ -59,9 +62,11 @@ function readCaTrace(structure) {
             lastResidue = residueIndex;
             codes.push(code);
             coords.push([atom.x(location), atom.y(location), atom.z(location)]);
+            ids.push([chain.auth_asym_id(location), residue.auth_seq_id(location)]);
+            plddt.push(atom.B_iso_or_equiv(location));
         }
     }
-    return { codes, coords };
+    return { codes, coords, ids, plddt };
 }
 
 // Global alignment (Gotoh) scored with BLOSUM62 and the gap scores of

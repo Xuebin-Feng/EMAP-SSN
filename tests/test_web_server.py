@@ -116,7 +116,8 @@ class BundledPageIconTests(unittest.TestCase):
     PAGE_SCRIPTS = {
         'agent.html': (SRC_DIR / 'resources' / 'agent' / 'attachments.js',),
         'esmfold.html': tuple(PAGES / name for name in (
-            'esmfold_shell.js', 'esmfold_layers.js', 'esmfold_structures.js', 'esmfold_session.js')),
+            'esmfold_shell.js', 'esmfold_layers.js', 'esmfold_structures.js', 'esmfold_session.js', 'esmfold_color.js',
+            'esmfold_residue.js')),
     }
     LUCIDE = SRC_DIR / 'resources' / 'icons' / 'lucide'
     SVG = '{http://www.w3.org/2000/svg}'

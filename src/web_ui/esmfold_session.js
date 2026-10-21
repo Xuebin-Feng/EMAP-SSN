@@ -162,6 +162,7 @@ async function openSessionFile(file) {
         await plugin.managers.snapshot.open(file);
         await reconcileLayers();
         syncCanvasProps();
+        deriveColorMode();
         scheduleStructures();
         setTimeout(saveSession, 1500);
     }).catch(err => reportFailure("Could not open the session:", err));
@@ -178,7 +179,7 @@ function clearScene() {
         fitStats.clear();
         expandedRows.clear();
         chosenPivotRef = null;
-        renderLayerPanel();
+        renderColorCard();
         scheduleStructures();
         setTimeout(saveSession, 1500);
     }).catch(err => reportFailure("Could not clear the scene:", err));

@@ -162,7 +162,11 @@ function updateView() {
 
 // ---- Mol*: its interface hidden, only the canvas. Without layoutShowRemoteState: false,
 // Mol* lists the public states at webchem.ncbr.muni.cz on every load.
-molstar.Viewer.create('viewer', {
+// The page's scripts after this one define what the start below calls; it waits for them.
+const scriptsLoaded = document.readyState === 'loading'
+    ? new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }))
+    : Promise.resolve();
+Promise.all([molstar.Viewer.create('viewer', {
     layoutIsExpanded: false,
     layoutShowControls: false,
     layoutShowRemoteState: false,
@@ -178,7 +182,7 @@ molstar.Viewer.create('viewer', {
     viewportShowReset: false,
     viewportShowScreenshotControls: false,
     viewportBackgroundColor: canvasBackground()
-}).then(v => {
+}), scriptsLoaded]).then(([v]) => {
     viewerInstance = v;
     plugin = v.plugin;
     // The hierarchy changes as structures come and go; a structure's visibility is only a cell's state.
@@ -187,6 +191,7 @@ molstar.Viewer.create('viewer', {
     syncCanvasProps();
     updateView();
     renderStructures();
+    setupResidueEvents();
     showStatus(t("Mol* initialized. Connecting to the Viewer..."));
     setupSSE();
 }).catch(error => {
@@ -245,6 +250,7 @@ function setupSSE() {
                         await plugin.state.setSnapshot(msg.session);
                         await reconcileLayers();
                         syncCanvasProps();
+                        deriveColorMode();
                         showStatus(t("Session restored successfully."));
                     } else {
                         showStatus(t("Started with a fresh blank session."));
@@ -302,26 +308,10 @@ async function loadAndAlignStructure(load, label, url) {
 
         await load();
 
-        // Apply pLDDT confidence coloring to all loaded structures,
-        // except those the user has coloured by a per-residue layer
+        // The new structure (the newest) takes the scene's coloring, pLDDT unless the
+        // Color by card says otherwise; the structures already there keep what they show.
         const structures = plugin.managers.structure.hierarchy.current.structures;
-        for (const s of structures) {
-            if (activeLayerId(s) !== PLDDT_LAYER) continue;
-            const components = s.components;
-            try {
-                await plugin.managers.structure.component.updateRepresentationsTheme(components, {
-                    color: 'plddt-confidence'
-                });
-            } catch (e1) {
-                try {
-                    await plugin.managers.structure.component.updateRepresentationsTheme(components, {
-                        colorTheme: { name: 'plddt-confidence' }
-                    });
-                } catch (e2) {
-                    console.warn("Failed to apply pLDDT theme:", e1, e2);
-                }
-            }
-        }
+        await colorNewStructure(structures[structures.length - 1]);
         if (structures.length > 1) {
             showStatus(t("Aligning {name} to the pivot structure...", {name: label}), 0);
             plugin.log.info(`Aligning ${label} to pivot structure...`);
@@ -350,7 +340,7 @@ async function loadAndAlignStructure(load, label, url) {
         // A structure written again under the same name has new residue data.
         if (url) {
             const file = decodeURIComponent(url.split('?')[0].split('/').pop());
-            layerListing(file, true).then(() => renderLayerPanel());
+            layerListing(file, true).then(() => renderColorCard());
         }
         scheduleStructures();
         // Wait 1.5 seconds for representation state to finalize, then save session snapshot
@@ -446,6 +436,28 @@ byId('side-grip').addEventListener('click', () => setPanel(document.body.dataset
     setPanel(!(width <= 1040 && width > 700));
 })();
 
+// ---- The panel's tabs: on a phone the cards take turns in the strip; elsewhere all are in view ----
+function setTab(name) {
+    document.body.dataset.tab = name;
+    for (const tab of document.querySelectorAll('.side-tabs [role="tab"]')) {
+        tab.setAttribute('aria-selected', tab.dataset.tab === name ? 'true' : 'false');
+        tab.tabIndex = tab.dataset.tab === name ? 0 : -1;
+    }
+}
+for (const tab of document.querySelectorAll('.side-tabs [role="tab"]')) {
+    tab.addEventListener('click', () => setTab(tab.dataset.tab));
+    tab.addEventListener('keydown', event => {
+        const tabs = [...document.querySelectorAll('.side-tabs [role="tab"]')];
+        const step = { ArrowRight: 1, ArrowLeft: -1 }[event.key];
+        if (!step) return;
+        event.preventDefault();
+        const next = tabs[(tabs.indexOf(tab) + step + tabs.length) % tabs.length];
+        setTab(next.dataset.tab);
+        next.focus();
+    });
+}
+setTab('structures');
+
 // ---- Help ---------------------------------------------------------------------
 let helpOpener = null;
 
@@ -464,11 +476,12 @@ byId('help-modal').addEventListener('click', event => {
     if (event.target.id === 'help-modal') closeHelp();
 });
 
-// Escape closes the layer on top: a menu, a question, the help, then the Advanced view.
+// Escape closes the layer on top: a menu, a question, the help, the pinned residue, then the Advanced view.
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
     if (closeSessionMenu() || closeConfirm()) return;
     if (byId('help-modal').classList.contains('open')) closeHelp();
+    else if (clearPin()) return;
     else if (document.body.dataset.adv === '1') setAdvanced(false);
 });
 

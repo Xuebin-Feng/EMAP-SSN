@@ -261,14 +261,16 @@ class ShellTests(PageTestCase):
         closed = self.script("return {open: document.getElementById('help-modal').classList.contains('open'), focus: document.activeElement.id, adv: document.body.dataset.adv}")
         self.assertEqual(closed, {"open": False, "focus": "help-btn", "adv": "0"})
 
+    # The layers' own names are the data of the residue file, not the page's words.
     SHOWN = """(() => {
+        const DATA = '[data-coloring]:not([data-coloring^="builtin:"]):not([data-coloring="plddt"])';
         const shown = [document.title];
         const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
         for (let node = walker.nextNode(); node; node = walker.nextNode()) {
-            if (!node.parentElement.closest('script, style, code, #viewer, #layer-panel')) shown.push(node.textContent);
+            if (!node.parentElement.closest('script, style, code, #viewer, ' + DATA)) shown.push(node.textContent);
         }
         for (const element of document.querySelectorAll('[title], [aria-label]')) {
-            if (element.closest('#viewer, #layer-panel')) continue;
+            if (element.closest('#viewer, ' + DATA)) continue;
             for (const name of ['title', 'aria-label']) if (element.hasAttribute(name)) shown.push(element.getAttribute(name));
         }
         return shown.filter(text => text.trim());
@@ -276,15 +278,15 @@ class ShellTests(PageTestCase):
 
     def test_every_text_of_the_page_comes_in_the_viewers_language(self):
         # Pseudo-language: a text that came from a catalog has no plain letter in it. The names of
-        # the structures here are numbers, the <code> commands stay as typed, and the layer card
-        # (replaced in a later phase) shows names that are data; the pseudo-language leaves an 's.
+        # the structures here are numbers, the <code> commands stay as typed, the layers' names are
+        # the residue file's data, and pLDDT is a name; the pseudo-language leaves an 's.
         pseudo_language(self, self.app)
         self.open_with_two()
         self.script("document.getElementById('help-btn').click(); return 1")
         shown = self.script("return " + self.SHOWN)
         self.assertGreater(len(shown), 40)
         plain = [text for text in shown
-                 if re.search("[A-Za-z]", re.sub(r"'s\b|\.pdb\b", "", text))]
+                 if re.search("[A-Za-z]", re.sub(r"'s\b|\.pdb\b|pLDDT", "", text))]
         self.assertEqual(plain, [])
         self.assertEqual(self.js("document.documentElement.lang"), "en")
         self.assertEqual(self.console_errors(), [])

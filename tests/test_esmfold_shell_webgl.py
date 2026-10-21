@@ -97,6 +97,40 @@ class ShellWebglTests(unittest.TestCase):
         self.assertLess(toast["bottom"], 80)
         self.assertLess(toast["right"], toast["stageWidth"] - 150)
 
+    def test_at_600_px_the_status_line_and_the_legend_on_the_canvas_do_not_meet(self):
+        toast, legend = self.found["narrowToast"], self.found["narrowLegend"]
+        self.assertEqual(self.found["narrowShown"], "1")
+        apart_in_height = toast["bottom"] <= legend["top"] or legend["bottom"] <= toast["top"]
+        apart_in_width = toast["right"] <= legend["left"] or legend["right"] <= toast["left"]
+        self.assertTrue(apart_in_height or apart_in_width, (toast, legend))
+        # The legend is in the canvas's bottom left, inside it.
+        self.assertGreater(legend["top"], legend["stageHeight"] / 2)
+        self.assertGreaterEqual(legend["left"], 0)
+        self.assertLessEqual(legend["right"], legend["stageWidth"] / 2 + 100)
+
+    def test_the_legend_on_the_canvas_names_the_layer_with_its_range(self):
+        self.assertEqual(self.found["layerLegend"], {"shown": "1", "title": "Information Content (%)", "ends": ["0 %", "100 %"]})
+
+    def test_a_real_pointer_over_the_canvas_shows_the_tip_pins_a_residue_and_escape_lets_go(self):
+        found = self.found
+        self.assertIsNotNone(found["hover"])
+        self.assertEqual(found["hover"][1], "A")
+        self.assertTrue(found["tip"]["shown"])
+        self.assertIn("pLDDT", found["tip"]["text"])
+        self.assertIn("Information Content", found["tip"]["text"])
+        box = found["tip"]["box"]
+        self.assertGreaterEqual(box["left"], 0)
+        self.assertGreaterEqual(box["top"], 0)
+        self.assertLessEqual(box["right"], box["stageWidth"])
+        self.assertLessEqual(box["bottom"], box["stageHeight"])
+        # The click pins the residue under the pointer, Mol* marks it, and the Residue card shows it.
+        self.assertEqual(found["pinned"], found["hover"][0])
+        self.assertGreater(found["marked"], 0)
+        self.assertTrue(found["residueCard"]["head"].endswith(str(found["pinned"])), found["residueCard"])
+        self.assertGreaterEqual(found["residueCard"]["rows"], 3)
+        self.assertIsNone(found["pinnedAfterEscape"])
+        self.assertEqual(found["markedAfterEscape"], 0)
+
     def test_the_page_draws_its_canvas_in_simplified_chinese_too(self):
         self.assertEqual((self.found["chineseHeader"], self.found["chineseView"]), ("EMAP-SSN 结构视图", "ready"))
 

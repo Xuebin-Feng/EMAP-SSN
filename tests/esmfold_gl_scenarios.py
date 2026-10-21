@@ -38,6 +38,9 @@ RESULT_PREFIX = "SCENARIO "
 FACTS = {}
 PICTURES = []
 
+from PySide6.QtCore import QPoint, Qt  # noqa: E402
+from PySide6.QtTest import QTest  # noqa: E402
+
 from tests import esmfold_layer_fixtures as fixtures  # noqa: E402
 from tests.esmfold_page_harness import FoldViewPageMixin, FoldViewServerMixin  # noqa: E402
 
@@ -86,6 +89,22 @@ window.toastRect = function () {
     const toast = document.getElementById('toast').getBoundingClientRect();
     return {left: toast.left - stage.left, right: toast.right - stage.left, top: toast.top - stage.top,
             bottom: toast.bottom - stage.top, stageWidth: stage.width, stageHeight: stage.height};
+};
+// Where a residue of a structure is on the page, in page pixels, and the boxes of the canvas's overlays in the stage's.
+window.spotOf = function (index, number) {
+    const structure = loadedStructures()[index];
+    const trace = readCaTrace((structure.transform || structure).cell.obj.data);
+    const k = trace.ids.findIndex(([chain, n]) => n === number);
+    const rect = document.querySelector('#viewer canvas').getBoundingClientRect();
+    const projected = molstar.lib.math.LinearAlgebra.Vec4();
+    plugin.canvas3d.camera.project(projected, trace.coords[k]);
+    return [rect.left + projected[0], rect.top + projected[1]];
+};
+window.boxIn = function (selector) {
+    const stage = document.getElementById('stage').getBoundingClientRect();
+    const box = document.querySelector(selector).getBoundingClientRect();
+    return {left: box.left - stage.left, right: box.right - stage.left, top: box.top - stage.top, bottom: box.bottom - stage.top,
+            stageWidth: stage.width, stageHeight: stage.height};
 };
 window.cameraNow = function () {
     const state = plugin.canvas3d.camera.state;
@@ -145,13 +164,46 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         # The gizmo is part of the live canvas, not of the screenshot helper's picture: look at the window.
         corner = self.script("const r = document.getElementById('stage').getBoundingClientRect(); return {x: r.left, y: r.top, w: r.width, h: r.height}")
         # (Inside the stage's own border, which is not background either.)
+        # (The legend on the canvas is in the left corner, by design: look at the gizmo without it.)
+        self.script("document.getElementById('canvas-legend').style.visibility = 'hidden'; return 1")
+        self.pump(0.3)
         FACTS["gizmoRight"] = self.drawn(corner, corner["w"] - 128, corner["h"] - 128, 120, 120)
         FACTS["gizmoLeft"] = self.drawn(corner, 8, corner["h"] - 128, 120, 120)
+        self.script("document.getElementById('canvas-legend').style.visibility = ''; return 1")
         self.script("showStatus('Loaded and aligned 22. A longer message, to see where the status line goes.', 0); return 1")
         self.wait(200)
         FACTS["toast"] = self.script("return toastRect()")
         self.script("hideStatus(); return 1")
         self.picture("structures-light")
+
+        # Colored by a layer: the card, its legend and the compact one on the canvas.
+        self.script("document.querySelector('#color-body [data-coloring=\"information_content\"]').click(); await structureQueue; await cardNow(); return 1")
+        self.wait(400)
+        FACTS["layerLegend"] = self.script("return card().compact")
+        self.picture("color-layer-light")
+        # A real pointer over the real canvas: hover shows the tip, a click pins, Escape lets go.
+        widget = self.view.focusProxy() or self.view
+        spot = QPoint(*[round(value) for value in self.script("return spotOf(0, 6)")])
+        QTest.mouseMove(widget, spot)
+        self.pump(1.0)
+        FACTS["hover"] = self.script("return hoveredResidue ? [hoveredResidue.number, hoveredResidue.chain] : null")
+        FACTS["tip"] = self.script("const tip = document.getElementById('tip'); return {shown: tip.classList.contains('show'), text: tip.textContent, box: boxIn('#tip')}")
+        QTest.mouseClick(widget, Qt.LeftButton, Qt.NoModifier, spot)
+        self.pump(1.0)
+        FACTS["pinned"] = self.script("return pinnedResidue ? pinnedResidue.number : null")
+        FACTS["marked"] = self.script("return plugin.managers.structure.selection.stats.elementCount")
+        FACTS["residueCard"] = self.script(
+            "const body = document.getElementById('residue-body'); return {head: body.querySelector('.res-head div').firstChild.textContent, rows: body.querySelectorAll('tr').length}")
+        self.picture("pinned-light")
+        QTest.keyClick(widget, Qt.Key_Escape)
+        self.pump(0.6)
+        FACTS["pinnedAfterEscape"] = self.script("return pinnedResidue ? pinnedResidue.number : null")
+        FACTS["markedAfterEscape"] = self.script("return plugin.managers.structure.selection.stats.elementCount")
+        QTest.mouseMove(widget, QPoint(100, 600))
+        self.pump(1.0)
+        QTest.mouseMove(widget, QPoint(40, 130))
+        self.pump(1.0)
+        self.script("document.querySelector('#color-body [data-coloring=\"plddt\"]').click(); await structureQueue; await cardNow(); return 1")
 
         # The row's details, the Session menu and the question it asks, for a person to look at.
         self.script("document.querySelector('#struct-list .srow:nth-child(2) .exp-btn').click(); return 1")
@@ -213,7 +265,14 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         self.script("showStatus('Loaded and aligned 22.', 0); return 1")
         self.wait(200)
         FACTS["narrowToast"] = self.script("return toastRect()")
+        FACTS["narrowLegend"] = self.script("return boxIn('#canvas-legend')")
+        FACTS["narrowShown"] = self.script("return document.getElementById('canvas-legend').dataset.shown")
         self.script("hideStatus(); return 1")
+        # The Color card is a tab in the strip, and nothing of it floats over the canvas.
+        self.script("document.getElementById('tab-color').click(); return 1")
+        self.picture("narrow-color-tab")
+        self.script("document.getElementById('tab-residue').click(); return 1")
+        self.script("document.getElementById('tab-structures').click(); return 1")
         self.view.resize(1300, 800)
         self.pump(0.5)
 

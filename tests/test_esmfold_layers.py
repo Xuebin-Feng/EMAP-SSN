@@ -741,7 +741,7 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
         self.write(name=FIRST)
         self.open_page()
         self.push(FIRST)
-        start = self.script("return {state: layerState(0), colors: colors(0, 'plddt-confidence', {}), panel: await panelNow()}")
+        start = self.script("return {state: layerState(0), colors: colors(0, 'plddt-confidence', {}), card: await cardNow()}")
         # pLDDT is how the structure starts, coloured by Mol*'s own theme from the B-factors.
         self.assertEqual(start["state"]["active"], "plddt")
         self.assertEqual(start["state"]["themes"], [{"name": "plddt-confidence", "params": {}}])
@@ -750,20 +750,22 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
         plddt = fixtures.plddt_values(33)
         for number in range(1, 34):
             self.assertEqual(start["colors"][str(number)], self.band(plddt[number - 1]), number)
-        # The card offers pLDDT and each property of the file, with a legend for the active layer.
-        self.assertEqual(start["panel"]["options"], [["plddt", "pLDDT"], ["information_content", "Information Content"],
-                                                      ["same_residue_pct", "Residue Agreement"]])
-        self.assertEqual(start["panel"]["selected"], ["plddt"])
-        self.assertEqual(start["panel"]["title"], "Color by")
-        self.assertEqual(len(start["panel"]["legend_swatches"]), 4)
-        self.assertEqual(start["panel"]["shown"], "block")
+        # The card offers pLDDT, the structure's own color and each property of the file, with a legend for the chosen one.
+        self.assertEqual(start["card"]["chips"], [
+            ["builtin:structure", "Structure color", ""], ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
+            ["same_residue_pct", "Residue Agreement", ""]])
+        self.assertEqual(start["card"]["selected"], "plddt")
+        self.assertEqual(start["card"]["title"], "Color by")
+        self.assertEqual(len(start["card"]["keys"]), 4)
+        self.assertEqual(start["card"]["compact"]["shown"], "1")
 
         layered = self.script("""
             await applyLayer(loadedStructures()[0], 'information_content');
             const rows = await (await fetch('/api/esmfold/layers/protein_a.pdb/information_content')).json();
             const theme = reprThemes()[0];
+            deriveColorMode();
             return {state: layerState(0), theme, rows, colors: colors(0, 'mvs-annotation', theme.params),
-                    tooltip: await tooltip(0, 5), panel: await panelNow()};
+                    tooltip: await tooltip(0, 5), card: await cardNow()};
             """)
         self.assertEqual(layered["state"]["active"], "information_content")
         self.assertEqual(layered["theme"]["name"], "mvs-annotation")
@@ -775,12 +777,13 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
         for number in range(1, 34):
             self.assertEqual(layered["colors"][str(number)], by_number[str(number)], number)
         self.assertNotEqual(layered["colors"], start["colors"])
-        self.assertEqual(layered["panel"]["selected"], ["information_content"])
-        self.assertTrue(layered["panel"]["legend_bar"])
-        self.assertEqual(layered["panel"]["legend_ends"], ["0 %", "100 %"])
+        self.assertEqual(layered["card"]["selected"], "information_content")
+        self.assertTrue(layered["card"]["bar"])
+        self.assertEqual(layered["card"]["ends"], ["0 %", "100 %"])
+        self.assertEqual(layered["card"]["compact"]["ends"], ["0 %", "100 %"])
         # Information content has a value for every residue, so its legend has no "No data".
-        self.assertEqual(layered["panel"]["legend_swatches"], [])
-        self.assertIn("From fixture_alignment.fasta, computed when folded", layered["panel"]["note"])
+        self.assertEqual(layered["card"]["keys"], [])
+        self.assertIn("From fixture_alignment.fasta, computed when folded", layered["card"]["source"])
         # Hovering residue 6 shows Mol*'s own label and the layer's tooltip for it.
         self.assertIn("Information Content 35.5 % (MSA column 111)", layered["tooltip"])
 
@@ -789,8 +792,9 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
             await applyLayer(loadedStructures()[0], 'same_residue_pct');
             const rows = await (await fetch('/api/esmfold/layers/protein_a.pdb/same_residue_pct')).json();
             const theme = reprThemes()[0];
+            deriveColorMode();
             return {state: layerState(0), rows, colors: colors(0, 'mvs-annotation', theme.params),
-                    tooltip: await tooltip(0, 5), panel: await panelNow()};
+                    tooltip: await tooltip(0, 5), card: await cardNow()};
             """)
         self.assertEqual([a["id"] for a in agreement["state"]["annotations"]], ["same_residue_pct"])
         by_number = {str(row["auth_seq_id"]): row["color"] for row in agreement["rows"]}
@@ -798,18 +802,19 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
         for number in range(1, 34):
             self.assertEqual(agreement["colors"][str(number)], by_number.get(str(number), self.GREY), number)
         self.assertEqual(agreement["colors"]["4"], self.GREY)
-        self.assertEqual(agreement["panel"]["legend_swatches"], ["No data"])
+        self.assertEqual(agreement["card"]["keys"], ["No data"])
         self.assertIn("Residue Agreement 65 % (MSA column 111)", agreement["tooltip"])
 
         restored = self.script("""
             await restorePlddt(loadedStructures()[0]);
+            deriveColorMode();
             return {state: layerState(0), colors: colors(0, 'plddt-confidence', {}), tooltip: await tooltip(0, 5),
-                    panel: await panelNow()};
+                    card: await cardNow()};
             """)
         # Back to exactly what it was: the theme, the properties, the colours; no tooltip but Mol*'s.
         self.assertEqual(restored["state"], start["state"])
         self.assertEqual(restored["colors"], start["colors"])
-        self.assertEqual(restored["panel"]["selected"], ["plddt"])
+        self.assertEqual(restored["card"]["selected"], "plddt")
         self.assertEqual(len(restored["tooltip"]), 1, restored["tooltip"])
         self.assertNotIn("Information Content", restored["tooltip"][0])
 
@@ -821,17 +826,19 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
         sidecar = json.loads(Path(self.sidecar_path("node_c.pdb")).read_text(encoding="utf-8"))
         columns = residue_columns("node_c")
         result = self.script("""
-            const out = {options: panel().options, states: [0, 1].map(layerState)};
+            const out = {options: card().chips, states: [0, 1].map(layerState)};
             for (const id of ['information_content', 'same_residue_pct']) {
-                await applyLayer(loadedStructures()[1], id);
+                // The scene's choice: both structures have the layer.
+                await setColorMode(id);
                 const rows = await (await fetch('/api/esmfold/layers/node_c.pdb/' + id)).json();
                 out[id] = {rows, colors: colors(1, 'mvs-annotation', reprThemes()[1].params),
-                           tooltip: await tooltip(1, 5), panel: await panelNow(), fit: fit(1)};
+                           tooltip: await tooltip(1, 5), card: await cardNow(), fit: fit(1)};
             }
             return out;
             """)
-        self.assertEqual(result["options"], [["plddt", "pLDDT"], ["information_content", "Information Content"],
-                                             ["same_residue_pct", "Residue Agreement"]])
+        self.assertEqual(result["options"], [
+            ["builtin:structure", "Structure color", ""], ["plddt", "pLDDT", ""], ["information_content", "Information Content", ""],
+            ["same_residue_pct", "Residue Agreement", ""]])
         self.assertEqual([state["active"] for state in result["states"]], ["plddt", "plddt"])
         for layer_id, label, rows_expected, swatches in (
                 ("information_content", "Information Content", 33, []), ("same_residue_pct", "Residue Agreement", 32, ["No data"])):
@@ -840,10 +847,9 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
             self.assertEqual(len(by_number), rows_expected, layer_id)
             for number in range(1, 34):
                 self.assertEqual(shown["colors"][str(number)], by_number.get(str(number), self.GREY), (layer_id, number))
-            # The first structure's pLDDT legend is in the card too; only "No data" is this layer's.
-            self.assertEqual([key for key in shown["panel"]["legend_swatches"] if key == "No data"], swatches, layer_id)
-            self.assertEqual(shown["panel"]["selected"], ["plddt", layer_id])
-            self.assertIn("From family.fasta, computed when folded, using 5 sequences", shown["panel"]["note"])
+            self.assertEqual(shown["card"]["keys"], swatches, layer_id)
+            self.assertEqual(shown["card"]["selected"], layer_id)
+            self.assertIn("From family.fasta, computed when folded, using 5 sequences", shown["card"]["source"])
             # The hovered residue (the 6th) shows the writer's value and the alignment column it came from.
             value = sidecar["properties"][layer_id]["values"][5]
             self.assertIn(f"{label} {round(value, 2):g} % (MSA column {columns[5] + 1})", shown["tooltip"], layer_id)
@@ -858,12 +864,10 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
         self.push(FIRST)
         after = self.script("""
             const choose = async value => {
-                const select = layerPanel.querySelector('select');
-                select.value = value;
-                select.dispatchEvent(new Event('change'));
+                document.querySelector('#color-body [data-coloring="' + value + '"]').click();
                 await structureQueue;
-                await panelNow();
-                return [layerState(0).active, panel().selected[0]];
+                await cardNow();
+                return [layerState(0).active, card().selected];
             };
             const ids = () => layerState(0).annotations.map(a => a.id);
             // What is attached each time the colours move: the old layer must outlast the move.
@@ -943,12 +947,12 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
 
         # A structure with no residue data has pLDDT only, and leaves the others as they are.
         self.push(THIRD)
-        third = self.script("return {states: [0, 1, 2].map(layerState), panel: await panelNow(), fit: fit(2)}")
+        third = self.script("return {states: [0, 1, 2].map(layerState), card: await cardNow(), fit: fit(2), names: loadedStructures().map(structureName)}")
         self.assertEqual([state["active"] for state in third["states"]], ["same_residue_pct", "information_content", "plddt"])
-        self.assertEqual(third["panel"]["names"], ["protein_a", "protein_b", "protein_c"])
-        self.assertEqual(third["panel"]["selects"], 2)
+        self.assertEqual(third["names"], ["protein_a", "protein_b", "protein_c"])
         self.assertTrue(third["fit"]["transformed"])
-        self.assertTrue(any("No per-residue data" in note for note in third["panel"]["notes"]), third["panel"]["notes"])
+        self.assertTrue(any("protein_c" in note and "No per-residue data" in note for note in third["card"]["layerNotes"]),
+                        third["card"]["layerNotes"])
 
     def test_a_saved_session_brings_its_layers_back_and_drops_one_that_is_gone(self):
         self.write(name=FIRST)
@@ -978,12 +982,13 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
 
         self.session = snapshot
         self.open_page()
-        again = self.script(inspect[:-1] + ", n: loadedStructures().length, panel: await panelNow(), tooltip: await tooltip(1, 5)}")
+        again = self.script(inspect[:-1] + ", n: loadedStructures().length, card: await cardNow(), tooltip: await tooltip(1, 5)}")
         self.assertEqual(again["n"], 2)
         self.assertEqual([state["active"] for state in again["states"]], ["information_content", "same_residue_pct"])
         self.assertEqual(again["colors"], before["colors"])
         self.assertEqual(again["fit"]["matrix"], before["fit"]["matrix"])
-        self.assertEqual(again["panel"]["selected"], ["information_content", "same_residue_pct"])
+        # The scene's choice is worked out from the structures; with one each, the first one's.
+        self.assertEqual(again["card"]["selected"], "information_content")
         self.assertIn("Residue Agreement 85 % (MSA column 111)", again["tooltip"])
 
         # The Viewer's data for a structure changed since: one property is gone, so its layer is dropped.
@@ -991,12 +996,12 @@ class LayerPageTests(FoldViewPageMixin, WriterPathMixin, ServedLayerTestCase):
         del data["properties"]["information_content"]
         fixtures.write_sidecar(self.directory, FIRST, data)
         self.open_page()
-        gone = self.script("return {states: [0, 1].map(layerState), themes: reprThemes().map(t => t.name), panel: await panelNow()}")
+        gone = self.script("return {states: [0, 1].map(layerState), themes: reprThemes().map(t => t.name), card: await cardNow()}")
         self.assertEqual([state["active"] for state in gone["states"]], ["plddt", "same_residue_pct"])
         self.assertEqual(gone["themes"], ["plddt-confidence", "mvs-annotation"])
         self.assertFalse(gone["states"][0]["isMvs"])
         self.assertEqual(gone["states"][0]["annotations"], [])
-        self.assertEqual(gone["panel"]["selected"], ["plddt", "same_residue_pct"])
+        self.assertEqual(gone["card"]["selected"], "plddt")
 
 
 if __name__ == "__main__":
