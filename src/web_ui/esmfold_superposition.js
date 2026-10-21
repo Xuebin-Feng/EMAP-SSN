@@ -39,8 +39,9 @@ const BLOSUM62 = [
 
 // CA atoms of standard amino acids in chain order: residue codes
 // (indices into AMINO_ACIDS), coordinates, and each residue's [chain,
-// number] as the PDB gives them (auth_asym_id, auth_seq_id), and its B-factor (pLDDT).
-function readCaTrace(structure) {
+// number] as the PDB gives them (auth_asym_id, auth_seq_id), and its B-factor (pLDDT); with a color `theme`
+// of Mol*'s, the color it gives each residue.
+function readCaTrace(structure, theme = null) {
     const { StructureElement, StructureProperties, Unit } = molstar.lib.structure;
     const { atom, chain, residue } = StructureProperties;
     const location = StructureElement.Location.create(structure);
@@ -48,6 +49,7 @@ function readCaTrace(structure) {
     const coords = [];
     const ids = [];
     const plddt = [];
+    const colors = [];
     for (const unit of structure.units) {
         if (!Unit.isAtomic(unit)) continue;
         location.unit = unit;
@@ -64,9 +66,10 @@ function readCaTrace(structure) {
             coords.push([atom.x(location), atom.y(location), atom.z(location)]);
             ids.push([chain.auth_asym_id(location), residue.auth_seq_id(location)]);
             plddt.push(atom.B_iso_or_equiv(location));
+            if (theme) colors.push(theme.color(location, false));
         }
     }
-    return { codes, coords, ids, plddt };
+    return { codes, coords, ids, plddt, colors };
 }
 
 // Global alignment (Gotoh) scored with BLOSUM62 and the gap scores of

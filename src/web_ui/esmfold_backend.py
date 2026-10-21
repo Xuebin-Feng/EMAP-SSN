@@ -48,6 +48,11 @@ def register_backend(registry, viewer):
     )
     registry.register_action(
         "esmfold",
+        "esmfold_job",
+        lambda data: handle_esmfold_job(viewer, data),
+    )
+    registry.register_action(
+        "esmfold",
         "console_debug_err",
         lambda data: handle_console_debug_err(viewer, data),
     )
@@ -104,8 +109,48 @@ def handle_save_session(viewer, data):
     except Exception as e:
         print(f"Error saving Mol* session: {e}")
 
+JOB_EVENTS = ("started", "progress", "structure_failed", "failed", "finished")
+
+
+def _short_text(value, limit):
+    return value[:limit] if isinstance(value, str) else None
+
+
+def handle_esmfold_job(viewer, data):
+    """Broadcasts how a folding run is going (the worker posts it) for the Fold View page to show.
+
+    Only the fields the page shows are passed on, bounded: the worker is a
+    local process, but the page is not told what it did not ask for.
+    """
+    event = data.get("event")
+    if event not in JOB_EVENTS:
+        return
+    message = {"type": "esmfold_job", "event": event}
+    for key in ("total", "index", "succeeded"):
+        value = data.get(key)
+        if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 10 ** 9:
+            message[key] = value
+    for key, limit in (("name", 200), ("reason", 500), ("log", 500)):
+        text = _short_text(data.get(key), limit)
+        if text:
+            message[key] = text
+    names = data.get("names")
+    if isinstance(names, list):
+        message["names"] = [_short_text(name, 200) or "" for name in names[:50]]
+    if isinstance(data.get("failed"), bool):
+        message["failed"] = data["failed"]
+    viewer.broadcast_event(message)
+
+
 def handle_load_session(viewer, data):
-    """Loads the Mol* JSON session snapshot from the active layout cache folder and broadcasts it."""
+    """Loads the Mol* JSON session snapshot from the active layout cache folder and broadcasts it.
+
+    The page asks when it connects, so the Viewer also says then whether it has
+    a window: a page opened by its address in a Viewer with none explains why
+    there is nobody to fold from."""
+    shows_windows = getattr(viewer, "shows_windows", None)
+    if callable(shows_windows):
+        viewer.broadcast_event({"type": "viewer_info", "hidden": not shows_windows()})
     try:
         cache_path = resolve_selected_cache(cfg)
         layout_dir = os.path.dirname(cache_path)

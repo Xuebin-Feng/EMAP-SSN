@@ -335,6 +335,7 @@ class ESMFoldWorkerTests(unittest.TestCase):
                     return_value=(1, False),
                 ) as run_predictions,
                 mock.patch.object(esmfold_worker, "notify_server") as notify_server,
+                mock.patch.object(esmfold_worker, "notify_job"),
             ):
                 result = esmfold_worker.main(
                     [
@@ -350,6 +351,90 @@ class ESMFoldWorkerTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         notify_server.assert_called_once_with("node_1", "node_1.pdb", action_url)
+
+    def test_notify_job_posts_the_event_the_page_shows_and_warns_only_once(self):
+        action_url = "http://127.0.0.1:49123/api/action"
+        with mock.patch.object(esmfold_worker.urllib.request, "urlopen") as urlopen:
+            esmfold_worker.notify_job("progress", action_url, index=2, total=3, name="node_b")
+            esmfold_worker.notify_job("started", None, total=3)
+        urlopen.assert_called_once()
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, action_url)
+        self.assertEqual(json.loads(request.data.decode("utf-8")),
+                         {"action": "esmfold_job", "event": "progress", "index": 2, "total": 3, "name": "node_b"})
+        # A Viewer that cannot be reached costs one warning, not one for each event.
+        esmfold_worker._job_notice_failed = False
+        output = io.StringIO()
+        with mock.patch.object(esmfold_worker.urllib.request, "urlopen", side_effect=OSError("refused")), redirect_stdout(output):
+            for index in (1, 2, 3):
+                esmfold_worker.notify_job("progress", action_url, index=index, total=3)
+        esmfold_worker._job_notice_failed = False
+        self.assertEqual(output.getvalue().count("Warning: Could not report progress"), 1)
+
+    def test_run_predictions_reports_each_structure_it_starts_and_each_that_fails(self):
+        events = []
+        model = mock.Mock()
+
+        def generate(protein, config):
+            if protein.sequence == "DE":
+                raise RuntimeError("out of memory")
+            return FakeOutput(pdb=f"NEW {protein.sequence}\n")
+
+        model.generate.side_effect = generate
+        with tempfile.TemporaryDirectory() as structures_dir:
+            with open(os.path.join(structures_dir, "node_a.pdb"), "w", encoding="utf-8") as handle:
+                handle.write("OLD\n")
+            with (
+                mock.patch.dict(sys.modules, fake_esm_modules()),
+                mock.patch.object(esmfold_worker, "_load_local_model", return_value=model),
+                redirect_stdout(io.StringIO()),
+            ):
+                result = esmfold_worker.run_predictions(
+                    [["node_a", "AC"], ["node_b", "DE"], ["node_c", "FG"]], structures_dir, mode="local",
+                    target_device="cpu", notifier=mock.Mock(), skip_existing=True,
+                    job_event=lambda event, **fields: events.append((event, fields)),
+                )
+        self.assertEqual(result, (2, True))
+        # The kept structure is not started; the others are, in order, and the failure says why.
+        self.assertEqual(events, [
+            ("progress", {"index": 2, "total": 3, "name": "node_b"}),
+            ("structure_failed", {"name": "node_b", "reason": "out of memory"}),
+            ("progress", {"index": 3, "total": 3, "name": "node_c"}),
+        ])
+
+    def _main_events(self, run_result=None, load_error=None):
+        """The events main() reports to the Viewer for a run whose predictions end as run_result says."""
+        action_url = "http://127.0.0.1:49123/api/action"
+        events = []
+        loaded = mock.patch.object(esmfold_worker, "_load_nodes", return_value=[["node_1", "ACDE"], ["node_2", "FG"]])
+        if load_error:
+            loaded = mock.patch.object(esmfold_worker, "_load_nodes", side_effect=load_error)
+        with tempfile.TemporaryDirectory() as structures_dir, loaded, \
+                mock.patch.object(esmfold_worker, "run_predictions", return_value=run_result) as run_predictions, \
+                mock.patch.object(esmfold_worker, "notify_job", side_effect=lambda event, url, **fields: events.append((event, url, fields))), \
+                redirect_stdout(io.StringIO()):
+            result = esmfold_worker.main(["input.json", structures_dir, "--action-url", action_url, "--noninteractive"])
+        return result, events, run_predictions
+
+    def test_main_reports_a_run_to_the_viewer_from_its_start_to_its_end(self):
+        url = "http://127.0.0.1:49123/api/action"
+        result, events, run_predictions = self._main_events((2, False))
+        self.assertEqual(result, 0)
+        self.assertEqual(events, [
+            ("started", url, {"total": 2, "names": ["node_1", "node_2"]}),
+            ("finished", url, {"succeeded": 2, "total": 2, "failed": False}),
+        ])
+        # run_predictions was told how to report each structure.
+        self.assertIn("job_event", run_predictions.call_args.kwargs)
+        result, events, _ = self._main_events((1, True))
+        self.assertEqual(result, 1)
+        self.assertEqual(events[-1], ("finished", url, {"succeeded": 1, "total": 2, "failed": True, "log": None}))
+
+    def test_main_reports_a_run_that_could_not_start(self):
+        url = "http://127.0.0.1:49123/api/action"
+        result, events, _ = self._main_events(load_error=ValueError("no records"))
+        self.assertEqual(result, 1)
+        self.assertEqual(events, [("failed", url, {"reason": "no records", "log": None})])
 
     def _run_local(self, records, structures_dir, **options):
         model = mock.Mock()
@@ -449,6 +534,15 @@ class ViewerNotificationTests(unittest.TestCase):
         self.assertEqual(
             self.dispatch(self.posted_payload("node/1", "node_1.pdb")),
             [{"type": "esmfold_pdb", "node_id": "node/1", "pdb_url": "/structures/node_1.pdb"}],
+        )
+
+    def test_job_events_reach_the_page_as_the_worker_posts_them(self):
+        with mock.patch.object(esmfold_worker.urllib.request, "urlopen") as urlopen:
+            esmfold_worker.notify_job("progress", "http://127.0.0.1:49123/api/action", index=1, total=2, name="node/1")
+        payload = json.loads(urlopen.call_args.args[0].data.decode("utf-8"))
+        self.assertEqual(
+            self.dispatch(payload),
+            [{"type": "esmfold_job", "event": "progress", "index": 1, "total": 2, "name": "node/1"}],
         )
 
     def test_notification_without_a_filename_is_not_broadcast(self):

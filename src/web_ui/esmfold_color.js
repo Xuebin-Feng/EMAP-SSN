@@ -325,45 +325,43 @@ function groupLabel(text) {
     return make('div', 'group-label', text);
 }
 
-function rampStyle(colors) {
-    return 'linear-gradient(to right, ' + colors.join(', ') + ')';
+// The colors of a legend's bar as [position from 0 to 1, color] stops, and the names of its two ends. A gradient
+// runs through its stops; a scale through its colors; bands are blocks, each as wide as its pLDDT band (or equal parts).
+function legendRamp(legend) {
+    if (legend.kind === 'gradient') {
+        const span = legend.legend.max - legend.legend.min;
+        const unit = legend.unit ? ' ' + legend.unit : '';
+        return { stops: legend.legend.stops.filter(([, color]) => HEX_COLOR.test(color))
+                     .map(([value, color]) => [(value - legend.legend.min) / span, color]),
+                 low: legend.legend.min + unit, high: legend.legend.max + unit };
+    }
+    if (legend.kind === 'scale') {
+        return { stops: legend.colors.map((color, index) => [index / Math.max(1, legend.colors.length - 1), color]),
+                 low: legend.low, high: legend.high };
+    }
+    // Very low to very high, as wide as the bands are in pLDDT (0 to 50, 50 to 70, 70 to 90, 90 to 100).
+    const ordered = [...legend.bands].reverse();
+    const confidence = legend.heading === coloringLabel(PLDDT_LAYER);
+    const widths = confidence && ordered.length === 4 ? [0.5, 0.2, 0.2, 0.1] : ordered.map(() => 1 / ordered.length);
+    let at = 0;
+    const stops = [];
+    ordered.forEach((band, index) => {
+        stops.push([at, band.color]);
+        at += widths[index];
+        stops.push([at, band.color]);
+    });
+    return { stops, low: confidence ? '0' : '', high: confidence ? '100' : '' };
 }
 
-// A bar of the legend's colors, each as wide as its pLDDT band (or equal parts), with its two ends named.
+// A bar of the legend's colors with its two ends named.
 function legendBar(legend, compact) {
     const wrap = make('div', compact ? 'legend-compact' : 'legend-body');
     const bar = make('div', 'ramp');
-    let low = '', high = '';
-    if (legend.kind === 'gradient') {
-        const span = legend.legend.max - legend.legend.min;
-        const stops = legend.legend.stops.filter(([, color]) => HEX_COLOR.test(color))
-            .map(([value, color]) => `${color} ${(100 * (value - legend.legend.min) / span).toFixed(1)}%`);
-        bar.style.background = 'linear-gradient(to right, ' + stops.join(', ') + ')';
-        const unit = legend.unit ? ' ' + legend.unit : '';
-        low = legend.legend.min + unit;
-        high = legend.legend.max + unit;
-    } else if (legend.kind === 'scale') {
-        bar.style.background = rampStyle(legend.colors);
-        low = legend.low;
-        high = legend.high;
-    } else {
-        // Very low to very high, as wide as the bands are in pLDDT (0 to 50, 50 to 70, 70 to 90, 90 to 100).
-        const ordered = [...legend.bands].reverse();
-        const widths = legend.heading === coloringLabel(PLDDT_LAYER) && ordered.length === 4 ? [50, 20, 20, 10] : ordered.map(() => 100 / ordered.length);
-        let at = 0;
-        const stops = ordered.map((band, index) => {
-            const from = at;
-            at += widths[index];
-            return `${band.color} ${from}% ${at}%`;
-        });
-        bar.style.background = 'linear-gradient(to right, ' + stops.join(', ') + ')';
-        const confidence = legend.heading === coloringLabel(PLDDT_LAYER);
-        low = confidence ? '0' : '';
-        high = confidence ? '100' : '';
-    }
+    const ramp = legendRamp(legend);
+    bar.style.background = 'linear-gradient(to right, ' + ramp.stops.map(([at, color]) => `${color} ${(100 * at).toFixed(1)}%`).join(', ') + ')';
     const ends = make('div', 'ticks');
-    const lowEnd = make('span', undefined, low);
-    const highEnd = make('span', undefined, high);
+    const lowEnd = make('span', undefined, ramp.low);
+    const highEnd = make('span', undefined, ramp.high);
     ends.append(lowEnd, highEnd);
     wrap.append(bar, ends);
     return wrap;

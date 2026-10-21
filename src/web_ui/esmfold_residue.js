@@ -195,6 +195,9 @@ function residueLoci(residue) {
 
 function pinResidue(residue, loci) {
     pinnedResidue = residue;
+    // The strip shows the chain it is on.
+    sequenceTarget = { ref: residue.ref, chain: residue.chain };
+    scheduleSequence();
     try {
         plugin.managers.structure.selection.fromLoci('set', molstar.lib.structure.StructureElement.Loci.extendToWholeResidues(loci));
     } catch (err) {
@@ -223,9 +226,8 @@ async function removeFocusNodes() {
     await plugin.runTask(state.updateTree(update));
 }
 
-// Lets go of everything a pin put into Mol*: the mark on the residue, the focus and the focus' own nodes.
+// Lets go of the focus Mol*'s click put in, and of the focus' own nodes (not of the mark on a residue).
 function releaseFocus() {
-    plugin.managers.structure.selection.clear();
     plugin.managers.structure.focus.clear();
     return runExclusive(async () => {
         // Mol* empties the nodes in its own time; deleting them after that leaves nothing for it to redraw.
@@ -246,6 +248,7 @@ function withoutFocus(snapshot) {
 function clearPin() {
     if (!pinnedResidue) return false;
     pinnedResidue = null;
+    plugin.managers.structure.selection.clear();
     releaseFocus();
     renderResidueCard();
     if (hoveredResidue) showTip(hoveredResidue);
@@ -258,6 +261,7 @@ function resetPointerState() {
     pinnedResidue = null;
     hideTip();
     renderResidueCard();
+    plugin.managers.structure.selection.clear();
     return releaseFocus();
 }
 
@@ -311,6 +315,8 @@ async function renderResidueCard() {
         if (pinnedResidue && !structureByRef(pinnedResidue.ref)) pinnedResidue = null;
         const hint = make('div', 'hint', t("Hover a residue to see its values here. Click it to pin it; Escape clears the pin."));
         body.replaceChildren(hint);
+        refreshSequenceMarks();
+        refreshTools();
         return;
     }
     const { rows, layerLabel } = await residueRows(residue);
@@ -364,6 +370,8 @@ async function renderResidueCard() {
     }
     parts.push(foot);
     body.replaceChildren(...parts);
+    refreshSequenceMarks();
+    refreshTools();
 }
 
 // What a change of the structures does to a residue the page holds: it goes if its structure went.
@@ -393,8 +401,13 @@ function setupResidueEvents() {
     plugin.behaviors.interaction.click.subscribe(event => {
         if (event.button !== 1) return;
         const residue = residueOf(event.current.loci);
-        if (residue) pinResidue(residue, event.current.loci);
-        else clearPin();
+        if (toolMode) {
+            if (residue) toolClick(residue, event.current.loci);
+        } else if (residue) {
+            pinResidue(residue, event.current.loci);
+        } else {
+            clearPin();
+        }
     });
     byId('viewer').addEventListener('pointermove', event => {
         const stage = byId('stage').getBoundingClientRect();

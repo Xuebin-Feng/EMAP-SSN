@@ -1855,6 +1855,62 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Saved fold-view.png.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Getting the model ready...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folding {index} of {total}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>A structure</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The folding worker stopped.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folding {name} failed: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folding</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The folding worker stopped: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folded {done} of {total}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy log path</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copied the log path.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not copy: select the path in the Viewer&apos;s terminal.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>the structure has no properties nodes</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1904,6 +1960,26 @@ Command-line usage:
     </message>
     <message>
         <source>Clear</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{name} · chain {chain}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence of {name}, chain {chain}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Residue {name}, chain {chain}, pLDDT {value}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Residue {name}, chain {chain}, B-factor {value}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>3D structure view. Arrow keys step through the residues, F comes to the pinned one, R resets the view, Escape lets go of it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2016,6 +2092,10 @@ Command-line usage:
     </message>
     <message>
         <source>Loading structure {name}...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mol* could not get a structure from it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2215,6 +2295,34 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Click two residues to measure the distance between them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Click a residue to label it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{name}: now click the second residue.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Those residues have no C-alpha atom to measure from.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{from} to {to}: {distance} Å</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Labeled {name}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Measurements and labels cleared.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2251,6 +2359,14 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>This Viewer has no window; folding is started from its command line or an MCP client.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No window</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Lost the connection to the Viewer. Retrying... The structures stay on screen.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2279,6 +2395,26 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Zoom to the pinned residue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Measure a distance</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Label residues</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear measurements and labels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save an image</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Full screen</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2292,6 +2428,14 @@ Command-line usage:
     </message>
     <message>
         <source>Starting the structure view...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folding progress</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Each structure appears here as it is folded. To stop, run &lt;code&gt;esmfold stop&lt;/code&gt; in the Viewer.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2311,6 +2455,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>This Viewer has no window. Run &lt;code&gt;esmfold&lt;/code&gt; from its command line or an MCP client: the structures appear here.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Open a PDB file...</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2324,6 +2472,14 @@ Command-line usage:
     </message>
     <message>
         <source>Structures are still folded and saved; the lists keep working.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Structure and chain of the sequence</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2416,6 +2572,34 @@ Command-line usage:
     </message>
     <message>
         <source>Cancel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Include the legend</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Transparent background</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Window size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Twice the window size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Four times the window size</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save image</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

@@ -444,16 +444,18 @@ function renderStructures() {
             console.warn("Could not measure the alignments:", err);
         }
         const pivot = pivotStructure();
-        list.replaceChildren(...structures.map((structure, index) => structureRow(structure, index, pivot)));
+        list.replaceChildren(...structures.map((structure, index) => structureRow(structure, index, pivot)), ...jobRows());
     } else {
         fitStats.clear();
         const hint = make('div', 'hint', t("Structures appear here as they are folded."));
-        list.replaceChildren(hint);
+        const rows = jobRows();
+        list.replaceChildren(...(rows.length ? rows : [hint]));
     }
     byId('struct-count').textContent = structures.length ? '(' + structures.length + ')' : '';
     updateView();
     renderColorCard();
     refreshResidue();
+    scheduleSequence();
     if (focused) list.querySelector('[data-focus-key="' + focused.replace(/["\\]/g, '\\$&') + '"]')?.focus();
 }
 

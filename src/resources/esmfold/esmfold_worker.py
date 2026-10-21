@@ -147,6 +147,35 @@ def notify_server(node_id, pdb_filename, action_url=None):
         print(f"Warning: Could not notify main visualizer server: {error}")
 
 
+_job_notice_failed = False
+
+
+def notify_job(event, action_url=None, **fields):
+    """Tell the Viewer at ``action_url`` how the run is going, for the Fold View page; no URL, no request.
+
+    ``event`` is "started", "progress", "structure_failed", "failed" or
+    "finished"; ``fields`` are what the page shows of it (total, index, name,
+    reason, log, succeeded). The page works without any of it, so a Viewer that
+    cannot be reached costs one warning, not one for each event.
+    """
+    global _job_notice_failed
+    if not action_url:
+        return
+    payload = {"action": "esmfold_job", "event": event, **fields}
+    request = urllib.request.Request(
+        action_url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=NOTIFY_TIMEOUT_SECONDS):
+            pass
+    except Exception as error:
+        if not _job_notice_failed:
+            _job_notice_failed = True
+            print(f"Warning: Could not report progress to the main visualizer server: {error}")
+
+
 def _replace_file(source, target, attempts=10):
     """Move ``source`` over ``target``, waiting for readers to let go of it.
 
@@ -443,8 +472,13 @@ def run_predictions(
     notifier=notify_server,
     skip_existing=False,
     residue_data_saved=None,
+    job_event=None,
 ):
     """Fold each [rec_id, sequence] or [rec_id, sequence, extra]; return (completed, errors_occurred).
+
+    ``job_event(event, **fields)``, if given, is told "progress" (index,
+    total, name) before each structure is folded and "structure_failed"
+    (name, reason) for one that fails: what the Fold View page shows of a run.
 
     ``extra`` is what the Viewer computed for the node from its alignment,
     ``{"header": ..., "properties": {...}}``: it is written beside the PDB as
@@ -524,6 +558,8 @@ def run_predictions(
                 continue
 
             print(f"\n[{index}/{total}] Folding sequence: {rec_id} ({len(sequence)} aa)...")
+            if job_event is not None:
+                job_event("progress", index=index, total=total, name=str(rec_id))
             try:
                 protein = ESMProtein(sequence=sequence)
                 generation_config = GenerationConfig(track="structure", num_steps=8)
@@ -559,6 +595,8 @@ def run_predictions(
             except Exception as error:
                 print(f"Error folding sequence {rec_id}: {error}")
                 errors_occurred = True
+                if job_event is not None:
+                    job_event("structure_failed", name=str(rec_id), reason=str(error))
         if skipped_count:
             print(f"\nKept {skipped_count} existing structure(s) without predicting them again.")
             if refreshed_count:
@@ -596,10 +634,17 @@ def main(argv=None):
     portal_event("running", "Worker started")
     os.makedirs(arguments.structures_dir, exist_ok=True)
 
+    def job_event(event, **fields):
+        notify_job(event, arguments.action_url, **fields)
+
+    # Where the worker's output of this run is kept, when it is kept (the Viewer's terminal shows it otherwise).
+    log_path = _portal_path + '.stdout' if _portal_path else None
+
     try:
         nodes_to_fold = _load_nodes(arguments.input_json_path, delete=arguments.delete_input)
     except Exception as error:
         print(f"Error reading input JSON {arguments.input_json_path}: {error}")
+        job_event("failed", reason=str(error), log=log_path)
         portal_event("failed", str(error))
         portal_pause("\nError occurred. Press Enter to close this window...")
         return 1
@@ -607,7 +652,11 @@ def main(argv=None):
     if not nodes_to_fold:
         print("No nodes to fold found in input JSON.")
         portal_event("succeeded", "No nodes to fold", succeeded=0, total=0)
+        job_event("finished", succeeded=0, total=0, failed=False)
         return 0
+
+    job_event("started", total=len(nodes_to_fold), names=[
+        str(record[0]) if isinstance(record, (list, tuple)) and record else "?" for record in nodes_to_fold[:50]])
 
     import warnings
 
@@ -638,9 +687,11 @@ def main(argv=None):
             notifier=notifier,
             skip_existing=arguments.skip_existing,
             residue_data_saved=residue_data_saved,
+            job_event=job_event,
         )
     except Exception as error:
         print(f"Error initializing ESM3 prediction: {error}")
+        job_event("failed", reason=str(error), log=log_path)
         portal_event("failed", str(error))
         portal_pause("\nError occurred. Press Enter to close this window...")
         return 1
@@ -650,6 +701,7 @@ def main(argv=None):
         "structure prediction(s)."
     )
     if errors_occurred or folded_count < len(nodes_to_fold):
+        job_event("finished", succeeded=folded_count, total=len(nodes_to_fold), failed=True, log=log_path)
         portal_event("failed", "One or more structures failed", succeeded=folded_count, total=len(nodes_to_fold))
         portal_pause("\nErrors occurred. Press Enter to close this window...")
         return 1
@@ -657,6 +709,7 @@ def main(argv=None):
     message = "Structure prediction completed"
     if residue_files:
         message += f"; per-residue data saved for {residue_files} structure(s)"
+    job_event("finished", succeeded=folded_count, total=len(nodes_to_fold), failed=False)
     portal_event("succeeded", message, succeeded=folded_count, total=len(nodes_to_fold))
     return 0
 

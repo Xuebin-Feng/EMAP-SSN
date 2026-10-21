@@ -288,6 +288,10 @@ class PageHandler(FixtureHandler):
         "/esmfold_session.js": SRC / "web_ui" / "esmfold_session.js",
         "/esmfold_color.js": SRC / "web_ui" / "esmfold_color.js",
         "/esmfold_residue.js": SRC / "web_ui" / "esmfold_residue.js",
+        "/esmfold_sequence.js": SRC / "web_ui" / "esmfold_sequence.js",
+        "/esmfold_tools.js": SRC / "web_ui" / "esmfold_tools.js",
+        "/esmfold_image.js": SRC / "web_ui" / "esmfold_image.js",
+        "/esmfold_jobs.js": SRC / "web_ui" / "esmfold_jobs.js",
         "/esmfold/molstar.js": SRC / "resources" / "esmfold" / "molstar.js",
     }
 
@@ -305,6 +309,10 @@ SERVED_TEXTS = {
     "/esmfold_session.js": "Session saved.",
     "/esmfold_color.js": "More colorings",
     "/esmfold_residue.js": "Pinned. Escape clears it.",
+    "/esmfold_sequence.js": "Sequence of {name}, chain {chain}",
+    "/esmfold_tools.js": "Click a residue to label it.",
+    "/esmfold_image.js": "Saved fold-view.png.",
+    "/esmfold_jobs.js": "Copied the log path.",
 }
 
 
@@ -637,7 +645,8 @@ class AgentPageTests(WebPageTestCase):
         # translations, so its files come as they are, and the Advanced view,
         # which shows Mol*'s own panels, says they are English only.
         for name in ("esmfold.html", "esmfold_shell.js", "esmfold_layers.js", "esmfold_superposition.js",
-                     "esmfold_structures.js", "esmfold_session.js", "esmfold_color.js", "esmfold_residue.js"):
+                     "esmfold_structures.js", "esmfold_session.js", "esmfold_color.js", "esmfold_residue.js",
+                     "esmfold_sequence.js", "esmfold_tools.js", "esmfold_image.js", "esmfold_jobs.js"):
             self.assertIn(f"web_ui/{name}", PAGE_CONTEXTS)
         mol_star = (SRC / "resources" / "esmfold" / "molstar.js").read_bytes()
         response, body = request(self.server, "GET", "/esmfold/molstar.js")

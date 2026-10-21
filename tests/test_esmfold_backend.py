@@ -120,6 +120,74 @@ class MolstarSessionTests(unittest.TestCase):
         self.assertEqual(registry.routes[("esmfold", "/structures/")], "structures")
 
 
+class JobEventTests(unittest.TestCase):
+    """How a folding run is going, as the worker posts it, and what the page is told of it."""
+
+    def test_the_fields_the_page_shows_are_passed_on_bounded(self):
+        viewer = RecordingViewer()
+        esmfold_backend.handle_esmfold_job(viewer, {
+            "event": "structure_failed", "name": "n" * 500, "reason": "r" * 900, "log": "L" * 900, "index": 2, "total": 5,
+            "secret": "not for the page", "names": ["a", "b"] + ["x"] * 80, "succeeded": True, "failed": True,
+        })
+        (message,) = viewer.events
+        self.assertEqual(message["type"], "esmfold_job")
+        self.assertEqual(message["event"], "structure_failed")
+        self.assertEqual((len(message["name"]), len(message["reason"]), len(message["log"])), (200, 500, 500))
+        self.assertEqual((message["index"], message["total"]), (2, 5))
+        self.assertNotIn("secret", message)
+        # A boolean is not a count, and a list of names is cut short.
+        self.assertNotIn("succeeded", message)
+        self.assertEqual(len(message["names"]), 50)
+        self.assertIs(message["failed"], True)
+
+    def test_an_event_the_page_does_not_know_is_ignored(self):
+        viewer = RecordingViewer()
+        for data in ({}, {"event": "explode"}, {"event": 3}, {"event": None, "total": 2}):
+            esmfold_backend.handle_esmfold_job(viewer, data)
+        self.assertEqual(viewer.events, [])
+
+    def test_the_action_reaches_the_handler(self):
+        registry = RecordingRegistry()
+        viewer = RecordingViewer()
+        with mock.patch.object(esmfold_backend, "get_structures_directory", return_value="structures"):
+            esmfold_backend.register_backend(registry, viewer)
+        registry.actions[("esmfold", "esmfold_job")]({"event": "started", "total": 3})
+        self.assertEqual(viewer.events, [{"type": "esmfold_job", "event": "started", "total": 3}])
+
+
+class ViewerInfoTests(unittest.TestCase):
+    """The page asks for its session when it connects; the Viewer says then whether it has a window."""
+
+    class Viewer(RecordingViewer):
+        def __init__(self, shows):
+            super().__init__()
+            self.shows = shows
+
+        def shows_windows(self):
+            return self.shows
+
+    def load(self, viewer):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(
+            esmfold_backend, "resolve_selected_cache", return_value=os.path.join(folder, "version_00.h5")
+        ):
+            esmfold_backend.handle_load_session(viewer, {})
+
+    def test_a_viewer_with_no_window_says_so_before_the_session(self):
+        viewer = self.Viewer(shows=False)
+        self.load(viewer)
+        self.assertEqual(viewer.events, [{"type": "viewer_info", "hidden": True}, {"type": "restore_session", "session": None}])
+
+    def test_a_viewer_with_a_window_says_it_has_one(self):
+        viewer = self.Viewer(shows=True)
+        self.load(viewer)
+        self.assertEqual(viewer.events[0], {"type": "viewer_info", "hidden": False})
+
+    def test_a_viewer_that_cannot_say_sends_nothing_of_it(self):
+        viewer = RecordingViewer()
+        self.load(viewer)
+        self.assertEqual([event["type"] for event in viewer.events], ["restore_session"])
+
+
 class FoldedStructureEventTests(unittest.TestCase):
     def test_folded_structure_is_announced_with_its_url(self):
         viewer = RecordingViewer()

@@ -155,7 +155,7 @@ function updateView() {
     if (!plugin) view = 'starting';
     else if (!plugin.canvas3d) view = 'webgl';
     else if (isRestoring) view = 'restoring';
-    else if (count === 0) view = 'empty';
+    else if (count === 0) view = typeof jobRunning === 'function' && jobRunning() ? 'folding' : 'empty';
     document.body.dataset.view = view;
     document.body.dataset.count = String(count);
 }
@@ -192,6 +192,7 @@ Promise.all([molstar.Viewer.create('viewer', {
     updateView();
     renderStructures();
     setupResidueEvents();
+    setupToolEvents();
     showStatus(t("Mol* initialized. Connecting to the Viewer..."));
     setupSSE();
 }).catch(error => {
@@ -259,6 +260,10 @@ function setupSSE() {
                     finishRestoring();
                     await processPendingStructures();
                 }
+            } else if (msg.type === 'esmfold_job') {
+                handleJobEvent(msg);
+            } else if (msg.type === 'viewer_info') {
+                handleViewerInfo(msg);
             } else if (msg.type === 'esmfold_pdb') {
                 const { pdb_url, node_id } = msg;
                 if (isRestoring) {
@@ -307,11 +312,14 @@ async function loadAndAlignStructure(load, label, url) {
         showStatus(t("Loading structure {name}...", {name: label}), 0);
         plugin.log.info(`Loading structure ${label}...`);
 
+        const before = loadedStructures().length;
         await load();
 
+        // Mol* logs a file it cannot get or read and carries on: no new structure is the failure.
+        const structures = plugin.managers.structure.hierarchy.current.structures;
+        if (structures.length <= before) throw new Error(t("Mol* could not get a structure from it."));
         // The new structure (the newest) takes the scene's coloring, pLDDT unless the
         // Color by card says otherwise; the structures already there keep what they show.
-        const structures = plugin.managers.structure.hierarchy.current.structures;
         await colorNewStructure(structures[structures.length - 1]);
         if (structures.length > 1) {
             showStatus(t("Aligning {name} to the pivot structure...", {name: label}), 0);
@@ -337,6 +345,7 @@ async function loadAndAlignStructure(load, label, url) {
         console.error("Error loading structure:", err);
         plugin.log.error(`Error loading structure ${label}: ${err.message}`);
         showStatus(t("Failed to load structure {name}.", {name: label}), 6000, {error: true});
+        addFailure(label, err.message);
     } finally {
         // A structure written again under the same name has new residue data.
         if (url) {
@@ -477,12 +486,12 @@ byId('help-modal').addEventListener('click', event => {
     if (event.target.id === 'help-modal') closeHelp();
 });
 
-// Escape closes the layer on top: a menu, a question, the help, the pinned residue, then the Advanced view.
+// Escape closes the layer on top: a menu, a question, the help, a tool, the pinned residue, then the Advanced view.
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
-    if (closeSessionMenu() || closeConfirm()) return;
+    if (closeSessionMenu() || closeConfirm() || closeImage()) return;
     if (byId('help-modal').classList.contains('open')) closeHelp();
-    else if (clearPin()) return;
+    else if (leaveTool() || clearPin()) return;
     else if (document.body.dataset.adv === '1') setAdvanced(false);
 });
 

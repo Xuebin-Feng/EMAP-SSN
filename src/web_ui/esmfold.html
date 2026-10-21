@@ -349,7 +349,8 @@
         .view-toolbar .btn:focus-visible { border-color: var(--accent); }
         body:not([data-view="ready"]) .view-toolbar .seg-view { display: none; }
         body[data-view="empty"] .view-toolbar .sep, body[data-view="restoring"] .view-toolbar .sep,
-        body[data-view="starting"] .view-toolbar .sep, body[data-view="webgl"] .view-toolbar .sep { display: none; }
+        body[data-view="starting"] .view-toolbar .sep, body[data-view="webgl"] .view-toolbar .sep,
+        body[data-view="folding"] .view-toolbar .sep { display: none; }
 
         /* Advanced: Mol*'s own panels, under a row that says so */
         .adv-banner {
@@ -384,7 +385,8 @@
         .empty { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; text-align: center; z-index: 3; pointer-events: none; }
         .empty-card { max-width: 460px; pointer-events: auto; }
         body[data-view="starting"] .empty[data-for="starting"], body[data-view="restoring"] .empty[data-for="restoring"],
-        body[data-view="empty"] .empty[data-for="empty"], body[data-view="webgl"] .empty[data-for="webgl"] { display: flex; }
+        body[data-view="empty"] .empty[data-for="empty"], body[data-view="webgl"] .empty[data-for="webgl"],
+        body[data-view="folding"] .empty[data-for="folding"] { display: flex; }
         .empty-icon { width: 44px; height: 44px; border-radius: 12px; background: var(--bg-muted); color: var(--text-secondary); display: grid; place-items: center; margin: 0 auto 14px; }
         .empty-icon .icon { width: 22px; height: 22px; }
         .empty-icon.warn { background: var(--warning-soft); color: var(--warning); }
@@ -564,6 +566,55 @@
         .res-note { margin-top: 8px; font-size: 11.5px; color: var(--text-subtle); line-height: 1.5; }
         .res-foot { display: flex; gap: 6px; margin-top: 10px; }
 
+        /* The sequence strip: residues in blocks of ten, each with a bar in its color in 3D */
+        .seqbar { flex: none; border-top: 1px solid var(--border-color); background: var(--bg-card); }
+        .seqbar[data-empty="1"] { display: none; }
+        .seq-head { display: flex; align-items: center; gap: 8px; padding: 4px 10px; min-height: 36px; }
+        .seq-head .btn { padding: 0 6px 0 4px; font-weight: 600; color: var(--text-primary); }
+        .seq-head .btn .icon { transition: transform 0.2s ease; }
+        .seqbar[data-open="0"] .seq-head .btn .icon { transform: rotate(-90deg); }
+        .seq-select { width: auto; max-width: 260px; height: 26px; font-size: 12px; margin-left: auto; }
+        .seq-select[hidden] { display: none; }
+        .seq-body { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 2px 14px 10px; max-height: 132px; overflow-y: auto; font-family: var(--font-mono); }
+        .seqbar[data-open="0"] .seq-body { display: none; }
+        .seq-block { display: flex; flex-direction: column; }
+        .seq-num { font-size: 9.5px; color: var(--text-subtle); line-height: 1.1; height: 11px; padding-left: 1px; }
+        .seq-letters { display: flex; }
+        .seq-res { position: relative; width: 12px; height: 18px; padding: 0 0 4px; border: 0; background: none; color: var(--text-primary); font: 12px/14px var(--font-mono); cursor: pointer; border-radius: 3px; outline: none; }
+        .seq-res::after { content: ""; position: absolute; left: 1px; right: 1px; bottom: 1px; height: 3px; border-radius: 1.5px; background: var(--rc, var(--border-color)); }
+        .seq-res:hover, .seq-res.hover { background: var(--bg-muted); }
+        .seq-res.pinned { background: var(--accent-soft); color: var(--accent); font-weight: 700; }
+        .seq-res:focus-visible { box-shadow: 0 0 0 1px var(--accent); background: var(--bg-muted); }
+        #viewer:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+        body[data-adv="1"] .seqbar { display: none; }
+
+        /* The tools: a tool that is on takes the canvas's clicks, and says so with the pointer */
+        body[data-tool="measure"] #viewer canvas, body[data-tool="label"] #viewer canvas { cursor: crosshair; }
+        .view-toolbar .btn:disabled { opacity: 0.4; background: transparent; }
+        .view-toolbar [hidden] { display: none; }
+        .check { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; cursor: pointer; }
+        .check input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+        .modal .select { margin-bottom: 4px; }
+
+        /* Folding: a row for the sequence being folded, a progress bar on the canvas, a row for a failure */
+        .srow.pending .srow-name { color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
+        .srow.pending .srow-name .icon { width: 14px; height: 14px; }
+        .srow.pending .srow-swatch { background: var(--border-color); }
+        .srow.pending .job-elapsed { font-variant-numeric: tabular-nums; }
+        .srow.failed { background: var(--danger-soft); border-radius: 8px; }
+        .srow.failed .srow-name { display: flex; align-items: center; gap: 6px; }
+        .srow.failed .srow-sub { color: var(--danger); white-space: normal; word-break: break-word; }
+        .srow.failed .srow-swatch { background: var(--danger); }
+        .srow.failed .srow-body { padding-top: 0; }
+        .chip.err { background: var(--danger-soft); color: var(--danger); }
+        .srow.failed .chip.err { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+        .progress { height: 6px; border-radius: 3px; background: var(--bg-muted); overflow: hidden; margin: 0 auto 10px; max-width: 280px; }
+        .progress > div { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
+        .nowindow { display: none; }
+        body[data-hidden="1"] .nowindow { display: block; }
+        .status-badge[hidden] { display: none; }
+        #hidden-badge { background: var(--warning-soft); color: var(--warning); }
+
         /* Dialog, as the Metadata page's help */
         .modal-overlay { position: fixed; inset: 0; background: var(--overlay); display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
         .modal-overlay.open { display: flex; }
@@ -612,6 +663,8 @@
             .sec[data-tab] { display: none; }
             body[data-tab="structures"] .sec[data-tab="structures"], body[data-tab="color"] .sec[data-tab="color"], body[data-tab="residue"] .sec[data-tab="residue"] { display: block; }
             .canvas-legend { left: 8px; bottom: 8px; max-width: 170px; min-width: 120px; }
+            .seqbar { display: none; }
+            .view-toolbar .narrow-hide { display: none; }
             header .saved-note { display: none; }
             .empty { padding: 16px; }
             .empty h2 { font-size: 14px; }
@@ -660,6 +713,10 @@
         <symbol id="i-file-input" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M2 15h10"/><path d="m9 18 3-3-3-3"/></symbol>
         <symbol id="i-palette" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5" fill="currentColor"/><circle cx="17.5" cy="10.5" r=".5" fill="currentColor"/><circle cx="6.5" cy="12.5" r=".5" fill="currentColor"/><circle cx="8.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
         <symbol id="i-mouse-pointer" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 12.586 19 19"/><path d="M3.688 3.037a.497.497 0 0 0-.651.651l6.5 15.999a.501.501 0 0 0 .947-.062l1.569-6.083a2 2 0 0 1 1.448-1.479l6.124-1.579a.5.5 0 0 0 .063-.947z"/></symbol>
+        <symbol id="i-ruler" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2"/><path d="m11.5 9.5 2-2"/><path d="m8.5 6.5 2-2"/><path d="m17.5 15.5 2-2"/></symbol>
+        <symbol id="i-tag" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+        <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/></symbol>
+        <symbol id="i-x" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></symbol>
     </svg>
     <a class="skip-link" href="#side" data-i18n>Skip to the controls</a>
 
@@ -682,6 +739,7 @@
                 </div>
                 <button class="btn btn-ghost" id="theme-toggle-btn" type="button"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="btn-label" id="theme-toggle-label" data-i18n>Dark Mode</span></button>
                 <button class="btn btn-ghost" id="help-btn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span class="btn-label" data-i18n>Help</span></button>
+                <span id="hidden-badge" class="status-badge" title="This Viewer has no window; folding is started from its command line or an MCP client." hidden><span data-i18n>No window</span></span>
                 <div id="connection-status" class="status-badge" data-state="connecting" role="status" data-i18n>Connecting...</div>
             </div>
         </header>
@@ -701,7 +759,14 @@
                         <div class="adv-banner"><span data-i18n>Advanced view: Mol*'s own panels (English only). The same scene, the same session.</span><button class="btn btn-sm" id="adv-back" type="button"><svg class="icon" aria-hidden="true"><use href="#i-arrow-left"/></svg><span data-i18n>Back to simple view</span></button></div>
                         <div class="view-toolbar" role="toolbar" aria-label="View tools">
                             <button class="btn btn-icon seg-view" id="t-reset" type="button" title="Reset view" aria-label="Reset view"><svg class="icon" aria-hidden="true"><use href="#i-rotate-ccw"/></svg></button>
-                            <button class="btn btn-icon seg-view" id="t-full" type="button" aria-pressed="false" title="Full screen" aria-label="Full screen"><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg></button>
+                            <button class="btn btn-icon seg-view" id="t-zoom" type="button" title="Zoom to the pinned residue" aria-label="Zoom to the pinned residue" disabled><svg class="icon" aria-hidden="true"><use href="#i-crosshair"/></svg></button>
+                            <span class="sep seg-view" role="separator"></span>
+                            <button class="btn btn-icon seg-view" id="t-measure" type="button" aria-pressed="false" title="Measure a distance" aria-label="Measure a distance"><svg class="icon" aria-hidden="true"><use href="#i-ruler"/></svg></button>
+                            <button class="btn btn-icon seg-view narrow-hide" id="t-label" type="button" aria-pressed="false" title="Label residues" aria-label="Label residues"><svg class="icon" aria-hidden="true"><use href="#i-tag"/></svg></button>
+                            <button class="btn btn-icon seg-view" id="t-clear" type="button" title="Clear measurements and labels" aria-label="Clear measurements and labels" hidden><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+                            <span class="sep seg-view" role="separator"></span>
+                            <button class="btn btn-icon seg-view" id="t-image" type="button" title="Save an image" aria-label="Save an image"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg></button>
+                            <button class="btn btn-icon seg-view narrow-hide" id="t-full" type="button" aria-pressed="false" title="Full screen" aria-label="Full screen"><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg></button>
                             <span class="sep" role="separator"></span>
                             <button class="btn btn-icon" id="t-adv" type="button" aria-pressed="false" title="Advanced: Mol*'s own panels" aria-label="Advanced: Mol*'s own panels"><svg class="icon" aria-hidden="true"><use href="#i-sliders-horizontal"/></svg></button>
                         </div>
@@ -718,6 +783,13 @@
                             <div class="empty-icon"><svg class="icon icon-spin" aria-hidden="true"><use href="#i-loader-circle"/></svg></div>
                             <h2 data-i18n>Restoring the saved session...</h2>
                         </div></div>
+                        <div class="empty" data-for="folding"><div class="empty-card">
+                            <div class="empty-icon"><svg class="icon icon-spin" aria-hidden="true"><use href="#i-loader-circle"/></svg></div>
+                            <h2 id="folding-title"></h2>
+                            <p id="folding-name"></p>
+                            <div class="progress" id="folding-bar" role="progressbar" aria-label="Folding progress" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><div></div></div>
+                            <p class="hint"><span id="folding-elapsed"></span> · <span data-i18n>Each structure appears here as it is folded. To stop, run <code>esmfold stop</code> in the Viewer.</span></p>
+                        </div></div>
                         <div class="empty" data-for="empty"><div class="empty-card">
                             <div class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-dna"/></svg></div>
                             <h2 data-i18n>No structures yet</h2>
@@ -726,6 +798,7 @@
                                 <li><span class="n">1</span><span data-i18n>Select one node in the Viewer (or several for a batch).</span></li>
                                 <li><span class="n">2</span><span data-i18n>Run <code>esmfold</code> or <code>esmfold multi</code>.</span></li>
                             </ol>
+                            <p class="hint nowindow" data-i18n>This Viewer has no window. Run <code>esmfold</code> from its command line or an MCP client: the structures appear here.</p>
                             <button class="btn" id="open-file" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder-open"/></svg><span data-i18n>Open a PDB file...</span></button>
                         </div></div>
                         <div class="empty" data-for="webgl"><div class="empty-card">
@@ -734,6 +807,13 @@
                             <p data-i18n>This browser could not start WebGL 2, which the structure view needs. Try another browser, or turn on hardware acceleration in this one.</p>
                             <p class="hint" data-i18n>Structures are still folded and saved; the lists keep working.</p>
                         </div></div>
+                    </div>
+                    <div class="seqbar" id="seqbar" data-open="1" data-empty="1">
+                        <div class="seq-head">
+                            <button class="btn btn-ghost btn-sm" id="seq-toggle" type="button" aria-expanded="true" aria-controls="seq-body"><svg class="icon" aria-hidden="true"><use href="#i-chevron-down"/></svg><span data-i18n>Sequence</span></button>
+                            <select class="select seq-select" id="seq-structure" aria-label="Structure and chain of the sequence" hidden></select>
+                        </div>
+                        <div class="seq-body" id="seq-body" role="group"></div>
                     </div>
                 </div>
             </div>
@@ -793,6 +873,20 @@
             <div class="modal-actions"><button class="btn" id="confirm-cancel" type="button" data-i18n>Cancel</button><button class="btn btn-danger" id="confirm-ok" type="button"></button></div>
         </div>
     </div>
+    <div class="modal-overlay" id="image-modal" role="dialog" aria-modal="true" aria-labelledby="image-title">
+        <div class="modal modal-small">
+            <h3 id="image-title"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span data-i18n>Save an image</span></h3>
+            <label class="check"><input type="checkbox" id="image-legend" checked><span data-i18n>Include the legend</span></label>
+            <label class="check"><input type="checkbox" id="image-transparent"><span data-i18n>Transparent background</span></label>
+            <label class="field-label" for="image-size" data-i18n>Size</label>
+            <select class="select" id="image-size">
+                <option value="1" data-i18n>Window size</option>
+                <option value="2" data-i18n>Twice the window size</option>
+                <option value="4" data-i18n>Four times the window size</option>
+            </select>
+            <div class="modal-actions"><button class="btn" id="image-cancel" type="button" data-i18n>Cancel</button><button class="btn btn-primary" id="image-save" type="button" data-i18n>Save image</button></div>
+        </div>
+    </div>
     <input type="file" id="open-structure-input" accept=".pdb,.ent,.cif,.mmcif" multiple hidden>
     <input type="file" id="open-session-input" accept=".molj,.molx,.json" hidden>
 
@@ -803,5 +897,9 @@
     <script src="/esmfold_session.js"></script>
     <script src="/esmfold_color.js"></script>
     <script src="/esmfold_residue.js"></script>
+    <script src="/esmfold_sequence.js"></script>
+    <script src="/esmfold_tools.js"></script>
+    <script src="/esmfold_image.js"></script>
+    <script src="/esmfold_jobs.js"></script>
 </body>
 </html>

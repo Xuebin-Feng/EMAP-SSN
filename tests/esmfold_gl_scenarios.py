@@ -30,7 +30,10 @@ from pathlib import Path
 import numpy
 
 GL_FLAGS = "--ignore-gpu-blocklist --disable-gpu-compositing"
-os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = GL_FLAGS
+# Only the child process asks for the GPU: tests/test_esmfold_shell_webgl.py imports this file in the test
+# process, and the pages of every other test there must stay without WebGL (as in a clean checkout).
+if __name__ == "__main__":
+    os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = GL_FLAGS
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 ROOT = Path(__file__).resolve().parents[1]
 for folder in (ROOT / "src", ROOT):
@@ -67,11 +70,16 @@ window.canvasPixels = async function (spots) {
     for (let i = 0; i < all.length; i += 4) if (hex(all.slice(i, i + 3)) !== corner) other++;
     return {corner, drawn: other / (all.length / 4), width: image.width, height: image.height};
 };
-// The scene as it is drawn (from the camera's reset position, as a picture) and as it is kept: what Mol*'s focus has put in the tree.
+// The scene as it is drawn (from the camera's reset position, as a picture the size of the canvas on the page, whatever its
+// device pixel ratio) and as it is kept: what Mol*'s focus has put in the tree.
 window.sceneNow = async function () {
     plugin.managers.camera.reset();
     await new Promise(resolve => setTimeout(resolve, 1500));
-    return {picture: await plugin.helpers.viewportScreenshot.getImageDataUri(), nodes: focusNodes().length,
+    const helper = plugin.helpers.viewportScreenshot, kept = helper.behaviors.values.value, canvas = document.querySelector('#viewer canvas');
+    helper.behaviors.values.next({...kept, resolution: {name: 'custom', params: {width: canvas.clientWidth, height: canvas.clientHeight}}});
+    let picture;
+    try { picture = await helper.getImageDataUri(); } finally { helper.behaviors.values.next(kept); }
+    return {picture, nodes: focusNodes().length,
             focus: !!plugin.managers.structure.focus.current, cells: plugin.state.data.cells.size,
             marked: plugin.managers.structure.selection.stats.elementCount};
 };
@@ -145,6 +153,16 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         pixels = numpy.frombuffer(image.constBits(), dtype=numpy.uint8).reshape(image.height(), image.bytesPerLine() // 4, 4)
         return state, pixels[:, :image.width(), :3].astype(int)
 
+    def saved_image(self, **options):
+        """The picture "Save an image" makes with `options` (legend, transparent, scale), as an array of RGBA pixels."""
+        uri = self.script("""
+            const blob = await buildImage(%s);
+            return await new Promise(resolve => { const reader = new FileReader(); reader.onload = () => resolve(reader.result); reader.readAsDataURL(blob); });
+            """ % json.dumps({"legend": False, "transparent": False, "scale": 1, **options}))
+        image = QImage.fromData(base64.b64decode(uri.split(",", 1)[1])).convertToFormat(QImage.Format.Format_RGBA8888)
+        pixels = numpy.frombuffer(image.constBits(), dtype=numpy.uint8).reshape(image.height(), image.bytesPerLine() // 4, 4)
+        return pixels[:, :image.width(), :].astype(int)
+
     @staticmethod
     def difference(a, b):
         """(pixels that are not the background in one picture, pixels that differ much between the two pictures)."""
@@ -178,6 +196,23 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         FACTS["errors"] = self.console_errors()
         FACTS["viewEmpty"] = self.script("return document.body.dataset.view")
         self.picture("empty-light")
+        # The states of a Viewer with no window and of a run in progress, as the Viewer's events make them.
+        self.broadcast({"type": "viewer_info", "hidden": True})
+        self.wait(300)
+        self.picture("no-window-light")
+        self.broadcast({"type": "viewer_info", "hidden": False})
+        self.broadcast({"type": "esmfold_job", "event": "started", "total": 3, "names": ["node_a", "node_b", "node_c"]})
+        self.broadcast({"type": "esmfold_job", "event": "progress", "index": 2, "total": 3, "name": "UniRef50_Q31000"})
+        self.wait(500)
+        FACTS["foldingView"] = self.script("return document.body.dataset.view")
+        self.picture("folding-light")
+        self.broadcast({"type": "esmfold_job", "event": "structure_failed", "name": "UniRef50_X31274", "reason": "CUDA ran out of memory."})
+        self.broadcast({"type": "esmfold_job", "event": "finished", "succeeded": 1, "total": 3, "failed": True})
+        self.wait(500)
+        self.picture("failed-light")
+        FACTS["failureShown"] = self.script("return document.querySelectorAll('#struct-list .srow.failed').length")
+        self.script("document.querySelector('#struct-list .srow.failed button').click(); return 1")
+        self.wait(300)
         self.push("11.pdb")
         self.push("22.pdb")
         self.wait(800)
@@ -213,6 +248,23 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         self.wait(400)
         FACTS["layerLegend"] = self.script("return card().compact")
         self.picture("color-layer-light")
+        # Save an image: the picture as the window shows it, with the legend drawn in or left out, bigger, and see-through.
+        plain = self.saved_image()
+        with_legend = self.saved_image(legend=True)
+        double = self.saved_image(legend=True, scale=2)
+        see_through = self.saved_image(transparent=True)
+        height, width = plain.shape[:2]
+        corner = numpy.abs(plain[:, :, :3] - with_legend[:, :, :3]).sum(axis=2) > 90
+        where = numpy.zeros(corner.shape, dtype=bool)
+        where[int(0.7 * height):, :int(0.4 * width)] = True
+        FACTS["image"] = {
+            "size": [width, height], "doubleSize": [double.shape[1], double.shape[0]],
+            "legendPixels": int((corner & where).sum()), "elsewherePixels": int((corner & ~where).sum()),
+            "alpha": [int(plain[2, 2, 3]), int(with_legend[2, 2, 3]), int(see_through[2, 2, 3])],
+        }
+        if self.folder:
+            QImage(with_legend.astype(numpy.uint8).tobytes(), width, height, width * 4, QImage.Format.Format_RGBA8888).save(
+                str(Path(self.folder) / "saved-image.png"))
         # A real pointer over the real canvas: hover shows the tip, a click pins, Escape lets go.
         widget = self.view.focusProxy() or self.view
         spot = QPoint(*[round(value) for value in self.script("return spotOf(0, 6)")])

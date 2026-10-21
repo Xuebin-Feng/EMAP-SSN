@@ -108,6 +108,20 @@ class ShellWebglTests(unittest.TestCase):
         self.assertGreaterEqual(legend["left"], 0)
         self.assertLessEqual(legend["right"], legend["stageWidth"] / 2 + 100)
 
+    def test_save_an_image_draws_the_legend_into_the_picture_at_the_size_asked(self):
+        image = self.found["image"]
+        self.assertEqual(image["doubleSize"], [2 * image["size"][0], 2 * image["size"][1]])
+        # The legend (its box, title, bar and ends) is in the bottom left corner and nowhere else; the rest of
+        # the picture is the same as without it, up to the renderer's own noise between two pictures.
+        self.assertGreater(image["legendPixels"], 300)
+        self.assertLess(image["elsewherePixels"], 4 * self.found["noise"][1] + 150)
+        # An opaque picture, and with the background off one that is see-through.
+        self.assertEqual(image["alpha"], [255, 255, 0])
+
+    def test_a_run_with_no_structure_yet_shows_the_progress_tile_over_a_real_canvas(self):
+        self.assertEqual(self.found["foldingView"], "folding")
+        self.assertEqual(self.found["failureShown"], 1)
+
     def test_the_legend_on_the_canvas_names_the_layer_with_its_range(self):
         self.assertEqual(self.found["layerLegend"], {"shown": "1", "title": "Information Content (%)", "ends": ["0 %", "100 %"]})
 
