@@ -420,8 +420,24 @@ still change before version 1.0.0.
     the residue, and the Residue card then lists it for every structure at once, matched
     through the same sequence alignment as the superposition, with its pLDDT, layer value
     and the Cα–Cα distance after alignment. Escape clears the pin.
+  - **Sequence strip:** under the canvas, in blocks of ten and coloured like the 3D view,
+    with a structure and chain choice. Hovering a residue fills the Residue card and a
+    click pins it. In the strip or on the canvas, the arrow keys step to the next or
+    previous residue, F goes to the pin and R resets the view.
+  - **Tools:** Measure (two clicks give a Cα–Cα distance), Labels (a click names a
+    residue) and Clear. Escape leaves the tool first, then lets go of the pin.
+  - **Save an image:** with the legend drawn into the picture, an optional transparent
+    background, and 1×, 2× or 4× the canvas size.
+  - **Folding in progress:** while `esmfold` runs, a progress card and a waiting row show
+    which structure is being folded. A structure that fails gets a row with the reason
+    and, when the run wrote one, its log path to copy; Dismiss removes it. A structure
+    or file that cannot be loaded is reported as failed: before, it was reported as
+    loaded although nothing appeared.
+  - **A Viewer with no window** (MCP's hidden mode) shows a "No window" badge, and the
+    page says that whatever drives that Viewer runs `esmfold`.
   - **Narrow windows:** the side panel becomes a drawer at 1040 px wide or less, and at
-    700 px or less a strip under the canvas with Structures, Color and Residue tabs.
+    700 px or less a strip under the canvas with Structures, Color and Residue tabs. The
+    sequence strip is hidden there.
   - **Language:** the page follows the program's language; in 0.4.0 it stayed English.
     Mol*'s own panels still do.
   - Sessions saved before still load.
