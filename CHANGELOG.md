@@ -352,12 +352,27 @@ still change before version 1.0.0.
     mode.
   - **Structures card:** each structure with its colour, "Pivot" or its RMSD to the pivot,
     and its residue count, with buttons to show or hide it, zoom to it and remove it. A
-    removal can be undone from the message that follows.
+    removal can be undone from the message that follows. A row opens to its details:
+    - its representation (Cartoon, Ball and stick, Spacefill, Surface or Backbone), which
+      keeps its colouring, and its opacity;
+    - its mean pLDDT, and the structure it is aligned to with the RMSD, the Cα pairs used
+      and the sequence identity. These are measured on the pose on screen, so they stay
+      right after a session is restored or a structure is moved in Mol*'s Superposition
+      panel;
+    - Make pivot, which aligns the others to this one; Re-align; and Download PDB.
+  - **Session menu:** the session saves itself after every change, and "Save now" saves at
+    once. "Download session file (.molj)" saves it in Mol*'s own format, which "Open
+    session file..." reads back, as does the Advanced view. "Open structure file..." adds a
+    .pdb, .ent, .cif or .mmcif file, coloured by pLDDT and aligned like a folded one; a
+    file dropped on the view does the same. "Clear scene..." asks first. Opening and
+    clearing can be undone like a removal.
+  - **Fixed along the way:** removing a structure left its downloaded and parsed data in
+    the saved session, and the session could not be saved on a computer without WebGL.
   - **Canvas:** Reset view, Full screen, and Advanced, which opens Mol*'s own panels on the
     same scene and session (English only). Esc or "Back to simple view" returns.
-  - **States:** the page says what to do when there are no structures yet, and says so when
-    WebGL is missing, while a saved session is restored and when the connection to the
-    Viewer is lost.
+  - **States:** the page says what to do when there are no structures yet, with a button to
+    open a structure file, and says so when WebGL is missing, while a saved session is
+    restored and when the connection to the Viewer is lost.
   - **Narrow windows:** the side panel becomes a drawer at 1040 px wide or less, and a strip
     under the canvas at 700 px or less.
   - **Language:** the page follows the program's language; in 0.4.0 it stayed English.
