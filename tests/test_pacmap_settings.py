@@ -572,6 +572,39 @@ class RealGenerationTests(unittest.TestCase):
                 settings = resolve_cache_settings(result.cache_path, allow_3d=True)
                 self.assertEqual((settings["LAYOUT_METHOD"], settings["PACMAP_NEIGHBORS"]), ("pacmap", 4))
 
+    def test_a_subset_of_the_nodes_takes_its_mid_near_partners_from_the_stored_scores(self):
+        # The FASTA keeps 45 of the 60 network nodes. The layout numbers them 0..44 while the file stores
+        # 0..59 (and pairs with the 15 others, which a layout never uses), so the lookup maps one to the other.
+        kept = [index for index in range(60) if index % 4 != 0]
+        records = (self.root / "set.fasta").read_text().split(">")[1:]
+        (self.root / "set.fasta").write_text("".join(">" + records[index] for index in kept))
+        result, calls = self.generate(2)
+        (args, found), = calls
+        source, index_map, node_count, ids, neighbors, seed = args
+        self.assertEqual((node_count, neighbors), (45, 4))
+        self.assertEqual(len(result.full_headers), 45)
+        self.assertEqual(ids.tolist(), list(range(45)))
+        np.testing.assert_array_equal(index_map[kept], np.arange(45))
+        self.assertEqual(found.shape, (45 * 2, 2))
+        self.assertTrue(0 <= found.min() and found.max() < 45)
+        # Brute force from the file: the second best of each slot's six sampled nodes by stored score.
+        with h5py.File(self.root / "network.h5") as network:
+            first, second = network["i"][:].astype(int), network["j"][:].astype(int)
+            scores = (network["g_score"][:] / network["g_len"][:]).astype(np.float32)
+        stored = {}
+        for a, b, score in zip(first, second, scores):
+            stored[(min(a, b), max(a, b))] = score
+        from utilities import PaCMAP_Pairs
+        candidates = PaCMAP_Pairs.mid_near_candidates(45, 4, seed)
+        expected = []
+        for node in range(45):
+            for slot in range(2):
+                sampled = candidates[node, slot]
+                values = np.array([stored[tuple(sorted((kept[node], kept[other])))] for other in sampled])
+                expected.append(sampled[np.argsort(-values, kind="stable")[1]])
+        np.testing.assert_array_equal(found[:, 1], expected)
+        np.testing.assert_array_equal(found[:, 0], np.repeat(np.arange(45), 2))
+
     def test_the_same_seed_gives_the_same_cache_positions_and_another_does_not(self):
         first, _ = self.generate(2, LAYOUT_SEED=7)
         shutil_root = self.root / "layouts"

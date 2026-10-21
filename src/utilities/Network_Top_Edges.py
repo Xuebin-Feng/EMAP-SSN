@@ -4,9 +4,9 @@
 
 """Each node's strongest edges, found while the network's pairs are streamed.
 
-A UMAP layout uses only the ``UMAP_NEIGHBORS`` strongest edges of every node, as a
-source and as a target. A network can hold close to a billion pairs, so nothing here
-keeps a column of the file: the pairs are read and scored a slice at a time
+A UMAP or PaCMAP layout uses only the ``UMAP_NEIGHBORS`` or ``PACMAP_NEIGHBORS`` strongest
+edges of every node, as a source and as a target. A network can hold close to a billion
+pairs, so nothing here keeps a column of the file: the pairs are read and scored a slice at a time
 (utilities.Network_Score_Statistics.ScoreSource), and each worker thread keeps, for
 every node and direction, a small heap of its best edges so far. The memory used is
 a few slices per worker plus ``node_count * keep_limit`` entries per buffer set, and
