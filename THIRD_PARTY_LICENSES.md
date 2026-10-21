@@ -22,21 +22,25 @@ body is otherwise unchanged.
 
 | Component | Version | License | Location | License text |
 |---|---|---|---|---|
-| [Mol*](https://github.com/molstar/molstar) | 5.10.1 | MIT; its bundle compiles in RxJS (Apache-2.0) and 77 MIT, ISC and 0BSD packages | `src/resources/esmfold/molstar.js`, `molstar.css` | [`LICENSE.molstar`](src/resources/esmfold/LICENSE.molstar); bundled packages: [`NOTICES.molstar-bundle`](src/resources/esmfold/NOTICES.molstar-bundle) |
+| [Mol*](https://github.com/molstar/molstar) | 5.10.1 | MIT; its bundle compiles in RxJS (Apache-2.0) and 77 MIT, ISC and 0BSD packages | `src/resources/esmfold/molstar.js`, `molstar.css`, `molstar-dark.css` | [`LICENSE.molstar`](src/resources/esmfold/LICENSE.molstar); bundled packages: [`NOTICES.molstar-bundle`](src/resources/esmfold/NOTICES.molstar-bundle) |
 | [Tabulator](https://github.com/olifolkerd/tabulator) | 6.2.1 | MIT | `src/resources/meta/tabulator.min.js`, `tabulator.min.css` | [`LICENSE.tabulator`](src/resources/meta/LICENSE.tabulator) |
 | [marked](https://github.com/markedjs/marked) | 18.0.9 | MIT | `src/resources/agent/marked.umd.js` | [`LICENSE.marked`](src/resources/agent/LICENSE.marked) |
 | [KaTeX](https://github.com/KaTeX/KaTeX) | 0.16.8 | MIT; the fonts SIL OFL 1.1 (also MIT per the KaTeX repository) | `src/resources/katex.min.css`, `katex.min.js`, `katex-auto-render.min.js`, `fonts/KaTeX_*.woff2` | [`LICENSE.katex`](src/resources/LICENSE.katex); fonts: [`LICENSE.OFL`](src/resources/fonts/LICENSE.OFL) |
 | [Noto fonts](https://github.com/notofonts/notofonts.github.io) | Monthly 2026.05.01; Google Fonts web builds | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSans/` and `NotoSansMono/`, `src/resources/fonts/Noto*.woff2`, and `docs/fonts/Noto*.woff2` | [`src`](src/resources/fonts/LICENSE.Noto), [`docs`](docs/fonts/LICENSE.Noto) |
 | [Noto Sans SC](https://github.com/google/fonts/tree/main/ofl/notosanssc) | 2.004-H2 (Google Fonts), cut down to GB2312 | SIL OFL 1.1 | `src/resources/fonts/desktop/noto/NotoSansSC/`, which the translated documentation pages in `src/resources/languages/zh_CN/docs/` load too (through `language.css`) | [`src`](src/resources/fonts/LICENSE.Noto) |
-| [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (51 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` and `docs/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
+| [Lucide](https://github.com/lucide-icons/lucide) icons | lucide-static 1.47.0 | ISC (icons derived from Feather: MIT) | `src/resources/icons/lucide/*.svg` (58 icons), coloured copies in `src/resources/icons/qss/`, and icon markup inlined in `src/web_ui/*.html` and `docs/*.html` | [`LICENSE`](src/resources/icons/lucide/LICENSE) |
 | [UniProtKB/Swiss-Prot](https://www.uniprot.org/) sequences | Release 2026_03, 952 entries of InterPro IPR001279 | CC BY 4.0 | `src/resources/benchmark/benchmark_sequences.fasta`, `injection_sequences.fasta` | [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/); attribution in [`README.md`](src/resources/benchmark/README.md) |
 
 - Mol*: Copyright (c) 2017 - now, Mol* contributors. Vendored 2026-07-15 from
   the official npm package `molstar@5.10.1`, whose version is embedded in the
   JavaScript bundle. After removing only this project's three-line attribution
-  banner, both files match the official jsDelivr npm artifacts byte-for-byte:
+  banner, the three files match the official jsDelivr npm artifacts
+  byte-for-byte:
   `molstar.js` SHA-256 `5567eb19fa8e7a7b3b161d4b96807c4db244cecd2f3e7c87f99c052b8b5b5b30`;
-  `molstar.css` SHA-256 `5b68ceb6d3642549b4e9b2c071e58e41b98a5350ae269180587b39da86925d55`.
+  `molstar.css` SHA-256 `5b68ceb6d3642549b4e9b2c071e58e41b98a5350ae269180587b39da86925d55`;
+  `molstar-dark.css` (the package's `build/viewer/theme/dark.css`, added
+  2026-10-21 so the Fold View's Advanced view follows the page's dark theme)
+  SHA-256 `9616828308fa7ed02b54103b1923986ad86afe23b96e8761e6628958d278a3b8`.
   - Bundled packages: `molstar.js` compiles in 78 npm packages, which
     [`NOTICES.molstar-bundle`](src/resources/esmfold/NOTICES.molstar-bundle)
     lists with their versions and copyright lines, followed by the text of each
@@ -207,7 +211,7 @@ They, and the other vendored web assets, are served locally as follows:
 |---|---|
 | `marked.umd.js` | the agent plugin's static route `/agent_resource/` (`src/web_ui/agent_backend.py`) |
 | Tabulator (`tabulator.min.css`, `tabulator.min.js`) | the Meta Data plugin's static route `/meta_resource/` (`src/web_ui/meta_backend.py`, used by `meta.html`) |
-| Mol* (`molstar.js`, `molstar.css`) | the Fold View plugin's static route `/esmfold/` (`src/web_ui/esmfold_backend.py`) |
+| Mol* (`molstar.js`, `molstar.css`, `molstar-dark.css`) | the Fold View plugin's static route `/esmfold/` (`src/web_ui/esmfold_backend.py`) |
 | `fonts.css`, `*.woff2` | `Web_Server.py` static route `/fonts/` |
 | KaTeX CSS/JS | `EMAPSSN_Tools.py`, via a `file://` baseUrl on `setHtml()` |
 | Fonts in `docs/list_of_commands.html` and `docs/quickstart.html` | relative path, pages are opened from disk |
@@ -216,7 +220,7 @@ The Fold View's Mol* viewer contacts public servers only when the user asks it
 to download a structure, density map or saved state. Since 2026-10-11 it no
 longer lists Mol*'s public remote states, which Mol* otherwise fetches from
 `webchem.ncbr.muni.cz` every time it loads (`layoutShowRemoteState: false` in
-`src/web_ui/esmfold.html`).
+`src/web_ui/esmfold_shell.js`).
 
 Remaining network use is by design rather than asset loading: model weights are
 downloaded from Hugging Face on first use and cached, the ESM C 6B embedding and
@@ -422,7 +426,8 @@ Re-run this review whenever a dependency is added, a bundled asset is refreshed,
 or a new model backend is introduced. When refreshing a bundled asset, copy the
 upstream `LICENSE` file alongside it, record the version above, and re-apply the
 attribution banner where the project uses one (Mol* and Tabulator). For Mol*,
-re-verify the recorded SHA-256 values with the banner removed, and remake
+re-verify the recorded SHA-256 values (the bundle and both style sheets) with
+the banner removed, and remake
 `NOTICES.molstar-bundle` from the new bundle's source map and Mol*'s
 `package-lock.json` as its header describes. When a ported function changes or
 another is ported, update "Derived code". Regenerate both

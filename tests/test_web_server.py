@@ -73,7 +73,7 @@ class PagePolicyTests(unittest.TestCase):
     def test_bundled_pages_cannot_run_injected_markup(self):
         # The pages' own inline scripts, each allowed by its hash. The first of
         # agent.html's and meta.html's sets the theme in <head>, before the
-        # page is drawn.
+        # page is drawn; esmfold.html has that one only.
         inline_scripts = {'agent.html': 2, 'meta.html': 2, 'esmfold.html': 1}
         for page, count in inline_scripts.items():
             with self.subTest(page=page):
@@ -113,7 +113,10 @@ class BundledPageIconTests(unittest.TestCase):
         re.compile(r'''\bsetIcon\(\w+, (?:[^;]*?\? )?["']([a-z0-9-]+)["'](?: : ["']([a-z0-9-]+)["'])?\)'''),
     )
     # The scripts a page loads that draw its icons too.
-    PAGE_SCRIPTS = {'agent.html': (SRC_DIR / 'resources' / 'agent' / 'attachments.js',)}
+    PAGE_SCRIPTS = {
+        'agent.html': (SRC_DIR / 'resources' / 'agent' / 'attachments.js',),
+        'esmfold.html': tuple(PAGES / name for name in ('esmfold_shell.js', 'esmfold_layers.js')),
+    }
     LUCIDE = SRC_DIR / 'resources' / 'icons' / 'lucide'
     SVG = '{http://www.w3.org/2000/svg}'
 
@@ -125,7 +128,7 @@ class BundledPageIconTests(unittest.TestCase):
         return presentation, [(shape.tag.replace(self.SVG, ''), shape.attrib) for shape in root]
 
     def test_each_icon_is_a_bundled_lucide_icon_in_the_pages_sprite(self):
-        for page in ('agent.html', 'meta.html'):
+        for page in ('agent.html', 'meta.html', 'esmfold.html'):
             with self.subTest(page=page):
                 source = (PAGES / page).read_text(encoding='utf-8')
                 self.assertIn('Icons from Lucide 1.47.0, ISC licence', source)
@@ -402,7 +405,9 @@ class PluginRoutesAndEventClientsTests(unittest.TestCase):
         web_ui_dir = SRC_DIR / "web_ui"
         for filename, client_id in expected_clients.items():
             with self.subTest(filename=filename):
-                source = (web_ui_dir / filename).read_text(encoding="utf-8")
+                # The Fold View page opens its stream in its shell script.
+                names = (filename, "esmfold_shell.js") if client_id == "esmfold" else (filename,)
+                source = "".join((web_ui_dir / name).read_text(encoding="utf-8") for name in names)
                 self.assertIn(f"/api/events?client={client_id}", source)
 
 

@@ -16,884 +16,616 @@
   limitations under the License.
 -->
 
-<html>
+<html lang="en">
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ESMFold Mol* Viewer</title>
-    <!-- Load MolStar CSS and JS locally -->
-    <link rel="stylesheet" type="text/css" href="/esmfold/molstar.css" />
+    <title data-i18n>EMAP-SSN Fold View</title>
+    <!-- Mol* and its stylesheets are vendored under src/resources/esmfold (THIRD_PARTY_LICENSES.md section 1).
+         Mol*'s own panels, which Advanced shows, come in its light or its dark skin. -->
+    <link rel="stylesheet" type="text/css" href="/esmfold/molstar.css" id="skin-light" disabled />
+    <link rel="stylesheet" type="text/css" href="/esmfold/molstar-dark.css" id="skin-dark" disabled />
     <!-- The bundled Noto fonts (src/resources/fonts), for the page's own text. -->
     <link rel="stylesheet" type="text/css" href="/fonts/fonts.css" />
+    <!-- t() fills in this page's texts, which the Viewer serves in its language (src/web_ui/Page_Texts.py). -->
+    <script src="/page_text.js"></script>
     <script type="text/javascript" src="/esmfold/molstar.js"></script>
     <style>
-        /* Mol* draws its own (light) interface. The page's own parts take the
-           Studio values (src/desktop/Studio_Theme.py): the window colour, and
-           a status toast drawn as the windows' tooltips are. */
         :root {
+            color-scheme: light;
             --bg-main: #fafafa;
-            --toast-bg: #18181b;
-            --toast-border: #27272a;
-            --toast-text: #fafafa;
-            --toast-shadow: rgba(0, 0, 0, 0.35);
+            --bg-card: #ffffff;
+            --bg-muted: #f4f4f5;
+            --bg-inset: #fafafa;
+            --border-color: #e4e4e7;
+            --field-border: #dcdce0;
+            --field-border-hover: #d4d4d8;
+            --text-primary: #09090b;
+            --text-soft: #3f3f46;
+            --text-secondary: #52525b;
+            --text-subtle: #71717a;
+            --text-disabled: #a1a1aa;
+            --input-bg: #ffffff;
+            --input-text: #09090b;
+            --input-disabled-bg: #fafafa;
+            --primary: #5b5bd6;
+            --primary-hover: #4e4bc5;
+            --primary-pressed: #423bb4;
+            --primary-text: #ffffff;
+            --primary-disabled: #9b9ba0;
+            --primary-disabled-text: #fafafa;
+            --accent: #5b5bd6;
+            --accent-soft: #e9ecfc;
+            --success: #15803d;
+            --success-soft: #f0fdf4;
+            --success-fill: #15803d;
+            --success-fill-text: #ffffff;
+            --warning: #b45309;
+            --warning-soft: #fffbeb;
+            --danger: #dc2626;
+            --danger-soft: #fef2f2;
+            --danger-border: #fecaca;
+            --bg-bubble-user: #f4f4f5;
+            --text-bubble-user: #09090b;
+            --bg-bubble-agent: transparent;
+            --text-bubble-agent: #09090b;
+            --code-bg: #fafafa;
+            --code-border: #e4e4e7;
+            --code-text: #18181b;
+            --code-inline-bg: #f4f4f5;
+            --code-inline-text: #18181b;
+            --switch-off: #d4d4d8;
+            --switch-off-hover: #a1a1aa;
+            --switch-on: #5b5bd6;
+            --switch-on-hover: #4e4bc5;
+            --switch-thumb: #ffffff;
+            --switch-thumb-on: #ffffff;
+            --switch-thumb-shadow: rgba(9, 9, 11, 0.18);
+            --scroll: #d4d4d8;
+            --scroll-hover: #a1a1aa;
+            --shadow-card: 0 1px 3px rgba(9, 9, 11, 0.07), 0 1px 2px rgba(9, 9, 11, 0.04);
+            --shadow-control: 0 1px 2px rgba(9, 9, 11, 0.05);
+            --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
             --radius: 8px;
-            --font-family: 'Noto Sans', 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            --radius-card: 12px;
+            --font-family: 'Noto Sans', 'EMAP-SSN Language', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            --font-mono: 'Noto Sans Mono', 'EMAP-SSN Language', Consolas, Monaco, monospace;
         }
-        body, html {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
+
+        [data-theme="dark"] {
+            color-scheme: dark;
+            --bg-main: #09090b;
+            --bg-card: #18181b;
+            --bg-muted: #27272a;
+            --bg-inset: #111113;
+            --border-color: #27272a;
+            --field-border: #3f3f46;
+            --field-border-hover: #52525b;
+            --text-primary: #fafafa;
+            --text-soft: #d4d4d8;
+            --text-secondary: #a1a1aa;
+            --text-subtle: #8e8e96;
+            --text-disabled: #52525b;
+            --input-bg: #09090b;
+            --input-text: #fafafa;
+            --input-disabled-bg: #18181b;
+            --primary: #8289ff;
+            --primary-hover: #98a1ff;
+            --primary-pressed: #aeb7ff;
+            --primary-text: #18181b;
+            --primary-disabled: #3f3f46;
+            --primary-disabled-text: #a1a1aa;
+            --accent: #8289ff;
+            --accent-soft: #24264d;
+            --success: #4ade80;
+            --success-soft: rgba(34, 197, 94, 0.12);
+            --success-fill: #4ade80;
+            --success-fill-text: #052e16;
+            --warning: #fbbf24;
+            --warning-soft: rgba(245, 158, 11, 0.14);
+            --danger: #f87171;
+            --danger-soft: rgba(239, 68, 68, 0.12);
+            --danger-border: rgba(239, 68, 68, 0.35);
+            --bg-bubble-user: #27272a;
+            --text-bubble-user: #fafafa;
+            --bg-bubble-agent: transparent;
+            --text-bubble-agent: #fafafa;
+            --code-bg: #111113;
+            --code-border: #27272a;
+            --code-text: #e4e4e7;
+            --code-inline-bg: #27272a;
+            --code-inline-text: #fafafa;
+            --switch-off: #3f3f46;
+            --switch-off-hover: #52525b;
+            --switch-on: #8289ff;
+            --switch-on-hover: #98a1ff;
+            --switch-thumb: #fafafa;
+            --switch-thumb-on: #fafafa;
+            --switch-thumb-shadow: rgba(0, 0, 0, 0.4);
+            --scroll: #3f3f46;
+            --scroll-hover: #52525b;
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.4);
+            --shadow-control: none;
+            --select-chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+        }
+
+        /* The Studio look of the desktop windows, as the Agent and Meta Data pages draw it (their tokens
+           above, light and dark), around Mol*'s canvas. Mol* draws no interface here: the page's own
+           controls are below, and Mol*'s own panels come back inside the stage when Advanced is on. The
+           only tokens this page adds are the canvas's, the tooltip's and the focus ring's. */
+        :root {
+            --overlay: rgba(9, 9, 11, 0.45);
+            --shadow-dialog: 0 16px 40px -8px rgba(9, 9, 11, 0.2), 0 4px 12px rgba(9, 9, 11, 0.06);
+            --canvas-bg: #fafafa;
+            --tip-bg: #18181b;
+            --tip-border: #27272a;
+            --tip-text: #fafafa;
+            --tip-muted: #a1a1aa;
+            --tip-shadow: rgba(0, 0, 0, 0.35);
+            --focus-ring: 0 0 0 1px var(--accent);
+        }
+        [data-theme="dark"] {
+            --overlay: rgba(0, 0, 0, 0.6);
+            --shadow-dialog: 0 16px 40px -8px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
+            --canvas-bg: #111113;
+            --tip-bg: #27272a;
+            --tip-border: #3f3f46;
+            --tip-shadow: rgba(0, 0, 0, 0.5);
+        }
+
+        * { box-sizing: border-box; }
+        html, body { height: 100%; }
+        body {
+            margin: 0; padding: 0;
+            font-family: var(--font-family);
+            font-size: 13px;
             background-color: var(--bg-main);
-            font-family: var(--font-family);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
-        #viewer {
-            width: 100%;
-            height: 100%;
-        }
-        #status-bar {
-            position: absolute;
-            bottom: 12px;
-            left: 12px;
-            max-width: calc(100% - 24px);
-            box-sizing: border-box;
-            background: var(--toast-bg);
-            color: var(--toast-text);
-            border: 1px solid var(--toast-border);
-            padding: 6px 10px;
-            border-radius: var(--radius);
-            box-shadow: 0 4px 12px var(--toast-shadow);
-            font-family: var(--font-family);
-            font-size: 12px;
-            line-height: 1.4;
-            z-index: 1000;
+        b, strong { font-weight: 600; }
+        button, select, input { font-family: inherit; }
+
+        /* ── Icons (the sprite's symbols, drawn in the text color) ─── */
+        .icon-sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+        .icon {
+            width: 16px; height: 16px;
+            flex-shrink: 0;
+            fill: none; stroke: currentColor; stroke-width: 2;
+            stroke-linecap: round; stroke-linejoin: round;
             pointer-events: none;
-            display: none;
         }
-        /* The colour switch and legend of the per-residue layers: one card in
-           the toast's colours, a row for each loaded structure. */
-        #layer-panel {
-            position: absolute;
-            top: 12px;
-            left: 12px;
-            width: 232px;
-            max-height: calc(100% - 24px);
-            overflow-y: auto;
-            box-sizing: border-box;
-            background: var(--toast-bg);
-            color: var(--toast-text);
-            border: 1px solid var(--toast-border);
-            padding: 8px 10px;
-            border-radius: var(--radius);
-            box-shadow: 0 4px 12px var(--toast-shadow);
-            font-family: var(--font-family);
+        .icon-spin { animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) {
+            .icon-spin { animation: none; }
+            * { transition: none !important; }
+        }
+
+        .sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+        .skip-link { position: absolute; left: 8px; top: -40px; z-index: 100; background: var(--bg-card); color: var(--text-primary); border: 1px solid var(--accent); border-radius: var(--radius); padding: 6px 10px; text-decoration: none; }
+        .skip-link:focus { top: 8px; }
+
+        /* The page's width decides its layout, by container queries, as the Agent page's composer does. */
+        .app { container-type: inline-size; container-name: app; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+
+        /* ── Header ──────────────────────────────────────── */
+        header {
+            background-color: var(--bg-card);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            height: 52px;
+            flex-shrink: 0;
+            gap: 12px;
+        }
+        header h1 {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            color: var(--text-primary);
+            white-space: nowrap;
+            min-width: 0;
+        }
+        header h1 .icon { width: 18px; height: 18px; color: var(--text-secondary); }
+        header h1 span { overflow: hidden; text-overflow: ellipsis; }
+        .header-actions { display: flex; align-items: center; gap: 10px; }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            height: 24px;
+            padding: 0 10px;
+            border-radius: 9999px;
+            background-color: var(--bg-muted);
+            color: var(--text-secondary);
             font-size: 12px;
-            line-height: 1.4;
-            z-index: 900;
+            white-space: nowrap;
+        }
+        .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+        .status-badge[data-state="connected"] { background-color: var(--success-soft); color: var(--success); }
+        .status-badge[data-state="reconnecting"] { background-color: var(--warning-soft); color: var(--warning); }
+
+        /* Buttons: outline unless a variant says otherwise */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            height: 30px;
+            padding: 0 12px;
+            background-color: var(--bg-card);
+            border: 1px solid var(--field-border);
+            border-radius: var(--radius);
+            font-size: 13px;
+            font-weight: 400;
+            color: var(--text-primary);
+            cursor: pointer;
+            outline: none;
+            transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+            box-shadow: var(--shadow-control);
+            white-space: nowrap;
+        }
+        .btn:hover { background-color: var(--bg-muted); }
+        .btn:active { background-color: var(--border-color); }
+        .btn:focus-visible { border-color: var(--accent); box-shadow: var(--focus-ring); position: relative; z-index: 1; }
+        .btn:disabled { cursor: not-allowed; background-color: var(--input-disabled-bg); border-color: var(--border-color); color: var(--text-disabled); box-shadow: none; }
+        .btn-primary { background-color: var(--primary); border-color: var(--primary); color: var(--primary-text); font-weight: 600; }
+        .btn-primary:hover { background-color: var(--primary-hover); border-color: var(--primary-hover); }
+        .btn-ghost { background-color: transparent; border-color: transparent; color: var(--text-secondary); box-shadow: none; }
+        .btn-ghost:hover { background-color: var(--bg-muted); color: var(--text-primary); }
+        .btn-icon { width: 30px; padding: 0; }
+        .btn-sm { height: 26px; padding: 0 8px; font-size: 12px; }
+        .btn-icon.btn-sm { width: 26px; padding: 0; }
+        .btn-danger-ghost:hover { background: var(--danger-soft); color: var(--danger); }
+        .btn[aria-pressed="true"] { background-color: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+        .btn-ghost.btn-icon[aria-pressed="true"] { background-color: transparent; border-color: transparent; color: var(--text-secondary); }
+
+        /* The connection to the Viewer is lost */
+        .banner { display: none; align-items: center; gap: 8px; padding: 8px 20px; font-size: 12.5px; background: var(--warning-soft); color: var(--warning); border-bottom: 1px solid var(--border-color); flex-shrink: 0; }
+        .banner .icon { width: 15px; height: 15px; }
+        body[data-offline="1"] .banner { display: flex; }
+
+        /* ── Workspace ───────────────────────────────────── */
+        .workspace { flex: 1; display: flex; min-height: 0; position: relative; overflow: hidden; }
+        .stage-container { flex: 1; min-width: 0; display: flex; padding: 14px; }
+        .stage-card {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-card);
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+        }
+        .pane-header {
+            padding: 9px 12px 9px 16px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .pane-title { font-size: 14px; font-weight: 600; white-space: nowrap; }
+        .header-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        #panel-toggle { display: none; }
+
+        /* The stage holds Mol*'s canvas (#viewer) and what the page draws over it. */
+        .stage { position: relative; flex: 1; min-height: 240px; background: var(--canvas-bg); overflow: hidden; }
+        #viewer { position: absolute; inset: 0; }
+        /* Mol* keeps a few things of its own in the viewport: its button for illumination and VR, its logo, and
+           the hover label (which the page reads and shows in its own way). Advanced shows them again. */
+        body:not([data-adv="1"]) .msp-viewport-controls,
+        body:not([data-adv="1"]) .msp-viewport-top-left-controls,
+        body:not([data-adv="1"]) .msp-logo,
+        body:not([data-adv="1"]) .msp-highlight-toast-wrapper { display: none; }
+
+        /* Toolbar over the canvas */
+        .view-toolbar {
+            position: absolute; top: 10px; right: 10px; z-index: 5;
+            display: flex; gap: 2px; padding: 3px;
+            background: color-mix(in srgb, var(--bg-card) 94%, transparent);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            box-shadow: var(--shadow-card);
+        }
+        .view-toolbar .sep { width: 1px; background: var(--border-color); margin: 4px 3px; }
+        .view-toolbar .btn { border-color: transparent; box-shadow: none; background: transparent; color: var(--text-secondary); }
+        .view-toolbar .btn:hover { background: var(--bg-muted); color: var(--text-primary); }
+        .view-toolbar .btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); }
+        .view-toolbar .btn:focus-visible { border-color: var(--accent); }
+        body:not([data-view="ready"]) .view-toolbar .seg-view { display: none; }
+        body[data-view="empty"] .view-toolbar .sep, body[data-view="restoring"] .view-toolbar .sep,
+        body[data-view="starting"] .view-toolbar .sep, body[data-view="webgl"] .view-toolbar .sep { display: none; }
+
+        /* Advanced: Mol*'s own panels, under a row that says so */
+        .adv-banner {
+            display: none; position: absolute; left: 0; top: 0; right: 0; height: 46px; z-index: 6;
+            align-items: center; gap: 10px; padding: 6px 8px 6px 14px;
+            background: var(--bg-card); border-bottom: 1px solid var(--border-color);
+            font-size: 12.5px; color: var(--text-secondary);
+        }
+        .adv-banner span { flex: 1; }
+        body[data-adv="1"] .adv-banner { display: flex; }
+        body[data-adv="1"] #viewer { top: 46px; }
+        /* !important: the layer card sets its own display from script. */
+        body[data-adv="1"] .view-toolbar, body[data-adv="1"] #layer-panel, body[data-adv="1"] .empty { display: none !important; }
+        @container app (min-width: 1041px) { body[data-adv="1"] .side { display: none; } }
+
+        /* The status line, drawn as the windows' tooltips are */
+        .toast {
+            position: absolute; left: 12px; bottom: 12px; z-index: 7; max-width: calc(100% - 24px);
+            display: none; align-items: center; gap: 8px;
+            background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border);
+            padding: 6px 8px 6px 10px; border-radius: var(--radius);
+            box-shadow: 0 4px 12px var(--tip-shadow);
+            font-size: 12px; line-height: 1.4;
+        }
+        .toast.show { display: flex; }
+        .toast .icon { width: 14px; height: 14px; }
+        .toast.error { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
+        .toast .toast-action { background: none; border: 0; color: #a7b0ff; font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 4px; outline: none; }
+        .toast .toast-action:focus-visible { box-shadow: 0 0 0 1px #a7b0ff; }
+
+        /* What the stage says when there is nothing to draw */
+        .empty { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; padding: 24px; text-align: center; z-index: 3; pointer-events: none; }
+        .empty-card { max-width: 460px; pointer-events: auto; }
+        body[data-view="starting"] .empty[data-for="starting"], body[data-view="restoring"] .empty[data-for="restoring"],
+        body[data-view="empty"] .empty[data-for="empty"], body[data-view="webgl"] .empty[data-for="webgl"] { display: flex; }
+        .empty-icon { width: 44px; height: 44px; border-radius: 12px; background: var(--bg-muted); color: var(--text-secondary); display: grid; place-items: center; margin: 0 auto 14px; }
+        .empty-icon .icon { width: 22px; height: 22px; }
+        .empty-icon.warn { background: var(--warning-soft); color: var(--warning); }
+        .empty h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+        .empty p { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+        .empty .steps { text-align: left; margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
+        .empty .steps li { display: flex; gap: 8px; align-items: baseline; }
+        .empty .steps .n { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-muted); color: var(--text-secondary); font-size: 11px; font-weight: 600; display: inline-grid; place-items: center; }
+        .empty .hint { margin: 0; }
+        code { font-family: var(--font-mono); font-size: 12px; background: var(--code-inline-bg); color: var(--code-inline-text); padding: 2px 6px; border-radius: 6px; }
+
+        /* The colors of a structure's layers: the card the Viewer's listing fills (until it is redrawn) */
+        #layer-panel {
+            position: absolute; top: 12px; left: 12px; z-index: 6;
+            width: 232px; max-height: calc(100% - 24px); overflow-y: auto;
+            background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border);
+            padding: 8px 10px; border-radius: var(--radius);
+            box-shadow: 0 4px 12px var(--tip-shadow);
+            font-size: 12px; line-height: 1.4;
             display: none;
         }
         #layer-panel .layer-title { font-weight: 600; margin-bottom: 4px; }
-        #layer-panel .layer-row + .layer-row { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--toast-border); }
+        #layer-panel .layer-row + .layer-row { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--tip-border); }
         #layer-panel .layer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; opacity: 0.75; }
         #layer-panel select {
-            width: 100%;
-            margin: 2px 0 4px;
-            padding: 3px 4px;
-            box-sizing: border-box;
-            background: var(--toast-border);
-            color: var(--toast-text);
-            border: 1px solid var(--toast-border);
-            border-radius: 4px;
-            font: inherit;
+            width: 100%; margin: 2px 0 4px; padding: 3px 4px;
+            background: var(--tip-border); color: var(--tip-text);
+            border: 1px solid var(--tip-border); border-radius: 4px; font: inherit;
         }
         #layer-panel .layer-bar { height: 8px; border-radius: 4px; }
         #layer-panel .layer-ends { display: flex; justify-content: space-between; opacity: 0.75; font-size: 11px; }
         #layer-panel .layer-key { display: flex; align-items: center; gap: 6px; font-size: 11px; opacity: 0.85; }
         #layer-panel .layer-swatch { width: 10px; height: 10px; border-radius: 2px; flex: none; }
         #layer-panel .layer-note { margin-top: 4px; opacity: 0.6; font-size: 11px; }
+
+        /* ── Side panel ──────────────────────────────────── */
+        .side { width: 340px; flex-shrink: 0; background: var(--bg-card); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; min-height: 0; }
+        .side-grip { display: none; }
+        .side-scroll { flex: 1; overflow-y: auto; padding: 10px 10px 4px; }
+        .sec { border: 1px solid var(--border-color); border-radius: var(--radius-card); margin-bottom: 10px; overflow: hidden; background: var(--bg-card); }
+        .sec-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; min-height: 40px; }
+        .sec-title { flex: 1; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 0; min-width: 0; }
+        .sec-title .icon { color: var(--text-secondary); }
+        .sec-title .count { font-weight: 400; color: var(--text-subtle); }
+        .sec-body { padding: 10px 12px 12px; border-top: 1px solid var(--border-color); background: var(--bg-inset); }
+        .sec-body.flush { padding: 4px 6px; }
+        .hint { font-size: 12px; color: var(--text-subtle); line-height: 1.5; padding: 4px 4px 6px; }
+
+        .srow + .srow { border-top: 1px solid var(--border-color); }
+        .srow-main { display: flex; align-items: center; gap: 4px; padding: 6px 2px 6px 4px; }
+        .srow-swatch { width: 10px; height: 26px; border-radius: 4px; flex: none; margin: 0 4px 0 2px; background: var(--sw, var(--border-color)); }
+        .srow-text { flex: 1; min-width: 0; line-height: 1.3; padding: 2px 0; }
+        .srow-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .srow-sub { font-size: 11.5px; color: var(--text-subtle); display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; margin-top: 1px; }
+        .srow.hidden-structure .srow-text { opacity: 0.55; }
+        .chip { display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 9999px; background: var(--bg-muted); color: var(--text-secondary); font-size: 11px; font-weight: 400; white-space: nowrap; flex: none; }
+        .chip.pivot { background: var(--accent-soft); color: var(--accent); }
+        .chip.ok { background: var(--success-soft); color: var(--success); }
+
+        /* Dialog, as the Metadata page's help */
+        .modal-overlay { position: fixed; inset: 0; background: var(--overlay); display: none; align-items: center; justify-content: center; z-index: 60; padding: 16px; }
+        .modal-overlay.open { display: flex; }
+        .modal { background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius-card); box-shadow: var(--shadow-dialog); width: min(560px, 100%); max-height: 86vh; overflow: auto; padding: 18px 20px 16px; }
+        .modal h3 { margin: 0 0 10px; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+        .modal h4 { margin: 14px 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-subtle); }
+        .modal p { margin: 0 0 8px; color: var(--text-secondary); line-height: 1.55; }
+        .modal table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+        .modal td { padding: 4px 0; border-top: 1px solid var(--border-color); color: var(--text-secondary); }
+        .modal td:first-child { white-space: nowrap; padding-right: 14px; color: var(--text-primary); }
+        kbd { font-family: var(--font-mono); font-size: 11px; background: var(--bg-muted); border: 1px solid var(--field-border); border-bottom-width: 2px; border-radius: 5px; padding: 0 5px; }
+        .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+
+        /* Scrollbars */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 4px; border: 2px solid transparent; background-clip: content-box; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--scroll-hover); background-clip: content-box; }
+
+        /* ── A narrow window: the panel is a drawer, and on a phone a strip under the canvas ── */
+        @container app (max-width: 1040px) {
+            .side { position: absolute; right: 0; top: 0; bottom: 0; z-index: 20; width: min(340px, 92%); box-shadow: var(--shadow-dialog); transform: translateX(105%); transition: transform 0.2s ease; }
+            body[data-panel="1"] .side { transform: none; }
+            #panel-toggle { display: inline-flex; }
+            .stage-container { padding: 10px; }
+        }
+        @container app (max-width: 700px) {
+            header { padding: 0 12px; gap: 6px; }
+            header .btn-label { display: none; }
+            header h1 { font-size: 14px; gap: 6px; }
+            .header-actions { gap: 2px; }
+            .stage-container { padding: 8px 8px 0; }
+            .pane-header { display: none; }
+            .view-toolbar { top: 8px; right: 8px; }
+            .workspace { flex-direction: column; }
+            .side { position: relative; inset: auto; z-index: 1; width: 100%; height: 46%; flex: none; border-left: 0; border-top: 1px solid var(--border-color); border-radius: 16px 16px 0 0; transform: none; box-shadow: 0 -6px 18px rgba(9, 9, 11, 0.06); transition: none; }
+            body[data-panel="0"] .side { height: 38px; }
+            body[data-panel="0"] .side .side-scroll { display: none; }
+            .side-grip { display: flex; height: 38px; flex: none; align-items: center; justify-content: center; border: 0; background: none; cursor: pointer; color: var(--text-subtle); gap: 8px; font-size: 12px; outline: none; border-radius: 16px 16px 0 0; position: relative; }
+            .side-grip:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); }
+            .side-grip::before { content: ""; position: absolute; top: 7px; width: 36px; height: 4px; border-radius: 2px; background: var(--field-border); }
+            .toast { bottom: 8px; left: 8px; }
+            .empty { padding: 16px; }
+            .empty h2 { font-size: 14px; }
+            #panel-toggle { display: none; }
+        }
     </style>
-</head>
-<body>
-    <div id="viewer"></div>
-    <div id="status-bar">Initializing Mol*...</div>
-    <div id="layer-panel"></div>
-
+    <!-- The theme chosen on the Agent, Metadata or this page (each keeps it as ssn_theme), else the
+         system's, set before the page is drawn so that a dark page never shows light first. -->
     <script>
-        let plugin;
-        let viewerInstance;
-        let isRestoring = true;
-        let pendingStructures = [];
-        const statusBar = document.getElementById('status-bar');
-
-        function showStatus(text, duration = 3000) {
-            statusBar.textContent = text;
-            statusBar.style.display = 'block';
-            if (duration > 0) {
-                setTimeout(() => {
-                    statusBar.style.display = 'none';
-                }, duration);
+        (() => {
+            let theme = null;
+            try { theme = localStorage.getItem("ssn_theme"); } catch (error) {}
+            if (theme !== "dark" && theme !== "light") {
+                theme = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
             }
-        }
-
-        // Initialize Mol* viewer. Without layoutShowRemoteState: false, Mol*
-        // lists the public states at webchem.ncbr.muni.cz on every load.
-        molstar.Viewer.create('viewer', {
-            layoutIsExpanded: false,
-            layoutShowControls: true,
-            layoutShowRemoteState: false,
-            layoutShowSequence: true
-        }).then(v => {
-            viewerInstance = v;
-            plugin = v.plugin;
-            // Keep the layer card in the viewport as Mol*'s panels open and close.
-            plugin.layout.events.updated.subscribe(() => setTimeout(placeLayerPanel, 50));
-            showStatus("Mol* initialized. Connecting to visualizer...");
-            setupSSE();
-        });
-
-        // Request session load from python server
-        function requestSessionLoad() {
-            fetch('/api/action', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'load_molstar_session' })
-            }).catch(err => {
-                console.error("Failed to load session:", err);
-                showStatus("Connection error: could not fetch session.");
-            });
-        }
-
-        // Setup SSE connection to listen for events
-        function setupSSE() {
-            const sse = new EventSource('/api/events?client=esmfold');
-            
-            // Backup safety timeout for session restore handshake
-            setTimeout(() => {
-                if (isRestoring) {
-                    console.warn("Session restore handshake timed out; proceeding with fresh session.");
-                    isRestoring = false;
-                    processPendingStructures();
-                }
-            }, 4000);
-
-            async function processPendingStructures() {
-                for (const struct of pendingStructures) {
-                    showStatus(`Processing queued structure: ${struct.node_id}...`, 0);
-                    await enqueueStructure(struct.pdb_url, struct.node_id);
-                }
-                pendingStructures = [];
-            }
-
-            sse.onmessage = async (event) => {
-                try {
-                    const msg = JSON.parse(event.data);
-                    
-                    if (msg.type === 'restore_session') {
-                        if (isRestoring) {
-                            if (msg.session) {
-                                showStatus("Restoring saved Mol* session...");
-                                await plugin.state.setSnapshot(msg.session);
-                                await reconcileLayers();
-                                showStatus("Session restored successfully.");
-                            } else {
-                                showStatus("Started with a fresh blank session.");
-                            }
-                            isRestoring = false;
-                            await processPendingStructures();
-                        }
-                    } else if (msg.type === 'esmfold_pdb') {
-                        const { pdb_url, node_id } = msg;
-                        if (isRestoring) {
-                            // Queue incoming structure while waiting for the session state response
-                            pendingStructures.push({ pdb_url, node_id });
-                        } else {
-                            showStatus(`New structure received: ${node_id}. Loading...`, 0);
-                            await enqueueStructure(pdb_url, node_id);
-                        }
-                    }
-                } catch (e) {
-                    console.error("Error processing SSE message:", e);
-                }
-            };
-
-            sse.onopen = () => {
-                requestSessionLoad();
-            };
-
-            sse.onerror = (err) => {
-                console.error("SSE Connection Error:", err);
-                showStatus("Lost connection to EMAP-SSN Viewer. Retrying...");
-            };
-        }
-
-        // Mol* 5.10.1 keeps its Superposition panel's algorithms private, so the
-        // page superposes structures itself: a BLOSUM62 sequence alignment pairs
-        // the CA atoms, a least-squares fit superposes them, and the matrix is
-        // applied with the public TransformStructureConformation transform, the
-        // same state node the panel creates, so saved sessions keep the pose.
-        const AMINO_ACIDS = ['ALA', 'ARG', 'ASN', 'ASP', 'CYS', 'GLN', 'GLU', 'GLY', 'HIS', 'ILE',
-                             'LEU', 'LYS', 'MET', 'PHE', 'PRO', 'SER', 'THR', 'TRP', 'TYR', 'VAL'];
-        // BLOSUM62 scores, rows and columns in AMINO_ACIDS order
-        const BLOSUM62 = [
-        //   A   R   N   D   C   Q   E   G   H   I   L   K   M   F   P   S   T   W   Y   V
-             4, -1, -2, -2,  0, -1, -1,  0, -2, -1, -1, -1, -1, -2, -1,  1,  0, -3, -2,  0, // A
-            -1,  5,  0, -2, -3,  1,  0, -2,  0, -3, -2,  2, -1, -3, -2, -1, -1, -3, -2, -3, // R
-            -2,  0,  6,  1, -3,  0,  0,  0,  1, -3, -3,  0, -2, -3, -2,  1,  0, -4, -2, -3, // N
-            -2, -2,  1,  6, -3,  0,  2, -1, -1, -3, -4, -1, -3, -3, -1,  0, -1, -4, -3, -3, // D
-             0, -3, -3, -3,  9, -3, -4, -3, -3, -1, -1, -3, -1, -2, -3, -1, -1, -2, -2, -1, // C
-            -1,  1,  0,  0, -3,  5,  2, -2,  0, -3, -2,  1,  0, -3, -1,  0, -1, -2, -1, -2, // Q
-            -1,  0,  0,  2, -4,  2,  5, -2,  0, -3, -3,  1, -2, -3, -1,  0, -1, -3, -2, -2, // E
-             0, -2,  0, -1, -3, -2, -2,  6, -2, -4, -4, -2, -3, -3, -2,  0, -2, -2, -3, -3, // G
-            -2,  0,  1, -1, -3,  0,  0, -2,  8, -3, -3, -1, -2, -1, -2, -1, -2, -2,  2, -3, // H
-            -1, -3, -3, -3, -1, -3, -3, -4, -3,  4,  2, -3,  1,  0, -3, -2, -1, -3, -1,  3, // I
-            -1, -2, -3, -4, -1, -2, -3, -4, -3,  2,  4, -2,  2,  0, -3, -2, -1, -2, -1,  1, // L
-            -1,  2,  0, -1, -3,  1,  1, -2, -1, -3, -2,  5, -1, -3, -1,  0, -1, -3, -2, -2, // K
-            -1, -1, -2, -3, -1,  0, -2, -3, -2,  1,  2, -1,  5,  0, -2, -1, -1, -1, -1,  1, // M
-            -2, -3, -3, -3, -2, -3, -3, -3, -1,  0,  0, -3,  0,  6, -4, -2, -2,  1,  3, -1, // F
-            -1, -2, -2, -1, -3, -1, -1, -2, -2, -3, -3, -1, -2, -4,  7, -1, -1, -4, -3, -2, // P
-             1, -1,  1,  0, -1,  0,  0,  0, -1, -2, -2,  0, -1, -2, -1,  4,  1, -3, -2, -2, // S
-             0, -1,  0, -1, -1, -1, -1, -2, -2, -1, -1, -1, -1, -2, -1,  1,  5, -2, -2,  0, // T
-            -3, -3, -4, -4, -2, -2, -3, -2, -2, -3, -2, -3, -1,  1, -4, -3, -2, 11,  2, -3, // W
-            -2, -2, -2, -3, -2, -1, -2, -3,  2, -1, -1, -2, -1,  3, -3, -2, -2,  2,  7, -1, // Y
-             0, -3, -3, -3, -1, -2, -2, -3, -3,  3,  1, -2,  1, -1, -2, -2,  0, -3, -1,  4  // V
-        ];
-
-        // CA atoms of standard amino acids in chain order: residue codes
-        // (indices into AMINO_ACIDS) and coordinates.
-        function readCaTrace(structure) {
-            const { StructureElement, StructureProperties, Unit } = molstar.lib.structure;
-            const { atom, residue } = StructureProperties;
-            const location = StructureElement.Location.create(structure);
-            const codes = [];
-            const coords = [];
-            for (const unit of structure.units) {
-                if (!Unit.isAtomic(unit)) continue;
-                location.unit = unit;
-                let lastResidue = -1;
-                for (const element of unit.elements) {
-                    location.element = element;
-                    if (atom.label_atom_id(location) !== 'CA') continue;
-                    const code = AMINO_ACIDS.indexOf(atom.label_comp_id(location));
-                    const residueIndex = residue.key(location);
-                    // Alternate locations repeat a residue's CA; keep the first.
-                    if (code < 0 || residueIndex === lastResidue) continue;
-                    lastResidue = residueIndex;
-                    codes.push(code);
-                    coords.push([atom.x(location), atom.y(location), atom.z(location)]);
-                }
-            }
-            return { codes, coords };
-        }
-
-        // Global alignment (Gotoh) scored with BLOSUM62 and the gap scores of
-        // Mol*'s own sequence alignment (open -11, extend -1). End gaps are free,
-        // so different termini do not shift the core. Returns aligned index pairs.
-        function alignSequences(a, b) {
-            const OPEN = -11, EXTEND = -1, NONE = -1e9;
-            const n = a.length, m = b.length, width = m + 1;
-            // Per cell: bits 0-1 hold the best move into it (0 pair, 1 gap in b,
-            // 2 gap in a); bits 2 and 3 mark a gap in b or in a being extended.
-            const trace = new Uint8Array((n + 1) * width);
-            let previous = new Float64Array(width);
-            let current = new Float64Array(width);
-            const gapInB = new Float64Array(width).fill(NONE);
-            let best = -Infinity, bestI = 0, bestJ = 0;
-            for (let i = 1; i <= n; i++) {
-                const row = a[i - 1] * AMINO_ACIDS.length;
-                let gapInA = NONE;
-                current[0] = 0;
-                for (let j = 1; j <= m; j++) {
-                    let move = 0;
-                    if (gapInB[j] + EXTEND > previous[j] + OPEN) {
-                        gapInB[j] += EXTEND;
-                        move |= 4;
-                    } else {
-                        gapInB[j] = previous[j] + OPEN;
-                    }
-                    if (gapInA + EXTEND > current[j - 1] + OPEN) {
-                        gapInA += EXTEND;
-                        move |= 8;
-                    } else {
-                        gapInA = current[j - 1] + OPEN;
-                    }
-                    let score = previous[j - 1] + BLOSUM62[row + b[j - 1]];
-                    if (gapInB[j] > score) {
-                        score = gapInB[j];
-                        move |= 1;
-                    }
-                    if (gapInA > score) {
-                        score = gapInA;
-                        move = (move & 12) | 2;
-                    }
-                    current[j] = score;
-                    trace[i * width + j] = move;
-                }
-                if (current[m] > best) {
-                    best = current[m];
-                    bestI = i;
-                    bestJ = m;
-                }
-                [previous, current] = [current, previous];
-            }
-            for (let j = 0; j <= m; j++) {
-                if (previous[j] > best) {
-                    best = previous[j];
-                    bestI = n;
-                    bestJ = j;
-                }
-            }
-            const pairs = [];
-            let i = bestI, j = bestJ, state = 0;
-            while (i > 0 && j > 0) {
-                const move = trace[i * width + j];
-                if (state === 0) {
-                    state = move & 3;
-                    if (state === 0) pairs.push([--i, --j]);
-                } else if (state === 1) {
-                    state = move & 4 ? 1 : 0;
-                    i--;
-                } else {
-                    state = move & 8 ? 2 : 0;
-                    j--;
-                }
-            }
-            return pairs.reverse();
-        }
-
-        // Eigenvectors (as columns) of a symmetric matrix by cyclic Jacobi
-        // rotations; `a` is diagonalized in place, leaving the eigenvalues.
-        function jacobiEigenvectors(a) {
-            const n = a.length;
-            const v = a.map((row, i) => row.map((_, j) => (i === j ? 1 : 0)));
-            const scale = a.flat().reduce((sum, value) => sum + value * value, 0);
-            for (let sweep = 0; sweep < 50; sweep++) {
-                let off = 0;
-                for (let p = 0; p < n; p++) {
-                    for (let q = p + 1; q < n; q++) off += a[p][q] * a[p][q];
-                }
-                if (off <= 1e-24 * scale) break;
-                for (let p = 0; p < n - 1; p++) {
-                    for (let q = p + 1; q < n; q++) {
-                        if (a[p][q] === 0) continue;
-                        const theta = (a[q][q] - a[p][p]) / (2 * a[p][q]);
-                        const t = Math.sign(theta || 1) / (Math.abs(theta) + Math.sqrt(theta * theta + 1));
-                        const c = 1 / Math.sqrt(t * t + 1);
-                        const s = t * c;
-                        for (const matrix of [a, v]) {
-                            for (let k = 0; k < n; k++) {
-                                const kp = matrix[k][p], kq = matrix[k][q];
-                                matrix[k][p] = c * kp - s * kq;
-                                matrix[k][q] = s * kp + c * kq;
-                            }
-                        }
-                        for (let k = 0; k < n; k++) {
-                            const pk = a[p][k], qk = a[q][k];
-                            a[p][k] = c * pk - s * qk;
-                            a[q][k] = s * pk + c * qk;
-                        }
-                    }
-                }
-            }
-            return v;
-        }
-
-        function squaredDistance({ rotation, translation }, point, target) {
-            let sum = 0;
-            for (let r = 0; r < 3; r++) {
-                const d = rotation[r][0] * point[0] + rotation[r][1] * point[1]
-                    + rotation[r][2] * point[2] + translation[r] - target[r];
-                sum += d * d;
-            }
-            return sum;
-        }
-
-        // Least-squares rotation and translation taking `moving` onto `fixed`
-        // (Horn's unit-quaternion method), with the RMSD of the fit.
-        function fitPairs(fixed, moving) {
-            const n = fixed.length;
-            const fixedCenter = [0, 0, 0], movingCenter = [0, 0, 0];
-            for (let k = 0; k < n; k++) {
-                for (let d = 0; d < 3; d++) {
-                    fixedCenter[d] += fixed[k][d] / n;
-                    movingCenter[d] += moving[k][d] / n;
-                }
-            }
-            // S[r][c]: sum over pairs of centered moving[r] * centered fixed[c]
-            const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]];
-            for (let k = 0; k < n; k++) {
-                for (let r = 0; r < 3; r++) {
-                    const m = moving[k][r] - movingCenter[r];
-                    for (let c = 0; c < 3; c++) S[r][c] += m * (fixed[k][c] - fixedCenter[c]);
-                }
-            }
-            const [[xx, xy, xz], [yx, yy, yz], [zx, zy, zz]] = S;
-            const N = [
-                [xx + yy + zz, yz - zy, zx - xz, xy - yx],
-                [yz - zy, xx - yy - zz, xy + yx, zx + xz],
-                [zx - xz, xy + yx, yy - xx - zz, yz + zy],
-                [xy - yx, zx + xz, yz + zy, zz - xx - yy]
-            ];
-            const vectors = jacobiEigenvectors(N);
-            let top = 0;
-            for (let k = 1; k < 4; k++) {
-                if (N[k][k] > N[top][top]) top = k;
-            }
-            const [w, x, y, z] = vectors.map(row => row[top]);
-            const rotation = [
-                [w * w + x * x - y * y - z * z, 2 * (x * y - w * z), 2 * (x * z + w * y)],
-                [2 * (x * y + w * z), w * w - x * x + y * y - z * z, 2 * (y * z - w * x)],
-                [2 * (x * z - w * y), 2 * (y * z + w * x), w * w - x * x - y * y + z * z]
-            ];
-            const translation = fixedCenter.map((center, r) => center
-                - rotation[r][0] * movingCenter[0] - rotation[r][1] * movingCenter[1]
-                - rotation[r][2] * movingCenter[2]);
-            const fit = { rotation, translation };
-            let sum = 0;
-            for (let k = 0; k < n; k++) sum += squaredDistance(fit, moving[k], fixed[k]);
-            fit.rmsd = Math.sqrt(sum / n);
-            return fit;
-        }
-
-        // Fits the CA pairs, then, like PyMOL's align, refits up to five times
-        // without pairs deviating by more than twice the RMSD, so that floppy
-        // termini and loops do not pull the conserved core apart. Pairs within
-        // 0.5 A are always kept, so coordinate noise is never rejected.
-        function superposePairs(fixed, moving) {
-            let kept = fixed.map((_, k) => k);
-            let fit = fitPairs(fixed, moving);
-            for (let cycle = 0; cycle < 5; cycle++) {
-                const limit = Math.max(4 * fit.rmsd * fit.rmsd, 0.25);
-                const next = kept.filter(k => squaredDistance(fit, moving[k], fixed[k]) <= limit);
-                if (next.length === kept.length || next.length < 3) break;
-                kept = next;
-                fit = fitPairs(kept.map(k => fixed[k]), kept.map(k => moving[k]));
-            }
-            fit.used = kept.length;
-            return fit;
-        }
-
-        // Moves `structure` (a hierarchy StructureRef) by inserting a Transform
-        // Conformation node above its components, or updating the one it has.
-        async function applyStructureTransform(structure, matrix) {
-            const transformer = molstar.lib.plugin.StateTransforms.Model.TransformStructureConformation;
-            const state = plugin.state.data;
-            const params = { transform: { name: 'matrix', params: { data: matrix, transpose: false } } };
-            const existing = state.selectQ(q => q.byRef(structure.cell.transform.ref).subtree().withTransformer(transformer))[0];
-            const update = existing
-                ? state.build().to(existing).update(params)
-                : state.build().to(structure.cell).insert(transformer, params, { tags: 'SuperpositionTransform' });
-            await plugin.runTask(state.updateTree(update));
-        }
-
-        // Superposes the target structure onto the pivot as currently displayed.
-        async function superposeOnto(pivot, target) {
-            const fixedStructure = (pivot.transform || pivot).cell.obj?.data;
-            const movingStructure = target.cell.obj?.data;
-            if (!fixedStructure || !movingStructure) throw new Error('structure data is not loaded');
-            const a = readCaTrace(fixedStructure);
-            const b = readCaTrace(movingStructure);
-            const pairs = alignSequences(a.codes, b.codes);
-            if (pairs.length < 3) throw new Error(`only ${pairs.length} CA atoms could be paired`);
-            const fit = superposePairs(pairs.map(([i]) => a.coords[i]), pairs.map(([, j]) => b.coords[j]));
-            const { Mat4 } = molstar.lib.math.LinearAlgebra;
-            const matrix = Mat4.identity();
-            fit.rotation.forEach((row, r) => {
-                row.forEach((value, c) => Mat4.setValue(matrix, r, c, value));
-                Mat4.setValue(matrix, r, 3, fit.translation[r]);
-            });
-            await applyStructureTransform(target, matrix);
-            const identical = pairs.filter(([i, j]) => a.codes[i] === b.codes[j]).length;
-            return { rmsd: fit.rmsd, used: fit.used, aligned: pairs.length, identity: identical / pairs.length };
-        }
-
-        // Structures load one at a time, so each load aligns the structure it
-        // added (the newest) even when fold events arrive back to back.
-        let structureQueue = Promise.resolve();
-        function enqueueStructure(url, label) {
-            structureQueue = structureQueue
-                .then(() => loadAndAlignStructure(url, label))
-                .catch(err => console.error("Error loading structure:", err));
-            return structureQueue;
-        }
-
-        // ---- Per-residue layers ------------------------------------------
-        // esmfold writes numbers for each residue (such as how conserved its
-        // alignment column is) beside a structure's PDB, and the Viewer offers
-        // each number as a layer: /api/esmfold/layers/<structure>.pdb lists
-        // them, and each layer's address serves a MolViewSpec annotation (rows
-        // of residue selector, colour and tooltip; src/web_ui/residue_layers.py).
-        // The structure is not reloaded. Mol* gives every structure properties
-        // nodes in its state tree that hold MolViewSpec annotations, so a layer
-        // is attached by updating those nodes and giving the structure's
-        // representations Mol*'s mvs-annotation colour theme. The PDB, its
-        // pLDDT, the superposition and the saved session stay as they are, and
-        // pLDDT stays the default: no layer is attached until one is chosen.
-        //
-        // What the page's controls build on:
-        //   layerListing(file, refresh)   the Viewer's listing for a PDB file name
-        //   activeLayerId(structure)      'plddt', or the id of the layer attached
-        //   applyLayer(structure, id)     attach layer `id` and colour by it
-        //   restorePlddt(structure)       detach the layer and colour by pLDDT
-        //   reconcileLayers()             after a session restore: re-attach or drop
-        //   renderLayerPanel()            draw the colour switch and legend
-        // and a 'esmfold-layers' event on window, after a layer changes, with
-        // detail.structures: [{ref, file, active, layers: [ids]}].
-        const LAYER_ROUTE = '/api/esmfold/layers/';
-        const PLDDT_LAYER = 'plddt';
-        const layerListings = new Map();
-        const layerPanel = document.getElementById('layer-panel');
-
-        // Runs `task` after the structure loads and layer changes queued before it.
-        function runExclusive(task) {
-            const result = structureQueue.then(task);
-            structureQueue = result.catch(err => console.error("Error changing a layer:", err));
-            return result;
-        }
-
-        function loadedStructures() {
-            return plugin.managers.structure.hierarchy.current.structures;
-        }
-
-        // The PDB file a structure was loaded from, from its download node.
-        function structureFile(structure) {
-            const cells = plugin.state.data.cells;
-            for (let cell = structure.cell; cell; ) {
-                const params = cell.transform.params;
-                if (cell.transform.transformer.id === 'ms-plugin.download' && params?.url?.url) {
-                    return decodeURIComponent(params.url.url.split('?')[0].split('/').pop());
-                }
-                const parent = cell.transform.parent;
-                cell = parent && parent !== cell.transform.ref ? cells.get(parent) : undefined;
-            }
-            return undefined;
-        }
-
-        function layerListing(file, refresh = false) {
-            if (refresh || !layerListings.has(file)) {
-                layerListings.set(file, fetch(LAYER_ROUTE + encodeURIComponent(file))
-                    .then(response => (response.ok ? response.json() : null))
-                    .catch(() => null));
-            }
-            return layerListings.get(file);
-        }
-
-        function activeLayerId(structure) {
-            const annotations = structure.model?.properties?.cell.transform.params
-                ?.properties?.['mvs-annotations']?.annotations;
-            return annotations?.length ? annotations[0].id : PLDDT_LAYER;
-        }
-
-        // Attaches `layer` (a listing entry), or with none detaches whatever is
-        // attached, through the annotation properties of the structure's model
-        // and the tooltip properties of its structure. Listing them in
-        // autoAttach is what makes Mol* fetch the annotation. With keepOthers
-        // the annotations already attached stay, so that the structure is
-        // never coloured by one that is not there while it changes layers.
-        async function setLayerProperties(structure, layer, keepOthers = false) {
-            const state = plugin.state.data;
-            const modelCell = structure.model?.properties?.cell;
-            const structureCell = structure.properties?.cell;
-            if (!modelCell || !structureCell) throw new Error('the structure has no properties nodes');
-            const model = modelCell.transform.params;
-            const attached = model.properties['mvs-annotations']?.annotations ?? [];
-            const annotation = layer ? [{
-                source: { name: 'url', params: { url: layer.annotation, format: 'json' } },
-                schema: 'auth_residue',
-                cifBlock: { name: 'index', params: { index: 0 } },
-                cifCategory: null,
-                fieldRemapping: [],
-                id: layer.id
-            }, ...(keepOthers ? attached.filter(other => other.id !== layer.id) : [])] : [];
-            await plugin.runTask(state.updateTree(state.build().to(modelCell.transform.ref).update({
-                ...model,
-                autoAttach: layer ? ['mvs-is-mvs-model', 'mvs-annotations'] : [],
-                properties: {
-                    ...model.properties,
-                    'mvs-is-mvs-model': { isMvs: !!layer },
-                    'mvs-annotations': { annotations: annotation }
-                }
-            })));
-            const properties = structureCell.transform.params;
-            await plugin.runTask(state.updateTree(state.build().to(structureCell.transform.ref).update({
-                ...properties,
-                autoAttach: layer ? ['mvs-annotation-tooltips'] : [],
-                properties: {
-                    ...properties.properties,
-                    'mvs-annotation-tooltips': {
-                        tooltips: layer ? [{ annotationId: layer.id, fieldName: 'tooltip', textFormat: '{}' }] : []
-                    }
-                }
-            })));
-        }
-
-        function themeStructure(structure, theme) {
-            return plugin.managers.structure.component.updateRepresentationsTheme(structure.components, theme);
-        }
-
-        async function restorePlddt(structure) {
-            if (activeLayerId(structure) === PLDDT_LAYER) return;
-            // Colour first, while the annotation theme is still applicable.
-            await themeStructure(structure, { color: 'plddt-confidence' });
-            await setLayerProperties(structure, null);
-            layersChanged();
-        }
-
-        async function applyLayer(structure, layerId) {
-            if (layerId === PLDDT_LAYER) return restorePlddt(structure);
-            const file = structureFile(structure);
-            const listing = file && await layerListing(file, true);
-            const layer = listing?.layers.find(entry => entry.id === layerId && entry.annotation);
-            if (!layer) throw new Error(`no layer ${layerId} for ${file}`);
-            const switching = activeLayerId(structure) !== PLDDT_LAYER;
-            await setLayerProperties(structure, layer, switching);
-            await themeStructure(structure, {
-                color: 'mvs-annotation',
-                colorParams: { annotationId: layer.id, fieldName: 'color', palette: { name: 'direct', params: {} } }
-            });
-            // The colours have moved to the new layer, so the old one can go.
-            if (switching) await setLayerProperties(structure, layer);
-            layersChanged();
-        }
-
-        // A restored session names the layers it had attached, and the Viewer's
-        // residue data may have changed since: attach each again from a fresh
-        // listing, or go back to pLDDT when the layer is no longer offered.
-        async function reconcileLayers() {
-            for (const structure of loadedStructures()) {
-                const active = activeLayerId(structure);
-                if (active === PLDDT_LAYER) continue;
-                try {
-                    await applyLayer(structure, active);
-                } catch (err) {
-                    console.warn("A restored layer is no longer available:", err);
-                    await restorePlddt(structure);
-                }
-            }
-            layersChanged();
-        }
-
-        function layersChanged() {
-            renderLayerPanel();
-            window.dispatchEvent(new CustomEvent('esmfold-layers', { detail: { structures: layerSummary() } }));
-            setTimeout(saveSession, 1500);
-        }
-
-        function layerSummary() {
-            return loadedStructures().map(structure => ({
-                ref: structure.cell.transform.ref,
-                file: structureFile(structure),
-                active: activeLayerId(structure)
-            }));
-        }
-
-        // The colour switch and legend: plain controls over the functions above.
-        let panelRenderId = 0;
-        const HEX_COLOR = /^#[0-9a-f]{6}$/i;
-
-        // The card sits in the top left corner of Mol*'s viewport, between its
-        // side panels, wherever they are, clear of the button there and of the
-        // residue label Mol* shows at the bottom right; before Mol* draws, in
-        // the window's corner.
-        let watchedRegion = null;
-        const regionWatcher = new ResizeObserver(() => placeLayerPanel());
-        function placeLayerPanel() {
-            const region = document.querySelector('#viewer .msp-layout-main');
-            if (region !== watchedRegion) {
-                regionWatcher.disconnect();
-                if (region) regionWatcher.observe(region);
-                watchedRegion = region;
-            }
-            const box = region ? region.getBoundingClientRect() : { left: -40, top: 0 };
-            layerPanel.style.left = `${box.left + 52}px`;
-            layerPanel.style.top = `${box.top + 8}px`;
-        }
-        window.addEventListener('resize', placeLayerPanel);
-
-        function element(tag, className, text) {
-            const node = document.createElement(tag);
-            if (className) node.className = className;
-            if (text !== undefined) node.textContent = text;
-            return node;
-        }
-
-        function legendKey(color, text) {
-            const key = element('div', 'layer-key');
-            const swatch = element('span', 'layer-swatch');
-            if (HEX_COLOR.test(color)) swatch.style.background = color;
-            key.append(swatch, element('span', undefined, text));
-            return key;
-        }
-
-        function layerLegend(layer, listing) {
-            const legend = element('div', 'layer-legend');
-            const shape = layer.legend;
-            if (shape.kind === 'gradient') {
-                const span = shape.max - shape.min;
-                const stops = shape.stops.filter(([, color]) => HEX_COLOR.test(color))
-                    .map(([value, color]) => `${color} ${(100 * (value - shape.min) / span).toFixed(1)}%`);
-                const bar = element('div', 'layer-bar');
-                bar.style.background = `linear-gradient(to right, ${stops.join(', ')})`;
-                const unit = layer.unit ? ` ${layer.unit}` : '';
-                const ends = element('div', 'layer-ends');
-                ends.append(element('span', undefined, `${shape.min}${unit}`), element('span', undefined, `${shape.max}${unit}`));
-                legend.append(bar, ends);
-                if (layer.covered < layer.residues) legend.append(legendKey(listing.background, listing.texts.no_data));
-            } else {
-                for (const band of shape.bands) legend.append(legendKey(band.color, band.label));
-            }
-            return legend;
-        }
-
-        async function renderLayerPanel() {
-            if (!plugin) return;
-            const renderId = ++panelRenderId;
-            const rows = [];
-            let title = '';
-            for (const structure of loadedStructures()) {
-                const file = structureFile(structure);
-                const listing = file && await layerListing(file);
-                if (!listing) continue;
-                const active = listing.layers.find(entry => entry.id === activeLayerId(structure)) || listing.layers[0];
-                const row = element('div', 'layer-row');
-                row.append(element('div', 'layer-name', file.replace(/\.pdb$/i, '')));
-                if (listing.layers.length > 1) {
-                    const select = element('select');
-                    select.setAttribute('aria-label', `${listing.texts.color_by} ${file}`);
-                    for (const entry of listing.layers) {
-                        const option = element('option', undefined, entry.label);
-                        option.value = entry.id;
-                        option.selected = entry === active;
-                        select.append(option);
-                    }
-                    const ref = structure.cell.transform.ref;
-                    select.addEventListener('change', () => runExclusive(async () => {
-                        const target = loadedStructures().find(s => s.cell.transform.ref === ref);
-                        try {
-                            if (target) await applyLayer(target, select.value);
-                        } catch (err) {
-                            console.warn("Could not apply the layer:", err);
-                            showStatus(`Could not colour ${file} by that layer.`);
-                            renderLayerPanel();
-                        }
-                    }));
-                    row.append(select);
-                }
-                row.title = active.description || '';
-                row.append(layerLegend(active, listing));
-                if (active.source) row.append(element('div', 'layer-note', active.source));
-                if (listing.layers.length === 1 && listing.unavailable) {
-                    row.append(element('div', 'layer-note', listing.unavailable));
-                }
-                title = title || listing.texts.color_by;
-                rows.push(row);
-            }
-            // A newer render replaces this one, which an await made stale.
-            if (renderId !== panelRenderId) return;
-            layerPanel.replaceChildren(...(rows.length ? [element('div', 'layer-title', title)] : []), ...rows);
-            layerPanel.style.display = rows.length ? 'block' : 'none';
-            placeLayerPanel();
-        }
-
-        // Load structure, apply cartoon/pLDDT coloring, align to pivot, and auto-save
-        async function loadAndAlignStructure(url, label) {
-            try {
-                showStatus(`Loading structure ${label}...`, 0);
-                plugin.log.info(`Loading structure ${label}...`);
-                
-                // Use the official high-level loadStructureFromUrl method
-                await viewerInstance.loadStructureFromUrl(url, 'pdb');
-                
-                // Apply pLDDT confidence coloring to all loaded structures,
-                // except those the user has coloured by a per-residue layer
-                const structures = plugin.managers.structure.hierarchy.current.structures;
-                for (const s of structures) {
-                    if (activeLayerId(s) !== PLDDT_LAYER) continue;
-                    const components = s.components;
-                    try {
-                        await plugin.managers.structure.component.updateRepresentationsTheme(components, {
-                            color: 'plddt-confidence'
-                        });
-                    } catch (e1) {
-                        try {
-                            await plugin.managers.structure.component.updateRepresentationsTheme(components, {
-                                colorTheme: { name: 'plddt-confidence' }
-                            });
-                        } catch (e2) {
-                            console.warn("Failed to apply pLDDT theme:", e1, e2);
-                        }
-                    }
-                }
-                if (structures.length > 1) {
-                    showStatus(`Aligning ${label} to pivot structure...`, 0);
-                    plugin.log.info(`Aligning ${label} to pivot structure...`);
-                    const pivot = structures[0];
-                    const target = structures[structures.length - 1];
-
-                    try {
-                        const fit = await superposeOnto(pivot, target);
-                        showStatus(`Loaded and aligned ${label}.`);
-                        plugin.log.info(`Successfully loaded and aligned ${label}: RMSD ${fit.rmsd.toFixed(2)} \u00C5 over ${fit.used} of ${fit.aligned} aligned CA pairs (${Math.round(100 * fit.identity)}% sequence identity).`);
-                    } catch (alignErr) {
-                        console.warn("Structural alignment skipped/failed: ", alignErr);
-                        plugin.log.warn(`Structural alignment skipped/failed: ${alignErr.message}`);
-                        showStatus(`Loaded ${label}.`);
-                    }
-                } else {
-                    showStatus(`Loaded ${label} as the pivot structure.`);
-                    plugin.log.info(`Loaded ${label} as the pivot structure.`);
-                }
-            } catch (err) {
-                console.error("Error loading structure:", err);
-                plugin.log.error(`Error loading structure ${label}: ${err.message}`);
-                showStatus(`Failed to load structure ${label}.`);
-            } finally {
-                // A structure written again under the same name has new residue data.
-                const file = decodeURIComponent(url.split('?')[0].split('/').pop());
-                layerListing(file, true).then(() => renderLayerPanel());
-                // Wait 1.5 seconds for representation state to finalize, then save session snapshot
-                setTimeout(saveSession, 1500);
-            }
-        }
-
-        // Save session state to layout cache
-        function saveSession() {
-            if (!plugin) return;
-            try {
-                const snapshot = plugin.state.getSnapshot();
-                
-                fetch('/api/action', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'save_molstar_session', session: snapshot })
-                }).then(response => {
-                    if (response.ok) {
-                        console.log("Mol* session snapshot auto-saved.");
-                    } else {
-                        console.error("Failed to auto-save session state.");
-                        fetch('/api/action', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ action: 'console_debug_err', error: "Failed to auto-save session state. Status: " + response.status })
-                        });
-                    }
-                }).catch(err => {
-                    console.error("Network error during auto-save:", err);
-                    fetch('/api/action', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action: 'console_debug_err', error: "Network error during auto-save: " + (err.stack || err.message) })
-                    });
-                });
-            } catch (err) {
-                console.error("Serialization error during saveSession:", err);
-                fetch('/api/action', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'console_debug_err', error: "Serialization error during saveSession: " + (err.stack || err.message) })
-                });
-            }
-        }
+            document.documentElement.setAttribute("data-theme", theme);
+            document.getElementById("skin-light").disabled = theme === "dark";
+            document.getElementById("skin-dark").disabled = theme !== "dark";
+        })();
     </script>
+</head>
+<body data-view="starting" data-count="0" data-panel="1" data-adv="0" data-offline="0">
+    <!-- Icons from Lucide 1.47.0, ISC licence: see src/resources/icons/lucide/LICENSE. -->
+    <svg class="icon-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+        <symbol id="i-dna" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m10 16 1.5 1.5"/><path d="m14 8-1.5-1.5"/><path d="M15 2c-1.798 1.998-2.518 3.995-2.807 5.993"/><path d="m16.5 10.5 1 1"/><path d="m17 6-2.891-2.891"/><path d="M2 15c6.667-6 13.333 0 20-6"/><path d="m20 9 .891.891"/><path d="M3.109 14.109 4 15"/><path d="m6.5 12.5 1 1"/><path d="m7 18 2.891 2.891"/><path d="M9 22c1.798-1.998 2.518-3.995 2.807-5.993"/></symbol>
+        <symbol id="i-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></symbol>
+        <symbol id="i-maximize" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></symbol>
+        <symbol id="i-rotate-ccw" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></symbol>
+        <symbol id="i-sliders-horizontal" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 5H3"/><path d="M12 19H3"/><path d="M14 3v4"/><path d="M16 17v4"/><path d="M21 12h-9"/><path d="M21 19h-5"/><path d="M21 5h-7"/><path d="M8 10v4"/><path d="M8 12H3"/></symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+        <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></symbol>
+        <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
+        <symbol id="i-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></symbol>
+        <symbol id="i-crosshair" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="22" x2="18" y1="12" y2="12"/><line x1="6" x2="2" y1="12" y2="12"/><line x1="12" x2="12" y1="6" y2="2"/><line x1="12" x2="12" y1="22" y2="18"/></symbol>
+        <symbol id="i-trash-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></symbol>
+        <symbol id="i-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
+        <symbol id="i-loader-circle" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></symbol>
+        <symbol id="i-arrow-left" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 19-7-7 7-7"/><path d="M19 12H5"/></symbol>
+        <symbol id="i-folder-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></symbol>
+        <symbol id="i-panel-right-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/><path d="m10 15-3-3 3-3"/></symbol>
+    </svg>
+    <a class="skip-link" href="#side" data-i18n>Skip to the controls</a>
+
+    <div class="app" id="app">
+        <header>
+            <h1><svg class="icon" aria-hidden="true"><use href="#i-dna"/></svg><span data-i18n>EMAP-SSN Fold View</span></h1>
+            <div class="header-actions">
+                <button class="btn btn-ghost" id="theme-toggle-btn" type="button"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="btn-label" id="theme-toggle-label" data-i18n>Dark Mode</span></button>
+                <button class="btn btn-ghost" id="help-btn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span class="btn-label" data-i18n>Help</span></button>
+                <div id="connection-status" class="status-badge" data-state="connecting" role="status" data-i18n>Connecting...</div>
+            </div>
+        </header>
+        <div class="banner" role="alert"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg><span data-i18n>Lost the connection to the Viewer. Retrying... The structures stay on screen.</span></div>
+
+        <div class="workspace">
+            <div class="stage-container">
+                <div class="stage-card">
+                    <div class="pane-header">
+                        <span class="pane-title" data-i18n>Structure View</span>
+                        <div class="header-controls">
+                            <button class="btn" id="panel-toggle" type="button" aria-expanded="true" aria-controls="side"><svg class="icon" aria-hidden="true"><use href="#i-panel-right-open"/></svg><span data-i18n>Scene</span></button>
+                        </div>
+                    </div>
+                    <div class="stage" id="stage">
+                        <div id="viewer"></div>
+                        <div class="adv-banner"><span data-i18n>Advanced view: Mol*'s own panels (English only). The same scene, the same session.</span><button class="btn btn-sm" id="adv-back" type="button"><svg class="icon" aria-hidden="true"><use href="#i-arrow-left"/></svg><span data-i18n>Back to simple view</span></button></div>
+                        <div class="view-toolbar" role="toolbar" aria-label="View tools">
+                            <button class="btn btn-icon seg-view" id="t-reset" type="button" title="Reset view" aria-label="Reset view"><svg class="icon" aria-hidden="true"><use href="#i-rotate-ccw"/></svg></button>
+                            <button class="btn btn-icon seg-view" id="t-full" type="button" aria-pressed="false" title="Full screen" aria-label="Full screen"><svg class="icon" aria-hidden="true"><use href="#i-maximize"/></svg></button>
+                            <span class="sep" role="separator"></span>
+                            <button class="btn btn-icon" id="t-adv" type="button" aria-pressed="false" title="Advanced: Mol*'s own panels" aria-label="Advanced: Mol*'s own panels"><svg class="icon" aria-hidden="true"><use href="#i-sliders-horizontal"/></svg></button>
+                        </div>
+                        <div id="layer-panel"></div>
+                        <div class="toast" id="toast"></div>
+
+                        <div class="empty" data-for="starting"><div class="empty-card">
+                            <div class="empty-icon"><svg class="icon icon-spin" aria-hidden="true"><use href="#i-loader-circle"/></svg></div>
+                            <h2 data-i18n>Starting the structure view...</h2>
+                        </div></div>
+                        <div class="empty" data-for="restoring"><div class="empty-card">
+                            <div class="empty-icon"><svg class="icon icon-spin" aria-hidden="true"><use href="#i-loader-circle"/></svg></div>
+                            <h2 data-i18n>Restoring the saved session...</h2>
+                        </div></div>
+                        <div class="empty" data-for="empty"><div class="empty-card">
+                            <div class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-dna"/></svg></div>
+                            <h2 data-i18n>No structures yet</h2>
+                            <p data-i18n>Fold a sequence and its structure appears here, colored by pLDDT. Each new structure is aligned to the first.</p>
+                            <ol class="steps">
+                                <li><span class="n">1</span><span data-i18n>Select one node in the Viewer (or several for a batch).</span></li>
+                                <li><span class="n">2</span><span data-i18n>Run <code>esmfold</code> or <code>esmfold multi</code>.</span></li>
+                            </ol>
+                            <button class="btn" id="open-file" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder-open"/></svg><span data-i18n>Open a PDB file...</span></button>
+                        </div></div>
+                        <div class="empty" data-for="webgl"><div class="empty-card">
+                            <div class="empty-icon warn"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg></div>
+                            <h2 data-i18n>3D graphics are not available</h2>
+                            <p data-i18n>This browser could not start WebGL 2, which the structure view needs. Try another browser, or turn on hardware acceleration in this one.</p>
+                            <p class="hint" data-i18n>Structures are still folded and saved; the lists keep working.</p>
+                        </div></div>
+                    </div>
+                </div>
+            </div>
+
+            <aside class="side" id="side" aria-label="Scene">
+                <button class="side-grip" id="side-grip" type="button" aria-expanded="true" aria-controls="side-scroll"><span data-i18n>Scene</span></button>
+                <div class="side-scroll" id="side-scroll">
+                    <section class="sec" aria-labelledby="h-structures">
+                        <div class="sec-head"><h2 class="sec-title" id="h-structures"><svg class="icon" aria-hidden="true"><use href="#i-layers"/></svg><span data-i18n>Structures</span> <span class="count" id="struct-count"></span></h2></div>
+                        <div class="sec-body flush" id="struct-list"></div>
+                    </section>
+                </div>
+            </aside>
+        </div>
+    </div>
+    <div class="sr-only" id="live" aria-live="polite"></div>
+
+    <div class="modal-overlay" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+        <div class="modal">
+            <h3 id="help-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span data-i18n>Fold View Help</span></h3>
+            <p data-i18n>Structures arrive from the Viewer as they are folded, and each is aligned to the first. The panel lists them; the canvas shows them.</p>
+            <h4 data-i18n>Mouse</h4>
+            <table>
+                <tr><td data-i18n>Rotate</td><td data-i18n>Drag with the left button</td></tr>
+                <tr><td data-i18n>Zoom</td><td data-i18n>Scroll wheel, or pinch</td></tr>
+                <tr><td data-i18n>Move</td><td data-i18n>Drag with the right button, or Shift + drag</td></tr>
+                <tr><td data-i18n>Focus a residue</td><td data-i18n>Click it; click empty space to clear</td></tr>
+            </table>
+            <h4 data-i18n>Keyboard</h4>
+            <table>
+                <tr><td><kbd data-i18n>Tab</kbd></td><td data-i18n>Moves through the controls</td></tr>
+                <tr><td><kbd data-i18n>Esc</kbd></td><td data-i18n>Closes this dialog, or leaves the Advanced view</td></tr>
+            </table>
+            <h4 data-i18n>Advanced</h4>
+            <p data-i18n>The sliders button shows Mol*'s own panels (measurements, quick styles, export, TM-align and more). They are English only.</p>
+            <div class="modal-actions"><button class="btn btn-primary" id="help-ok" type="button" data-i18n>Got it</button></div>
+        </div>
+    </div>
+
+    <script src="/esmfold_superposition.js"></script>
+    <script src="/esmfold_layers.js"></script>
+    <script src="/esmfold_shell.js"></script>
 </body>
 </html>

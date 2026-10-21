@@ -54,6 +54,8 @@ ICONS = (
     "brush-cleaning", "camera", "check", "copy", "download", "eye", "eye-off", "loader-circle", "menu",
     "moon", "mouse-pointer", "plus", "redo-2", "save", "send", "sheet", "sun", "trash-2", "undo-2",
     "upload", "x",
+    # Viewer web page esmfold.html (Fold View)
+    "crosshair", "layers", "maximize", "palette", "rotate-ccw", "ruler", "tag",
     # The tools' chart windows' toolbar (tools/tool_helpers/Tool_Charts.py; save is above)
     "arrow-left", "arrow-right", "house", "move", "sliders-horizontal", "square-pen", "zoom-in",
 )

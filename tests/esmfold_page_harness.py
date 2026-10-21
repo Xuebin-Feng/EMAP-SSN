@@ -30,8 +30,20 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 
 from PySide6.QtCore import QUrl
+from PySide6.QtWebEngineCore import QWebEnginePage
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication
+
+
+class ConsolePage(QWebEnginePage):
+    """A page that keeps what its scripts write to the console, as (level, message, line, source)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.messages = []
+
+    def javaScriptConsoleMessage(self, level, message, line, source):
+        self.messages.append((level.name, message, line, source))
 
 
 def http_get(server, path, headers=None):
@@ -125,6 +137,8 @@ class FoldViewPageMixin:
     def setUpClass(cls):
         super().setUpClass()
         cls.view = QWebEngineView()
+        cls.console = ConsolePage(cls.view)
+        cls.view.setPage(cls.console)
         cls.view.resize(1300, 800)
         cls.view.show()
 
@@ -139,6 +153,7 @@ class FoldViewPageMixin:
         self.session = None
         self.saved = []
         self.actions = []
+        self.console.messages.clear()
         self.viewer.handle_web_action = self.handle_action
 
     def tearDown(self):
@@ -187,6 +202,20 @@ class FoldViewPageMixin:
                 return json.loads(value)
             self.pump(0.05)
         self.fail("Timed out: " + body)
+
+    def console_errors(self):
+        """What the page's scripts wrote to the console as errors or warnings since the test began.
+
+        Mol* itself complains three times when the engine gives it no WebGL
+        (it cannot make a canvas, and a call that reads the canvas fails);
+        those are left out, as the page's job then is to say so (data-view
+        "webgl"), and a test that has WebGL does not have them to leave out.
+        """
+        return [(level, message) for level, message, _, source in self.console.messages
+                if level in ("ErrorMessageLevel", "WarningMessageLevel")
+                and not (source.endswith("/esmfold/molstar.js")
+                         and ("Could not create a WebGL rendering context" in message
+                              or "Cannot read properties of undefined (reading 'reprCount')" in message))]
 
     def load_page(self, path="/esmfold.html"):
         loaded = []

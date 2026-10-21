@@ -302,16 +302,18 @@ def page_in_viewer_language(filepath, body):
         return body
 
 
-# The pages that take the Viewer's theme colour. The Fold View page is Mol*'s
-# own interface and keeps its look.
-THEMED_PAGES = {os.path.normcase(os.path.join(BASE_DIR, name)) for name in ("agent.html", "meta.html")}
+# The pages that take the Viewer's theme colour. The Fold View page draws
+# Mol*'s canvas inside the same look; Mol*'s own panels keep theirs.
+THEMED_PAGES = {
+    os.path.normcase(os.path.join(BASE_DIR, name)) for name in ("agent.html", "meta.html", "esmfold.html")
+}
 HEAD_END = re.compile(rb"</head\s*>", re.IGNORECASE)
 
 
 def page_in_theme_color(filepath, body):
     """body, the bytes of a file to serve, in the Viewer's theme colour.
 
-    The Agent and Meta Data pages end their head with the theme colour's
+    The Agent, Meta Data and Fold View pages end their head with the theme colour's
     custom properties (desktop/Studio_Theme.py web_theme_css), after the
     page's own, which are Purple's; any other file comes as it is.
     """

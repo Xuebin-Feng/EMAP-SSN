@@ -2,13 +2,14 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Viewer's Agent and Meta Data pages in the Viewer's theme colour.
+"""The Viewer's Agent, Meta Data and Fold View pages in the Viewer's theme colour.
 
 Each page sets its own values of the properties that take the theme colour
 (desktop.Studio_Theme.WEB_PAGE_PROPERTIES), which are Purple's, and the
 Viewer's web server ends the page's head with the theme colour's
 (web_ui.Web_Server.page_in_theme_color), in any language. The Fold View page
-is Mol*'s own interface and keeps its look.
+draws Mol*'s canvas inside the same Studio look; Mol*'s own panels, which
+the Advanced view shows, keep Mol*'s look.
 """
 
 import http.client
@@ -44,7 +45,7 @@ from web_ui.Web_Server import MIME_TYPES, WebServerHandler, content_security_pol
 from tests.translation_fixtures import pseudo_language  # noqa: E402
 
 PAGES = SRC / "web_ui"
-THEMED = ("agent.html", "meta.html")
+THEMED = ("agent.html", "meta.html", "esmfold.html")
 DECLARATION = re.compile(r"^\s*(--[a-z0-9-]+)\s*:\s*(.*?);\s*$", re.MULTILINE)
 
 
@@ -53,7 +54,7 @@ class PageHandler(WebServerHandler):
 
     def do_GET(self):
         file = PAGES / self.path.lstrip("/")
-        if file.name not in (*THEMED, "esmfold.html"):
+        if file.name not in THEMED:
             self.send_error(404)
             return
         self.serve_file(str(file), MIME_TYPES[file.suffix])
@@ -103,7 +104,7 @@ class ServedPageThemeTests(unittest.TestCase):
         self.assertEqual(response.getheader("Content-Security-Policy"), content_security_policy(page, body))
         return body
 
-    def test_the_agent_and_meta_data_pages_end_their_head_with_the_theme_colour(self):
+    def test_the_pages_end_their_head_with_the_theme_colour(self):
         for page in THEMED:
             with self.subTest(page=page):
                 body = self.assert_themed(page)
@@ -123,10 +124,13 @@ class ServedPageThemeTests(unittest.TestCase):
                     with self.subTest(page=page):
                         self.assertNotEqual(self.assert_themed(page), (PAGES / page).read_bytes())
 
-    def test_the_fold_view_page_keeps_its_look(self):
-        response, body = self.get("esmfold.html")
-        self.assertEqual(body, (PAGES / "esmfold.html").read_bytes())
-        self.assertEqual(response.getheader("Content-Security-Policy"), content_security_policy("esmfold.html", body))
+    def test_the_fold_view_page_keeps_its_script_policy_with_the_theme_colour(self):
+        # Its additions for Mol* (compiling code, public servers) stay on, and
+        # the styles the server adds change no inline script's hash.
+        body = self.assert_themed("esmfold.html")
+        policy = content_security_policy("esmfold.html", body)
+        self.assertIn("'unsafe-eval'", policy)
+        self.assertEqual(policy, content_security_policy("esmfold.html", (PAGES / "esmfold.html").read_bytes()))
 
     def test_only_the_viewers_own_pages_take_it(self):
         page = b"<html><head><style>p {}</style></head><body></body></html>"
@@ -134,8 +138,11 @@ class ServedPageThemeTests(unittest.TestCase):
             self.assertEqual(page_in_theme_color(os.path.join(folder, "agent.html"), page), page)
         script = SRC / "resources" / "agent" / "attachments.js"
         self.assertEqual(page_in_theme_color(str(script), script.read_bytes()), script.read_bytes())
-        self.assertEqual(page_in_theme_color(str(PAGES / "esmfold.html"), page), page)
-        self.assertIn(web_theme_css(), page_in_theme_color(str(PAGES / "meta.html"), page).decode("utf-8"))
+        for name in THEMED:
+            self.assertIn(web_theme_css(), page_in_theme_color(str(PAGES / name), page).decode("utf-8"))
+        # Mol*'s own style sheets and the page's scripts come as they are.
+        for name in ("esmfold_shell.js", "esmfold_layers.js"):
+            self.assertEqual(page_in_theme_color(str(PAGES / name), b"x"), b"x")
 
 
 class PageFallbackTests(unittest.TestCase):

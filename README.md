@@ -259,12 +259,14 @@ The chosen language covers:
 - the Configuration, Tools and VR Configuration windows, with their tips,
   messages and the Tools help pages;
 - the Viewer's window, sidebar and dialogs, the text on its canvas (the HUD and
-  the console line), and the Agent and metadata pages it opens in the browser;
+  the console line), and the Agent, metadata and Fold View pages it opens in the
+  browser;
 - the benchmark's text report.
 
 These stay English in every language: the commands typed in the Viewer's
 console, terminal output and logs, MCP replies, settings files, the benchmark's
-`.json` results, and the ESMFold structure page, which is Mol*'s own interface.
+`.json` results, and Mol*'s own panels, which the Fold View page shows only in
+its Advanced view.
 
 Simplified Chinese brings a font of its own, Noto Sans SC cut down to the GB2312
 character set (4.37 MiB). The windows, the Viewer's canvas and the browser pages

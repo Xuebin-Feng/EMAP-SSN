@@ -2708,6 +2708,418 @@ Command-line usage:
     </message>
 </context>
 <context>
+    <name>EsmfoldPage</name>
+    <message>
+        <location filename="../../../web_ui/esmfold_layers.js" line="+85"/>
+        <source>the structure has no properties nodes</source>
+        <translation type="unfinished">此结构没有属性节点</translation>
+    </message>
+    <message>
+        <location line="+50"/>
+        <source>no layer {layer} for {file}</source>
+        <translation type="unfinished">{file} 没有图层 {layer}</translation>
+    </message>
+    <message>
+        <location line="+116"/>
+        <source>Could not color {file} by that layer.</source>
+        <translation type="unfinished">无法按该图层给 {file} 着色。</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/esmfold_shell.js" line="+97"/>
+        <source>Connected</source>
+        <translation type="unfinished">已连接</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Reconnecting...</source>
+        <translation type="unfinished">正在重新连接…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location filename="../../../web_ui/esmfold.html" line="+538"/>
+        <source>Connecting...</source>
+        <translation type="unfinished">正在连接…</translation>
+    </message>
+    <message>
+        <location line="+33"/>
+        <source>Light Mode</source>
+        <translation type="unfinished">浅色模式</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <location filename="../../../web_ui/esmfold.html" line="-2"/>
+        <source>Dark Mode</source>
+        <translation type="unfinished">深色模式</translation>
+    </message>
+    <message>
+        <location line="+49"/>
+        <source>Mol* initialized. Connecting to the Viewer...</source>
+        <translation type="unfinished">Mol* 已初始化。正在连接查看器…</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Mol* could not start: {reason}</source>
+        <translation type="unfinished">Mol* 无法启动：{reason}</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Connection error: could not fetch the session.</source>
+        <translation type="unfinished">连接错误：无法获取会话。</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>Processing queued structure: {name}...</source>
+        <translation type="unfinished">正在处理排队的结构：{name}…</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <location filename="../../../web_ui/esmfold.html" line="+34"/>
+        <source>Restoring the saved session...</source>
+        <translation type="unfinished">正在恢复已保存的会话…</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Session restored successfully.</source>
+        <translation type="unfinished">会话已成功恢复。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Started with a fresh blank session.</source>
+        <translation type="unfinished">已从全新的空白会话开始。</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>New structure received: {name}. Loading...</source>
+        <translation type="unfinished">收到新结构：{name}。正在加载…</translation>
+    </message>
+    <message>
+        <location line="+34"/>
+        <source>Loading structure {name}...</source>
+        <translation type="unfinished">正在加载结构 {name}…</translation>
+    </message>
+    <message>
+        <location line="+27"/>
+        <source>Aligning {name} to the pivot structure...</source>
+        <translation type="unfinished">正在将 {name} 对齐到基准结构…</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Loaded and aligned {name}.</source>
+        <translation type="unfinished">已加载并对齐 {name}。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Loaded {name}.</source>
+        <translation type="unfinished">已加载 {name}。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Loaded {name} as the pivot structure.</source>
+        <translation type="unfinished">已将 {name} 加载为基准结构。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Failed to load structure {name}.</source>
+        <translation type="unfinished">无法加载结构 {name}。</translation>
+    </message>
+    <message>
+        <location line="+59"/>
+        <source>Structure</source>
+        <translation type="unfinished">结构</translation>
+    </message>
+    <message>
+        <location line="+39"/>
+        <source>Pivot</source>
+        <translation type="unfinished">基准</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>The other structures are aligned to this one.</source>
+        <translation type="unfinished">其他结构都向它对齐。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>RMSD {rmsd} Å</source>
+        <translation type="unfinished">RMSD {rmsd} Å</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Aligned to the pivot: {used} of {aligned} Cα pairs, {identity}% sequence identity.</source>
+        <translation type="unfinished">已对齐到基准结构：{aligned} 个 Cα 配对中使用了 {used} 个，序列一致性 {identity}%。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Aligned</source>
+        <translation type="unfinished">已对齐</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Aligned to the pivot.</source>
+        <translation type="unfinished">已对齐到基准结构。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>{n} residues</source>
+        <translation type="unfinished">{n} 个残基</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Show {name}</source>
+        <translation type="unfinished">显示 {name}</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Hide {name}</source>
+        <translation type="unfinished">隐藏 {name}</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Zoom to {name}</source>
+        <translation type="unfinished">缩放到 {name}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Remove {name}</source>
+        <translation type="unfinished">移除 {name}</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Structures appear here as they are folded.</source>
+        <translation type="unfinished">结构折叠完成后会显示在这里。</translation>
+    </message>
+    <message>
+        <location line="+30"/>
+        <source>Undo</source>
+        <translation type="unfinished">撤销</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Removed {name}.</source>
+        <translation type="unfinished">已移除 {name}。</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/esmfold_superposition.js" line="+271"/>
+        <source>structure data is not loaded</source>
+        <translation type="unfinished">结构数据尚未加载</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>only {n} CA atoms could be paired</source>
+        <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/esmfold.html" line="-547"/>
+        <location line="+511"/>
+        <source>EMAP-SSN Fold View</source>
+        <translation type="unfinished">EMAP-SSN 结构视图</translation>
+    </message>
+    <message>
+        <location line="-4"/>
+        <source>Skip to the controls</source>
+        <translation type="unfinished">跳到控制面板</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Help</source>
+        <translation type="unfinished">帮助</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Lost the connection to the Viewer. Retrying... The structures stay on screen.</source>
+        <translation type="unfinished">与查看器的连接已断开，正在重试… 结构仍显示在屏幕上。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Structure View</source>
+        <translation type="unfinished">结构视图</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+43"/>
+        <location line="+1"/>
+        <source>Scene</source>
+        <translation type="unfinished">场景</translation>
+    </message>
+    <message>
+        <location line="-39"/>
+        <source>Advanced view: Mol*&apos;s own panels (English only). The same scene, the same session.</source>
+        <translation type="unfinished">高级视图：Mol* 自带的面板（仅英文）。场景和会话与简易视图相同。</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Back to simple view</source>
+        <translation type="unfinished">返回简易视图</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>View tools</source>
+        <translation type="unfinished">视图工具</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+0"/>
+        <source>Reset view</source>
+        <translation type="unfinished">重置视图</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location line="+0"/>
+        <source>Full screen</source>
+        <translation type="unfinished">全屏</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+0"/>
+        <source>Advanced: Mol*&apos;s own panels</source>
+        <translation type="unfinished">高级：Mol* 自带的面板</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Starting the structure view...</source>
+        <translation type="unfinished">正在启动结构视图…</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>No structures yet</source>
+        <translation type="unfinished">还没有结构</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Fold a sequence and its structure appears here, colored by pLDDT. Each new structure is aligned to the first.</source>
+        <translation type="unfinished">折叠一条序列后，其结构会按 pLDDT 着色显示在这里。每个新结构都会与第一个对齐。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Select one node in the Viewer (or several for a batch).</source>
+        <translation type="unfinished">在查看器中选择一个节点（批量折叠可选多个）。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Run &lt;code&gt;esmfold&lt;/code&gt; or &lt;code&gt;esmfold multi&lt;/code&gt;.</source>
+        <translation type="unfinished">运行 &lt;code&gt;esmfold&lt;/code&gt; 或 &lt;code&gt;esmfold multi&lt;/code&gt;。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Open a PDB file...</source>
+        <translation type="unfinished">打开 PDB 文件…</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>3D graphics are not available</source>
+        <translation type="unfinished">三维图形不可用</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>This browser could not start WebGL 2, which the structure view needs. Try another browser, or turn on hardware acceleration in this one.</source>
+        <translation type="unfinished">此浏览器无法启动结构视图所需的 WebGL 2。请换一个浏览器，或在此浏览器中开启硬件加速。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Structures are still folded and saved; the lists keep working.</source>
+        <translation type="unfinished">结构仍会被折叠和保存；列表可继续使用。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Structures</source>
+        <translation type="unfinished">结构</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Fold View Help</source>
+        <translation type="unfinished">结构视图帮助</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Structures arrive from the Viewer as they are folded, and each is aligned to the first. The panel lists them; the canvas shows them.</source>
+        <translation type="unfinished">结构在折叠完成后从查看器送达，每个都会与第一个对齐。面板列出它们，画布显示它们。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mouse</source>
+        <translation type="unfinished">鼠标</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Rotate</source>
+        <translation type="unfinished">旋转</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Drag with the left button</source>
+        <translation type="unfinished">按住左键拖动</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Zoom</source>
+        <translation type="unfinished">缩放</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Scroll wheel, or pinch</source>
+        <translation type="unfinished">滚轮或双指缩放</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Move</source>
+        <translation type="unfinished">平移</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Drag with the right button, or Shift + drag</source>
+        <translation type="unfinished">按住右键拖动，或 Shift + 拖动</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Focus a residue</source>
+        <translation type="unfinished">聚焦残基</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Click it; click empty space to clear</source>
+        <translation type="unfinished">单击残基；单击空白处取消</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Keyboard</source>
+        <translation type="unfinished">键盘</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Moves through the controls</source>
+        <translation type="unfinished">在控件间移动</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Tab</source>
+        <translation type="unfinished">Tab</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Closes this dialog, or leaves the Advanced view</source>
+        <translation type="unfinished">关闭此对话框，或退出高级视图</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Esc</source>
+        <translation type="unfinished">Esc</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Advanced</source>
+        <translation type="unfinished">高级</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The sliders button shows Mol*&apos;s own panels (measurements, quick styles, export, TM-align and more). They are English only.</source>
+        <translation type="unfinished">滑块按钮会显示 Mol* 自带的面板（测量、快速样式、导出、TM-align 等），这些面板仅有英文。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Got it</source>
+        <translation type="unfinished">知道了</translation>
+    </message>
+</context>
+<context>
     <name>LanguageSelector</name>
     <message>
         <location filename="../../../desktop/Desktop_App.py" line="+1857"/>
@@ -5481,7 +5893,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location filename="../../../web_ui/agent_images.py" line="+21"/>
-        <location filename="../../../web_ui/Web_Server.py" line="+747"/>
+        <location filename="../../../web_ui/Web_Server.py" line="+749"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>

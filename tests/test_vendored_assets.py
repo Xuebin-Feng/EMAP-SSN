@@ -8,7 +8,8 @@ THIRD_PARTY_LICENSES.md says these files are copied unchanged, apart from the
 attribution banner on Tabulator's two files. One value in Tabulator's stylesheet
 once changed by accident (16px became 166px) and nothing noticed. A Windows
 checkout may give the files CRLF line ends, so they are compared as git stores
-them, with LF. The Mol* bundle has its own recorded hashes and a -text rule.
+them, with LF. The Mol* bundle and its two style sheets have their own recorded
+hashes (in THIRD_PARTY_LICENSES.md) and a -text rule.
 """
 import hashlib
 from pathlib import Path
@@ -28,6 +29,11 @@ VENDORED = {
 }
 
 
+# Mol* 5.10.1: the files of the Fold View, each with a three-line banner before
+# the upstream body, whose SHA-256 THIRD_PARTY_LICENSES.md records.
+MOL_STAR = ("resources/esmfold/molstar.js", "resources/esmfold/molstar.css", "resources/esmfold/molstar-dark.css")
+
+
 def upstream_body(path: Path, banner_lines: int) -> bytes:
     data = path.read_bytes().replace(b"\r\n", b"\n")
     return b"".join(data.splitlines(keepends=True)[banner_lines:])
@@ -40,14 +46,21 @@ class VendoredLibraryTests(unittest.TestCase):
                 body = upstream_body(SRC / relative, banner_lines)
                 self.assertEqual(hashlib.sha256(body).hexdigest(), digest)
 
+    def test_mol_star_keeps_the_upstream_bytes_recorded_for_it(self):
+        recorded = (SRC.parent / "THIRD_PARTY_LICENSES.md").read_text(encoding="utf-8")
+        for relative in MOL_STAR:
+            with self.subTest(file=relative):
+                body = upstream_body(SRC / relative, 3)
+                self.assertIn(f"`{hashlib.sha256(body).hexdigest()}`", recorded)
+
     def test_fold_view_does_not_fetch_the_mol_star_remote_state_list(self):
         # Without this option Mol* asks webchem.ncbr.muni.cz for its list of
         # shared states on every load; THIRD_PARTY_LICENSES.md §2 says the page
         # makes no such request.
         # The option's own line, not the comment that explains it.
-        page = (SRC / "web_ui" / "esmfold.html").read_text(encoding="utf-8")
-        self.assertRegex(page, r"(?m)^\s*layoutShowRemoteState\s*:\s*false\s*,?\s*$")
-        self.assertNotRegex(page, r"(?m)^\s*layoutShowRemoteState\s*:\s*true")
+        script = (SRC / "web_ui" / "esmfold_shell.js").read_text(encoding="utf-8")
+        self.assertRegex(script, r"(?m)^\s*layoutShowRemoteState\s*:\s*false\s*,?\s*$")
+        self.assertNotRegex(script, r"(?m)^\s*layoutShowRemoteState\s*:\s*true")
 
 
 if __name__ == "__main__":

@@ -1683,6 +1683,329 @@ Command-line usage:
     </message>
 </context>
 <context>
+    <name>EsmfoldPage</name>
+    <message>
+        <source>the structure has no properties nodes</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>no layer {layer} for {file}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not color {file} by that layer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connected</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reconnecting...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connecting...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Light Mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dark Mode</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mol* initialized. Connecting to the Viewer...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mol* could not start: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connection error: could not fetch the session.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Processing queued structure: {name}...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Restoring the saved session...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Session restored successfully.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Started with a fresh blank session.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>New structure received: {name}. Loading...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Loading structure {name}...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aligning {name} to the pivot structure...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Loaded and aligned {name}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Loaded {name}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Loaded {name} as the pivot structure.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed to load structure {name}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Structure</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Pivot</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The other structures are aligned to this one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>RMSD {rmsd} Å</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aligned to the pivot: {used} of {aligned} Cα pairs, {identity}% sequence identity.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aligned</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aligned to the pivot.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{n} residues</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Hide {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Zoom to {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Structures appear here as they are folded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Undo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Removed {name}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>structure data is not loaded</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>only {n} CA atoms could be paired</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN Fold View</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Skip to the controls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Help</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Lost the connection to the Viewer. Retrying... The structures stay on screen.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Structure View</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scene</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Advanced view: Mol*&apos;s own panels (English only). The same scene, the same session.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Back to simple view</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>View tools</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reset view</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Full screen</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Advanced: Mol*&apos;s own panels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Starting the structure view...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No structures yet</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fold a sequence and its structure appears here, colored by pLDDT. Each new structure is aligned to the first.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Select one node in the Viewer (or several for a batch).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Run &lt;code&gt;esmfold&lt;/code&gt; or &lt;code&gt;esmfold multi&lt;/code&gt;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open a PDB file...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>3D graphics are not available</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This browser could not start WebGL 2, which the structure view needs. Try another browser, or turn on hardware acceleration in this one.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Structures are still folded and saved; the lists keep working.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Structures</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Fold View Help</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Structures arrive from the Viewer as they are folded, and each is aligned to the first. The panel lists them; the canvas shows them.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mouse</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Rotate</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drag with the left button</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Zoom</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Scroll wheel, or pinch</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drag with the right button, or Shift + drag</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Focus a residue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Click it; click empty space to clear</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keyboard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tab</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Moves through the controls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Esc</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Closes this dialog, or leaves the Advanced view</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Advanced</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The sliders button shows Mol*&apos;s own panels (measurements, quick styles, export, TM-align and more). They are English only.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Got it</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>LanguageSelector</name>
     <message>
         <source>System default ({language})</source>

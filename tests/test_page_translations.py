@@ -168,8 +168,9 @@ class TranslatedFileTests(unittest.TestCase):
         page = SRC / "web_ui" / "agent.html"
         body = page.read_bytes()
         self.assertEqual(translated_file(page, body, None, pseudo), body)
-        for other in (SRC / "web_ui" / "esmfold.html", SRC / "web_ui" / "page_text.js",
-                      SRC / "resources" / "agent" / "marked.umd.js"):
+        for other in (SRC / "web_ui" / "page_text.js", SRC / "resources" / "agent" / "marked.umd.js",
+                      SRC / "resources" / "esmfold" / "molstar.js", SRC / "resources" / "esmfold" / "molstar.css",
+                      SRC / "resources" / "esmfold" / "molstar-dark.css"):
             with self.subTest(other=other.name):
                 self.assertIsNone(page_context(other))
                 self.assertEqual(translated_file(other, other.read_bytes(), "pseudo", pseudo), other.read_bytes())
@@ -208,7 +209,8 @@ class TranslatedFileTests(unittest.TestCase):
             with self.subTest(page=relative):
                 page = read_page(path.read_text(encoding="utf-8"), path.suffix)
                 self.assertEqual(page.problems, [])
-                self.assertGreater(len(page.texts), 10)
+                # A page has many texts; one of its scripts may have only a few.
+                self.assertGreater(len(page.texts), 10 if path.suffix == ".html" else 0)
 
 
 class PageCheckTests(unittest.TestCase):
@@ -279,6 +281,10 @@ class PageHandler(FixtureHandler):
         "/fonts/desktop/noto/NotoSansSC/NotoSansSC-Bold.ttf":
             SRC / "resources" / "fonts" / "desktop" / "noto" / "NotoSansSC" / "NotoSansSC-Bold.ttf",
         "/esmfold.html": SRC / "web_ui" / "esmfold.html",
+        "/esmfold_shell.js": SRC / "web_ui" / "esmfold_shell.js",
+        "/esmfold_layers.js": SRC / "web_ui" / "esmfold_layers.js",
+        "/esmfold_superposition.js": SRC / "web_ui" / "esmfold_superposition.js",
+        "/esmfold/molstar.js": SRC / "resources" / "esmfold" / "molstar.js",
     }
 
 
@@ -287,6 +293,10 @@ SERVED_TEXTS = {
     "/agent.html": "Clear Chat",
     "/agent_resource/attachments.js": "Remove attachment",
     "/meta.html": "Got it",
+    "/esmfold.html": "Skip to the controls",
+    "/esmfold_shell.js": "Zoom to {name}",
+    "/esmfold_layers.js": "no layer {layer} for {file}",
+    "/esmfold_superposition.js": "structure data is not loaded",
 }
 
 
@@ -614,11 +624,16 @@ class AgentPageTests(WebPageTestCase):
         )
         self.assert_translated()
 
-    def test_the_esmfold_page_stays_english(self):
-        # Mol* has no translations, so its page isn't served in another language.
-        response, body = request(self.server, "GET", "/esmfold.html")
-        self.assertEqual(body, (SRC / "web_ui" / "esmfold.html").read_bytes())
-        self.assertNotIn("web_ui/esmfold.html", PAGE_CONTEXTS)
+    def test_the_esmfold_page_is_translated_and_mol_star_is_not(self):
+        # The page around the canvas has texts of its own; Mol* has no
+        # translations, so its files come as they are, and the Advanced view,
+        # which shows Mol*'s own panels, says they are English only.
+        for name in ("esmfold.html", "esmfold_shell.js", "esmfold_layers.js", "esmfold_superposition.js"):
+            self.assertIn(f"web_ui/{name}", PAGE_CONTEXTS)
+        mol_star = (SRC / "resources" / "esmfold" / "molstar.js").read_bytes()
+        response, body = request(self.server, "GET", "/esmfold/molstar.js")
+        self.assertEqual(body, mol_star)
+        self.assertNotIn("resources/esmfold/molstar.js", PAGE_CONTEXTS)
 
 
 class ChinesePageFontTests(WebPageTestCase):

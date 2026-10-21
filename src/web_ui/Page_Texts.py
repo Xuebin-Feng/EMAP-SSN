@@ -44,6 +44,10 @@ PAGE_CONTEXTS = {
     "web_ui/agent.html": "AgentPage",
     "resources/agent/attachments.js": "AgentPage",
     "web_ui/meta.html": "MetadataPage",
+    "web_ui/esmfold.html": "EsmfoldPage",
+    "web_ui/esmfold_shell.js": "EsmfoldPage",
+    "web_ui/esmfold_layers.js": "EsmfoldPage",
+    "web_ui/esmfold_superposition.js": "EsmfoldPage",
 }
 MARK = "data-i18n"
 TEXT_ATTRIBUTES = frozenset({"title", "placeholder", "aria-label", "alt"})
