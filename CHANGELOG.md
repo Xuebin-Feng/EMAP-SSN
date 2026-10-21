@@ -117,6 +117,26 @@ still change before version 1.0.0.
   - The stopped jobs read "cancelled", not "failed".
   - With no worker running, it succeeds and says so.
   - Like `run stop`, it needs approval when the Agent page asks for it.
+- **Per-residue alignment data on folded structures.**
+  - **What is saved:** when an alignment is loaded, `esmfold` saves
+    `<structure>.residues.json` beside each PDB, with one value per residue:
+    - Information Content: the measure `logo` draws, as a percentage of log2(20) bits.
+    - Residue Agreement: the share of the column's sequences that have this protein's
+      amino acid.
+  - **Matching:** a residue is matched to its MSA column through the protein's aligned
+    row. A protein missing from the alignment, or whose aligned sequence differs from the
+    folded one, gets no data, and the outcome says why.
+  - **The file:** it records the MSA it came from. It is written whole or not at all,
+    and a fold never fails because of it.
+  - **Fold View:** a "Color by" card switches each structure between pLDDT (still the
+    default) and these layers, with a legend, the MSA the values came from, and a hover
+    tooltip such as "Residue Agreement 87.5 % (MSA column 217)". Residues without a
+    value are grey. The page shows a data file only on the structure it was made for:
+    one made for another protein is refused, and the page says why. Superposition and
+    saved sessions work as before.
+  - **Code layout:** the logo and identity-weight computation moved into
+    `utilities.Alignment_Profiles`, shared by `logo`, `label` and the new data. Their
+    output is bit-identical.
 
 ### Changed
 
@@ -376,6 +396,14 @@ still change before version 1.0.0.
     such ties keep exactly the same edges. Networks with many tied scores keep a
     different choice among the tied edges: about 14 % of kept edges on a 13,000-sequence
     BLAST network, where many E-values are 0.
+  - **Threshold mode** (UMAP off) now reads the network in slices too. It no longer
+    loads every pair, which took about 14 GB at 44,000 sequences, or 27 GB with Top
+    Edge % and Average Sequence normalization. The same network now peaks under 1 GB. A
+    fixed threshold is faster than before; a Top Edge % cutoff reads the file a few times
+    and takes 1.2 to 1.6 times as long. The kept edges, their order, the cutoff and the
+    printed cutoff line are exactly as before.
+
+## [0.4.0] - 2026-10-16
 
 ### Highlights
 
