@@ -98,6 +98,7 @@ modules = [
     "test_esmfold_layers",
     "test_esmfold_opened",
     "test_esmfold_residue",
+    "test_esmfold_saved_sessions",
     "test_esmfold_sequence",
     "test_esmfold_shell",
     "test_esmfold_shell_webgl",
