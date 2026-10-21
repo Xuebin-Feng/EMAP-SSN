@@ -65,7 +65,7 @@ else:
 # Fixed, not settings: they are what "PaCMAP" means here. Changing one changes every
 # layout, so Cache_Manifest.PACMAP_REVISION is raised with it.
 
-MID_NEAR_RATIO = 0.5          # mid-near partners per node, as a share of the near ones
+# Mid-near partners per node: half the near ones, rounded up (mid_near_count).
 FURTHER_RATIO = 2             # further partners per node, as a multiple of the near ones
 MID_NEAR_CANDIDATES = 6       # the nodes sampled for each mid-near partner
 
@@ -650,7 +650,7 @@ def rows_of_partners(partners):
 
 
 __all__ = [
-    "MID_NEAR_RATIO", "FURTHER_RATIO", "MID_NEAR_CANDIDATES", "mid_near_count", "further_count",
+    "FURTHER_RATIO", "MID_NEAR_CANDIDATES", "mid_near_count", "further_count",
     "effective_mid_near_count", "random_seed", "connected_nodes", "near_partners", "further_partners",
     "mid_near_candidates", "PairLookup", "stream_pair_scores", "pick_mid_near", "mid_near_pairs",
     "random_mid_near_pairs", "normal_start",

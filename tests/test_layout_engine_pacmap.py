@@ -146,6 +146,22 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(engine.phase_weights(200), (0.0, 1.0, 1.0))
         self.assertEqual(engine.phase_weights(449), (0.0, 1.0, 1.0))
 
+    def test_a_change_to_the_method_raises_the_cache_revision(self):
+        # What a PaCMAP layout depends on, apart from its settings. A cache made under other values is not the
+        # layout these make, so changing any of them means raising Cache_Manifest.PACMAP_REVISION and this
+        # table together.
+        import Cache_Manifest
+        method = (
+            engine.ITERATIONS, engine.INITIAL_MID_NEAR_WEIGHT, engine.LEARNING_RATE, engine.BETA_1, engine.BETA_2,
+            engine.ADAM_EPSILON, engine.START_SCALE, pairs.FURTHER_RATIO, pairs.MID_NEAR_CANDIDATES,
+            pairs.mid_near_count(10), pairs.mid_near_count(15), pairs.further_count(10),
+            (pairs.STREAM_MID_NEAR, pairs.STREAM_FURTHER, pairs.STREAM_START),
+        )
+        revisions = {
+            1: ((100, 100, 250), 1000.0, 1.0, 0.9, 0.999, 1e-7, 1e-4, 2, 6, 5, 8, 20, (1, 2, 3)),
+        }
+        self.assertEqual(method, revisions[Cache_Manifest.PACMAP_REVISION])
+
     def test_adam_and_the_start_follow_the_package(self):
         self.assertEqual((engine.LEARNING_RATE, engine.BETA_1, engine.BETA_2), (1.0, 0.9, 0.999))
         self.assertEqual(engine.ADAM_EPSILON, 1e-7)
