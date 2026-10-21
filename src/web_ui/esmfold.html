@@ -610,8 +610,10 @@
         .srow.failed .chip.err { background: color-mix(in srgb, var(--danger) 14%, transparent); }
         .progress { height: 6px; border-radius: 3px; background: var(--bg-muted); overflow: hidden; margin: 0 auto 10px; max-width: 280px; }
         .progress > div { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.4s ease; }
+        /* What a Viewer with no window can do is said in place of what needs one (its command line, a node to click). */
         .nowindow { display: none; }
-        body[data-hidden="1"] .nowindow { display: block; }
+        body[data-hidden="1"] .nowindow { display: revert; }
+        body[data-hidden="1"] .withwindow { display: none; }
         .status-badge[hidden] { display: none; }
         #hidden-badge { background: var(--warning-soft); color: var(--warning); }
 
@@ -739,7 +741,7 @@
                 </div>
                 <button class="btn btn-ghost" id="theme-toggle-btn" type="button"><svg class="icon" id="theme-toggle-icon" aria-hidden="true"><use href="#i-moon"/></svg><span class="btn-label" id="theme-toggle-label" data-i18n>Dark Mode</span></button>
                 <button class="btn btn-ghost" id="help-btn" type="button"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg><span class="btn-label" data-i18n>Help</span></button>
-                <span id="hidden-badge" class="status-badge" title="This Viewer has no window; folding is started from its command line or an MCP client." hidden><span data-i18n>No window</span></span>
+                <span id="hidden-badge" class="status-badge" title="This Viewer has no window; an MCP client, or whatever else drives it, selects the nodes and runs esmfold." hidden><span data-i18n>No window</span></span>
                 <div id="connection-status" class="status-badge" data-state="connecting" role="status" data-i18n>Connecting...</div>
             </div>
         </header>
@@ -788,17 +790,17 @@
                             <h2 id="folding-title"></h2>
                             <p id="folding-name"></p>
                             <div class="progress" id="folding-bar" role="progressbar" aria-label="Folding progress" aria-valuemin="0" aria-valuemax="1" aria-valuenow="0"><div></div></div>
-                            <p class="hint"><span id="folding-elapsed"></span> · <span data-i18n>Each structure appears here as it is folded. To stop, run <code>esmfold stop</code> in the Viewer.</span></p>
+                            <p class="hint"><span id="folding-elapsed"></span> · <span class="withwindow" data-i18n>Each structure appears here as it is folded. To stop, run <code>esmfold stop</code> in the Viewer.</span><span class="nowindow" data-i18n>Each structure appears here as it is folded.</span></p>
                         </div></div>
                         <div class="empty" data-for="empty"><div class="empty-card">
                             <div class="empty-icon"><svg class="icon" aria-hidden="true"><use href="#i-dna"/></svg></div>
                             <h2 data-i18n>No structures yet</h2>
                             <p data-i18n>Fold a sequence and its structure appears here, colored by pLDDT. Each new structure is aligned to the first.</p>
-                            <ol class="steps">
+                            <ol class="steps withwindow">
                                 <li><span class="n">1</span><span data-i18n>Select one node in the Viewer (or several for a batch).</span></li>
                                 <li><span class="n">2</span><span data-i18n>Run <code>esmfold</code> or <code>esmfold multi</code>.</span></li>
                             </ol>
-                            <p class="hint nowindow" data-i18n>This Viewer has no window. Run <code>esmfold</code> from its command line or an MCP client: the structures appear here.</p>
+                            <p class="hint nowindow" id="empty-nowindow" data-i18n>This Viewer has no window. An MCP client, or whatever else drives it, selects a node and runs <code>esmfold</code>; the structure appears here.</p>
                             <button class="btn" id="open-file" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder-open"/></svg><span data-i18n>Open a PDB file...</span></button>
                         </div></div>
                         <div class="empty" data-for="webgl"><div class="empty-card">

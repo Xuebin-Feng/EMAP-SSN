@@ -2359,7 +2359,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>This Viewer has no window; folding is started from its command line or an MCP client.</source>
+        <source>This Viewer has no window; an MCP client, or whatever else drives it, selects the nodes and runs esmfold.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2439,6 +2439,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Each structure appears here as it is folded.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No structures yet</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2455,7 +2459,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>This Viewer has no window. Run &lt;code&gt;esmfold&lt;/code&gt; from its command line or an MCP client: the structures appear here.</source>
+        <source>This Viewer has no window. An MCP client, or whatever else drives it, selects a node and runs &lt;code&gt;esmfold&lt;/code&gt;; the structure appears here.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

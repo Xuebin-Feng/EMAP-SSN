@@ -182,18 +182,35 @@ class FailureTests(JobTestCase):
 
 
 class NoWindowTests(JobTestCase):
-    def test_a_viewer_with_no_window_gets_a_badge_and_an_explanation(self):
+    SHOWN = """
+        const display = selector => getComputedStyle(document.querySelector(selector)).display;
+        return {badge: !document.getElementById('hidden-badge').hidden, hidden: document.body.dataset.hidden,
+                note: display('#empty-nowindow'), steps: display('.empty[data-for="empty"] .steps'),
+                stop: display('.empty[data-for="folding"] .withwindow'), plain: display('.empty[data-for="folding"] .nowindow')};
+        """
+
+    def test_a_viewer_with_no_window_gets_a_badge_and_says_what_works_instead_of_what_needs_a_window(self):
         self.write_all()
         self.open_page()
-        shown = "return {badge: !document.getElementById('hidden-badge').hidden, hidden: document.body.dataset.hidden, text: getComputedStyle(document.querySelector('.nowindow')).display}"
-        self.assertEqual(self.script(shown), {"badge": False, "text": "none"})
+        self.assertEqual(self.script(self.SHOWN), {"badge": False, "note": "none", "steps": "grid", "stop": "inline", "plain": "none"})
         self.broadcast({"type": "viewer_info", "hidden": True})
         self.settle(300)
-        self.assertEqual(self.script(shown), {"badge": True, "hidden": "1", "text": "block"})
+        # The empty state's two steps (select a node in the Viewer, run esmfold) and the folding card's "run esmfold stop in the
+        # Viewer" need a command line and a node to click, which a Viewer with no window does not have: they give way to a note.
+        self.assertEqual(self.script(self.SHOWN), {"badge": True, "hidden": "1", "note": "block", "steps": "none", "stop": "none", "plain": "inline"})
         self.assertEqual(self.script("return document.getElementById('hidden-badge').textContent"), "No window")
+        texts = self.script("""
+            return {note: document.getElementById('empty-nowindow').textContent, badge: document.getElementById('hidden-badge').title,
+                    plain: document.querySelector('.empty[data-for="folding"] .nowindow').textContent};
+            """)
+        self.assertEqual(texts["note"], "This Viewer has no window. An MCP client, or whatever else drives it, selects a node and runs esmfold; the structure appears here.")
+        self.assertEqual(texts["badge"], "This Viewer has no window; an MCP client, or whatever else drives it, selects the nodes and runs esmfold.")
+        self.assertEqual(texts["plain"], "Each structure appears here as it is folded.")
+        for text in texts.values():
+            self.assertNotIn("command line", text)
         self.broadcast({"type": "viewer_info", "hidden": False})
         self.settle(300)
-        self.assertEqual(self.script(shown), {"badge": False, "hidden": "0", "text": "none"})
+        self.assertEqual(self.script(self.SHOWN), {"badge": False, "hidden": "0", "note": "none", "steps": "grid", "stop": "inline", "plain": "none"})
         self.assertEqual(self.console_errors(), [])
 
 

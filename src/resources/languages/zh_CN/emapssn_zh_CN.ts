@@ -2937,7 +2937,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+52"/>
-        <location filename="../../../web_ui/esmfold.html" line="+834"/>
+        <location filename="../../../web_ui/esmfold.html" line="+836"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3440,8 +3440,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-707"/>
-        <location line="+702"/>
+        <location filename="../../../web_ui/esmfold.html" line="-709"/>
+        <location line="+704"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -3487,14 +3487,18 @@ Command-line usage:
         <translation type="unfinished">帮助</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>This Viewer has no window; folding is started from its command line or an MCP client.</source>
-        <translation type="unfinished">此查看器没有窗口；折叠需从它的命令行或 MCP 客户端启动。</translation>
+        <translation type="obsolete">此查看器没有窗口；折叠需从它的命令行或 MCP 客户端启动。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>No window</source>
+        <translation type="unfinished">无窗口</translation>
     </message>
     <message>
         <location line="+0"/>
-        <source>No window</source>
-        <translation type="unfinished">无窗口</translation>
+        <source>This Viewer has no window; an MCP client, or whatever else drives it, selects the nodes and runs esmfold.</source>
+        <translation type="unfinished">此查看器没有窗口；由 MCP 客户端（或其他驱动它的程序）选择节点并运行 esmfold。</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -3598,6 +3602,11 @@ Command-line usage:
         <translation type="unfinished">每个结构折叠完成后会显示在这里。要停止，请在查看器中运行 &lt;code&gt;esmfold stop&lt;/code&gt;。</translation>
     </message>
     <message>
+        <location line="+0"/>
+        <source>Each structure appears here as it is folded.</source>
+        <translation type="unfinished">每个结构折叠完成后会显示在这里。</translation>
+    </message>
+    <message>
         <location line="+4"/>
         <source>No structures yet</source>
         <translation type="unfinished">还没有结构</translation>
@@ -3618,9 +3627,13 @@ Command-line usage:
         <translation type="unfinished">运行 &lt;code&gt;esmfold&lt;/code&gt; 或 &lt;code&gt;esmfold multi&lt;/code&gt;。</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>This Viewer has no window. Run &lt;code&gt;esmfold&lt;/code&gt; from its command line or an MCP client: the structures appear here.</source>
-        <translation type="unfinished">此查看器没有窗口。请在它的命令行或 MCP 客户端中运行 &lt;code&gt;esmfold&lt;/code&gt;：结构会显示在这里。</translation>
+        <translation type="obsolete">此查看器没有窗口。请在它的命令行或 MCP 客户端中运行 &lt;code&gt;esmfold&lt;/code&gt;：结构会显示在这里。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>This Viewer has no window. An MCP client, or whatever else drives it, selects a node and runs &lt;code&gt;esmfold&lt;/code&gt;; the structure appears here.</source>
+        <translation type="unfinished">此查看器没有窗口。由 MCP 客户端（或其他驱动它的程序）选择节点并运行 &lt;code&gt;esmfold&lt;/code&gt;；结构会显示在这里。</translation>
     </message>
     <message>
         <location line="+1"/>
