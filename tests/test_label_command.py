@@ -152,7 +152,7 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 ), \
                 color_map_patch, \
                 mock.patch.object(
-                    label.logo_cmd,
+                    label.Alignment_Profiles,
                     "calculate_identity_weights",
                     return_value=np.asarray(identity_weights, dtype=float),
                 ) as identity_weight_mock, \

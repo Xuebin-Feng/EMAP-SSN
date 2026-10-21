@@ -9,6 +9,7 @@ x axis label, and the job `logo` enqueues and the outcome it reports.
 import io
 import os
 import re
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -28,6 +29,7 @@ import Alignment_Manager
 import Command_Engine
 from tests.sparse_alignment import sparse_alignment
 from commands import logo as logo_command
+from utilities import Alignment_Profiles
 from commands.logo import (
     _configure_logo_y_axis,
     _calculate_identity_neighbour_counts_numpy,
@@ -404,7 +406,7 @@ class LogoSequenceWeightingTests(unittest.TestCase):
                     threshold,
                     block_size=3,
                 )
-                actual, _ = logo_command.run_identity_neighbour_counts(
+                actual, _ = Alignment_Profiles.run_identity_neighbour_counts(
                     encoded,
                     multiplicities,
                     threshold,
@@ -419,7 +421,7 @@ class LogoSequenceWeightingTests(unittest.TestCase):
         sequences.extend([sequences[0], sequences[0], sequences[1]])
 
         accelerated = calculate_identity_weights(sequences, 0.9)
-        with mock.patch.object(logo_command, "NUMBA_AVAILABLE", False):
+        with mock.patch.object(Alignment_Profiles, "NUMBA_AVAILABLE", False):
             fallback = calculate_identity_weights(sequences, 0.9)
 
         np.testing.assert_array_equal(accelerated, fallback)
@@ -432,7 +434,7 @@ class LogoSequenceWeightingTests(unittest.TestCase):
         )
 
     def test_numba_unavailable_uses_exact_numpy_fallback(self):
-        with mock.patch.object(logo_command, "NUMBA_AVAILABLE", False):
+        with mock.patch.object(Alignment_Profiles, "NUMBA_AVAILABLE", False):
             weights, metadata = calculate_identity_weights(
                 ["AAAA", "AAAA", "GGGG"],
                 0.9,
@@ -445,7 +447,7 @@ class LogoSequenceWeightingTests(unittest.TestCase):
 
     def test_numba_error_uses_exact_numpy_fallback(self):
         with mock.patch.object(
-            logo_command,
+            Alignment_Profiles,
             "run_identity_neighbour_counts",
             side_effect=RuntimeError("forced kernel error"),
         ):
@@ -471,7 +473,7 @@ class LogoIdentityKernelThreadTests(unittest.TestCase):
         for configured, logical, expected in cases:
             with self.subTest(configured=configured, logical=logical):
                 self.assertEqual(
-                    logo_command.choose_balanced_thread_count(
+                    Alignment_Profiles.choose_balanced_thread_count(
                         configured,
                         logical,
                     ),
@@ -485,27 +487,27 @@ class LogoIdentityKernelThreadTests(unittest.TestCase):
 
         with (
             mock.patch.object(
-                logo_command,
+                Alignment_Profiles,
                 "get_num_threads",
                 return_value=20,
             ),
             mock.patch.object(
-                logo_command,
+                Alignment_Profiles,
                 "set_num_threads",
             ) as set_threads,
             mock.patch.object(
-                logo_command.os,
+                Alignment_Profiles.os,
                 "cpu_count",
                 return_value=20,
             ),
             mock.patch.object(
-                logo_command,
+                Alignment_Profiles,
                 "_identity_neighbour_counts_kernel",
                 return_value=expected_counts,
             ),
         ):
             counts, selected_threads = (
-                logo_command.run_identity_neighbour_counts(
+                Alignment_Profiles.run_identity_neighbour_counts(
                     encoded,
                     multiplicities,
                     0.9,
@@ -522,27 +524,27 @@ class LogoIdentityKernelThreadTests(unittest.TestCase):
     def test_worker_restores_threads_after_kernel_error(self):
         with (
             mock.patch.object(
-                logo_command,
+                Alignment_Profiles,
                 "get_num_threads",
                 return_value=4,
             ),
             mock.patch.object(
-                logo_command,
+                Alignment_Profiles,
                 "set_num_threads",
             ) as set_threads,
             mock.patch.object(
-                logo_command.os,
+                Alignment_Profiles.os,
                 "cpu_count",
                 return_value=4,
             ),
             mock.patch.object(
-                logo_command,
+                Alignment_Profiles,
                 "_identity_neighbour_counts_kernel",
                 side_effect=RuntimeError("kernel failed"),
             ),
         ):
             with self.assertRaisesRegex(RuntimeError, "kernel failed"):
-                logo_command.run_identity_neighbour_counts(
+                Alignment_Profiles.run_identity_neighbour_counts(
                     np.zeros((1, 1), dtype=np.int8),
                     np.ones(1, dtype=np.int64),
                     0.9,
@@ -552,6 +554,60 @@ class LogoIdentityKernelThreadTests(unittest.TestCase):
             set_threads.call_args_list,
             [mock.call(2), mock.call(4)],
         )
+
+
+class LogoUtilityAliasTests(unittest.TestCase):
+    """The computation lives in utilities.Alignment_Profiles; logo keeps the names it always had for it."""
+
+    SAME_NAME = (
+        "STANDARD_AAS", "NUMBA_AVAILABLE", "calculate_identity_weights", "calculate_logo_matrix",
+        "choose_balanced_thread_count", "get_balanced_thread_count", "get_num_threads",
+        "set_num_threads", "run_identity_neighbour_counts", "_ASCII_TO_STANDARD_CODE",
+        "_DECODE_BLOCK_ROWS", "_IDENTITY_CHUNKS_PER_THREAD", "_IDENTITY_TILE_ROWS",
+        "_calculate_identity_neighbour_counts_numpy", "_pack_identity_planes", "_unique_encoded_rows",
+    )
+    RENAMED = {
+        "_encode_standard_amino_acids": "encode_standard_amino_acids",
+        "_aligned_row_strings": "aligned_row_strings",
+    }
+
+    def test_every_name_logo_always_had_is_the_utilitys_object(self):
+        for name in self.SAME_NAME:
+            with self.subTest(name=name):
+                self.assertIs(getattr(logo_command, name), getattr(Alignment_Profiles, name))
+        for old, new in self.RENAMED.items():
+            with self.subTest(name=old):
+                self.assertIs(getattr(logo_command, old), getattr(Alignment_Profiles, new))
+        if Alignment_Profiles.NUMBA_AVAILABLE:
+            for name in ("_identity_neighbour_counts_kernel", "_popcount64"):
+                with self.subTest(name=name):
+                    self.assertIs(getattr(logo_command, name), getattr(Alignment_Profiles, name))
+
+    def test_patching_the_utility_reaches_logos_aliases(self):
+        with mock.patch.object(Alignment_Profiles, "NUMBA_AVAILABLE", False):
+            _, metadata = logo_command.calculate_identity_weights(
+                ["AAAA", "AAAA", "GGGG"], 0.9, return_metadata=True
+            )
+        self.assertEqual(metadata["backend"], "numpy")
+        _, metadata = logo_command.calculate_identity_weights(
+            ["AAAA", "AAAA", "GGGG"], 0.9, return_metadata=True
+        )
+        self.assertEqual(metadata["backend"], "numba" if Alignment_Profiles.NUMBA_AVAILABLE else "numpy")
+
+    def test_the_utility_needs_no_viewer_settings_or_qt(self):
+        # Fresh interpreter: what the import itself pulls in.
+        script = (
+            "import sys; sys.path.insert(0, sys.argv[1]);"
+            "import utilities.Alignment_Profiles;"
+            "bad = sorted(name for name in sys.modules if name.split('.')[0] in "
+            "('PySide6', 'Command_Engine', 'EMAPSSN_Config', 'commands'));"
+            "print(bad)"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script, SRC_DIR], capture_output=True, text=True, timeout=300,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip().splitlines()[-1], "[]")
 
 
 class LogoSynchronousArtifactTests(unittest.TestCase):

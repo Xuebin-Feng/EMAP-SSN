@@ -32,6 +32,7 @@ from Bio.Align import MultipleSeqAlignment
 from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
+from utilities import Alignment_Profiles
 from utilities.Localization import Message
 from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
@@ -305,7 +306,7 @@ def _residue_lengths(aln, gap_chars):
 
 
 def _standard_residue_rows(aln, block_rows=4096):
-    """Rows encoded for logo.calculate_identity_weights (0-19 or -1), or None.
+    """Rows encoded for Alignment_Profiles.calculate_identity_weights (0-19 or -1), or None.
 
     Equal to encoding [str(record.seq).upper() for record in aln] without
     building the strings.
@@ -322,8 +323,8 @@ def _standard_residue_rows(aln, block_rows=4096):
         if not isinstance(decoded, str) or len(decoded) != 1:
             return None
         decoded = decoded.upper()
-        if decoded in logo_cmd.STANDARD_AAS:
-            table[code] = logo_cmd.STANDARD_AAS.index(decoded)
+        if decoded in Alignment_Profiles.STANDARD_AAS:
+            table[code] = Alignment_Profiles.STANDARD_AAS.index(decoded)
     row_count, column_count = matrix.shape
     encoded = np.empty((row_count, column_count), dtype=np.int8)
     for start in range(0, row_count, block_rows):
@@ -1042,7 +1043,7 @@ def _run_label_artifact(viewer, args):
                 global_sequences = [
                     str(record.seq).upper() for record in viewer.alignment.aln
                 ]
-            global_weights = logo_cmd.calculate_identity_weights(
+            global_weights = Alignment_Profiles.calculate_identity_weights(
                 global_sequences,
                 identity_threshold,
                 report_backend=True,
