@@ -6,9 +6,11 @@
     "NORM_MODE": {"type": ["string", "null"], "enum": ["alignment_length", "shorter_sequence", "longer_sequence", "average_sequence", null], "default": "alignment_length", "description": "Embedding-alignment networks only: divisor applied to the raw alignment score. local scores cannot use alignment_length. longer_sequence penalizes length differences most; shorter_sequence lets a fragment score highly against a longer relative."},
     "SIMILARITY_THRESHOLD": {"type": ["number", "null"], "default": null, "description": "Physics layouts: keep edges whose score is at least this value. Units depend on the network: the normalized alignment score for embedding networks, -log10(E-value) for E-value networks. Ignored when TOP_EDGE_PERCENT is set or UMAP_MODE is true."},
     "TOP_EDGE_PERCENT": {"type": ["number", "null"], "minimum": 0, "maximum": 100, "default": null, "description": "Physics layouts: keep the best N percent of all possible pairs among the laid-out nodes (N(N-1)/2, not the stored pairs); the cutoff becomes the Nth-best score. Overrides SIMILARITY_THRESHOLD."},
-    "UMAP_MODE": {"type": "boolean", "default": false, "description": "true computes coordinates with UMAP from each node's strongest edges instead of the physics simulation; edge filters are then ignored."},
+    "UMAP_MODE": {"type": "boolean", "default": false, "description": "true computes coordinates with a manifold method (LAYOUT_METHOD: UMAP or PaCMAP) from each node's strongest edges instead of the physics simulation; edge filters are then ignored. The name is historical: it covers PaCMAP too."},
     "UMAP_NEIGHBORS": {"type": "integer", "minimum": 2, "gui_range": [2, 500], "default": 15, "description": "UMAP only: other nodes per neighborhood. Smaller values emphasize local subclusters, larger values global structure."},
     "UMAP_MIN_DIST": {"type": "number", "minimum": 0, "maximum": 1, "default": 0.1, "description": "UMAP only: minimum spacing of points; lower packs clusters tighter."},
+    "LAYOUT_METHOD": {"type": "string", "enum": ["umap", "pacmap"], "default": "umap", "description": "Which manifold method UMAP_MODE uses (ignored when UMAP_MODE is false). umap is the default. pacmap keeps PACMAP_NEIGHBORS strongest edges per node and also samples random node pairs and looks up their stored scores to place clusters relative to each other, so its global arrangement is truer than UMAP's; it runs on CPU threads in seconds and ignores UMAP_NEIGHBORS and UMAP_MIN_DIST. Same LAYOUT_SEED, LAYOUT_DIMENSIONS and BOX_SCALE."},
+    "PACMAP_NEIGHBORS": {"type": "integer", "minimum": 2, "maximum": 50, "default": 10, "description": "PaCMAP only: each node's strongest edges used as near pairs, and the edges kept and drawn per node. Mid-near and further pairs are fixed multiples of it."},
     "LAYOUT_DIMENSIONS": {"type": "integer", "enum": [2, 3], "default": 2, "description": "2 for the desktop Viewer; 3 only for the optional VR viewer (stored in a separate _3D cache folder)."},
     "LAYOUT_SEED": {"type": ["integer", "null"], "minimum": 0, "default": 42, "description": "Random seed for reproducible coordinates; null gives an unseeded run."},
     "LAYOUT_DEVICE_SELECTION": {"type": "string", "pattern": "^(auto|cpu|mps|(cuda|xpu):[0-9]+)$", "default": "auto", "description": "Compute device for the physics simulation. auto first runs a short benchmark (seconds for small networks) and may pick a different backend per component-size class."},
@@ -35,7 +37,7 @@
     "CACHE_NAME_MODE": {"type": "string", "enum": ["auto", "explicit"], "description": "auto picks the next free version; explicit uses CACHE_FILENAME and fails if that file exists."}
   },
   "rules": [
-    "A physics layout needs SIMILARITY_THRESHOLD or TOP_EDGE_PERCENT; TOP_EDGE_PERCENT wins when both are set, and UMAP ignores both.",
+    "A physics layout needs SIMILARITY_THRESHOLD or TOP_EDGE_PERCENT; TOP_EDGE_PERCENT wins when both are set, and UMAP and PaCMAP ignore both.",
     "Embedding-alignment networks need ALIGNMENT_SCORE and NORM_MODE; local scores cannot use alignment_length.",
     "A layout job never overwrites a cache; caches with the same inputs and edge filter share a folder as version_00.h5, version_01.h5, ...",
     "gui_range is the Config GUI's slider range; the job accepts any value meeting the minimum and maximum."

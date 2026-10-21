@@ -264,7 +264,10 @@ def layout_summary(generated, settings):
         1 for header, _sequence in generated.fasta_records
         if header not in kept and (not header.split() or header.split()[0] not in kept_ids)
     )
-    if settings.UMAP_MODE:
+    pacmap = bool(settings.UMAP_MODE) and getattr(settings, "LAYOUT_METHOD", "umap") == "pacmap"
+    if pacmap:
+        edge_filter = {"mode": "pacmap_neighbors", "value": settings.PACMAP_NEIGHBORS}
+    elif settings.UMAP_MODE:
         edge_filter = {"mode": "umap_neighbors", "value": settings.UMAP_NEIGHBORS}
     elif settings.TOP_EDGE_PERCENT is not None:
         edge_filter = {"mode": "top_edge_percent", "value": settings.TOP_EDGE_PERCENT}
@@ -272,7 +275,7 @@ def layout_summary(generated, settings):
         edge_filter = {"mode": "similarity_threshold", "value": settings.SIMILARITY_THRESHOLD}
     threshold = generated.effective_similarity_threshold
     return {
-        "layout_mode": "umap" if settings.UMAP_MODE else "physics",
+        "layout_mode": "pacmap" if pacmap else "umap" if settings.UMAP_MODE else "physics",
         "layout_dimensions": int(settings.LAYOUT_DIMENSIONS),
         "nodes": nodes,
         "fasta_records": len(generated.fasta_records),

@@ -125,14 +125,16 @@ modules = [
 ]
 
 [sections.layout]
-description = "Layout engines, GPU kernels, spectral start, packing, time step"
-seconds = 75
+description = "Layout engines, GPU kernels, spectral start, packing, time step, PaCMAP pairs"
+seconds = 90
 modules = [
+    "test_layout_engine_pacmap",
     "test_layout_engine_ssn",
     "test_layout_engine_umap",
     "test_layout_gpu_kernels",
     "test_layout_packing",
     "test_layout_time_step_guard",
+    "test_pacmap_pairs",
     "test_parallel_kernels",
     "test_spectral_start",
 ]
@@ -145,6 +147,7 @@ modules = [
     "test_cache_metadata",
     "test_headless_settings",
     "test_layout_cache_generator",
+    "test_pacmap_settings",
     "test_viewer_settings_documents",
 ]
 
@@ -201,6 +204,7 @@ modules = [
     "test_emapssn_config_consistency_check",
     "test_emapssn_config_embedding_input",
     "test_emapssn_config_launch",
+    "test_emapssn_config_layout_method",
     "test_emapssn_config_low_resource",
     "test_emapssn_config_profiles",
     "test_emapssn_config_responsive_layout",

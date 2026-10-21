@@ -9,17 +9,19 @@ import sys
 import uuid
 import numpy as np
 
+from desktop.Viewer_State import knn_topology_layout
 from utilities.Localization import JoinedMessage, Message
 
 
 def edges_follow_selection(viewer, configuration):
     """Whether edge_stages filters the edges it keeps by the selection.
 
-    UMAP mode keeps only the selected nodes' edges. Otherwise the threshold
-    and hidden nodes alone decide, and the Viewer draws a prefix of its
-    score-sorted edges; a node drag draws them all, following the nodes.
+    A UMAP or PaCMAP layout (knn_topology_layout) keeps only the selected
+    nodes' edges. Otherwise the threshold and hidden nodes alone decide, and
+    the Viewer draws a prefix of its score-sorted edges; a node drag draws
+    them all, following the nodes.
     """
-    return bool(getattr(configuration, 'UMAP_MODE', False))
+    return knn_topology_layout(configuration)
 
 
 def edge_stages(viewer, configuration, cache=False):
@@ -40,7 +42,7 @@ def edge_stages(viewer, configuration, cache=False):
             viewer._edge_filter_cache = (key, active, qualified_count)
     visible_count = len(active)
     selection = getattr(viewer, 'selected_indices', ())
-    if getattr(configuration, 'UMAP_MODE', False):
+    if knn_topology_layout(configuration):
         active = active[np.isin(active[:, 0], selection) | np.isin(active[:, 1], selection)]
     return active, {'loaded_edge_count': len(edges), 'threshold_qualified_edge_count': qualified_count,
                     'visible_endpoint_edge_count': visible_count, 'rendered_edge_count': len(active)}

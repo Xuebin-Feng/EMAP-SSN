@@ -32,6 +32,9 @@ from desktop.Viewer_State import prepare_network
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_NAME = Path(__file__).name
 
+# PACMAP_NEIGHBORS: the near pairs per node, and the strongest edges kept and drawn per node.
+PACMAP_NEIGHBORS_RANGE = (2, 50)
+
 
 class LayoutGenerationError(ValueError):
     """Raised when settings or cache publication are unsafe or invalid."""
@@ -119,6 +122,11 @@ class LayoutGenerationSettings:
     LAYOUT_SEED: int | None = 42
     # Each simulated stage picks its own fastest stable DT; DT is then unused.
     AUTO_DT: bool = False
+    # A manifold layout (UMAP_MODE) is laid out by UMAP or by PaCMAP. PaCMAP keeps and draws
+    # PACMAP_NEIGHBORS strongest edges per node, has no minimum distance, and shares
+    # LAYOUT_SEED, LAYOUT_DIMENSIONS and BOX_SCALE with UMAP.
+    LAYOUT_METHOD: str = "umap"
+    PACMAP_NEIGHBORS: int = 10
 
     # Coordinate-affecting values which are currently hidden in EMAP-SSN Configuration.
     BOX_SCALE: float = 2.0
@@ -222,6 +230,8 @@ class LayoutGenerationSettings:
             "MAX_TOTAL_REPULSION_FORCE": 0.0,
             "LAYOUT_DIMENSIONS": 2,
             "LAYOUT_SEED": 42,
+            "LAYOUT_METHOD": "umap",
+            "PACMAP_NEIGHBORS": 10,
         }
         values = {
             key: getattr(namespace, key, default)
@@ -290,6 +300,17 @@ class LayoutGenerationSettings:
             raise LayoutGenerationError("PACKING_GEOMETRY must be Square or Circle.")
         if self.LAYOUT_DIMENSIONS not in {2, 3}:
             raise LayoutGenerationError("LAYOUT_DIMENSIONS must be 2 or 3.")
+        if self.LAYOUT_METHOD not in cache_manifest.LAYOUT_METHODS:
+            raise LayoutGenerationError("LAYOUT_METHOD must be umap or pacmap.")
+        if (
+            isinstance(self.PACMAP_NEIGHBORS, bool)
+            or not isinstance(self.PACMAP_NEIGHBORS, int)
+            or not PACMAP_NEIGHBORS_RANGE[0] <= self.PACMAP_NEIGHBORS <= PACMAP_NEIGHBORS_RANGE[1]
+        ):
+            raise LayoutGenerationError(
+                "PACMAP_NEIGHBORS must be an integer from "
+                f"{PACMAP_NEIGHBORS_RANGE[0]} to {PACMAP_NEIGHBORS_RANGE[1]}."
+            )
         if self.LAYOUT_SEED is not None and (
             not isinstance(self.LAYOUT_SEED, int)
             or isinstance(self.LAYOUT_SEED, bool)
@@ -382,11 +403,19 @@ class LayoutGenerationSettings:
             "NORM_MODE",
             "TOP_EDGE_PERCENT",
         }
+        if not self.uses_pacmap():
+            # UMAP and physics layouts record what they always did, so their caches keep
+            # the identity they had before PaCMAP existed.
+            excluded |= {"LAYOUT_METHOD", "PACMAP_NEIGHBORS"}
         return {
             item.name: getattr(self, item.name)
             for item in fields(self)
             if not item.name.startswith("_") and item.name not in excluded
         }
+
+    def uses_pacmap(self) -> bool:
+        """Whether this run lays the network out with PaCMAP (a manifold layout by that method)."""
+        return bool(self.UMAP_MODE) and self.LAYOUT_METHOD == "pacmap"
 
 
 @dataclass
@@ -411,6 +440,8 @@ def _manifest_settings(settings: LayoutGenerationSettings) -> dict[str, Any]:
         "top_edge_percent": settings.TOP_EDGE_PERCENT,
         "similarity_threshold": settings.SIMILARITY_THRESHOLD,
         "layout_dimensions": settings.LAYOUT_DIMENSIONS,
+        "layout_method": settings.LAYOUT_METHOD,
+        "pacmap_neighbors": settings.PACMAP_NEIGHBORS,
     }
 
 
@@ -639,6 +670,27 @@ def generate_layout_cache(
         return _generate_layout_cache_locked(settings)
 
 
+def _pacmap_mid_near_pairs(settings, source, index_map, node_count, edges, edge_scores):
+    """PaCMAP's mid-near pairs, found from the stored scores while the pair file is open.
+
+    A second pass over the pairs looks up the scores of the sampled node pairs
+    (utilities.PaCMAP_Pairs); every connected node gets its pairs from them.
+    """
+    from utilities import PaCMAP_Pairs
+
+    edges = np.asarray(edges).reshape(-1, 2)
+    ids, _ = PaCMAP_Pairs.connected_nodes(edges[:, 0], edges[:, 1], node_count)
+    seed = settings.LAYOUT_SEED if settings.LAYOUT_SEED is not None else PaCMAP_Pairs.random_seed()
+    print(
+        f"PaCMAP: looking up the stored scores of {len(ids)} x "
+        f"{PaCMAP_Pairs.effective_mid_near_count(len(ids), settings.PACMAP_NEIGHBORS)} "
+        f"x {PaCMAP_Pairs.MID_NEAR_CANDIDATES} sampled pairs for the mid-near partners..."
+    )
+    return PaCMAP_Pairs.mid_near_pairs(
+        source, index_map, node_count, ids, settings.PACMAP_NEIGHBORS, seed
+    )
+
+
 def _generate_layout_cache_locked(settings: LayoutGenerationSettings) -> LayoutGenerationResult:
     """Generate and atomically publish one minimal layout cache."""
     settings.validate()
@@ -675,11 +727,18 @@ def _generate_layout_cache_locked(settings: LayoutGenerationSettings) -> LayoutG
         for item in fields(settings)
         if not item.name.startswith("_")
     })
+    pacmap_pairs = {}
     with h5py.File(settings.INPUT_HDF5, "r") as raw_data:
         full_headers, edges, edge_scores = prepare_network(
             raw_data,
             settings=preparation_settings,
             selected_fasta_headers=headers,
+            # PaCMAP's mid-near pairs need the stored scores of sampled pairs, which are
+            # read here: the pair file is closed before the engine runs.
+            with_pair_source=(
+                (lambda *found: pacmap_pairs.update(mid_near=_pacmap_mid_near_pairs(settings, *found)))
+                if settings.uses_pacmap() else None
+            ),
         )
 
     n_nodes = len(full_headers)
@@ -692,12 +751,16 @@ def _generate_layout_cache_locked(settings: LayoutGenerationSettings) -> LayoutG
         if len(edges)
         else np.zeros((0, 3), dtype=np.float32)
     )
-    if settings.UMAP_MODE:
+    if settings.uses_pacmap():
+        import Layout_Engine_PaCMAP as layout_engine
+    elif settings.UMAP_MODE:
         import Layout_Engine_UMAP as layout_engine
     else:
         import Layout_Engine_SSN as layout_engine
 
     params = settings.engine_params()
+    if settings.uses_pacmap():
+        params["PACMAP_MID_NEAR"] = pacmap_pairs["mid_near"]
     effective_threshold = preparation_settings.SIMILARITY_THRESHOLD
     if effective_threshold is not None:
         effective_threshold = float(effective_threshold)

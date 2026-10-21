@@ -390,7 +390,7 @@ class BoxSelectionTests(unittest.TestCase):
 
 
 # =====================================================================
-# UMAP mode (Plot UMAP Instead on)
+# UMAP mode (Plot Manifold Instead on)
 # =====================================================================
 
 class UmapModeTests(unittest.TestCase):
@@ -414,23 +414,46 @@ class UmapModeTests(unittest.TestCase):
     """
 
     def test_the_viewer_reads_the_mode_only_where_these_effects_depend_on_it(self):
-        mentions = {}
+        # UMAP and PaCMAP layouts behave alike: both keep each node's strongest edges, draw
+        # the selected nodes' edges and cannot be dragged. The Viewer asks
+        # desktop.Viewer_State.knn_topology_layout for that; only the cache lookup, which
+        # must name the layout, reads UMAP_MODE and LAYOUT_METHOD themselves.
+        reads, asks = {}, {}
         for path in ("EMAPSSN_Viewer.py", "Viewer_Visual_State.py"):
             source = (SRC / path).read_text(encoding="utf-8")
             for function in ast.walk(ast.parse(source)):
-                if isinstance(function, ast.FunctionDef) and "UMAP_MODE" in ast.get_source_segment(source, function):
-                    mentions.setdefault(path, set()).add(function.name)
+                if isinstance(function, ast.FunctionDef):
+                    body = ast.get_source_segment(source, function)
+                    if "UMAP_MODE" in body or "LAYOUT_METHOD" in body:
+                        reads.setdefault(path, set()).add(function.name)
+                    if "knn_topology_layout" in body:
+                        asks.setdefault(path, set()).add(function.name)
         # The cache lookup, the drag, and the selection's edges: nothing else reads the mode, so
         # nothing else makes a switch's effect differ there. A new reader needs this list
         # (and the Config's greying) thought through again.
-        self.assertEqual(mentions, {
-            "EMAPSSN_Viewer.py": {"load_and_simulate", "on_mouse_press"},
+        self.assertEqual(reads, {"EMAPSSN_Viewer.py": {"load_and_simulate"}})
+        self.assertEqual(asks, {
+            "EMAPSSN_Viewer.py": {"on_mouse_press"},
             "Viewer_Visual_State.py": {"edge_stages", "edges_follow_selection"},
         })
         for path in sorted((SRC / "desktop").glob("Viewer_*.py")):
             if path.name != "Viewer_State.py":              # the settings, not behaviour
                 with self.subTest(path=path.name):
-                    self.assertNotIn("UMAP_MODE", path.read_text(encoding="utf-8"))
+                    source = path.read_text(encoding="utf-8")
+                    self.assertNotIn("UMAP_MODE", source)
+                    self.assertNotIn("LAYOUT_METHOD", source)
+
+    def test_the_predicate_is_true_for_a_umap_or_pacmap_layout_and_not_for_physics(self):
+        for settings, expected in (
+            ({"UMAP_MODE": False}, False),
+            ({"UMAP_MODE": False, "LAYOUT_METHOD": "pacmap"}, False),   # the method means nothing without the mode
+            ({"UMAP_MODE": True}, True),
+            ({"UMAP_MODE": True, "LAYOUT_METHOD": "umap"}, True),
+            ({"UMAP_MODE": True, "LAYOUT_METHOD": "pacmap"}, True),
+            ({}, False),
+        ):
+            with self.subTest(settings=settings):
+                self.assertIs(Viewer_State.knn_topology_layout(SimpleNamespace(**settings)), expected)
 
     def test_the_zoom_and_sidebar_animations_and_the_frame_rate_ignore_the_mode(self):
         import inspect

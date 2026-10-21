@@ -660,7 +660,7 @@ def _svg_snapshot(viewer, view_width=None):
         outline_widths = np.full(count, float(getattr(cfg, 'NODE_BOUNDARY_WIDTH', 0.5)))
 
     # The edges on screen: the similarity threshold, visible endpoints and
-    # UMAP selection, in a new array.
+    # the selection of a UMAP or PaCMAP layout, in a new array.
     active_edges, _ = edge_stages(viewer, cfg)
     return _SvgSnapshot(
         pos=viewer.pos[visible],

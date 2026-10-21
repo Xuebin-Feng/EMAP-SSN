@@ -29,6 +29,14 @@ from datetime import datetime, timezone
 MANIFEST_FILENAME = "cache_manifest.json"
 HASH_CHUNK_SIZE = 8 * 1024 * 1024
 
+# The two ways of laying a network out from each node's strongest edges, instead of by
+# physics (UMAP_MODE). A manifest written before LAYOUT_METHOD existed names UMAP.
+LAYOUT_METHODS = ("umap", "pacmap")
+# Raised when anything that decides a PaCMAP layout changes (the pair sets, the loss,
+# the schedule, the start: Layout_Engine_PaCMAP and utilities.PaCMAP_Pairs), so caches
+# made by the older method are not reused for the new one.
+PACMAP_REVISION = 1
+
 
 class CacheManifestError(ValueError):
     """Raised when cache identity or path data is unsafe or malformed."""
@@ -321,6 +329,14 @@ def _optional_float(value):
     return parsed
 
 
+def _layout_method(value):
+    """The layout method named by a setting; a missing one is UMAP, as before PaCMAP existed."""
+    method = "umap" if value is None else str(value).strip().lower()
+    if method not in LAYOUT_METHODS:
+        raise CacheManifestError(f"Unsupported layout method: {value!r}")
+    return method
+
+
 def build_compatibility(
     sequence_sha256,
     network_sha256,
@@ -332,8 +348,15 @@ def build_compatibility(
     top_edge_percent=None,
     similarity_threshold=None,
     layout_dimensions=2,
+    layout_method="umap",
+    pacmap_neighbors=10,
 ):
-    """Build the canonical fields that define one compatible cache folder."""
+    """Build the canonical fields that define one compatible cache folder.
+
+    umap_mode is "a manifold layout instead of physics"; layout_method says which one
+    ("umap" or "pacmap") and only matters when umap_mode is true. A PaCMAP cache is
+    identified by its neighbour count, as a UMAP cache is by its own.
+    """
     network_type = str(network_type).lower()
     if network_type not in {"blast", "alignment"}:
         raise CacheManifestError(f"Unsupported network type: {network_type}")
@@ -345,7 +368,10 @@ def build_compatibility(
         )
 
     is_umap = bool(umap_mode)
-    if is_umap:
+    is_pacmap = is_umap and _layout_method(layout_method) == "pacmap"
+    if is_pacmap:
+        edge_filter = {"mode": "pacmap_neighbors", "value": int(pacmap_neighbors)}
+    elif is_umap:
         edge_filter = {"mode": "umap_neighbors", "value": int(umap_neighbors)}
     else:
         top_value = _optional_float(top_edge_percent)
@@ -364,10 +390,11 @@ def build_compatibility(
         "alignment_score": None if network_type == "blast" else str(alignment_score),
         "normalization": None if network_type == "blast" else str(normalization),
         "layout_mode": (
-            ("umap" if is_umap else "physics")
+            ("pacmap" if is_pacmap else "umap" if is_umap else "physics")
             + ("_3d" if dimensions == 3 else "")
         ),
-        **({"umap_knn_revision": 2} if is_umap else {}),
+        **({"umap_knn_revision": 2} if is_umap and not is_pacmap else {}),
+        **({"pacmap_revision": PACMAP_REVISION} if is_pacmap else {}),
         "edge_filter": edge_filter,
     }
 
@@ -511,6 +538,8 @@ def build_canonical_cache_name(
     top_edge_percent=None,
     similarity_threshold=None,
     layout_dimensions=2,
+    layout_method="umap",
+    pacmap_neighbors=10,
     *,
     legacy_model_label=False,
 ):
@@ -544,7 +573,9 @@ def build_canonical_cache_name(
             suffix += f"_{normalization}"
         if alignment_score:
             suffix += f"_{alignment_score}"
-    if umap_mode:
+    if umap_mode and _layout_method(layout_method) == "pacmap":
+        suffix += f"_PACMAP_k{int(pacmap_neighbors)}"
+    elif umap_mode:
         suffix += f"_UMAP_k{int(umap_neighbors)}"
     else:
         top_value = _optional_float(top_edge_percent)

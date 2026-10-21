@@ -190,6 +190,7 @@ from desktop.Viewer_Widgets import (
 )
 from desktop.Viewer_State import (
     fewer_edges_while_moving,
+    knn_topology_layout,
     low_resource_animations,
     low_resource_drawing,
     low_resource_webserver,
@@ -1670,6 +1671,8 @@ class MainViewer:
                 selected_fasta_path, cfg.INPUT_HDF5,
                 alignment_score=cfg.ALIGNMENT_SCORE, normalization=cfg.NORM_MODE,
                 umap_mode=cfg.UMAP_MODE, umap_neighbors=cfg.UMAP_NEIGHBORS,
+                layout_method=getattr(cfg, 'LAYOUT_METHOD', None) or 'umap',
+                pacmap_neighbors=getattr(cfg, 'PACMAP_NEIGHBORS', None) or 10,
                 top_edge_percent=cfg.TOP_EDGE_PERCENT,
                 similarity_threshold=cfg.SIMILARITY_THRESHOLD,
             )
@@ -2883,7 +2886,7 @@ class MainViewer:
                 if self.selected_indices != before:
                     self._note_hand_selection()
 
-                starts_drag = nearest_idx in self.selected_indices and not getattr(cfg, 'UMAP_MODE', False)
+                starts_drag = nearest_idx in self.selected_indices and not knn_topology_layout(cfg)
                 # The web pages (the Meta Data sheet) hear of the selection once
                 # a drag: now, or under Low Resource Mode's Update Web Pages
                 # After Mouse Release on release (on_mouse_release).

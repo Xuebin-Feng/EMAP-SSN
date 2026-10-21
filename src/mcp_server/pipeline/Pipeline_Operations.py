@@ -404,7 +404,7 @@ async def start_layout_job(
     ] = None,
     umap_mode: Annotated[
         bool,
-        Field(description="Whether to use UMAP dimension reduction instead of physics simulation"),
+        Field(description="Whether to use a manifold layout instead of physics simulation: UMAP, or PaCMAP with parameters {'LAYOUT_METHOD': 'pacmap'}"),
     ] = False,
     layout_device_selection: Annotated[
         str,
@@ -443,8 +443,8 @@ async def start_layout_job(
     preferences with built-in defaults (see get_layout_schema).
     Validate and enqueue into the shared pipeline FIFO queue; this is separate
     from the pipeline IDs in list_pipeline_tools and has no standalone validator.
-    Calculates node coordinates via iterative force-directed physics or UMAP dimension
-    reduction and publishes an HDF5 layout cache file along with a canonical FASTA backup and
+    Calculates node coordinates via iterative force-directed physics, or UMAP or PaCMAP
+    (UMAP_MODE with LAYOUT_METHOD) and publishes an HDF5 layout cache file along with a canonical FASTA backup and
     manifest. Coordinates are 2D unless LAYOUT_DIMENSIONS is set to 3 in parameters or the
     settings document; LAYOUT_SEED (default 42, or null for an unseeded run) seeds the layout.
     Supply either individual parameters, settings_document, or settings_path.
@@ -504,6 +504,8 @@ async def start_layout_job(
             "UMAP_MODE": bool(umap_mode),
             "UMAP_NEIGHBORS": 15,
             "UMAP_MIN_DIST": 0.1,
+            "LAYOUT_METHOD": "umap",
+            "PACMAP_NEIGHBORS": 10,
             "LAYOUT_DEVICE_SELECTION": layout_device_selection or "auto",
             "SPRING_K": 5.0,
             "COULOMB_K": 10.0,

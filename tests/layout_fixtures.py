@@ -92,15 +92,17 @@ def preload_network_preparation():
 
     prepare_network imports its streaming helpers lazily, and the UMAP mode's kernels
     import numba, which loads hundreds of modules on first use (and compiles or loads
-    each kernel). A mock.patch.dict(sys.modules, ...) window around a layout generation
-    would drop everything first imported inside it on exit and leave orphan copies
-    behind; run first, the window imports nothing and drops only its stub.
+    each kernel). So does the PaCMAP layout's pair module, which the generator imports
+    when it lays a network out with PaCMAP. A mock.patch.dict(sys.modules, ...) window
+    around a layout generation would drop everything first imported inside it on exit and
+    leave orphan copies behind; run first, the window imports nothing and drops only its stub.
     """
     global _NETWORK_PREPARATION_LOADED
     if _NETWORK_PREPARATION_LOADED:
         return
     import h5py
     from desktop.Viewer_State import prepare_network
+    from utilities import PaCMAP_Pairs  # noqa: F401
     with tempfile.TemporaryDirectory() as temp:
         write_inputs(pathlib.Path(temp))
         for umap_mode in (True, False):
@@ -173,7 +175,7 @@ class HeadlessSettingsFixture:
     selecting them (CPU layouts, MAX_STEPS 1, caches under custom-cache) into
     the root and returns the saved values. generate(document) generates a
     cache from a layout settings document; a stand-in engine places the two
-    nodes at (0, 0) and (1, 1), so no physics or UMAP code runs.
+    nodes at (0, 0) and (1, 1), so no physics, UMAP or PaCMAP code runs.
     """
 
     def setUp(self):
@@ -202,7 +204,8 @@ class HeadlessSettingsFixture:
         preload_network_preparation()
         from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
         engine = SimpleNamespace(calculate_layout=lambda *a: (np.array([[0, 0], [1, 1]], dtype=np.float32), 12.0))
-        with mock.patch.dict(sys.modules, {"Layout_Engine_SSN": engine, "Layout_Engine_UMAP": engine}):
+        with mock.patch.dict(sys.modules, {"Layout_Engine_SSN": engine, "Layout_Engine_UMAP": engine,
+                                          "Layout_Engine_PaCMAP": engine}):
             return generate_layout_cache(LayoutGenerationSettings.from_document(document, project_root=self.root))
 
     def cache_and_viewer(self, **changes):

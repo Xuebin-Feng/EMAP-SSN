@@ -294,7 +294,8 @@ def legacy_summarize_network(network_path, fasta_path=None, alignment_score="glo
             "around the clusters as single points.",
             "fasta_records counts the node FASTA after the standard cleanup, which merges identical sequences "
             "(inspect_file counts raw records and duplicate_sequences).",
-            "UMAP layouts ignore both filters and keep each node's UMAP_NEIGHBORS strongest edges.",
+            "UMAP and PaCMAP layouts ignore both filters and keep each node's UMAP_NEIGHBORS or "
+            "PACMAP_NEIGHBORS strongest edges.",
         ],
         "complete": True,
     }

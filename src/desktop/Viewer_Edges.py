@@ -15,7 +15,7 @@ tens of millions of edges:
   that texture alone (16 bytes a node), whatever the edge count.
 
 Hiding or showing nodes rebuilds the buffer once, keeping the score order.
-UMAP mode draws edges chosen by the selection instead;
+A UMAP or PaCMAP layout draws edges chosen by the selection instead;
 ViewerEdges.show_edges uploads those as given.
 
 All edges share one colour and alpha, so the order they are blended in leaves

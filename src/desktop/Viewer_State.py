@@ -34,9 +34,13 @@ INPUT_PROFILE_DEFAULTS = {
     "NORM_MODE": "alignment_length",
     "ALIGNMENT_REFERENCE": "",
     "ALIGNMENT_OFFSET": 0,
+    # "A manifold layout from each node's strongest edges, instead of physics". Which
+    # one is LAYOUT_METHOD: UMAP (UMAP_NEIGHBORS, UMAP_MIN_DIST) or PaCMAP (PACMAP_NEIGHBORS).
     "UMAP_MODE": False,
     "UMAP_NEIGHBORS": 15,
     "UMAP_MIN_DIST": 0.1,
+    "LAYOUT_METHOD": "umap",
+    "PACMAP_NEIGHBORS": 10,
     "SIMILARITY_THRESHOLD": None,
     "TOP_EDGE_PERCENT": None,
     "FILTER_MIN_OCCUPANCY": 10.0,
@@ -178,12 +182,14 @@ PROFILE_ENUM_VALUES = {
         "alignment_length", "shorter_sequence", "longer_sequence", "average_sequence"
     },
     "PACKING_GEOMETRY": {"Square", "Circle"},
+    "LAYOUT_METHOD": set(cache_manifest.LAYOUT_METHODS),
 }
 
 PROFILE_RANGES = {
     "ALIGNMENT_OFFSET": (-1000000, 1000000),
     "UMAP_NEIGHBORS": (2, 500),
     "UMAP_MIN_DIST": (0.0, 1.0),
+    "PACMAP_NEIGHBORS": (2, 50),
     "TOP_EDGE_PERCENT": (0.0, 100.0),
     "FILTER_MIN_OCCUPANCY": (0.0, 100.0),
     "NODE_SIZE": (1, 20),
@@ -206,7 +212,8 @@ PROFILE_RANGES = {
 LAYOUT_SECTIONS = {
     "inputs": ("NODE_FASTA_FILE", "INPUT_HDF5"),
     "network": ("ALIGNMENT_SCORE", "NORM_MODE", "SIMILARITY_THRESHOLD", "TOP_EDGE_PERCENT"),
-    "layout": ("UMAP_MODE", "UMAP_NEIGHBORS", "UMAP_MIN_DIST", "LAYOUT_DIMENSIONS", "LAYOUT_SEED"),
+    "layout": ("UMAP_MODE", "UMAP_NEIGHBORS", "UMAP_MIN_DIST", "LAYOUT_METHOD", "PACMAP_NEIGHBORS",
+               "LAYOUT_DIMENSIONS", "LAYOUT_SEED"),
     "simulation": ("LAYOUT_DEVICE_SELECTION", "DT", "AUTO_DT", "MAX_STEPS", "RMSD_THRESHOLD", "PERCENTAGE_DROP_THRESHOLD", "RMSD_WINDOW", "ENABLE_PROGRESSIVE_SIMULATION"),
     "physics": ("SPRING_K", "COULOMB_K", "COULOMB_CUTOFF", "DAMPING", "MAX_FORCE_LIMIT", "MAX_TOTAL_REPULSION_FORCE"),
     "packing": ("PACKING_GEOMETRY", "PACKING_GRID_SIZE", "BOX_SCALE", "PACKING_PADDING"),
@@ -225,7 +232,9 @@ VIEWER_SECTIONS = {
 # Keys a document may omit. Absent ones decode to the default below, so
 # documents exported before the key existed remain valid.
 OPTIONAL_DOCUMENT_KEYS = {
-    "layout": {"LAYOUT_DIMENSIONS": 2, "LAYOUT_SEED": 42, "AUTO_DT": False},
+    "layout": {"LAYOUT_DIMENSIONS": 2, "LAYOUT_SEED": 42, "AUTO_DT": False,
+               "LAYOUT_METHOD": INPUT_PROFILE_DEFAULTS["LAYOUT_METHOD"],
+               "PACMAP_NEIGHBORS": INPUT_PROFILE_DEFAULTS["PACMAP_NEIGHBORS"]},
     "viewer": {
         "EMBED_FILE": INPUT_PROFILE_DEFAULTS["EMBED_FILE"],
         "EMBED_DIR": DIRECTORY_PROFILE_DEFAULTS["EMBED_DIR"],
@@ -347,7 +356,11 @@ def _flat_viewer_settings_schema():
         "allOf": [
             {
                 "if": {"properties": {"UMAP_MODE": {"const": True}}},
-                "then": {"required": ["UMAP_NEIGHBORS"]},
+                "then": {
+                    "if": {"properties": {"LAYOUT_METHOD": {"const": "pacmap"}}, "required": ["LAYOUT_METHOD"]},
+                    "then": {"required": ["PACMAP_NEIGHBORS"]},
+                    "else": {"required": ["UMAP_NEIGHBORS"]},
+                },
                 "else": {"required": ["SIMILARITY_THRESHOLD", "TOP_EDGE_PERCENT"]},
             },
         ],
@@ -406,7 +419,12 @@ def resolve_cache_settings(path, *, allow_3d=False):
 
     The desktop Viewer opens 2D caches only. The optional VR viewer (opt_vr)
     passes ``allow_3d=True`` to read the 3D caches it opens, whose layout_mode
-    is ``physics_3d`` or ``umap_3d``.
+    is ``physics_3d``, ``umap_3d`` or ``pacmap_3d``.
+
+    A cache's layout_mode is ``physics``, ``umap`` or ``pacmap``; the last two
+    set UMAP_MODE (a manifold layout instead of physics) and LAYOUT_METHOD. A
+    cache written before PaCMAP existed has no LAYOUT_METHOD or PACMAP_NEIGHBORS
+    in its parameters and is a UMAP cache.
     """
     from utilities.Cache_Metadata import read_cache_metadata
     metadata = read_cache_metadata(path)
@@ -429,10 +447,11 @@ def resolve_cache_settings(path, *, allow_3d=False):
         mode = compatibility["layout_mode"]
         if allow_3d and isinstance(mode, str) and mode.endswith("_3d"):
             mode = mode[: -len("_3d")]
-        if mode not in {"physics", "umap"}:
+        if mode not in {"physics", "umap", "pacmap"}:
             raise ValueError("invalid layout_mode")
         values = {key: parameters[key] for key in ("UMAP_MODE", "UMAP_NEIGHBORS", "UMAP_MIN_DIST", "BOX_SCALE")}
-        if type(values["UMAP_MODE"]) is not bool or values["UMAP_MODE"] != (mode == "umap"):
+        manifold = mode in {"umap", "pacmap"}
+        if type(values["UMAP_MODE"]) is not bool or values["UMAP_MODE"] != manifold:
             raise ValueError("conflicting UMAP_MODE")
         if type(values["UMAP_NEIGHBORS"]) is not int or not 2 <= values["UMAP_NEIGHBORS"] <= 500:
             raise ValueError("invalid UMAP_NEIGHBORS")
@@ -441,11 +460,28 @@ def resolve_cache_settings(path, *, allow_3d=False):
                 raise ValueError(f"invalid {key}")
         if not 0 <= values["UMAP_MIN_DIST"] <= 1 or values["BOX_SCALE"] <= 0:
             raise ValueError("invalid UMAP_MIN_DIST or BOX_SCALE")
+        # Written by PaCMAP layouts only (the engine parameters of a layout hold just what
+        # that layout used); a UMAP or physics cache from before PaCMAP has neither.
+        method = parameters.get("LAYOUT_METHOD", "umap")
+        if mode == "pacmap":
+            if method != "pacmap":
+                raise ValueError("conflicting LAYOUT_METHOD")
+            pacmap_neighbors = parameters.get("PACMAP_NEIGHBORS")
+            if type(pacmap_neighbors) is not int or not 2 <= pacmap_neighbors <= 50:
+                raise ValueError("invalid PACMAP_NEIGHBORS")
+            values.update(LAYOUT_METHOD="pacmap", PACMAP_NEIGHBORS=pacmap_neighbors)
+        else:
+            if method != "umap":
+                raise ValueError("conflicting LAYOUT_METHOD")
+            values.update(LAYOUT_METHOD="umap", PACMAP_NEIGHBORS=INPUT_PROFILE_DEFAULTS["PACMAP_NEIGHBORS"])
         values.update(ALIGNMENT_SCORE=compatibility["alignment_score"], NORM_MODE=compatibility["normalization"],
                       SIMILARITY_THRESHOLD=None, TOP_EDGE_PERCENT=None)
         edge = compatibility["edge_filter"]
-        expected = "umap_neighbors" if mode == "umap" else edge["mode"]
-        if expected == "umap_neighbors" and mode == "umap":
+        expected = {"umap": "umap_neighbors", "pacmap": "pacmap_neighbors"}.get(mode, edge["mode"])
+        if mode == "pacmap":
+            if edge["mode"] != expected or edge["value"] != values["PACMAP_NEIGHBORS"]:
+                raise ValueError("conflicting PaCMAP neighbor filter")
+        elif expected == "umap_neighbors" and mode == "umap":
             if edge["mode"] != expected or edge["value"] != values["UMAP_NEIGHBORS"]:
                 raise ValueError("conflicting UMAP neighbor filter")
         elif expected in {"similarity_threshold", "top_edge_percent"} and mode == "physics":
@@ -611,8 +647,9 @@ def normalize_viewer_settings(document, project_root, *, require_cache=True):
     if result["TARGET_CACHE_MODE"] != "existing":
         raise ViewerSettingsError("TARGET_CACHE_MODE: generate the cache before launching the Viewer.")
     if result["UMAP_MODE"]:
-        if "UMAP_NEIGHBORS" not in document:
-            raise ViewerSettingsError("UMAP_NEIGHBORS: required in UMAP mode.")
+        neighbors_key = "PACMAP_NEIGHBORS" if result["LAYOUT_METHOD"] == "pacmap" else "UMAP_NEIGHBORS"
+        if neighbors_key not in document:
+            raise ViewerSettingsError(f"{neighbors_key}: required in {neighbors_key.split('_')[0]} mode.")
         if result["TOP_EDGE_PERCENT"] is not None or result["SIMILARITY_THRESHOLD"] is not None:
             raise ViewerSettingsError("UMAP_MODE: inactive edge filters must be null.")
     else:
@@ -647,6 +684,7 @@ def _validate_flat_viewer_document(document, project_root):
             alignment_score=result["ALIGNMENT_SCORE"], normalization=result["NORM_MODE"],
             umap_mode=result["UMAP_MODE"], umap_neighbors=result["UMAP_NEIGHBORS"],
             top_edge_percent=result["TOP_EDGE_PERCENT"], similarity_threshold=result["SIMILARITY_THRESHOLD"],
+            layout_method=result["LAYOUT_METHOD"], pacmap_neighbors=result["PACMAP_NEIGHBORS"],
         )
         stored = manifest.read_manifest(os.path.dirname(result["TARGET_CACHE_PATH"]), current["compatibility"])
         selected, _, _ = load_sanitized_fasta(result["NODE_FASTA_FILE"], report=False)
@@ -759,6 +797,8 @@ def resolve_selected_cache(settings, *, layout_dimensions=None):
         normalization=getattr(settings, "NORM_MODE", None),
         umap_mode=getattr(settings, "UMAP_MODE", False),
         umap_neighbors=getattr(settings, "UMAP_NEIGHBORS", 15),
+        layout_method=getattr(settings, "LAYOUT_METHOD", "umap"),
+        pacmap_neighbors=getattr(settings, "PACMAP_NEIGHBORS", 10),
         top_edge_percent=getattr(settings, "TOP_EDGE_PERCENT", None),
         similarity_threshold=getattr(settings, "SIMILARITY_THRESHOLD", None),
         layout_dimensions=layout_dimensions,
@@ -848,7 +888,7 @@ def _pair_source(data, settings, kept_mask):
     )
 
 
-def _strongest_pairs(data, settings, *, kept_mask, keep_limit):
+def _strongest_pairs(data, settings, *, kept_mask, keep_limit, source=None):
     """The pairs that are among the best ``keep_limit`` of their source or of their target.
 
     Returns the stored node indices of each pair and its score, in the order of
@@ -859,20 +899,55 @@ def _strongest_pairs(data, settings, *, kept_mask, keep_limit):
     """
     from utilities import Network_Top_Edges as top
 
-    source = _pair_source(data, settings, kept_mask)
+    if source is None:
+        source = _pair_source(data, settings, kept_mask)
     _, sources, targets, scores = top.strongest_edges(source, len(kept_mask), keep_limit)
     return sources, targets, scores
 
 
-def prepare_network(data, *, settings, selected_fasta_headers):
+def layout_method(configuration):
+    """The method of a manifold layout, "umap" or "pacmap" ("umap" for settings without one)."""
+    method = getattr(configuration, "LAYOUT_METHOD", None)
+    return method if method in cache_manifest.LAYOUT_METHODS else "umap"
+
+
+def knn_topology_layout(configuration):
+    """Whether the layout is a manifold layout (UMAP or PaCMAP), not a physics one.
+
+    Such a layout keeps only each node's strongest edges (UMAP_NEIGHBORS or
+    PACMAP_NEIGHBORS of them, as a source and as a target) and has no threshold, so
+    the Viewer draws the selected nodes' edges only and does not drag nodes. The
+    Viewer asks this, not UMAP_MODE (which means the same), wherever the
+    difference between the two kinds of layout matters; the cache lookup, which
+    must name the method, reads the settings themselves.
+    """
+    return bool(getattr(configuration, "UMAP_MODE", False))
+
+
+def strongest_edge_limit(configuration):
+    """How many of each node's strongest edges a manifold layout keeps and draws."""
+    if layout_method(configuration) == "pacmap":
+        return int(getattr(configuration, "PACMAP_NEIGHBORS", INPUT_PROFILE_DEFAULTS["PACMAP_NEIGHBORS"]))
+    return int(getattr(configuration, "UMAP_NEIGHBORS", INPUT_PROFILE_DEFAULTS["UMAP_NEIGHBORS"]))
+
+
+def prepare_network(data, *, settings, selected_fasta_headers, with_pair_source=None):
     """Return filtered ``(headers, edges, scores)`` for an open network file.
 
     Only nodes named in ``selected_fasta_headers`` (the selected FASTA's
     sanitized headers) are kept. In UMAP mode only each node's best
-    ``UMAP_NEIGHBORS`` edges, as a source and as a target, are returned;
-    otherwise the edges scoring at least ``SIMILARITY_THRESHOLD`` (which
-    ``TOP_EDGE_PERCENT`` sets, when given). The network's pairs are streamed in
-    both modes, so the memory used does not grow with their number.
+    ``UMAP_NEIGHBORS`` edges (``PACMAP_NEIGHBORS`` with LAYOUT_METHOD pacmap), as a
+    source and as a target, are returned; otherwise the edges scoring at least
+    ``SIMILARITY_THRESHOLD`` (which ``TOP_EDGE_PERCENT`` sets, when given). The
+    network's pairs are streamed in both modes, so the memory used does not grow
+    with their number.
+
+    ``with_pair_source``, for a manifold layout, is called once the edges are chosen,
+    while the pair file is still open, as ``with_pair_source(source, index_map,
+    node_count, edges, scores)``: the ScoreSource over the kept nodes' pairs, the map
+    from its stored node numbers to the returned ones, the number of returned nodes
+    and the returned edges and scores. A layout that needs another pass over the
+    stored scores (PaCMAP's mid-near pairs) makes it there.
     """
     metadata = cache_manifest.validate_network_schema(data)
     settings.INPUT_IS_EVALUE = metadata.network_type == "blast"
@@ -942,21 +1017,25 @@ def prepare_network(data, *, settings, selected_fasta_headers):
     if getattr(settings, "UMAP_MODE", False):
         # The pairs are streamed: a network can hold close to a billion of them, and
         # their columns, a sorted copy and the group codes need far more memory.
+        label = "PaCMAP" if layout_method(settings) == "pacmap" else "UMAP"
         print(
-            "UMAP Mode enabled: Bypassing global threshold. Filtering top k "
+            f"{label} Mode enabled: Bypassing global threshold. Filtering top k "
             "edges per node..."
         )
-        keep_limit = int(getattr(settings, "UMAP_NEIGHBORS", 15))
+        keep_limit = strongest_edge_limit(settings)
+        source = _pair_source(data, settings, kept_mask)
         edge_sources, edge_targets, edge_scores = _strongest_pairs(
-            data, settings, kept_mask=kept_mask, keep_limit=keep_limit
+            data, settings, kept_mask=kept_mask, keep_limit=keep_limit, source=source
         )
         print(
-            f"Kept {len(edge_scores)} edges for UMAP topology "
+            f"Kept {len(edge_scores)} edges for {label} topology "
             f"(max {keep_limit} per node direction)."
         )
         edges = np.column_stack(
             (index_map[edge_sources], index_map[edge_targets])
         ).astype(np.int32)
+        if with_pair_source is not None:
+            with_pair_source(source, index_map, len(kept_indices), edges, edge_scores)
         return filtered_headers, edges, edge_scores
 
     # The pairs are streamed here too: loading their columns took 15 to 28 bytes per pair.
@@ -1030,5 +1109,8 @@ __all__ = [
     "normalize_viewer_paths",
     "alias_form",
     "resolve_selected_cache",
+    "layout_method",
+    "knn_topology_layout",
+    "strongest_edge_limit",
     "prepare_network",
 ]
