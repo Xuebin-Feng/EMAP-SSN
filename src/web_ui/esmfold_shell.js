@@ -251,6 +251,7 @@ function setupSSE() {
                         await reconcileLayers();
                         syncCanvasProps();
                         deriveColorMode();
+                        resetPointerState();
                         showStatus(t("Session restored successfully."));
                     } else {
                         showStatus(t("Started with a fresh blank session."));
@@ -360,7 +361,7 @@ function reportDebug(detail) {
 // Save session state to layout cache
 // The session as Mol* gives it; a camera only where there is a canvas to ask.
 function takeSnapshot() {
-    return plugin.state.getSnapshot({ camera: !!plugin.canvas3d });
+    return withoutFocus(plugin.state.getSnapshot({ camera: !!plugin.canvas3d }));
 }
 
 // Resolves with whether the Viewer took it, and says so to the Session menu (esmfold-saved).

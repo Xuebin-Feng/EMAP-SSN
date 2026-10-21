@@ -505,7 +505,7 @@ function removeStructure(structure) {
 // The session as it is, to come back to; null when Mol* cannot say.
 function snapshotForUndo() {
     try {
-        return plugin.state.getSnapshot();
+        return takeSnapshot();
     } catch (error) {
         console.warn("Could not keep the scene for Undo:", error);
         return null;
@@ -518,6 +518,7 @@ function undoSceneChange(snapshot) {
         await reconcileLayers();
         syncCanvasProps();
         deriveColorMode();
+        resetPointerState();
         scheduleStructures();
         setTimeout(saveSession, 1500);
     });

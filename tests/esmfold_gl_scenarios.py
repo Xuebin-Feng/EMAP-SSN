@@ -20,11 +20,14 @@ dark, a narrow window, Simplified Chinese) in FOLDER, for a person to look at.
 Not collected by unittest.
 """
 
+import base64
 import json
 import os
 import sys
 import unittest
 from pathlib import Path
+
+import numpy
 
 GL_FLAGS = "--ignore-gpu-blocklist --disable-gpu-compositing"
 os.environ["QTWEBENGINE_CHROMIUM_FLAGS"] = GL_FLAGS
@@ -39,6 +42,7 @@ FACTS = {}
 PICTURES = []
 
 from PySide6.QtCore import QPoint, Qt  # noqa: E402
+from PySide6.QtGui import QImage  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 
 from tests import esmfold_layer_fixtures as fixtures  # noqa: E402
@@ -62,6 +66,14 @@ window.canvasPixels = async function (spots) {
     let other = 0;
     for (let i = 0; i < all.length; i += 4) if (hex(all.slice(i, i + 3)) !== corner) other++;
     return {corner, drawn: other / (all.length / 4), width: image.width, height: image.height};
+};
+// The scene as it is drawn (from the camera's reset position, as a picture) and as it is kept: what Mol*'s focus has put in the tree.
+window.sceneNow = async function () {
+    plugin.managers.camera.reset();
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    return {picture: await plugin.helpers.viewportScreenshot.getImageDataUri(), nodes: focusNodes().length,
+            focus: !!plugin.managers.structure.focus.current, cells: plugin.state.data.cells.size,
+            marked: plugin.managers.structure.selection.stats.elementCount};
 };
 // How much of a part of the picture (fractions of its width and height) is not its background.
 window.regionDrawn = async function (left, top, width, height) {
@@ -125,6 +137,20 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
 
     folder = None
 
+    def scene(self):
+        """The scene's state and its picture, as an array of pixels, from the camera's reset position."""
+        state = self.script("return await sceneNow()")
+        data = base64.b64decode(state.pop("picture").split(",", 1)[1])
+        image = QImage.fromData(data).convertToFormat(QImage.Format.Format_RGBA8888)
+        pixels = numpy.frombuffer(image.constBits(), dtype=numpy.uint8).reshape(image.height(), image.bytesPerLine() // 4, 4)
+        return state, pixels[:, :image.width(), :3].astype(int)
+
+    @staticmethod
+    def difference(a, b):
+        """(pixels that are not the background in one picture, pixels that differ much between the two pictures)."""
+        drawn = int((numpy.abs(b - b[2, 2]).sum(axis=2) > 12).sum())
+        return drawn, int((numpy.abs(a - b).sum(axis=2) > 90).sum())
+
     def drawn(self, stage, x, y, width, height):
         """The share of a part of the stage (pixels from its corner) that is not the stage's background."""
         image = self.view.grab().toImage()
@@ -159,6 +185,12 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         FACTS["lightToken"] = self.script("return canvasBackground()")
         FACTS["light"] = self.script("return await canvasPixels()")
         FACTS["camera0"] = self.script("return cameraNow()")
+        # Two pictures of the same scene differ a little (the renderer's own anti-aliasing and occlusion move
+        # from frame to frame); what a pin leaves behind has to stand out from that.
+        FACTS["sceneBefore"], before = self.scene()
+        _, again = self.scene()
+        FACTS["noise"] = self.difference(before, again)
+        FACTS["drawnBefore"] = self.difference(before, before)[0]
         # The axes gizmo is in the bottom right corner, and the status line is not on top of it.
         FACTS["gizmo"] = self.script("return plugin.canvas3d.props.camera.helper.axes.params.location")
         # The gizmo is part of the live canvas, not of the screenshot helper's picture: look at the window.
@@ -204,6 +236,31 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         QTest.mouseMove(widget, QPoint(40, 130))
         self.pump(1.0)
         self.script("document.querySelector('#color-body [data-coloring=\"plddt\"]').click(); await structureQueue; await cardNow(); return 1")
+        self.wait(300)
+        FACTS["sceneAfterPin"], pixels = self.scene()
+        FACTS["afterPin"] = self.difference(before, pixels)
+        FACTS["errorsReady"] = self.console_errors()
+        # A session saved with a pin in it, as an earlier page saved them, comes back without it.
+        spot = QPoint(*[round(value) for value in self.script("return spotOf(0, 6)")])
+        QTest.mouseMove(widget, spot)
+        self.pump(1.0)
+        QTest.mouseClick(widget, Qt.LeftButton, Qt.NoModifier, spot)
+        self.pump(1.5)
+        FACTS["pinnedAgain"] = self.script("return {nodes: focusNodes().length, pinned: pinnedResidue ? pinnedResidue.number : null}")
+        pinned_session = self.script("return plugin.state.getSnapshot({camera: true})")
+        QTest.keyClick(widget, Qt.Key_Escape)
+        self.pump(0.6)
+        self.wait(1800)
+        self.session = pinned_session
+        self.open_page()
+        self.js(PIXELS)
+        self.script("applyTheme('light', false); return 1")
+        self.wait(1500)
+        FACTS["sceneRestored"], pixels = self.scene()
+        FACTS["restored"] = self.difference(before, pixels)
+        FACTS["restoredPinned"] = self.script("return pinnedResidue ? pinnedResidue.number : null")
+        self.session = None
+        widget = self.view.focusProxy() or self.view
 
         # The row's details, the Session menu and the question it asks, for a person to look at.
         self.script("document.querySelector('#struct-list .srow:nth-child(2) .exp-btn').click(); return 1")
@@ -230,7 +287,6 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         self.script("document.getElementById('t-reset').click(); return 1")
         self.wait(1500)
         FACTS["cameraReset"] = self.script("return cameraNow()")
-        FACTS["errorsReady"] = self.console_errors()
 
         # The dark theme: the canvas takes the page's dark canvas colour.
         self.js("document.getElementById('theme-toggle-btn').click()")

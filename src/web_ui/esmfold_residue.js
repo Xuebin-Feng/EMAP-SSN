@@ -201,14 +201,61 @@ function pinResidue(residue, loci) {
     if (hoveredResidue) showTip(hoveredResidue);
 }
 
+// Mol*'s own click puts the clicked residue in focus, and draws its surroundings (sticks, contacts) with
+// nodes it adds to the state tree. Clearing the focus empties them but leaves them there, to be saved with
+// the session and drawn again from it, so a pin lets go of them for good: the focus, then its nodes.
+const FOCUS_TAG = 'structure-focus-';
+
+function focusNodes() {
+    return [...plugin.state.data.cells.values()].filter(cell => cell.transform.tags?.some(tag => tag.startsWith(FOCUS_TAG)));
+}
+
+async function removeFocusNodes() {
+    // The selections own the representations: deleting the roots takes the whole of it.
+    const roots = focusNodes().filter(cell => cell.transform.tags.some(tag => tag.endsWith('-sel')));
+    if (!roots.length) return;
+    const state = plugin.state.data;
+    const update = state.build();
+    for (const cell of roots) update.delete(cell.transform.ref);
+    await plugin.runTask(state.updateTree(update));
+}
+
+// Lets go of everything a pin put into Mol*: the mark on the residue, the focus and the focus' own nodes.
+function releaseFocus() {
+    plugin.managers.structure.selection.clear();
+    plugin.managers.structure.focus.clear();
+    return runExclusive(async () => {
+        // Mol* empties the nodes in its own time; deleting them after that leaves nothing for it to redraw.
+        await new Promise(resolve => setTimeout(resolve, 150));
+        await removeFocusNodes();
+    }).catch(err => console.warn("Could not remove the focus:", err));
+}
+
+// The session as Mol* gives it, without the focus (a residue pinned when it is taken is not pinned when it comes back).
+function withoutFocus(snapshot) {
+    const tree = snapshot.data?.tree;
+    if (!tree) return snapshot;
+    const transforms = tree.transforms.filter(node => !(node.tags || []).some(tag => String(tag).startsWith(FOCUS_TAG)));
+    return { ...snapshot, structureFocus: {}, data: { ...snapshot.data, tree: { ...tree, transforms } } };
+}
+
 // Lets go of the pinned residue; says whether there was one.
 function clearPin() {
     if (!pinnedResidue) return false;
     pinnedResidue = null;
-    plugin.managers.structure.selection.clear();
+    releaseFocus();
     renderResidueCard();
     if (hoveredResidue) showTip(hoveredResidue);
     return true;
+}
+
+// After a session came back, or Undo: nothing is hovered or pinned, whatever the session had in focus.
+function resetPointerState() {
+    hoveredResidue = null;
+    pinnedResidue = null;
+    hideTip();
+    renderResidueCard();
+    return releaseFocus();
 }
 
 function zoomToResidue(residue) {

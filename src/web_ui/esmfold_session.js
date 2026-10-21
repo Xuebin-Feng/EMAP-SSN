@@ -163,6 +163,7 @@ async function openSessionFile(file) {
         await reconcileLayers();
         syncCanvasProps();
         deriveColorMode();
+        resetPointerState();
         scheduleStructures();
         setTimeout(saveSession, 1500);
     }).catch(err => reportFailure("Could not open the session:", err));

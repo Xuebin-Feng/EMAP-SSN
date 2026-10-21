@@ -111,6 +111,22 @@ class ShellWebglTests(unittest.TestCase):
     def test_the_legend_on_the_canvas_names_the_layer_with_its_range(self):
         self.assertEqual(self.found["layerLegend"], {"shown": "1", "title": "Information Content (%)", "ends": ["0 %", "100 %"]})
 
+    def test_letting_go_of_a_pin_leaves_the_scene_as_it_was_and_so_does_a_session_that_had_one(self):
+        found = self.found
+        before, after, restored = found["sceneBefore"], found["sceneAfterPin"], found["sceneRestored"]
+        # Mol*'s click put the residue in focus with five nodes of its own; Escape took them, and what they drew.
+        self.assertEqual(found["pinnedAgain"]["nodes"], 5)
+        self.assertEqual((before["nodes"], before["focus"], before["marked"]), (0, False, 0))
+        noise = found["noise"][1]
+        for name, scene, (drawn, differing) in (("after the pin", after, found["afterPin"]), ("after a restore", restored, found["restored"])):
+            self.assertEqual((scene["nodes"], scene["focus"], scene["marked"]), (0, False, 0), name)
+            self.assertEqual(scene["cells"], before["cells"], name)
+            # The same picture from the same camera: as much drawn, and no more of it changed than between two
+            # pictures of one scene (a focus left behind draws sticks and contacts around the residue).
+            self.assertLess(abs(drawn - found["drawnBefore"]), 0.08 * found["drawnBefore"], name)
+            self.assertLess(differing, 4 * noise + 150, (name, differing, noise))
+        self.assertIsNone(found["restoredPinned"])
+
     def test_a_real_pointer_over_the_canvas_shows_the_tip_pins_a_residue_and_escape_lets_go(self):
         found = self.found
         self.assertIsNotNone(found["hover"])

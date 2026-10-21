@@ -27,6 +27,8 @@ from tests.test_esmfold_colors import A, B, C, ColorTestCase
 
 # Mol*'s pointer events: the loci of the residue `group` (from 0) of a structure, as the representation gives them.
 POINTER = """
+// The keys Mol*'s pointer events say are held: none, as an object with every key, which is what its bindings match.
+const NO_KEYS = {shift: false, alt: false, control: false, meta: false};
 window.lociOf = function (index, group) {
     const repr = loadedStructures()[index].components[0].representations[0].cell.obj.data.repr;
     return {loci: repr.getLoci({objectId: repr.renderObjects[0].id, instanceId: 0, groupId: group}), repr};
@@ -40,7 +42,7 @@ window.hoverOff = async function () {
     await new Promise(resolve => setTimeout(resolve, 250));
 };
 window.clickOn = async function (index, group) {
-    plugin.behaviors.interaction.click.next({current: index === null ? {loci: {kind: 'empty-loci'}} : lociOf(index, group), modifiers: {}, buttons: 1, button: 1});
+    plugin.behaviors.interaction.click.next({current: index === null ? {loci: {kind: 'empty-loci'}} : lociOf(index, group), modifiers: NO_KEYS, buttons: 1, button: 1});
     await new Promise(resolve => setTimeout(resolve, 350));
 };
 window.tipNow = function () {
@@ -206,6 +208,95 @@ class PinTests(ResidueTestCase):
         self.assertIsNone(self.script(pinned))
         self.assertIn("Hover a residue", self.script("return residueNow().hint"))
         self.assertEqual(self.console_errors(), [])
+
+
+class FocusTests(ResidueTestCase):
+    """Mol*'s own click puts the residue in focus and draws its surroundings with nodes of its own: a pin lets go of them all."""
+
+    STATE = """return {cells: plugin.state.data.cells.size, nodes: focusNodes().length, focus: !!plugin.managers.structure.focus.current,
+                    marked: plugin.managers.structure.selection.stats.elementCount, pinned: pinnedResidue ? pinnedResidue.number : null,
+                    saved: takeSnapshot().data.tree.transforms.length, raw: plugin.state.getSnapshot({camera: false}).data.tree.transforms.length}"""
+
+    def open_pinnable(self):
+        self.write_with(A, "information_content")
+        self.write_with(B, "information_content", shift=(3.0, 1.0, 0.0), wobble=0.4)
+        self.open_scene(A, B)
+        base = self.script(self.STATE)
+        self.assertEqual((base["nodes"], base["focus"], base["marked"]), (0, False, 0))
+        return base
+
+    def pin(self):
+        self.script("await clickOn(0, 5); return 1")
+        self.settle(300)
+        pinned = self.script(self.STATE)
+        # Mol* did put the residue in focus, with five nodes (two selections, the sticks, the surroundings and their contacts).
+        self.assertEqual((pinned["nodes"], pinned["focus"], pinned["pinned"]), (5, True, 6))
+        self.assertEqual(pinned["cells"], pinned["raw"])
+        return pinned
+
+    def test_letting_go_of_a_pin_leaves_nothing_in_the_scene_whichever_way_it_goes(self):
+        base = self.open_pinnable()
+        for way in ("escape", "clear", "nothing", "remove the structure"):
+            self.pin()
+            if way == "escape":
+                self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+            elif way == "clear":
+                self.script("document.querySelector('#residue-body .res-foot button:last-child').click(); return 1")
+            elif way == "nothing":
+                self.script("await clickOn(null); return 1")
+            else:
+                self.click(self.row(1) + " .srow-main button:last-child", 400)
+            self.settle(700)
+            after = self.script(self.STATE)
+            self.assertEqual((after["nodes"], after["focus"], after["marked"], after["pinned"]), (0, False, 0, None), way)
+            if way != "remove the structure":
+                self.assertEqual(after["cells"], base["cells"], way)
+            else:
+                self.assertEqual(self.script("return focusNodes().length"), 0)
+        self.assertEqual(self.console_errors(), [])
+
+    def test_a_session_saved_while_a_residue_is_pinned_has_none_of_the_focus(self):
+        self.open_pinnable()
+        self.settle(1800)
+        del self.saved[:]
+        self.pin()
+        self.settle(1800)
+        # The autosave that follows holds the scene, not the pin.
+        self.script("document.querySelector('#color-body [data-coloring=\"builtin:structure\"]').click(); await structureQueue; return 1")
+        self.settle(1800)
+        self.assertTrue(self.saved)
+        for session in self.saved:
+            tags = [tag for node in session["data"]["tree"]["transforms"] for tag in node.get("tags", [])]
+            self.assertEqual([tag for tag in tags if tag.startswith("structure-focus-")], [])
+            self.assertEqual(session["structureFocus"], {})
+
+    def test_a_session_that_comes_back_with_a_focus_in_it_shows_none_of_it(self):
+        base = self.open_pinnable()
+        self.pin()
+        # What an earlier page saved: the tree with the focus' nodes and the focus itself.
+        raw = self.script("return plugin.state.getSnapshot({camera: false})")
+        tags = [tag for node in raw["data"]["tree"]["transforms"] for tag in node.get("tags", [])]
+        self.assertEqual(len([tag for tag in tags if tag.startswith("structure-focus-")]), 5)
+        self.assertIn("current", raw["structureFocus"])
+        self.session = raw
+        self.settle(1800)
+        self.open_page()
+        self.settle(900)
+        restored = self.script(self.STATE)
+        self.assertEqual((restored["nodes"], restored["focus"], restored["marked"], restored["pinned"]), (0, False, 0, None))
+        self.assertEqual(restored["cells"], base["cells"])
+        self.assertEqual(self.script("return loadedStructures().length"), 2)
+        # (The stream of the page that was left reports its end.)
+        self.assertEqual([error for error in self.console_errors() if "SSE Connection Error" not in error[1]], [])
+
+    def test_undo_brings_back_the_scene_without_the_focus_that_was_in_it(self):
+        base = self.open_pinnable()
+        self.pin()
+        self.click(self.row(2) + " .srow-main button:last-child", 600)
+        self.click("#toast .toast-action", 1500)
+        restored = self.script(self.STATE)
+        self.assertEqual((restored["nodes"], restored["focus"], restored["marked"], restored["pinned"]), (0, False, 0, None))
+        self.assertEqual(restored["cells"], base["cells"])
 
 
 if __name__ == "__main__":
