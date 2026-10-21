@@ -129,12 +129,11 @@ still change before version 1.0.0.
     folded one, gets no data, and the outcome says why.
   - **The file:** it records the MSA it came from. It is written whole or not at all,
     and a fold never fails because of it.
-  - **Fold View:** a "Color by" card switches each structure between pLDDT (still the
-    default) and these layers, with a legend, the MSA the values came from, and a hover
-    tooltip such as "Residue Agreement 87.5 % (MSA column 217)". Residues without a
-    value are grey. The page shows a data file only on the structure it was made for:
-    one made for another protein is refused, and the page says why. Superposition and
-    saved sessions work as before.
+  - **Fold View:** the Color by card (see Changed) offers these layers beside pLDDT, which
+    stays the default, with a legend naming the MSA the values came from. Residues
+    without a value are grey, and so is a structure with no values for the chosen layer,
+    marked "No data". The page shows a data file only on the structure it was made for:
+    one made for another protein is refused, and the page says why.
   - **Code layout:** the logo and identity-weight computation moved into
     `utilities.Alignment_Profiles`, shared by `logo`, `label` and the new data. Their
     output is bit-identical.
@@ -373,11 +372,23 @@ still change before version 1.0.0.
   - **States:** the page says what to do when there are no structures yet, with a button to
     open a structure file, and says so when WebGL is missing, while a saved session is
     restored and when the connection to the Viewer is lost.
-  - **Narrow windows:** the side panel becomes a drawer at 1040 px wide or less, and a strip
-    under the canvas at 700 px or less.
+  - **Color by card:** one choice for the whole scene, in place of a select per structure:
+    Structure color, pLDDT, each per-residue layer (with "1 of 2" when only some
+    structures have it), and under More colorings, Secondary structure and Residue
+    position. The chosen coloring's legend shows its range, unit and source, and a
+    compact copy sits in the canvas's lower left. A structure loaded later takes the
+    scene's choice, and a row's details can colour that one structure differently until
+    the scene's choice changes. Beyond 8 layers the card adds a filter box.
+  - **Hover and pin:** the pointer over a residue shows its name, chain and structure,
+    its pLDDT and band, the chosen layer's value and its secondary structure. A click pins
+    the residue, and the Residue card then lists it for every structure at once, matched
+    through the same sequence alignment as the superposition, with its pLDDT, layer value
+    and the Cα–Cα distance after alignment. Escape clears the pin.
+  - **Narrow windows:** the side panel becomes a drawer at 1040 px wide or less, and at
+    700 px or less a strip under the canvas with Structures, Color and Residue tabs.
   - **Language:** the page follows the program's language; in 0.4.0 it stayed English.
     Mol*'s own panels still do.
-  - Sessions saved before still load, and the "Color by" card works as before.
+  - Sessions saved before still load.
 
 ### Fixed
 
