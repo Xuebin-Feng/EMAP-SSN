@@ -284,3 +284,110 @@ async function superposeOnto(pivot, target) {
     const identical = pairs.filter(([i, j]) => a.codes[i] === b.codes[j]).length;
     return { rmsd: fit.rmsd, used: fit.used, aligned: pairs.length, identity: identical / pairs.length };
 }
+
+// ---- The pivot, and how well each structure fits it -----------------------------
+// The pivot is the structure the others are aligned to and the one that stays
+// where it was folded: the first without a pose of its own, or with the
+// identity (Make pivot gives it one). A structure aligned to a pivot that
+// was removed afterwards keeps its pose, and with no structure left in its
+// own frame the first stands in.
+// fitStats holds what each alignment found, by the structure's ref, with the
+// poses it was measured on (`key`): a pose changed elsewhere (Mol*'s own
+// Superposition panel, a restored session) is measured again, not trusted.
+const fitStats = new Map();
+// The structure Make pivot chose, while it is loaded; a restored session knows only the poses.
+let chosenPivotRef = null;
+
+function structureByRef(ref) {
+    return loadedStructures().find(structure => structure.cell.transform.ref === ref);
+}
+
+function structureMatrix(structure) {
+    return structure.transform?.cell.transform.params?.transform?.params?.data ?? null;
+}
+
+function isIdentityMatrix(data) {
+    // The 16 numbers of a column-major 4x4: ones on the diagonal (0, 5, 10, 15).
+    return Array.from(data).every((value, index) => Math.abs(value - (index % 5 === 0 ? 1 : 0)) < 1e-6);
+}
+
+function poseKey(structure) {
+    const data = structureMatrix(structure);
+    return data ? Array.from(data, value => value.toFixed(5)).join(',') : 'none';
+}
+
+function fitKey(pivot, structure) {
+    return [pivot.cell.transform.ref, poseKey(pivot), poseKey(structure)].join('|');
+}
+
+// `exceptRef` leaves out a structure that has just been loaded and is being aligned.
+function pivotStructure(exceptRef) {
+    const candidates = loadedStructures().filter(structure => structure.cell.transform.ref !== exceptRef);
+    const chosen = candidates.find(structure => structure.cell.transform.ref === chosenPivotRef);
+    return chosen || candidates.find(structure => {
+        const data = structureMatrix(structure);
+        return !data || isIdentityMatrix(data);
+    }) || candidates[0];
+}
+
+// Remembers `fit` (what superposeOnto returned) for the structure `ref` on the pivot `pivotRef`, as they are now.
+function recordFit(ref, pivotRef, fit) {
+    const structure = structureByRef(ref);
+    const pivot = structureByRef(pivotRef);
+    if (structure && pivot) fitStats.set(ref, { ...fit, key: fitKey(pivot, structure) });
+}
+
+// What the alignment of `structure` to `pivot` is as they are displayed: the
+// same pairs and outlier rule as superposePairs, without moving anything.
+function measurePose(pivot, structure) {
+    const fixedStructure = (pivot.transform || pivot).cell.obj?.data;
+    const movingStructure = (structure.transform || structure).cell.obj?.data;
+    if (!fixedStructure || !movingStructure) return null;
+    const a = readCaTrace(fixedStructure);
+    const b = readCaTrace(movingStructure);
+    const pairs = alignSequences(a.codes, b.codes);
+    if (pairs.length < 3) return null;
+    const squares = pairs.map(([i, j]) => {
+        let sum = 0;
+        for (let d = 0; d < 3; d++) sum += (a.coords[i][d] - b.coords[j][d]) ** 2;
+        return sum;
+    });
+    const rmsdOf = kept => Math.sqrt(kept.reduce((sum, k) => sum + squares[k], 0) / kept.length);
+    let kept = squares.map((_, k) => k);
+    let rmsd = rmsdOf(kept);
+    for (let cycle = 0; cycle < 5; cycle++) {
+        const limit = Math.max(4 * rmsd * rmsd, 0.25);
+        const next = kept.filter(k => squares[k] <= limit);
+        if (next.length === kept.length || next.length < 3) break;
+        kept = next;
+        rmsd = rmsdOf(kept);
+    }
+    const identical = pairs.filter(([i, j]) => a.codes[i] === b.codes[j]).length;
+    return { rmsd, used: kept.length, aligned: pairs.length, identity: identical / pairs.length };
+}
+
+// The measured alignment of every structure that has a pose, up to date with the poses as they are.
+function refreshFitStats() {
+    const pivot = pivotStructure();
+    if (!pivot) {
+        fitStats.clear();
+        return;
+    }
+    const present = new Set();
+    for (const structure of loadedStructures()) {
+        const ref = structure.cell.transform.ref;
+        present.add(ref);
+        if (ref === pivot.cell.transform.ref || !structure.transform) {
+            fitStats.delete(ref);
+            continue;
+        }
+        const key = fitKey(pivot, structure);
+        if (fitStats.get(ref)?.key === key) continue;
+        const fit = measurePose(pivot, structure);
+        if (fit) fitStats.set(ref, { ...fit, key });
+        else fitStats.delete(ref);
+    }
+    for (const ref of [...fitStats.keys()]) {
+        if (!present.has(ref)) fitStats.delete(ref);
+    }
+}

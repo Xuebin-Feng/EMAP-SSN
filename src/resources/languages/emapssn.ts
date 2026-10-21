@@ -1713,6 +1713,62 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Not saved: no connection to the Viewer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not saved</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The last save failed. Try Save now.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved {time}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Saved automatically after every change</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Session saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The session could not be saved.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{file} is not a Mol* session file.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opened {file}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Undo</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The scene was cleared.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear the scene?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This removes every structure from the view and from the saved session. You can undo it for a few seconds.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear scene</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Connected</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1793,15 +1849,115 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Cartoon</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ball and stick</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Spacefill</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Surface</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Backbone</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{name} is the pivot now, but {others} could not be aligned to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{name} is the pivot now. The other structures are aligned to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aligned {name} again: RMSD {rmsd} Å.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not do that: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Representation</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Other (set in Advanced)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opacity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mean pLDDT</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Aligned to {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>RMSD {rmsd} Å</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cα pairs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{used} of {aligned}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Sequence identity</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This is the pivot: the others are aligned to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Not aligned to the pivot.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Make pivot</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move this structure back to where it was folded and align the others to it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Align this structure to the pivot again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Re-align</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The PDB file as it was folded, not moved by the alignment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download PDB</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Pivot</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>The other structures are aligned to this one.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>RMSD {rmsd} Å</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1833,6 +1989,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Details of {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Remove {name}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1841,11 +2001,11 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Undo</source>
+        <source>Removed {name}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Removed {name}.</source>
+        <source>Only PDB and mmCIF files can be opened here.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1862,6 +2022,30 @@ Command-line usage:
     </message>
     <message>
         <source>Skip to the controls</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Session</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save now</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Download session file (.molj)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open session file...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open structure file...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear scene...</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1902,6 +2086,10 @@ Command-line usage:
     </message>
     <message>
         <source>Advanced: Mol*&apos;s own panels</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drop a PDB or mmCIF file to add it</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2018,6 +2206,10 @@ Command-line usage:
     </message>
     <message>
         <source>Got it</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
 </context>

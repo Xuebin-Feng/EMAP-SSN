@@ -10,9 +10,11 @@
  * own panels stay one click away: the Advanced button brings them back around
  * the same canvas (plugin.layout.updateProps), over the same scene. The
  * controls read Mol*'s state and the layer functions of esmfold_layers.js;
- * they keep no copy of it. Loaded last: esmfold_superposition.js and
- * esmfold_layers.js are before it, and the page's texts are marked with t()
- * (page_text.js), which the Viewer's web server translates as it serves this file.
+ * they keep no copy of it. esmfold_superposition.js and esmfold_layers.js are
+ * loaded before this file, and esmfold_structures.js (the Structures card) and
+ * esmfold_session.js (the Session menu) after it; the page's texts are marked
+ * with t() (page_text.js), which the Viewer's web server translates as it serves
+ * this file.
  */
 
 // ---- The page's state ----------------------------------------------------
@@ -21,9 +23,8 @@ let viewerInstance;
 let isRestoring = true;
 let pendingStructures = [];
 let everConnected = false;
-// What the alignment of each structure to the first found, by the structure's ref.
-const fitStats = new Map();
-const STRUCTURE_COLORS = ['#5b5bd6', '#0f9d8f', '#c2750c', '#c2185b', '#2563eb', '#65a30d'];
+// 'connecting', 'connected' or 'reconnecting': the Viewer's side of the page's stream.
+let connectionState = 'connecting';
 
 function byId(id) {
     return document.getElementById(id);
@@ -92,12 +93,14 @@ function showStatus(text, duration = 3000, options = {}) {
 
 // ---- Connection to the Viewer --------------------------------------------
 function setConnection(state) {
+    connectionState = state;
     const badge = byId('connection-status');
     badge.dataset.state = state;
     if (state === 'connected') badge.textContent = t("Connected");
     else if (state === 'reconnecting') badge.textContent = t("Reconnecting...");
     else badge.textContent = t("Connecting...");
     document.body.dataset.offline = state === 'reconnecting' && everConnected ? '1' : '0';
+    window.dispatchEvent(new CustomEvent('esmfold-connection', { detail: { state } }));
 }
 
 // ---- Theme: the choice the other pages keep (ssn_theme), else the system's ------
@@ -110,9 +113,15 @@ function canvasBackground() {
     return getComputedStyle(document.documentElement).getPropertyValue('--canvas-bg').trim() || '#fafafa';
 }
 
-function syncBackground() {
+// What the page sets on the canvas whatever a session says (a saved one has its own background): the
+// theme's background, and the axes gizmo in the bottom right corner, clear of the status line and the legend.
+function syncCanvasProps() {
     if (!plugin || !plugin.canvas3d) return;
-    plugin.canvas3d.setProps({renderer: {backgroundColor: parseInt(canvasBackground().slice(1), 16)}});
+    const axes = plugin.canvas3d.props.camera.helper.axes;
+    plugin.canvas3d.setProps({
+        renderer: {backgroundColor: parseInt(canvasBackground().slice(1), 16)},
+        camera: {helper: {axes: axes.name === 'on' ? {name: 'on', params: {...axes.params, location: 'bottom-right'}} : axes}}
+    });
 }
 
 // Mol*'s own panels (Advanced) come in its light or its dark skin, whichever the theme asks for.
@@ -131,7 +140,7 @@ function applyTheme(theme, remember = true) {
     const themeIcon = byId('theme-toggle-icon');
     byId('theme-toggle-label').textContent = dark ? t("Light Mode") : t("Dark Mode");
     setIcon(themeIcon, dark ? "sun" : "moon");
-    syncBackground();
+    syncCanvasProps();
 }
 
 byId('theme-toggle-btn').addEventListener('click', () => applyTheme(currentTheme() === 'dark' ? 'light' : 'dark'));
@@ -175,7 +184,7 @@ molstar.Viewer.create('viewer', {
     // The hierarchy changes as structures come and go; a structure's visibility is only a cell's state.
     plugin.managers.structure.hierarchy.behaviors.selection.subscribe(() => scheduleStructures());
     plugin.state.data.events.cell.stateUpdated.subscribe(() => scheduleStructures());
-    syncBackground();
+    syncCanvasProps();
     updateView();
     renderStructures();
     showStatus(t("Mol* initialized. Connecting to the Viewer..."));
@@ -235,6 +244,7 @@ function setupSSE() {
                         showStatus(t("Restoring the saved session..."));
                         await plugin.state.setSnapshot(msg.session);
                         await reconcileLayers();
+                        syncCanvasProps();
                         showStatus(t("Session restored successfully."));
                     } else {
                         showStatus(t("Started with a fresh blank session."));
@@ -273,20 +283,24 @@ function setupSSE() {
 // added (the newest) even when fold events arrive back to back.
 let structureQueue = Promise.resolve();
 function enqueueStructure(url, label) {
+    return enqueueLoad(() => viewerInstance.loadStructureFromUrl(url, 'pdb'), label, url);
+}
+
+// `load` makes Mol* load a structure (from a URL, or from a file's text); `url` is where it came from, if anywhere.
+function enqueueLoad(load, label, url) {
     structureQueue = structureQueue
-        .then(() => loadAndAlignStructure(url, label))
+        .then(() => loadAndAlignStructure(load, label, url))
         .catch(err => console.error("Error loading structure:", err));
     return structureQueue;
 }
 
 // Load structure, apply cartoon/pLDDT coloring, align to pivot, and auto-save
-async function loadAndAlignStructure(url, label) {
+async function loadAndAlignStructure(load, label, url) {
     try {
         showStatus(t("Loading structure {name}...", {name: label}), 0);
         plugin.log.info(`Loading structure ${label}...`);
 
-        // Use the official high-level loadStructureFromUrl method
-        await viewerInstance.loadStructureFromUrl(url, 'pdb');
+        await load();
 
         // Apply pLDDT confidence coloring to all loaded structures,
         // except those the user has coloured by a per-residue layer
@@ -311,12 +325,12 @@ async function loadAndAlignStructure(url, label) {
         if (structures.length > 1) {
             showStatus(t("Aligning {name} to the pivot structure...", {name: label}), 0);
             plugin.log.info(`Aligning ${label} to pivot structure...`);
-            const pivot = structures[0];
             const target = structures[structures.length - 1];
+            const pivot = pivotStructure(target.cell.transform.ref);
 
             try {
                 const fit = await superposeOnto(pivot, target);
-                fitStats.set(target.cell.transform.ref, fit);
+                recordFit(target.cell.transform.ref, pivot.cell.transform.ref, fit);
                 showStatus(t("Loaded and aligned {name}.", {name: label}));
                 plugin.log.info(`Successfully loaded and aligned ${label}: RMSD ${fit.rmsd.toFixed(2)} Å over ${fit.used} of ${fit.aligned} aligned CA pairs (${Math.round(100 * fit.identity)}% sequence identity).`);
             } catch (alignErr) {
@@ -334,8 +348,10 @@ async function loadAndAlignStructure(url, label) {
         showStatus(t("Failed to load structure {name}.", {name: label}), 6000, {error: true});
     } finally {
         // A structure written again under the same name has new residue data.
-        const file = decodeURIComponent(url.split('?')[0].split('/').pop());
-        layerListing(file, true).then(() => renderLayerPanel());
+        if (url) {
+            const file = decodeURIComponent(url.split('?')[0].split('/').pop());
+            layerListing(file, true).then(() => renderLayerPanel());
+        }
         scheduleStructures();
         // Wait 1.5 seconds for representation state to finalize, then save session snapshot
         setTimeout(saveSession, 1500);
@@ -352,12 +368,22 @@ function reportDebug(detail) {
 }
 
 // Save session state to layout cache
-function saveSession() {
-    if (!plugin) return;
-    try {
-        const snapshot = plugin.state.getSnapshot();
+// The session as Mol* gives it; a camera only where there is a canvas to ask.
+function takeSnapshot() {
+    return plugin.state.getSnapshot({ camera: !!plugin.canvas3d });
+}
 
-        fetch('/api/action', {
+// Resolves with whether the Viewer took it, and says so to the Session menu (esmfold-saved).
+function saveSession() {
+    const done = ok => {
+        window.dispatchEvent(new CustomEvent('esmfold-saved', { detail: { ok } }));
+        return ok;
+    };
+    if (!plugin) return Promise.resolve(false);
+    try {
+        const snapshot = takeSnapshot();
+
+        return fetch('/api/action', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ action: 'save_molstar_session', session: snapshot })
@@ -368,140 +394,17 @@ function saveSession() {
                 console.error("Failed to auto-save session state.");
                 reportDebug("Failed to auto-save session state. Status: " + response.status);
             }
+            return done(response.ok);
         }).catch(err => {
             console.error("Network error during auto-save:", err);
             reportDebug("Network error during auto-save: " + (err.stack || err.message));
+            return done(false);
         });
     } catch (err) {
         console.error("Serialization error during saveSession:", err);
         reportDebug("Serialization error during saveSession: " + (err.stack || err.message));
+        return Promise.resolve(done(false));
     }
-}
-
-// ---- The Structures card ---------------------------------------------------
-let structuresTimer = null;
-const residueCounts = new Map();
-
-function scheduleStructures() {
-    clearTimeout(structuresTimer);
-    structuresTimer = setTimeout(renderStructures, 30);
-}
-
-function structureName(structure) {
-    const file = structureFile(structure);
-    if (file) return file.replace(/\.pdb$/i, '');
-    return (structure.cell.obj && structure.cell.obj.label) || t("Structure");
-}
-
-function structureHidden(structure) {
-    return structure.components.length > 0 && structure.components.every(component => component.cell.state.isHidden);
-}
-
-function residueCount(structure) {
-    const ref = structure.cell.transform.ref;
-    if (!residueCounts.has(ref)) residueCounts.set(ref, readCaTrace(structure.cell.obj.data).codes.length);
-    return residueCounts.get(ref);
-}
-
-function structureByRef(ref) {
-    return loadedStructures().find(structure => structure.cell.transform.ref === ref);
-}
-
-function chip(text, className, title) {
-    const node = make('span', 'chip ' + className, text);
-    if (title) node.title = title;
-    return node;
-}
-
-function structureRow(structure, index) {
-    const ref = structure.cell.transform.ref;
-    const name = structureName(structure);
-    const hidden = structureHidden(structure);
-    const row = make('div', 'srow' + (hidden ? ' hidden-structure' : ''));
-    row.dataset.ref = ref;
-    const main = make('div', 'srow-main');
-    const swatch = make('span', 'srow-swatch');
-    swatch.style.setProperty('--sw', STRUCTURE_COLORS[index % STRUCTURE_COLORS.length]);
-    const text = make('div', 'srow-text');
-    const nameLine = make('div', 'srow-name', name);
-    text.append(nameLine);
-    const sub = make('div', 'srow-sub');
-    const fit = fitStats.get(ref);
-    let badge = null;
-    if (index === 0) {
-        badge = chip(t("Pivot"), 'pivot', t("The other structures are aligned to this one."));
-    } else if (fit) {
-        badge = chip(t("RMSD {rmsd} Å", {rmsd: fit.rmsd.toFixed(1)}), 'ok',
-            t("Aligned to the pivot: {used} of {aligned} Cα pairs, {identity}% sequence identity.",
-                {used: fit.used, aligned: fit.aligned, identity: Math.round(100 * fit.identity)}));
-    } else if (structure.transform) {
-        badge = chip(t("Aligned"), 'ok', t("Aligned to the pivot."));
-    }
-    const count = make('span', undefined, t("{n} residues", {n: residueCount(structure)}));
-    sub.append(...(badge ? [badge] : []), count);
-    text.append(sub);
-
-    const eyeLabel = hidden ? t("Show {name}", {name}) : t("Hide {name}", {name});
-    const eyeIcon = icon("eye");
-    setIcon(eyeIcon, hidden ? "eye-off" : "eye");
-    const eye = iconButton(eyeLabel, eyeIcon, () => {
-        plugin.managers.structure.component.toggleVisibility(structure.components);
-    });
-    eye.setAttribute('aria-pressed', hidden ? 'true' : 'false');
-    const zoom = iconButton(t("Zoom to {name}", {name}), icon("crosshair"), () => zoomToStructure(structure));
-    const remove = iconButton(t("Remove {name}", {name}), icon("trash-2"), () => removeStructure(structure), 'btn-danger-ghost');
-    main.append(swatch, text, eye, zoom, remove);
-    row.append(main);
-    return row;
-}
-
-function renderStructures() {
-    if (!plugin) return;
-    const structures = loadedStructures();
-    const list = byId('struct-list');
-    if (structures.length) list.replaceChildren(...structures.map(structureRow));
-    else {
-        const hint = make('div', 'hint', t("Structures appear here as they are folded."));
-        list.replaceChildren(hint);
-    }
-    byId('struct-count').textContent = structures.length ? '(' + structures.length + ')' : '';
-    updateView();
-}
-
-function zoomToStructure(structure) {
-    const loci = molstar.lib.structure.Structure.toStructureElementLoci(structure.cell.obj.data);
-    plugin.managers.camera.focusLoci(loci);
-}
-
-// Removing a structure can be undone for a few seconds: the session as it was comes back.
-function removeStructure(structure) {
-    const ref = structure.cell.transform.ref;
-    const name = structureName(structure);
-    let before = null;
-    try {
-        before = plugin.state.getSnapshot();
-    } catch (error) {
-        console.warn("Could not keep the scene for Undo:", error);
-    }
-    runExclusive(async () => {
-        const target = structureByRef(ref);
-        if (target) await plugin.managers.structure.hierarchy.remove([target]);
-        fitStats.delete(ref);
-        renderLayerPanel();
-        scheduleStructures();
-        setTimeout(saveSession, 1500);
-    });
-    const undo = before ? {label: t("Undo"), run: () => undoRemoval(before)} : {};
-    showStatus(t("Removed {name}.", {name}), 6000, undo);
-}
-
-function undoRemoval(snapshot) {
-    runExclusive(async () => {
-        await plugin.state.setSnapshot(snapshot);
-        await reconcileLayers();
-        scheduleStructures();
-        setTimeout(saveSession, 1500);
-    });
 }
 
 // ---- The toolbar over the canvas ---------------------------------------------
@@ -528,7 +431,6 @@ function setAdvanced(on) {
 }
 byId('t-adv').addEventListener('click', () => setAdvanced(document.body.dataset.adv !== '1'));
 byId('adv-back').addEventListener('click', () => setAdvanced(false));
-byId('open-file').addEventListener('click', () => setAdvanced(true));
 
 // ---- The panel: beside the canvas, a drawer on a narrow window, a strip on a phone ----
 function setPanel(open) {
@@ -562,8 +464,10 @@ byId('help-modal').addEventListener('click', event => {
     if (event.target.id === 'help-modal') closeHelp();
 });
 
+// Escape closes the layer on top: a menu, a question, the help, then the Advanced view.
 document.addEventListener('keydown', event => {
     if (event.key !== 'Escape') return;
+    if (closeSessionMenu() || closeConfirm()) return;
     if (byId('help-modal').classList.contains('open')) closeHelp();
     else if (document.body.dataset.adv === '1') setAdvanced(false);
 });

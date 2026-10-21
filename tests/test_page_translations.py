@@ -284,6 +284,8 @@ class PageHandler(FixtureHandler):
         "/esmfold_shell.js": SRC / "web_ui" / "esmfold_shell.js",
         "/esmfold_layers.js": SRC / "web_ui" / "esmfold_layers.js",
         "/esmfold_superposition.js": SRC / "web_ui" / "esmfold_superposition.js",
+        "/esmfold_structures.js": SRC / "web_ui" / "esmfold_structures.js",
+        "/esmfold_session.js": SRC / "web_ui" / "esmfold_session.js",
         "/esmfold/molstar.js": SRC / "resources" / "esmfold" / "molstar.js",
     }
 
@@ -294,9 +296,11 @@ SERVED_TEXTS = {
     "/agent_resource/attachments.js": "Remove attachment",
     "/meta.html": "Got it",
     "/esmfold.html": "Skip to the controls",
-    "/esmfold_shell.js": "Zoom to {name}",
+    "/esmfold_shell.js": "Reconnecting...",
     "/esmfold_layers.js": "no layer {layer} for {file}",
     "/esmfold_superposition.js": "structure data is not loaded",
+    "/esmfold_structures.js": "Make pivot",
+    "/esmfold_session.js": "Session saved.",
 }
 
 
@@ -628,7 +632,8 @@ class AgentPageTests(WebPageTestCase):
         # The page around the canvas has texts of its own; Mol* has no
         # translations, so its files come as they are, and the Advanced view,
         # which shows Mol*'s own panels, says they are English only.
-        for name in ("esmfold.html", "esmfold_shell.js", "esmfold_layers.js", "esmfold_superposition.js"):
+        for name in ("esmfold.html", "esmfold_shell.js", "esmfold_layers.js", "esmfold_superposition.js",
+                     "esmfold_structures.js", "esmfold_session.js"):
             self.assertIn(f"web_ui/{name}", PAGE_CONTEXTS)
         mol_star = (SRC / "resources" / "esmfold" / "molstar.js").read_bytes()
         response, body = request(self.server, "GET", "/esmfold/molstar.js")

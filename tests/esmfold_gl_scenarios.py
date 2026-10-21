@@ -60,6 +60,33 @@ window.canvasPixels = async function (spots) {
     for (let i = 0; i < all.length; i += 4) if (hex(all.slice(i, i + 3)) !== corner) other++;
     return {corner, drawn: other / (all.length / 4), width: image.width, height: image.height};
 };
+// How much of a part of the picture (fractions of its width and height) is not its background.
+window.regionDrawn = async function (left, top, width, height) {
+    const uri = await plugin.helpers.viewportScreenshot.getImageDataUri();
+    const image = new Image();
+    image.src = uri;
+    await image.decode();
+    const canvas = document.createElement('canvas');
+    canvas.width = image.width;
+    canvas.height = image.height;
+    const context = canvas.getContext('2d', {willReadFrequently: true});
+    context.drawImage(image, 0, 0);
+    const [x, y, w, h] = [left * image.width, top * image.height, width * image.width, height * image.height].map(Math.round);
+    const data = context.getImageData(x, y, w, h).data;
+    const corner = context.getImageData(2, 2, 1, 1).data;
+    let other = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        if (Math.abs(data[i] - corner[0]) + Math.abs(data[i + 1] - corner[1]) + Math.abs(data[i + 2] - corner[2]) > 12) other++;
+    }
+    return other / (data.length / 4);
+};
+// Where the status line is, in the stage's own pixels.
+window.toastRect = function () {
+    const stage = document.getElementById('stage').getBoundingClientRect();
+    const toast = document.getElementById('toast').getBoundingClientRect();
+    return {left: toast.left - stage.left, right: toast.right - stage.left, top: toast.top - stage.top,
+            bottom: toast.bottom - stage.top, stageWidth: stage.width, stageHeight: stage.height};
+};
 window.cameraNow = function () {
     const state = plugin.canvas3d.camera.state;
     return {target: Array.from(state.target), position: Array.from(state.position), radius: state.radius};
@@ -78,6 +105,20 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
             self.view.grab().save(str(Path(self.folder) / f"{name}.png"))
 
     folder = None
+
+    def drawn(self, stage, x, y, width, height):
+        """The share of a part of the stage (pixels from its corner) that is not the stage's background."""
+        image = self.view.grab().toImage()
+        left, top = round(stage["x"] + x), round(stage["y"] + y)
+        background = image.pixelColor(round(stage["x"]) + 4, round(stage["y"]) + 4)
+        other = total = 0
+        for row in range(top, top + height):
+            for column in range(left, left + width):
+                color = image.pixelColor(column, row)
+                total += 1
+                if abs(color.red() - background.red()) + abs(color.green() - background.green()) + abs(color.blue() - background.blue()) > 12:
+                    other += 1
+        return other / total
 
     def test_scenario(self):
         fixtures.write_structure(self.directory, "11.pdb", fixtures.FIRST_SEQUENCE)
@@ -99,7 +140,29 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         FACTS["lightToken"] = self.script("return canvasBackground()")
         FACTS["light"] = self.script("return await canvasPixels()")
         FACTS["camera0"] = self.script("return cameraNow()")
+        # The axes gizmo is in the bottom right corner, and the status line is not on top of it.
+        FACTS["gizmo"] = self.script("return plugin.canvas3d.props.camera.helper.axes.params.location")
+        # The gizmo is part of the live canvas, not of the screenshot helper's picture: look at the window.
+        corner = self.script("const r = document.getElementById('stage').getBoundingClientRect(); return {x: r.left, y: r.top, w: r.width, h: r.height}")
+        # (Inside the stage's own border, which is not background either.)
+        FACTS["gizmoRight"] = self.drawn(corner, corner["w"] - 128, corner["h"] - 128, 120, 120)
+        FACTS["gizmoLeft"] = self.drawn(corner, 8, corner["h"] - 128, 120, 120)
+        self.script("showStatus('Loaded and aligned 22. A longer message, to see where the status line goes.', 0); return 1")
+        self.wait(200)
+        FACTS["toast"] = self.script("return toastRect()")
+        self.script("hideStatus(); return 1")
         self.picture("structures-light")
+
+        # The row's details, the Session menu and the question it asks, for a person to look at.
+        self.script("document.querySelector('#struct-list .srow:nth-child(2) .exp-btn').click(); return 1")
+        self.picture("details-light")
+        self.script("document.querySelector('#struct-list .srow:nth-child(2) .exp-btn').click(); return 1")
+        self.js("document.getElementById('session-btn').click()")
+        self.picture("session-menu-light")
+        self.script("document.querySelector('#session-menu [data-action=\"clear\"]').click(); return 1")
+        self.picture("clear-dialog-light")
+        self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+        self.pump(0.3)
 
         # Reset view returns the camera to where Mol* frames the scene; Zoom to a structure comes to it.
         self.script("plugin.managers.camera.reset(); return 1")
@@ -147,6 +210,10 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         self.script("applyTheme('light', false); return 1")
         self.picture("narrow-light")
         FACTS["narrowPanel"] = self.script("return document.body.dataset.panel")
+        self.script("showStatus('Loaded and aligned 22.', 0); return 1")
+        self.wait(200)
+        FACTS["narrowToast"] = self.script("return toastRect()")
+        self.script("hideStatus(); return 1")
         self.view.resize(1300, 800)
         self.pump(0.5)
 

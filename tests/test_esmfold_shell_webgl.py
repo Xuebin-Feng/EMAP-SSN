@@ -80,8 +80,22 @@ class ShellWebglTests(unittest.TestCase):
         self.assertLess(distance(found["cameraReset"]["target"], found["cameraFramed"]["target"]), 1)
         self.assertLess(distance(found["cameraReset"]["position"], found["cameraFramed"]["position"]), 3)
 
-    def test_a_narrow_window_still_opens_the_panel_as_a_strip(self):
+    def test_the_axes_gizmo_is_in_the_right_corner_and_the_status_line_stays_clear_of_it(self):
+        found = self.found
+        self.assertEqual(found["gizmo"], "bottom-right")
+        self.assertGreater(found["gizmoRight"], 0.02)
+        self.assertLess(found["gizmoLeft"], 0.002)
+        toast = found["toast"]
+        # Over the middle of the view's bottom edge, neither corner.
+        self.assertGreater(toast["left"], 130)
+        self.assertLess(toast["right"], toast["stageWidth"] - 130)
+        self.assertGreater(toast["top"], toast["stageHeight"] / 2)
+
+    def test_a_narrow_window_opens_the_panel_as_a_strip_and_puts_the_status_line_at_the_top(self):
         self.assertEqual(self.found["narrowPanel"], "1")
+        toast = self.found["narrowToast"]
+        self.assertLess(toast["bottom"], 80)
+        self.assertLess(toast["right"], toast["stageWidth"] - 150)
 
     def test_the_page_draws_its_canvas_in_simplified_chinese_too(self):
         self.assertEqual((self.found["chineseHeader"], self.found["chineseView"]), ("EMAP-SSN 结构视图", "ready"))

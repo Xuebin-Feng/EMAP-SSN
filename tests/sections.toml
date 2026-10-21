@@ -96,6 +96,7 @@ modules = [
     "test_esmfold_layers",
     "test_esmfold_shell",
     "test_esmfold_shell_webgl",
+    "test_esmfold_structures",
     "test_esmfold_worker",
     "test_meta_backend",
     "test_molstar_api_surface",

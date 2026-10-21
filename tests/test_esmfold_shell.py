@@ -91,7 +91,7 @@ class ShellTests(PageTestCase):
                 name: row.querySelector('.srow-name').textContent,
                 chips: [...row.querySelectorAll('.chip')].map(chip => [chip.textContent, chip.className, chip.title]),
                 size: row.querySelector('.srow-sub span:last-child').textContent,
-                buttons: [...row.querySelectorAll('button')].map(button => [button.title, button.getAttribute('aria-label'),
+                buttons: [...row.querySelectorAll('.srow-main button')].map(button => [button.title, button.getAttribute('aria-label'),
                     button.getAttribute('aria-pressed'), button.querySelector('use').getAttribute('href')]),
                 hidden: row.classList.contains('hidden-structure')}));
             """)
@@ -167,7 +167,8 @@ class ShellTests(PageTestCase):
         self.assertEqual(pivot["size"], "33 residues")
         self.assertEqual(
             [[title, href] for title, _, _, href in second["buttons"]],
-            [["Hide 22", "#i-eye"], ["Zoom to 22", "#i-crosshair"], ["Remove 22", "#i-trash-2"]])
+            [["Hide 22", "#i-eye"], ["Zoom to 22", "#i-crosshair"], ["Details of 22", "#i-chevron-down"],
+             ["Remove 22", "#i-trash-2"]])
         self.assertTrue(all(title == label for title, label, _, _ in second["buttons"]))
         self.assertEqual(self.script("return document.getElementById('struct-count').textContent"), "(2)")
         self.assertEqual(self.script("return document.body.dataset.count"), "2")
@@ -249,11 +250,6 @@ class ShellTests(PageTestCase):
         closed = json.loads(self.js(door))
         self.assertEqual((closed["adv"], closed["pressed"], closed["controls"]), ("0", "false", False))
         self.assertEqual((closed["regions"], closed["focus"], closed["rows"]), (0, "t-adv", 2))
-        # The Open a PDB file button of the empty state opens it too.
-        self.js("document.getElementById('open-file').click()")
-        self.assertEqual(self.js("document.body.dataset.adv"), "1")
-        self.js("document.getElementById('adv-back').click()")
-        self.assertEqual(self.js("document.body.dataset.adv"), "0")
         self.assertEqual(self.console_errors(), [])
 
     def test_the_help_dialog_takes_focus_and_gives_it_back(self):

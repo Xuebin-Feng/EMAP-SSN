@@ -115,7 +115,8 @@ class BundledPageIconTests(unittest.TestCase):
     # The scripts a page loads that draw its icons too.
     PAGE_SCRIPTS = {
         'agent.html': (SRC_DIR / 'resources' / 'agent' / 'attachments.js',),
-        'esmfold.html': tuple(PAGES / name for name in ('esmfold_shell.js', 'esmfold_layers.js')),
+        'esmfold.html': tuple(PAGES / name for name in (
+            'esmfold_shell.js', 'esmfold_layers.js', 'esmfold_structures.js', 'esmfold_session.js')),
     }
     LUCIDE = SRC_DIR / 'resources' / 'icons' / 'lucide'
     SVG = '{http://www.w3.org/2000/svg}'

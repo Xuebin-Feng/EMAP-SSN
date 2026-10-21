@@ -2761,7 +2761,7 @@ Command-line usage:
         <translation type="unfinished">无法按该图层给 {file} 着色。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_shell.js" line="+97"/>
+        <location filename="../../../web_ui/esmfold_shell.js" line="+99"/>
         <source>Connected</source>
         <translation type="unfinished">已连接</translation>
     </message>
@@ -2772,12 +2772,12 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/esmfold.html" line="+538"/>
+        <location filename="../../../web_ui/esmfold.html" line="+616"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
     <message>
-        <location line="+33"/>
+        <location line="+40"/>
         <source>Light Mode</source>
         <translation type="unfinished">浅色模式</translation>
     </message>
@@ -2809,12 +2809,12 @@ Command-line usage:
     </message>
     <message>
         <location line="+13"/>
-        <location filename="../../../web_ui/esmfold.html" line="+34"/>
+        <location filename="../../../web_ui/esmfold.html" line="+35"/>
         <source>Restoring the saved session...</source>
         <translation type="unfinished">正在恢复已保存的会话…</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+4"/>
         <source>Session restored successfully.</source>
         <translation type="unfinished">会话已成功恢复。</translation>
     </message>
@@ -2829,12 +2829,12 @@ Command-line usage:
         <translation type="unfinished">收到新结构：{name}。正在加载…</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+39"/>
         <source>Loading structure {name}...</source>
         <translation type="unfinished">正在加载结构 {name}…</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+26"/>
         <source>Aligning {name} to the pivot structure...</source>
         <translation type="unfinished">正在将 {name} 对齐到基准结构…</translation>
     </message>
@@ -2859,12 +2859,12 @@ Command-line usage:
         <translation type="unfinished">无法加载结构 {name}。</translation>
     </message>
     <message>
-        <location line="+59"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="+36"/>
         <source>Structure</source>
         <translation type="unfinished">结构</translation>
     </message>
     <message>
-        <location line="+39"/>
+        <location line="+323"/>
         <source>Pivot</source>
         <translation type="unfinished">基准</translation>
     </message>
@@ -2874,12 +2874,138 @@ Command-line usage:
         <translation type="unfinished">其他结构都向它对齐。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="-63"/>
+        <location line="+65"/>
         <source>RMSD {rmsd} Å</source>
         <translation type="unfinished">RMSD {rmsd} Å</translation>
     </message>
     <message>
+        <location line="-281"/>
+        <source>Cartoon</source>
+        <translation type="unfinished">卡通</translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>Ball and stick</source>
+        <translation type="unfinished">球棍</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Spacefill</source>
+        <translation type="unfinished">空间填充</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Surface</source>
+        <translation type="unfinished">表面</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Backbone</source>
+        <translation type="unfinished">骨架</translation>
+    </message>
+    <message>
+        <location line="+92"/>
+        <source>{name} is the pivot now, but {others} could not be aligned to it.</source>
+        <translation type="unfinished">{name} 现在是基准结构，但 {others} 无法对齐到它。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>{name} is the pivot now. The other structures are aligned to it.</source>
+        <translation type="unfinished">{name} 现在是基准结构，其他结构已对齐到它。</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Aligned {name} again: RMSD {rmsd} Å.</source>
+        <translation type="unfinished">已重新对齐 {name}：RMSD {rmsd} Å。</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Could not do that: {reason}</source>
+        <translation type="unfinished">无法完成该操作：{reason}</translation>
+    </message>
+    <message>
+        <location line="+49"/>
+        <source>Representation</source>
+        <translation type="unfinished">表示方式</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Other (set in Advanced)</source>
+        <translation type="unfinished">其他（在高级视图中设置）</translation>
+    </message>
+    <message>
+        <location line="+15"/>
+        <source>Opacity</source>
+        <translation type="unfinished">不透明度</translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Mean pLDDT</source>
+        <translation type="unfinished">平均 pLDDT</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Aligned to {name}</source>
+        <translation type="unfinished">对齐到 {name}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Cα pairs</source>
+        <translation type="unfinished">Cα 配对</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>{used} of {aligned}</source>
+        <translation type="unfinished">{aligned} 中的 {used}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Sequence identity</source>
+        <translation type="unfinished">序列一致性</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>This is the pivot: the others are aligned to it.</source>
+        <translation type="unfinished">这是基准结构：其他结构都向它对齐。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Not aligned to the pivot.</source>
+        <translation type="unfinished">尚未对齐到基准结构。</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Make pivot</source>
+        <translation type="unfinished">设为基准</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Move this structure back to where it was folded and align the others to it.</source>
+        <translation type="unfinished">将此结构移回折叠时的位置，并让其他结构向它对齐。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Align this structure to the pivot again.</source>
+        <translation type="unfinished">重新将此结构对齐到基准结构。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Re-align</source>
+        <translation type="unfinished">重新对齐</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>The PDB file as it was folded, not moved by the alignment.</source>
+        <translation type="unfinished">折叠时生成的 PDB 文件，未经对齐移动。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Download PDB</source>
+        <translation type="unfinished">下载 PDB</translation>
+    </message>
+    <message>
+        <location line="+31"/>
         <source>Aligned to the pivot: {used} of {aligned} Cα pairs, {identity}% sequence identity.</source>
         <translation type="unfinished">已对齐到基准结构：{aligned} 个 Cα 配对中使用了 {used} 个，序列一致性 {identity}%。</translation>
     </message>
@@ -2915,21 +3041,99 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
+        <source>Details of {name}</source>
+        <translation type="unfinished">{name} 的详细信息</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Remove {name}</source>
         <translation type="unfinished">移除 {name}</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+35"/>
         <source>Structures appear here as they are folded.</source>
         <translation type="unfinished">结构折叠完成后会显示在这里。</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+86"/>
+        <source>Only PDB and mmCIF files can be opened here.</source>
+        <translation type="unfinished">这里只能打开 PDB 和 mmCIF 文件。</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/esmfold_session.js" line="+32"/>
+        <source>Not saved: no connection to the Viewer.</source>
+        <translation type="unfinished">未保存：与查看器没有连接。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Not saved</source>
+        <translation type="unfinished">未保存</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The last save failed. Try Save now.</source>
+        <translation type="unfinished">上次保存失败。请尝试“立即保存”。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Saved {time}</source>
+        <translation type="unfinished">已保存 {time}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <location filename="../../../web_ui/esmfold.html" line="-45"/>
+        <source>Saved automatically after every change</source>
+        <translation type="unfinished">每次更改后自动保存</translation>
+    </message>
+    <message>
+        <location line="+90"/>
+        <source>Session saved.</source>
+        <translation type="unfinished">会话已保存。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The session could not be saved.</source>
+        <translation type="unfinished">无法保存会话。</translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>{file} is not a Mol* session file.</source>
+        <translation type="unfinished">{file} 不是 Mol* 会话文件。</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <location line="+17"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="-31"/>
         <source>Undo</source>
         <translation type="unfinished">撤销</translation>
     </message>
     <message>
+        <location line="-17"/>
+        <source>Opened {file}.</source>
+        <translation type="unfinished">已打开 {file}。</translation>
+    </message>
+    <message>
+        <location line="+17"/>
+        <source>The scene was cleared.</source>
+        <translation type="unfinished">场景已清空。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Clear the scene?</source>
+        <translation type="unfinished">清空场景？</translation>
+    </message>
+    <message>
         <location line="+1"/>
+        <source>This removes every structure from the view and from the saved session. You can undo it for a few seconds.</source>
+        <translation type="unfinished">这会从视图和已保存的会话中移除所有结构。几秒钟内可以撤销。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Clear scene</source>
+        <translation type="unfinished">清空场景</translation>
+    </message>
+    <message>
+        <location filename="../../../web_ui/esmfold_structures.js" line="+1"/>
         <source>Removed {name}.</source>
         <translation type="unfinished">已移除 {name}。</translation>
     </message>
@@ -2944,8 +3148,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-547"/>
-        <location line="+511"/>
+        <location filename="../../../web_ui/esmfold.html" line="-581"/>
+        <location line="+576"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -2956,6 +3160,37 @@ Command-line usage:
     </message>
     <message>
         <location line="+7"/>
+        <location line="+1"/>
+        <source>Session</source>
+        <translation type="unfinished">会话</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Save now</source>
+        <translation type="unfinished">立即保存</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Download session file (.molj)</source>
+        <translation type="unfinished">下载会话文件 (.molj)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Open session file...</source>
+        <translation type="unfinished">打开会话文件…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Open structure file...</source>
+        <translation type="unfinished">打开结构文件…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Clear scene...</source>
+        <translation type="unfinished">清空场景…</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Help</source>
         <translation type="unfinished">帮助</translation>
     </message>
@@ -2971,13 +3206,13 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location line="+43"/>
+        <location line="+44"/>
         <location line="+1"/>
         <source>Scene</source>
         <translation type="unfinished">场景</translation>
     </message>
     <message>
-        <location line="-39"/>
+        <location line="-40"/>
         <source>Advanced view: Mol*&apos;s own panels (English only). The same scene, the same session.</source>
         <translation type="unfinished">高级视图：Mol* 自带的面板（仅英文）。场景和会话与简易视图相同。</translation>
     </message>
@@ -3010,7 +3245,12 @@ Command-line usage:
         <translation type="unfinished">高级：Mol* 自带的面板</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+4"/>
+        <source>Drop a PDB or mmCIF file to add it</source>
+        <translation type="unfinished">拖放 PDB 或 mmCIF 文件即可添加</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Starting the structure view...</source>
         <translation type="unfinished">正在启动结构视图…</translation>
     </message>
@@ -3153,6 +3393,11 @@ Command-line usage:
         <location line="+1"/>
         <source>Got it</source>
         <translation type="unfinished">知道了</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Cancel</source>
+        <translation type="unfinished">取消</translation>
     </message>
 </context>
 <context>
