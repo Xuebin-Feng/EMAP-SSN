@@ -888,20 +888,23 @@ def _pair_source(data, settings, kept_mask):
     )
 
 
-def _strongest_pairs(data, settings, *, kept_mask, keep_limit, source=None):
+def _strongest_pairs(data, settings, *, kept_mask, keep_limit, source=None, visitor=None):
     """The pairs that are among the best ``keep_limit`` of their source or of their target.
 
     Returns the stored node indices of each pair and its score, in the order of
     the stored pairs, streaming the network instead of loading its columns. A
     node's best pairs are the highest scores; equal scores go to the pair stored
     first. A subset of nodes (``kept_mask``) ranks only the pairs between its
-    nodes, as the network's columns would be filtered before ranking.
+    nodes, as the network's columns would be filtered before ranking. A
+    ``visitor`` rides on the same pass (Network_Top_Edges.strongest_edges).
     """
     from utilities import Network_Top_Edges as top
 
     if source is None:
         source = _pair_source(data, settings, kept_mask)
-    _, sources, targets, scores = top.strongest_edges(source, len(kept_mask), keep_limit)
+    _, sources, targets, scores = top.strongest_edges(
+        source, len(kept_mask), keep_limit, visitor=visitor
+    )
     return sources, targets, scores
 
 
@@ -931,7 +934,7 @@ def strongest_edge_limit(configuration):
     return int(getattr(configuration, "UMAP_NEIGHBORS", INPUT_PROFILE_DEFAULTS["UMAP_NEIGHBORS"]))
 
 
-def prepare_network(data, *, settings, selected_fasta_headers, with_pair_source=None):
+def prepare_network(data, *, settings, selected_fasta_headers, with_pair_source=None, pair_scan=None):
     """Return filtered ``(headers, edges, scores)`` for an open network file.
 
     Only nodes named in ``selected_fasta_headers`` (the selected FASTA's
@@ -948,6 +951,12 @@ def prepare_network(data, *, settings, selected_fasta_headers, with_pair_source=
     from its stored node numbers to the returned ones, the number of returned nodes
     and the returned edges and scores. A layout that needs another pass over the
     stored scores (PaCMAP's mid-near pairs) makes it there.
+
+    ``pair_scan``, also for a manifold layout, lets that layout read what it needs
+    during the pass that finds the edges instead: it is called before the pass as
+    ``pair_scan(index_map, node_count)`` with the same two arguments, and returns a
+    visitor that sees every slice of the pass (Network_Top_Edges.strongest_edges).
+    Whatever it gathered is used by ``with_pair_source``, which is still called.
     """
     metadata = cache_manifest.validate_network_schema(data)
     settings.INPUT_IS_EVALUE = metadata.network_type == "blast"
@@ -1024,8 +1033,10 @@ def prepare_network(data, *, settings, selected_fasta_headers, with_pair_source=
         )
         keep_limit = strongest_edge_limit(settings)
         source = _pair_source(data, settings, kept_mask)
+        visitor = None if pair_scan is None else pair_scan(index_map, len(kept_indices))
         edge_sources, edge_targets, edge_scores = _strongest_pairs(
-            data, settings, kept_mask=kept_mask, keep_limit=keep_limit, source=source
+            data, settings, kept_mask=kept_mask, keep_limit=keep_limit, source=source,
+            visitor=visitor
         )
         print(
             f"Kept {len(edge_scores)} edges for {label} topology "

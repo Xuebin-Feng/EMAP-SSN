@@ -12,6 +12,7 @@ import io
 import pathlib
 import sys
 import tempfile
+import threading
 import tracemalloc
 import unittest
 from contextlib import redirect_stdout
@@ -226,6 +227,80 @@ class StrongestEdgesTests(unittest.TestCase):
     def test_scores_that_cannot_be_ranked_are_refused(self):
         with self.assertRaises(TypeError):
             top._lowest_value(np.dtype("U3"))
+
+
+class RecordingVisitor:
+    """A visitor that keeps every slice it is shown, and the threads that visited and collected."""
+
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.slices = []
+        self.visit_threads = set()
+        self.collected = []
+        self.collect_threads = set()
+
+    def visit(self, piece):
+        with self.lock:
+            self.visit_threads.add(threading.get_ident())
+            self.slices.append((int(piece.positions[0]) if len(piece.positions) else -1,
+                                piece.sources.copy(), piece.targets.copy(), piece.scores.copy()))
+        return (int(piece.positions[0]) if len(piece.positions) else -1, len(piece.scores))
+
+    def collect(self, value):
+        self.collect_threads.add(threading.get_ident())
+        self.collected.append(value)
+
+
+class VisitorTests(unittest.TestCase):
+    """A visitor rides on the strongest-edge pass: it sees every slice once and changes nothing."""
+
+    def run_kernel(self, network, node_count, keep, *, chunk, workers, visitor=None):
+        source = ArraySource(*network)
+        with mock.patch.object(scan, "CHUNK_EDGES", chunk):
+            found = top.strongest_edges(source, node_count, keep, workers=workers, visitor=visitor)
+        return found, source
+
+    def test_it_sees_every_pair_once_and_the_edges_do_not_change(self):
+        rng = np.random.default_rng(11)
+        network = random_network(rng, 40, 1500, "nan")
+        for chunk, workers in ((10_000, 1), (97, 1), (97, 4), (13, 8), (1, 2)):
+            with self.subTest(chunk=chunk, workers=workers):
+                plain, _ = self.run_kernel(network, 40, 4, chunk=chunk, workers=workers)
+                visitor = RecordingVisitor()
+                found, _ = self.run_kernel(network, 40, 4, chunk=chunk, workers=workers, visitor=visitor)
+                for first, second in zip(plain, found):
+                    np.testing.assert_array_equal(first, second)
+                ordered = sorted(visitor.slices, key=lambda piece: piece[0])
+                self.assertEqual([piece[0] for piece in ordered], list(range(0, 1500, chunk)))
+                for column, index in zip(network, (1, 2, 3)):
+                    np.testing.assert_array_equal(np.concatenate([piece[index] for piece in ordered]), column)
+
+    def test_collect_gets_what_visit_returned_in_the_order_of_the_file_on_the_calling_thread(self):
+        rng = np.random.default_rng(12)
+        network = random_network(rng, 30, 900, "ties")
+        for chunk, workers in ((50, 1), (50, 4), (7, 8)):
+            with self.subTest(chunk=chunk, workers=workers):
+                visitor = RecordingVisitor()
+                self.run_kernel(network, 30, 3, chunk=chunk, workers=workers, visitor=visitor)
+                self.assertEqual(visitor.collected, [(start, min(chunk, 900 - start)) for start in range(0, 900, chunk)])
+                self.assertEqual(visitor.collect_threads, {threading.get_ident()})
+                if workers > 1:
+                    self.assertNotIn(threading.get_ident(), visitor.visit_threads)
+
+    def test_a_visitor_does_not_add_a_read(self):
+        rng = np.random.default_rng(13)
+        network = random_network(rng, 25, 600, "distinct")
+        _, plain = self.run_kernel(network, 25, 5, chunk=64, workers=3)
+        _, visited = self.run_kernel(network, 25, 5, chunk=64, workers=3, visitor=RecordingVisitor())
+        self.assertEqual(sorted(visited.reads), sorted(plain.reads))
+        self.assertEqual(sum(stop - start for start, stop in visited.reads if stop - start > 1), 600)
+
+    def test_it_is_not_called_when_nothing_is_kept(self):
+        empty = (np.zeros(0, dtype=np.uint16), np.zeros(0, dtype=np.uint16), np.zeros(0, dtype=np.float32))
+        for network, keep in ((empty, 5), (random_network(np.random.default_rng(14), 8, 30, "ties"), 0)):
+            visitor = RecordingVisitor()
+            self.run_kernel(network, 8, keep, chunk=10, workers=2, visitor=visitor)
+            self.assertEqual((visitor.slices, visitor.collected), ([], []))
 
 
 def settings_for(**overrides):
@@ -450,6 +525,55 @@ class PrepareNetworkUmapTests(unittest.TestCase):
         keep = columns["score"] >= 80.0
         np.testing.assert_array_equal(scores, columns["score"][keep])
         np.testing.assert_array_equal(edges[:, 0], columns["i"][keep])
+
+    def test_a_pair_scan_sees_the_pass_and_changes_nothing(self):
+        node_count = 24
+        selected = [f"N{index}" for index in range(0, node_count, 2)]
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "network.h5"
+            columns = write_network(path, node_count, np.random.default_rng(8), ties=True)
+            for label, names in (("every node", [f"N{index}" for index in range(node_count)]), ("a subset", selected)):
+                with self.subTest(nodes=label):
+                    settings = settings_for(UMAP_NEIGHBORS=3)
+                    plain = self.prepared(path, settings, names)
+                    visitors, begun = [], []
+
+                    def pair_scan(index_map, count):
+                        begun.append((index_map.copy(), count))
+                        visitors.append(RecordingVisitor())
+                        return visitors[-1]
+
+                    with h5py.File(path, "r") as network, redirect_stdout(io.StringIO()):
+                        with mock.patch.object(scan, "CHUNK_EDGES", 40):
+                            scanned = prepare_network(network, settings=settings, selected_fasta_headers=names,
+                                                      pair_scan=pair_scan)
+                    self.assert_same_output(scanned, plain)
+                    (index_map, count), = begun
+                    self.assertEqual(count, len(names))
+                    kept = np.array([int(name[1:]) for name in names])
+                    np.testing.assert_array_equal(index_map[kept], np.arange(len(names)))
+                    # The visitor saw the pairs between the kept nodes, once each, as the stored numbers.
+                    pieces = sorted(visitors[0].slices, key=lambda piece: piece[0])
+                    seen = np.concatenate([piece[1] for piece in pieces]), np.concatenate([piece[2] for piece in pieces])
+                    keep_pair = np.isin(columns["i"], kept) & np.isin(columns["j"], kept)
+                    np.testing.assert_array_equal(seen[0], columns["i"][keep_pair])
+                    np.testing.assert_array_equal(seen[1], columns["j"][keep_pair])
+
+    def test_a_threshold_network_never_asks_the_pair_scan(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = pathlib.Path(folder) / "network.h5"
+            write_network(path, 15, np.random.default_rng(9), blast=True)
+            calls = []
+            with h5py.File(path, "r") as network, redirect_stdout(io.StringIO()):
+                without = prepare_network(
+                    network, settings=settings_for(UMAP_MODE=False, SIMILARITY_THRESHOLD=80.0),
+                    selected_fasta_headers=[f"N{index}" for index in range(15)])
+                with_scan = prepare_network(
+                    network, settings=settings_for(UMAP_MODE=False, SIMILARITY_THRESHOLD=80.0),
+                    selected_fasta_headers=[f"N{index}" for index in range(15)],
+                    pair_scan=lambda *found: calls.append(found))
+        self.assertEqual(calls, [])
+        self.assert_same_output(with_scan, without)
 
 
 class MemoryTests(unittest.TestCase):

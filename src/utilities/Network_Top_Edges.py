@@ -22,6 +22,10 @@ file; a NaN score after every other score, again by pair order. That is the orde
 ``DataFrame.sort_values("score", ascending=False, kind="stable")`` gives, so
 ``groupby(...).head(keep_limit)`` on such a frame keeps the same edges.
 
+A caller that needs something else from the same stored pairs can ride along on the pass
+instead of reading the file again: a visitor sees every slice the pass reads (see
+``strongest_edges``). PaCMAP's mid-near lookup does (utilities.PaCMAP_Pairs.MidNearScan).
+
 This module imports no Qt, so the Viewer, the layout job and the tests use it as it is.
 """
 
@@ -190,12 +194,21 @@ def buffer_thread_count(node_count, keep_limit, itemsize, workers):
     return max(1, min(int(workers), BUFFER_BUDGET_BYTES // max(1, per_set)))
 
 
-def strongest_edges(source, node_count, keep_limit, *, workers=None):
+def strongest_edges(source, node_count, keep_limit, *, workers=None, visitor=None):
     """The edges that are among the best ``keep_limit`` of their source or of their target.
 
     source is a ScoreSource. Returns (positions, sources, targets, scores) of the union
     over all nodes of each node's best edges as a source and as a target, in the order
     of the stored pairs; sources and targets are the stored node indices.
+
+    ``visitor``, when given, has two methods and sees the same pass. ``visit(piece)``
+    runs on a worker thread for every slice, with the scored slice as the ranking reads
+    it (the stored node numbers of the pairs the source keeps, their scores and their
+    positions; the arrays are the visitor's to keep), so it must not change shared state
+    without a lock. What it returns goes to ``collect(value)``, which runs on the
+    calling thread, one slice after another in the order of the file. The visitor does
+    not change the edges. With nothing to keep (``keep_limit`` of 0 or no pairs) no pass
+    is made and the visitor is not called.
     """
     keep = int(keep_limit)
     chunks = scan.chunk_ranges(source.edge_count)
@@ -220,12 +233,14 @@ def strongest_edges(source, node_count, keep_limit, *, workers=None):
                 held.append(buffers)
         _accumulate(piece.sources, piece.targets, piece.scores, piece.positions, keep,
                     buffers.as_source, buffers.as_target)
+        return None if visitor is None else visitor.visit(piece)
 
     # The dtype of the scores is known from a one-pair read; size the pool from it.
     probe = source.read(0, 1, positions=True)
     threads = buffer_thread_count(node_count, keep, probe.scores.dtype.itemsize, worker_limit)
-    for _ in scan.run_pass(task, chunks, workers=threads):
-        pass
+    for seen in scan.run_pass(task, chunks, workers=threads):
+        if visitor is not None:
+            visitor.collect(seen)
 
     merged = held[0]
     for other in held[1:]:

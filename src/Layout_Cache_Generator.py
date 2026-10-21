@@ -670,24 +670,27 @@ def generate_layout_cache(
         return _generate_layout_cache_locked(settings)
 
 
-def _pacmap_mid_near_pairs(settings, source, index_map, node_count, edges, edge_scores):
+def _pacmap_mid_near_pairs(settings, seed, scan, source, index_map, node_count, edges, edge_scores):
     """PaCMAP's mid-near pairs, found from the stored scores while the pair file is open.
 
-    A second pass over the pairs looks up the scores of the sampled node pairs
-    (utilities.PaCMAP_Pairs); every connected node gets its pairs from them.
+    The scores of the sampled node pairs come from the strongest-edge pass when ``scan``
+    rode along on it and every node is connected, and from a pass over the pairs of its
+    own otherwise (utilities.PaCMAP_Pairs); every connected node gets its pairs from them.
     """
     from utilities import PaCMAP_Pairs
 
     edges = np.asarray(edges).reshape(-1, 2)
     ids, _ = PaCMAP_Pairs.connected_nodes(edges[:, 0], edges[:, 1], node_count)
-    seed = settings.LAYOUT_SEED if settings.LAYOUT_SEED is not None else PaCMAP_Pairs.random_seed()
-    print(
-        f"PaCMAP: looking up the stored scores of {len(ids)} x "
-        f"{PaCMAP_Pairs.effective_mid_near_count(len(ids), settings.PACMAP_NEIGHBORS)} "
-        f"x {PaCMAP_Pairs.MID_NEAR_CANDIDATES} sampled pairs for the mid-near partners..."
+    sampled = (
+        f"{len(ids)} x {PaCMAP_Pairs.effective_mid_near_count(len(ids), settings.PACMAP_NEIGHBORS)} "
+        f"x {PaCMAP_Pairs.MID_NEAR_CANDIDATES} sampled pairs for the mid-near partners"
     )
+    if scan.serves(source, node_count, ids, settings.PACMAP_NEIGHBORS, seed):
+        print(f"PaCMAP: the stored scores of {sampled} were read with the strongest edges.")
+    else:
+        print(f"PaCMAP: looking up the stored scores of {sampled} in a second pass over the pairs...")
     return PaCMAP_Pairs.mid_near_pairs(
-        source, index_map, node_count, ids, settings.PACMAP_NEIGHBORS, seed
+        source, index_map, node_count, ids, settings.PACMAP_NEIGHBORS, seed, mid_near_scan=scan
     )
 
 
@@ -728,16 +731,28 @@ def _generate_layout_cache_locked(settings: LayoutGenerationSettings) -> LayoutG
         if not item.name.startswith("_")
     })
     pacmap_pairs = {}
+    scan = mid_near_seed = None
+    if settings.uses_pacmap():
+        from utilities import PaCMAP_Pairs
+
+        mid_near_seed = (
+            settings.LAYOUT_SEED if settings.LAYOUT_SEED is not None else PaCMAP_Pairs.random_seed()
+        )
+        scan = PaCMAP_Pairs.MidNearScan(settings.PACMAP_NEIGHBORS, mid_near_seed)
     with h5py.File(settings.INPUT_HDF5, "r") as raw_data:
         full_headers, edges, edge_scores = prepare_network(
             raw_data,
             settings=preparation_settings,
             selected_fasta_headers=headers,
             # PaCMAP's mid-near pairs need the stored scores of sampled pairs, which are
-            # read here: the pair file is closed before the engine runs.
+            # read here, with the strongest edges when every node has one: the pair file
+            # is closed before the engine runs.
+            pair_scan=None if scan is None else scan.begin,
             with_pair_source=(
-                (lambda *found: pacmap_pairs.update(mid_near=_pacmap_mid_near_pairs(settings, *found)))
-                if settings.uses_pacmap() else None
+                None if scan is None else
+                lambda *found: pacmap_pairs.update(
+                    mid_near=_pacmap_mid_near_pairs(settings, mid_near_seed, scan, *found)
+                )
             ),
         )
 

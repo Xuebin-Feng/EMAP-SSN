@@ -323,10 +323,12 @@ is the project's own Numba port of the published optimizer, with no extra
 dependency: each node's `PACMAP_NEIGHBORS` strongest edges (2 to 50, default 10)
 are its near pairs and the edges kept and drawn, and it gets half as many mid-near
 partners and twice as many further partners. A mid-near partner is the second
-best of six random nodes by the network's stored score, looked up in one extra
-pass over the stored pairs; that is what places clusters in a meaningful order
-relative to each other (with random partners PaCMAP is no more global than
-UMAP). A PaCMAP layout takes seconds, uses only CPU threads, has no minimum
+best of six random nodes by the network's stored score, looked up while the
+strongest edges are found, in the same read of the stored pairs (a network in
+which some node has no edge at all, such as a sparse BLAST one, takes one more
+read); that is what places clusters in a meaningful order relative to each other
+(with random partners PaCMAP is no more global than UMAP). A PaCMAP layout takes
+seconds, uses only CPU threads, has no minimum
 distance, and repeats exactly for a given `LAYOUT_SEED` on any number of threads.
 UMAP and PaCMAP use their neighbor topology instead of the physics layout's
 similarity and top-edge filters.

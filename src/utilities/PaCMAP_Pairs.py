@@ -15,9 +15,10 @@ scores between nodes, so here:
 * a mid-near partner is the second best of six random nodes by the network's score
   with the node, which is the package's rule with "distance" read as "negated score".
   The scores of the sampled pairs are looked up in the stored pairs while they are
-  streamed once more (``mid_near_pairs``); a pair that is not stored counts as the
-  farthest. This pass is what gives the layout its global arrangement: with random
-  mid-near partners the layout is as local as UMAP's;
+  streamed (``mid_near_pairs``); a pair that is not stored counts as the farthest. This
+  lookup is what gives the layout its global arrangement: with random mid-near partners
+  the layout is as local as UMAP's. It rides on the strongest-edge pass when every node
+  turns out to be connected (``MidNearScan``), and is a pass of its own otherwise;
 * further pairs are random nodes that are not among the node's near partners.
 
 Isolated nodes, the ones with no edge, take part in no pair set: the engine places them
@@ -517,12 +518,23 @@ class PairLookup:
         return np.where(self.found[slot], self.best[slot], -np.inf)
 
 
+def _node_map(index_map):
+    """index_map as an array, or None when it takes every node number to itself (all the file's nodes are
+    in the layout), so that the stored columns are probed as they are, without a gather."""
+    if index_map is None:
+        return None
+    index_map = np.asarray(index_map)
+    if np.array_equal(index_map, np.arange(len(index_map), dtype=index_map.dtype)):
+        return None
+    return index_map
+
+
 def stream_pair_scores(source, index_map, lookup, *, workers=None, cancelled=None):
     """Read every stored pair of ``source`` once, and note the scores of the pairs ``lookup`` samples.
 
     index_map takes the source's stored node numbers to the lookup's (None: the same).
     """
-    node_map = None if index_map is None else np.asarray(index_map)
+    node_map = _node_map(index_map)
 
     def task(start, stop):
         piece = source.read(start, stop, nodes=True)
@@ -577,8 +589,101 @@ def random_mid_near_pairs(ids, neighbors, seed):
     return np.column_stack((np.repeat(ids, slots).astype(np.int32), picked.ravel().astype(np.int32)))
 
 
+def _mid_near_lookup(ids, neighbors, seed, node_count, lookup_options=None):
+    """(candidates, lookup) of the connected nodes ``ids``: the sampled nodes of every mid-near partner, and
+    the table that will hold their stored scores. Both are None when the network is too small for a partner."""
+    ids = np.asarray(ids, dtype=np.int64)
+    with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
+        candidates = mid_near_candidates(len(ids), neighbors, seed)
+    if candidates.shape[1] == 0:
+        return None, None
+    owners = np.broadcast_to(ids[:, None, None], candidates.shape)
+    sampled = ids[candidates]
+    return candidates, PairLookup(owners.ravel(), sampled.ravel(), node_count, **(lookup_options or {}))
+
+
+def _mid_near_from_lookup(ids, candidates, lookup):
+    """The (pairs, 2) int32 mid-near pairs, once ``lookup`` holds the stored scores of every sampled pair."""
+    ids = np.asarray(ids, dtype=np.int64)
+    slots = candidates.shape[1]
+    owners = np.broadcast_to(ids[:, None, None], candidates.shape)
+    sampled = ids[candidates]
+    scores = lookup.scores_of(owners.ravel(), sampled.ravel()).reshape(candidates.shape)
+    with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
+        picked = ids[pick_mid_near(candidates, scores)]
+    owner_column = np.repeat(ids, slots).astype(np.int32)
+    return np.column_stack((owner_column, picked.ravel().astype(np.int32)))
+
+
+class MidNearScan:
+    """The mid-near lookup, filled while the strongest edges are found, so the pairs are read once.
+
+    A node's six sampled nodes are drawn among the connected nodes, the ones with an
+    edge, which the strongest-edge pass itself finds. The scan bets that every node is
+    connected, as it is in every all-against-all network, and draws as if it were
+    (``begin``). If the pass proves it right (``serves``), the lookup it filled is
+    exactly the one ``mid_near_pairs`` would have filled in a pass of its own, and that
+    pass is saved; if some node has no edge (a sparse network, such as BLAST's), the
+    draws are different ones and ``mid_near_pairs`` reads the pairs again with the true
+    connected nodes, as it always did. Either way the pairs are the same ones.
+
+    Use it as the visitor of one ``Network_Top_Edges.strongest_edges`` pass
+    (``Viewer_State.prepare_network(pair_scan=scan.begin)``), then give it to
+    ``mid_near_pairs(mid_near_scan=scan)`` for the source of that same pass.
+    """
+
+    def __init__(self, neighbors, seed, *, lookup_options=None):
+        self.neighbors = int(neighbors)
+        self.seed = int(seed)
+        self.lookup_options = lookup_options
+        self.node_count = 0
+        self.index_map = None
+        self.candidates = None
+        self.lookup = None
+        self.slices = 0
+
+    def begin(self, index_map, node_count):
+        """Draw the candidates of ``node_count`` connected nodes; the visitor of the pass (this scan).
+
+        index_map takes the source's stored node numbers to the layout's (None: the same).
+        """
+        self.node_count = int(node_count)
+        self.index_map = _node_map(index_map)
+        self.slices = 0
+        self.candidates, self.lookup = _mid_near_lookup(
+            np.arange(self.node_count, dtype=np.int64), self.neighbors, self.seed, self.node_count,
+            self.lookup_options)
+        return self
+
+    def visit(self, piece):
+        """The sampled pairs one slice holds, as (slots, scores); runs on a worker thread."""
+        if self.lookup is None:
+            return None
+        first, second = piece.sources, piece.targets
+        if self.index_map is not None:
+            first, second = self.index_map[first], self.index_map[second]
+        return self.lookup.hits(first, second, piece.scores)
+
+    def collect(self, hits):
+        """Note one slice's hits, on the calling thread, in the order of the file."""
+        self.slices += 1
+        if hits is not None:
+            self.lookup.add(*hits)
+
+    def serves(self, source, node_count, ids, neighbors, seed):
+        """Whether the scan holds the lookup ``mid_near_pairs`` asks for: every node connected, the same
+        draws, and one visit of every slice of ``source``."""
+        return (
+            self.candidates is not None
+            and self.node_count == int(node_count) == len(ids)
+            and self.neighbors == int(neighbors)
+            and self.seed == int(seed)
+            and self.slices == len(scan.chunk_ranges(source.edge_count))
+        )
+
+
 def mid_near_pairs(source, index_map, node_count, ids, neighbors, seed, *, workers=None,
-                   cancelled=None, lookup_options=None):
+                   cancelled=None, lookup_options=None, mid_near_scan=None):
     """The mid-near pairs of a layout: (pairs, 2) int32 of node numbers in the network.
 
     ``source`` is a ScoreSource (or anything with its read and edge_count) over the pairs
@@ -586,24 +691,20 @@ def mid_near_pairs(source, index_map, node_count, ids, neighbors, seed, *, worke
     below ``node_count`` (None: the same); ``ids`` are the connected nodes, the only
     ones that take part. Each of them gets ``mid_near_count(neighbors)`` pairs (fewer in
     a very small network), found by sampling six nodes per pair and keeping the second
-    best by stored score. One pass over the stored pairs looks the scores up.
+    best by stored score. One pass over the stored pairs looks the scores up, unless
+    ``mid_near_scan`` (a MidNearScan that rode along on a pass over this source) already
+    holds them for these ``ids``.
     """
     ids = np.asarray(ids, dtype=np.int64)
-    count = len(ids)
-    with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
-        candidates = mid_near_candidates(count, neighbors, seed)
-    slots = candidates.shape[1]
-    if slots == 0:
+    if mid_near_scan is not None and mid_near_scan.serves(source, node_count, ids, neighbors, seed):
+        candidates, lookup = mid_near_scan.candidates, mid_near_scan.lookup
+    else:
+        candidates, lookup = _mid_near_lookup(ids, neighbors, seed, node_count, lookup_options)
+        if lookup is not None:
+            stream_pair_scores(source, index_map, lookup, workers=workers, cancelled=cancelled)
+    if lookup is None:
         return np.zeros((0, 2), dtype=np.int32)
-    owners = np.broadcast_to(ids[:, None, None], candidates.shape)
-    sampled = ids[candidates]
-    lookup = PairLookup(owners.ravel(), sampled.ravel(), node_count, **(lookup_options or {}))
-    stream_pair_scores(source, index_map, lookup, workers=workers, cancelled=cancelled)
-    scores = lookup.scores_of(owners.ravel(), sampled.ravel()).reshape(candidates.shape)
-    with Numba_Threads.limited_threads(Numba_Threads.default_thread_count()):
-        picked = ids[pick_mid_near(candidates, scores)]
-    owner_column = np.repeat(ids, slots).astype(np.int32)
-    return np.column_stack((owner_column, picked.ravel().astype(np.int32)))
+    return _mid_near_from_lookup(ids, candidates, lookup)
 
 
 # --- Incidence lists --------------------------------------------------------------------------
@@ -652,7 +753,7 @@ def rows_of_partners(partners):
 __all__ = [
     "FURTHER_RATIO", "MID_NEAR_CANDIDATES", "mid_near_count", "further_count",
     "effective_mid_near_count", "random_seed", "connected_nodes", "near_partners", "further_partners",
-    "mid_near_candidates", "PairLookup", "stream_pair_scores", "pick_mid_near", "mid_near_pairs",
+    "mid_near_candidates", "PairLookup", "stream_pair_scores", "pick_mid_near", "MidNearScan", "mid_near_pairs",
     "random_mid_near_pairs", "normal_start",
     "incidence_lists", "rows_of_partners",
 ]

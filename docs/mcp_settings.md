@@ -582,10 +582,12 @@ layout keeps and the Viewer draws per node; PaCMAP ignores `UMAP_NEIGHBORS` and
 `UMAP_MIN_DIST`. In the individual-parameter form choose it with `umap_mode=true` and
 `parameters={"LAYOUT_METHOD": "pacmap", "PACMAP_NEIGHBORS": 10}`. A PaCMAP cache's manifest
 records `layout_mode` `pacmap` (`pacmap_3d` in 3D), a `pacmap_revision` and the edge filter
-`pacmap_neighbors`, and its folder name ends in `_PACMAP_k<n>`. PaCMAP reads the network's
-stored pairs once more than UMAP does, to look up the scores of sampled node pairs (a few
-seconds at 44,000 nodes), runs on CPU threads only, and gives the same layout for the same
-`LAYOUT_SEED` on any number of threads. Layout documents, settings files and caches written
+`pacmap_neighbors`, and its folder name ends in `_PACMAP_k<n>`. PaCMAP looks up the stored
+scores of sampled node pairs while it reads the network's pairs for each node's strongest
+edges, which adds about 2 to 3 s to that read at 44,000 nodes. A network in which some
+node has no edge at all (a sparse one) takes one more read of the pairs, about 5 s more at
+that size. It runs on CPU threads only, and gives the same layout for the same `LAYOUT_SEED`
+on any number of threads. Layout documents, settings files and caches written
 before `LAYOUT_METHOD` existed are UMAP or physics ones and open as before.
 
 ## Benchmark (server 0.14.0)

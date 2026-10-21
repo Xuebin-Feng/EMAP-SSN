@@ -24,6 +24,7 @@ if str(SRC) not in sys.path:
 
 from tests.network_fixtures import ArraySource
 from utilities import Network_Score_Statistics as scan
+from utilities import Network_Top_Edges as top
 from utilities import Numba_Threads
 from utilities import PaCMAP_Pairs as pairs
 
@@ -449,6 +450,245 @@ class MidNearPairsTests(unittest.TestCase):
         source = self.complete_network(5, lambda u, v: u.astype(np.float64))
         got = pairs.mid_near_pairs(source, None, 5, np.arange(5), 10, 42)
         self.assertEqual(got.shape, (0, 2))
+
+
+class MaskedSource(ArraySource):
+    """An ArraySource that keeps only the pairs between kept nodes, as a ScoreSource with a kept_mask does."""
+
+    def __init__(self, sources, targets, scores, kept):
+        super().__init__(sources, targets, scores)
+        self.kept = kept
+
+    def read(self, start, stop, nodes=False, check_nodes=False, positions=False):
+        piece = super().read(start, stop, nodes, check_nodes, positions)
+        valid = self.kept[piece.sources] & self.kept[piece.targets]
+        return scan.Slice(piece.scores[valid], piece.sources[valid], piece.targets[valid], piece.positions[valid])
+
+
+class MidNearScanTests(unittest.TestCase):
+    """The mid-near lookup filled during the strongest-edge pass gives the pairs a pass of its own gives."""
+
+    NEIGHBORS = 10
+    SEED = 42
+
+    def sparse_network(self, rng, count, extra, *, isolated=(), ties=False, nan=False, dtype=np.uint16):
+        """Unsorted pairs among ``count`` nodes: a ring through every node but the isolated ones, and ``extra``
+        random pairs (repeats and missing pairs included), so most pairs of nodes are not stored."""
+        alive = np.array([node for node in range(count) if node not in set(isolated)])
+        ring_u, ring_v = alive, np.roll(alive, -1)
+        random_u = rng.choice(alive, extra)
+        random_v = rng.choice(alive, extra)
+        u = np.concatenate([ring_u, random_u])
+        v = np.concatenate([ring_v, random_v])
+        order = rng.permutation(len(u))
+        u, v = u[order].astype(dtype), v[order].astype(dtype)
+        scores = (rng.integers(0, 4, len(u)).astype(np.float32) if ties else rng.random(len(u)).astype(np.float32))
+        if nan:
+            scores[rng.random(len(u)) < 0.15] = np.nan
+        return u, v, scores
+
+    def fused(self, source, node_count, *, index_map=None, stored_nodes=None, chunk=10_000, workers=1,
+              neighbors=NEIGHBORS, seed=SEED, **options):
+        """(pairs, ids, scan): the strongest edges and the lookup in one pass, then the pairs from them."""
+        mid_scan = pairs.MidNearScan(neighbors, seed, **options)
+        visitor = mid_scan.begin(index_map, node_count)
+        self.assertIs(visitor, mid_scan)
+        with mock.patch.object(scan, "CHUNK_EDGES", chunk):
+            _, sources, targets, _ = top.strongest_edges(
+                source, stored_nodes or node_count, neighbors, workers=workers, visitor=visitor)
+            if index_map is not None:
+                sources, targets = index_map[sources], index_map[targets]
+            ids, _ = pairs.connected_nodes(sources, targets, node_count)
+            # The slices are counted at the chunk size the pass used.
+            found = pairs.mid_near_pairs(source, index_map, node_count, ids, neighbors, seed, mid_near_scan=mid_scan)
+            self.served = mid_scan.serves(source, node_count, ids, neighbors, seed)
+        return found, ids, mid_scan
+
+    def two_pass(self, source, node_count, ids, *, index_map=None, neighbors=NEIGHBORS, seed=SEED):
+        return pairs.mid_near_pairs(source, index_map, node_count, ids, neighbors, seed, workers=1)
+
+    def passes(self, source, probes=0):
+        """How many times the reads so far covered the stored pairs; ``probes`` one-pair reads size the buffers."""
+        return (sum(stop - start for start, stop in source.reads) - probes) / source.edge_count
+
+    def test_the_pairs_are_those_of_a_pass_of_its_own_whatever_the_chunks_and_threads(self):
+        # Unsorted pairs with repeats, missing pairs, equal scores and NaN scores.
+        for kind in ({}, {"ties": True}, {"nan": True}, {"ties": True, "nan": True}):
+            rng = np.random.default_rng(21)
+            count = 90
+            u, v, scores = self.sparse_network(rng, count, 400, **kind)
+            base_source = ArraySource(u, v, scores)
+            expected = None
+            for chunk, workers in ((10_000, 1), (97, 1), (97, 4), (13, 8), (1, 2)):
+                with self.subTest(kind=kind, chunk=chunk, workers=workers):
+                    source = ArraySource(u, v, scores)
+                    found, ids, mid_scan = self.fused(source, count, chunk=chunk, workers=workers)
+                    self.assertEqual(ids.tolist(), list(range(count)))
+                    self.assertTrue(self.served)
+                    if expected is None:
+                        expected = self.two_pass(base_source, count, ids)
+                        self.assertEqual(found.shape, (count * 5, 2))
+                    np.testing.assert_array_equal(found, expected)
+                    # One read of the pairs: the lookup took none of its own.
+                    self.assertEqual(self.passes(source, probes=1), 1)
+
+    def test_the_candidates_and_their_draws_are_the_ones_the_pass_of_its_own_makes(self):
+        count = 70
+        u, v, scores = self.sparse_network(np.random.default_rng(22), count, 300)
+        _, ids, mid_scan = self.fused(ArraySource(u, v, scores), count)
+        np.testing.assert_array_equal(mid_scan.candidates, pairs.mid_near_candidates(count, self.NEIGHBORS, self.SEED))
+        owners = np.broadcast_to(ids[:, None, None], mid_scan.candidates.shape).ravel()
+        sampled = ids[mid_scan.candidates].ravel()
+        np.testing.assert_array_equal(
+            mid_scan.lookup.keys, np.unique(np.minimum(owners, sampled) * np.int64(count) + np.maximum(owners, sampled)))
+        # The pairs the scan holds are the stored scores of the sampled pairs, for every one of them.
+        best = brute_force_best(u, v, scores)
+        want = np.array([best.get((min(a, b), max(a, b)), -np.inf) for a, b in zip(owners.tolist(), sampled.tolist())])
+        np.testing.assert_array_equal(mid_scan.lookup.scores_of(owners, sampled), want)
+        self.assertTrue(np.isinf(want).any() and np.isfinite(want).any())
+
+    def test_a_pair_missing_from_the_file_is_the_farthest_in_the_scan_too(self):
+        # Only the ring is stored: nearly every sampled pair is missing, so partners are decided by the few found.
+        count = 60
+        ring = np.arange(count)
+        source = ArraySource(ring.astype(np.uint16), np.roll(ring, -1).astype(np.uint16),
+                             np.random.default_rng(23).random(count).astype(np.float32))
+        found, ids, mid_scan = self.fused(source, count, chunk=7, workers=3)
+        self.assertTrue(self.served)
+        np.testing.assert_array_equal(found, self.two_pass(ArraySource(source.sources, source.targets, source.scores),
+                                                           count, ids))
+
+    def test_an_isolated_node_breaks_the_bet_and_the_pairs_are_read_again_as_before(self):
+        count = 90
+        isolated = (3, 40, 41, 77)
+        u, v, scores = self.sparse_network(np.random.default_rng(24), count, 500, isolated=isolated, nan=True)
+        source = ArraySource(u, v, scores)
+        found, ids, mid_scan = self.fused(source, count, chunk=111, workers=3)
+        self.assertEqual(ids.tolist(), [node for node in range(count) if node not in isolated])
+        self.assertFalse(self.served)
+        self.assertEqual(self.passes(source, probes=1), 2)
+        np.testing.assert_array_equal(found, self.two_pass(ArraySource(u, v, scores), count, ids))
+        self.assertFalse(set(found.ravel().tolist()) & set(isolated))
+        self.assertEqual(set(found[:, 0].tolist()), set(ids.tolist()))
+        # The candidates come from the connected nodes, not from the bet's draws.
+        np.testing.assert_array_equal(
+            found[:, 1], pairs.mid_near_pairs(ArraySource(u, v, scores), None, count, ids, self.NEIGHBORS, self.SEED)[:, 1])
+
+    def test_a_subset_of_the_stored_nodes_maps_them_to_layout_numbers(self):
+        stored = 120
+        kept = np.zeros(stored, dtype=bool)
+        kept[np.arange(stored) % 3 != 0] = True
+        layout_nodes = int(kept.sum())
+        index_map = np.zeros(stored, dtype=np.int32)
+        index_map[kept] = np.arange(layout_nodes)
+        u, v, scores = self.sparse_network(np.random.default_rng(25), stored, 900, nan=True)
+        for chunk, workers in ((10_000, 1), (61, 4)):
+            with self.subTest(chunk=chunk, workers=workers):
+                source = MaskedSource(u, v, scores, kept)
+                found, ids, mid_scan = self.fused(source, layout_nodes, index_map=index_map, stored_nodes=stored,
+                                                  chunk=chunk, workers=workers)
+                # The ring through the kept nodes keeps every one of them connected.
+                self.assertEqual(len(ids), layout_nodes)
+                self.assertTrue(self.served)
+                self.assertEqual(self.passes(source, probes=1), 1)
+                np.testing.assert_array_equal(
+                    found, self.two_pass(MaskedSource(u, v, scores, kept), layout_nodes, ids, index_map=index_map))
+                self.assertTrue(found.min() >= 0 and found.max() < layout_nodes)
+
+    def test_a_subset_with_every_node_still_connected_is_served(self):
+        # Every third node is dropped from a complete network: the rest still have edges.
+        stored = 60
+        kept = np.arange(stored) % 3 != 0
+        layout_nodes = int(kept.sum())
+        index_map = np.zeros(stored, dtype=np.int32)
+        index_map[kept] = np.arange(layout_nodes)
+        u, v = np.triu_indices(stored, k=1)
+        order = np.random.default_rng(26).permutation(len(u))
+        u, v = u[order].astype(np.uint16), v[order].astype(np.uint16)
+        scores = np.random.default_rng(27).random(len(u)).astype(np.float32)
+        source = MaskedSource(u, v, scores, kept)
+        found, ids, mid_scan = self.fused(source, layout_nodes, index_map=index_map, stored_nodes=stored, chunk=500)
+        self.assertEqual(len(ids), layout_nodes)
+        self.assertTrue(self.served)
+        self.assertEqual(self.passes(source, probes=1), 1)
+        np.testing.assert_array_equal(
+            found, self.two_pass(MaskedSource(u, v, scores, kept), layout_nodes, ids, index_map=index_map))
+
+    def test_the_stored_node_columns_of_every_integer_width_agree(self):
+        count = 70
+        results = []
+        for dtype in (np.uint16, np.uint32, np.int32, np.int64):
+            u, v, scores = self.sparse_network(np.random.default_rng(28), count, 300, dtype=dtype)
+            results.append(self.fused(ArraySource(u, v, scores), count, chunk=50, workers=2)[0])
+        for other in results[1:]:
+            np.testing.assert_array_equal(results[0], other)
+
+    def test_a_crowded_hash_table_gives_the_same_pairs(self):
+        count = 80
+        u, v, scores = self.sparse_network(np.random.default_rng(29), count, 500, ties=True)
+        base = self.fused(ArraySource(u, v, scores), count)[0]
+        crowded = self.fused(ArraySource(u, v, scores), count, chunk=41, workers=3,
+                             lookup_options={"table_bits": 12, "filter_bits": 3})[0]
+        np.testing.assert_array_equal(base, crowded)
+
+    def test_the_seed_and_the_neighbours_decide_the_pairs_as_before(self):
+        count = 80
+        u, v, scores = self.sparse_network(np.random.default_rng(30), count, 500)
+        for neighbors, seed in ((10, 7), (6, 42), (2, 3)):
+            with self.subTest(neighbors=neighbors, seed=seed):
+                source = ArraySource(u, v, scores)
+                found, ids, mid_scan = self.fused(source, count, neighbors=neighbors, seed=seed)
+                np.testing.assert_array_equal(
+                    found, self.two_pass(ArraySource(u, v, scores), count, ids, neighbors=neighbors, seed=seed))
+                self.assertEqual(found.shape, (count * pairs.effective_mid_near_count(count, neighbors), 2))
+        self.assertFalse(np.array_equal(self.fused(ArraySource(u, v, scores), count, seed=7)[0],
+                                        self.fused(ArraySource(u, v, scores), count, seed=8)[0]))
+
+    def test_a_scan_serves_only_the_lookup_it_holds(self):
+        count = 60
+        u, v, scores = self.sparse_network(np.random.default_rng(31), count, 300)
+        source = ArraySource(u, v, scores)
+        _, ids, mid_scan = self.fused(source, count)
+        self.assertTrue(self.served)
+        self.assertTrue(mid_scan.serves(source, count, ids, self.NEIGHBORS, self.SEED))
+        self.assertFalse(mid_scan.serves(source, count, ids, self.NEIGHBORS, self.SEED + 1))
+        self.assertFalse(mid_scan.serves(source, count, ids, self.NEIGHBORS - 2, self.SEED))
+        self.assertFalse(mid_scan.serves(source, count, ids[:-1], self.NEIGHBORS, self.SEED))
+        self.assertFalse(mid_scan.serves(source, count + 1, ids, self.NEIGHBORS, self.SEED))
+        # A scan no pass has visited (or that a longer file has outgrown) holds nothing, and is not trusted.
+        fresh = pairs.MidNearScan(self.NEIGHBORS, self.SEED)
+        fresh.begin(None, count)
+        self.assertFalse(fresh.serves(source, count, ids, self.NEIGHBORS, self.SEED))
+        longer = ArraySource(np.concatenate([u, u]), np.concatenate([v, v]), np.concatenate([scores, scores]))
+        with mock.patch.object(scan, "CHUNK_EDGES", 100):
+            self.assertFalse(mid_scan.serves(longer, count, ids, self.NEIGHBORS, self.SEED))
+        # Handed to mid_near_pairs all the same, it is passed over and the pairs are read as before.
+        stale = pairs.mid_near_pairs(source, None, count, ids, self.NEIGHBORS, self.SEED + 1, mid_near_scan=mid_scan)
+        np.testing.assert_array_equal(
+            stale, pairs.mid_near_pairs(source, None, count, ids, self.NEIGHBORS, self.SEED + 1))
+        unvisited = pairs.mid_near_pairs(source, None, count, ids, self.NEIGHBORS, self.SEED, mid_near_scan=fresh)
+        np.testing.assert_array_equal(unvisited, pairs.mid_near_pairs(source, None, count, ids, self.NEIGHBORS, self.SEED))
+
+    def test_a_tiny_network_has_nothing_to_look_up(self):
+        for count in (2, 5, 6):
+            with self.subTest(nodes=count):
+                u, v = np.triu_indices(count, k=1)
+                source = ArraySource(u.astype(np.uint16), v.astype(np.uint16), np.arange(len(u), dtype=np.float32))
+                found, ids, mid_scan = self.fused(source, count)
+                self.assertEqual(found.shape, (0, 2))
+                self.assertIsNone(mid_scan.lookup)
+                self.assertFalse(self.served)
+                self.assertEqual(self.passes(source, probes=1), 1)
+
+    def test_without_a_scan_nothing_changes(self):
+        count = 70
+        u, v, scores = self.sparse_network(np.random.default_rng(32), count, 300, ties=True)
+        ids = np.arange(count)
+        source = ArraySource(u, v, scores)
+        np.testing.assert_array_equal(
+            pairs.mid_near_pairs(source, None, count, ids, self.NEIGHBORS, self.SEED),
+            pairs.mid_near_pairs(source, None, count, ids, self.NEIGHBORS, self.SEED, mid_near_scan=None))
+        self.assertEqual(self.passes(source), 2)
 
 
 class IncidenceTests(unittest.TestCase):

@@ -323,6 +323,33 @@ class GenerationTests(HeadlessSettingsFixture, unittest.TestCase):
             self.make(UMAP_NEIGHBORS=5)
             self.cache_and_viewer(SIMILARITY_THRESHOLD=0.1)
 
+    def test_umap_and_physics_layouts_are_prepared_without_a_pair_scan(self):
+        preload_network_preparation()
+        import Layout_Cache_Generator as generator
+        from utilities import PaCMAP_Pairs
+        real = generator.prepare_network
+        calls = []
+
+        def spy(*args, **kwargs):
+            calls.append(kwargs)
+            return real(*args, **kwargs)
+
+        with mock.patch.object(generator, "prepare_network", spy), \
+                mock.patch.object(PaCMAP_Pairs.MidNearScan, "__init__", side_effect=AssertionError("a scan was made")):
+            self.make()
+            self.make(UMAP_NEIGHBORS=5)
+            self.cache_and_viewer(SIMILARITY_THRESHOLD=0.1)
+        self.assertEqual(len(calls), 3)
+        for kwargs in calls:
+            self.assertIsNone(kwargs["pair_scan"])
+            self.assertIsNone(kwargs["with_pair_source"])
+        # A PaCMAP layout hands over both: the scan that rides on the pass and the callback that finishes the pairs.
+        with mock.patch.object(generator, "prepare_network", spy):
+            self.make(LAYOUT_METHOD="pacmap", PACMAP_NEIGHBORS=7)
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(calls[3]["pair_scan"].__self__.neighbors, 7)
+        self.assertIsNotNone(calls[3]["with_pair_source"])
+
     def test_the_viewer_reads_the_method_back_from_the_cache(self):
         path, viewer = self.make(LAYOUT_METHOD="pacmap", PACMAP_NEIGHBORS=7)
         settings = resolve_cache_settings(path)
@@ -604,6 +631,78 @@ class RealGenerationTests(unittest.TestCase):
                 expected.append(sampled[np.argsort(-values, kind="stable")[1]])
         np.testing.assert_array_equal(found[:, 1], expected)
         np.testing.assert_array_equal(found[:, 0], np.repeat(np.arange(45), 2))
+
+    def generate_recording(self, cache_filename, *, fused=True):
+        """Generate a PaCMAP cache with the real engine; return (what the engine was given, positions, pairs read).
+
+        fused=False makes the scan decline what it gathered, so the pairs are read a second time as before.
+        """
+        import Layout_Engine_PaCMAP
+        from utilities import Network_Score_Statistics as scan, PaCMAP_Pairs
+        real_read, real_layout = scan.ScoreSource.read, Layout_Engine_PaCMAP.calculate_layout
+        reads, given = [], {}
+
+        def read(source, start, stop, *args, **kwargs):
+            reads.append(stop - start)
+            return real_read(source, start, stop, *args, **kwargs)
+
+        def layout(connectivity, count, params):
+            given.update(connectivity=np.array(connectivity), mid_near=np.array(params["PACMAP_MID_NEAR"]))
+            return real_layout(connectivity, count, params)
+
+        document = settings_document(self.root, cache_filename=cache_filename)
+        document["layout"].update(UMAP_MODE=True, LAYOUT_METHOD="pacmap", PACMAP_NEIGHBORS=4, LAYOUT_SEED=42)
+        document["network"].update(SIMILARITY_THRESHOLD=None, TOP_EDGE_PERCENT=None)
+        settings = LayoutGenerationSettings.from_document(document, project_root=self.root)
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(mock.patch.object(scan.ScoreSource, "read", read))
+            stack.enter_context(mock.patch.object(scan, "CHUNK_EDGES", 250))
+            stack.enter_context(mock.patch.object(Layout_Engine_PaCMAP, "calculate_layout", layout))
+            stack.enter_context(contextlib.redirect_stdout(io.StringIO()))
+            if not fused:
+                stack.enter_context(mock.patch.object(PaCMAP_Pairs.MidNearScan, "serves", return_value=False))
+            result = generate_layout_cache(settings)
+        with h5py.File(result.cache_path) as cache:
+            positions = cache["positions"][:]
+        # The one-pair read that sizes the strongest-edge buffers is not a pass.
+        return given, positions, sum(reads) - 1
+
+    def test_the_pairs_are_read_once_and_are_the_pairs_of_a_second_pass(self):
+        pair_count = 60 * 59 // 2
+        fused, fused_positions, fused_reads = self.generate_recording("fused.h5")
+        second, second_positions, second_reads = self.generate_recording("second.h5", fused=False)
+        self.assertEqual((fused_reads, second_reads), (pair_count, 2 * pair_count))
+        self.assertEqual(fused["mid_near"].shape, (60 * 2, 2))
+        np.testing.assert_array_equal(fused["connectivity"], second["connectivity"])
+        np.testing.assert_array_equal(fused["mid_near"], second["mid_near"])
+        np.testing.assert_array_equal(fused_positions, second_positions)
+
+    def test_a_node_without_a_pair_sends_the_generator_back_to_a_second_pass(self):
+        # 60 random pairs among 60 nodes leave some without any, so the six sampled nodes of every partner
+        # are drawn among fewer nodes than the scan assumed, and the stored scores are looked up again.
+        write_network(self.root / "network.h5", 60, np.random.default_rng(3), pair_count=60)
+        with h5py.File(self.root / "network.h5") as network:
+            first, second = network["i"][:].astype(int), network["j"][:].astype(int)
+            scores = (network["g_score"][:] / network["g_len"][:]).astype(np.float32)
+        linked = sorted({int(node) for a, b in zip(first, second) if a != b for node in (a, b)})
+        self.assertTrue(10 < len(linked) < 60)
+        found, positions, reads = self.generate_recording("sparse.h5")
+        self.assertEqual(reads, 2 * 60)
+        from utilities import PaCMAP_Pairs
+        ids = np.array(linked)
+        candidates = PaCMAP_Pairs.mid_near_candidates(len(ids), 4, 42)
+        best = {}
+        for a, b, score in zip(first, second, scores):
+            if score == score:
+                best[(min(a, b), max(a, b))] = max(best.get((min(a, b), max(a, b)), -np.inf), float(score))
+        expected = []
+        for index, node in enumerate(ids):
+            for slot in range(candidates.shape[1]):
+                sampled = ids[candidates[index, slot]]
+                values = np.array([best.get((min(node, other), max(node, other)), -np.inf) for other in sampled])
+                expected.append((node, sampled[np.argsort(-values, kind="stable")[1]]))
+        np.testing.assert_array_equal(found["mid_near"], np.array(expected, dtype=np.int32))
+        self.assertTrue(np.isfinite(positions).all())
 
     def test_the_same_seed_gives_the_same_cache_positions_and_another_does_not(self):
         first, _ = self.generate(2, LAYOUT_SEED=7)
