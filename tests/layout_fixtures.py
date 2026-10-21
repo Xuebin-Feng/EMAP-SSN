@@ -84,33 +84,42 @@ def write_inputs(temp_path):
             network.create_dataset(name, data=np.asarray([2], dtype=np.uint16))
 
 
-_UMAP_KERNELS_LOADED = False
+_NETWORK_PREPARATION_LOADED = False
 
 
-def preload_umap_kernels():
-    """Load and run UMAP-mode network preparation once, outside any sys.modules window.
+def preload_network_preparation():
+    """Run both modes of network preparation once, outside any sys.modules window.
 
-    It imports numba lazily, and numba loads hundreds of modules on first use (and
-    compiles or loads each kernel). A mock.patch.dict(sys.modules, ...) window around
-    a UMAP-mode layout generation would drop all of them on exit and leave orphan
-    copies behind; run first, the window imports nothing and drops only its stub.
+    prepare_network imports its streaming helpers lazily, and the UMAP mode's kernels
+    import numba, which loads hundreds of modules on first use (and compiles or loads
+    each kernel). A mock.patch.dict(sys.modules, ...) window around a layout generation
+    would drop everything first imported inside it on exit and leave orphan copies
+    behind; run first, the window imports nothing and drops only its stub.
     """
-    global _UMAP_KERNELS_LOADED
-    if _UMAP_KERNELS_LOADED:
+    global _NETWORK_PREPARATION_LOADED
+    if _NETWORK_PREPARATION_LOADED:
         return
     import h5py
     from desktop.Viewer_State import prepare_network
     with tempfile.TemporaryDirectory() as temp:
         write_inputs(pathlib.Path(temp))
-        settings = SimpleNamespace(
-            NODE_FASTA_FILE="", ALIGNMENT_SCORE="global", NORM_MODE="alignment_length",
-            SIMILARITY_THRESHOLD=None, TOP_EDGE_PERCENT=None, UMAP_MODE=True, UMAP_NEIGHBORS=15,
-        )
+        for umap_mode in (True, False):
+            settings = SimpleNamespace(
+                NODE_FASTA_FILE="", ALIGNMENT_SCORE="global", NORM_MODE="alignment_length",
+                SIMILARITY_THRESHOLD=0.0, TOP_EDGE_PERCENT=None, UMAP_MODE=umap_mode,
+                UMAP_NEIGHBORS=15,
+            )
+            with contextlib.redirect_stdout(io.StringIO()):
+                with h5py.File(pathlib.Path(temp) / "network.h5", "r") as network:
+                    prepare_network(network, settings=settings,
+                                    selected_fasta_headers=["Alpha_Beta", "Gamma_Delta"])
+        # The top-percent cutoff is another helper's path.
+        settings.UMAP_MODE, settings.TOP_EDGE_PERCENT = False, 50.0
         with contextlib.redirect_stdout(io.StringIO()):
             with h5py.File(pathlib.Path(temp) / "network.h5", "r") as network:
                 prepare_network(network, settings=settings,
                                 selected_fasta_headers=["Alpha_Beta", "Gamma_Delta"])
-    _UMAP_KERNELS_LOADED = True
+    _NETWORK_PREPARATION_LOADED = True
 
 
 def make_provenance(manifest_id):
@@ -186,11 +195,11 @@ class HeadlessSettingsFixture:
 
     def generate(self, document):
         # The sys.modules window below drops every module first imported inside
-        # it. UMAP-mode network preparation imports numba lazily (preload_umap_kernels),
+        # it. UMAP-mode network preparation imports numba lazily (preload_network_preparation),
         # and pandas imports numpy.ma, which numpy itself does not: imported here
         # first, none of them is dropped and left behind as an orphan copy.
         import pandas  # noqa: F401
-        preload_umap_kernels()
+        preload_network_preparation()
         from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
         engine = SimpleNamespace(calculate_layout=lambda *a: (np.array([[0, 0], [1, 1]], dtype=np.float32), 12.0))
         with mock.patch.dict(sys.modules, {"Layout_Engine_SSN": engine, "Layout_Engine_UMAP": engine}):

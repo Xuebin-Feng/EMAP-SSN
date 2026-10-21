@@ -59,6 +59,7 @@ modules = [
     "test_embedding_manager",
     "test_low_resource_mode",
     "test_metadata",
+    "test_network_threshold_edges",
     "test_network_top_edges",
     "test_prepare_network",
     "test_viewer_command_portal",

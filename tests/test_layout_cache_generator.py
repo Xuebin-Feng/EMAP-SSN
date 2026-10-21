@@ -15,8 +15,8 @@ from unittest import mock
 
 import h5py
 import numpy as np
-# prepare_network imports numba lazily on the UMAP path (the edge filter's
-# kernels), and pandas' isna loads numpy.rec. Loading them here keeps the
+# prepare_network imports its streaming helpers lazily (numba for the UMAP
+# path's kernels), and pandas' isna loads numpy.rec. Loading them here keeps the
 # patch.dict(sys.modules) windows below from dropping them on exit, which
 # leaves a second pandas whose C parser rejects its own "str" dtype.
 import pandas  # noqa: F401
@@ -40,12 +40,12 @@ from utilities.Sequence_Utils import derive_node_metadata
 from tests.layout_fixtures import (  # noqa: E402
     make_compatibility,
     make_manifest,
-    preload_umap_kernels,
+    preload_network_preparation,
     settings_document as _settings_document,
     write_inputs as _write_inputs,
 )
 
-preload_umap_kernels()
+preload_network_preparation()
 
 FIELD_SECTION = {key: section for section, keys in LAYOUT_SECTIONS.items() for key in keys}
 

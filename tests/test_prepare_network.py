@@ -10,6 +10,7 @@ import unittest
 import warnings
 from contextlib import redirect_stdout
 from types import SimpleNamespace
+from unittest import mock
 
 import h5py
 import numpy as np
@@ -21,6 +22,8 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from desktop.Viewer_State import prepare_network
+from utilities import Network_Score_Statistics as scan
+from utilities import Network_Threshold_Edges as threshold_edges
 
 
 NORMALIZATIONS = (
@@ -198,39 +201,37 @@ class ColumnReadTests(unittest.TestCase):
 
 
 class PeakMemoryTests(unittest.TestCase):
-    # Bytes per pair for a complete network (uint16 indices, float32 scores,
-    # uint16 lengths) with every node kept. Normalization is the peak: i and
-    # j (2 + 2), the raw scores (4), the denominator (the alignment length, 2,
-    # or both sequence lengths and their minimum, 2 + 2 + 2), the positive
-    # mask (1) and the scores (4) make 15 and 19 bytes. The former np.where
-    # also held a second score array (4) and, for sequence normalizations,
-    # the unused length column (2): 19 and 25 bytes.
-    BUDGETS = {
-        ("global", "alignment_length"): 16.0,
-        ("local", "shorter_sequence"): 20.0,
-    }
+    # The pairs are streamed, so the peak is a few slices per worker thread, not
+    # bytes per pair of the network: loading the columns took 15 bytes per pair
+    # (alignment length) and 19 (sequence lengths), and a top-percent cutoff a
+    # copy of the scores more. Here 20,000-pair slices and two threads hold about
+    # 3 bytes per pair of this 1M-pair network (its 5% of edges included).
+    BUDGET = 6.0
 
-    def test_normalization_peak_stays_within_budget(self):
+    def test_the_peak_stays_a_few_slices_whatever_the_normalization(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             network_path = pathlib.Path(temp_dir) / "alignment.h5"
             columns = _write_alignment_network(network_path, 1415, np.random.default_rng(7))
             pair_count = len(columns["i"])
-            for (score, normalization), budget in self.BUDGETS.items():
+            for score, normalization in (("global", "alignment_length"), ("local", "shorter_sequence")):
                 settings = _settings(
                     ALIGNMENT_SCORE=score, NORM_MODE=normalization, TOP_EDGE_PERCENT=5.0
                 )
                 with self.subTest(score=score, normalization=normalization):
                     with h5py.File(network_path, "r") as network, redirect_stdout(io.StringIO()):
                         every_header = _every_header(network)
-                        tracemalloc.start()
-                        try:
-                            prepare_network(
-                                network, settings=settings, selected_fasta_headers=every_header
-                            )
-                            _, peak = tracemalloc.get_traced_memory()
-                        finally:
-                            tracemalloc.stop()
-                    self.assertLess(peak / pair_count, budget)
+                        with mock.patch.object(scan, "CHUNK_EDGES", 20_000), mock.patch.object(
+                            threshold_edges, "DEFAULT_MAX_WORKERS", 2
+                        ):
+                            tracemalloc.start()
+                            try:
+                                prepare_network(
+                                    network, settings=settings, selected_fasta_headers=every_header
+                                )
+                                _, peak = tracemalloc.get_traced_memory()
+                            finally:
+                                tracemalloc.stop()
+                    self.assertLess(peak / pair_count, self.BUDGET)
 
 
 def _preparation_settings(**overrides):

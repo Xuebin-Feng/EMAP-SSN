@@ -792,10 +792,6 @@ def resolve_selected_cache(settings, *, layout_dimensions=None):
 # 5. Network Preparation (Filtering, Thresholding, UMAP)
 # =====================================================================
 
-_SEQUENCE_LENGTH_NORMALIZATIONS = frozenset(
-    {"shorter_sequence", "longer_sequence", "average_sequence"}
-)
-
 
 def _normalize_score(raw_score, align_len, len_i, len_j, mode):
     if mode == "alignment_length":
@@ -822,49 +818,13 @@ def _normalize_score(raw_score, align_len, len_i, len_j, mode):
     return scores
 
 
-def _read_pair_scores(data, settings, pair_mask, valid_sources, valid_targets):
-    """Return the normalized score of each pair that ``pair_mask`` keeps.
+def _pair_source(data, settings, kept_mask):
+    """A ScoreSource that reads an open network's pairs a slice at a time, scored as this module does.
 
-    Reads only the per-pair columns the settings use: the alignment-length
-    column only when the normalization divides by it, and never the other
-    score type's pair. Its own frame releases the full-length columns before
-    the caller ranks and thresholds the scores.
-    """
-    if settings.INPUT_IS_EVALUE:
-        return data["score"][:][pair_mask]
-
-    if settings.ALIGNMENT_SCORE == "global":
-        score_name, length_name = "g_score", "g_len"
-    else:
-        score_name, length_name = "l_score", "l_len"
-    raw_scores = data[score_name][:][pair_mask]
-    alignment_lengths = source_lengths = target_lengths = None
-    if settings.NORM_MODE in _SEQUENCE_LENGTH_NORMALIZATIONS:
-        sequence_lengths = data["seq_lens"][:]
-        source_lengths = sequence_lengths[valid_sources]
-        target_lengths = sequence_lengths[valid_targets]
-    else:
-        alignment_lengths = data[length_name][:][pair_mask]
-    return _normalize_score(
-        raw_scores,
-        alignment_lengths,
-        source_lengths,
-        target_lengths,
-        settings.NORM_MODE,
-    )
-
-
-def _strongest_pairs(data, settings, *, kept_mask, keep_limit):
-    """The pairs that are among the best ``keep_limit`` of their source or of their target.
-
-    Returns the stored node indices of each pair and its score, in the order of
-    the stored pairs, streaming the network instead of loading its columns. A
-    node's best pairs are the highest scores; equal scores go to the pair stored
-    first. A subset of nodes (``kept_mask``) ranks only the pairs between its
-    nodes, as the network's columns would be filtered before ranking.
+    A subset of nodes (``kept_mask``) drops the pairs with an end outside it, as
+    filtering the network's columns would.
     """
     from utilities import Network_Score_Statistics as scan
-    from utilities import Network_Top_Edges as top
 
     total_nodes = len(kept_mask)
     all_kept = bool(kept_mask.all())
@@ -872,7 +832,7 @@ def _strongest_pairs(data, settings, *, kept_mask, keep_limit):
     if not settings.INPUT_IS_EVALUE:  # E-value scores are stored as they are used
         score_mode = "global" if settings.ALIGNMENT_SCORE == "global" else "local"
         norm_mode = settings.NORM_MODE
-    source = scan.ScoreSource(
+    return scan.ScoreSource(
         data,
         is_blast=settings.INPUT_IS_EVALUE,
         score_mode=score_mode,
@@ -885,7 +845,21 @@ def _strongest_pairs(data, settings, *, kept_mask, keep_limit):
         # that no mask would catch; with a subset, the mask's lookup raises it.
         node_count=total_nodes if all_kept else None,
     )
-    _, sources, targets, scores = top.strongest_edges(source, total_nodes, keep_limit)
+
+
+def _strongest_pairs(data, settings, *, kept_mask, keep_limit):
+    """The pairs that are among the best ``keep_limit`` of their source or of their target.
+
+    Returns the stored node indices of each pair and its score, in the order of
+    the stored pairs, streaming the network instead of loading its columns. A
+    node's best pairs are the highest scores; equal scores go to the pair stored
+    first. A subset of nodes (``kept_mask``) ranks only the pairs between its
+    nodes, as the network's columns would be filtered before ranking.
+    """
+    from utilities import Network_Top_Edges as top
+
+    source = _pair_source(data, settings, kept_mask)
+    _, sources, targets, scores = top.strongest_edges(source, len(kept_mask), keep_limit)
     return sources, targets, scores
 
 
@@ -894,7 +868,10 @@ def prepare_network(data, *, settings, selected_fasta_headers):
 
     Only nodes named in ``selected_fasta_headers`` (the selected FASTA's
     sanitized headers) are kept. In UMAP mode only each node's best
-    ``UMAP_NEIGHBORS`` edges, as a source and as a target, are returned.
+    ``UMAP_NEIGHBORS`` edges, as a source and as a target, are returned;
+    otherwise the edges scoring at least ``SIMILARITY_THRESHOLD`` (which
+    ``TOP_EDGE_PERCENT`` sets, when given). The network's pairs are streamed in
+    both modes, so the memory used does not grow with their number.
     """
     metadata = cache_manifest.validate_network_schema(data)
     settings.INPUT_IS_EVALUE = metadata.network_type == "blast"
@@ -981,37 +958,23 @@ def prepare_network(data, *, settings, selected_fasta_headers):
         ).astype(np.int32)
         return filtered_headers, edges, edge_scores
 
-    sources = data["i"][:]
-    targets = data["j"][:]
-    if kept_mask.all():
-        # Every pair is valid, so skip the pair mask and its full-length
-        # copies (seconds on networks with tens of millions of pairs). The
-        # mask's indexing was also the bounds check, so keep that explicitly.
-        if len(sources) and max(int(sources.max()), int(targets.max())) >= total_nodes:
-            raise IndexError("Network pair indices exceed the header count.")
-        valid_edges_mask = slice(None)
-    else:
-        valid_edges_mask = kept_mask[sources] & kept_mask[targets]
-    valid_sources = sources[valid_edges_mask]
-    valid_targets = targets[valid_edges_mask]
-    valid_scores = _read_pair_scores(
-        data, settings, valid_edges_mask, valid_sources, valid_targets
-    )
+    # The pairs are streamed here too: loading their columns took 15 to 28 bytes per pair.
+    # Each slice is scored and compared as the whole column was, so the kept edges and
+    # their scores, in their stored order, are the same.
+    from utilities import Network_Threshold_Edges as threshold_edges
+
+    source = _pair_source(data, settings, kept_mask)
 
     top_percent = getattr(settings, "TOP_EDGE_PERCENT", None)
     if top_percent is not None:
         active_nodes = len(kept_indices)
         theoretical_max_edges = (active_nodes * (active_nodes - 1)) / 2.0
-        edge_count = int(theoretical_max_edges * (top_percent / 100.0))
-        if len(valid_scores) == 0:
-            calculated_cutoff = 0.0
-        else:
-            edge_count = max(1, min(edge_count, len(valid_scores)))
-            # The edge_count-th largest score in linear time. np.partition
-            # shares np.sort's ordering (NaN last), so this is exactly
-            # np.sort(valid_scores)[::-1][edge_count - 1], without the sort.
-            kth = len(valid_scores) - edge_count
-            calculated_cutoff = float(np.partition(valid_scores, kth)[kth])
+        # The edge_count-th largest score, found without keeping the scores. It is
+        # float(np.partition(valid_scores, n - edge_count)[n - edge_count]), NaN scores
+        # counted after every number as NumPy sorts them.
+        _, calculated_cutoff = threshold_edges.cutoff_of_best_edges(
+            source, lambda _valid_pairs: int(theoretical_max_edges * (top_percent / 100.0))
+        )
 
         mode_label = "E-Value" if settings.INPUT_IS_EVALUE else "Similarity"
         print(
@@ -1021,12 +984,9 @@ def prepare_network(data, *, settings, selected_fasta_headers):
         print(f"Calculated {mode_label} Cutoff: {calculated_cutoff:.5f}")
         settings.SIMILARITY_THRESHOLD = calculated_cutoff
 
-    threshold_mask = valid_scores >= settings.SIMILARITY_THRESHOLD
-
-    final_sources = index_map[valid_sources[threshold_mask]]
-    final_targets = index_map[valid_targets[threshold_mask]]
-    edges = np.column_stack((final_sources, final_targets)).astype(np.int32)
-    edge_scores = valid_scores[threshold_mask]
+    edges, edge_scores = threshold_edges.edges_at_least(
+        source, settings.SIMILARITY_THRESHOLD, index_map
+    )
     return filtered_headers, edges, edge_scores
 
 

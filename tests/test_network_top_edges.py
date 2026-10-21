@@ -28,7 +28,8 @@ SRC = ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from desktop.Viewer_State import _read_pair_scores, prepare_network
+from desktop.Viewer_State import prepare_network
+from tests.network_fixtures import ArraySource, former_pair_scores, write_network
 from utilities import Network_Score_Statistics as scan
 from utilities import Network_Top_Edges as top
 
@@ -42,23 +43,6 @@ def reference_positions(sources, targets, scores, keep, kind):
     best_as_source = ordered.groupby("u").head(keep)["idx"]
     best_as_target = ordered.groupby("v").head(keep)["idx"]
     return np.sort(pd.concat([best_as_source, best_as_target]).unique())
-
-
-class ArraySource:
-    """The part of a ScoreSource that strongest_edges uses, over arrays in memory."""
-
-    def __init__(self, sources, targets, scores):
-        self.sources, self.targets, self.scores = sources, targets, scores
-        self.edge_count = len(scores)
-
-    def read(self, start, stop, nodes=False, check_nodes=False, positions=False):
-        stop = min(stop, self.edge_count)
-        return scan.Slice(
-            self.scores[start:stop].copy(),
-            self.sources[start:stop].copy(),
-            self.targets[start:stop].copy(),
-            np.arange(start, stop, dtype=np.int64),
-        )
 
 
 def random_network(rng, node_count, pair_count, kind):
@@ -117,6 +101,19 @@ class StrongestEdgesTests(unittest.TestCase):
                             )
                         cases += 1
         self.assertGreater(cases, 300)
+
+    def test_a_hundred_neighbours_where_every_node_has_more_pairs_than_that(self):
+        # 120 nodes with about 330 pairs each as a source and as a target, so each group
+        # really ranks beyond its 100th place; equal scores sit across that place.
+        for seed, kind in enumerate(("distinct", "ties", "float64", "nan", "integers")):
+            rng = np.random.default_rng(300 + seed)
+            network = random_network(rng, 120, 40_000, kind)
+            for chunk, workers in ((100_000, 1), (997, 1), (997, 4)):
+                with self.subTest(scores=kind, chunk=chunk, workers=workers):
+                    self.assert_matches(network, 120, 100, "stable", chunk=chunk, workers=workers)
+            if kind == "distinct":
+                with self.subTest(scores=kind, sort="former default"):
+                    self.assert_matches(network, 120, 100, "quicksort", chunk=997, workers=2)
 
     def test_without_equal_scores_it_keeps_what_the_former_sort_kept(self):
         for seed in range(12):
@@ -231,38 +228,6 @@ class StrongestEdgesTests(unittest.TestCase):
             top._lowest_value(np.dtype("U3"))
 
 
-def write_network(path, node_count, rng, *, blast=False, ties=False, with_nodes=True):
-    """A complete network stored in no particular order, in the dtypes real files use."""
-    sources, targets = np.triu_indices(node_count, k=1)
-    order = rng.permutation(len(sources))
-    sources, targets = sources[order], targets[order]
-    pair_count = len(sources)
-    columns = {"i": sources.astype(np.uint16), "j": targets.astype(np.uint16)}
-    if blast:
-        if ties:
-            columns["score"] = rng.integers(0, 5, pair_count).astype(np.float32) * 25.0
-        else:
-            columns["score"] = rng.permutation(pair_count).astype(np.float32)
-    else:
-        columns["seq_lens"] = rng.integers(1, 9, node_count).astype(np.uint16)
-        for kind in ("g", "l"):
-            if ties:
-                columns[f"{kind}_score"] = rng.integers(0, 6, pair_count).astype(np.float32)
-                columns[f"{kind}_len"] = rng.integers(1, 3, pair_count).astype(np.uint16)
-            else:
-                # Length 1: the normalized scores are the distinct raw scores.
-                columns[f"{kind}_score"] = rng.permutation(pair_count).astype(np.float32)
-                columns[f"{kind}_len"] = np.ones(pair_count, dtype=np.uint16)
-    with h5py.File(path, "w") as network:
-        network.attrs["model_name"] = "BLAST" if blast else "model"
-        network.create_dataset(
-            "headers", data=[f"N{index}".encode() for index in range(node_count)]
-        )
-        for name, values in columns.items():
-            network.create_dataset(name, data=values)
-    return columns
-
-
 def settings_for(**overrides):
     values = {
         "NODE_FASTA_FILE": "",
@@ -288,7 +253,7 @@ def former_umap_edges(path, settings, selected, kind):
         kept_mask[kept] = True
         valid = kept_mask[sources] & kept_mask[targets]
         valid_sources, valid_targets = sources[valid], targets[valid]
-        scores = _read_pair_scores(network, settings, valid, valid_sources, valid_targets)
+        scores = former_pair_scores(network, settings, valid, valid_sources, valid_targets)
     keep = int(settings.UMAP_NEIGHBORS)
     chosen = np.zeros(len(scores), dtype=bool)
     chosen[reference_positions(valid_sources, valid_targets, scores, keep, kind)] = True
@@ -341,6 +306,29 @@ class PrepareNetworkUmapTests(unittest.TestCase):
                                     found,
                                     former_umap_edges(distinct, settings, set(selected), "quicksort"),
                                 )
+
+    def test_a_hundred_neighbours_match_the_former_output(self):
+        # Random pairs in a 120-node network: most nodes have over 100 pairs per direction.
+        names = [f"N{index}" for index in range(120)]
+        with tempfile.TemporaryDirectory() as folder:
+            for label, build in {
+                "alignment ties": dict(ties=True, pair_count=40_000),
+                "alignment distinct": dict(pair_count=40_000),
+                "e-value ties": dict(ties=True, blast=True, pair_count=40_000),
+            }.items():
+                path = pathlib.Path(folder) / f"{label}.h5"
+                write_network(path, 120, np.random.default_rng(len(label)), **build)
+                for selected in (names, names[::2]):
+                    settings = settings_for(UMAP_NEIGHBORS=100)
+                    with self.subTest(network=label, nodes=len(selected)):
+                        found = self.prepared(path, settings, selected)
+                        self.assert_same_output(
+                            found, former_umap_edges(path, settings, set(selected), "stable")
+                        )
+                        if "distinct" in label:
+                            self.assert_same_output(
+                                found, former_umap_edges(path, settings, set(selected), "quicksort")
+                            )
 
     def test_e_value_networks_match_the_former_output(self):
         node_count = 40
