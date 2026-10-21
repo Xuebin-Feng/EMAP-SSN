@@ -16,6 +16,7 @@ import os
 import pathlib
 import subprocess
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 from io import StringIO
@@ -95,6 +96,23 @@ def fit(u, v, scores, count, neighbors, mid, dims, seed):
     ids, near, mid_lists, far = engine.build_pairs(connectivity_of(u, v, scores), count, neighbors, seed, mid)
     assert len(ids) == count
     return engine.optimise(count, dims, near, mid_lists, far, seed)
+
+
+def clique_ring(cliques=8, clique_size=6, ring=40):
+    """(connectivity, node count) of cliques whose scores are all equal, next to one graded ring.
+
+    Every node of a clique of equal scores has the same weights to the others: the case where an unseeded
+    eigsh made another method's layouts of one seed differ from run to run.
+    """
+    edges, node = [], 0
+    for _ in range(cliques):
+        members = list(range(node, node + clique_size))
+        edges += [(a, b, 100.0) for i, a in enumerate(members) for b in members[i + 1:]]
+        node += clique_size
+    ring_nodes = list(range(node, node + ring))
+    edges += [(ring_nodes[i], ring_nodes[(i + 1) % ring], 90.0 - i * 0.5) for i in range(ring)]
+    edges += [(ring_nodes[i], ring_nodes[(i + 2) % ring], 60.0 - i * 0.3) for i in range(ring)]
+    return np.array(edges, dtype=np.float32), node + ring
 
 
 def numpy_loss(position, near, mid, far, weights):
@@ -265,22 +283,47 @@ class ThreadTests(unittest.TestCase):
             "    pos, box = engine.calculate_layout(np.column_stack((u, v, s)).astype(np.float32), count,\n"
             "        {'PACMAP_NEIGHBORS': 10, 'LAYOUT_DIMENSIONS': dims, 'PACMAP_MID_NEAR': mid})\n"
             "    digests.append(hashlib.sha256(pos.tobytes()).hexdigest())\n"
+            # Cliques of equal scores next to a ring: ties everywhere, and a graph with repeated eigenvalues.
+            "ring = np.load(sys.argv[2])\n"
+            "for dims in (2, 3):\n"
+            "    pos, box = engine.calculate_layout(ring, int(ring[:, :2].max()) + 1,\n"
+            "        {'PACMAP_NEIGHBORS': 5, 'LAYOUT_DIMENSIONS': dims})\n"
+            "    digests.append(hashlib.sha256(pos.tobytes()).hexdigest())\n"
             "print('THREADS', Numba_Threads.default_thread_count(), numba.get_num_threads())\n"
             "print('DIGESTS', *digests)\n"
         )
         results = {}
-        for threads in ("1", "3"):
-            environment = {**os.environ, "NUMBA_NUM_THREADS": threads, "PYTHONHASHSEED": "0"}
-            environment.pop("SSN_LAYOUT_GPU_KERNELS", None)
-            done = subprocess.run([sys.executable, "-c", script, str(SRC)], env=environment, capture_output=True,
-                                  text=True, timeout=600)
-            self.assertEqual(done.returncode, 0, done.stderr[-2000:])
-            lines = {line.split()[0]: line.split()[1:] for line in done.stdout.splitlines()
-                     if line.startswith(("THREADS", "DIGESTS"))}
-            self.assertEqual(lines["THREADS"], [threads, threads])
-            results[threads] = lines["DIGESTS"]
+        with tempfile.TemporaryDirectory() as folder:
+            ring_file = os.path.join(folder, "ring.npy")
+            np.save(ring_file, clique_ring()[0])
+            for threads in ("1", "3"):
+                environment = {**os.environ, "NUMBA_NUM_THREADS": threads, "PYTHONHASHSEED": "0"}
+                environment.pop("SSN_LAYOUT_GPU_KERNELS", None)
+                done = subprocess.run([sys.executable, "-c", script, str(SRC), ring_file], env=environment,
+                                      capture_output=True, text=True, timeout=600)
+                self.assertEqual(done.returncode, 0, done.stderr[-2000:])
+                lines = {line.split()[0]: line.split()[1:] for line in done.stdout.splitlines()
+                         if line.startswith(("THREADS", "DIGESTS"))}
+                self.assertEqual(lines["THREADS"], [threads, threads])
+                results[threads] = lines["DIGESTS"]
         self.assertEqual(results["1"], results["3"])
-        self.assertEqual(len(set(results["1"])), 2)       # 2D and 3D differ, of course
+        self.assertEqual(len(set(results["1"])), 4)       # 2D and 3D, and the two networks, differ, of course
+
+    def test_cliques_of_equal_scores_lay_out_the_same_every_time(self):
+        # Nothing the engine draws comes from a generator that LAYOUT_SEED does not seed (it calls neither
+        # eigsh nor any other routine with a random restart), so ties and repeated weights change nothing.
+        connectivity, count = clique_ring()
+        for dims in (2, 3):
+            with self.subTest(dims=dims):
+                params = {"PACMAP_NEIGHBORS": 5, "LAYOUT_DIMENSIONS": dims}
+                with redirect_stdout(StringIO()):
+                    first, _ = engine.calculate_layout(connectivity, count, params)
+                    again, _ = engine.calculate_layout(connectivity, count, params)
+                    with Numba_Threads.limited_threads(1):
+                        single, _ = engine.calculate_layout(connectivity, count, params)
+                np.testing.assert_array_equal(first, again)
+                np.testing.assert_array_equal(first, single)
+                self.assertTrue(np.isfinite(first).all())
 
 
 class ContractTests(unittest.TestCase):
