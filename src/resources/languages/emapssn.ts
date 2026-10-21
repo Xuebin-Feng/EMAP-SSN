@@ -1765,6 +1765,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>{names}: the colors are the file&apos;s B-factor column. In an experimental structure that is not confidence.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>No data: {names}. This layer has no values for them.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1817,6 +1821,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>B-factor</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Pinned. Escape clears it.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1834,6 +1842,10 @@ Command-line usage:
     </message>
     <message>
         <source>Each structure shows the residue at the same place of the alignment.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{names}: the number is the file&apos;s B-factor, which is not confidence in an experimental structure.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

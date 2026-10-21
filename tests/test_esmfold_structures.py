@@ -432,7 +432,7 @@ class OpenFileTests(StructuresTestCase):
     def pdb_text(self):
         return json.dumps(fixtures.helix_pdb(fixtures.FIRST_SEQUENCE, fixtures.plddt_values(33), shift=(1.0, 2.0, 0.0), wobble=0.3))
 
-    def test_a_structure_file_is_opened_and_aligned_like_a_folded_one(self):
+    def test_a_structure_file_is_opened_and_aligned_to_the_pivot(self):
         self.open_with(1)
         self.script("openStructureFiles([new File([%s], 'mine.pdb')]); await structureQueue; return 1" % self.pdb_text())
         self.settle(500)
@@ -446,7 +446,8 @@ class OpenFileTests(StructuresTestCase):
             """)
         self.assertEqual(found["names"], ["11", "mine"])
         self.assertIsNone(found["file"])
-        self.assertEqual(found["themes"], ["plddt-confidence", "plddt-confidence"])
+        # In its own color, not pLDDT: its B-factors are not known to be a confidence (tests/test_esmfold_opened.py).
+        self.assertEqual(found["themes"], ["plddt-confidence", "uniform"])
         self.assertEqual(found["pivot"], "11")
         self.assertLess(found["rmsd"], 0.6)
         self.assertEqual(found["chips"][0], "Pivot")

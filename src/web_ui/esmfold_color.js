@@ -175,19 +175,30 @@ function setStructureColoring(ref, id) {
     }).catch(err => reportFailure("Could not change the colors:", err));
 }
 
-// A structure just loaded takes the scene's coloring (the others keep theirs).
+// A structure just loaded takes the scene's coloring (the others keep theirs), except that one opened from a
+// file starts in its own color when the scene's is pLDDT: its B-factors are not known to be a confidence. Its
+// row has that choice, and pLDDT is one click away there; the scene's next choice is for it too.
 async function colorNewStructure(structure) {
     try {
-        await colorStructure(structure, colorMode);
+        const own = !isFolded(structure) && colorMode === PLDDT_LAYER;
+        await colorStructure(structure, own ? STRUCTURE_COLORING : colorMode);
     } catch (err) {
         console.warn("Could not color the new structure:", err);
     }
 }
 
 // After a session came back (or Undo, or an opened file): the scene's choice is the one most structures show.
+// A structure that was opened from a file is not counted: it starts in a color of its own, and opening one
+// never changes the scene's choice.
 function deriveColorMode() {
     const counts = new Map();
     for (const structure of loadedStructures()) {
+        if (!isFolded(structure)) {
+            // (Its own color is its own: the swatch keeps matching it.)
+            const own = colorThemeOf(structure);
+            if (coloringOf(structure) === STRUCTURE_COLORING) structureColors.set(structure.cell.transform.ref, intToHex(own.params.value));
+            continue;
+        }
         const id = coloringOf(structure);
         if (id === NO_DATA || id === OTHER_COLORING) continue;
         counts.set(id, (counts.get(id) || 0) + 1);
@@ -287,6 +298,9 @@ async function colorModel() {
                     unavailable: gathered.unavailable, plddt: gathered.plddt, count: gathered.structures.length };
     model.legend = gathered.structures.length ? legendOf(model) : null;
     model.noData = gathered.structures.filter(item => coloringOf(item.structure) === NO_DATA).map(item => item.name);
+    // Opened files showing pLDDT: the colors are the file's B-factors.
+    model.fromFiles = gathered.structures.filter(item => !isFolded(item.structure) && coloringOf(item.structure) === PLDDT_LAYER)
+        .map(item => item.name);
     return model;
 }
 
@@ -393,6 +407,10 @@ function cardLegend(model) {
         const some = legendKey(intToHex(noDataColor), t("No data"));
         some.classList.add('band-nodata');
         box.append(some);
+    }
+    if (colorMode === PLDDT_LAYER && model.fromFiles.length) {
+        const caution = make('div', 'caution', t("{names}: the colors are the file's B-factor column. In an experimental structure that is not confidence.", {names: model.fromFiles.join(', ')}));
+        box.append(caution);
     }
     if (model.noData.length && colorMode !== PLDDT_LAYER && !colorMode.startsWith(BUILTIN_PREFIX)) {
         const warning = make('div', 'nodata');

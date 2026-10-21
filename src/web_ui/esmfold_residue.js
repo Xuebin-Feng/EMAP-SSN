@@ -159,8 +159,11 @@ async function showTip(residue) {
     const where = make('span', undefined, t("chain {chain} · {name}", {chain: residue.chain, name: structureName(structure)}));
     head.append(title, where);
     const table = make('table');
+    // A structure opened from a file has B-factors, which are not known to be a confidence: no band for it.
     const band = plddtBandName(residue.plddt, structure);
-    const confidence = tipRow(coloringLabel(PLDDT_LAYER), residue.plddt.toFixed(1) + ' · ' + band.name, band.color);
+    const confidence = isFolded(structure)
+        ? tipRow(coloringLabel(PLDDT_LAYER), residue.plddt.toFixed(1) + ' · ' + band.name, band.color)
+        : tipRow(t("B-factor"), residue.plddt.toFixed(1));
     table.append(confidence);
     if (layerId) {
         const row = rows?.get(residue.chain + '|' + residue.number);
@@ -343,6 +346,11 @@ async function renderResidueCard() {
     const parts = [head, table];
     const note = make('div', 'res-note', t("Each structure shows the residue at the same place of the alignment."));
     parts.push(note);
+    const opened = loadedStructures().filter(structure => !isFolded(structure)).map(structure => structureName(structure));
+    if (opened.length) {
+        const caution = make('div', 'res-note', t("{names}: the number is the file's B-factor, which is not confidence in an experimental structure.", {names: opened.join(', ')}));
+        parts.push(caution);
+    }
     const foot = make('div', 'res-foot');
     const zoom = make('button', 'btn btn-sm', t("Zoom to"));
     zoom.type = 'button';

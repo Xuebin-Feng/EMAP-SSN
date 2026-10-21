@@ -193,6 +193,12 @@ function reportFailure(message, err) {
     showStatus(t("Could not do that: {reason}", {reason: err.message}), 6000, {error: true});
 }
 
+// A structure the Viewer folded is loaded from its own folder; any other (a file opened or dropped here, or one
+// Advanced loaded) is not, and its B-factors need not be a confidence. The tree says which, so a session does too.
+function isFolded(structure) {
+    return !!structureSourceUrl(structure)?.startsWith('/structures/');
+}
+
 // The URL a structure was loaded from, so that its file can be had again as the Viewer wrote it.
 function structureSourceUrl(structure) {
     const cells = plugin.state.data.cells;
@@ -312,7 +318,7 @@ function structureDetails(structure, pivot) {
 
     // What is known about the structure and its alignment
     const facts = make('dl', 'kv');
-    if (structureFile(structure)) {
+    if (isFolded(structure)) {
         const plddt = meanPlddt(structure);
         if (Number.isFinite(plddt)) facts.append(...detailLine(t("Mean pLDDT"), plddt.toFixed(1)));
     }

@@ -330,6 +330,7 @@ window.card = function () {
         ends: legend ? [...legend.querySelectorAll('.ticks span')].map(s => s.textContent) : [],
         keys: legend ? [...legend.querySelectorAll('.band')].map(k => k.textContent) : [],
         noData: legend ? text(legend.querySelector('.nodata span')) : null,
+        caution: legend ? text(legend.querySelector('.caution')) : null,
         source: legend ? text(legend.querySelector('.src summary span')) : null,
         description: legend ? text(legend.querySelector('.src p')) : null,
         layerNotes: [...body.querySelectorAll('.empty-layers div > div')].map(n => n.textContent),
