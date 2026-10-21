@@ -601,14 +601,14 @@ work as for any job:
 {"action": "start_benchmark", "arguments": {"stages": [3, "search"]}}
 ```
 
-`stages` is optional: stage numbers (1–10) or names, such as `alignment`; the stages
-they need are added. Omitted, all ten run. A stage that does not exist is refused
+`stages` is optional: stage numbers (1–11) or names, such as `alignment` or
+`pacmap_layout`; the stages they need are added. Omitted, all eleven run. A stage that does not exist is refused
 before anything is queued. `list_tools` carries a `benchmark` entry with the action,
 the job's `tool_id`, the stages, the outputs and the expected duration.
 
 The benchmark runs the program's heavy calculations on a bundled public set of 860
 sequences, with every device setting on Auto: sanitizing, ESM-2 8M embeddings, the
-all-against-all embedding alignment, the SSN and UMAP layouts, clustering, an
+all-against-all embedding alignment, the SSN, UMAP and PaCMAP layouts, clustering, an
 embedding database search, injection of 92 more sequences, an embedding MSA and BLAST.
 A run takes about 6 minutes on a recent GPU workstation and longer without a GPU. A
 stage the computer cannot run, such as BLAST without NCBI BLAST+, is skipped with the

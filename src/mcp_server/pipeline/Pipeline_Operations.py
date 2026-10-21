@@ -581,7 +581,7 @@ async def start_benchmark(
     ctx: Context[AppContext],
     stages: Annotated[
         list[int | str] | None,
-        Field(description="Stages to run, by number (1-10) or name such as 'alignment'; "
+        Field(description="Stages to run, by number (1-11) or name such as 'alignment'; "
                           "the stages they need are added. Omit to run all of them."),
     ] = None,
 ) -> PipelineJobInfo:

@@ -161,6 +161,7 @@ This script queries a single sequence against an entire database using residue-l
 | 8. Injection of new sequences | `Embedding_Injection.py` and `Network_Injection.py` with the 92 held-out sequences. |
 | 9. Embedding MSA | `Embedding_MSA.py` on 100 glyoxalase II sequences. |
 | 10. BLAST all-against-all alignment | `Align_Substitution_Matrix.py`, with NCBI BLAST+. |
+| 11. PaCMAP layout | The same network laid out with PaCMAP. |
 
 Every device setting stays on **Auto**, so each tool runs its own hardware trials, and the report records what each one chose. A stage this computer can't run, such as BLAST without NCBI BLAST+, is skipped with the reason, and so are the stages that need it.
 

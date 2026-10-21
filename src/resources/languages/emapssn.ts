@@ -4687,6 +4687,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>PaCMAP layout</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>The stage stopped with exit code {code}.</source>
         <translation type="unfinished"></translation>
     </message>

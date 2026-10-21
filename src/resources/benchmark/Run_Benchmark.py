@@ -9,7 +9,7 @@ MCP (emapssn_pipeline action start_benchmark), or from a terminal:
 
     python -u src/resources/benchmark/Run_Benchmark.py [--stages 1,2,3]
 
-It runs up to ten stages on the bundled metallo-beta-lactamase set (see the
+It runs up to eleven stages on the bundled metallo-beta-lactamase set (see the
 README beside this file), each stage in a process of its own, with every
 device setting on Auto. It records each stage's time, throughput, CPU, memory
 and the choices the program's own Auto benchmarks made, with the machine's
@@ -61,7 +61,9 @@ import psutil  # noqa: E402
 from utilities.Localization import JoinedMessage, Message, display_text  # noqa: E402
 
 # The protocol: change it whenever a stage, its settings or the data change,
-# so reports made with different protocols are never compared as equals.
+# so reports made with different protocols are never compared as equals. A stage
+# added at the end (PaCMAP's, number 11) leaves the others as they were, with their
+# numbers, so earlier reports still compare stage by stage and keep the version.
 PROTOCOL_VERSION = 1
 
 WORK_DIR_VARIABLE = "SSN_BENCHMARK_WORK_DIR"
@@ -80,6 +82,7 @@ MSA_SEQUENCES = 100
 SEARCH_QUERY = "B1XD76"  # E. coli's glyoxalase II (GLO2_ECODH), in the main set.
 REFERENCE_MODEL = "esm2_t6_8m"
 SEED = 42
+PACMAP_NEIGHBORS = 10  # PaCMAP's own default, as the UMAP stage's 15 is UMAP's.
 
 
 class CannotStart(Exception):
@@ -999,8 +1002,10 @@ def model_problem(state):
     return None
 
 
-# The ten stages, in the order they run. needs names the stages whose files
-# a stage uses; a stage whose needs didn't complete is skipped.
+# The eleven stages, in the order they run. needs names the stages whose files
+# a stage uses; a stage whose needs didn't complete is skipped. PaCMAP's stage
+# comes last, so that the numbers of the others, which earlier reports and docs
+# quote, stay as they were.
 STAGES = (
     Stage(1, "sanitize", Message("Sanitize sequences"), (), ("sanitize",)),
     Stage(2, "embeddings", Message("Embeddings (ESM-2 8M)"), ("sanitize",), ("embeddings",),
@@ -1017,6 +1022,7 @@ STAGES = (
     Stage(9, "msa", Message("Embedding MSA"), ("embeddings", "alignment"), ("msa",),
           ready=msa_problem, auto=("msa_device",)),
     Stage(10, "blast", Message("BLAST all-against-all alignment"), ("sanitize",), ("blast",), ready=blast_problem),
+    Stage(11, "pacmap_layout", Message("PaCMAP layout"), ("alignment",), ("pacmap_layout",)),
 )
 STAGES_BY_KEY = {stage.key: stage for stage in STAGES}
 STAGES_BY_NUMBER = {stage.number: stage for stage in STAGES}
@@ -1117,9 +1123,11 @@ def run_alignment(context):
     return result
 
 
-def _layout_settings(context, umap):
+def _layout_settings(context, method):
+    """The layout job's settings for a stage: method is "ssn" (physics), "umap" or "pacmap"."""
     from desktop.Viewer_State import encode_document
 
+    umap = method != "ssn"
     flat = {
         "NODE_FASTA_FILE": _output(context, "sanitized_fasta"), "INPUT_HDF5": _output(context, "network"),
         "ALIGNMENT_SCORE": ALIGNMENT_SCORE, "NORM_MODE": NORM_MODE,
@@ -1135,15 +1143,19 @@ def _layout_settings(context, umap):
         "SAVED_LAYOUT_DIR": str(Path(context["temp"]) / "layouts"), "TARGET_CACHE_PATH": None,
         "CACHE_FILENAME": "version_00.h5", "CACHE_NAME_MODE": "auto",
     }
+    if method == "pacmap":
+        # The same network, sequences and seed as the UMAP stage; PaCMAP's own neighbour count
+        # takes the place of UMAP's, and it has no minimum distance.
+        flat.update(LAYOUT_METHOD="pacmap", PACMAP_NEIGHBORS=PACMAP_NEIGHBORS)
     return flat, encode_document("layout", flat)
 
 
-def _run_layout(context, umap):
+def _run_layout(context, method):
     """generate_layout_cache on stage 3's network, as an MCP layout job does, with the device on Auto."""
     imported = time.perf_counter()
     from Layout_Cache_Generator import LayoutGenerationSettings, generate_layout_cache
 
-    flat, document = _layout_settings(context, umap)
+    flat, document = _layout_settings(context, method)
     settings = LayoutGenerationSettings.from_document(document, project_root=str(PROJECT_ROOT))
     started, started_at = time.perf_counter(), time.time()
     result = generate_layout_cache(settings)
@@ -1164,11 +1176,15 @@ def _run_layout(context, umap):
 
 
 def run_ssn_layout(context):
-    return _run_layout(context, umap=False)
+    return _run_layout(context, "ssn")
 
 
 def run_umap_layout(context):
-    return _run_layout(context, umap=True)
+    return _run_layout(context, "umap")
+
+
+def run_pacmap_layout(context):
+    return _run_layout(context, "pacmap")
 
 
 def run_clustering(context):
@@ -1358,6 +1374,7 @@ STEP_RUNNERS = {
     "alignment": run_alignment,
     "ssn_layout": run_ssn_layout,
     "umap_layout": run_umap_layout,
+    "pacmap_layout": run_pacmap_layout,
     "clustering": run_clustering,
     "search": run_search,
     "injection_embeddings": run_injection_embeddings,
@@ -2002,7 +2019,7 @@ def work_text(outcome, inputs):
     if key == "alignment":
         return Message("{pairs} pairs, {cells} dynamic-programming cells",
                        pairs=format_count(main.get("pairs")), cells=format_count(main.get("cells")))
-    if key in ("ssn_layout", "umap_layout", "clustering"):
+    if key in ("ssn_layout", "umap_layout", "pacmap_layout", "clustering"):
         return Message("{nodes} nodes", nodes=format_count(main.get("sequences")))
     if key == "search":
         return Message("One query against {sequences} sequences", sequences=format_count(main.get("sequences")))
@@ -2023,7 +2040,7 @@ def detail_rows(outcome):
     details = child.get("details") or {}
     rows = []
     key = outcome.stage.key
-    if key in ("ssn_layout", "umap_layout") and details.get("nodes") is not None:
+    if key in ("ssn_layout", "umap_layout", "pacmap_layout") and details.get("nodes") is not None:
         rows.append([Message("Network"), Message(
             "{nodes} nodes, {edges} edges", nodes=format_count(details["nodes"]), edges=format_count(details.get("edges")),
         )])

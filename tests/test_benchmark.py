@@ -16,6 +16,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -303,10 +304,10 @@ class BenchmarkInputTests(unittest.TestCase):
 
 
 class BenchmarkStageTableTests(unittest.TestCase):
-    """The ten stages, what each needs, and which a run takes."""
+    """The eleven stages, what each needs, and which a run takes."""
 
-    def test_the_ten_stages_run_in_order_and_each_needs_only_earlier_ones(self):
-        self.assertEqual([stage.number for stage in benchmark.STAGES], list(range(1, 11)))
+    def test_the_stages_run_in_order_and_each_needs_only_earlier_ones(self):
+        self.assertEqual([stage.number for stage in benchmark.STAGES], list(range(1, 12)))
         seen = set()
         for stage in benchmark.STAGES:
             with self.subTest(stage=stage.key):
@@ -316,17 +317,82 @@ class BenchmarkStageTableTests(unittest.TestCase):
                 self.assertLessEqual(set(stage.auto), set(benchmark.DECISION_TITLES))
             seen.add(stage.key)
 
+    def test_the_first_ten_stages_keep_the_numbers_earlier_reports_quote(self):
+        # Reports already written, and the docs, name stages by number: a stage added later goes at the end.
+        self.assertEqual(
+            [(stage.number, stage.key) for stage in benchmark.STAGES[:10]],
+            [(1, "sanitize"), (2, "embeddings"), (3, "alignment"), (4, "ssn_layout"), (5, "umap_layout"),
+             (6, "clustering"), (7, "search"), (8, "injection"), (9, "msa"), (10, "blast")])
+        last = benchmark.STAGES[-1]
+        self.assertEqual((last.number, last.key, last.needs, last.steps),
+                         (11, "pacmap_layout", ("alignment",), ("pacmap_layout",)))
+
     def test_choosing_stages_adds_the_stages_they_need(self):
         everything = [stage.key for stage in benchmark.STAGES]
         self.assertEqual(benchmark.select_stages(None), everything)
         self.assertEqual(benchmark.select_stages("4"), ["sanitize", "embeddings", "alignment", "ssn_layout"])
         self.assertEqual(benchmark.select_stages(" blast, 1 "), ["sanitize", "blast"])
         self.assertEqual(benchmark.select_stages("injection"), ["sanitize", "embeddings", "alignment", "injection"])
+        for text in ("11", "pacmap_layout", "PaCMAP_layout"):
+            self.assertEqual(benchmark.select_stages(text), ["sanitize", "embeddings", "alignment", "pacmap_layout"])
+        self.assertEqual(benchmark.select_stages("5,11"),
+                         ["sanitize", "embeddings", "alignment", "umap_layout", "pacmap_layout"])
 
     def test_an_unknown_stage_stops_the_start(self):
-        for text in ("11", "nope"):
+        for text in ("12", "nope"):
             with self.subTest(text=text), self.assertRaises(benchmark.CannotStart):
                 benchmark.select_stages(text)
+
+
+class BenchmarkLayoutStageTests(unittest.TestCase):
+    """The PaCMAP stage lays out the network the UMAP stage does, and only the method differs."""
+
+    def context(self, folder):
+        fasta, network = Path(folder) / "set.fasta", Path(folder) / "network.h5"
+        fasta.write_text(">A\nAAAA\n", encoding="utf-8")
+        network.write_bytes(b"")
+        return {"temp": str(Path(folder) / "temp"),
+                "outputs": {"sanitized_fasta": str(fasta), "network": str(network)}}
+
+    def test_the_pacmap_stage_differs_from_the_umap_stage_only_in_the_method(self):
+        with tempfile.TemporaryDirectory() as folder:
+            context = self.context(folder)
+            umap, _ = benchmark._layout_settings(context, "umap")
+            pacmap, _ = benchmark._layout_settings(context, "pacmap")
+            ssn, _ = benchmark._layout_settings(context, "ssn")
+        self.assertEqual(benchmark.PACMAP_NEIGHBORS, 10)
+        self.assertEqual((pacmap.pop("LAYOUT_METHOD"), pacmap.pop("PACMAP_NEIGHBORS")), ("pacmap", 10))
+        self.assertEqual(pacmap, umap)
+        # The older stages' settings, and so their reports, are what they were.
+        self.assertNotIn("LAYOUT_METHOD", umap)
+        self.assertEqual((umap["UMAP_MODE"], umap["UMAP_NEIGHBORS"], umap["TOP_EDGE_PERCENT"]), (True, 15, None))
+        self.assertEqual((ssn["UMAP_MODE"], ssn["TOP_EDGE_PERCENT"]), (False, benchmark.TOP_EDGE_PERCENT))
+
+    def test_each_layout_stage_runs_the_layout_job_with_its_method_on_the_same_inputs(self):
+        seen = []
+
+        def generate(settings):
+            seen.append(settings)
+            return SimpleNamespace(full_headers=["A"], edges=[(0, 0)], effective_similarity_threshold=None)
+
+        with tempfile.TemporaryDirectory() as folder, mock.patch("Layout_Cache_Generator.generate_layout_cache", generate):
+            context = self.context(folder)
+            results = {method: runner(context) for method, runner in (
+                ("ssn", benchmark.run_ssn_layout), ("umap", benchmark.run_umap_layout),
+                ("pacmap", benchmark.run_pacmap_layout))}
+        ssn, umap, pacmap = seen
+        self.assertEqual([(s.UMAP_MODE, s.LAYOUT_METHOD, s.uses_pacmap()) for s in seen],
+                         [(False, "umap", False), (True, "umap", False), (True, "pacmap", True)])
+        self.assertEqual((umap.UMAP_NEIGHBORS, pacmap.PACMAP_NEIGHBORS), (15, 10))
+        for settings in seen:
+            self.assertEqual((settings.LAYOUT_SEED, settings.NODE_FASTA_FILE, settings.INPUT_HDF5),
+                             (benchmark.SEED, context["outputs"]["sanitized_fasta"], context["outputs"]["network"]))
+        self.assertEqual(results["pacmap"]["settings"]["layout"]["LAYOUT_METHOD"], "pacmap")
+        self.assertEqual(results["pacmap"]["details"], {"nodes": 1, "edges": 1, "effective_similarity_threshold": None})
+        self.assertEqual(benchmark.STEP_RUNNERS["pacmap_layout"], benchmark.run_pacmap_layout)
+
+    def test_a_pacmap_stage_needs_no_package_beyond_the_programs_own(self):
+        self.assertIsNone(benchmark.STAGES_BY_KEY["pacmap_layout"].ready)
 
 
 class BenchmarkOutputParsingTests(unittest.TestCase):
@@ -488,7 +554,7 @@ class BenchmarkRunTests(unittest.TestCase):
         self.assertEqual((code, result["status"]), (1, "failed"))
         statuses = self.statuses(result)
         self.assertEqual(statuses["alignment"], "failed")
-        for key in ("ssn_layout", "umap_layout", "clustering", "injection", "msa"):
+        for key in ("ssn_layout", "umap_layout", "clustering", "injection", "msa", "pacmap_layout"):
             self.assertEqual(statuses[key], "skipped", key)
         for key in ("sanitize", "embeddings", "search", "blast"):
             self.assertEqual(statuses[key], "completed", key)
@@ -512,7 +578,7 @@ class BenchmarkRunTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(self.steps, ["sanitize", "embeddings", "alignment", "ssn_layout"])
         self.assertEqual({key for key, status in self.statuses(result).items() if status == "not_selected"},
-                         {"umap_layout", "clustering", "search", "injection", "msa", "blast"})
+                         {"umap_layout", "clustering", "search", "injection", "msa", "blast", "pacmap_layout"})
 
     def test_a_second_run_keeps_the_first_report(self):
         _code, _shown, first = self.run_benchmark()
@@ -615,7 +681,7 @@ class BenchmarkReportTests(unittest.TestCase):
                                      finished=started + timedelta(seconds=90), machine=MACHINE)
         text = benchmark.render(benchmark.report_blocks(run), Localization.display_text)
         summary = text.split("\n测试Summary\n")[1].split("\n\n")[0].splitlines()[1:]
-        self.assertEqual(len(summary), 11)
+        self.assertEqual(len(summary), 12)
         starts = {benchmark.display_width(line[:line.index("测试Skipped" if index else "测试Status")])
                   for index, line in enumerate(summary)}
         self.assertEqual(len(starts), 1, summary)
@@ -653,7 +719,8 @@ def every_kind_of_stage():
          for choice in benchmark.HOST_CACHE_TEXT]
     outcomes = []
     for stage, status in zip(stages, ["completed", "completed", "completed", "failed", "skipped",
-                                      "interrupted", "not_run", "completed", "completed", "not_selected"]):
+                                      "interrupted", "not_run", "completed", "completed", "not_selected",
+                                      "completed"]):
         outcome = benchmark.StageResult(stage, status=status)
         if status in ("completed", "failed", "interrupted"):
             outcome.run, outcome.child = measured, dict(child)
@@ -680,7 +747,8 @@ def every_kind_of_stage():
         "msa": {"sequences": 3, "residues": 30, "pairs": 3, "cells": 300},
     }}
     return benchmark.BenchmarkRun(
-        started=started, selected=[stage.key for stage in stages[:-1]], outcomes=outcomes, limit=20,
+        started=started, selected=[stage.key for stage in stages if stage.key != "blast"], outcomes=outcomes,
+        limit=20,
         finished=started + timedelta(seconds=90), inputs=inputs, machine=machine, interrupted=True,
         error="1", program={"version": "0.3.0", "commit": "0593ae3", "dirty": True},
         model={"download_seconds": 2.0}, language="pseudo", temp_peak_bytes=1 << 30,
@@ -987,8 +1055,8 @@ class BenchmarkMCPActionTests(unittest.IsolatedAsyncioTestCase):
         self.enterContext(mock.patch.object(Pipeline_Operations, "_context", return_value=context))
 
     async def test_stages_go_to_the_script_by_number_or_name(self):
-        info = await self.operations.start_benchmark(mock.Mock(), stages=[3, " Search ", "10"])
-        self.submit.assert_awaited_once_with(stages="3,search,10")
+        info = await self.operations.start_benchmark(mock.Mock(), stages=[3, " Search ", "10", "PaCMAP_Layout", 11])
+        self.submit.assert_awaited_once_with(stages="3,search,10,pacmap_layout,11")
         self.assertEqual(info.tool_id, "run_benchmark")
         await self.operations.start_benchmark(mock.Mock())
         self.submit.assert_awaited_with(stages=None)
@@ -996,7 +1064,7 @@ class BenchmarkMCPActionTests(unittest.IsolatedAsyncioTestCase):
     async def test_a_stage_that_does_not_exist_is_refused_before_queueing(self):
         from mcp.server.mcpserver.exceptions import ToolError
 
-        for stages in ([11], ["nope"], []):
+        for stages in ([12], ["nope"], []):
             with self.subTest(stages=stages), self.assertRaises(ToolError):
                 await self.operations.start_benchmark(mock.Mock(), stages=stages)
         self.submit.assert_not_awaited()

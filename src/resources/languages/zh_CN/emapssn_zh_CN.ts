@@ -6578,7 +6578,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">ESMFold Mol* 界面</translation>
     </message>
     <message>
-        <location filename="../../benchmark/Run_Benchmark.py" line="+111"/>
+        <location filename="../../benchmark/Run_Benchmark.py" line="+114"/>
         <source>The benchmark can&apos;t write to {folder} ({error}). Run it from a copy of EMAP-SSN you can write to.</source>
         <translation type="unfinished">基准测试无法写入 {folder}（{error}）。请在有写入权限的 EMAP-SSN 副本中运行它。</translation>
     </message>
@@ -6710,7 +6710,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">无法下载参考模型 ESM-2 8M（{error}）。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
         <source>Sanitize sequences</source>
         <translation type="unfinished">清理序列</translation>
     </message>
@@ -6760,7 +6760,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">BLAST 全对全比对</translation>
     </message>
     <message>
-        <location line="+530"/>
+        <location line="+1"/>
+        <source>PaCMAP layout</source>
+        <translation type="unfinished">PaCMAP 布局</translation>
+    </message>
+    <message>
+        <location line="+541"/>
         <source>The stage stopped with exit code {code}.</source>
         <translation type="unfinished">此阶段以退出代码 {code} 停止。</translation>
     </message>

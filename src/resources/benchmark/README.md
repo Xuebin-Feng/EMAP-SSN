@@ -23,7 +23,7 @@ On Linux and macOS the Python is `.venv/bin/python`. `--stages 3,7` runs only
 those stages and the stages they need, by number or name. `--result <file>` also
 writes an English summary as JSON, which MCP jobs read.
 
-It runs ten stages, each in a process of its own, with every device setting on
+It runs eleven stages, each in a process of its own, with every device setting on
 Auto:
 
 | # | Stage | What it times |
@@ -38,6 +38,12 @@ Auto:
 | 8 | Injection of new sequences | `Embedding_Injection.py` and `Network_Injection.py` with the 92 held-out sequences |
 | 9 | Embedding MSA | `Embedding_MSA.py` on the first 100 glyoxalase II entries |
 | 10 | BLAST all-against-all alignment | `Align_Substitution_Matrix.py`, with NCBI BLAST+ |
+| 11 | PaCMAP layout | the same network laid out with PaCMAP, 10 neighbors per node |
+
+PaCMAP's stage is the last, so that the numbers of the earlier stages stay what they
+were in the reports already written. It lays out the same network from the same
+sequences, with the same seed, as stage 5 does, with PaCMAP's own default neighbor
+count, and needs only stage 3.
 
 A stage this machine can't run, such as BLAST without NCBI BLAST+ on the PATH or
 in `C:\Program Files\NCBI`, is skipped with the reason, and so are the stages

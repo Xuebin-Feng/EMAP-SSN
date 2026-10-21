@@ -695,9 +695,10 @@ for the export-first workflow and overlay format.
 ### Benchmark
 
 The benchmark times EMAP-SSN's heavy calculations on a bundled set of 860 public
-protein sequences, so computers and versions can be compared. It runs ten stages,
-from embeddings and the all-against-all alignment through both layouts, clustering,
-search, injection and the MSA to BLAST, with every device setting on Auto, and its
+protein sequences, so computers and versions can be compared. It runs eleven stages,
+from embeddings and the all-against-all alignment through the SSN, UMAP and PaCMAP
+layouts, clustering, search, injection and the MSA to BLAST, with every device setting
+on Auto, and its
 report records what each tool's Auto trials chose. Click **Run Benchmark** on the
 Tools window's **Manual Tools** tab, or run it from the project root:
 

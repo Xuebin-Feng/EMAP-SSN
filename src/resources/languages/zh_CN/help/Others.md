@@ -1,4 +1,4 @@
-<!-- Translation of Others.md, sha256 a20606a77bb7e07d5b396066e31e7f2115b69db61e8afd2c1d78513c6fac6712 -->
+<!-- Translation of Others.md, sha256 e619d383ad804b9df96e35949c6ec9292954cfabbc371efad81576fae6b87c68 -->
 # 双序列 embedding 比对 (`Embedding_PWA.py`)
 
 该脚本使用两条序列的残基级语言模型 embedding 对它们进行比对（alignment）。它计算动态规划（dynamic programming）比对字符串（Needleman-Wunsch 或 Smith-Waterman），并把用户指定的参考序列（reference sequence）残基（residue）位置直接映射到目标序列（target sequence）的位置上，便于比较活性位点和其他特征。
@@ -162,6 +162,7 @@
 | 8. 注入新序列 | 使用 92 条留出的序列运行 `Embedding_Injection.py` 和 `Network_Injection.py`。 |
 | 9. Embedding MSA | 对 100 条乙二醛酶 II 序列运行 `Embedding_MSA.py`。 |
 | 10. BLAST 全对全比对 | `Align_Substitution_Matrix.py`，使用 NCBI BLAST+。 |
+| 11. PaCMAP 布局 | 用 PaCMAP 对同一网络进行布局。 |
 
 所有设备设置都保持为 **自动**，因此每个工具都会进行自己的硬件试验，报告会记录每个工具的选择。本机无法运行的阶段（例如未安装 NCBI BLAST+ 时的 BLAST）会被跳过并注明原因，依赖它的阶段也会被跳过。
 
