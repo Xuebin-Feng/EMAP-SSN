@@ -137,6 +137,37 @@ still change before version 1.0.0.
   - **Code layout:** the logo and identity-weight computation moved into
     `utilities.Alignment_Profiles`, shared by `logo`, `label` and the new data. Their
     output is bit-identical.
+- **An ordered command queue: the Viewer keeps responding while commands work.**
+  - **Order:** commands that read or change the network run one at a time, in the order
+    given, each on the network the commands before it left. With nothing waiting, they
+    run at once as before.
+  - **Off the GUI thread:** `cluster` and `subcluster` now compute in the background
+    while you pan, zoom, hover and select. At 44,000 nodes and 3 million edges, Leiden
+    clustering used to freeze the Viewer for 3 s and MCL for 14 s; now the longest
+    pause is under 0.05 s, apart from one 0.4 s pause as MCL starts. Each applies in one
+    step that one undo takes back. MCL reports its iterations and can be cancelled
+    between them.
+  - **Arguments** are checked when you press Enter, so a typo is refused at once.
+    References such as `#cluster_3#` are checked at the command's turn, since an earlier
+    command may create them.
+  - **Selection:** a command uses the selection you had when you pressed Enter, counting
+    `select` commands typed before it that have not run yet. A selection you make with
+    the mouse meanwhile applies to the commands you type after it, and is never
+    replaced by an earlier `select` that runs later.
+  - **Undo:** while commands wait or run, Ctrl+Z, `undo` and the Meta Data sheet's undo
+    cancel your newest command instead. With nothing waiting, undo works as before.
+  - **Failure:** a command that fails at its turn cancels the commands typed after it.
+    The message lists them and ↑ recalls them. MCP requests keep their meaning: a
+    failure skips the rest of the request.
+  - **Seeing and controlling it:** the console and status lines say what each command
+    waits for, and a badge under the FPS row counts the jobs. `jobs` lists every waiting
+    or running command and file job; `jobs cancel N` and `jobs cancel all` stop them.
+    `jobs cancel` needs approval when the Agent page asks for it.
+  - **MCP:** `get_command_request` reports a job's state as queued (with its place and
+    what it waits for), running, applying, succeeded, failed or cancelled.
+  - **Still freezing for now:** switching `alignment` or `reference` (5 to 6 s at
+    44,000 sequences) and importing an Excel sheet (about 3 s). Other commands wait
+    their turn and then run as before, in under 0.05 s at that size.
 
 ### Changed
 
