@@ -27,8 +27,9 @@ still change before version 1.0.0.
 - Visual Effects profiles saved by this version hold the new Low Resource Mode switches
   instead of `LOW_RESOURCE_MODE`, so v0.4.0 refuses them ("unknown setting key(s)"), and
   it refuses Viewer settings documents exported now for the same reason. Profiles and
-  documents saved by v0.4.0 keep working here: their `LOW_RESOURCE_MODE` turns Basic
-  Animations, Node and Edge Drawing and Webserver Communication on or off.
+  documents saved by v0.4.0 keep working here: their `LOW_RESOURCE_MODE` turns No Zoom or
+  Sidebar Animation, Update Colors After Mouse Release and Update Web Pages After Mouse
+  Release on or off.
 
 ### Added
 
@@ -84,10 +85,10 @@ still change before version 1.0.0.
   The values follow every command while the card is open. A link beside the × opens the
   list of commands in the Viewer's language, or in English if that language has no
   translated copy.
-- **Show FPS.** A switch in the Config's new Low Resource Mode section (below) shows the
-  Viewer's frame rate at the top right, left of the sidebar button: the frames shown on
-  screen in the last second, the GPU time of a recent frame and, while edges are thinned,
-  the step, for example `60 fps · GPU 4.1 ms · edges 1/16`. It reads Idle when nothing is
+- **Show Frame Rate (FPS).** A switch in the Config's new Low Resource Mode section
+  (below) shows the Viewer's frame rate at the top right, left of the sidebar button: the
+  frames shown on screen in the last second, the GPU time of a recent frame and, while
+  edges are thinned, the step, for example `60 fps · GPU 4.1 ms · edges 1/16`. It reads Idle when nothing is
   being drawn. It never makes the Viewer redraw and never appears in prints or captures.
 - **Hidden Viewers that MCP can bring on screen.** MCP `start_session` takes
   `mode="hidden"`.
@@ -277,9 +278,14 @@ still change before version 1.0.0.
   changes the nodes still sends them all. If VisPy's marker buffer is not laid out as
   expected, every hover sends all nodes as before.
 - **Low Resource Mode is now a section of separate switches** on the Config's Visual
-  Effects tab, two to a row like the colours, all off by default. The Viewer reads them
-  when it starts.
-  - **Fewer Edges While Moving:** while you pan, zoom, pinch, use the Zoom box or drag
+  Effects tab, all off by default. They sit two to a row, lined up within their own
+  section rather than with the colour fields above, so their names can say what they do,
+  and stack into one column on a narrow window. The Viewer reads them when it starts.
+  With Plot UMAP Instead on, every switch still does something, so none is greyed out:
+  nodes can't be dragged there, but the selection box, the threshold slider, the zoom
+  glide and the thinning of a selection with 250,000 edges or more remain. Their tips say
+  which parts apply.
+  - **Fewer Edges Drawn While Moving:** while you pan, zoom, pinch, use the Zoom box or drag
     nodes, the Viewer draws every 4th, 16th or 64th edge in score order, made more opaque
     so dense areas keep their tone, and draws every edge again 150 ms after the motion
     stops. It picks the step from the GPU time the last full frame took, aiming at about
@@ -290,17 +296,18 @@ still change before version 1.0.0.
     other captures always draw every edge. The thinned copies take about a third more
     video memory for the edges, and none are made while the switch is off.
     `SSN_EDGE_MOTION_LOD=0` turns it off even when the switch is on.
-  - **Basic Animations:** the wheel zoom jumps without its glide and the sidebar opens
-    and closes without sliding.
-  - **Node and Edge Drawing:** the threshold slider redraws the edges only when let go; a
-    right-drag or rotation of nodes moves them and their edges, and colours the selection
-    and its neighbours again only on release; a box selection colours its nodes only on
-    release.
-  - **Webserver Communication:** the Meta Data sheet hears of a node drag's selection, and
-    of a box selection, only on release.
-  - **Show FPS** (see Added).
+  - **No Zoom or Sidebar Animation:** the wheel zoom jumps without its glide and the
+    sidebar opens and closes without sliding.
+  - **Update Colors After Mouse Release:** the threshold slider redraws the edges only
+    when let go; a right-drag or rotation of nodes moves them and their edges, and colours
+    the selection and its neighbours again only on release; a box selection colours its
+    nodes only on release.
+  - **Update Web Pages After Mouse Release:** the Meta Data sheet hears of a node drag's
+    selection, and of a box selection, only on release.
+  - **Show Frame Rate (FPS)** (see Added).
   A settings file, profile or settings document with the old Low Resource Mode switch
-  sets Basic Animations, Node and Edge Drawing and Webserver Communication to its value.
+  sets No Zoom or Sidebar Animation, Update Colors After Mouse Release and Update Web
+  Pages After Mouse Release to its value.
   Dragging nodes in low resource mode no longer hides their edges: they follow the
   nodes. The old tip said low resource mode hid the edges while panning and zooming; it
   never did. VR Config shows none of these switches, as before.
