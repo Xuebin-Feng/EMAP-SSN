@@ -212,8 +212,8 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 self.assertEqual(self.window.inputs[key].minimumHeight(), 28)
 
     def test_physics_tab_exposes_only_ssn_physics_controls(self):
-        if hasattr(self.window, "check_umap"):
-            self.window.check_umap.setChecked(False)
+        from tests.config_gui_loader import choose_layout
+        choose_layout(self.window, "ssn")
         self.window.profile_selectors["simulation_physics"].setCurrentText("(new)")
         device = self.window.inputs["LAYOUT_DEVICE_SELECTION"]
         progressive = self.window.inputs["ENABLE_PROGRESSIVE_SIMULATION"]
@@ -245,8 +245,8 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         self.assertTrue(collected["ENABLE_PROGRESSIVE_SIMULATION"])
 
     def test_auto_step_size_button_greys_out_the_step_size_field(self):
-        if hasattr(self.window, "check_umap"):
-            self.window.check_umap.setChecked(False)
+        from tests.config_gui_loader import choose_layout
+        choose_layout(self.window, "ssn")
         physics_selector = self.window.profile_selectors["simulation_physics"]
         physics_selector.setCurrentText("(new)")
         button = self.window.inputs["AUTO_DT"]

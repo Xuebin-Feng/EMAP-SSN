@@ -15,7 +15,7 @@ check the section's place and spacing, its columns in English and Chinese,
 that its labels leave the shared label column and the colour grid's second
 column as they were, that it stacks by its own width, one switch a line in
 order, saving and loading the switches, the old single switch in a settings
-file or saved profile, the tips, and that no switch is greyed in UMAP mode.
+file or saved profile, the tips, and that no switch is greyed while Layout Method is UMAP or PaCMAP.
 The settings themselves are in test_low_resource_mode.
 """
 import json
@@ -36,6 +36,7 @@ from desktop.Viewer_Motion import MIN_SUBSET_SEGMENTS  # noqa: E402
 from desktop.Viewer_State import (  # noqa: E402
     LEGACY_LOW_RESOURCE_KEY, LOW_RESOURCE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, migrate_low_resource_mode,
 )
+from tests.config_gui_loader import choose_layout  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 
 SWITCHES = ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS", "LOW_RESOURCE_DRAWING",
@@ -424,8 +425,8 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
             self.assertNotIn("pan/zoom", text[key])
             self.assertNotIn("hides", text[key])
 
-    # What each switch still does in a Viewer opened in UMAP mode (Plot Manifold Instead
-    # on) is shown in test_low_resource_mode.UmapModeTests: Fewer Edges Drawn While
+    # What each switch still does in a Viewer opened in UMAP mode (Layout Method set to
+    # UMAP or PaCMAP) is shown in test_low_resource_mode.UmapModeTests: Fewer Edges Drawn While
     # Moving, for a selection of 250,000 edges or more; the zoom and sidebar
     # animations and the frame rate, in full; Update Colors After Mouse Release, for
     # the threshold slider and the selection box; Update Web Pages After Mouse
@@ -434,8 +435,8 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
 
     def test_the_tips_tell_which_parts_do_not_apply_in_umap_mode(self):
         window = self.window
-        umap = window.labels["UMAP_MODE"].text().rstrip(":")
-        self.assertEqual(umap, "Plot Manifold Instead")
+        umap = window.labels["LAYOUT_METHOD"].text().rstrip(":")
+        self.assertEqual(umap, "Layout Method")
         tips = window.tip_db_keys
 
         def text(key):
@@ -474,22 +475,23 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
             for shown_tab in (1, 0):                      # whichever tab is shown
                 window.tabs.setCurrentIndex(shown_tab)
                 self.app.processEvents()
-                window.check_umap.setChecked(False)
+                choose_layout(window, "ssn")
                 self.assertEqual(enabled(), everything_on)
-                window.check_umap.setChecked(True)        # toggled
-                self.assertEqual(enabled(), everything_on)
-                window.check_umap.setChecked(False)
+                for method in ("umap", "pacmap"):         # chosen
+                    choose_layout(window, method)
+                    self.assertEqual(enabled(), everything_on)
+                choose_layout(window, "ssn")
                 self.assertEqual(enabled(), everything_on)
             # A saved Inputs profile loaded with UMAP on, then off.
             window._apply_profile_data("inputs_outputs", {**inputs_defaults, "UMAP_MODE": True})
-            self.assertTrue(window.check_umap.isChecked())
+            self.assertTrue(window.uses_manifold_layout())
             self.assertEqual(enabled(), everything_on)
             window._apply_profile_data("inputs_outputs", {**inputs_defaults, "UMAP_MODE": False})
             self.assertEqual(enabled(), everything_on)
             # Their values were never touched.
             self.assertEqual({key: window.inputs[key].isChecked() for key in SWITCHES}, chosen)
         finally:
-            window.check_umap.setChecked(False)
+            choose_layout(window, "ssn")
             window.tabs.setCurrentIndex(1)
             window._apply_profile_data("visual_effects", dict(VISUAL_PROFILE_DEFAULTS))
 
@@ -513,7 +515,7 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
                 for shown_tab in (0, 1, 2, 3):
                     window.tabs.setCurrentIndex(shown_tab)
                     self.app.processEvents()
-                    self.assertTrue(window.check_umap.isChecked())
+                    self.assertTrue(window.uses_manifold_layout())
                     for key in SWITCHES:
                         with self.subTest(tab=shown_tab, key=key):
                             self.assertTrue(window.labels[key].isEnabled())

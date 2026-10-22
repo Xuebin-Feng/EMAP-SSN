@@ -312,9 +312,12 @@ network. The desktop workflow is:
 5. **Explore and export.** Use the Viewer console to select, color, cluster,
    inspect residues, and export figures or sequence subsets.
 
-The default layout uses a force-directed physics solver. **Plot Manifold Instead**
-(`UMAP_MODE`) offers a manifold layout based on network scores, by the **Layout
-Method** `UMAP` (the default) or `PaCMAP`. UMAP uses the `umap-learn` dependency
+The **Layout Method** dropdown chooses how the layout is computed. `SSN`, the
+default, uses a force-directed physics solver; `UMAP` and `PaCMAP` offer a manifold
+layout based on network scores. The dropdown stands for two saved settings:
+`UMAP_MODE` (a manifold layout instead of physics) is on for `UMAP` and `PaCMAP`, and
+`LAYOUT_METHOD` names which one (`umap` or `pacmap`); `SSN` turns `UMAP_MODE` off and
+leaves `LAYOUT_METHOD` as it was. UMAP uses the `umap-learn` dependency
 already included in the managed installation. `UMAP_NEIGHBORS` counts up to $k$
 other nodes per sequence; the implementation adds a separate self-neighbor slot.
 Missing connections remain missing rather than becoming zero-distance matches.

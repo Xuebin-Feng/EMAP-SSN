@@ -576,7 +576,9 @@ Layout documents exported before these keys existed load with the defaults. In t
 individual-parameter form, pass either key through `parameters`.
 
 `UMAP_MODE` (a manifold layout instead of physics) is paired with `LAYOUT_METHOD`:
-`umap` (the default) or `pacmap`. `PACMAP_NEIGHBORS` (2 to 50, default 10) is the number
+`umap` (the default) or `pacmap`. The Configuration window shows the pair as one
+**Layout Method** dropdown: `SSN` is `UMAP_MODE` false, leaving `LAYOUT_METHOD` as saved,
+and `UMAP` and `PaCMAP` are `UMAP_MODE` true with that method. `PACMAP_NEIGHBORS` (2 to 50, default 10) is the number
 of each node's strongest edges that PaCMAP treats as near pairs, and so the number the
 layout keeps and the Viewer draws per node; PaCMAP ignores `UMAP_NEIGHBORS` and
 `UMAP_MIN_DIST`. In the individual-parameter form choose it with `umap_mode=true` and

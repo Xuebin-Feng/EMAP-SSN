@@ -14,7 +14,7 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from tests.config_gui_loader import load_config_namespace, open_config_window
+from tests.config_gui_loader import choose_layout, load_config_namespace, open_config_window
 from tests.theme_fixture import apply_theme_for_class
 
 
@@ -200,7 +200,7 @@ class ResponsiveConfigTests(unittest.TestCase):
         self.window.tabs.setCurrentIndex(0)
         self.window.line_ref.setText("reference-id")
         self.window.spin_alignment_offset.setValue(17)
-        self.window.check_umap.setChecked(True)
+        choose_layout(self.window, "umap")
         self.window.spin_umap_k.setValue(23)
         self.window.inputs["TEXT_COLOR"].setText("#123456")
         self.window.inputs["NODE_SIZE"].setValue(12)
@@ -214,9 +214,9 @@ class ResponsiveConfigTests(unittest.TestCase):
             self.assertEqual(self.window.collect_data(), snapshot)
             self.assertTrue(self.window.spin_alignment_offset.isEnabled())
             self.assertTrue(self.window.spin_umap_k.isEnabled())
-        self.window.check_umap.setChecked(False)
+        choose_layout(self.window, "ssn")
         self.assertFalse(self.window.spin_umap_k.isEnabled())
-        self.window.check_umap.setChecked(True)
+        choose_layout(self.window, "umap")
         self.window.line_ref.clear()
         self.assertFalse(self.window.spin_alignment_offset.isEnabled())
         self.window.line_ref.setText("reference-id")
@@ -244,7 +244,7 @@ class ResponsiveConfigTests(unittest.TestCase):
         page = self.window.tabs.currentWidget().widget()
         for key in ("NODE_FASTA_FILE", "MSA_FILE", "INPUT_HDF5", "UMAP_NEIGHBORS",
                     "UMAP_MIN_DIST", "TOP_EDGE_PERCENT"):
-            self.window.check_umap.setChecked(key.startswith("UMAP_"))
+            choose_layout(self.window, "umap" if key.startswith("UMAP_") else "ssn")
             self.flush()
             label = self.window.labels[key]
             field = self.window.inputs[key]
@@ -300,8 +300,8 @@ class ResponsiveConfigTests(unittest.TestCase):
         self.assertAlmostEqual(reference_width / row.width(), 0.5, delta=0.04)
         offset = self.window.spin_alignment_offset
         self.assertEqual(offset.mapTo(row, QPoint(offset.width(), 0)).x(), row.width())
-        switch = self.window.check_umap
-        self.assertEqual(switch.geometry().right(), switch.parentWidget().width() - 1)
+        method = self.window.cb_layout_method
+        self.assertEqual(method.geometry().right(), method.parentWidget().width() - 1)
 
     def test_umap_swaps_fields_preserving_both_modes(self):
         window = self.window
@@ -315,7 +315,7 @@ class ResponsiveConfigTests(unittest.TestCase):
         for width in (1400, 600, 800, 1400):
             self.resize_panel(width)
             for umap in (True, False, True, False):
-                window.check_umap.setChecked(umap)
+                choose_layout(window, "umap" if umap else "ssn")
                 self.flush()
                 for key in ("UMAP_NEIGHBORS", "UMAP_MIN_DIST"):
                     self.assertEqual(window.inputs[key].isVisible(), umap)
@@ -337,7 +337,7 @@ class ResponsiveConfigTests(unittest.TestCase):
         for width in (1400, 1000, 600, 1400):
             self.resize_panel(width)
             for umap in (False, True):
-                self.window.check_umap.setChecked(umap)
+                choose_layout(self.window, "umap" if umap else "ssn")
                 self.flush()
                 first = "UMAP_NEIGHBORS" if umap else "SIMILARITY_THRESHOLD"
                 second = "UMAP_MIN_DIST" if umap else "TOP_EDGE_PERCENT"
@@ -347,7 +347,7 @@ class ResponsiveConfigTests(unittest.TestCase):
                         starts = [widgets[key].mapTo(page, QPoint()).x() for key in keys]
                         self.assertEqual(len(set(starts)), 1, (width, umap, keys, starts))
                 starts = [self.window.labels[key].mapTo(page, QPoint()).x()
-                          for key in ("ALIGNMENT_OFFSET", "UMAP_MODE")]
+                          for key in ("ALIGNMENT_OFFSET", "LAYOUT_METHOD")]
                 self.assertEqual(starts[0], starts[1])
                 self.assert_geometry(page)
 
@@ -395,15 +395,97 @@ class ResponsiveConfigTests(unittest.TestCase):
                     self.assertEqual(right(offset), right(self.window.line_ref))
                     self.assertEqual(right(offset), right(self.window.spin_min_occ))
                 else:
-                    # Its minimum, which has room for a sign and a few digits.
-                    self.assertEqual(offset.width(), offset.minimumSizeHint().width())
+                    # As wide as the Layout Method dropdown under it, whose minimum (room for PaCMAP)
+                    # is wider than its own: room for a sign and a few digits.
+                    self.assertEqual(offset.width(), self.window.cb_layout_method.width())
+                    self.assertGreaterEqual(offset.width(), offset.minimumSizeHint().width())
+
+    def test_the_last_column_holds_alignment_offset_and_layout_method_in_step(self):
+        """Their labels start at one x, their fields share one left edge and one width, and the
+        column is only as wide as the label and the dropdown's minimum, the room PaCMAP needs.
+        Stacked, both fields span the row like the others."""
+        from PySide6.QtCore import QPoint
+        window = self.window
+        window.tabs.setCurrentIndex(0)
+        page = window.tabs.currentWidget().widget()
+        offset, offset_label = window.spin_alignment_offset, window.lbl_alignment_offset
+        combo, combo_label = window.cb_layout_method, window.labels["LAYOUT_METHOD"]
+        rows = [window.findChild(self.namespace["QWidget"], name) for name in
+                ("alignmentModeRow", "alignmentReferenceRow", "filterRow")]
+        gap = self.namespace["CONFIG_FIELD_HORIZONTAL_SPACING"]
+
+        def x(widget):
+            return widget.mapTo(page, QPoint(0, 0)).x()
+
+        def right(widget):
+            return widget.mapTo(page, QPoint(widget.width(), 0)).x()
+
+        control_minimum = max(offset.minimumSizeHint().width(), combo.minimumSizeHint().width())
+        self.assertEqual(control_minimum, combo.minimumSizeHint().width())
+        label_width = max(offset_label.sizeHint().width(), combo_label.sizeHint().width())
+        for width in (1400, 1200, 1000, 800, 600, 1400):
+            self.resize_panel(width)
+            with self.subTest(width=width):
+                self.assertGreaterEqual(offset_label.width(), offset_label.sizeHint().width())
+                self.assertGreaterEqual(combo_label.width(), combo_label.sizeHint().width())
+                if offset.parentWidget().property("stacked"):
+                    self.assertEqual(len({right(offset), right(combo), right(window.line_ref)}), 1)
+                    self.assertEqual(len({x(offset), x(combo)}), 1)
+                    continue
+                self.assertEqual(x(offset_label), x(combo_label))
+                self.assertEqual(offset_label.width(), combo_label.width())
+                self.assertEqual(x(offset), x(combo))
+                self.assertEqual(offset.width(), combo.width())
+                self.assertEqual(right(offset), right(combo))
+                self.assertEqual(right(combo), rows[2].mapTo(page, QPoint(rows[2].width(), 0)).x())
+                # Only as wide as it needs to be: its label, a gap and the dropdown's minimum.
+                self.assertEqual(offset_label.width(), label_width)
+                self.assertEqual(combo.width(), control_minimum)
+                self.assertEqual(right(combo) - x(offset_label), label_width + gap + control_minimum)
+        # So the rows need exactly the first column, the middle one and that last column.
+        first_min = max(row.layout()._column_minima()[0] for row in rows)
+        middle_min = max(row.layout()._column_minima()[1] for row in rows[1:])
+        self.assertEqual({row.layout()._wide_width() for row in rows},
+                         {first_min + gap + middle_min + gap + label_width + gap + control_minimum})
+
+    def test_the_layout_method_dropdown_shows_pacmap_in_full_at_every_width(self):
+        """Its minimum is at least what a dropdown holding only PaCMAP is sized to, the label's width
+        and the field's are the same stacked or side by side, and the longest text of its three
+        choices is PaCMAP."""
+        from PySide6.QtWidgets import QComboBox
+        window = self.window
+        combo = window.cb_layout_method
+        window.tabs.setCurrentIndex(0)
+        reference = QComboBox(combo.parentWidget())
+        reference.addItem("PaCMAP")
+        reference.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.addCleanup(reference.deleteLater)
+        needed = reference.sizeHint().width()
+        # It was given its own length before anything measured it, and kept it: a combo with none
+        # is given twelve characters later (_prepare_responsive_layouts).
+        self.assertEqual(combo.minimumContentsLength(), self.namespace["LAYOUT_METHOD_MINIMUM_CHARACTERS"])
+        metrics = combo.fontMetrics()
+        longest = max((combo.itemText(i) for i in range(combo.count())), key=metrics.horizontalAdvance)
+        self.assertEqual(longest, "PaCMAP")
+        self.assertGreaterEqual(combo.minimumSizeHint().width(), needed)
+        # ...and no more than a few px past it: the last column starts only as far left as needed.
+        self.assertLess(combo.minimumSizeHint().width() - needed, 8)
+        for width in (1400, 1000, 600, 1400):
+            self.resize_panel(width)
+            with self.subTest(width=width):
+                self.assertGreaterEqual(combo.width(), needed)
+        # The narrowest window, with the report collapsed.
+        self.window.resize(0, 850)
+        self.window.main_split.setSizes([sum(self.window.main_split.sizes()), 0])
+        self.flush()
+        self.assertGreaterEqual(combo.width(), needed)
 
     def test_the_first_column_narrows_before_the_rest_of_the_row(self):
         """The aligned rows split into halves while both halves fit. Narrower, the
         first column gives way, down to its own minimum, while the rest of the row
         keeps its minimum. The fields stay side by side down to the width they
         need, which the narrowest window has room for once the report is
-        collapsed: 772 px with Windows' unhinted text, 778 px with Linux's, whose
+        collapsed: 798 px with Windows' unhinted text, a few more with Linux's, whose
         FreeType draws the row's labels wider."""
         from PySide6.QtCore import QPoint
         rows = [self.window.findChild(self.namespace["QWidget"], name) for name in
@@ -494,7 +576,7 @@ class ResponsiveConfigTests(unittest.TestCase):
         self.assertEqual(offset.value(), 18)
 
     def test_clear_top_edge_unsets_value_and_restores_threshold(self):
-        self.window.check_umap.setChecked(False)
+        choose_layout(self.window, "ssn")
         self.window.spin_thresh.setOptionalValue(0.75)
         for value in (5.0, 0.0):
             self.window.spin_top.setOptionalValue(value)
@@ -508,11 +590,11 @@ class ResponsiveConfigTests(unittest.TestCase):
             self.assertEqual(self.window.spin_thresh.optionalValue(), 0.75)
             self.assertFalse(self.window.btn_clear_top_edge.isEnabled())
         self.window.spin_top.setOptionalValue(5.0)
-        self.window.check_umap.setChecked(True)
+        choose_layout(self.window, "umap")
         self.assertFalse(self.window.btn_clear_top_edge.isEnabled())
         self.window.spin_top.setOptionalValue(None)
         self.assertFalse(self.window.spin_thresh.isEnabled())
-        self.window.check_umap.setChecked(False)
+        choose_layout(self.window, "ssn")
         self.assertTrue(self.window.spin_thresh.isEnabled())
 
     def test_action_row_fills_width_and_stays_at_panel_bottom(self):
@@ -656,8 +738,8 @@ class ResponsiveConfigTests(unittest.TestCase):
         window = self.open_window_with(QLabel=LongLabel, ToggleSwitch=LongToggle)
         self.assertGreater(window.label_column_width, self.window.label_column_width + 40)
         switches = window.findChildren(LongToggle)
-        # UMAP, progressive simulation, Auto step size, and the five Low Resource Mode switches.
-        self.assertEqual(len(switches), 8)
+        # Progressive simulation, Auto step size, and the five Low Resource Mode switches.
+        self.assertEqual(len(switches), 7)
         for switch in switches:
             text_width = switch.fontMetrics().horizontalAdvance(switch.text())
             self.assertGreaterEqual(switch.width() - text_width, 2 * BUTTON_TEXT_PADDING)

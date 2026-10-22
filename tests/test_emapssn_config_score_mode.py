@@ -23,7 +23,7 @@ if str(SRC) not in sys.path:
 
 from desktop.Desktop_App import combo_value, select_combo_value  # noqa: E402
 from desktop.Viewer_State import decode_document  # noqa: E402
-from tests.config_gui_loader import load_config_namespace, open_config_window  # noqa: E402
+from tests.config_gui_loader import choose_layout, load_config_namespace, open_config_window  # noqa: E402
 
 _NAMESPACE = None
 _WINDOW = None
@@ -85,7 +85,7 @@ def _select_blast_network(window, root):
     window.cb_hdf5.clear()
     window.cb_hdf5.addItem("blast.h5")
     # UMAP mode skips Save & Run's layout-device check, which reads the hardware.
-    window.check_umap.setChecked(True)
+    choose_layout(window, "umap")
     # The inputs are hashed in the background; discovery runs when that ends.
     deadline = time.monotonic() + 60
     while window._cache_hash_pending_keys is not None:

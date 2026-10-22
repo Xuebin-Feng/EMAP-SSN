@@ -612,23 +612,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3877"/>
+        <location line="+3942"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3876"/>
+        <location line="-3941"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4458"/>
+        <location line="+4523"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4450"/>
+        <location line="-4515"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -669,7 +669,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+651"/>
+        <location line="+665"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -718,12 +718,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3532"/>
+        <location line="+3589"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3529"/>
+        <location line="-3586"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -763,13 +763,13 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">已保存配置：</translation>
     </message>
     <message>
-        <location line="+228"/>
-        <location line="+2295"/>
+        <location line="+231"/>
+        <location line="+2343"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2214"/>
+        <location line="-2262"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -786,7 +786,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {error}</translation>
     </message>
     <message>
-        <location line="+172"/>
+        <location line="+176"/>
         <source>Running Consistency Check...</source>
         <translation type="unfinished">正在运行一致性检查…</translation>
     </message>
@@ -847,14 +847,14 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1170"/>
+        <location line="-1177"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1211"/>
+        <location line="+1218"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1161,7 +1161,7 @@ Serves as the layout cache to avoid recalculating layouts when reopening network
 作为布局缓存，重新打开网络时无需重新计算布局。</translation>
     </message>
     <message>
-        <location line="+398"/>
+        <location line="+401"/>
         <source>Directory where command-line layout generation JSON settings are exported.</source>
         <translation type="unfinished">导出命令行布局生成所用 JSON 设置的目录。</translation>
     </message>
@@ -1208,14 +1208,14 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
 默认使用 $cache_file$，并随“缓存文件目录”变化；仍支持自定义的相对和绝对路径。</translation>
     </message>
     <message>
-        <location line="-218"/>
-        <location line="+404"/>
+        <location line="-216"/>
+        <location line="+402"/>
         <location line="+259"/>
         <source>(New Layout Cache)</source>
         <translation type="unfinished">（新建布局缓存）</translation>
     </message>
     <message>
-        <location line="-601"/>
+        <location line="-599"/>
         <source>While you pan, zoom or drag nodes, draws every 4th, 16th or 64th edge in score order, and every edge again a moment after the view stops.</source>
         <translation type="unfinished">平移、缩放或拖动节点时，按得分顺序每 4、16 或 64 条边只绘制 1 条；视图停下片刻后重新绘制全部边。</translation>
     </message>
@@ -1235,12 +1235,11 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">无论此开关如何设置，环境变量 `SSN_EDGE_MOTION_LOD=0` 都会将其关闭。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>With Plot Manifold Instead on, only the selected nodes&apos; edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.</source>
-        <translation type="unfinished">开启“改用流形布局绘图”时，只绘制所选节点的边，因此只有所选节点的边达到 250,000 条或更多时才会省略部分边，并且节点无法拖动。</translation>
+        <translation type="obsolete">开启“改用流形布局绘图”时，只绘制所选节点的边，因此只有所选节点的边达到 250,000 条或更多时才会省略部分边，并且节点无法拖动。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>While it is on, the graphics card holds thinned copies of the drawn edges: about a third more memory for them.</source>
         <translation type="unfinished">开启时，显卡会另存一份已绘制边的精简副本，这些边占用的显存约增加三分之一。</translation>
     </message>
@@ -1275,12 +1274,11 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">用右键拖出选择框时，松开后才为选中的节点及其相邻节点着色。</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>With Plot Manifold Instead on, nodes cannot be dragged, so only the threshold slider and the selection box apply.</source>
-        <translation type="unfinished">开启“改用流形布局绘图”时，节点无法拖动，因此只有阈值滑块和选择框适用。</translation>
+        <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有阈值滑块和选择框适用。</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+7"/>
         <source>Sends the Viewer&apos;s web pages fewer updates while you work in the network.</source>
         <translation type="unfinished">在网络中操作时，减少发给查看器网页的更新。</translation>
     </message>
@@ -1309,17 +1307,15 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">它不会出现在打印或截图中。</translation>
     </message>
     <message>
-        <location line="+63"/>
         <source>Uses a manifold method (UMAP or PaCMAP, chosen by Layout Method) to compute the 2D coordinates directly from each node&apos;s strongest edges, instead of simulating physics.</source>
-        <translation type="unfinished">使用流形方法（UMAP 或 PaCMAP，由“布局方法”选择），直接根据每个节点最强的边计算二维坐标，而不是模拟物理过程。</translation>
+        <translation type="obsolete">使用流形方法（UMAP 或 PaCMAP，由“布局方法”选择），直接根据每个节点最强的边计算二维坐标，而不是模拟物理过程。</translation>
     </message>
     <message>
-        <location line="+10"/>
         <source>Both use only each node&apos;s strongest edges, so neither uses the Similarity Threshold or Top Edge %.</source>
-        <translation type="unfinished">两者都只使用每个节点最强的边，因此都不使用“相似性阈值”或“保留高分边 %”。</translation>
+        <translation type="obsolete">两者都只使用每个节点最强的边，因此都不使用“相似性阈值”或“保留高分边 %”。</translation>
     </message>
     <message>
-        <location line="+360"/>
+        <location line="+431"/>
         <source>Target Cache: Missing input files</source>
         <translation type="unfinished">目标缓存：缺少输入文件</translation>
     </message>
@@ -1373,12 +1369,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+105"/>
-        <location line="+1304"/>
+        <location line="+1345"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1270"/>
+        <location line="-1311"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1442,7 +1438,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">改用 UMAP 绘图：</translation>
     </message>
     <message>
-        <location line="+88"/>
+        <location line="+93"/>
         <source>Clear</source>
         <translation type="unfinished">清除</translation>
     </message>
@@ -1461,7 +1457,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">保留高分边 %：</translation>
     </message>
     <message>
-        <location line="+84"/>
+        <location line="+87"/>
         <source>Compute Network Statistics</source>
         <translation type="unfinished">计算网络统计</translation>
     </message>
@@ -1524,24 +1520,23 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2391"/>
+        <location line="-2409"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1188"/>
         <source>With Plot Manifold Instead on, nodes cannot be dragged, so only the selection box applies.</source>
-        <translation type="unfinished">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
+        <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+1393"/>
+        <location line="+2632"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3121"/>
+        <location line="-3172"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1562,7 +1557,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">局部</translation>
     </message>
     <message>
-        <location line="-28"/>
+        <location line="-42"/>
         <source>Alignment Length</source>
         <comment>normalization</comment>
         <translation type="unfinished">比对长度</translation>
@@ -1606,7 +1601,13 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">平均序列长度</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+22"/>
+        <source>SSN</source>
+        <comment>layout method</comment>
+        <translation type="unfinished">SSN</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>UMAP</source>
         <comment>layout method</comment>
         <translation type="unfinished">UMAP</translation>
@@ -1682,7 +1683,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2525"/>
+        <location line="+2535"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1699,7 +1700,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">局部（Smith-Waterman）</translation>
     </message>
     <message>
-        <location line="+558"/>
+        <location line="+179"/>
+        <source>Unset Top Edge % to use Similarity Threshold when Layout Method is SSN.</source>
+        <translation type="unfinished">布局方法为 SSN 时，清空“保留高分边 %”即可使用“相似性阈值”。</translation>
+    </message>
+    <message>
+        <location line="+420"/>
         <source>Network statistics computed successfully.</source>
         <translation type="unfinished">网络统计计算完成。</translation>
     </message>
@@ -1789,7 +1795,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-3242"/>
+        <location line="-3293"/>
         <source>Current color: {value}</source>
         <translation type="unfinished">当前颜色：{value}</translation>
     </message>
@@ -1882,7 +1888,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+1260"/>
+        <location line="+1267"/>
         <source>Resolves to {folder}.</source>
         <translation type="unfinished">解析为 {folder}。</translation>
     </message>
@@ -1892,7 +1898,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">所在磁盘剩余 {free}。</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+43"/>
         <source>Selects the settings profile used for this tab.</source>
         <translation type="unfinished">选择此选项卡使用的配置方案。</translation>
     </message>
@@ -2207,6 +2213,36 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">边数少于 250,000 条时，始终完整绘制。</translation>
     </message>
     <message>
+        <location line="+5"/>
+        <source>With Layout Method set to UMAP or PaCMAP, only the selected nodes&apos; edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.</source>
+        <translation type="unfinished">布局方法设为 UMAP 或 PaCMAP 时，只绘制所选节点的边，因此只有所选节点的边达到 250,000 条或更多时才会省略部分边，并且节点无法拖动。</translation>
+    </message>
+    <message>
+        <location line="+16"/>
+        <source>With Layout Method set to UMAP or PaCMAP, nodes cannot be dragged, so only the threshold slider and the selection box apply.</source>
+        <translation type="unfinished">布局方法设为 UMAP 或 PaCMAP 时，节点无法拖动，因此只有阈值滑块和选择框适用。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>With Layout Method set to UMAP or PaCMAP, nodes cannot be dragged, so only the selection box applies.</source>
+        <translation type="unfinished">布局方法设为 UMAP 或 PaCMAP 时，节点无法拖动，因此只有选择框适用。</translation>
+    </message>
+    <message>
+        <location line="+70"/>
+        <source>How the 2D coordinates are computed: SSN simulates physics, while UMAP and PaCMAP compute them directly from each node&apos;s strongest edges.</source>
+        <translation type="unfinished">二维坐标的计算方式：SSN 模拟物理过程，而 UMAP 和 PaCMAP 直接根据每个节点最强的边计算坐标。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>UMAP and PaCMAP give fast non-linear dimensionality reduction as an alternative to iterative physics simulations.</source>
+        <translation type="unfinished">UMAP 和 PaCMAP 提供快速的非线性降维，可替代迭代式物理模拟。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Runs a force-directed network simulation: edges pull their nodes together and nodes push each other apart, as set on the Simulation &amp; Physics tab.</source>
+        <translation type="unfinished">运行力导向网络模拟：边把所连的节点拉近，节点之间相互排斥，参数在“模拟与物理”选项卡中设置。</translation>
+    </message>
+    <message>
         <source>With Plot UMAP Instead on, only the selected nodes&apos; edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.</source>
         <translation type="obsolete">开启“改用 UMAP 绘图”时，只绘制所选节点的边，因此只有所选节点的边达到 250,000 条或更多时才会省略部分边，并且节点无法拖动。</translation>
     </message>
@@ -2215,7 +2251,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">开启“改用 UMAP 绘图”时，节点无法拖动，因此只有阈值滑块和选择框适用。</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="-76"/>
         <source>It updates once a right-button selection box is let go, instead of at each move of the box.</source>
         <translation type="unfinished">用右键拖出选择框时，它在松开后才更新一次，而不是框每移动一下就更新。</translation>
     </message>
@@ -2380,17 +2416,15 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">使用 UMAP 流形学习直接根据序列距离计算二维坐标。</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Provides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.</source>
-        <translation type="unfinished">提供快速的非线性降维，可替代迭代式物理模拟。</translation>
+        <translation type="obsolete">提供快速的非线性降维，可替代迭代式物理模拟。</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>The manifold method that computes the layout while Plot Manifold Instead is on.</source>
-        <translation type="unfinished">开启“改用流形布局绘图”时，用来计算布局的流形方法。</translation>
+        <translation type="obsolete">开启“改用流形布局绘图”时，用来计算布局的流形方法。</translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location line="+7"/>
         <source>Keeps each node close to its nearest neighbors; clusters land wherever the optimizer leaves them.</source>
         <translation type="unfinished">让每个节点靠近其最近邻；各簇最终落在优化器留下的位置。</translation>
     </message>
@@ -2400,7 +2434,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">还会查询随机节点对的已存分数，使各簇彼此之间的排布具有实际意义。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+3"/>
+        <source>UMAP and PaCMAP use only each node&apos;s strongest edges, so neither uses the Similarity Threshold or Top Edge %, and the Simulation &amp; Physics tab is hidden while one is chosen.</source>
+        <translation type="unfinished">UMAP 和 PaCMAP 只使用每个节点最强的边，因此都不使用“相似性阈值”或“保留高分边 %”，选择其中之一时“模拟与物理”选项卡会被隐藏。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Maximum number of other nodes in each UMAP neighborhood (K excludes self).</source>
         <translation type="unfinished">每个 UMAP 邻域中其他节点的最大数目（K 不含自身）。</translation>
     </message>
@@ -2556,22 +2595,20 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">PaCMAP 最近邻数：</translation>
     </message>
     <message>
-        <location line="+42"/>
         <source>Plot Manifold Instead:</source>
-        <translation type="unfinished">改用流形布局绘图：</translation>
+        <translation type="obsolete">改用流形布局绘图：</translation>
     </message>
     <message>
-        <location line="+47"/>
         <source>Unset Top Edge % to use Similarity Threshold when the manifold layout is off.</source>
-        <translation type="unfinished">流形布局关闭时，清空“保留高分边 %”即可使用“相似性阈值”。</translation>
+        <translation type="obsolete">流形布局关闭时，清空“保留高分边 %”即可使用“相似性阈值”。</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+45"/>
         <source>Layout Method:</source>
         <translation type="unfinished">布局方法：</translation>
     </message>
     <message>
-        <location line="+290"/>
+        <location line="+413"/>
         <source>Computing network statistics... {percent} %</source>
         <translation type="unfinished">正在计算网络统计… {percent} %</translation>
     </message>
@@ -2703,7 +2740,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">选择目录</translation>
     </message>
     <message>
-        <location line="+177"/>
+        <location line="+183"/>
         <source>Settings saved successfully.</source>
         <translation type="unfinished">设置已保存。</translation>
     </message>
@@ -2832,7 +2869,7 @@ Command-line usage:
 <context>
     <name>EsmfoldPage</name>
     <message>
-        <location filename="../../../web_ui/esmfold_layers.js" line="+84"/>
+        <location filename="../../../web_ui/esmfold_layers.js" line="+116"/>
         <source>the structure has no properties nodes</source>
         <translation type="unfinished">此结构没有属性节点</translation>
     </message>
@@ -2863,8 +2900,8 @@ Command-line usage:
         <location line="+51"/>
         <location filename="../../../web_ui/esmfold_image.js" line="+54"/>
         <location filename="../../../web_ui/esmfold_residue.js" line="-2"/>
-        <location line="+176"/>
-        <location filename="../../../web_ui/esmfold_structures.js" line="+399"/>
+        <location line="+180"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="+408"/>
         <source>No data</source>
         <translation type="unfinished">无数据</translation>
     </message>
@@ -2900,7 +2937,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../../../web_ui/esmfold_residue.js" line="-298"/>
+        <location filename="../../../web_ui/esmfold_residue.js" line="-302"/>
         <source>Helix</source>
         <translation type="unfinished">螺旋</translation>
     </message>
@@ -2937,7 +2974,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+52"/>
-        <location filename="../../../web_ui/esmfold.html" line="+866"/>
+        <location filename="../../../web_ui/esmfold.html" line="+872"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3006,7 +3043,7 @@ Command-line usage:
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+69"/>
         <source>Mol* initialized. Connecting to the Viewer...</source>
         <translation type="unfinished">Mol* 已初始化。正在连接查看器…</translation>
     </message>
@@ -3015,12 +3052,12 @@ Command-line usage:
         <translation type="obsolete">Mol* 无法启动：{reason}</translation>
     </message>
     <message>
-        <location line="-105"/>
+        <location line="-112"/>
         <source>3D view unavailable</source>
         <translation type="unfinished">3D 视图不可用</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+120"/>
         <source>Mol* loaded without its viewer.</source>
         <translation type="unfinished">Mol* 已加载，但缺少其查看器。</translation>
     </message>
@@ -3035,7 +3072,7 @@ Command-line usage:
         <translation type="unfinished">原因：{reason}</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <source>Connection error: could not fetch the session.</source>
         <translation type="unfinished">连接错误：无法获取会话。</translation>
     </message>
@@ -3127,8 +3164,8 @@ Command-line usage:
         <translation type="unfinished">将指针悬停在残基上即可在这里查看其数值。单击可固定该残基；按 Esc 取消固定。</translation>
     </message>
     <message>
-        <location line="+19"/>
-        <location filename="../../../web_ui/esmfold_structures.js" line="-363"/>
+        <location line="+20"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="-370"/>
         <source>Structure</source>
         <translation type="unfinished">结构</translation>
     </message>
@@ -3138,7 +3175,7 @@ Command-line usage:
         <translation type="unfinished">Cα–Cα (Å)</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+19"/>
         <source>Each structure shows the residue at the same place of the alignment.</source>
         <translation type="unfinished">每个结构显示比对中相同位置的残基。</translation>
     </message>
@@ -3158,7 +3195,7 @@ Command-line usage:
         <translation type="unfinished">清除</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_structures.js" line="+238"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="+235"/>
         <location filename="../../../web_ui/esmfold.html" line="+49"/>
         <source>Color</source>
         <translation type="unfinished">着色</translation>
@@ -3169,7 +3206,7 @@ Command-line usage:
         <translation type="unfinished">与场景相同</translation>
     </message>
     <message>
-        <location line="+113"/>
+        <location line="+123"/>
         <source>Pivot</source>
         <translation type="unfinished">基准</translation>
     </message>
@@ -3179,13 +3216,13 @@ Command-line usage:
         <translation type="unfinished">其他结构都向它对齐。</translation>
     </message>
     <message>
-        <location line="-63"/>
-        <location line="+65"/>
+        <location line="-73"/>
+        <location line="+75"/>
         <source>RMSD {rmsd} Å</source>
         <translation type="unfinished">RMSD {rmsd} Å</translation>
     </message>
     <message>
-        <location line="-313"/>
+        <location line="-320"/>
         <source>Cartoon</source>
         <translation type="unfinished">卡通</translation>
     </message>
@@ -3230,7 +3267,7 @@ Command-line usage:
         <translation type="unfinished">无法完成该操作：{reason}</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+52"/>
         <source>Representation</source>
         <translation type="unfinished">表示方式</translation>
     </message>
@@ -3311,7 +3348,7 @@ Command-line usage:
         <translation type="unfinished">下载 PDB</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+41"/>
         <source>Aligned to the pivot: {used} of {aligned} Cα pairs, {identity}% sequence identity.</source>
         <translation type="unfinished">已对齐到基准结构：{aligned} 个 Cα 配对中使用了 {used} 个，序列一致性 {identity}%。</translation>
     </message>
@@ -3361,12 +3398,12 @@ Command-line usage:
         <translation type="unfinished">移除 {name}</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+41"/>
         <source>Structures appear here as they are folded.</source>
         <translation type="unfinished">结构折叠完成后会显示在这里。</translation>
     </message>
     <message>
-        <location line="+94"/>
+        <location line="+96"/>
         <source>Only PDB and mmCIF files can be opened here.</source>
         <translation type="unfinished">这里只能打开 PDB 和 mmCIF 文件。</translation>
     </message>
@@ -3459,8 +3496,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-731"/>
-        <location line="+726"/>
+        <location filename="../../../web_ui/esmfold.html" line="-737"/>
+        <location line="+732"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -6135,7 +6172,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4781"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4852"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6177,7 +6214,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1429"/>
+        <location line="+1443"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>

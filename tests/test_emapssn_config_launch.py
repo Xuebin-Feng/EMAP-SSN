@@ -315,7 +315,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
 
             from utilities import Hardware_Acceleration as Hardware_Utils  # preload torch before PySide6
             from PySide6.QtWidgets import QApplication, QMessageBox
-            from tests.config_gui_loader import load_config_namespace, open_config_window
+            from tests.config_gui_loader import choose_layout, load_config_namespace, open_config_window
             app = QApplication.instance() or QApplication([])
 
             # A window over temporary directories, not the developer's viewer_settings.json.
@@ -360,7 +360,7 @@ class OffscreenConfigIntegrationTests(unittest.TestCase):
                 window.cb_hdf5.addItem(network_path.name)
                 # Toggling UMAP re-resolves the cache folder, so the manual
                 # cache state must come after the toggle and the discovery.
-                window.check_umap.setChecked(True)
+                choose_layout(window, "umap")
                 settle_cache_discovery()
                 window.current_cache_folder = str(cache_folder)
                 window._cache_launch_allowed = True

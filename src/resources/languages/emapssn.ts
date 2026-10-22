@@ -490,6 +490,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>SSN</source>
+        <comment>layout method</comment>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>UMAP</source>
         <comment>layout method</comment>
         <translation type="unfinished"></translation>
@@ -1012,7 +1017,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>With Plot Manifold Instead on, only the selected nodes&apos; edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.</source>
+        <source>With Layout Method set to UMAP or PaCMAP, only the selected nodes&apos; edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1044,7 +1049,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>With Plot Manifold Instead on, nodes cannot be dragged, so only the threshold slider and the selection box apply.</source>
+        <source>With Layout Method set to UMAP or PaCMAP, nodes cannot be dragged, so only the threshold slider and the selection box apply.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1060,7 +1065,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>With Plot Manifold Instead on, nodes cannot be dragged, so only the selection box applies.</source>
+        <source>With Layout Method set to UMAP or PaCMAP, nodes cannot be dragged, so only the selection box applies.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1188,15 +1193,15 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Uses a manifold method (UMAP or PaCMAP, chosen by Layout Method) to compute the 2D coordinates directly from each node&apos;s strongest edges, instead of simulating physics.</source>
+        <source>How the 2D coordinates are computed: SSN simulates physics, while UMAP and PaCMAP compute them directly from each node&apos;s strongest edges.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Provides fast non-linear dimensionality reduction as an alternative to iterative physics simulations.</source>
+        <source>UMAP and PaCMAP give fast non-linear dimensionality reduction as an alternative to iterative physics simulations.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>The manifold method that computes the layout while Plot Manifold Instead is on.</source>
+        <source>Runs a force-directed network simulation: edges pull their nodes together and nodes push each other apart, as set on the Simulation &amp; Physics tab.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1208,7 +1213,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Both use only each node&apos;s strongest edges, so neither uses the Similarity Threshold or Top Edge %.</source>
+        <source>UMAP and PaCMAP use only each node&apos;s strongest edges, so neither uses the Similarity Threshold or Top Edge %, and the Simulation &amp; Physics tab is hidden while one is chosen.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1440,7 +1445,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Plot Manifold Instead:</source>
+        <source>Layout Method:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1448,7 +1453,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Unset Top Edge % to use Similarity Threshold when the manifold layout is off.</source>
+        <source>Unset Top Edge % to use Similarity Threshold when Layout Method is SSN.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1457,10 +1462,6 @@
     </message>
     <message>
         <source>Top Edge %:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Layout Method:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

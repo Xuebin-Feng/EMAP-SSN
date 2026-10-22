@@ -363,7 +363,7 @@
             </div>
 
             <!-- SECTION 4: CONFIGURATION GUI -->
-            <div id="gui-config" class="section-divider" data-source-sha256="7799b2f7a369db9c646d70154115a42072b270c5c3399cef3ffe84d25f8692d3">
+            <div id="gui-config" class="section-divider" data-source-sha256="c54248df66dd9639d93cb3128595d140a4e45983f978ff1eb3c8aa5ef7edbf1c">
                 <span>4. EMAP-SSN 配置 GUI（EMAPSSN_Config.py）</span>
             </div>
 
@@ -397,7 +397,7 @@
                     <li><strong>网络边输入（.h5）：</strong>绑定全对全的成对相似性矩阵或期望值矩阵。</li>
                     <li><strong>得分模式与归一化模式：</strong>指定得分的解读方式（<code>global (Needleman-Wunsch)</code> 即“全局（Needleman-Wunsch）”，<code>local (Smith-Waterman)</code> 即“局部（Smith-Waterman）”）以及得分的归一化方式（<code>Alignment Length</code> 即“比对长度”、<code>Shorter Sequence</code> 即“较短序列长度”、<code>Longer Sequence</code> 即“较长序列长度”、<code>Average Sequence</code> 即“平均序列长度”；<code>Alignment Length</code> 仅适用于全局得分）。</li>
                     <li><strong>比对参考 ID 与偏移量：</strong>指定一个蛋白质，用其原生残基坐标锚定比对。该值会与网络中的序列标题匹配，优先精确匹配整个标题，其次匹配开头的标识符，再次是子串或通配符匹配；当 MSA 中含有解析出的标题时，比对即锚定在该标题上。随后，所有残基命令（例如 <code>color K188 red</code>）的编号都与这个参考蛋白质的原生残基坐标一一对应（1:1）。若没有任何匹配，或 MSA 中没有解析出的标题，查看器会在启动时发出警告，改用占有率（occupancy）编号，并忽略偏移量。</li>
-                    <li><strong>改用流形布局绘图：</strong>开启时，绘制 UMAP 或 PaCMAP 非线性流形投影，而不运行力导向物理模拟。<code>Layout Method</code>（布局方法）选择其一：UMAP，提供可调的 <code>UMAP Nearest Neighbors</code> 和 <code>UMAP Min Distance</code>；或 PaCMAP，提供 <code>PaCMAP Nearest Neighbors</code>（2 到 50），即每个节点最强的、保持靠近且由查看器绘制的边的数量。这些输入项取代“相似性阈值”和“保留高分边 %”输入项。</li>
+                    <li><strong>布局方法：</strong>选择布局的计算方式，位于“相似性阈值”和“保留高分边 %”所在行的末尾。<code>SSN</code>（默认）运行力导向物理模拟（见“模拟与物理”选项卡）。<code>UMAP</code> 和 <code>PaCMAP</code> 则改为绘制非线性流形投影：UMAP，提供可调的<code>UMAP Nearest Neighbors</code> 和 <code>UMAP Min Distance</code>；或 PaCMAP，提供 <code>PaCMAP Nearest Neighbors</code>（2 到 50），即每个节点最强的、保持靠近且由查看器绘制的边的数量。这些输入项取代“相似性阈值”和“保留高分边 %”输入项。</li>
                     <li><strong>最低占有率 %：</strong>比对列要在序列标识图、保守性等残基分析中被保留，所需的最低非空位（gap）字符百分比。默认为 10。</li>
                     <li><strong>相似性阈值与保留高分边 %：</strong>修剪低于给定相似性得分的边，或在整个网络中只保留得分最高的前 $X\%$ 的边，以消除拓扑噪声。“保留高分边 %”会覆盖阈值；其<strong>清除</strong>按钮可取消这一设置，此时采用相似性阈值。</li>
                     <li><strong>目标缓存与所选缓存文件：</strong>自动扫描 <code>Cache_Files/Saved_Layouts/</code> 中的预计算布局坐标。如果找到，查看器会立即加载已有布局，无需重新计算。选择 <code>(New Layout Cache)</code> 会启动一次全新的模拟。</li>

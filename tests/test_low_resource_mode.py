@@ -390,7 +390,7 @@ class BoxSelectionTests(unittest.TestCase):
 
 
 # =====================================================================
-# UMAP mode (Plot Manifold Instead on)
+# UMAP mode (Layout Method set to UMAP or PaCMAP)
 # =====================================================================
 
 class UmapModeTests(unittest.TestCase):

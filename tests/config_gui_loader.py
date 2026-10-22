@@ -102,6 +102,15 @@ def open_config_window(gui_class, root):
         return gui_class()
 
 
+def choose_layout(window, choice):
+    """Pick "ssn", "umap" or "pacmap" in a Config window's Layout Method dropdown, as a click does."""
+    combo = window.cb_layout_method
+    index = combo.findData(choice)
+    if index < 0:
+        raise AssertionError(f"the Layout Method dropdown has no {choice!r}")
+    combo.setCurrentIndex(index)
+
+
 def finish_statistics(window, timeout=60.0):
     """Let the statistics run a Config window started finish, and show its result.
 

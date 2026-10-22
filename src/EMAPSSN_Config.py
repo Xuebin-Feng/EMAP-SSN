@@ -768,12 +768,26 @@ if __name__ == "__main__":
             "average_sequence": translate("Config", "Average Sequence", "normalization"),
         }
 
-    # The methods of a manifold layout, in the order the Layout Method dropdown lists them.
-    LAYOUT_METHOD_ORDER = ("umap", "pacmap")
+    # The Layout Method dropdown offers SSN's physics simulation and the two manifold methods.
+    # It stands for two saved settings: UMAP_MODE ("a manifold layout instead of physics") and
+    # LAYOUT_METHOD (which manifold method). SSN is UMAP_MODE off, and then LAYOUT_METHOD keeps
+    # whichever method was saved, so choosing SSN and back loses nothing.
+    MANIFOLD_METHODS = ("umap", "pacmap")
+    LAYOUT_CHOICES = ("ssn",) + MANIFOLD_METHODS
+    LAYOUT_SETTINGS = ("UMAP_MODE", "LAYOUT_METHOD")
+    # The dropdown's narrowest width, in characters: PaCMAP, its longest choice, in full.
+    LAYOUT_METHOD_MINIMUM_CHARACTERS = 7
+
+    def layout_choice(umap_mode, method):
+        """The dropdown's choice for the saved UMAP_MODE and LAYOUT_METHOD."""
+        if not umap_mode:
+            return "ssn"
+        return method if method in MANIFOLD_METHODS else "umap"
 
     def layout_method_names():
-        """What the window calls each layout method, by its stored value (LAYOUT_METHOD)."""
+        """What the window calls each Layout Method choice, by its stored value."""
         return {
+            "ssn": translate("Config", "SSN", "layout method"),
             "umap": translate("Config", "UMAP", "layout method"),
             "pacmap": translate("Config", "PaCMAP", "layout method"),
         }
@@ -1921,6 +1935,9 @@ if __name__ == "__main__":
             return self._normalize_profile_data(tab_id, raw_data)
 
         def _set_widget_profile_value(self, key, value):
+            if key in LAYOUT_SETTINGS:
+                self._set_layout_setting(key, value)
+                return
             widget = self.inputs[key]
             if isinstance(widget, OptionalNoScrollDoubleSpinBox):
                 widget.setOptionalValue(value)
@@ -2091,8 +2108,12 @@ if __name__ == "__main__":
                 "cache_hashes": dict(self._cache_hash_cache),
                 # A BLAST network blanks both scoring modes; carry the choice they hide.
                 "values": {
-                    key: hidden[key] if blanked and key in hidden else self._carried_widget_value(key, widget)
-                    for key, widget in self.inputs.items()
+                    **{
+                        key: hidden[key] if blanked and key in hidden else self._carried_widget_value(key, widget)
+                        for key, widget in self.inputs.items()
+                    },
+                    # The Layout Method dropdown holds two settings: UMAP_MODE and LAYOUT_METHOD.
+                    **self._layout_settings(),
                 },
                 "profiles": {
                     tab_id: (combo_value(self.profile_selectors[tab_id]), self.profile_name_inputs[tab_id].text())
@@ -2315,11 +2336,16 @@ if __name__ == "__main__":
                 return tip
             entry = self._field_tips.get(key)
             if entry is None:
+                shown_key, default = key, _profile_default(key)
+                if key == "LAYOUT_METHOD":
+                    # The dropdown stands for both its settings, and starts as SSN.
+                    shown_key = ", ".join(LAYOUT_SETTINGS)
+                    default = layout_choice(_profile_default("UMAP_MODE"), default)
                 entry = self._field_tips[key] = FieldTip(tip, Field(
-                    key=key,
+                    key=shown_key,
                     label=self.labels.get(key),
                     widget=self.inputs.get(key),
-                    default=_profile_default(key),
+                    default=default,
                     limits=PROFILE_RANGES.get(key),
                 ))
                 if tip.live is not None:
@@ -2487,7 +2513,7 @@ if __name__ == "__main__":
                     notes=(
                         TipNote("info", translate("Config", "Prints and captures always draw every edge.")),
                         TipNote("info", translate("Config", "The environment variable `SSN_EDGE_MOTION_LOD=0` turns it off whatever this switch says.")),
-                        TipNote("info", translate("Config", "With Plot Manifold Instead on, only the selected nodes' edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.")),
+                        TipNote("info", translate("Config", "With Layout Method set to UMAP or PaCMAP, only the selected nodes' edges are drawn, so edges are left out only while the selection has 250,000 or more of them, and nodes cannot be dragged.")),
                         TipNote("warning", translate("Config", "While it is on, the graphics card holds thinned copies of the drawn edges: about a third more memory for them.")),
                     ),
                 ),
@@ -2503,7 +2529,7 @@ if __name__ == "__main__":
                         translate("Config", "A right-button selection box colours the selected nodes and their neighbours only when you let go."),
                     ),
                     notes=(
-                        TipNote("info", translate("Config", "With Plot Manifold Instead on, nodes cannot be dragged, so only the threshold slider and the selection box apply.")),
+                        TipNote("info", translate("Config", "With Layout Method set to UMAP or PaCMAP, nodes cannot be dragged, so only the threshold slider and the selection box apply.")),
                     ),
                 ),
                 "LOW_RESOURCE_WEBSERVER": Tip(
@@ -2513,7 +2539,7 @@ if __name__ == "__main__":
                         translate("Config", "It updates once a right-button selection box is let go, instead of at each move of the box."),
                     ),
                     notes=(
-                        TipNote("info", translate("Config", "With Plot Manifold Instead on, nodes cannot be dragged, so only the selection box applies.")),
+                        TipNote("info", translate("Config", "With Layout Method set to UMAP or PaCMAP, nodes cannot be dragged, so only the selection box applies.")),
                     ),
                 ),
                 "SHOW_FPS": Tip(
@@ -2582,18 +2608,16 @@ if __name__ == "__main__":
                     translate("Config", "Cell size of the grid on which disconnected components are packed around the largest one."),
                     details=(translate("Config", "Smaller cells pack components more tightly but take longer; the clearance kept between components does not change."),),
                 ),
-                "UMAP_MODE": Tip(
-                    translate("Config", "Uses a manifold method (UMAP or PaCMAP, chosen by Layout Method) to compute the 2D coordinates directly from each node's strongest edges, instead of simulating physics."),
-                    details=(translate("Config", "Provides fast non-linear dimensionality reduction as an alternative to iterative physics simulations."),),
-                ),
                 "LAYOUT_METHOD": Tip(
-                    translate("Config", "The manifold method that computes the layout while Plot Manifold Instead is on."),
+                    translate("Config", "How the 2D coordinates are computed: SSN simulates physics, while UMAP and PaCMAP compute them directly from each node's strongest edges."),
+                    details=(translate("Config", "UMAP and PaCMAP give fast non-linear dimensionality reduction as an alternative to iterative physics simulations."),),
                     options=(
+                        TipOption("ssn", translate("Config", "Runs a force-directed network simulation: edges pull their nodes together and nodes push each other apart, as set on the Simulation & Physics tab.")),
                         TipOption("umap", translate("Config", "Keeps each node close to its nearest neighbors; clusters land wherever the optimizer leaves them.")),
                         TipOption("pacmap", translate("Config", "Also looks up the stored scores of random pairs of nodes, so clusters end up in a meaningful order relative to each other.")),
                     ),
                     notes=(
-                        TipNote("info", translate("Config", "Both use only each node's strongest edges, so neither uses the Similarity Threshold or Top Edge %.")),
+                        TipNote("info", translate("Config", "UMAP and PaCMAP use only each node's strongest edges, so neither uses the Similarity Threshold or Top Edge %, and the Simulation & Physics tab is hidden while one is chosen.")),
                     ),
                 ),
 "UMAP_NEIGHBORS": Tip(
@@ -2896,9 +2920,9 @@ if __name__ == "__main__":
             return {
                 "alignment_score": combo_value(self.cb_score_mode) or None,
                 "normalization": combo_value(self.cb_norm_mode) or None,
-                "umap_mode": self.check_umap.isChecked(),
+                "umap_mode": self.uses_manifold_layout(),
                 "umap_neighbors": self.spin_umap_k.value(),
-                "layout_method": combo_value(self.cb_layout_method) or "umap",
+                "layout_method": self._layout_settings()["LAYOUT_METHOD"],
                 "pacmap_neighbors": self.spin_pacmap_k.value(),
                 "top_edge_percent": top_value,
                 "similarity_threshold": threshold_value,
@@ -3425,16 +3449,16 @@ if __name__ == "__main__":
             self.labels["ALIGNMENT_OFFSET"] = self.lbl_alignment_offset
             self.inputs["ALIGNMENT_OFFSET"] = self.spin_alignment_offset
             
-            # --- UMAP and PaCMAP Controls ---
-            # The switch means "a manifold layout instead of physics" (UMAP_MODE); the Layout
-            # Method dropdown under the filters says which one (LAYOUT_METHOD).
-
-            self.check_umap = ToggleSwitch()
+            # --- Layout Method, UMAP and PaCMAP Controls ---
+            # The Layout Method dropdown ends the filter row. SSN is the physics layout; UMAP and
+            # PaCMAP are the manifold ones. It stands for UMAP_MODE and LAYOUT_METHOD together
+            # (see layout_choice), and remembers the manifold method for while SSN is chosen.
 
             umap_mode_val = globals().get("UMAP_MODE", False)
             if isinstance(umap_mode_val, str):
                 umap_mode_val = umap_mode_val.lower() in ['true', '1', 't', 'y', 'yes']
-            self.check_umap.setChecked(bool(umap_mode_val))
+            saved_method = str(globals().get("LAYOUT_METHOD") or "umap")
+            self._manifold_method = saved_method if saved_method in MANIFOLD_METHODS else "umap"
             
             lbl_k = QLabel(translate("Config", "UMAP Nearest Neighbors:"))
             lbl_md = QLabel(translate("Config", "UMAP Min Distance:"))
@@ -3471,22 +3495,27 @@ if __name__ == "__main__":
                 spinbox.setFixedHeight(input_spinbox_height)
 
             self.cb_layout_method = NoScrollComboBox()
-            add_combo_options(self.cb_layout_method, list(LAYOUT_METHOD_ORDER), [
-                layout_method_names()[method] for method in LAYOUT_METHOD_ORDER
+            # Its longest choice is PaCMAP, and it keeps room for all of it however narrow the row
+            # gets. Set before anything measures it: a combo box keeps the minimum width it first
+            # works out.
+            self.cb_layout_method.setMinimumContentsLength(LAYOUT_METHOD_MINIMUM_CHARACTERS)
+            add_combo_options(self.cb_layout_method, list(LAYOUT_CHOICES), [
+                layout_method_names()[choice] for choice in LAYOUT_CHOICES
             ])
-            select_combo_value(self.cb_layout_method, str(globals().get("LAYOUT_METHOD") or "umap"))
+            select_combo_value(self.cb_layout_method, layout_choice(umap_mode_val, self._manifold_method))
 
-            self.check_umap.toggled.connect(self.update_live_validators)
+            self.cb_layout_method.currentIndexChanged.connect(self._layout_choice_changed)
             self.spin_umap_k.valueChanged.connect(self.update_live_validators)
             self.spin_pacmap_k.valueChanged.connect(self.update_live_validators)
-            self.cb_layout_method.currentIndexChanged.connect(self.update_live_validators)
-            self.labels["UMAP_MODE"] = QLabel(translate("Config", "Plot Manifold Instead:"))
+            self.labels["LAYOUT_METHOD"] = QLabel(translate("Config", "Layout Method:"))
 
-            self.inputs["UMAP_MODE"] = self.check_umap
+            # One widget, two settings: the dropdown is "LAYOUT_METHOD" here, and the
+            # settings readers and writers (collect_data, the profile and carry-over
+            # methods) give UMAP_MODE and LAYOUT_METHOD their values from it.
+            self.inputs["LAYOUT_METHOD"] = self.cb_layout_method
             self.inputs["UMAP_NEIGHBORS"] = self.spin_umap_k
             self.inputs["UMAP_MIN_DIST"] = self.spin_umap_md
             self.inputs["PACMAP_NEIGHBORS"] = self.spin_pacmap_k
-            self.inputs["LAYOUT_METHOD"] = self.cb_layout_method
             self.labels["UMAP_NEIGHBORS"] = lbl_k
             self.labels["UMAP_MIN_DIST"] = lbl_md
             self.labels["PACMAP_NEIGHBORS"] = lbl_pk
@@ -3528,7 +3557,7 @@ if __name__ == "__main__":
             self.btn_clear_top_edge = QPushButton(translate("Config", "Clear"))
             self.btn_clear_top_edge.setObjectName("clearTopEdgeButton")
             self.btn_clear_top_edge.setToolTip(translate(
-                "Config", "Unset Top Edge % to use Similarity Threshold when the manifold layout is off."
+                "Config", "Unset Top Edge % to use Similarity Threshold when Layout Method is SSN."
             ))
             self.btn_clear_top_edge.clicked.connect(
                 lambda: self.spin_top.setOptionalValue(None)
@@ -3560,12 +3589,11 @@ if __name__ == "__main__":
             top_control = mode_stack(top_edge_control, self.spin_umap_md)
             self._make_field_group(
                 [(threshold_label, threshold_control), (top_label, top_control),
-                 (self.labels["UMAP_MODE"], self.check_umap)],
+                 (self.labels["LAYOUT_METHOD"], self.cb_layout_method)],
                 parent=filter_container, name="filterRow",
                 trailing=True, control_stretches=(1, 1, 0),
             )
             layout.addRow(filter_container)
-            add_row("LAYOUT_METHOD", translate("Config", "Layout Method:"), self.cb_layout_method)
 
             # Coordinate all three rows.Normalization spans columns two and
             # three; the two other rows retain a compact, right-aligned last field.
@@ -3576,16 +3604,20 @@ if __name__ == "__main__":
             label_width = max(row._label_width(row.pairs[1][0]) for row in aligned_rows)
             for row in aligned_rows:
                 row.pairs[1][0].setFixedWidth(label_width)
-            last_width = max(row._column_minima()[2] for row in aligned_rows[1:])
+            # The last column holds Alignment Offset and Layout Method. Their labels share one
+            # width and their fields share one width, so the labels start at one x and the
+            # fields share a left edge: each field is as wide as the wider minimum, which is
+            # the dropdown's, the room PaCMAP needs.
+            last_label_width = max(row._label_width(row.pairs[2][0]) for row in aligned_rows[1:])
+            last_control_width = max(row._minimum(row.pairs[2][1]).width() for row in aligned_rows[1:])
             for row in aligned_rows[1:]:
-                label, control = row.pairs[2]
-                label.setFixedWidth(last_width - row.spacing() - row._minimum(control).width())
+                row.pairs[2][0].setFixedWidth(last_label_width)
 
             def aligned_column_widths(width, *, spanning=False):
                 gap = CONFIG_FIELD_HORIZONTAL_SPACING
                 first_min = max(row._column_minima()[0] for row in aligned_rows)
                 middle_min = max(row._column_minima()[1] for row in aligned_rows[1:])
-                last = max(row._column_minima()[2] for row in aligned_rows[1:])
+                last = last_label_width + gap + last_control_width
                 # The right part holds occupancy and the fixed final column,
                 # or the normalization mode spanning both.
                 right_min = max(middle_min + gap + last,
@@ -3718,6 +3750,39 @@ if __name__ == "__main__":
 
             self._add_scroll_tab(tab, translate("Config", "Inputs && Outputs"))
             
+        def uses_manifold_layout(self):
+            """True while the Layout Method dropdown says UMAP or PaCMAP, false for SSN (UMAP_MODE)."""
+            return combo_value(self.cb_layout_method) in MANIFOLD_METHODS
+
+        def _layout_settings(self):
+            """The two settings the Layout Method dropdown stands for, as saved.
+
+            UMAP_MODE is whether a manifold method is chosen. LAYOUT_METHOD is that
+            method, or, while SSN is chosen, the one last shown or loaded, so SSN
+            leaves it as saved.
+            """
+            choice = combo_value(self.cb_layout_method)
+            return {
+                "UMAP_MODE": choice in MANIFOLD_METHODS,
+                "LAYOUT_METHOD": choice if choice in MANIFOLD_METHODS else self._manifold_method,
+            }
+
+        def _set_layout_setting(self, key, value):
+            """Show a saved UMAP_MODE or LAYOUT_METHOD in the dropdown, whichever order they arrive in."""
+            if key == "LAYOUT_METHOD":
+                self._manifold_method = value if value in MANIFOLD_METHODS else "umap"
+                if self.uses_manifold_layout():
+                    select_combo_value(self.cb_layout_method, self._manifold_method)
+            else:
+                select_combo_value(self.cb_layout_method, layout_choice(value, self._manifold_method))
+
+        def _layout_choice_changed(self, _index):
+            """A choice in the dropdown, by the user or a load: UMAP and PaCMAP are remembered for SSN."""
+            choice = combo_value(self.cb_layout_method)
+            if choice in MANIFOLD_METHODS:
+                self._manifold_method = choice
+            self.update_live_validators()
+
         def update_norm_mode_options(self):
             if not hasattr(self, 'cb_score_mode') or not hasattr(self, 'cb_norm_mode'):
                 return
@@ -3753,17 +3818,17 @@ if __name__ == "__main__":
             self._cancel_statistics_if_inputs_changed()
             self._update_statistics_button()
 
-            is_umap = hasattr(self, 'check_umap') and self.check_umap.isChecked()
+            # "is_umap" means a manifold layout (UMAP or PaCMAP) instead of SSN's physics.
+            is_umap = hasattr(self, 'cb_layout_method') and self.uses_manifold_layout()
             is_pacmap = is_umap and combo_value(self.cb_layout_method) == "pacmap"
             for stack in getattr(self, "_input_mode_stacks", ()):
-                # Physics, then UMAP, then PaCMAP where the pair has a page for it.
+                # SSN, then UMAP, then PaCMAP where the pair has a page for it.
                 stack.setCurrentIndex(min(stack.count() - 1, int(is_umap) + int(is_pacmap)))
             if hasattr(self, "spin_umap_k"):
                 enabled = {
                     "UMAP_NEIGHBORS": is_umap and not is_pacmap,
                     "UMAP_MIN_DIST": is_umap and not is_pacmap,
                     "PACMAP_NEIGHBORS": is_pacmap,
-                    "LAYOUT_METHOD": is_umap,
                 }
                 for key, state in enabled.items():
                     self.inputs[key].setEnabled(state)
@@ -4702,6 +4767,10 @@ if __name__ == "__main__":
                 # ---> NEW: Completely skip saving the target cache selection to JSON
                 if key in {"TARGET_CACHE_FILE", "NEW_CACHE_NAME"}:
                     continue
+                # The Layout Method dropdown holds two settings.
+                if key == "LAYOUT_METHOD":
+                    data.update(self._layout_settings())
+                    continue
                     
                 if isinstance(widget, QComboBox):
                     if key == "LAYOUT_DEVICE_SELECTION":
@@ -4738,6 +4807,8 @@ if __name__ == "__main__":
             return data
 
         def _widget_profile_value(self, key):
+            if key in LAYOUT_SETTINGS:
+                return self._layout_settings()[key]
             hidden = self._scoring_hidden_by_blast
             if hidden and key in hidden and self.cb_score_mode.currentIndex() == -1:
                 # A BLAST network blanks both modes; save the choice they hide.
@@ -4995,7 +5066,7 @@ if __name__ == "__main__":
             self._update_save_run_button()
 
         def save_and_run(self):
-            if not self.check_umap.isChecked():
+            if not self.uses_manifold_layout():
                 try:
                     Hardware_Utils.resolve_device_selection(
                         self.cb_layout_device.currentData()
@@ -5039,7 +5110,7 @@ if __name__ == "__main__":
             settings_data["TARGET_CACHE_MODE"] = "existing"
             settings_data["SIMILARITY_THRESHOLD"] = self.spin_thresh.optionalValue()
             settings_data["TOP_EDGE_PERCENT"] = self.spin_top.optionalValue()
-            if self.check_umap.isChecked():
+            if self.uses_manifold_layout():
                 settings_data["SIMILARITY_THRESHOLD"] = None
                 settings_data["TOP_EDGE_PERCENT"] = None
             elif settings_data["TOP_EDGE_PERCENT"] is not None:
