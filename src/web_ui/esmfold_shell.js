@@ -25,6 +25,8 @@ let pendingStructures = [];
 let everConnected = false;
 // 'connecting', 'connected' or 'reconnecting': the Viewer's side of the page's stream.
 let connectionState = 'connecting';
+// Set when Mol* could not be started (failStart): the reason, as text. The page then has no 3D view to offer.
+let startFailure = null;
 
 function byId(id) {
     return document.getElementById(id);
@@ -95,8 +97,10 @@ function showStatus(text, duration = 3000, options = {}) {
 function setConnection(state) {
     connectionState = state;
     const badge = byId('connection-status');
-    badge.dataset.state = state;
-    if (state === 'connected') badge.textContent = t("Connected");
+    // Without Mol* the page does not connect (failStart), and its header says what is wrong, not "Connecting...".
+    badge.dataset.state = startFailure ? 'failed' : state;
+    if (startFailure) badge.textContent = t("3D view unavailable");
+    else if (state === 'connected') badge.textContent = t("Connected");
     else if (state === 'reconnecting') badge.textContent = t("Reconnecting...");
     else badge.textContent = t("Connecting...");
     document.body.dataset.offline = state === 'reconnecting' && everConnected ? '1' : '0';
@@ -148,11 +152,12 @@ window.addEventListener('storage', event => {
     if (event.key === 'ssn_theme' && (event.newValue === 'dark' || event.newValue === 'light')) applyTheme(event.newValue, false);
 });
 
-// ---- What the canvas area shows: starting, no WebGL, restoring, empty or the structures ----
+// ---- What the canvas area shows: starting, Mol* not started, no WebGL, restoring, empty or the structures ----
 function updateView() {
     let view = 'ready';
-    const count = plugin ? loadedStructures().length : 0;
-    if (!plugin) view = 'starting';
+    const count = plugin && !startFailure ? loadedStructures().length : 0;
+    if (startFailure) view = 'failed';
+    else if (!plugin) view = 'starting';
     else if (!plugin.canvas3d) view = 'webgl';
     else if (isRestoring) view = 'restoring';
     else if (count === 0) view = typeof jobRunning === 'function' && jobRunning() ? 'folding' : 'empty';
@@ -166,23 +171,29 @@ function updateView() {
 const scriptsLoaded = document.readyState === 'loading'
     ? new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, { once: true }))
     : Promise.resolve();
-Promise.all([molstar.Viewer.create('viewer', {
-    layoutIsExpanded: false,
-    layoutShowControls: false,
-    layoutShowRemoteState: false,
-    layoutShowSequence: true,
-    layoutShowLog: true,
-    layoutShowLeftPanel: true,
-    viewportShowControls: false,
-    viewportShowExpand: false,
-    viewportShowToggleFullscreen: false,
-    viewportShowSettings: false,
-    viewportShowSelectionMode: false,
-    viewportShowAnimation: false,
-    viewportShowReset: false,
-    viewportShowScreenshotControls: false,
-    viewportBackgroundColor: canvasBackground()
-}), scriptsLoaded]).then(([v]) => {
+
+// An async function, so that every way of not starting (the bundle is not there, it fails as it runs, its
+// Viewer cannot be made, the setup below throws) is a rejection that failStart answers, not an error that stops here.
+async function startMolstar() {
+    // The bundle did not load (esmfold.html's head kept why): there is no Mol* to call.
+    if (typeof molstar === 'undefined' || !molstar.Viewer) throw new Error(bundleProblem());
+    const [v] = await Promise.all([molstar.Viewer.create('viewer', {
+        layoutIsExpanded: false,
+        layoutShowControls: false,
+        layoutShowRemoteState: false,
+        layoutShowSequence: true,
+        layoutShowLog: true,
+        layoutShowLeftPanel: true,
+        viewportShowControls: false,
+        viewportShowExpand: false,
+        viewportShowToggleFullscreen: false,
+        viewportShowSettings: false,
+        viewportShowSelectionMode: false,
+        viewportShowAnimation: false,
+        viewportShowReset: false,
+        viewportShowScreenshotControls: false,
+        viewportBackgroundColor: canvasBackground()
+    }), scriptsLoaded]);
     viewerInstance = v;
     plugin = v.plugin;
     // The hierarchy changes as structures come and go; a structure's visibility is only a cell's state.
@@ -195,11 +206,34 @@ Promise.all([molstar.Viewer.create('viewer', {
     setupToolEvents();
     showStatus(t("Mol* initialized. Connecting to the Viewer..."));
     setupSSE();
-}).catch(error => {
+}
+
+// Why there is no `molstar`: what the page's head kept of the bundle's file, in words.
+function bundleProblem() {
+    const load = window.molstarLoad || {};
+    if (load.message) return load.message;
+    if (typeof molstar !== 'undefined') return t("Mol* loaded without its viewer.");
+    return t("The file {file} did not load.", {file: '/esmfold/molstar.js'});
+}
+
+// Mol* could not be started, whatever the cause. The canvas area says so, with the reason to copy; the header
+// says so; and what needs Mol* is not offered: the toolbar, the cards of the panel, the Session menu (esmfold.html
+// hides them while the view is "failed"). The page does not connect to the Viewer either: it would be sent folded
+// structures it cannot show, and the Viewer would think a Fold View is open; and it never saves, so the session the
+// Viewer holds is still there when a reload starts Mol*. The theme and Help keep working.
+function failStart(error) {
     console.error("Mol* could not start:", error);
-    document.body.dataset.view = 'webgl';
-    showStatus(t("Mol* could not start: {reason}", {reason: error.message}), 0, {error: true});
-});
+    const reason = String((error && error.message) || error);
+    startFailure = reason;
+    byId('start-reason').textContent = t("Reason: {reason}", {reason});
+    byId('session-btn').disabled = true;
+    setConnection(connectionState);
+    updateView();
+    const heading = byId('start-title').textContent;
+    byId('live').textContent = heading;
+}
+startMolstar().catch(failStart);
+byId('start-retry').addEventListener('click', () => location.reload());
 
 // ---- The Viewer's side: events, and the session it keeps ----------------------
 // Request session load from python server

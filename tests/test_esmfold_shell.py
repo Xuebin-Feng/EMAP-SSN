@@ -15,7 +15,10 @@ holds the checks that need a canvas.
 
 import json
 import re
+import shutil
 import sys
+import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -345,7 +348,200 @@ class ShellTests(PageTestCase):
         self.assertFalse(self.js(banner))
 
 
-class ScriptPolicyTests(PageTestCase):
+class StartFailureChecks:
+    """What the page must say, and not offer, whenever Mol* does not start. Put it before PageTestCase."""
+
+    HEADING = "The 3D view could not start"
+    # Everything a person can use on the page then: no control of Mol*'s (the toolbar, the cards, the Session menu).
+    USABLE = ["theme-toggle-btn", "help-btn", "start-retry"]
+
+    def wait_for_failure(self, timeout=30):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if self.js("document.body.dataset.view") == "failed":
+                return
+            self.pump(0.05)
+        self.fail("The page did not say that Mol* could not start; its view is %r" % self.js("document.body.dataset.view"))
+
+    def failed_page(self):
+        """The page as a person sees it once it has said that Mol* could not start."""
+        self.wait_for_failure()
+        return self.script("""
+            const shown = element => !!element && element.getClientRects().length > 0 && getComputedStyle(element).visibility !== 'hidden';
+            const card = document.querySelector('.empty[data-for="failed"]');
+            const retry = document.getElementById('start-retry');
+            const badge = document.getElementById('connection-status');
+            return {
+                view: document.body.dataset.view, count: document.body.dataset.count,
+                cards: [...document.querySelectorAll('.empty[data-for]')].filter(shown).map(node => node.dataset.for),
+                heading: card.querySelector('h2').textContent,
+                paragraphs: [...card.querySelectorAll('p:not(.reason)')].map(node => node.textContent),
+                reason: document.getElementById('start-reason').textContent,
+                reasonShown: shown(document.getElementById('start-reason')),
+                retry: [shown(retry), retry.textContent],
+                badge: [badge.textContent, badge.dataset.state],
+                live: document.getElementById('live').textContent,
+                usable: [...document.querySelectorAll('button')].filter(node => shown(node) && !node.disabled).map(node => node.id),
+                offered: ['.view-toolbar', '#side', '#panel-toggle', '.skip-link', '#seqbar', '#viewer', '#open-file', '.toast.show']
+                    .filter(selector => shown(document.querySelector(selector))),
+                session: document.getElementById('session-btn').disabled};
+            """)
+
+    def assert_failed(self, reason, found=None):
+        """The page says that Mol* could not start, because of `reason`, and the rest of the page is as it should be."""
+        found = found or self.failed_page()
+        self.assertEqual(found["view"], "failed")
+        self.assertEqual(found["cards"], ["failed"])
+        self.assertEqual(found["heading"], self.HEADING)
+        self.assertEqual(found["paragraphs"], [
+            "Mol*, which draws the structures, did not start. Reload the page. If it happens again, try another browser, or reinstall EMAP-SSN.",
+            "Your saved session is untouched. It comes back when the 3D view starts."])
+        self.assertEqual(found["reason"], "Reason: " + reason)
+        self.assertTrue(found["reasonShown"])
+        self.assertEqual(found["retry"], [True, "Reload the page"])
+        # The header no longer says the page is starting or connecting.
+        self.assertEqual(found["badge"], ["3D view unavailable", "failed"])
+        self.assertEqual(found["live"], self.HEADING)
+        self.assertEqual(found["usable"], self.USABLE)
+        self.assertEqual(found["offered"], [])
+        self.assertTrue(found["session"])
+        # The error is in the console, once, from the page's own script; nothing else of the page's failed.
+        own = [message for level, message, _, source in self.console.messages
+               if level == "ErrorMessageLevel" and "/esmfold_" in source]
+        self.assertEqual(len(own), 1, own)
+        self.assertTrue(own[0].startswith("Mol* could not start:"), own)
+        self.assertIn(reason.split("\n")[0], own[0])
+        # The page does not claim to be a Fold View that can show structures, and saves nothing over the Viewer's session.
+        self.assertFalse(self.server.has_event_client("esmfold"))
+        self.assertEqual((self.saved, self.actions), ([], []))
+
+    def serve_bundle(self, script):
+        """Serve /esmfold/ with `script` as molstar.js (None: no molstar.js at all) and Mol*'s own stylesheets."""
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        for name in ("molstar.css", "molstar-dark.css"):
+            shutil.copy(SRC / "resources" / "esmfold" / name, folder.name)
+        if script is not None:
+            Path(folder.name, "molstar.js").write_text(script, encoding="utf-8")
+        self.server.static_routes["/esmfold/"] = folder.name
+
+    def open_failing(self, script):
+        self.serve_bundle(script)
+        self.load_page()
+        return self.failed_page()
+
+
+class StartFailureTests(StartFailureChecks, PageTestCase):
+    """Every way Mol* can fail to start ends in the same message in the canvas area, with the reason."""
+
+    def test_a_bundle_that_is_not_there_says_so(self):
+        found = self.open_failing(None)
+        self.assert_failed("The file /esmfold/molstar.js did not load.", found)
+        self.assertEqual(http_get(self.server, "/esmfold/molstar.js")[0], 404)
+
+    def test_a_bundle_that_stops_with_an_error_says_what_the_error_was(self):
+        found = self.open_failing("throw new Error('the bundle broke while it loaded');")
+        self.assert_failed("Error: the bundle broke while it loaded", found)
+
+    def test_a_bundle_without_its_viewer_says_so(self):
+        self.assert_failed("Mol* loaded without its viewer.", self.open_failing("window.molstar = {};"))
+
+    def test_a_viewer_that_cannot_be_made_says_why(self):
+        found = self.open_failing("window.molstar = {Viewer: {create: () => Promise.reject(new Error('no WebAssembly here'))}};")
+        self.assert_failed("no WebAssembly here", found)
+
+    def test_a_viewer_that_throws_as_it_is_made_says_why(self):
+        found = self.open_failing("window.molstar = {Viewer: {create() { throw new Error('create threw'); }}};")
+        self.assert_failed("create threw", found)
+
+    def test_a_viewer_that_the_setup_cannot_use_says_why(self):
+        # The viewer came, but what the page sets up on it is missing: still no 3D view, so still the message.
+        found = self.open_failing("window.molstar = {Viewer: {create: () => Promise.resolve({plugin: {}})}};")
+        self.assertIn("Cannot read properties of undefined", found["reason"])
+        self.assertEqual((found["view"], found["cards"], found["badge"]), ("failed", ["failed"], ["3D view unavailable", "failed"]))
+
+    def test_the_page_stays_failed_whatever_else_redraws_it(self):
+        self.open_failing(None)
+        again = self.script("""
+            updateView(); renderJob(); scheduleStructures();
+            handleJobEvent({event: 'started', total: 2});
+            await new Promise(resolve => setTimeout(resolve, 300));
+            setConnection('connected');
+            return {view: document.body.dataset.view, badge: document.getElementById('connection-status').textContent};
+            """)
+        self.assertEqual(again, {"view": "failed", "badge": "3D view unavailable"})
+
+    def test_the_theme_and_help_keep_working_and_nothing_else_acts(self):
+        self.open_failing("window.molstar = {};")
+        self.addCleanup(self.js, "localStorage.removeItem('ssn_theme')")
+        self.script("applyTheme('light', false); return 1")
+        self.js("document.getElementById('theme-toggle-btn').click()")
+        self.assertEqual(self.js("document.documentElement.getAttribute('data-theme')"), "dark")
+        self.js("document.getElementById('help-btn').click()")
+        self.assertTrue(self.js("document.getElementById('help-modal').classList.contains('open')"))
+        self.js("document.dispatchEvent(new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}))")
+        self.assertFalse(self.js("document.getElementById('help-modal').classList.contains('open')"))
+        # A structure file dropped on the page goes nowhere, and the browser does not open it instead.
+        dropped = self.script("""
+            const transfer = new DataTransfer();
+            transfer.items.add(new File(['ATOM'], 'dropped.pdb'));
+            const target = document.getElementById('stage');
+            const outcome = [];
+            for (const type of ['dragenter', 'dragover', 'drop']) {
+                const event = new DragEvent(type, {dataTransfer: transfer, bubbles: true, cancelable: true});
+                target.dispatchEvent(event);
+                outcome.push(event.defaultPrevented);
+            }
+            for (const key of ['r', 'f', 'ArrowRight', 'Escape']) document.dispatchEvent(new KeyboardEvent('keydown', {key, bubbles: true}));
+            await new Promise(resolve => setTimeout(resolve, 300));
+            return outcome;
+            """)
+        self.assertEqual(dropped, [True, True, True])
+        self.assert_failed("Mol* loaded without its viewer.")
+
+    def test_the_reload_button_loads_the_page_again(self):
+        self.open_failing(None)
+        self.js("window.__marker = 1")
+        self.assertEqual(self.js("typeof window.__marker"), "number")
+        loaded = []
+        self.view.loadFinished.connect(loaded.append)
+        self.addCleanup(self.view.loadFinished.disconnect, loaded.append)
+        self.js("document.getElementById('start-retry').click()")
+        deadline = time.monotonic() + 30
+        while not loaded and time.monotonic() < deadline:
+            self.pump(0.05)
+        self.assertEqual(loaded, [True])
+        self.wait_for_failure()
+        self.assertEqual(self.js("typeof window.__marker"), "undefined")
+        # Once the file is there, the reload starts Mol*.
+        self.server.static_routes["/esmfold/"] = str(SRC / "resources" / "esmfold")
+        self.open_page()
+        self.assertTrue(self.script("return startFailure === null"))
+
+    def test_the_message_comes_in_simplified_chinese(self):
+        from desktop.Desktop_App import install_translations
+
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        found = self.open_failing("window.molstar = {};")
+        self.assertEqual(found["heading"], "3D 视图无法启动")
+        self.assertTrue(found["reason"].startswith("原因："), found["reason"])
+        self.assertEqual(found["badge"][0], "3D 视图不可用")
+        self.assertEqual(found["retry"][1], "重新加载页面")
+        self.assertEqual(len(found["paragraphs"]), 2)
+        self.assertFalse(any(re.search("[A-Za-z]{4}", text) for text in [found["heading"], found["retry"][1], *found["paragraphs"][1:]]))
+
+    def test_every_text_of_the_message_comes_from_the_catalog(self):
+        # Pseudo-language: a text from a catalog has no plain letter in it (the reason's own words are the browser's).
+        pseudo_language(self, self.app)
+        found = self.open_failing("window.molstar = {};")
+        for text in [found["heading"], found["retry"][1], found["badge"][0], *found["paragraphs"]]:
+            self.assertFalse(re.search("[A-Za-z]", re.sub(r"Mol\*|EMAP-SSN|'s\b", "", text)), text)
+        self.assertNotIn("Reason:", found["reason"])
+        self.assertNotIn("The file", found["reason"])
+
+
+class ScriptPolicyTests(StartFailureChecks, PageTestCase):
     """The page's script policy (Web_Server.PAGE_POLICY_ADDITIONS) keeps 'unsafe-eval' because Mol*'s bundle needs it to load."""
 
     def test_the_bundle_cannot_load_without_unsafe_eval_because_of_embinds_new_function(self):
@@ -368,7 +564,11 @@ class ScriptPolicyTests(PageTestCase):
             self.assertIn("unsafe-eval", errors[0][0])
             self.assertIn("at new Function", errors[0][1])
             self.assertIn("/esmfold/molstar.js", errors[0][1])
-            self.assertEqual(self.js("document.body.dataset.view"), "starting")
+            # And the page says so, with the browser's own words as the reason, instead of staying on "starting".
+            found = self.failed_page()
+            self.assertTrue(found["reason"].startswith("Reason: EvalError: Refused to evaluate a string as JavaScript because 'unsafe-eval'"),
+                            found["reason"])
+            self.assert_failed(errors[0][0].replace("Uncaught ", "", 1), found)
 
     def record_script(self):
         """A script that runs before the page's own, keeping what the page's scripts fail with."""

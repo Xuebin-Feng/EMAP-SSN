@@ -72,9 +72,10 @@ class PagePolicyTests(unittest.TestCase):
 
     def test_bundled_pages_cannot_run_injected_markup(self):
         # The pages' own inline scripts, each allowed by its hash. The first of
-        # agent.html's and meta.html's sets the theme in <head>, before the
-        # page is drawn; esmfold.html has that one only.
-        inline_scripts = {'agent.html': 2, 'meta.html': 2, 'esmfold.html': 1}
+        # agent.html's, meta.html's and esmfold.html's sets the theme in <head>,
+        # before the page is drawn; esmfold.html's second keeps what went wrong
+        # if Mol*'s file does not load, for the page to say.
+        inline_scripts = {'agent.html': 2, 'meta.html': 2, 'esmfold.html': 2}
         for page, count in inline_scripts.items():
             with self.subTest(page=page):
                 policy = directives(content_security_policy(page, (PAGES / page).read_bytes()))

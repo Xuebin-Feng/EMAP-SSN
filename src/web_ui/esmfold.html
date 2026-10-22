@@ -29,6 +29,19 @@
     <link rel="stylesheet" type="text/css" href="/fonts/fonts.css" />
     <!-- t() fills in this page's texts, which the Viewer serves in its language (src/web_ui/Page_Texts.py). -->
     <script src="/page_text.js"></script>
+    <!-- If Mol* does not load, the page says why (esmfold_shell.js, failStart): this keeps what went wrong with its
+         file, which the page cannot see afterwards: the file did not come (missing, blocked), or it stopped with an error. -->
+    <script>
+        window.molstarLoad = { missing: false, message: '' };
+        window.addEventListener('error', event => {
+            const file = /\/esmfold\/molstar\.js(\?|$)/;
+            if (event.target && event.target.tagName === 'SCRIPT') {
+                if (file.test(event.target.src || '')) window.molstarLoad.missing = true;
+            } else if (file.test(event.filename || '') && !window.molstarLoad.message) {
+                window.molstarLoad.message = String(event.message).replace(/^Uncaught\s+/, '');
+            }
+        }, true);
+    </script>
     <script type="text/javascript" src="/esmfold/molstar.js"></script>
     <style>
         :root {
@@ -254,6 +267,7 @@
         .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
         .status-badge[data-state="connected"] { background-color: var(--success-soft); color: var(--success); }
         .status-badge[data-state="reconnecting"] { background-color: var(--warning-soft); color: var(--warning); }
+        .status-badge[data-state="failed"] { background-color: var(--danger-soft); color: var(--danger); }
 
         /* Buttons: outline unless a variant says otherwise */
         .btn {
@@ -386,7 +400,7 @@
         .empty-card { max-width: 460px; pointer-events: auto; }
         body[data-view="starting"] .empty[data-for="starting"], body[data-view="restoring"] .empty[data-for="restoring"],
         body[data-view="empty"] .empty[data-for="empty"], body[data-view="webgl"] .empty[data-for="webgl"],
-        body[data-view="folding"] .empty[data-for="folding"] { display: flex; }
+        body[data-view="failed"] .empty[data-for="failed"], body[data-view="folding"] .empty[data-for="folding"] { display: flex; }
         .empty-icon { width: 44px; height: 44px; border-radius: 12px; background: var(--bg-muted); color: var(--text-secondary); display: grid; place-items: center; margin: 0 auto 14px; }
         .empty-icon .icon { width: 22px; height: 22px; }
         .empty-icon.warn { background: var(--warning-soft); color: var(--warning); }
@@ -396,6 +410,14 @@
         .empty .steps li { display: flex; gap: 8px; align-items: baseline; }
         .empty .steps .n { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-muted); color: var(--text-secondary); font-size: 11px; font-weight: 600; display: inline-grid; place-items: center; }
         .empty .hint { margin: 0; }
+        /* Mol* did not start: the technical reason, small and monospaced, one click selects it all to copy; and no
+           control of the page that needs Mol* (the panel's cards, the toolbar, the Session menu, a dropped file). */
+        .empty .reason { margin: 0 0 14px; padding: 6px 8px; border-radius: 6px; background: var(--bg-muted); color: var(--text-secondary); font: 11.5px/1.45 var(--font-mono); text-align: left; word-break: break-word; user-select: all; }
+        .empty .reason:empty { display: none; }
+        .empty .retry { margin: 0 0 14px; }
+        body[data-view="failed"] #viewer, body[data-view="failed"] .view-toolbar, body[data-view="failed"] .side,
+        body[data-view="failed"] #panel-toggle, body[data-view="failed"] .skip-link, body[data-view="failed"] .seqbar,
+        body[data-view="failed"] .drop-hint { display: none !important; }
         code { font-family: var(--font-mono); font-size: 12px; background: var(--code-inline-bg); color: var(--code-inline-text); padding: 2px 6px; border-radius: 6px; }
 
         /* The canvas's own legend: the chosen coloring in small, bottom left (the axes are bottom right) */
@@ -802,6 +824,14 @@
                             </ol>
                             <p class="hint nowindow" id="empty-nowindow" data-i18n>This Viewer has no window. An MCP client, or whatever else drives it, selects a node and runs <code>esmfold</code>; the structure appears here.</p>
                             <button class="btn" id="open-file" type="button"><svg class="icon" aria-hidden="true"><use href="#i-folder-open"/></svg><span data-i18n>Open a PDB file...</span></button>
+                        </div></div>
+                        <div class="empty" data-for="failed"><div class="empty-card">
+                            <div class="empty-icon warn"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg></div>
+                            <h2 id="start-title" data-i18n>The 3D view could not start</h2>
+                            <p data-i18n>Mol*, which draws the structures, did not start. Reload the page. If it happens again, try another browser, or reinstall EMAP-SSN.</p>
+                            <p class="reason" id="start-reason"></p>
+                            <button class="btn retry" id="start-retry" type="button"><span data-i18n>Reload the page</span></button>
+                            <p class="hint" data-i18n>Your saved session is untouched. It comes back when the 3D view starts.</p>
                         </div></div>
                         <div class="empty" data-for="webgl"><div class="empty-card">
                             <div class="empty-icon warn"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg></div>

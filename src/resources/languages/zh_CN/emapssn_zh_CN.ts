@@ -2937,7 +2937,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+52"/>
-        <location filename="../../../web_ui/esmfold.html" line="+836"/>
+        <location filename="../../../web_ui/esmfold.html" line="+866"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -2979,7 +2979,7 @@ Command-line usage:
         <translation type="unfinished">更多着色方式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_shell.js" line="+99"/>
+        <location filename="../../../web_ui/esmfold_shell.js" line="+103"/>
         <source>Connected</source>
         <translation type="unfinished">已连接</translation>
     </message>
@@ -2990,7 +2990,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/esmfold.html" line="-91"/>
+        <location filename="../../../web_ui/esmfold.html" line="-99"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -3006,17 +3006,36 @@ Command-line usage:
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+62"/>
         <source>Mol* initialized. Connecting to the Viewer...</source>
         <translation type="unfinished">Mol* 已初始化。正在连接查看器…</translation>
     </message>
     <message>
-        <location line="+5"/>
         <source>Mol* could not start: {reason}</source>
-        <translation type="unfinished">Mol* 无法启动：{reason}</translation>
+        <translation type="obsolete">Mol* 无法启动：{reason}</translation>
+    </message>
+    <message>
+        <location line="-105"/>
+        <source>3D view unavailable</source>
+        <translation type="unfinished">3D 视图不可用</translation>
+    </message>
+    <message>
+        <location line="+113"/>
+        <source>Mol* loaded without its viewer.</source>
+        <translation type="unfinished">Mol* 已加载，但缺少其查看器。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The file {file} did not load.</source>
+        <translation type="unfinished">文件 {file} 未能加载。</translation>
     </message>
     <message>
         <location line="+12"/>
+        <source>Reason: {reason}</source>
+        <translation type="unfinished">原因：{reason}</translation>
+    </message>
+    <message>
+        <location line="+18"/>
         <source>Connection error: could not fetch the session.</source>
         <translation type="unfinished">连接错误：无法获取会话。</translation>
     </message>
@@ -3140,7 +3159,7 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../web_ui/esmfold_structures.js" line="+238"/>
-        <location filename="../../../web_ui/esmfold.html" line="+41"/>
+        <location filename="../../../web_ui/esmfold.html" line="+49"/>
         <source>Color</source>
         <translation type="unfinished">着色</translation>
     </message>
@@ -3347,7 +3366,7 @@ Command-line usage:
         <translation type="unfinished">结构折叠完成后会显示在这里。</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+94"/>
         <source>Only PDB and mmCIF files can be opened here.</source>
         <translation type="unfinished">这里只能打开 PDB 和 mmCIF 文件。</translation>
     </message>
@@ -3373,7 +3392,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/esmfold.html" line="-95"/>
+        <location filename="../../../web_ui/esmfold.html" line="-103"/>
         <source>Saved automatically after every change</source>
         <translation type="unfinished">每次更改后自动保存</translation>
     </message>
@@ -3395,7 +3414,7 @@ Command-line usage:
     <message>
         <location line="+13"/>
         <location line="+17"/>
-        <location filename="../../../web_ui/esmfold_structures.js" line="-33"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="-35"/>
         <source>Undo</source>
         <translation type="unfinished">撤销</translation>
     </message>
@@ -3440,8 +3459,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-709"/>
-        <location line="+704"/>
+        <location filename="../../../web_ui/esmfold.html" line="-731"/>
+        <location line="+726"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -3512,13 +3531,13 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location line="+67"/>
+        <location line="+75"/>
         <location line="+1"/>
         <source>Scene</source>
         <translation type="unfinished">场景</translation>
     </message>
     <message>
-        <location line="-63"/>
+        <location line="-71"/>
         <source>Advanced view: Mol*&apos;s own panels (English only). The same scene, the same session.</source>
         <translation type="unfinished">高级视图：Mol* 自带的面板（仅英文）。场景和会话与简易视图相同。</translation>
     </message>
@@ -3565,12 +3584,12 @@ Command-line usage:
     <message>
         <location line="+2"/>
         <location line="+0"/>
-        <location line="+114"/>
+        <location line="+122"/>
         <source>Save an image</source>
         <translation type="unfinished">保存图片</translation>
     </message>
     <message>
-        <location line="-113"/>
+        <location line="-121"/>
         <location line="+0"/>
         <source>Full screen</source>
         <translation type="unfinished">全屏</translation>
@@ -3627,7 +3646,27 @@ Command-line usage:
         <translation type="unfinished">运行 &lt;code&gt;esmfold&lt;/code&gt; 或 &lt;code&gt;esmfold multi&lt;/code&gt;。</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+7"/>
+        <source>The 3D view could not start</source>
+        <translation type="unfinished">3D 视图无法启动</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Mol*, which draws the structures, did not start. Reload the page. If it happens again, try another browser, or reinstall EMAP-SSN.</source>
+        <translation type="unfinished">绘制结构的 Mol* 没有启动。请重新加载页面。如果问题再次出现，请换一个浏览器，或重新安装 EMAP-SSN。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Reload the page</source>
+        <translation type="unfinished">重新加载页面</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Your saved session is untouched. It comes back when the 3D view starts.</source>
+        <translation type="unfinished">已保存的会话未受影响，3D 视图启动后会恢复。</translation>
+    </message>
+    <message>
+        <location line="+54"/>
         <source>Pin a residue</source>
         <translation type="unfinished">固定残基</translation>
     </message>
@@ -3686,7 +3725,7 @@ Command-line usage:
         <translation type="obsolete">此查看器没有窗口。请在它的命令行或 MCP 客户端中运行 &lt;code&gt;esmfold&lt;/code&gt;：结构会显示在这里。</translation>
     </message>
     <message>
-        <location line="-63"/>
+        <location line="-71"/>
         <source>This Viewer has no window. An MCP client, or whatever else drives it, selects a node and runs &lt;code&gt;esmfold&lt;/code&gt;; the structure appears here.</source>
         <translation type="unfinished">此查看器没有窗口。由 MCP 客户端（或其他驱动它的程序）选择节点并运行 &lt;code&gt;esmfold&lt;/code&gt;；结构会显示在这里。</translation>
     </message>
@@ -3696,7 +3735,7 @@ Command-line usage:
         <translation type="unfinished">打开 PDB 文件…</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+12"/>
         <source>3D graphics are not available</source>
         <translation type="unfinished">3D 图形不可用</translation>
     </message>
@@ -6784,7 +6823,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location filename="../../../web_ui/agent_images.py" line="+21"/>
-        <location filename="../../../web_ui/Web_Server.py" line="+749"/>
+        <location filename="../../../web_ui/Web_Server.py" line="+753"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>

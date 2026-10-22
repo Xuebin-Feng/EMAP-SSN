@@ -2039,6 +2039,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>3D view unavailable</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Connected</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2063,7 +2067,15 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Mol* could not start: {reason}</source>
+        <source>Mol* loaded without its viewer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The file {file} did not load.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reason: {reason}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -2464,6 +2476,22 @@ Command-line usage:
     </message>
     <message>
         <source>Open a PDB file...</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The 3D view could not start</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Mol*, which draws the structures, did not start. Reload the page. If it happens again, try another browser, or reinstall EMAP-SSN.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reload the page</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Your saved session is untouched. It comes back when the 3D view starts.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

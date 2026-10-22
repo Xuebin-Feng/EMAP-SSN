@@ -537,6 +537,8 @@ const STRUCTURE_FILE = /\.(pdb|ent|cif|mmcif)$/i;
 
 // Each file is loaded as a folded structure is: it is colored like the others and aligned to the pivot.
 function openStructureFiles(files) {
+    // A file dropped while Mol* is not running goes nowhere (the drop is still kept from the browser, which would open it).
+    if (!plugin || startFailure) return;
     const chosen = [...files].filter(file => STRUCTURE_FILE.test(file.name));
     if (!chosen.length) {
         showStatus(t("Only PDB and mmCIF files can be opened here."), 6000, {error: true});
