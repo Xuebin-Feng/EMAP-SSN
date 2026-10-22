@@ -199,6 +199,13 @@ async function startMolstar() {
     // The hierarchy changes as structures come and go; a structure's visibility is only a cell's state.
     plugin.managers.structure.hierarchy.behaviors.selection.subscribe(() => scheduleStructures());
     plugin.state.data.events.cell.stateUpdated.subscribe(() => scheduleStructures());
+    // The list put off while Mol* replaced the scene (renderStructures): the update has ended, and Mol* has
+    // rebuilt its hierarchy from the state just before it says so.
+    plugin.state.data.behaviors.isUpdating.subscribe(updating => {
+        if (updating || !renderRowsAfterUpdate) return;
+        renderRowsAfterUpdate = false;
+        scheduleStructures();
+    });
     syncCanvasProps();
     updateView();
     renderStructures();
@@ -350,7 +357,7 @@ async function loadAndAlignStructure(load, label, url) {
         await load();
 
         // Mol* logs a file it cannot get or read and carries on: no new structure is the failure.
-        const structures = plugin.managers.structure.hierarchy.current.structures;
+        const structures = loadedStructures();
         if (structures.length <= before) throw new Error(t("Mol* could not get a structure from it."));
         // The new structure (the newest) takes the scene's coloring, pLDDT unless the
         // Color by card says otherwise; the structures already there keep what they show.

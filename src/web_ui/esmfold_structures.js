@@ -21,6 +21,8 @@ let structuresTimer = null;
 // A slider is being dragged: the rows stay as they are until it is let go, so that it keeps its hold.
 let rowControlsBusy = false;
 let renderRowsAgain = false;
+// The list was due while Mol* was replacing the scene (sceneBeingReplaced): it is drawn when that update ends.
+let renderRowsAfterUpdate = false;
 
 function scheduleStructures() {
     clearTimeout(structuresTimer);
@@ -201,12 +203,9 @@ function isFolded(structure) {
 
 // The URL a structure was loaded from, so that its file can be had again as the Viewer wrote it.
 function structureSourceUrl(structure) {
-    const cells = plugin.state.data.cells;
-    for (let cell = structure.cell; cell; ) {
+    for (const cell of nodesAbove(structure) ?? []) {
         const params = cell.transform.params;
         if (cell.transform.transformer.id === 'ms-plugin.download' && params?.url?.url) return params.url.url;
-        const parent = cell.transform.parent;
-        cell = parent && parent !== cell.transform.ref ? cells.get(parent) : undefined;
     }
     return undefined;
 }
@@ -363,11 +362,21 @@ function structureDetails(structure, pivot) {
         const downloadLabel = make('span', undefined, t("Download PDB"));
         const downloadIcon = icon("download");
         download.append(downloadIcon, downloadLabel);
-        download.addEventListener('click', () => downloadStructureFile(url, structureFile(structure)));
+        download.addEventListener('click', onLive(ref, current => downloadStructureFile(url, structureFile(current))));
         actions.append(download);
     }
     body.append(actions);
     return body;
+}
+
+// A row's button acts on its structure as it is when the button is pressed: Mol* can replace the scene between
+// the row's drawing and the press (the list is drawn again when the update ends), and a structure that is gone
+// has nothing to hide, zoom to, remove or download.
+function onLive(ref, act) {
+    return () => {
+        const structure = structureByRef(ref);
+        if (structure) act(structure);
+    };
 }
 
 function structureRow(structure, index, pivot) {
@@ -404,15 +413,15 @@ function structureRow(structure, index, pivot) {
     const eyeLabel = hidden ? t("Show {name}", {name}) : t("Hide {name}", {name});
     const eyeIcon = icon("eye");
     setIcon(eyeIcon, hidden ? "eye-off" : "eye");
-    const eye = focusable(iconButton(eyeLabel, eyeIcon, () => {
-        plugin.managers.structure.component.toggleVisibility(structure.components);
-    }), ref + ':eye');
+    const eye = focusable(iconButton(eyeLabel, eyeIcon, onLive(ref, current => {
+        plugin.managers.structure.component.toggleVisibility(current.components);
+    })), ref + ':eye');
     eye.setAttribute('aria-pressed', hidden ? 'true' : 'false');
-    const zoom = focusable(iconButton(t("Zoom to {name}", {name}), icon("crosshair"), () => zoomToStructure(structure)), ref + ':zoom');
+    const zoom = focusable(iconButton(t("Zoom to {name}", {name}), icon("crosshair"), onLive(ref, zoomToStructure)), ref + ':zoom');
     const details = focusable(iconButton(t("Details of {name}", {name}), icon("chevron-down"), () => toggleRow(ref), 'exp-btn'), ref + ':details');
     details.setAttribute('aria-expanded', open ? 'true' : 'false');
     if (open) details.setAttribute('aria-controls', 'sb-' + safeId(ref));
-    const remove = focusable(iconButton(t("Remove {name}", {name}), icon("trash-2"), () => removeStructure(structure), 'btn-danger-ghost'), ref + ':remove');
+    const remove = focusable(iconButton(t("Remove {name}", {name}), icon("trash-2"), onLive(ref, removeStructure), 'btn-danger-ghost'), ref + ':remove');
     main.append(swatch, text, eye, zoom, details, remove);
     row.append(main);
     if (open) row.append(structureDetails(structure, pivot));
@@ -429,6 +438,12 @@ function renderStructures() {
     if (!plugin) return;
     if (rowControlsBusy) {
         renderRowsAgain = true;
+        return;
+    }
+    // Mol* is replacing the scene, and its hierarchy has not caught up: the list is drawn when the update ends
+    // (the subscription in esmfold_shell.js), not from structures that are going, and nothing is forgotten for them.
+    if (sceneBeingReplaced()) {
+        renderRowsAfterUpdate = true;
         return;
     }
     const structures = loadedStructures();
@@ -481,16 +496,18 @@ function zoomToStructure(structure) {
 // ---- Removing -----------------------------------------------------------------------
 // The top of the chain of nodes a structure came from (download, parse, model,
 // structure): Mol*'s own remove takes the structure and leaves the rest behind.
+// Undefined when a node of the chain is not in the state (the scene is being replaced; see nodesAbove in
+// esmfold_layers.js): the top of what remains would be another node's, not this structure's.
 function structureDataRoot(structure) {
-    const state = plugin.state.data;
-    let cell = structure.cell;
-    while (cell.transform.parent && cell.transform.parent !== state.tree.root.ref) cell = state.cells.get(cell.transform.parent);
-    return cell.transform.ref;
+    return nodesAbove(structure)?.at(-1).transform.ref;
 }
 
+// A structure whose nodes are gone has nothing left to delete.
 async function deleteStructureData(structure) {
+    const root = structureDataRoot(structure);
+    if (!root) return;
     const state = plugin.state.data;
-    await plugin.runTask(state.updateTree(state.build().delete(structureDataRoot(structure))));
+    await plugin.runTask(state.updateTree(state.build().delete(root)));
 }
 
 // Removing a structure can be undone for a few seconds: the session as it was comes back.

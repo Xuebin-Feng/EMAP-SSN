@@ -132,7 +132,7 @@ modules = [
 
 [sections.fold_session]
 description = "Fold View page: saved sessions, per-residue layers, the Mol* API the page uses"
-seconds = 85
+seconds = 95
 modules = [
     "test_esmfold_layers",
     "test_esmfold_saved_sessions",

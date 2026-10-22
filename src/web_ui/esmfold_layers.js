@@ -38,22 +38,54 @@ function runExclusive(task) {
     return result;
 }
 
-function loadedStructures() {
+// ---- The scene, while Mol* changes it --------------------------------------------------
+// Mol* rebuilds its structure hierarchy when an update has ended, not while it runs, but an update that
+// replaces the scene (a session opened, Undo, Clear, a structure removed) takes the old nodes out of the
+// state at its start and then waits for the new ones to load. For that time the hierarchy still lists
+// structures whose nodes are gone, and nothing says so: a timer or a pointer event of the page can land
+// there, and a name, a file or a layer read through such a structure finds nothing above it (the page once
+// threw there, from the list's redraw). So the page reads the hierarchy through the functions below:
+// nodesAbove() says what a structure stands on, or that it is gone, loadedStructures() lists the structures
+// that are not, and sceneBeingReplaced() says when the page waits before it draws.
+
+// The structures Mol*'s hierarchy lists, as it last was built.
+function listedStructures() {
     return plugin.managers.structure.hierarchy.current.structures;
+}
+
+// The nodes a structure stands on, its own first: the structure, its model, the parse and the download or
+// raw data it came from. null when any of them is not in Mol*'s state (a node that came back under the same
+// ref is another node): the structure is gone, and has nothing above it to read and no top of a chain to
+// delete; a guess at either would be another structure's.
+function nodesAbove(structure) {
+    const state = plugin.state.data;
+    if (state.cells.get(structure.cell.transform.ref) !== structure.cell) return null;
+    const nodes = [structure.cell];
+    for (let cell = structure.cell; ; ) {
+        const parent = cell.transform.parent;
+        if (!parent || parent === cell.transform.ref || parent === state.tree.root.ref) return nodes;
+        cell = state.cells.get(parent);
+        if (!cell) return null;
+        nodes.push(cell);
+    }
+}
+
+// The structures of the scene as it is: the ones the hierarchy lists that are not gone.
+function loadedStructures() {
+    return listedStructures().filter(structure => nodesAbove(structure));
+}
+
+// Mol* is replacing the scene: an update is running and the hierarchy still lists a structure it has removed.
+// What the page draws or forgets from the hierarchy now is drawn or forgotten from a scene that is about to
+// change, so it waits for the update to end (renderStructures, and the subscription in esmfold_shell.js).
+function sceneBeingReplaced() {
+    return plugin.state.data.behaviors.isUpdating.value && listedStructures().some(structure => !nodesAbove(structure));
 }
 
 // The PDB file a structure was loaded from, from its download node.
 function structureFile(structure) {
-    const cells = plugin.state.data.cells;
-    for (let cell = structure.cell; cell; ) {
-        const params = cell.transform.params;
-        if (cell.transform.transformer.id === 'ms-plugin.download' && params?.url?.url) {
-            return decodeURIComponent(params.url.url.split('?')[0].split('/').pop());
-        }
-        const parent = cell.transform.parent;
-        cell = parent && parent !== cell.transform.ref ? cells.get(parent) : undefined;
-    }
-    return undefined;
+    const url = structureSourceUrl(structure);
+    return url ? decodeURIComponent(url.split('?')[0].split('/').pop()) : undefined;
 }
 
 function layerListing(file, refresh = false) {

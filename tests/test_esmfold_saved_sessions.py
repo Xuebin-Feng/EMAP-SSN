@@ -59,6 +59,51 @@ def tags_in(session):
     return [tag for node in session["data"]["tree"]["transforms"] for tag in node.get("tags", [])]
 
 
+# What the page does when it is asked, from Mol*'s own event, at the point where an update that replaces the scene has
+# taken the old nodes out of the state and has not ended (window.midReplace, set once): the questions a timer or a pointer
+# event of the page asks there, and what it left of the list.
+MID_REPLACE_JS = """
+window.midReplace = null;
+{
+    const state = plugin.state.data;
+    const old = listedStructures().map(structure => structure.cell);
+    const watch = state.events.cell.stateUpdated.subscribe(() => {
+        if (window.midReplace || !state.behaviors.isUpdating.value) return;
+        if (!old.length || old.some(cell => state.cells.get(cell.transform.ref) === cell)) return;
+        const errors = [];
+        const attempt = (what, run) => { try { return run(); } catch (error) { errors.push(what + ': ' + error.message); return null; } };
+        const list = byId('struct-list');
+        const html = list.innerHTML;
+        const listed = listedStructures();
+        const out = {
+            listed: listed.length, loaded: loadedStructures().length, replacing: sceneBeingReplaced(),
+            names: listed.map(structure => attempt('structureName', () => structureName(structure))),
+            roots: listed.map(structure => attempt('structureDataRoot', () => structureDataRoot(structure) ?? null)),
+            byRef: old.map(cell => attempt('structureByRef', () => !!structureByRef(cell.transform.ref)))
+        };
+        attempt('renderStructures', () => renderStructures());
+        out.untouched = list.innerHTML === html;
+        out.pending = renderRowsAfterUpdate;
+        // The old rows are on the page for a moment still: their buttons do nothing, and say nothing.
+        const said = byId('live').textContent;
+        const camera = plugin.managers.camera;
+        const focusLoci = camera.focusLoci;
+        let zoomed = 0;
+        camera.focusLoci = () => { zoomed++; };
+        const buttons = [':eye', ':zoom', ':remove'].map(suffix => list.querySelector('[data-focus-key$="' + suffix + '"]'));
+        out.buttons = buttons.filter(Boolean).length;
+        for (const button of buttons) if (button) attempt('press ' + button.dataset.focusKey, () => button.click());
+        camera.focusLoci = focusLoci;
+        out.silent = byId('live').textContent === said && zoomed === 0;
+        out.errors = errors;
+        window.midReplace = out;
+        watch.unsubscribe();
+    });
+}
+return 1;
+"""
+
+
 class SavedSceneTestCase(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
     """The page over the two fixture structures the scenes name, with the Viewer's side of its conversation."""
 
@@ -97,6 +142,23 @@ class SavedSceneTestCase(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCa
     def errors(self):
         # (The stream of each page that was left reports its end.)
         return [error for error in self.console_errors() if "SSE Connection Error" not in error[1]]
+
+
+class PageReadsTheHierarchyThroughOneDoorTests(unittest.TestCase):
+    """The race that ReplacedSceneTests puts the page in was a read of Mol*'s hierarchy, and a walk up a node's parents, taking the hierarchy for the scene.
+
+    esmfold_layers.js answers for both (loadedStructures and nodesAbove); a script that reaches past them
+    brings the race back for whatever structure it asks about, so none does.
+    """
+
+    def test_only_the_layers_script_reads_the_hierarchy_and_walks_a_nodes_parents(self):
+        readers = {}
+        for script in sorted((SRC / "web_ui").glob("esmfold_*.js")):
+            text = script.read_text(encoding="utf-8")
+            for door in ("hierarchy.current.structures", "transform.parent"):
+                if door in text:
+                    readers.setdefault(door, []).append(script.name)
+        self.assertEqual(readers, {"hierarchy.current.structures": ["esmfold_layers.js"], "transform.parent": ["esmfold_layers.js"]})
 
 
 class SceneFileTests(unittest.TestCase):
@@ -272,6 +334,119 @@ class SavedSceneTests(SavedSceneTestCase):
         self.script("document.querySelector('#toast .toast-action').click(); await structureQueue; return 1")
         self.settle(1500)
         self.assertEqual(self.script("return await sessionSummary()"), before)
+        self.assertEqual(self.errors(), [])
+
+
+class ReplacedSceneTests(SavedSceneTestCase):
+    """The page while Mol* changes the scene under it.
+
+    Mol* rebuilds its structure hierarchy when an update ends. An update that replaces the scene (a session
+    opened, Undo, Clear, a structure removed) takes the old nodes out of the state at its start and then waits
+    for the new ones to load, so for that time the hierarchy still lists structures whose nodes are gone.
+    A timer of the page (the list's redraw, 30 ms after a cell changed) or a pointer event can land there:
+    on a busy machine one did, and threw "Cannot read properties of undefined (reading 'transform')" from
+    the walk up a structure's nodes. These tests put the page at that point without the machine's help.
+    """
+
+    def test_the_page_stays_whole_in_the_middle_of_a_scene_being_replaced(self):
+        self.restore("pair", "viewer")
+        scene = saved_scene("opened")
+        self.script(MID_REPLACE_JS)
+        self.script("await openSessionFile(new File([%s], 'other.molj')); await structureQueue; return 1" % json.dumps(scene["molj"]))
+        self.settle(1200)
+        middle = self.script("return window.midReplace")
+        # (If a newer Mol* rebuilds its hierarchy earlier, this is where that shows, and the page's waiting can go.)
+        self.assertIsNotNone(middle, "the update never reached the point where its old nodes were gone and the hierarchy still listed them")
+        # Asked there, the page does not fail and does not act on the structures that are going.
+        self.assertEqual(middle["errors"], [])
+        self.assertEqual((middle["listed"], middle["loaded"], middle["replacing"]), (2, 0, True))
+        self.assertEqual(middle["byRef"], [False, False])
+        self.assertEqual(middle["roots"], [None, None])
+        self.assertTrue(all(isinstance(name, str) and name for name in middle["names"]), middle["names"])
+        # The redraw due then is put off, not drawn from them (a list of none would show the hint and forget the rows' state).
+        self.assertTrue(middle["untouched"])
+        self.assertTrue(middle["pending"])
+        # The rows of the structures that are going do not act on them when pressed (Remove would have said it removed one).
+        self.assertEqual(middle["buttons"], 3)
+        self.assertTrue(middle["silent"])
+        # When the update ends the list is the new scene's, and nothing is left waiting.
+        after = self.script("""return {pending: renderRowsAfterUpdate, replacing: sceneBeingReplaced(),
+            names: [...document.querySelectorAll('#struct-list .srow-name')].map(node => node.textContent)}""")
+        self.assertEqual(after, {"pending": False, "replacing": False, "names": [item["name"] for item in scene["expected"]["structures"]]})
+        self.assertEqual(self.script("return await sessionSummary()"), scene["expected"])
+        self.assertEqual(self.errors(), [])
+
+    def test_a_structure_with_a_node_missing_has_no_name_file_or_root_to_delete(self):
+        self.restore("pair", "viewer")
+        found = self.script("""
+            const state = plugin.state.data;
+            const structure = loadedStructures()[1];
+            const chain = nodesAbove(structure);
+            const read = () => ({nodes: nodesAbove(structure) && nodesAbove(structure).length, root: structureDataRoot(structure) ?? null,
+                url: structureSourceUrl(structure) ?? null, file: structureFile(structure) ?? null, loaded: loadedStructures().length});
+            const whole = {...read(), name: structureName(structure), rows: document.querySelectorAll('#struct-list .srow').length};
+            let updates = 0;
+            const watch = state.behaviors.isUpdating.subscribe(updating => { if (updating) updates++; });
+            const missing = [];
+            for (const node of chain) {
+                // The node is not in the state, as when Mol* has removed it and its hierarchy has not caught up.
+                const size = state.tree.transforms.size;
+                const started = updates;
+                state.cells.delete(node.transform.ref);
+                try {
+                    const out = {...read(), name: structureName(structure)};
+                    renderStructures();
+                    out.rows = document.querySelectorAll('#struct-list .srow').length;
+                    await deleteStructureData(structure);
+                    out.kept = state.tree.transforms.size === size;
+                    out.updates = updates - started;
+                    missing.push(out);
+                } catch (error) {
+                    missing.push('ERROR ' + error.message);
+                } finally {
+                    state.cells.set(node.transform.ref, node);
+                }
+            }
+            watch.unsubscribe();
+            return {chain: chain.length, whole, missing};
+            """)
+        self.assertEqual(found["chain"], 5)
+        self.assertEqual(found["whole"]["nodes"], 5)
+        self.assertEqual((found["whole"]["file"], found["whole"]["name"]), (SECOND, SECOND[:-len(".pdb")]))
+        self.assertTrue(found["whole"]["root"] and found["whole"]["url"].startswith("/structures/"))
+        # Whichever node is gone, the structure is gone with it: no name read from what is above, no guess at a top to delete,
+        # nothing deleted, and the list shows the structure that is whole.
+        # (Its name is whatever its own node is labeled; nothing shows it.)
+        names = [item.pop("name") if isinstance(item, dict) else item for item in found["missing"]]
+        self.assertTrue(all(isinstance(name, str) and name for name in names), names)
+        self.assertEqual(found["missing"], [
+            {"nodes": None, "root": None, "url": None, "file": None, "loaded": 1, "rows": 1, "kept": True, "updates": 0}] * found["chain"])
+        self.assertEqual(self.errors(), [])
+
+    def test_a_list_put_off_while_a_scene_is_replaced_is_drawn_when_the_update_ends(self):
+        self.restore("pair", "viewer")
+        found = self.script("""
+            const state = plugin.state.data;
+            const list = byId('struct-list');
+            const node = nodesAbove(loadedStructures()[1])[1];
+            const mark = make('i');
+            list.append(mark);
+            // The state has lost a node the hierarchy still lists a structure of, and an update is running.
+            state.cells.delete(node.transform.ref);
+            state.behaviors.isUpdating.next(true);
+            renderStructures();
+            const waiting = {replacing: sceneBeingReplaced(), drawn: !mark.isConnected, pending: renderRowsAfterUpdate};
+            state.cells.set(node.transform.ref, node);
+            await new Promise(resolve => setTimeout(resolve, 200));
+            const stillWaiting = {drawn: !mark.isConnected, pending: renderRowsAfterUpdate};
+            state.behaviors.isUpdating.next(false);
+            await new Promise(resolve => setTimeout(resolve, 300));
+            return {waiting, stillWaiting, ended: {drawn: !mark.isConnected, pending: renderRowsAfterUpdate, rows: list.querySelectorAll('.srow').length}};
+            """)
+        self.assertEqual(found["waiting"], {"replacing": True, "drawn": False, "pending": True})
+        # Nothing draws it before the update has ended.
+        self.assertEqual(found["stillWaiting"], {"drawn": False, "pending": True})
+        self.assertEqual(found["ended"], {"drawn": True, "pending": False, "rows": 2})
         self.assertEqual(self.errors(), [])
 
 
