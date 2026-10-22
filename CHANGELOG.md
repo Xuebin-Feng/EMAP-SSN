@@ -458,6 +458,12 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- The Fold View could act on structures that were being removed. Opening a session over
+  another, Undo, Clear or removing a structure takes a moment, and during it the
+  Structures list could redraw from the old scene, erroring out and losing open rows and
+  the pinned residue. A button pressed on an old row could act on the structure being
+  removed. It mostly happened on a busy computer. The list now waits until the change is
+  done, and every button acts on the scene as it is when pressed.
 - A seeded UMAP layout could come out differently from one run to the next, although the
   docs say it reproduces exactly. umap's spectral start asks SciPy's ARPACK for each
   connected part of the network, and on a small part of interchangeable nodes (such as
