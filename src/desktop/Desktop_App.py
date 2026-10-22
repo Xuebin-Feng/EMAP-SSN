@@ -918,6 +918,52 @@ class ResponsiveFieldLayout(QLayout):
             self._last_height = height
             QTimer.singleShot(0, parent.updateGeometry)
 
+    def column_widths(self, width):
+        """Each column's width when the row is wide and laid out in width.
+
+        The Low Resource Mode section lines its second column up with the colour
+        rows' by asking the colour row for its widths.
+        """
+        gap = self.spacing()
+        widths = self._column_minima()
+        available = width - self.column_spacing * (len(widths) - 1)
+        if self.column_width_provider is not None:
+            widths = self.column_width_provider(width)
+        elif self.equal_fields:
+            input_space = available - sum(self._label_width(label) + gap
+                                          for label, _ in self.pairs)
+            widths = []
+            for index, (label, _) in enumerate(self.pairs):
+                share = input_space // (len(self.pairs) - index)
+                widths.append(self._label_width(label) + gap + share)
+                input_space -= share
+        elif self.trailing:
+            flexible = [i for i, (_, control) in enumerate(self.pairs)
+                        if not isinstance(control, QPushButton)]
+            weights = (self.control_stretches if self.control_stretches is not None
+                       else tuple(int(i in flexible) for i in range(len(widths))))
+            flexible = [i for i, weight in enumerate(weights) if weight > 0]
+            extra = available - sum(widths)
+            remaining_weight = sum(weights)
+            for index in flexible:
+                share = extra * weights[index] // remaining_weight
+                remaining_weight -= weights[index]
+                widths[index] += share
+                extra -= share
+        else:
+            prefix = (self._label_width(self.pairs[0][0]) + gap
+                      if self.field_ratios else 0)
+            remaining = available - prefix
+            ratio_sum = sum(self.ratios)
+            widths = []
+            for ratio in self.ratios:
+                column = remaining * ratio // ratio_sum
+                widths.append(column)
+                remaining -= column
+                ratio_sum -= ratio
+            widths[0] += prefix
+        return widths
+
     def _arrange(self, rect, *, apply):
         gap = self.spacing()
         row_gap = 12
@@ -956,43 +1002,7 @@ class ResponsiveFieldLayout(QLayout):
                 y += row_gap
             return y - rect.y() - row_gap
 
-        widths = self._column_minima()
-        available = rect.width() - self.column_spacing * (len(widths) - 1)
-        if self.column_width_provider is not None:
-            widths = self.column_width_provider(rect.width())
-        elif self.equal_fields:
-            input_space = available - sum(self._label_width(label) + gap
-                                          for label, _ in self.pairs)
-            widths = []
-            for index, (label, _) in enumerate(self.pairs):
-                share = input_space // (len(self.pairs) - index)
-                widths.append(self._label_width(label) + gap + share)
-                input_space -= share
-        elif self.trailing:
-            flexible = [i for i, (_, control) in enumerate(self.pairs)
-                        if not isinstance(control, QPushButton)]
-            weights = (self.control_stretches if self.control_stretches is not None
-                       else tuple(int(i in flexible) for i in range(len(widths))))
-            flexible = [i for i, weight in enumerate(weights) if weight > 0]
-            extra = available - sum(widths)
-            remaining_weight = sum(weights)
-            for index in flexible:
-                share = extra * weights[index] // remaining_weight
-                remaining_weight -= weights[index]
-                widths[index] += share
-                extra -= share
-        else:
-            prefix = (self._label_width(self.pairs[0][0]) + gap
-                      if self.field_ratios else 0)
-            remaining = available - prefix
-            ratio_sum = sum(self.ratios)
-            widths = []
-            for ratio in self.ratios:
-                width = remaining * ratio // ratio_sum
-                widths.append(width)
-                remaining -= width
-                ratio_sum -= ratio
-            widths[0] += prefix
+        widths = self.column_widths(rect.width())
         x = rect.x()
         height = 0
         for index, ((label, _), width) in enumerate(zip(self.pairs, widths)):

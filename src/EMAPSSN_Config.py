@@ -251,9 +251,10 @@ CONFIG_TAB_ROW_SPACING = 12
 CONFIG_FIELD_HORIZONTAL_SPACING = 12
 CONFIG_SEPARATOR_THICKNESS = 2  # the theme's separator_thickness (desktop.Studio_Theme.GEOMETRY)
 CONFIG_SEPARATOR_PADDING = 24
-# Between the Low Resource Mode section's two columns, from the left switch to
-# the right label, in px.
-LOW_RESOURCE_COLUMN_SPACING = 24
+# Between a Low Resource Mode label and its switch, in px: twice the field
+# spacing (the Studio theme has no spacing token of this size). The switches
+# stand apart from their labels, not in line with the colour fields above.
+LOW_RESOURCE_SWITCH_GAP = 2 * CONFIG_FIELD_HORIZONTAL_SPACING
 # How long Save & Run stays greyed out once clicked, in ms, so a double click
 # launches once; as a tool's Save & Run (EMAPSSN_Tools.RUN_BUTTON_PAUSE_MS).
 CONFIG_RUN_BUTTON_PAUSE_MS = 1000
@@ -4181,19 +4182,23 @@ if __name__ == "__main__":
             LOW_RESOURCE_SWITCH_ROWS, stacking to one a line, in that order,
             when the page is too narrow for two.
 
-            The section has its own columns, apart from the colours above
-            it: each column's labels are as wide as its longest, so its
-            switches line up with each other, not with the fields above.
-            Stacked, every label is as wide as the longest of all, so the
-            switches still line up. Its labels take no part in the window's
-            shared label column (_align_label_column), and it needs no more
-            room than its own labels and switches.
+            The section's columns start where the colour grid's do: the first
+            column's labels with Text Color's, the second's with Initial Node
+            Color's, at every width, because the section asks the colour row
+            for its column widths (ResponsiveFieldLayout.column_widths). It
+            stacks together with the colour rows. Each column's labels are as
+            wide as its longest, and its switches share one x, a
+            LOW_RESOURCE_SWITCH_GAP after them, not in line with the colour
+            fields. Stacked, every label is as wide as the longest of all, so
+            the switches still line up. Its labels take no part in the
+            window's shared label column (_align_label_column).
             """
             section = QWidget()
             section.setObjectName("lowResourceSection")
             section_layout = QVBoxLayout(section)
             section_layout.setContentsMargins(0, 0, 0, 0)
             section_layout.setSpacing(CONFIG_TAB_ROW_SPACING)
+            reference = self.labels["INITIAL_NODE_COLOR"].parentWidget().layout()
             rows = [[self._low_resource_switch(key) for key in keys]
                     for keys in LOW_RESOURCE_SWITCH_ROWS]
             column_widths = [
@@ -4203,23 +4208,36 @@ if __name__ == "__main__":
             for row in rows:
                 for column, (label, _field) in enumerate(row):
                     label.setFixedWidth(column_widths[column])
-            # A column is its label, a spacing and a switch's field. Every row,
-            # the single one too, stacks at the width the two columns need,
-            # so all stack together and their switches stay in line.
+            # A column needs its label, a gap and a switch's field.
             field_width = max(ResponsiveFieldLayout._minimum(field).width()
                               for row in rows for _label, field in row)
-            columns = [width + CONFIG_FIELD_HORIZONTAL_SPACING + field_width for width in column_widths]
-            wide_width = sum(columns) + LOW_RESOURCE_COLUMN_SPACING
+            needs = [width + LOW_RESOURCE_SWITCH_GAP + field_width for width in column_widths]
+            fitted = {}
+
+            def wide_width():
+                """The width from which the section is side by side: the colour rows' own
+                and, should the section's columns need more than the colour rows give
+                them there (long labels), the first width that holds them. Every row,
+                the single one too, stacks at it, so all stack together."""
+                wide = reference._wide_width()
+                if wide not in fitted:
+                    width = wide
+                    while width - wide < 2000 and any(
+                            column < need for column, need in zip(reference.column_widths(width), needs)):
+                        width += 1
+                    fitted[wide] = width
+                return fitted[wide]
+
             for index, row in enumerate(rows):
                 group = QWidget()
                 group.setObjectName(f"lowResourceRow{index}")
                 ResponsiveFieldLayout(
                     group, row, tuple(1 for _ in row),
-                    spacing=CONFIG_FIELD_HORIZONTAL_SPACING,
-                    column_spacing=LOW_RESOURCE_COLUMN_SPACING,
+                    spacing=LOW_RESOURCE_SWITCH_GAP,
+                    column_spacing=reference.column_spacing,
                     wrap_labels=False,
                     column_width_provider=lambda width, count=len(row): (
-                        wide_width if width is None else columns[:count]),
+                        wide_width() if width is None else reference.column_widths(width)[:count]),
                     stacked_label_width=max(column_widths),
                 )
                 section_layout.addWidget(group)

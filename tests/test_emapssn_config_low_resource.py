@@ -8,14 +8,17 @@ Under a padded line like the saved-config row's (the tab's sections have no
 titles), a switch per category (Fewer Edges Drawn While Moving, No Zoom or
 Sidebar Animation, Update Colors After Mouse Release, Update Web Pages After
 Mouse Release) and Show Frame Rate (FPS), all off by default. The section has
-its own two columns, apart from the colour grid above it: two switches to a
-row in that order, each column's labels as wide as its longest and its
-switches lined up with each other, not with the colour fields. These tests
-check the section's place and spacing, its columns in English and Chinese,
-that its labels leave the shared label column and the colour grid's second
-column as they were, that it stacks by its own width, one switch a line in
-order, saving and loading the switches, the old single switch in a settings
-file or saved profile, the tips, and that no switch is greyed while Layout Method is UMAP or PaCMAP.
+its own two columns under the colour grid above it: two switches to a row in
+that order, the first column's labels at Text Color's x and the second's at
+Initial Node Color's at every width where the two are side by side, each
+column's labels as wide as its longest and its switches lined up with each
+other, a gap after the labels (twice the field spacing), not with the colour
+fields. These tests check the section's place and spacing, its columns in
+English and Chinese, that its labels leave the shared label column and the
+colour grid's second column as they were, that it stacks together with the
+colour rows, one switch a line in order, saving and loading the switches, the
+old single switch in a settings file or saved profile, the tips, and that no
+switch is greyed while Layout Method is UMAP or PaCMAP.
 The settings themselves are in test_low_resource_mode.
 """
 import json
@@ -110,10 +113,14 @@ class SectionGeometry:
                     text = f"{text} {'~' * max(len(text) // 2, 24)}"
                 super().__init__(text, *args, **kwargs)
 
+        return self.window_with_labels(LongLabel)
+
+    def window_with_labels(self, label_class):
+        """A window built with label_class in place of QLabel, at the narrowest width it allows."""
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
         from tests.config_gui_loader import open_config_window
-        with mock.patch.dict(self.namespace, {"QLabel": LongLabel}):
+        with mock.patch.dict(self.namespace, {"QLabel": label_class}):
             window = open_config_window(self.namespace["ConfigGUI"], temp.name)
         window._cache_hash_request_id += 1
         for worker in window._cache_hash_workers.values():
@@ -129,10 +136,17 @@ class SectionGeometry:
             self.app.processEvents()
         return window
 
+    def resize_window(self, width, window=None):
+        window = window or self.window
+        window.resize(width, 900)
+        for _ in range(4):
+            self.app.processEvents()
+
     def test_two_switches_a_row_in_the_sections_own_columns(self):
         window = self.window
-        spacing = self.namespace["CONFIG_FIELD_HORIZONTAL_SPACING"]
-        column_gap = self.namespace["LOW_RESOURCE_COLUMN_SPACING"]
+        gap = self.namespace["LOW_RESOURCE_SWITCH_GAP"]
+        # Twice the field spacing: the switches stand apart from their labels.
+        self.assertEqual(gap, 2 * self.namespace["CONFIG_FIELD_HORIZONTAL_SPACING"])
         self.assert_label_texts()
         margin = self.x(window.labels["NODE_SIZE"])
         tops = [self.y(window.labels[keys[0]]) for keys in self.ROWS]
@@ -144,41 +158,83 @@ class SectionGeometry:
         rows_seen = [[key for key in SWITCHES if self.y(window.labels[key]) == top] for top in tops]
         self.assertEqual(rows_seen, [list(keys) for keys in self.ROWS])
 
-        # The left column: labels at the tab's left margin, each as wide as the widest of
-        # the column, and the switches in one line a spacing after them.
+        # The left column: labels at the tab's left margin, with the colour grid's first column
+        # (Text Color), each as wide as the widest of the column, and the switches in one line
+        # a gap after them: wider than the field spacing, and not in line with the colour fields.
         left_width = max(self.natural(window.labels[key]) for key in self.LEFT)
         right_width = max(self.natural(window.labels[key]) for key in self.RIGHT)
+        second_column = self.x(window.labels["INITIAL_NODE_COLOR"])
         for key in self.LEFT:
             with self.subTest(key=key):
                 self.assertEqual(self.x(window.labels[key]), margin)
+                self.assertEqual(self.x(window.labels[key]), self.x(window.labels["TEXT_COLOR"]))
                 self.assertEqual(window.labels[key].width(), left_width)
-                self.assertEqual(self.x(self.field(key)), margin + left_width + spacing)
-        switch_field = self.field(self.LEFT[0])
-        right_label_x = margin + left_width + spacing + switch_field.width() + column_gap
-        # The columns are set well apart: as far as the colour rows' two columns are.
-        self.assertGreaterEqual(column_gap, 24)
+                self.assertEqual(self.x(self.field(key)), margin + left_width + gap)
+        # The second column's labels start where the colour grid's second column does, and its
+        # switches a gap after the column's longest label, whatever the colour fields do.
+        for key in self.RIGHT:
+            with self.subTest(key=key):
+                self.assertEqual(self.x(window.labels[key]), second_column)
+                self.assertEqual(window.labels[key].width(), right_width)
+                self.assertEqual(self.x(self.field(key)), second_column + right_width + gap)
+        # Each first-column field fills its column, up to the colour grid's column gap before the second.
+        column_gap = self.row_group("INITIAL_NODE_COLOR").layout().column_spacing
+        for key in self.LEFT:
+            with self.subTest(key=key):
+                self.assertEqual(self.x(self.field(key)) + self.field(key).width(), second_column - column_gap)
         # The rows are as far apart as the tab's other rows (the saved-config row's and the grid's).
         row_gap = self.namespace["CONFIG_TAB_ROW_SPACING"]
         first, second = (self.row_group(keys[0]) for keys in self.ROWS[:2])
         self.assertEqual(second.y() - (first.y() + first.height()), row_gap)
-        for key in self.RIGHT:
-            with self.subTest(key=key):
-                self.assertEqual(self.x(window.labels[key]), right_label_x)
-                self.assertEqual(window.labels[key].width(), right_width)
-                self.assertEqual(self.x(self.field(key)), right_label_x + right_width + spacing)
-        self.assertEqual({self.x(self.field(key)) for key in self.LEFT}, {margin + left_width + spacing})
+        self.assertEqual({self.x(self.field(key)) for key in self.LEFT}, {margin + left_width + gap})
         self.assertEqual(len({self.x(self.field(key)) for key in self.RIGHT}), 1)
-        # Each switch sits at the start of its field, a field as wide as the switch.
+        # The switches do not line up with the colour fields of the rows above.
+        for colour_key in ("TEXT_COLOR", "INITIAL_NODE_COLOR"):
+            for key in SWITCHES:
+                self.assertNotEqual(self.x(window.inputs[key]), self.x(window.inputs[colour_key]), (colour_key, key))
+        # Each switch sits at the start of its field, which takes what is left of its column.
         for key in SWITCHES:
             with self.subTest(key=key):
                 switch = window.inputs[key]
                 self.assertEqual(self.x(switch), self.x(self.field(key)))
-                self.assertEqual(self.field(key).width(), switch.width())
+                self.assertGreaterEqual(self.field(key).width(), switch.width())
         # Both columns stay in the tab's width, which no tab's content leaves.
         page = window.tabs.widget(1).widget()
-        content_right = self.x(page) + page.width() - margin
+        content_right = self.x(page) + page.width() - (margin - self.x(page))
         for key in SWITCHES:
             self.assertLessEqual(self.x(self.field(key)) + self.field(key).width(), content_right, key)
+
+    def test_the_second_column_follows_the_colour_grids_at_every_width_where_both_are_wide(self):
+        window = self.window
+        gap = self.namespace["LOW_RESOURCE_SWITCH_GAP"]
+        margin = self.x(window.labels["NODE_SIZE"])
+        colour = self.row_group("INITIAL_NODE_COLOR")
+        left_width = max(self.natural(window.labels[key]) for key in self.LEFT)
+        right_width = max(self.natural(window.labels[key]) for key in self.RIGHT)
+        size = window.size()
+        wide = 0
+        try:
+            for width in range(window.minimumSizeHint().width(), 2400, 10):
+                self.resize_window(width)
+                if colour.property("stacked"):
+                    continue
+                wide += 1
+                second_column = self.x(window.labels["INITIAL_NODE_COLOR"])
+                with self.subTest(width=width):
+                    for key in self.LEFT:
+                        self.assertEqual(self.x(window.labels[key]), self.x(window.labels["TEXT_COLOR"]))
+                        self.assertEqual(self.x(self.field(key)), margin + left_width + gap)
+                    for key in self.RIGHT:
+                        self.assertEqual(self.x(window.labels[key]), second_column, key)
+                        self.assertEqual(self.x(self.field(key)), second_column + right_width + gap, key)
+                        # Room for the label, the gap and the switch in what the grid leaves.
+                        self.assertLessEqual(self.x(self.field(key)) + self.field(key).width(),
+                                             self.x(window.tabs.widget(1).widget()) + window.tabs.widget(1).widget().width())
+                        self.assertGreaterEqual(window.labels[key].width(), self.natural(window.labels[key]))
+        finally:
+            window.resize(size)
+            self.app.processEvents()
+        self.assertGreater(wide, 20)
 
     def test_the_section_leaves_the_shared_columns_as_they_were(self):
         window = self.window
@@ -206,35 +262,109 @@ class SectionGeometry:
             self.assertEqual(self.row_group(key).parentWidget().objectName(), "lowResourceSection")
         self.assertFalse(self.row_group("INITIAL_NODE_COLOR").objectName().startswith("lowResource"))
 
-    def test_the_section_stacks_by_its_own_width_and_never_before_the_colour_rows(self):
+    def test_the_section_stacks_together_with_the_colour_rows(self):
         window = self.window
         size = window.size()
         colour = self.row_group("INITIAL_NODE_COLOR")
         rows = {key: self.row_group(key) for key in ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_DRAWING")}
-        # It needs only its own labels and switches, less than the colour rows' fields.
+        # Side by side from the colour rows' width (more, only if its columns need more room).
         for row in rows.values():
-            self.assertLess(row.layout()._wide_width(), colour.layout()._wide_width())
+            self.assertGreaterEqual(row.layout()._wide_width(), colour.layout()._wide_width())
+        stacked_seen = wide_seen = 0
         try:
-            for width in range(window.minimumSizeHint().width(), 1700, 30):
-                window.resize(width, 900)
-                self.app.processEvents()
+            for width in range(window.minimumSizeHint().width(), 1700, 10):
+                self.resize_window(width)
                 for key, row in rows.items():
                     with self.subTest(width=width, key=key):
                         self.assertEqual(bool(row.property("stacked")),
                                          row.width() < row.layout()._wide_width())
-                        if row.property("stacked"):
-                            self.assertTrue(colour.property("stacked"))
+                        if colour.property("stacked"):
+                            self.assertTrue(row.property("stacked"))
+                        self.assertEqual(bool(row.property("stacked")), bool(colour.property("stacked")))
                 with self.subTest(width=width):
                     self.assertEqual(bool(colour.property("stacked")),
                                      colour.width() < colour.layout()._wide_width())
+                if colour.property("stacked"):
+                    stacked_seen += 1
+                else:
+                    wide_seen += 1
         finally:
             window.resize(size)
             self.app.processEvents()
+        self.assertGreater(stacked_seen, 5)
+        self.assertGreater(wide_seen, 5)
+
+    def test_switch_labels_needing_more_than_the_colour_grid_gives_wait_for_room(self):
+        """Switch labels so long that the second column needs more than the colour grid's
+        second column gives at the grid's own width: the section stacks until it has the
+        room, the grid side by side meanwhile, and is never clipped once it is side by side."""
+        QLabel = self.namespace["QLabel"]
+        texts = {self.window.labels[key].text() for key in SWITCHES}
+
+        class LongSwitchLabel(QLabel):
+            def __init__(self, text="", *args, **kwargs):
+                if text in texts:
+                    text = f"{text} {'~' * 60}"
+                super().__init__(text, *args, **kwargs)
+
+        window = self.window_with_labels(LongSwitchLabel)
+        colour = self.row_group("INITIAL_NODE_COLOR", window)
+        rows = [self.row_group(keys[0], window) for keys in self.ROWS[:2]]
+        gap = self.namespace["LOW_RESOURCE_SWITCH_GAP"]
+        page = window.tabs.widget(1).widget()
+        self.assertGreater(rows[0].layout()._wide_width(), colour.layout()._wide_width())
+        waited = side_by_side = 0
+        for width in range(window.minimumSizeHint().width(), 4200, 20):
+            self.resize_window(width, window)
+            with self.subTest(width=width):
+                if not colour.property("stacked") and rows[0].property("stacked"):
+                    waited += 1
+                if rows[0].property("stacked"):
+                    continue
+                side_by_side += 1
+                self.assertFalse(colour.property("stacked"))
+                second_column = self.x(window.labels["INITIAL_NODE_COLOR"])
+                for key in self.RIGHT:
+                    switch, label = window.inputs[key], window.labels[key]
+                    self.assertEqual(self.x(label), second_column, key)
+                    self.assertGreaterEqual(label.width(), self.natural(label))
+                    self.assertGreaterEqual(self.field(key, window).width(), switch.width(), key)
+                    self.assertLessEqual(self.x(self.field(key, window)) + self.field(key, window).width(),
+                                         self.x(page) + page.width())
+        self.assertGreater(waited, 5)
+        self.assertGreater(side_by_side, 0)
+
+    def test_long_labels_keep_the_second_column_with_the_colour_grid_or_stack(self):
+        """Labels much longer, as a translation may make them, need more room than the colour
+        grid's second column gives; the section stacks until it has it, and is never clipped."""
+        window = self.long_label_window()
+        colour = self.row_group("INITIAL_NODE_COLOR", window)
+        rows = [self.row_group(keys[0], window) for keys in self.ROWS[:2]]
+        gap = self.namespace["LOW_RESOURCE_SWITCH_GAP"]
+        right_width = max(self.natural(window.labels[key]) for key in self.RIGHT)
+        page = window.tabs.widget(1).widget()
+        side_by_side = 0
+        for width in range(window.minimumSizeHint().width(), 4200, 100):
+            self.resize_window(width, window)
+            with self.subTest(width=width):
+                for row in rows:
+                    self.assertGreaterEqual(row.layout()._wide_width(), colour.layout()._wide_width())
+                    if row.property("stacked"):
+                        continue
+                    side_by_side += 1
+                    second_column = self.x(window.labels["INITIAL_NODE_COLOR"])
+                    for key in self.RIGHT:
+                        self.assertEqual(self.x(window.labels[key]), second_column, key)
+                        self.assertGreaterEqual(window.labels[key].width(), self.natural(window.labels[key]))
+                        self.assertEqual(self.x(self.field(key, window)), second_column + right_width + gap)
+                        self.assertLessEqual(self.x(self.field(key, window)) + self.field(key, window).width(),
+                                             self.x(page) + page.width())
+        self.assertGreater(side_by_side, 0)
 
     def test_a_narrow_window_stacks_the_switches_one_a_line_in_order(self):
         window = self.long_label_window()
         margin = self.x(window.labels["NODE_SIZE"])
-        spacing = self.namespace["CONFIG_FIELD_HORIZONTAL_SPACING"]
+        gap = self.namespace["LOW_RESOURCE_SWITCH_GAP"]
         for key in ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_DRAWING"):
             self.assertTrue(self.row_group(key, window).property("stacked"), key)
         tops = [self.y(window.labels[key]) for key in SWITCHES]
@@ -247,7 +377,7 @@ class SectionGeometry:
                 self.assertGreaterEqual(label.width(), self.natural(label))
                 self.assertGreaterEqual(switch.width(), switch.sizeHint().width())
                 # Every label takes the longest one's room, so the switches line up.
-                self.assertEqual(self.x(self.field(key, window)), margin + longest + spacing)
+                self.assertEqual(self.x(self.field(key, window)), margin + longest + gap)
                 self.assertEqual(self.x(switch), self.x(self.field(key, window)))
 
     def test_no_tab_needs_more_than_the_minimum_width_it_keeps(self):
