@@ -448,6 +448,13 @@ still change before version 1.0.0.
     needs the page's `'unsafe-eval'` script permission to start, and a test now says so
     if a later Mol* stops needing it.
   - Sessions saved before still load, including ones saved by the page under Mol* 5.10.1.
+  - **If Mol* cannot start**, for example because its file is missing or the browser
+    blocks it, the page says so, with the reason and a Reload button, and the header shows
+    "3D view unavailable". Before, it stayed on "Connecting..." with no message. While
+    the 3D view is unavailable the page doesn't connect to the Viewer, so your saved
+    session is never overwritten.
+  - **Residue card:** each structure's name stays on one line beside its colour, cut short
+    with "…" when it is long (hover shows the whole name), and values never wrap.
 
 ### Fixed
 
