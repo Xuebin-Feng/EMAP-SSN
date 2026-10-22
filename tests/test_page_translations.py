@@ -12,8 +12,9 @@ pages, serve them, and open the Agent and metadata pages in Qt WebEngine
 under the pseudo-language, where every ASCII letter a catalog supplies is
 accented: a plain one a page shows, once the values a test filled in are
 taken out, came from no catalog. The messages the Viewer sends the pages
-are checked the same way. The ESMFold page stays English: it is Mol*'s own
-interface, which has no translations.
+are checked the same way. The Fold View page (esmfold.html and its scripts) is
+translated like the others; Mol*'s own panels, which it shows only in its
+Advanced view, stay English, since Mol* has no translations.
 """
 
 import contextlib
