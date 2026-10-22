@@ -35,6 +35,10 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import QApplication
 
 
+# What the page's console says when a save it had in flight is aborted by the navigation that leaves the page.
+ABORTED_SAVE = ("ErrorMessageLevel", "Network error during auto-save: TypeError: Failed to fetch")
+
+
 class ConsolePage(QWebEnginePage):
     """A page that keeps what its scripts write to the console, as (level, message, line, source)."""
 
@@ -154,6 +158,7 @@ class FoldViewPageMixin:
         self.saved = []
         self.actions = []
         self.console.messages.clear()
+        self.navigation_began = 0
         self.viewer.handle_web_action = self.handle_action
 
     def tearDown(self):
@@ -217,7 +222,19 @@ class FoldViewPageMixin:
                          and ("Could not create a WebGL rendering context" in message
                               or "Cannot read properties of undefined (reading 'reprCount')" in message))]
 
+    def forget_aborted_saves(self):
+        """Drop what the console said, since the last navigation began, about a save the navigation aborted.
+
+        The page saves its session 1.5 s after a change, and a test that opens the page again (a restored
+        session, a second scene) leaves it in the middle of such a save when the machine is slow: the fetch is
+        aborted and the page's console reports it. That is the navigation's doing, not an error of either page.
+        Only that message is dropped, and only from the navigation's own time.
+        """
+        start = self.navigation_began
+        self.console.messages[start:] = [message for message in self.console.messages[start:] if message[:2] != ABORTED_SAVE]
+
     def load_page(self, path="/esmfold.html"):
+        self.navigation_began = len(self.console.messages)
         loaded = []
         self.view.loadFinished.connect(loaded.append)
         self.view.load(QUrl(f"http://127.0.0.1:{self.server.server_address[1]}{path}"))
@@ -226,6 +243,7 @@ class FoldViewPageMixin:
             self.pump(0.02)
         self.view.loadFinished.disconnect(loaded.append)
         self.assertEqual(loaded, [True])
+        self.forget_aborted_saves()
 
     def open_page(self):
         self.load_page()
@@ -237,6 +255,7 @@ class FoldViewPageMixin:
             if (isRestoring) throw new Error('the page never finished restoring');
             return 1;
             """, timeout=90)
+        self.forget_aborted_saves()
         self.js(HELPERS)
 
     def push(self, name):
