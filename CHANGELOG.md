@@ -173,9 +173,11 @@ still change before version 1.0.0.
     44,000 sequences) and importing an Excel sheet (about 3 s). Other commands wait
     their turn and then run as before, in under 0.05 s at that size.
 - **PaCMAP, a second manifold layout beside UMAP.**
-  - **Choosing it:** the "Plot UMAP Instead" switch is now "Plot Manifold Instead". A new
-    Layout Method dropdown below it picks UMAP, still the default, or PaCMAP, in Config
-    and VR Config. PaCMAP Nearest Neighbors (2 to 50, default 10) takes the place of
+  - **Choosing it:** the "Plot UMAP Instead" switch is now a Layout Method dropdown, in
+    Config and VR Config, with SSN (the network simulation, the default), UMAP and
+    PaCMAP. It saves the same two settings as before, `UMAP_MODE` and `LAYOUT_METHOD`, so
+    saved settings and profiles open unchanged, and choosing SSN keeps which manifold
+    method you last used. PaCMAP Nearest Neighbors (2 to 50, default 10) takes the place of
     UMAP's neighbour field: it sets how many of each node's strongest edges PaCMAP uses
     and the Viewer draws. UMAP Min Distance does not apply to it. MCP's
     `start_layout_job` takes `LAYOUT_METHOD` and `PACMAP_NEIGHBORS` among its parameters.
@@ -308,10 +310,11 @@ still change before version 1.0.0.
   changes the nodes still sends them all. If VisPy's marker buffer is not laid out as
   expected, every hover sends all nodes as before.
 - **Low Resource Mode is now a section of separate switches** on the Config's Visual
-  Effects tab, all off by default. They sit two to a row, lined up within their own
-  section rather than with the colour fields above, so their names can say what they do,
-  and stack into one column on a narrow window. The Viewer reads them when it starts.
-  With Plot Manifold Instead on, every switch still does something, so none is greyed
+  Effects tab, all off by default. They sit two to a row: the second column starts under
+  the colour fields' second column, and each column's switches line up a little apart
+  from its longest name, so the names can say what they do. They stack into one column
+  when the colour fields do. The Viewer reads them when it starts.
+  With Layout Method set to UMAP or PaCMAP, every switch still does something, so none is greyed
   out: nodes can't be dragged there, but the selection box, the threshold slider, the
   zoom glide and the thinning of a selection with 250,000 edges or more remain. Their tips
   say which parts apply.
