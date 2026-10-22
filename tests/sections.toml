@@ -83,8 +83,8 @@ modules = [
 ]
 
 [sections.plugins]
-description = "Agent, ESMFold and metadata pages and backends, Biohub and ESMC APIs"
-seconds = 15
+description = "Agent and metadata pages and backends, the esmfold command, worker and backend, Biohub and ESMC APIs"
+seconds = 40
 modules = [
     "test_agent_backend",
     "test_agent_composer",
@@ -92,23 +92,58 @@ modules = [
     "test_biohub_api",
     "test_esmc_6b_api",
     "test_esmfold_backend",
-    "test_esmfold_colors",
     "test_esmfold_command",
-    "test_esmfold_jobs",
-    "test_esmfold_layers",
-    "test_esmfold_opened",
-    "test_esmfold_residue",
-    "test_esmfold_saved_sessions",
-    "test_esmfold_sequence",
-    "test_esmfold_shell",
-    "test_esmfold_shell_webgl",
-    "test_esmfold_structures",
-    "test_esmfold_tools",
     "test_esmfold_worker",
     "test_meta_backend",
-    "test_molstar_api_surface",
     "test_residue_data",
     "test_vendored_assets",
+]
+
+# The Fold View page tests (tests/esmfold_page_harness.py) open esmfold.html in Qt WebEngine over the real
+# web server and the bundled Mol*, and spend most of their time in waits for Mol* and the page's saves. They
+# were one section with the rest of plugins, which made it by far the slowest (475 s alone, where the next
+# slowest took 174 s) and so the whole run's time; sections run in parallel, so these five share the work,
+# each of them 60 to 110 s.
+[sections.fold_color]
+description = "Fold View page: Color by card, residue tooltip, pinned residue and Residue card"
+seconds = 105
+modules = [
+    "test_esmfold_colors",
+    "test_esmfold_residue",
+]
+
+[sections.fold_struct]
+description = "Fold View page: structure list and details, alignment, Session menu, opened files, folding progress"
+seconds = 105
+modules = [
+    "test_esmfold_jobs",
+    "test_esmfold_opened",
+    "test_esmfold_structures",
+]
+
+[sections.fold_canvas]
+description = "Fold View page: header, canvas states, theme, Advanced, sequence strip, Measure and Labels, image dialog"
+seconds = 110
+modules = [
+    "test_esmfold_sequence",
+    "test_esmfold_shell",
+    "test_esmfold_tools",
+]
+
+[sections.fold_session]
+description = "Fold View page: saved sessions, per-residue layers, the Mol* API the page uses"
+seconds = 85
+modules = [
+    "test_esmfold_layers",
+    "test_esmfold_saved_sessions",
+    "test_molstar_api_surface",
+]
+
+[sections.fold_webgl]
+description = "Fold View page over a real canvas (a child process that asks for the GPU; skipped without WebGL)"
+seconds = 60
+modules = [
+    "test_esmfold_shell_webgl",
 ]
 
 [sections.mcp]
@@ -292,7 +327,31 @@ paths = ["src/commands/*.py"]
 sections = ["commands"]
 
 [[rules]]
-paths = ["src/web_ui/plugins/**", "src/resources/agent/**", "src/resources/esmfold/**", "src/resources/meta/**"]
+paths = ["src/web_ui/plugins/**", "src/resources/agent/**", "src/resources/meta/**"]
+sections = ["plugins", "viewer"]
+
+# The Fold View page, its scripts and the test helpers that open it reach every one of its page sections through
+# the web server, not through an import: a change to any of them runs them all.
+[[rules]]
+paths = [
+    "src/web_ui/esmfold.html", "src/web_ui/esmfold_*.js", "src/web_ui/page_text.js", "src/web_ui/residue_layers.py",
+    "tests/esmfold_*", "tests/molstar_api_probe.py",
+]
+sections = ["fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_webgl"]
+
+# The vendored Mol* (molstar.js, its stylesheets, licence and notices) is what the page tests load.
+[[rules]]
+paths = ["src/resources/esmfold/molstar*", "src/resources/esmfold/*.molstar*", "src/resources/esmfold/NOTICES.*"]
+sections = ["plugins", "viewer", "fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_webgl"]
+
+# What the Fold View page is served by and fed from. (The page sections that run the command or read what
+# the worker writes are found by the reference scan.)
+[[rules]]
+paths = ["src/web_ui/esmfold_backend.py", "src/commands/esmfold*.py"]
+sections = ["plugins"]
+
+[[rules]]
+paths = ["src/resources/esmfold/esmfold_worker.py"]
 sections = ["plugins", "viewer"]
 
 [[rules]]

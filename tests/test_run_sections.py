@@ -102,6 +102,70 @@ class SectionsFileTests(unittest.TestCase):
         self.assertIn("test_run_sections", modules)
 
 
+class FoldViewSectionsTests(unittest.TestCase):
+    """The Fold View page's tests have sections of their own, and what changes them selects those sections.
+
+    They open esmfold.html in Qt WebEngine and wait on Mol* and the page's saves, which made them most of the
+    time of the whole suite when they shared a section with the Agent and metadata tests; sections run in
+    parallel, so the page tests are spread over several.
+    """
+
+    PAGE_SECTIONS = {"fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_webgl"}
+
+    @classmethod
+    def setUpClass(cls):
+        cls.config = load_config()
+        cls.selector = Selector(cls.config, root=PROJECT_ROOT)
+
+    def test_every_test_module_that_opens_the_page_is_in_a_page_section(self):
+        # A module opens the page when it uses the harness or the WebGL scenarios, or imports one that does.
+        sources = {name: (PROJECT_ROOT / "tests" / f"{name}.py").read_text(encoding="utf-8")
+                   for name in list_test_modules() if name != "test_run_sections"}
+        opening = {name for name, text in sources.items() if "esmfold_page_harness" in text or "esmfold_gl_scenarios" in text}
+        grew = True
+        while grew:
+            grew = False
+            for name, text in sources.items():
+                if name not in opening and any(f"tests.{other} import" in text or f"from tests import {other}" in text
+                                               for other in opening):
+                    opening.add(name)
+                    grew = True
+        self.assertIn("test_esmfold_shell", opening)
+        owner, _ = check_assignment(self.config, list_test_modules())
+        for name in sorted(opening):
+            with self.subTest(module=name):
+                self.assertIn(owner[name], self.PAGE_SECTIONS)
+
+    def test_the_page_sections_hold_only_fold_view_modules_and_each_holds_one(self):
+        for name in self.PAGE_SECTIONS:
+            with self.subTest(section=name):
+                self.assertIn(name, self.config.sections)
+                modules = self.config.sections[name].modules
+                self.assertTrue(modules)
+                for module in modules:
+                    self.assertTrue(module.startswith("test_esmfold_") or module == "test_molstar_api_surface", module)
+
+    def test_the_page_its_scripts_and_the_helpers_that_open_it_select_every_page_section(self):
+        for path in ("src/web_ui/esmfold.html", "src/web_ui/esmfold_shell.js", "src/web_ui/esmfold_residue.js",
+                     "src/web_ui/page_text.js", "src/web_ui/residue_layers.py", "tests/esmfold_page_harness.py",
+                     "tests/esmfold_layer_fixtures.py", "tests/esmfold_gl_scenarios.py", "tests/molstar_api_probe.py"):
+            with self.subTest(path=path):
+                self.assertLessEqual(self.PAGE_SECTIONS, self.selector.explain(path)[0])
+
+    def test_the_vendored_mol_star_selects_them_too(self):
+        for path in ("src/resources/esmfold/molstar.js", "src/resources/esmfold/molstar.css",
+                     "src/resources/esmfold/NOTICES.molstar-bundle", "src/resources/esmfold/LICENSE.molstar"):
+            with self.subTest(path=path):
+                self.assertLessEqual(self.PAGE_SECTIONS | {"plugins", "viewer"}, self.selector.explain(path)[0])
+
+    def test_the_command_the_worker_and_the_backend_select_plugins_and_not_every_page_section(self):
+        for path in ("src/commands/esmfold.py", "src/resources/esmfold/esmfold_worker.py", "src/web_ui/esmfold_backend.py"):
+            with self.subTest(path=path):
+                chosen = self.selector.explain(path)[0]
+                self.assertIn("plugins", chosen)
+                self.assertNotEqual(self.PAGE_SECTIONS - chosen, set(), "a change here would run every page section")
+
+
 class AssignmentTests(unittest.TestCase):
     def config(self, **sections):
         return run_sections.Config(
