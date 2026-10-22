@@ -332,16 +332,20 @@ async function renderResidueCard() {
     }
     const table = make('table', 'res-table');
     const header = make('tr');
-    const columns = [t("Structure"), 'pLDDT'];
-    if (layerLabel) columns.push(layerLabel);
-    if (rows.length > 1) columns.push(t("Cα–Cα (Å)"));
-    header.append(...columns.map(label => cell('th', label)));
+    // A layer's name may take two lines in its header (it is the data's, and as long as the data says); every value is one line.
+    const columns = [[t("Structure"), undefined], ['pLDDT', undefined]];
+    if (layerLabel) columns.push([layerLabel, 'res-layer']);
+    if (rows.length > 1) columns.push([t("Cα–Cα (Å)"), 'res-dist']);
+    header.append(...columns.map(([label, className]) => cell('th', label, className)));
     table.append(header);
     for (const item of rows) {
         const row = make('tr');
-        const name = make('td');
+        // The name stays on one line beside its swatch; one too long for the room is cut with an ellipsis (esmfold.html),
+        // and the whole name is on hover (the text itself is whole in the page, for screen readers).
+        const name = make('td', 'res-name');
         const swatch = make('span', 'res-swatch');
         swatch.style.background = structureColor(item.ref);
+        name.title = item.name;
         name.append(swatch, item.name);
         const values = [item.found ? item.plddt.toFixed(1) : '–'];
         if (layerLabel) values.push(!item.found ? '–' : item.layer ?? t("No data"));

@@ -580,10 +580,15 @@
         .res-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
         .res-head span { font-weight: 400; color: var(--text-subtle); font-size: 12px; }
         .res-table { width: 100%; border-collapse: collapse; font-size: 12px; }
-        .res-table th { text-align: left; font-weight: 600; color: var(--text-subtle); padding: 2px 0 4px; font-size: 11px; }
+        /* No text of the table wraps, but a layer's name in its header, which breaks at its spaces (it is the data's, and as long as the
+           data says), unless the strip, as wide as the window, has the room. A structure's name takes the room the values leave (a width
+           of 100% with max-width 0, the way a table cell is made to shrink) and is cut with an ellipsis; the swatch stays beside it. */
+        .res-table th { text-align: left; font-weight: 600; color: var(--text-subtle); padding: 2px 0 4px; font-size: 11px; line-height: 1.25; vertical-align: bottom; white-space: nowrap; }
         .res-table th:not(:first-child), .res-table td:not(:first-child) { text-align: right; padding-left: 8px; }
-        .res-table td { padding: 3px 0; border-top: 1px solid var(--border-color); font-variant-numeric: tabular-nums; }
+        .res-table th.res-layer { white-space: normal; overflow-wrap: break-word; }
+        .res-table td { padding: 3px 0; border-top: 1px solid var(--border-color); font-variant-numeric: tabular-nums; white-space: nowrap; }
         .res-table td:first-child { color: var(--text-secondary); }
+        .res-table td.res-name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
         .res-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
         .res-note { margin-top: 8px; font-size: 11.5px; color: var(--text-subtle); line-height: 1.5; }
         .res-foot { display: flex; gap: 6px; margin-top: 10px; }
@@ -688,6 +693,7 @@
             body[data-tab="structures"] .sec[data-tab="structures"], body[data-tab="color"] .sec[data-tab="color"], body[data-tab="residue"] .sec[data-tab="residue"] { display: block; }
             .canvas-legend { left: 8px; bottom: 8px; max-width: 170px; min-width: 120px; }
             .seqbar { display: none; }
+            .res-table th.res-layer { white-space: nowrap; }
             .view-toolbar .narrow-hide { display: none; }
             header .saved-note { display: none; }
             .empty { padding: 16px; }

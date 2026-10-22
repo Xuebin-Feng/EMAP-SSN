@@ -25,6 +25,8 @@ for folder in (SRC, ROOT):
 from tests import esmfold_layer_fixtures as fixtures
 from tests.test_esmfold_colors import A, B, C, ColorTestCase
 
+from PySide6.QtCore import QUrl  # noqa: E402  (after the harness has set the engine's environment)
+
 # Mol*'s pointer events: the loci of the residue `group` (from 0) of a structure, as the representation gives them.
 POINTER = """
 // The keys Mol*'s pointer events say are held: none, as an object with every key, which is what its bindings match.
@@ -297,6 +299,149 @@ class FocusTests(ResidueTestCase):
         restored = self.script(self.STATE)
         self.assertEqual((restored["nodes"], restored["focus"], restored["marked"], restored["pinned"]), (0, False, 0, None))
         self.assertEqual(restored["cells"], base["cells"])
+
+
+# How the Residue card's table is laid out, measured in the page from where each text is drawn.
+CARD_LAYOUT = """
+window.cardLayout = function () {
+    const body = document.getElementById('residue-body');
+    const table = body.querySelector('.res-table');
+    // The line boxes of a cell's own text (the swatch is not text): one top for a text on one line.
+    const rangeOf = cell => {
+        const text = [...cell.childNodes].find(node => node.nodeType === Node.TEXT_NODE);
+        const range = document.createRange();
+        range.selectNodeContents(text || cell);
+        return range;
+    };
+    const lines = cell => new Set([...rangeOf(cell).getClientRects()].filter(box => box.width > 0).map(box => Math.round(box.top))).size;
+    const measure = row => [...row.cells].map(cell => {
+        const box = cell.getBoundingClientRect();
+        const text = rangeOf(cell).getBoundingClientRect();
+        const swatch = cell.querySelector('.res-swatch');
+        const dot = swatch ? swatch.getBoundingClientRect() : null;
+        return {text: cell.textContent, lines: lines(cell), clipped: cell.scrollWidth > cell.clientWidth,
+                overflow: getComputedStyle(cell).textOverflow, title: cell.title, gap: Math.round(box.right - text.right),
+                swatchBeside: dot ? dot.top >= text.top - 2 && dot.bottom <= text.bottom + 2 && dot.right <= text.left + 8 : null,
+                swatchWidth: dot ? Math.round(dot.width) : null};
+    });
+    const rows = [...table.rows];
+    return {header: measure(rows[0]), rows: rows.slice(1).map(measure),
+            heights: rows.slice(1).map(row => Math.round(row.getBoundingClientRect().height)),
+            overflowing: body.scrollWidth > body.clientWidth};
+};
+"""
+
+
+class ResidueTableLayoutTests(ResidueTestCase):
+    """A structure's name stays on one line beside its swatch, cut with an ellipsis when it is too long, and no value wraps."""
+
+    # Three names of about thirty characters, and one short one.
+    NAMES = ["serine_protease_inhibitor_kazal", "beta_lactamase_TEM1_variant_07", "putative_uncharacterized_prot_3", "alpha"]
+
+    def scene(self, layer, names=NAMES):
+        for index, name in enumerate(names):
+            self.write_with(name + ".pdb", "information_content", "same_residue_pct", "hydro",
+                            sequence=fixtures.FIRST_SEQUENCE if index % 2 == 0 else fixtures.SECOND_SEQUENCE,
+                            shift=(3.0 * index, 1.0 * index, 0.0), wobble=0.4 * index)
+        self.open_scene(*[name + ".pdb" for name in names])
+        self.js(CARD_LAYOUT)
+        if layer:
+            self.choose(layer)
+        self.script("await clickOn(0, 20); return 1")
+
+    def at(self, width):
+        """The card's layout with the window `width` pixels wide: the panel beside the canvas, a drawer over it, or a strip."""
+        self.view.resize(width, 800)
+        self.addCleanup(self.view.resize, 1300, 800)
+        self.script("setPanel(true); setTab('residue'); await new Promise(resolve => setTimeout(resolve, 450)); return 1")
+        return self.script("return cardLayout()")
+
+    def assert_laid_out(self, layout, context, names, cut, layer_lines=None):
+        """Every name and value is on one line. `cut`: whether the names of more than twelve letters are cut (None: not said).
+
+        `layer_lines`: how many lines the layer's name takes in the header (None: no layer, or it may take one or two).
+        """
+        self.assertEqual(len({*layout["heights"]}), 1, (context, layout["heights"]))
+        self.assertFalse(layout["overflowing"], context)
+        shown = [row[0] for row in layout["rows"]]
+        self.assertEqual([name["text"] for name in shown], names, context)
+        for name in shown:
+            self.assertEqual(name["lines"], 1, (context, name))
+            self.assertEqual((name["swatchBeside"], name["swatchWidth"]), (True, 8), (context, name))
+            # What is cut is cut with an ellipsis, and the whole name is on hover.
+            self.assertEqual((name["overflow"], name["title"]), ("ellipsis", name["text"]), (context, name))
+        long_names = [name for name in shown if len(name["text"]) > 12]
+        if cut is not None:
+            self.assertEqual([name["clipped"] for name in long_names], [cut] * len(long_names), context)
+        self.assertFalse(shown[-1]["clipped"], (context, shown[-1]))
+        for row in layout["rows"]:
+            for value in row[1:]:
+                self.assertEqual(value["lines"], 1, (context, value))
+                self.assertFalse(value["clipped"], (context, value))
+        # The headers are whole, each on one line but a layer's name, which breaks at its spaces unless the strip has the room, and
+        # the text of every column keeps to its right edge.
+        for head in layout["header"]:
+            self.assertFalse(head["clipped"], (context, head))
+        layer = layout["header"][2] if len(layout["header"]) == 4 else None
+        for head in layout["header"]:
+            if head is layer and layer_lines is not None:
+                self.assertEqual(head["lines"], layer_lines, (context, head))
+            elif head is layer:
+                self.assertLessEqual(head["lines"], 2, (context, head))
+            else:
+                self.assertEqual(head["lines"], 1, (context, head))
+        for cell in [*layout["header"][1:], *[value for row in layout["rows"] for value in row[1:]]]:
+            self.assertLessEqual(cell["gap"], 1, (context, cell))
+
+    def test_long_names_and_values_stay_on_one_line_with_each_layer_in_each_layout(self):
+        for layer in (None, "information_content", "same_residue_pct", "hydro"):
+            self.scene(layer)
+            # The panel is 340 px wide beside the canvas and in the drawer, and cuts the names of a layer's table; the strip is as
+            # wide as the window and cuts none. (Without a layer the names have more room and may fit.)
+            for width, cut in ((1300, True), (1040, True), (600, False)):
+                with self.subTest(layer=layer, width=width):
+                    layout = self.at(width)
+                    label = layout["header"][2]["text"] if layer else ""
+                    # A name with a space breaks there beside the canvas and in the drawer (a word, such as Hydrophobicity, does not).
+                    self.assert_laid_out(layout, f"{layer or 'pLDDT'} at {width} px", self.NAMES, cut if layer else None,
+                                         (2 if " " in label and width > 700 else 1) if layer else None)
+            self.view.setUrl(QUrl("about:blank"))
+
+    def test_a_value_with_a_unit_does_not_break_under_a_short_layer_name(self):
+        # "39.5 %" has a space, and under a header as short as "IC" its column has nothing else to keep it from breaking there.
+        for index, name in enumerate(self.NAMES):
+            sequence = fixtures.FIRST_SEQUENCE if index % 2 == 0 else fixtures.SECOND_SEQUENCE
+            fixtures.write_structure(self.directory, name + ".pdb", sequence, sidecar=False,
+                                     shift=(3.0 * index, 1.0 * index, 0.0), wobble=0.4 * index)
+            layer = fixtures.residue_property("IC", "%", [0, 100], fixtures.information_content(len(sequence)), None, "Short.")
+            fixtures.write_sidecar(self.directory, name + ".pdb",
+                                   fixtures.residue_data(name + ".pdb", sequence, properties={"ic": layer}))
+        self.open_scene(*[name + ".pdb" for name in self.NAMES])
+        self.js(CARD_LAYOUT)
+        self.choose("ic")
+        self.script("await clickOn(0, 20); return 1")
+        for width in (1300, 1040, 600):
+            with self.subTest(width=width):
+                layout = self.at(width)
+                self.assertEqual(layout["header"][2]["text"], "IC")
+                self.assertTrue(all(row[2]["text"].endswith(" %") for row in layout["rows"]), layout["rows"])
+                self.assert_laid_out(layout, f"a short layer at {width} px", self.NAMES, width > 600, 1)
+
+    def test_the_names_of_the_reference_picture_fit_beside_their_swatches(self):
+        self.scene("information_content", ["protein_a", "protein_b"])
+        layout = self.at(1300)
+        self.assert_laid_out(layout, "protein_a and protein_b", ["protein_a", "protein_b"], False, 2)
+        self.assertEqual([head["text"] for head in layout["header"]], ["Structure", "pLDDT", "Information Content", "Cα–Cα (Å)"])
+        # Only the layer's long header takes two lines, and the values stay on one.
+        self.assertEqual([head["lines"] for head in layout["header"]], [1, 1, 2, 1])
+
+    def test_the_card_comes_in_simplified_chinese_in_the_same_shape(self):
+        from desktop.Desktop_App import install_translations
+
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.scene("same_residue_pct")
+        self.assert_laid_out(self.at(1300), "zh_CN", self.NAMES, True, 2)
 
 
 if __name__ == "__main__":
