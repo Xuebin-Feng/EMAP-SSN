@@ -37,6 +37,33 @@ still change before version 1.0.0.
 
 ### Added
 
+- **Background jobs in the Viewer's Session card.** Below the input files, the card lists the
+  jobs that write files (`print`, `label`, `logo`) and the structure folds (`esmfold`), in two
+  lines, Files and Folding, that run side by side. Each line runs one job at a time, in order.
+  - **Each row** shows the job's number, what it writes, and whether it runs (with its time
+    and progress, such as "Drawing tile 3 of 8" or "Folding 2 of 3") or waits (with its
+    place). The card updates while open.
+  - **Waiting jobs** can be moved up or down within their line, or removed.
+  - **A running job** can be stopped, after a confirmation. It says "stopping" until it has
+    really stopped, and is then reported cancelled. A stopped `print`, `label` or `logo`
+    leaves no half-written file, and a file of the same name from before is kept. A stopped
+    fold keeps the structures already saved. `jobs cancel` and `esmfold stop` do the same.
+  - **A failed job** stays listed with its reason and an Open log link until dismissed.
+  - **Closing the Viewer** while a file is being written stops the job and deletes the
+    half-written file, waiting at most 2.5 s.
+- **Folds queue instead of being refused**, and run without a console window.
+  - **Queued folds:** a second `esmfold` waits its turn in the Folding line. A node already
+    being folded by another job is left out, and the outcome says which job holds it.
+  - **No console:** a fold's output goes to a log file, which the Session card and the Fold
+    View's failure row open with Open log. The first fold's model download shows its progress
+    there instead of in a console.
+  - **Biohub token:** `esmfold large` asks for the token in a Viewer dialog when none is
+    saved. When Biohub rejects it, it asks for a replacement and folds the structures not yet
+    folded. A Viewer with no window asks nothing and says to set the token up first.
+- **MCP and the Agent chat no longer hold the command line for files and folds.** A request
+  whose remaining work is only a file job or a fold lets the next request start; it stays
+  "running" until its job ends. Each job in a request's record now has its line, progress,
+  start and end times, and whether it can be stopped.
 - **Optional embedding input.** Config and VR Config can select a protein language model
   embedding file (**Embedding Input**, listed from the new **Embedding Directory**, by
   default the project's `Embeddings` folder), for commands that use each sequence's
