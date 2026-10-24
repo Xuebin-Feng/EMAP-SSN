@@ -80,6 +80,8 @@ if __name__ == "__main__":
     # passes it on to a pipe or file that is read.
     from utilities.Console_Capture import start as start_console_capture
     start_console_capture("viewer", headless=_HEADLESS_LAUNCH)
+    from utilities import Startup_Status
+    Startup_Status.report(Startup_Status.CHECKING_SETTINGS, 0.1)
     from desktop.Viewer_State import read_viewer_settings, resolve_viewer_document
     _startup_args = _parse_viewer_arguments()
     print("Validating Viewer settings and inputs...", flush=True)
@@ -130,6 +132,8 @@ def _configure_linux_vispy_platform(
 _configure_linux_vispy_platform()
 
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
+from utilities import Startup_Status
+Startup_Status.report(Startup_Status.LOADING_PYTORCH, 0.25)
 try:
     import torch  # Pre-load to prevent DLL initialization conflicts between PyTorch and PySide6/OpenGL
 except Exception:
@@ -180,6 +184,7 @@ from desktop.Desktop_App import (
     install_translations,
     installed_language,
     register_vispy_application_fonts,
+    signal_launcher_ready,
     startup_language,
     translate,
     vispy_language_face,
@@ -899,6 +904,8 @@ class MainViewer:
         
         # --- 3. Setup Window & Canvas ---
         print(f"Building network display: {self.n_nodes} nodes, {len(self.edges)} edges.")
+        Startup_Status.report(Startup_Status.BUILDING_NETWORK, 0.6,
+                              nodes=f"{self.n_nodes:,}", edges=f"{len(self.edges):,}")
         self.canvas = scene.SceneCanvas(
             keys=None,
             show=False,
@@ -1089,7 +1096,10 @@ class MainViewer:
         self.set_sidebar_visible(False)
         
         if self.window_mode == NORMAL:
+            Startup_Status.report(Startup_Status.OPENING_WINDOW, 0.9)
             self.window_control.open()
+            # Once it is on screen, tell the launcher that started this Viewer (it closes its splash).
+            QtCore.QTimer.singleShot(150, lambda: signal_launcher_ready(self.main_window))
         if self.window_mode != HEADLESS:
             QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
         

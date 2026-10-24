@@ -6719,6 +6719,89 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
 </context>
 <context>
+    <name>Splash</name>
+    <message>
+        <source>Configuration</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Tools</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Viewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open log</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Close</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{window} stopped before its window opened.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>(It printed nothing.)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copied</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Protein Sequence Similarity Networks</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>© 2026 Xuebin Feng, University of Toronto. Apache License 2.0.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Version {version}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The last lines it printed:</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Starting…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Checking the Python environment…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Checking the settings and inputs…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Loading PyTorch…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Building the window…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Building network display: {nodes} nodes, {edges} edges.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opening the window…</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>ThemeColorSwitch</name>
     <message>
         <source>Purple</source>

@@ -1,0 +1,557 @@
+# Copyright 2026 Xuebin Feng
+# Author affiliation: University of Toronto
+# SPDX-License-Identifier: Apache-2.0
+
+"""The start-up splash: a window that is up a third of a second after a click, and follows the start.
+
+Layout: the kicker, "EMAP-SSN" and the window's name at the left, the copyright and version
+under them, the network art at the right, and below the text a status line with a progress
+bar. The colours are the Studio theme's light shades (desktop/Studio_Theme.py) in the default
+purple, whatever theme colour the windows use: the splash is the program's, not a window's.
+
+The status line follows the start. The launcher (desktop/Desktop_Launcher.py) and the window
+it starts report what they are doing as JSON lines in a status file (utilities/Startup_Status.py);
+the splash reads the file as it grows, translates each text in the saved language (the catalogs'
+"Splash" context) and shows it. A window that starts fills the bar as it passes its milestones;
+a bar with no milestone yet sweeps. The splash closes when the window writes the ready file.
+
+If the window ends before it is ready, the splash turns into an error view: what the window last
+printed, with Copy, Open log and Close.
+
+It imports only PySide6's QtCore, QtGui and QtWidgets and the standard library, so it is on
+screen long before the heavy imports (NumPy, torch, VisPy) of the windows it waits for, and it
+runs in a process of its own: the windows load torch before Qt on purpose. It has no taskbar
+button (a Qt splash-screen window is a tool window on Windows) and opens on the screen under
+the mouse pointer.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+
+T_START = time.time()  # the splash's own clock, for the first-paint measure
+
+SRC_DIR = Path(__file__).resolve().parents[1]
+if str(SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(SRC_DIR))
+
+from PySide6.QtCore import QCoreApplication, QLocale, QPointF, QRectF, Qt, QTimer, QTranslator, QUrl, Signal
+from PySide6.QtGui import (
+    QColor, QCursor, QDesktopServices, QFont, QFontDatabase, QFontMetricsF, QGuiApplication, QImage, QPainter,
+    QPainterPath, QPen, QPixmap, QRadialGradient,
+)
+from PySide6.QtWidgets import QApplication, QPlainTextEdit, QPushButton, QWidget
+
+from utilities import Startup_Status as Status
+
+LOGOS = SRC_DIR / "bin" / "logos"
+FONTS = SRC_DIR / "resources" / "fonts" / "desktop"
+LANGUAGES = SRC_DIR / "resources" / "languages"
+APP_SETTINGS_VARIABLE = "SSN_APP_SETTINGS_PATH"
+
+PRODUCT = "EMAP-SSN"
+VERSION = "0.4.0"
+# What each kind of window is called under the product's name, and which art it takes.
+SUBTITLES = {
+    "config": Status.QT_TRANSLATE_NOOP("Splash", "Configuration"),
+    "tools": Status.QT_TRANSLATE_NOOP("Splash", "Tools"),
+    "viewer": Status.QT_TRANSLATE_NOOP("Splash", "Viewer"),
+}
+KINDS = tuple(SUBTITLES)
+LOGO_FILES = {"config": "splash_logo_viewer_512.png", "tools": "splash_logo_tool_512.png",
+              "viewer": "splash_logo_viewer_512.png"}
+
+# Studio_Theme's NEUTRAL_SHADES["light"] and its default purple accent. tests/test_splash.py
+# compares them with the theme's own, so the splash cannot drift from it.
+SCHEME = {
+    "surface": "#ffffff", "panel": "#f4f4f5", "border": "#e4e4e7", "text": "#09090b", "text_soft": "#3f3f46",
+    "muted": "#52525b", "subtle": "#71717a", "track": "#e4e4e7", "accent": "#5b5bd6", "field_border": "#dcdce0",
+    "danger": "#dc2626", "hover": "#f4f4f5",
+}
+
+WIDTH, HEIGHT = 640, 360
+ERROR_HEIGHT = 420
+RADIUS = 14.0
+# The bar: the text column's width, 3 px high.
+TEXT_X, TEXT_WIDTH = 40.0, 300.0
+BAR_Y, BAR_HEIGHT = 318.0, 3.0
+# The window may be this many seconds without news before the bar creeps on its own, and how far it may creep.
+CREEP_SECONDS, CREEP_LIMIT = 1.0, 0.12
+TICK_MS = 33
+# The milestones the launcher itself reports (the windows report theirs with Startup_Status).
+FRACTION_CHECKING, FRACTION_CHECKED, FRACTION_STARTED = 0.06, 0.34, 0.40
+
+
+# ---------------------------------------------------------------------------------------------
+# Language
+# ---------------------------------------------------------------------------------------------
+
+def app_settings_path(environment=None):
+    environment = os.environ if environment is None else environment
+    named = environment.get(APP_SETTINGS_VARIABLE, "").strip()
+    return Path(named) if named else SRC_DIR.parent / "app_settings.json"
+
+
+def saved_language_setting(environment=None):
+    """The LANGUAGE setting of app_settings.json: "system", "en" or a code ("system" when unset or unreadable)."""
+    try:
+        value = json.loads(app_settings_path(environment).read_text(encoding="utf-8")).get("LANGUAGE")
+    except (OSError, ValueError, AttributeError):
+        return "system"
+    return value if isinstance(value, str) and value else "system"
+
+
+def catalog_path(code, languages_dir=LANGUAGES):
+    return Path(languages_dir) / code / f"emapssn_{code}.qm"
+
+
+def splash_language(setting=None, ui_languages=None, languages_dir=LANGUAGES):
+    """The code of the language the windows show, or None for English: what desktop.Desktop_App.resolve_language gives.
+
+    "system" follows the system's display languages where a catalog exists; a language whose
+    compiled catalog is gone shows English.
+    """
+    setting = saved_language_setting() if setting is None else setting
+    if setting == "en":
+        return None
+    if setting == "system":
+        tags = QLocale.system().uiLanguages() if ui_languages is None else ui_languages
+        for tag in tags:
+            name = QLocale(tag).name()
+            for code in (name, name.split("_")[0]):
+                if code == "en":
+                    return None
+                if catalog_path(code, languages_dir).is_file():
+                    return code
+        return None
+    return setting if catalog_path(setting, languages_dir).is_file() else None
+
+
+def language_font(code, languages_dir=LANGUAGES):
+    """(family, files) of the font a language brings besides the core faces (its language.json), or (None, [])."""
+    try:
+        font = json.loads((Path(languages_dir) / code / "language.json").read_text(encoding="utf-8"))["font"]
+        return font["family"], [FONTS / name for name in font["files"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        return None, []
+
+
+def language_font_files(code, languages_dir=LANGUAGES):
+    """The bundled font files a language needs besides the core faces, as paths."""
+    return language_font(code, languages_dir)[1]
+
+
+def load_fonts(language=None):
+    """Register the bundled Noto faces the splash draws in (and the language's, if it brings its own)."""
+    files = [FONTS / "noto" / "NotoSans" / "NotoSans-Regular.ttf", FONTS / "noto" / "NotoSans" / "NotoSans-SemiBold.ttf",
+             FONTS / "noto" / "NotoSansMono" / "NotoSansMono-Regular.ttf"]
+    _language_families.clear()
+    if language:
+        family, extra = language_font(language)
+        files += extra
+        if family:
+            _language_families.append(family)
+    for path in files:
+        QFontDatabase.addApplicationFont(str(path))
+
+
+def install_catalog(language):
+    """Install the language's compiled catalog; returns the translator (keep it alive), or None."""
+    if not language:
+        return None
+    translator = QTranslator()
+    if translator.load(str(catalog_path(language))):
+        QCoreApplication.installTranslator(translator)
+        return translator
+    return None
+
+
+def tr(text):
+    return QCoreApplication.translate("Splash", text)
+
+
+# ---------------------------------------------------------------------------------------------
+# The status file
+# ---------------------------------------------------------------------------------------------
+
+class StatusFeed:
+    """The JSON lines of a status file, as they are appended: poll() gives the new, complete ones."""
+
+    def __init__(self, path):
+        self.path = None if path is None else Path(path)
+        self._offset = 0
+        self._partial = b""
+
+    def poll(self):
+        if self.path is None:
+            return []
+        try:
+            with open(self.path, "rb") as handle:
+                handle.seek(self._offset)
+                data = handle.read()
+        except OSError:
+            return []
+        self._offset += len(data)
+        data = self._partial + data
+        *lines, self._partial = data.split(b"\n")
+        messages = []
+        for line in lines:
+            try:
+                message = json.loads(line.decode("utf-8", "replace"))
+            except ValueError:
+                continue
+            if isinstance(message, dict) and isinstance(message.get("text"), str):
+                messages.append(message)
+        return messages
+
+
+def tail_lines(path, count=14, limit=64 * 1024):
+    """The last ``count`` non-empty lines of a text file, read from its last ``limit`` bytes ([] if unreadable)."""
+    try:
+        with open(path, "rb") as handle:
+            handle.seek(0, os.SEEK_END)
+            size = handle.tell()
+            handle.seek(max(0, size - limit))
+            data = handle.read()
+    except OSError:
+        return []
+    lines = [line.rstrip("\r") for line in data.decode("utf-8", "replace").split("\n")]
+    return [line for line in lines if line.strip()][-count:]
+
+
+# ---------------------------------------------------------------------------------------------
+# The window
+# ---------------------------------------------------------------------------------------------
+
+# The families a language brings (its language.json), tried after the core one for the glyphs it lacks.
+_language_families = []
+
+
+def _font(pixels, bold=False, family="Noto Sans"):
+    font = QFont(family)
+    if _language_families:
+        font.setFamilies([family, *_language_families])
+    font.setPixelSize(int(pixels))
+    font.setWeight(QFont.Weight.DemiBold if bold else QFont.Weight.Normal)
+    return font
+
+
+def screen_center(point=None):
+    """The centre of the available area of the screen under ``point`` (the mouse pointer by default)."""
+    screen = QGuiApplication.screenAt(QCursor.pos() if point is None else point) or QGuiApplication.primaryScreen()
+    return screen.availableGeometry().center()
+
+
+class SplashWindow(QWidget):
+    """The splash. ``kind`` is "config", "tools" or "viewer"; ``language`` a code or None."""
+
+    closed = Signal()
+
+    def __init__(self, kind="config", language=None, status_file=None):
+        super().__init__(None, Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint
+                         | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.NoDropShadowWindowHint)
+        if kind not in SUBTITLES:
+            raise ValueError(f"unknown splash kind {kind!r}")
+        self.kind = kind
+        self.language = language
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)  # the rounded corners
+        self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
+        self.setFixedSize(WIDTH, HEIGHT)
+        self.colors = {name: QColor(value) for name, value in SCHEME.items()}
+        self.logo = QPixmap(str(LOGOS / LOGO_FILES[kind]))  # a 512 px copy: the shipped art decodes to 75 MB
+        self.status = tr(Status.STARTING)
+        self.target_fraction = None   # None: the sweeping bar; a number: the share done at the last news
+        self.shown_fraction = 0.0
+        self._news_time = time.monotonic()
+        self._started = self._news_time
+        self.error = False
+        self.error_title = ""
+        self.log_path = None
+        self.feed = StatusFeed(status_file)
+        self.log_view = self._make_log_view()
+        self.copy_button = self._make_button(QCoreApplication.translate("Splash", "Copy"), self.copy_error)
+        self.log_button = self._make_button(QCoreApplication.translate("Splash", "Open log"), self.open_log)
+        self.close_button = self._make_button(QCoreApplication.translate("Splash", "Close"), self.close)
+        for widget in (self.log_view, self.copy_button, self.log_button, self.close_button):
+            widget.hide()
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self._tick)
+        self.timer.start(TICK_MS)
+        self.move_to(screen_center())
+
+    # --- placing
+    def move_to(self, center):
+        self.move(center.x() - self.width() // 2, center.y() - self.height() // 2)
+
+    # --- status
+    def show_text(self, text, fraction=None):
+        """Show ``text`` as it is (a line the dependency check printed); fraction None keeps the bar's milestone."""
+        self.status = text
+        if fraction is not None:
+            self.set_fraction(fraction)
+        self.update()
+
+    def set_status(self, text, fraction=None, **values):
+        """Show a reported status: ``text`` is English; it is translated, then filled in with ``values``."""
+        shown = tr(text)
+        try:
+            shown = shown.format(**values) if values else shown
+        except (KeyError, IndexError, ValueError):
+            pass
+        self.show_text(shown, fraction)
+
+    def set_fraction(self, fraction):
+        self.target_fraction = max(self.target_fraction or 0.0, min(1.0, float(fraction)))  # never backwards
+        self._news_time = time.monotonic()
+
+    def apply(self, messages):
+        for message in messages:
+            fraction = message.get("fraction")
+            self.set_status(message["text"], fraction if isinstance(fraction, (int, float)) else None,
+                            **(message.get("values") if isinstance(message.get("values"), dict) else {}))
+
+    def _tick(self):
+        if not self.error:
+            self.apply(self.feed.poll())
+            if self.target_fraction is not None:
+                idle = time.monotonic() - self._news_time
+                creep = min(CREEP_LIMIT, max(0.0, idle - CREEP_SECONDS) * 0.02)
+                goal = min(0.97, self.target_fraction + creep)
+                self.shown_fraction += (goal - self.shown_fraction) * 0.18
+        self.update()
+
+    # --- the error view
+    def _make_log_view(self):
+        view = QPlainTextEdit(self)
+        view.setReadOnly(True)
+        view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        font = _font(11, family="Noto Sans Mono")
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        view.setFont(font)
+        view.setStyleSheet(
+            f"QPlainTextEdit {{ background: {SCHEME['panel']}; color: {SCHEME['text_soft']};"
+            f" border: 1px solid {SCHEME['border']}; border-radius: 8px; padding: 6px; }}"
+        )
+        return view
+
+    def _make_button(self, text, slot):
+        button = QPushButton(text, self)
+        button.setFont(_font(12))
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setStyleSheet(
+            f"QPushButton {{ background: {SCHEME['surface']}; color: {SCHEME['text']}; border: 1px solid {SCHEME['field_border']};"
+            f" border-radius: 8px; padding: 6px 16px; }}"
+            f"QPushButton:hover {{ background: {SCHEME['hover']}; }}"
+            f"QPushButton:focus {{ border: 2px solid {SCHEME['accent']}; padding: 5px 15px; }}"
+        )
+        button.clicked.connect(slot)
+        return button
+
+    def show_error(self, lines, log_path=None, reason=None):
+        """Turn into the error view: why it stopped, the last lines the window printed, Copy, Open log and Close."""
+        self.error = True
+        self.log_path = None if log_path is None else str(log_path)
+        self.error_title = reason or QCoreApplication.translate("Splash", "{window} stopped before its window opened.").format(
+            window=f"{PRODUCT} {tr(SUBTITLES[self.kind])}")
+        self.setFixedSize(WIDTH, ERROR_HEIGHT)
+        self.log_view.setPlainText("\n".join(lines) if lines else QCoreApplication.translate("Splash", "(It printed nothing.)"))
+        self.log_view.setGeometry(32, 118, WIDTH - 64, 226)
+        right = WIDTH - 32
+        for button in (self.close_button, self.log_button, self.copy_button):
+            hint = button.sizeHint()
+            width = max(hint.width(), 84)
+            button.setGeometry(right - width, ERROR_HEIGHT - 58, width, 34)
+            right -= width + 10
+        self.log_button.setEnabled(self.log_path is not None)
+        for widget in (self.log_view, self.copy_button, self.log_button, self.close_button):
+            widget.show()
+        self.close_button.setFocus()
+        self.move_to(screen_center(self.geometry().center()))
+        self.activateWindow()
+        self.raise_()
+        self.update()
+
+    def error_text(self):
+        return self.error_title + "\n\n" + self.log_view.toPlainText()
+
+    def copy_error(self):
+        QGuiApplication.clipboard().setText(self.error_text())
+        self.copy_button.setText(QCoreApplication.translate("Splash", "Copied"))
+        QTimer.singleShot(1500, lambda: self.copy_button.setText(QCoreApplication.translate("Splash", "Copy")))
+
+    def open_log(self):
+        if self.log_path:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self.log_path))
+
+    def keyPressEvent(self, event):
+        if self.error and event.key() == Qt.Key.Key_Escape:
+            self.close()
+        else:
+            super().keyPressEvent(event)
+
+    def closeEvent(self, event):
+        self.timer.stop()
+        super().closeEvent(event)
+        self.closed.emit()
+
+    # --- painting
+    def paintEvent(self, event):
+        c = self.colors
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        height = self.height()
+        outer = QRectF(0.5, 0.5, self.width() - 1, height - 1)
+        shape = QPainterPath()
+        shape.addRoundedRect(outer, RADIUS, RADIUS)
+        painter.setClipPath(shape)
+        painter.fillRect(self.rect(), c["surface"])
+        if self.error:
+            self._paint_error(painter)
+        else:
+            self._paint_start(painter)
+        painter.setClipping(False)
+        painter.setPen(QPen(c["border"], 1.0))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(outer, RADIUS, RADIUS)
+        painter.end()
+
+    def _paint_start(self, painter):
+        c = self.colors
+        # A soft light of the accent behind the art, then the art.
+        glow = QRadialGradient(QPointF(WIDTH - 180, HEIGHT / 2), 230)
+        halo = QColor(c["accent"])
+        halo.setAlphaF(0.14)
+        glow.setColorAt(0.0, halo)
+        halo.setAlphaF(0.0)
+        glow.setColorAt(1.0, halo)
+        painter.fillRect(self.rect(), glow)
+        if not self.logo.isNull():
+            painter.drawPixmap(QRectF(WIDTH - 330, 36, 300, 300), self.logo, QRectF(self.logo.rect()))
+        x, width = TEXT_X, TEXT_WIDTH
+        left, vcenter = Qt.AlignmentFlag.AlignLeft, Qt.AlignmentFlag.AlignVCenter
+        painter.setPen(c["accent"])
+        painter.setFont(_font(15, True))
+        painter.drawText(QRectF(x, 36, width + 10, 22), left | vcenter, QCoreApplication.translate("Splash", "Protein Sequence Similarity Networks"))
+        painter.setPen(c["text"])
+        painter.setFont(_font(44, True))
+        painter.drawText(QRectF(x, 58, width, 56), left | vcenter, PRODUCT)
+        painter.setFont(_font(30, True))
+        painter.drawText(QRectF(x, 112, width, 40), left | vcenter, tr(SUBTITLES[self.kind]))
+        painter.setPen(c["muted"])
+        painter.setFont(_font(11))
+        painter.drawText(
+            QRectF(x, 204, width, 44), left | Qt.AlignmentFlag.AlignTop | Qt.TextFlag.TextWordWrap,
+            QCoreApplication.translate("Splash", "© 2026 Xuebin Feng, University of Toronto. Apache License 2.0.") + "  "
+            + QCoreApplication.translate("Splash", "Version {version}").format(version=VERSION),
+        )
+        painter.setPen(c["text"])
+        font = _font(12)
+        painter.setFont(font)
+        status = QFontMetricsF(font).elidedText(self.status, Qt.TextElideMode.ElideMiddle, width + 10)
+        painter.drawText(QRectF(x, 286, width + 10, 22), left | vcenter, status)
+        self._paint_bar(painter)
+
+    def _paint_bar(self, painter):
+        c = self.colors
+        bar = QRectF(TEXT_X, BAR_Y, TEXT_WIDTH, BAR_HEIGHT)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(c["track"])
+        painter.drawRoundedRect(bar, 1.5, 1.5)
+        painter.setBrush(c["accent"])
+        if self.target_fraction is None:
+            period = 1.4
+            phase = ((time.monotonic() - self._started) % period) / period
+            span = bar.width() * 0.28
+            left = bar.left() + (bar.width() + span) * phase - span
+            start, end = max(bar.left(), left), min(left + span, bar.right())
+            if end > start:
+                painter.drawRoundedRect(QRectF(start, bar.top(), end - start, bar.height()), 1.5, 1.5)
+        else:
+            painter.drawRoundedRect(
+                QRectF(bar.left(), bar.top(), max(3.0, bar.width() * min(1.0, self.shown_fraction)), bar.height()),
+                1.5, 1.5)
+
+    def _paint_error(self, painter):
+        c = self.colors
+        left, vcenter = Qt.AlignmentFlag.AlignLeft, Qt.AlignmentFlag.AlignVCenter
+        painter.setPen(c["text"])
+        painter.setFont(_font(26, True))
+        painter.drawText(QRectF(32, 24, WIDTH - 64, 38), left | vcenter, f"{PRODUCT} {tr(SUBTITLES[self.kind])}")
+        painter.setPen(c["danger"])
+        painter.setFont(_font(14, True))
+        font = _font(14, True)
+        title = QFontMetricsF(font).elidedText(self.error_title, Qt.TextElideMode.ElideMiddle, WIDTH - 64)
+        painter.drawText(QRectF(32, 66, WIDTH - 64, 24), left | vcenter, title)
+        painter.setPen(c["muted"])
+        painter.setFont(_font(12))
+        painter.drawText(QRectF(32, 92, WIDTH - 64, 20), left | vcenter, QCoreApplication.translate("Splash", "The last lines it printed:"))
+
+
+# ---------------------------------------------------------------------------------------------
+# Standalone use: python src/desktop/Splash.py (screenshots, and the hand-off tests)
+# ---------------------------------------------------------------------------------------------
+
+def render(window, scheme_background=None):
+    """The window as it looks on the page behind it, as an image (a translucent window shows nothing alone)."""
+    pixmap = window.grab()
+    image = QImage(pixmap.size(), QImage.Format.Format_ARGB32_Premultiplied)
+    image.fill(QColor(scheme_background or SCHEME["panel"]))
+    image.setDevicePixelRatio(pixmap.devicePixelRatio())
+    painter = QPainter(image)
+    painter.drawPixmap(0, 0, pixmap)
+    painter.end()
+    return image
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--kind", default="config", choices=KINDS)
+    parser.add_argument("--language", default=None, help="a language code; the saved setting by default; en for English")
+    parser.add_argument("--status", default=None, help="a status text (English; it is translated), as a window reports it")
+    parser.add_argument("--value", action="append", default=[], metavar="NAME=TEXT", help="a value for the status's {NAME}")
+    parser.add_argument("--fraction", type=float, default=None)
+    parser.add_argument("--status-file", default=None)
+    parser.add_argument("--ready-file", default=None)
+    parser.add_argument("--hidden", action="store_true", help="draw nowhere (tests)")
+    parser.add_argument("--shot", default=None, help="render once to this PNG and exit")
+    parser.add_argument("--error-log", default=None, help="show the error view with the end of this file")
+    args = parser.parse_args(argv)
+    application = QApplication(sys.argv[:1])
+    language = splash_language(args.language if args.language else None)
+    if args.language == "en":
+        language = None
+    load_fonts(language)
+    translator = install_catalog(language)  # noqa: F841 (kept alive)
+    window = SplashWindow(args.kind, language, args.status_file)
+    if args.status:
+        window.set_status(args.status, args.fraction, **dict(item.split("=", 1) for item in args.value if "=" in item))
+        if args.fraction is not None:
+            window.shown_fraction = args.fraction  # a shot has no time to ease in
+    if args.error_log:
+        window.show_error(tail_lines(args.error_log), args.error_log)
+    if args.hidden or args.shot:
+        window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+    window.show()
+    application.processEvents()
+    print(json.dumps({"first_paint_ms": round((time.time() - T_START) * 1000, 1), "language": language}), flush=True)
+    if args.shot:
+        render(window).save(args.shot)
+        return 0
+    if args.ready_file:
+        ready = Path(args.ready_file)
+        poll = QTimer()
+        poll.timeout.connect(lambda: window.close() if ready.exists() and not window.error else None)
+        poll.start(30)
+    window.closed.connect(application.quit)
+    return application.exec()
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -306,6 +306,8 @@ def _signal_launcher_ready(window):
     if window is None or not window.isVisible():
         return False
 
+    # The start is over: no more status for the splash, and no process this window starts may write to it.
+    os.environ.pop("SSN_STARTUP_STATUS_FILE", None)
     ready_value = os.environ.pop("SSN_GUI_READY_FILE", None)
     if not ready_value:
         return False
@@ -326,6 +328,11 @@ def _signal_launcher_ready(window):
         print(f"Warning: Could not signal GUI readiness: {error}", file=sys.stderr)
         return False
     return True
+
+
+def signal_launcher_ready(window):
+    """Tell the desktop launcher, if one started this process, that ``window`` is up (it closes its splash)."""
+    return _signal_launcher_ready(window)
 
 
 def _activate_and_signal(window):

@@ -606,7 +606,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2583"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2590"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -619,12 +619,12 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2478"/>
+        <location line="-2485"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="+185"/>
+        <location filename="../../../EMAPSSN_Config.py" line="+186"/>
         <source>Input File Directory:</source>
         <translation type="unfinished">输入文件目录：</translation>
     </message>
@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3945"/>
+        <location line="+3946"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3944"/>
+        <location line="-3945"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4543"/>
+        <location line="+4544"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4535"/>
+        <location line="-4536"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -763,7 +763,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+666"/>
+        <location line="+667"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -1657,7 +1657,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">比对长度</translation>
     </message>
     <message>
-        <location line="-566"/>
+        <location line="-567"/>
         <source>No Zoom or Sidebar Animation:</source>
         <translation type="unfinished">无缩放和侧边栏动画：</translation>
     </message>
@@ -1677,7 +1677,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">显示帧率（FPS）：</translation>
     </message>
     <message>
-        <location line="+564"/>
+        <location line="+565"/>
         <source>Shorter Sequence</source>
         <comment>normalization</comment>
         <translation type="unfinished">较短序列长度</translation>
@@ -4377,7 +4377,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1879"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1886"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -6639,7 +6639,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4872"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4873"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6681,7 +6681,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1445"/>
+        <location line="+1446"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -6741,7 +6741,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1407"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1417"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -9416,6 +9416,110 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
 </context>
 <context>
+    <name>Splash</name>
+    <message>
+        <location filename="../../../desktop/Splash.py" line="+61"/>
+        <source>Configuration</source>
+        <translation type="unfinished">配置</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Tools</source>
+        <translation type="unfinished">工具</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Viewer</source>
+        <translation type="unfinished">查看器</translation>
+    </message>
+    <message>
+        <location line="+214"/>
+        <location line="+108"/>
+        <source>Copy</source>
+        <translation type="unfinished">复制</translation>
+    </message>
+    <message>
+        <location line="-107"/>
+        <source>Open log</source>
+        <translation type="unfinished">打开日志</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Close</source>
+        <translation type="unfinished">关闭</translation>
+    </message>
+    <message>
+        <location line="+80"/>
+        <source>{window} stopped before its window opened.</source>
+        <translation type="unfinished">{window} 在窗口打开之前就停止了。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>(It printed nothing.)</source>
+        <translation type="unfinished">（没有任何输出。）</translation>
+    </message>
+    <message>
+        <location line="+22"/>
+        <source>Copied</source>
+        <translation type="unfinished">已复制</translation>
+    </message>
+    <message>
+        <location line="+57"/>
+        <source>Protein Sequence Similarity Networks</source>
+        <translation type="unfinished">蛋白质序列相似性网络</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>© 2026 Xuebin Feng, University of Toronto. Apache License 2.0.</source>
+        <translation type="unfinished">© 2026 Xuebin Feng，多伦多大学。Apache License 2.0。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Version {version}</source>
+        <translation type="unfinished">版本 {version}</translation>
+    </message>
+    <message>
+        <location line="+42"/>
+        <source>The last lines it printed:</source>
+        <translation type="unfinished">它最后输出的内容：</translation>
+    </message>
+    <message>
+        <location filename="../../../utilities/Startup_Status.py" line="+36"/>
+        <source>Starting…</source>
+        <translation type="unfinished">正在启动…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Checking the Python environment…</source>
+        <translation type="unfinished">正在检查 Python 环境…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Checking the settings and inputs…</source>
+        <translation type="unfinished">正在检查设置和输入…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Loading PyTorch…</source>
+        <translation type="unfinished">正在加载 PyTorch…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Building the window…</source>
+        <translation type="unfinished">正在构建窗口…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Building network display: {nodes} nodes, {edges} edges.</source>
+        <translation type="unfinished">正在构建网络显示：{nodes} 个节点，{edges} 条边。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Opening the window…</source>
+        <translation type="unfinished">正在打开窗口…</translation>
+    </message>
+</context>
+<context>
     <name>ThemeColorSwitch</name>
     <message>
         <location filename="../../../desktop/Desktop_App.py" line="+122"/>
@@ -9554,12 +9658,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1507"/>
+        <location line="-1514"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Tools.py" line="+134"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+136"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>

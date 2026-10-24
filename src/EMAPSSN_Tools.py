@@ -68,6 +68,8 @@ def _configure_qtwebengine_rendering(
 # Chromium reads this before the QtWebEngine renderer process starts.
 _configure_qtwebengine_rendering()
 
+from utilities import Startup_Status
+Startup_Status.report(Startup_Status.LOADING_PYTORCH, 0.45)
 from utilities import Hardware_Acceleration as Hardware_Utils
 from Embedding_Alignment_Engine import (
     DEFAULT_HOST_CACHE_CAP,
@@ -5340,6 +5342,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Warning: Could not apply the window theme: {e}")
         app.setStyle("Fusion")
+    Startup_Status.report(Startup_Status.BUILDING_WINDOW, 0.8)
     window = ToolsGUI()
     window.single_instance = single_instance  # a language redraw hands it on
     if single_instance is not None:

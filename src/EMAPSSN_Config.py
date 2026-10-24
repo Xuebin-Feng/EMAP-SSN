@@ -37,6 +37,7 @@ import traceback
 from pathlib import Path
 from utilities.Localization import QT_TRANSLATE_NOOP, Message, display_text
 from utilities.Console_Capture import install_qt_message_handler
+from utilities import Startup_Status
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from desktop.Desktop_App import (
     APPLICATION_VERSION,
@@ -636,6 +637,7 @@ def _consistency_network_metadata(network_path):
 if __name__ == "__main__":
     # Hardware_Utils imports PyTorch.  On Windows this must happen before
     # PySide6/OpenGL initializes, otherwise torch's c10.dll can fail to load.
+    Startup_Status.report(Startup_Status.LOADING_PYTORCH, 0.45)
     try:
         from utilities import Hardware_Acceleration as Hardware_Utils
     except ImportError:
@@ -5275,6 +5277,7 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Warning: Could not apply the window theme: {e}")
         app.setStyle("Fusion")
+    Startup_Status.report(Startup_Status.BUILDING_WINDOW, 0.8)
     window = ConfigGUI()
     window.single_instance = single_instance  # a language redraw hands it on
     if single_instance is not None:
