@@ -1903,6 +1903,7 @@
                             : t("Agent is inactive. Select a model and press the toggle button to activate."));
                     }
                     reconcileSubmission(event.data.llm_history || []);
+                    if (event.data.history_problem) appendErrorMsg(event.data.history_problem, true);
                     if (event.data.data_use) showDataUseNotice(event.data.data_use);
                     if (event.data.warning) appendWarningMsg(event.data.warning);
                     // A turn already running (one started from the terminal, say) can be stopped from this page.
@@ -2001,6 +2002,9 @@
                     break;
                 case "model_card_updated":
                     applyCardUpdate(event.card_id, event.fields);
+                    break;
+                case "agent_history_error":
+                    appendErrorMsg(event.error, true);
                     break;
             }
         }

@@ -92,12 +92,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+964"/>
+        <location line="+968"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-963"/>
+        <location line="-967"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -509,18 +509,18 @@
         <translation type="unfinished">智能体未启用。请选择一个模型，然后点击开关启用。</translation>
     </message>
     <message>
-        <location line="+9"/>
-        <location line="+108"/>
+        <location line="+10"/>
+        <location line="+111"/>
         <source>LLM</source>
         <translation type="unfinished">LLM</translation>
     </message>
     <message>
-        <location line="-35"/>
+        <location line="-38"/>
         <source>Stopped. Commands that had already run were not undone.</source>
         <translation type="unfinished">已停止。已经运行的命令不会被撤销。</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+49"/>
         <source>Agent deactivated.</source>
         <translation type="unfinished">智能体已停用。</translation>
     </message>
@@ -7144,7 +7144,27 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">未收到 LLM 的回复。</translation>
     </message>
     <message>
-        <location line="+240"/>
+        <location line="+232"/>
+        <source>The chat history {path} could not be read ({error}). It is left as it is, and nothing is saved over it until it can be read.</source>
+        <translation type="unfinished">无法读取聊天记录 {path}（{error}）。它保持原样，在能够读取之前不会向其中保存任何内容。</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>The chat history {path} is unusable ({problem}) and could not be set aside ({error}). It is left as it is, and nothing is saved over it.</source>
+        <translation type="unfinished">聊天记录 {path} 无法使用（{problem}），也无法将其另存（{error}）。它保持原样，不会向其中保存任何内容。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The chat history {path} is unusable ({problem}). It was kept as {aside}, and a new history was started.</source>
+        <translation type="unfinished">聊天记录 {path} 无法使用（{problem}）。它已另存为 {aside}，并已开始新的聊天记录。</translation>
+    </message>
+    <message>
+        <location line="+47"/>
+        <source>The chat history could not be saved: {error}. It stays in memory until the Viewer is closed.</source>
+        <translation type="unfinished">无法保存聊天记录：{error}。在关闭查看器之前，它会保留在内存中。</translation>
+    </message>
+    <message>
+        <location line="+34"/>
         <source>Invalid submission ID.</source>
         <translation type="unfinished">无效的提交 ID。</translation>
     </message>
@@ -7174,7 +7194,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">无法读取提示文件：{error}</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+64"/>
         <source>The agent wants to run {command}, which needs your approval. Open the Agent page to run or discard it.</source>
         <translation type="unfinished">智能体想要运行 {command}，该命令需要您的批准。请打开智能体页面来运行或放弃它。</translation>
     </message>
@@ -12623,7 +12643,7 @@ Fedora / RHEL：
         <translation type="obsolete">🤖 智能体</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent_backend.py" line="+112"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+116"/>
         <source>Agent</source>
         <translation type="unfinished">智能体</translation>
     </message>

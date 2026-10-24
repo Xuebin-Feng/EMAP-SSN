@@ -1702,3 +1702,174 @@ class ErrorSentenceTests(unittest.TestCase):
         self.assertEqual(str(self.refused([{'type': 'text', 'text': 'image_url'}])), 'Model request failed (HTTP 400): unsupported value.')
         self.assertFalse(agent._has_images([{'content': 'text'}, {'content': [{'type': 'text'}]}, {'content': None}, {}]))
         self.assertTrue(agent._has_images([{'content': 'text'}, {'content': self.IMAGE}]))
+
+
+class HistoryFileTests(unittest.TestCase):
+    """The chat history file is written whole or not at all, errors are reported, and an unusable file is kept."""
+    GOOD = [{'role': 'user', 'content': 'select cluster 1'}, {'role': 'assistant', 'content': 'Selected.', 'explanation': 'Selected.'}]
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.folder = Path(directory.name)
+        self.path = self.folder / 'agent_history.json'
+        patcher = mock.patch.object(agent, 'get_agent_history_path', return_value=str(self.path))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.viewer = SimpleNamespace(events=[], llm_history=[dict(message) for message in self.GOOD])
+        self.viewer.broadcast_event = self.viewer.events.append
+
+    def load(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            history = agent.load_agent_history(self.viewer)
+        return history, output.getvalue()
+
+    def asides(self):
+        return sorted(name for name in os.listdir(self.folder) if '.corrupt-' in name)
+
+    def test_the_history_is_saved_whole_and_loads_back(self):
+        agent.save_agent_history(self.viewer)
+        self.assertEqual(json.loads(self.path.read_text(encoding='utf-8')), self.GOOD)
+        self.assertEqual(self.load(), (self.GOOD, ''))
+        self.assertEqual(os.listdir(self.folder), ['agent_history.json'])
+        # No file, an empty history, and entries from before the explanation fields are all good histories.
+        self.path.unlink()
+        self.assertEqual(self.load(), ([], ''))
+        for history in ([], [{'role': 'user', 'content': 'old'}]):
+            self.viewer.llm_history = history
+            agent.save_agent_history(self.viewer)
+            self.assertEqual(self.load(), (history, ''))
+        self.assertIsNone(getattr(self.viewer, '_agent_history_problem', None))
+
+    def test_a_write_that_fails_leaves_the_old_file_and_no_partial_one(self):
+        agent.save_agent_history(self.viewer)
+        before = self.path.read_bytes()
+        self.viewer.llm_history.append({'role': 'user', 'content': 'more'})
+        failures = {
+            'the rename': (mock.patch.object(agent.os, 'replace', side_effect=OSError('disk full')), OSError),
+            'the encoder, half way': (mock.patch.object(agent.json, 'dump', side_effect=lambda value, f, **kw: (f.write('[{"role"'), 1 / 0)[1]), ZeroDivisionError),
+            'text that cannot be written': (mock.patch.object(agent.json, 'dump', side_effect=ValueError('Circular reference')), ValueError),
+        }
+        for label, (patcher, error) in failures.items():
+            with self.subTest(label), patcher, self.assertRaises(error):
+                agent.save_agent_history(self.viewer)
+            self.assertEqual(self.path.read_bytes(), before)
+            self.assertEqual(os.listdir(self.folder), ['agent_history.json'])
+
+    def test_a_file_an_earlier_save_left_half_written_is_cleaned_up_once_stale(self):
+        stale = self.folder / '.agent_history.json.abc123.partial'
+        stale.write_text('[{"role"', encoding='utf-8')
+        recent = self.folder / '.agent_history.json.def456.partial'
+        recent.write_text('[{"role"', encoding='utf-8')
+        old = time.time() - 2 * agent._STALE_PARTIAL_SECONDS
+        os.utime(stale, (old, old))
+        agent.save_agent_history(self.viewer)
+        self.assertEqual(sorted(os.listdir(self.folder)), ['.agent_history.json.def456.partial', 'agent_history.json'])
+
+    def test_a_save_that_fails_is_reported_to_the_terminal_and_the_page_and_the_answer_still_comes(self):
+        blocker = self.folder / 'not a folder'
+        blocker.write_text('x', encoding='utf-8')
+        self.path = blocker / 'agent_history.json'  # Its folder is a file.
+        agent.get_agent_history_path.return_value = str(self.path)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            agent.save_and_broadcast_agent_response(self.viewer, 'q', 'answer', '', '', '{}')
+        self.assertEqual([event['type'] for event in self.viewer.events], ['agent_history_error', 'agent_response'])
+        error = self.viewer.events[0]['error']
+        self.assertIn('The chat history could not be saved:', error)
+        self.assertIn('It stays in memory until the Viewer is closed.', error)
+        self.assertIn(error, output.getvalue())
+        self.assertEqual(self.viewer.events[1]['explanation'], 'answer')
+        self.assertEqual(len(self.viewer.llm_history), 4)
+
+        self.viewer.events.clear()
+        with redirect_stdout(io.StringIO()):
+            agent.handle_clear_history(self.viewer, {})
+        self.assertEqual([event['type'] for event in self.viewer.events], ['agent_history_error'])
+        self.assertEqual(self.viewer.llm_history, [])
+
+    def test_a_file_that_is_not_a_history_is_kept_aside_and_reported(self):
+        unusable = {
+            'not JSON': b'[{"role": "user", "content": "a"',
+            'an object': b'{"role": "user"}',
+            'not messages': b'["a", "b"]',
+            'a message without text': b'[{"role": "user"}]',
+            'an unknown role': b'[{"role": "system", "content": "x"}]',
+            'not UTF-8': b'[{"role": "user", "content": "\xff\xfe"}]',
+            'empty': b'',
+        }
+        for label, content in unusable.items():
+            with self.subTest(label):
+                self.path.write_bytes(content)
+                history, output = self.load()
+                self.assertEqual(history, [])
+                self.assertFalse(self.path.exists())
+                kept = [self.folder / name for name in self.asides()]
+                self.assertEqual([item.read_bytes() for item in kept][-1], content)
+                problem = str(self.viewer._agent_history_problem)
+                self.assertIn('is unusable', problem)
+                self.assertIn(kept[-1].name, problem)
+                self.assertIn('a new history was started', problem)
+                self.assertIn(problem, output)
+                self.assertFalse(self.viewer._agent_history_blocked)
+                # It is a problem the user is told once, and the history can start again.
+                agent.announce_history_problem(self.viewer)
+                agent.announce_history_problem(self.viewer)
+                self.assertEqual([event['type'] for event in self.viewer.events], ['agent_history_error'])
+                self.assertEqual(self.viewer.events.pop()['error'], problem)
+                self.assertEqual(self.load(), ([], ''))
+        # Every unusable file is still there, under a name of its own, though they all came within the same second.
+        self.assertEqual(len(self.asides()), len(unusable))
+        self.assertEqual(len(set(self.asides())), len(unusable))
+        agent.save_agent_history(self.viewer)
+        self.assertEqual(json.loads(self.path.read_text(encoding='utf-8')), self.GOOD)
+        self.assertEqual(len(self.asides()), len(unusable))
+
+    def test_a_file_that_cannot_be_read_is_not_written_over_until_it_can_be(self):
+        agent.save_agent_history(self.viewer)
+        before = self.path.read_bytes()
+        real_open = open
+
+        def locked(file, *args, **kwargs):
+            if str(file) == str(self.path):
+                raise PermissionError(13, 'Permission denied')
+            return real_open(file, *args, **kwargs)
+
+        with mock.patch('builtins.open', side_effect=locked):
+            history, output = self.load()
+        self.assertEqual(history, [])
+        self.assertTrue(self.viewer._agent_history_blocked)
+        self.assertIn('could not be read', str(self.viewer._agent_history_problem))
+        self.assertIn('Permission denied', output)
+        self.assertEqual(self.asides(), [])
+        # Saving over it is refused, and reported as any failed save is.
+        with self.assertRaises(OSError):
+            agent.save_agent_history(self.viewer)
+        with redirect_stdout(io.StringIO()):
+            agent.save_and_broadcast_agent_response(self.viewer, 'q', 'a', '', '', '{}')
+        self.assertEqual(self.viewer.events[0]['type'], 'agent_history_error')
+        self.assertEqual(self.path.read_bytes(), before)
+        # Once it can be read the block is lifted.
+        self.assertEqual(self.load()[0], self.GOOD)
+        self.assertFalse(self.viewer._agent_history_blocked)
+        agent.save_agent_history(self.viewer)
+
+    def test_a_page_and_the_first_turn_are_told_what_was_wrong_with_the_file(self):
+        self.path.write_bytes(b'{broken')
+        with redirect_stdout(io.StringIO()):
+            state = agent._extend_initial_web_state(self.viewer, {})
+        self.assertEqual(state['llm_history'], [])
+        self.assertIn('is unusable', state['history_problem'])
+        with redirect_stdout(io.StringIO()):
+            again = agent._extend_initial_web_state(self.viewer, {})
+        self.assertNotIn('history_problem', again)  # Told once.
+
+        self.path.write_bytes(b'not json')
+        viewer = SimpleNamespace(events=[], llm_loaded=True, llm_backend='server', llm_model_name='m')
+        viewer.broadcast_event = viewer.events.append
+        with redirect_stdout(io.StringIO()), mock.patch.object(agent, 'get_viewer_session_context', return_value=''), \
+                mock.patch.object(agent, 'AgentWorker'):
+            self.assertTrue(agent.run_web_agent_query(viewer, 'hello'))
+        self.assertEqual([event['type'] for event in viewer.events], ['agent_thinking', 'agent_history_error', 'agent_accepted'])
+        self.assertIn('is unusable', viewer.events[1]['error'])

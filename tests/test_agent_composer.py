@@ -1030,6 +1030,23 @@ class ModelCardPageTests(unittest.TestCase):
         self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user').length"), 1)
         self.assertEqual([entry[1] for entry in self.log() if entry[0] == 'msg-user'], ['from here'])
 
+    def test_a_history_problem_is_shown_as_an_error_and_keeps_the_spinner(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[]}});"
+                "handleServerEvent({type:'agent_thinking', model_name:'m'});"
+                "handleServerEvent({type:'agent_history_error', error:'The chat history could not be saved: disk full. It stays in memory until the Viewer is closed.'})")
+        self.assertEqual(self.state()['errors'], ['Error: The chat history could not be saved: disk full. It stays in memory until the Viewer is closed.'])
+        self.assertTrue(self.js("document.getElementById('thinking-bubble') !== null"))
+        self.assertTrue(self.stop_button()['shown'])
+
+    def test_a_page_opened_after_the_history_file_was_set_aside_is_told(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        problem = 'The chat history C:/x/agent_history.json is unusable (Expecting value). It was kept as C:/x/agent_history.json.corrupt-1, and a new history was started.'
+        init = {'type': 'init', 'data': {'llm_loaded': False, 'llm_history': [], 'history_problem': problem}}
+        self.js(f'handleServerEvent({json.dumps(init)})')
+        # The log is rebuilt for the history, so the error is written after it.
+        self.assertEqual(self.state()['errors'], ['Error: ' + problem])
+
     def test_a_command_waiting_for_approval_is_run_or_discarded(self):
         self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API'}]}).encode())
         waiting = {'command_id': 'c1', 'command': 'save <img src=x onerror=alert(1)>.h5',

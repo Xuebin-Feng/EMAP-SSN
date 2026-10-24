@@ -6071,6 +6071,22 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>The chat history {path} could not be read ({error}). It is left as it is, and nothing is saved over it until it can be read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The chat history {path} is unusable ({problem}) and could not be set aside ({error}). It is left as it is, and nothing is saved over it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The chat history {path} is unusable ({problem}). It was kept as {aside}, and a new history was started.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The chat history could not be saved: {error}. It stays in memory until the Viewer is closed.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Invalid submission ID.</source>
         <translation type="unfinished"></translation>
     </message>

@@ -879,24 +879,110 @@ def get_agent_history_path(viewer):
         saved_layout_dir = getattr(cfg, 'SAVED_LAYOUT_DIR', os.path.join("Cache_Files", "Saved_Layouts"))
         return os.path.join(saved_layout_dir, "agent_chat_history_fallback.json")
 
+def _valid_history(data):
+    """Whether data is what save_agent_history writes: a list of messages with a role and a text."""
+    return isinstance(data, list) and all(
+        isinstance(message, dict) and message.get("role") in ("user", "assistant") and isinstance(message.get("content"), str)
+        for message in data)
+
+
+def _kept_aside(path):
+    """Rename a history file nothing can read to a name of its own beside it; return that name."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    aside, number = f"{path}.corrupt-{stamp}", 1
+    while os.path.exists(aside):
+        number += 1
+        aside = f"{path}.corrupt-{stamp}-{number}"
+    os.replace(path, aside)
+    return aside
+
+
 def load_agent_history(viewer):
+    """The saved chat history, or [] when there is none.
+
+    A file that is not a history (not JSON, or not a list of messages) is not quietly started
+    over: it is renamed to agent_history.json.corrupt-<time> beside itself, so what it held can be
+    recovered, and the problem is reported (viewer._agent_history_problem, shown by the Agent
+    page). A file that cannot be read at all is left as it is, and is not written over until it can.
+    """
     path = get_agent_history_path(viewer)
-    if os.path.exists(path):
-        try:
-            with open(path, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception as e:
-            print(f"Warning: Failed to load agent history from {path}: {e}")
+    viewer._agent_history_blocked = False
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            history = json.load(f)
+        if _valid_history(history):
+            return history
+        problem = ValueError("it is not a list of chat messages")
+    except (ValueError, UnicodeError) as error:  # json.JSONDecodeError is a ValueError.
+        problem = error
+    except OSError as error:
+        viewer._agent_history_blocked = True
+        viewer._agent_history_problem = Message(
+            "The chat history {path} could not be read ({error}). It is left as it is, and nothing is saved over it until it can be read.",
+            path=path, error=error)
+        print(f"Warning: {viewer._agent_history_problem}")
+        return []
+    try:
+        aside = _kept_aside(path)
+    except OSError as error:
+        viewer._agent_history_blocked = True
+        viewer._agent_history_problem = Message(
+            "The chat history {path} is unusable ({problem}) and could not be set aside ({error}). It is left as it is, and nothing is saved over it.",
+            path=path, problem=problem, error=error)
+    else:
+        viewer._agent_history_problem = Message(
+            "The chat history {path} is unusable ({problem}). It was kept as {aside}, and a new history was started.",
+            path=path, problem=problem, aside=aside)
+    print(f"Warning: {viewer._agent_history_problem}")
     return []
 
+
+def announce_history_problem(viewer):
+    """Tell the Agent page, once, what load_agent_history found wrong with the saved history."""
+    problem = getattr(viewer, "_agent_history_problem", None)
+    viewer._agent_history_problem = None
+    if problem is not None:
+        viewer.broadcast_event({"type": "agent_history_error", "error": display_text(problem)})
+
+
 def save_agent_history(viewer):
+    """Replace the history file with the history, atomically: all of it or, on an error, none.
+
+    The new file is written beside the old one and renamed over it, so a failure leaves the old
+    file as it was. Raises OSError (or ValueError, for text that cannot be written) when it cannot;
+    the callers report it (_save_history_reporting).
+    """
     path = get_agent_history_path(viewer)
+    if getattr(viewer, "_agent_history_blocked", False):
+        raise OSError("the saved history could not be read, so it is not written over")
+    folder = os.path.dirname(path)
+    os.makedirs(folder, exist_ok=True)
+    _remove_stale_partials(path)
+    descriptor, partial_path = tempfile.mkstemp(prefix=_partial_prefix(path), suffix=".partial", dir=folder)
     try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as f:
             json.dump(getattr(viewer, "llm_history", []), f, indent=4, ensure_ascii=False)
-    except Exception as e:
-        print(f"Warning: Failed to save agent history to {path}: {e}")
+        os.replace(partial_path, path)
+    except BaseException:
+        try:
+            os.unlink(partial_path)
+        except OSError:
+            pass
+        raise
+    return path
+
+
+def _save_history_reporting(viewer):
+    """save_agent_history, with an error told to the terminal and the Agent page instead of swallowed."""
+    try:
+        save_agent_history(viewer)
+    except (OSError, ValueError) as error:
+        message = Message("The chat history could not be saved: {error}. It stays in memory until the Viewer is closed.", error=error)
+        print(f"Warning: {message}")
+        viewer.broadcast_event({"type": "agent_history_error", "error": display_text(message)})
+
 
 # ─── Query execution ──────────────────────────────────────────────────────────
 
@@ -975,6 +1061,7 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None, *, 
 
     if not hasattr(viewer, "llm_history") or not viewer.llm_history:
         viewer.llm_history = load_agent_history(viewer)
+        announce_history_problem(viewer)
 
     history = history_messages(viewer.llm_history)
 
@@ -1136,7 +1223,7 @@ def save_and_broadcast_agent_response(viewer, query, explanation, commands, term
         "terminal_output": terminal_output, "tokens": tokens,
         "reasoning": reasoning
     })
-    save_agent_history(viewer)
+    _save_history_reporting(viewer)
 
     _agent_event(viewer, {
         "type": "agent_response", "query": query, "explanation": explanation,
@@ -1346,11 +1433,15 @@ def handle_cancel_turn(viewer, data):
 def handle_clear_history(viewer, data):
     _invalidate_agent_turn(viewer)
     viewer.llm_history = []
-    save_agent_history(viewer)
+    _save_history_reporting(viewer)
 
 def _extend_initial_web_state(viewer, state):
     viewer.llm_history = load_agent_history(viewer)
     state["llm_history"] = viewer.llm_history
+    problem = getattr(viewer, "_agent_history_problem", None)
+    viewer._agent_history_problem = None
+    if problem is not None:
+        state["history_problem"] = display_text(problem)
     state['agent_request_id'] = getattr(viewer, '_agent_request_id', None)
     # A page opened during a turn, one started from the terminal say, can still stop it.
     state['agent_busy'] = bool(getattr(viewer, '_agent_busy', False))
