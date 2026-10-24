@@ -1394,7 +1394,7 @@
                 { key: "name",        label: t("Name"),        type: "text",     placeholder: t("e.g. My Ollama")                          },
                 { key: "url",         label: t("Base URL"),    type: "text",     placeholder: "http://localhost:11434/v1"                  },
                 { key: "model",       label: t("Model Name"),  type: "text",     placeholder: t("e.g. qwen2.5:1.5b (leave blank = auto)")  },
-                { key: "temperature", label: t("Temperature"), type: "number",   placeholder: t("blank: not sent"), min: "0", max: "2", step: "0.1", width: "120px" }
+                { key: "temperature", label: t("Temperature"), type: "number",   placeholder: t("blank: not sent"), min: "0", max: "2", step: "0.1", width: "150px" }
             ];
 
             fields.forEach(({ key, label, type, placeholder, min, max, step, width }) => {
@@ -1755,6 +1755,9 @@
         // unless the user is typing somewhere else (the cards panel, say). The row takes
         // the focus, not Run: a key pressed at that moment must not approve anything.
         function revealPrompt(element) {
+            // The whole card of commands the prompt is in, where it fits, and the prompt itself.
+            const card = element.closest('.command-request');
+            if (card) card.scrollIntoView({ block: 'nearest' });
             element.scrollIntoView({ block: 'nearest' });
             const active = document.activeElement;
             if (!active || active === document.body || active.closest('#chat-composer, #chat-log')) {
@@ -1849,9 +1852,10 @@
                 list.append(entry);
             }
             const terms = document.createElement('p');
-            terms.textContent = t("{host}'s own terms and privacy policy apply to what it receives.", {host: info.host})
-                + " " + t("You are not asked again for this card unless its address changes.");
-            notice.append(title, intro, list, terms);
+            terms.textContent = t("{host}'s own terms and privacy policy apply to what it receives.", {host: info.host});
+            const once = document.createElement('p');
+            once.textContent = t("You are not asked again for this card unless its address changes.");
+            notice.append(title, intro, list, terms, once);
             if (info.plain_http_key) {
                 const warning = document.createElement('div');
                 warning.className = 'card-note is-warning';

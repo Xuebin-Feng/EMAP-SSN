@@ -882,8 +882,8 @@ class ModelCardPageTests(unittest.TestCase):
         self.assertEqual(notice['labelled'], 'Send data to api.provider.example?')
         self.assertEqual(notice['paragraphs'], [
             'With every message, the model card "Provider" sends the following to api.provider.example, a server that is not on this computer.',
-            "api.provider.example's own terms and privacy policy apply to what it receives. "
-            "You are not asked again for this card unless its address changes."])
+            "api.provider.example's own terms and privacy policy apply to what it receives.",
+            'You are not asked again for this card unless its address changes.'])
         self.assertEqual(notice['items'], [
             "the agent's instructions",
             'a summary of the open session: file names, metadata column names, selection counts and the reference header',
