@@ -64,6 +64,12 @@ still change before version 1.0.0.
   whose remaining work is only a file job or a fold lets the next request start; it stays
   "running" until its job ends. Each job in a request's record now has its line, progress,
   start and end times, and whether it can be stopped.
+- **MCP: `wait_command_request`** (server 0.16.0). It returns a Viewer request's record as
+  soon as the request ends or needs the user, or after at most 50 s with `waiting: true`, so
+  an agent calls it again instead of polling. Clients that pass a progress token get
+  progress notifications while it waits. `execute_commands` now points to it, and the agent
+  guide says to wait rather than poll. A slow command's progress text, such as MCL's passes,
+  is now in its job record.
 - **Optional embedding input.** Config and VR Config can select a protein language model
   embedding file (**Embedding Input**, listed from the new **Embedding Directory**, by
   default the project's `Embeddings` folder), for commands that use each sequence's
@@ -231,6 +237,9 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **MCP `submission_id` must be a random id** of 32 to 128 characters, such as a UUID. A
+  shorter one is refused with a message saying so. Reusing an id for a different submission
+  is refused with an error naming the request that holds it, and nothing runs.
 - VR Config and the VR viewer use the same default folders as the main program, at the
   project root, with one exception: the cache folder defaults to `Cache_Files_VR`, so
   VR's saved configs, 3D layouts and history stay apart from the main program's.
@@ -488,6 +497,16 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- An MCP command sent while the Viewer was busy for more than 5 s timed out with "Could not
+  inspect the Viewer", although it had been queued. A client that sent it again under a new
+  id ran it twice. The client now waits a second longer than the Viewer, so it gets the
+  Viewer's own answer: the command may be queued, and to retry with the same
+  `submission_id` or call `wait_command_request`.
+- MCP's command catalog failed for every command when one command file had no catalog
+  entry. Such a command is now listed with a summary from its help, and the cautious
+  defaults: it writes files, opens an interface, and waits for approval in the Agent chat.
+  The catalog's "background work" flag now comes from each command's own code: `print`,
+  `cluster` and `subcluster` were wrongly listed as running in the foreground.
 - The Fold View could act on structures that were being removed. Opening a session over
   another, Undo, Clear or removing a structure takes a moment, and during it the
   Structures list could redraw from the old scene, erroring out and losing open rows and
