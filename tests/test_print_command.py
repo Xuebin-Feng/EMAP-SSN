@@ -47,6 +47,7 @@ def load_print_command():
     import vispy.scene  # noqa: F401
     import commands.zoom  # noqa: F401
     import desktop.Desktop_App  # noqa: F401
+    import utilities.Job_Cancellation  # noqa: F401  (its thread-local token must be the scheduler's)
     import utilities.Output_Names  # noqa: F401
     import Viewer_Visual_State  # noqa: F401
     command_engine = types.ModuleType("Command_Engine")
@@ -546,9 +547,9 @@ class PrintPngEncodingTests(unittest.TestCase):
     def test_a_failure_keeps_the_earlier_file_and_leaves_nothing_behind(self):
         error = OSError("disk full")
 
-        def broken_encode(path, image):
-            with open(path, "wb") as handle:
-                handle.write(b"half a picture")
+        def broken_encode(target, image, **kwargs):
+            # imsave writes into the partial file through the cancellable file the PNG goes out by.
+            target.write(b"half a picture")
             raise error
 
         with tempfile.TemporaryDirectory() as directory:
@@ -2643,10 +2644,10 @@ class PrintBackgroundJobTests(unittest.TestCase):
         viewer = self.viewer()
         threads, release = [], threading.Event()
 
-        def encode(path, image):
+        def encode(target, image, **kwargs):
             threads.append(threading.current_thread().name)
             self.assertTrue(release.wait(10))
-            original_imsave(path, image)
+            original_imsave(target, image, **kwargs)
 
         original_imsave = print_command.mpimg.imsave
         path = os.path.join(self.save_dir, "queued.png")
@@ -2756,6 +2757,117 @@ class PrintBackgroundJobTests(unittest.TestCase):
         self.assertRegex(statuses[-1], r"^Background job #1 failed after [\d.]+s \(print\): disk full$")
         self.assertEqual(os.listdir(self.save_dir), [])
         self.open_folder.assert_not_called()
+
+    # --- a job stopped while it runs ---------------------------------------------------------
+
+    def stop_job(self):
+        """Tell the running print job to stop, as the Session card's remove does."""
+        (running,) = [entry for entry in self.scheduler.snapshot() if entry.running]
+        self.assertTrue(self.scheduler.cancel(running.job.job_id))
+
+    def stopped(self):
+        """Wait until the job has ended as stopped, and the line is empty."""
+        reported = lambda: any("stopped before it finished" in line for line in self.status.statuses)
+        self.assertTrue(wait_for(reported), self.status.statuses)
+        self.assertTrue(wait_for(lambda: self.scheduler.queue_depth == 0))
+
+    def stop_when_called(self, name, **patch_options):
+        """Patch print_command.<name> to ask for the stop on its first call, and then do what it did."""
+        real = getattr(print_command, name)
+        calls = []
+
+        def stopping(*args, **kwargs):
+            if not calls:
+                self.stop_job()
+            calls.append(name)
+            return real(*args, **kwargs)
+
+        return mock.patch.object(print_command, name, side_effect=stopping, **patch_options), calls
+
+    def test_a_png_stopped_while_it_is_encoded_deletes_its_partial_file(self):
+        for arguments in (["half"], ["half", "full"]):
+            with self.subTest(arguments=arguments):
+                viewer = self.viewer()
+                seen, writes, test = [], [], self
+
+                class StopsOnWrite(print_command.CancellableFile):
+                    def write(inner, data):
+                        writes.append(1)
+                        if len(writes) == 1:
+                            seen.extend(os.listdir(test.save_dir))
+                            test.stop_job()
+                        return super().write(data)
+
+                writes.clear()
+                seen.clear()
+                self.status.statuses.clear()
+                with mock.patch.object(print_command, "_render_tile", side_effect=lambda v, t: white_renders(v, t, TILE_SHAPE)), \
+                        mock.patch.object(print_command, "_capture_tile", return_value=np.ones((40, 60, 4), dtype=np.float32)), \
+                        mock.patch.object(print_command, "CancellableFile", StopsOnWrite):
+                    print_command.run(viewer, arguments)
+                    self.stopped()
+                self.assertEqual(len(seen), 1)
+                self.assertIn(".partial.png", seen[0], "the partial file existed when the stop came")
+                self.assertEqual(os.listdir(self.save_dir), [])
+                self.assertFalse(self.scheduler.is_output_path_reserved(os.path.join(self.save_dir, "half.png")))
+                self.open_folder.assert_not_called()
+
+    def test_a_full_png_stopped_while_it_is_finished_writes_nothing(self):
+        viewer = self.viewer()
+        patch, calls = self.stop_when_called("_content_mask")
+        with mock.patch.object(print_command, "_render_tile", side_effect=lambda v, t: white_renders(v, t, TILE_SHAPE)), patch:
+            print_command.run(viewer, ["finishing", "full"])
+            self.stopped()
+        self.assertTrue(calls, "the picture was being finished")
+        self.assertEqual(os.listdir(self.save_dir) if os.path.exists(self.save_dir) else [], [])
+
+    def test_an_svg_stopped_while_it_is_written_deletes_its_partial_file(self):
+        viewer = self.viewer(svg=True)
+        seen = []
+
+        def stops_at_the_nodes(*args, **kwargs):
+            # The header and the edges are in the partial file by now.
+            seen.extend(name for name in os.listdir(self.save_dir))
+            self.stop_job()
+            yield from real_chunks(*args, **kwargs)
+
+        real_chunks = print_command._svg_node_chunks
+        with mock.patch.object(print_command, "_svg_node_chunks", side_effect=stops_at_the_nodes):
+            print_command.run(viewer, ["drawing", "svg"])
+            self.stopped()
+        self.assertEqual(len(seen), 1)
+        self.assertIn(".partial.svg", seen[0])
+        self.assertEqual(os.listdir(self.save_dir), [])
+
+    def test_a_stop_leaves_an_existing_picture_of_that_name_as_it_was(self):
+        os.makedirs(self.save_dir)
+        existing = os.path.join(self.save_dir, "keep.png")
+        with open(existing, "wb") as handle:
+            handle.write(b"previous picture")
+        viewer = self.viewer()
+        patch, calls = self.stop_when_called("_trim_png_margins")
+        with mock.patch.object(print_command, "_capture_tile", return_value=np.ones((40, 60, 4), dtype=np.float32)), patch:
+            print_command.run(viewer, ["keep"])
+            self.stopped()
+        self.assertTrue(calls)
+        self.assertEqual(os.listdir(self.save_dir), ["keep.png"])
+        with open(existing, "rb") as handle:
+            self.assertEqual(handle.read(), b"previous picture")
+
+    def test_the_name_is_free_again_and_the_next_print_runs_after_a_stop(self):
+        viewer = self.viewer()
+        patch, _calls = self.stop_when_called("_trim_png_margins")
+        with mock.patch.object(print_command, "_capture_tile", return_value=np.ones((40, 60, 4), dtype=np.float32)):
+            with patch:
+                print_command.run(viewer, ["again"])
+                self.stopped()
+            path = os.path.join(self.save_dir, "again.png")
+            self.assertFalse(self.scheduler.is_output_path_reserved(path))
+            self.status.statuses.clear()
+            print_command.run(viewer, ["again"])
+            self.finished()
+        self.assertEqual(os.listdir(self.save_dir), ["again.png"])
+        self.assertEqual(self.engine.command_failed.call_count, 0)
 
     def test_without_a_scheduler_nothing_is_drawn_or_written(self):
         viewer = self.viewer()

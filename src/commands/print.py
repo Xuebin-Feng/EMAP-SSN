@@ -29,6 +29,7 @@ from vispy.scene.visuals import VisualNode
 from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
 from commands.zoom import ZOOM_100_PERCENT_WIDTH, view_for_zoom, zoom_percent
+from utilities.Job_Cancellation import CancellableFile, raise_if_cancelled
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import edge_stages, opengl_failure_note
@@ -723,6 +724,7 @@ def _svg_frame(snapshot, kinds, outline_px, edge_px):
     positions = np.asarray(snapshot.all_positions, dtype=np.float64)
     half = edge_px / 2.0 / scale * unit
     for start in range(0, len(edges) if edge_px > 0.0 else 0, SVG_CHUNK_SIZE):
+        raise_if_cancelled()
         ends = positions[edges[start:start + SVG_CHUNK_SIZE]]
         x_major = np.abs(ends[:, 1, 0] - ends[:, 0, 0]) >= np.abs(ends[:, 1, 1] - ends[:, 0, 1])
         for axis, widened in ((0, ~x_major), (1, x_major)):
@@ -806,13 +808,16 @@ def _write_svg(snapshot, filepath):
             for text in _svg_edge_chunks(
                 snapshot.all_positions, snapshot.edges, target_min_x, target_max_y, edge_tail,
             ):
+                raise_if_cancelled()
                 handle.write(text)
             handle.write('  </g>\n  <!-- Nodes -->\n  <g id="nodes" name="Nodes">\n')
             for text in _svg_node_chunks(
                 node_x, node_y, diameters, kinds, colors, snapshot.outline_colors, stroke_widths,
             ):
+                raise_if_cancelled()
                 handle.write(text)
             handle.write('  </g>\n</svg>')
+        raise_if_cancelled()
         os.replace(partial_path, filepath)
     except BaseException:
         try:
@@ -988,7 +993,11 @@ def _write_png(filepath, image):
     stem = os.path.splitext(os.path.basename(filepath))[0]
     partial_path = os.path.join(directory, f".{stem}.{uuid.uuid4().hex}.partial.png")
     try:
-        mpimg.imsave(partial_path, image)
+        # Every write of the PNG is a check point (CancellableFile), so the encoding of a large
+        # picture stops within a chunk of output when its job is cancelled.
+        with open(partial_path, 'xb') as handle:
+            mpimg.imsave(CancellableFile(handle), image, format='png')
+        raise_if_cancelled()
         os.replace(partial_path, filepath)
     except BaseException:
         try:
@@ -1164,6 +1173,7 @@ def _compact(image, box):
     row = (right - left) * channels
     stride = width * channels
     for index in range(bottom - top):
+        raise_if_cancelled()
         start = (top + index) * stride + left * channels
         flat[index * row:(index + 1) * row] = flat[start:start + row]
     return flat[:(bottom - top) * row].reshape(bottom - top, right - left, channels)
@@ -1225,6 +1235,7 @@ class _RawMosaic:
         content_cols = np.zeros(width, dtype=bool)
         band = max(1, FINISH_BAND_PIXELS // max(width, 1))
         for top in range(0, height, band):
+            raise_if_cancelled()
             rows = slice(top, min(top + band, height))
             if self.on_white is None:
                 # x / 255 * 255 in float32 truncates back to x for every byte,
@@ -1318,6 +1329,7 @@ def _print_job(job):
     an SVG, from what run() took, and returns the report the scheduler shows.
     """
     size_warning = None
+    raise_if_cancelled()
     if job.kind == "svg":
         image_format, description = "SVG", "SVG snapshot"
         replaced = _ready_to_write(job)
@@ -1333,6 +1345,7 @@ def _print_job(job):
         else:
             original_height, original_width = job.picture.shape[:2]
             image = _trim_png_margins(job.picture, job.is_transparent, job.background)
+        raise_if_cancelled()
         trimmed_height, trimmed_width = image.shape[:2]
         if (trimmed_width, trimmed_height) != (original_width, original_height):
             print(

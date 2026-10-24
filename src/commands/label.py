@@ -33,6 +33,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
 from utilities import Alignment_Profiles
+from utilities.Job_Cancellation import CancellableFile, raise_if_cancelled
 from utilities.Localization import Message
 from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
@@ -229,6 +230,7 @@ def _sparse_column_counts(aln, columns, weights, gap_chars):
         csc = column_major() if column_major is not None else matrix.tocsc()
         csc.sort_indices()
         for block_start in range(0, column_count, _COLUMN_BLOCK):
+            raise_if_cancelled()
             block_end = min(column_count, block_start + _COLUMN_BLOCK)
             entry_start = int(csc.indptr[block_start])
             entry_end = int(csc.indptr[block_end])
@@ -328,6 +330,7 @@ def _standard_residue_rows(aln, block_rows=4096):
     row_count, column_count = matrix.shape
     encoded = np.empty((row_count, column_count), dtype=np.int8)
     for start in range(0, row_count, block_rows):
+        raise_if_cancelled()
         stop = min(row_count, start + block_rows)
         encoded[start:stop] = table[matrix[start:stop].toarray()]
     return encoded
@@ -789,6 +792,7 @@ def _calculate_weighted_frequencies(aln, mapping, weights, gap_chars=None):
         )
 
     for col_idx, label in mapping.items():
+        raise_if_cancelled()
         if col_idx < 0 or col_idx >= alignment_length:
             continue
         if column_counts is not None:
@@ -1000,6 +1004,7 @@ def _run_label_artifact(viewer, args):
         forced_target = parameters["forced_target"]
 
         # --- 1. Global Statistics ---
+        raise_if_cancelled()
         print("Calculating Global Stats...")
         gap_chars = frozenset(_setting(viewer, "GAP_CHARS", ("-", ".")))
         if hasattr(viewer, "_label_offset_display"):
@@ -1022,6 +1027,7 @@ def _run_label_artifact(viewer, args):
             gap_chars=gap_chars,
         )
 
+        raise_if_cancelled()
         global_weights = None
         if identity_threshold is None:
             total_global_effective_n = float(total_global_seqs)
@@ -1082,6 +1088,7 @@ def _run_label_artifact(viewer, args):
             return global_frequency_cache[label]
 
         # --- 2. Prepare Tasks ---
+        raise_if_cancelled()
         print(f"Splitting Global Alignment for {forced_target.upper()}...")
         viewer_to_aln, _ = Command_Engine.get_alignment_mapping(viewer)
         tasks = _build_label_tasks(viewer, forced_target, viewer_to_aln)
@@ -1108,6 +1115,7 @@ def _run_label_artifact(viewer, args):
         cluster_color_map = cluster_cmd.get_cluster_color_map(all_cluster_ids)
 
         for entity_type, entity_id, c_aln, c_map, aln_indices in tasks:
+            raise_if_cancelled()
             try:
                 # Calculate sequence stats
                 c_size = len(c_aln)
@@ -1203,6 +1211,7 @@ def _run_label_artifact(viewer, args):
         # deduplicated union of all qualifying cluster/group memberships.
         candidate_labels = sort_alignment_labels(candidate_amino_acids.keys())
         for lbl in candidate_labels:
+            raise_if_cancelled()
             amino_acids = sorted(candidate_amino_acids[lbl])
             col_idx = viewer.alignment.label_to_col.get(lbl)
             if col_idx is None:
@@ -1257,6 +1266,7 @@ def _run_label_artifact(viewer, args):
                 }
 
         # --- 4. Export XLSX ---
+        raise_if_cancelled()
         out_path = os.path.abspath(viewer._label_output_path)
         out_dir = os.path.dirname(out_path)
         out_filename = os.path.basename(out_path)
@@ -1493,6 +1503,7 @@ def _run_label_artifact(viewer, args):
             # Write Subset Rows
             last_type = None
             for res in cluster_results:
+                raise_if_cancelled()
                 if last_type == 'cluster' and res['type'] == 'group':
                     ws1.append([]) # Blank row separating Clusters and Groups
                 last_type = res['type']
@@ -1642,6 +1653,7 @@ def _run_label_artifact(viewer, args):
             # Write Subset Rows
             last_type = None
             for res in cluster_results:
+                raise_if_cancelled()
                 if last_type == 'cluster' and res['type'] == 'group':
                     ws2.append([]) # Blank row separating Clusters and Groups
                 last_type = res['type']
@@ -1703,6 +1715,7 @@ def _run_label_artifact(viewer, args):
                 ws1.column_dimensions['C'].width = 10
                 ws2.column_dimensions['C'].width = 10
 
+            raise_if_cancelled()
             file_descriptor, partial_path = tempfile.mkstemp(
                 prefix=f".{os.path.splitext(out_filename)[0]}.",
                 suffix=".partial.xlsx",
@@ -1710,7 +1723,11 @@ def _run_label_artifact(viewer, args):
             )
             os.close(file_descriptor)
             try:
-                wb.save(partial_path)
+                # Every write of the workbook is a check point (CancellableFile), so a
+                # large one stops while it is saved; the partial file is deleted below.
+                with open(partial_path, "wb") as handle:
+                    wb.save(CancellableFile(handle))
+                raise_if_cancelled()
                 if not allow_overwrite and os.path.exists(out_path):
                     raise FileExistsError(Message(
                         "Output file already exists: {path}", path=out_path

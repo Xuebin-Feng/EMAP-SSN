@@ -33,6 +33,7 @@ from utilities.Alignment_Profiles import (
     run_identity_neighbour_counts,
     set_num_threads,
 )
+from utilities.Job_Cancellation import CancellableFile, raise_if_cancelled
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
@@ -207,6 +208,7 @@ def _generate_logo_artifact(payload):
     identity_threshold = payload["identity_threshold"]
     filename = payload["filename"]
 
+    raise_if_cancelled()
     amino_acids = list(STANDARD_AAS)
     plot_coordinates = get_compact_logo_coordinates(plot_positions)
     matrix, sequence_weights, weighting_metadata = calculate_logo_matrix(
@@ -218,6 +220,7 @@ def _generate_logo_artifact(payload):
         return_weighting_metadata=True,
         report_weighting_backend=True,
     )
+    raise_if_cancelled()
     dataframe = pd.DataFrame(matrix, index=plot_coordinates, columns=amino_acids)
     effective_sequence_count = float(sequence_weights.sum())
 
@@ -245,12 +248,15 @@ def _generate_logo_artifact(payload):
 
     partial_path = None
     try:
+        raise_if_cancelled()
         logo = logomaker.Logo(dataframe, ax=ax, color_scheme=payload["color_scheme"])
+        raise_if_cancelled()
 
         base_gap = 0.01
         max_gap = base_gap if mode == "pcts" else base_gap * np.log2(20)
 
         for patch in ax.patches:
+            raise_if_cancelled()
             local_bbox = patch.get_path().get_extents()
             local_height = local_bbox.height
             if local_height <= 0.001:
@@ -277,9 +283,11 @@ def _generate_logo_artifact(payload):
 
         # The x label is fitted to the axes, whose width the layout settles
         # first (the label sits below them and does not narrow them).
+        raise_if_cancelled()
         fig.tight_layout()
         _fit_position_axis_label(ax, payload)
         fig.tight_layout()
+        raise_if_cancelled()
         suffix = os.path.splitext(filename)[1].lower()
         file_descriptor, partial_path = tempfile.mkstemp(
             prefix=f".{os.path.splitext(filename)[0]}.",
@@ -287,13 +295,19 @@ def _generate_logo_artifact(payload):
             dir=logo_dir,
         )
         os.close(file_descriptor)
-        fig.savefig(
-            partial_path,
-            format=suffix.lstrip("."),
-            transparent=filename.lower().endswith('.png'),
-            dpi=_LOGO_DPI,
-            bbox_inches='tight',
-        )
+        # Every write of the image is a check point (CancellableFile): an SVG goes out as
+        # the figure is drawn and a PNG as it is encoded, so a big one stops while it is saved.
+        # The file is opened as matplotlib opens a path for the format (an SVG as text, with
+        # the platform's line ends), so the image is the same as before.
+        with open(partial_path, "w", encoding="utf-8") if suffix == ".svg" else open(partial_path, "wb") as handle:
+            fig.savefig(
+                CancellableFile(handle),
+                format=suffix.lstrip("."),
+                transparent=filename.lower().endswith('.png'),
+                dpi=_LOGO_DPI,
+                bbox_inches='tight',
+            )
+        raise_if_cancelled()
         if not allow_overwrite and os.path.exists(save_path):
             raise FileExistsError(Message("Output file already exists: {path}", path=save_path))
         os.replace(partial_path, save_path)

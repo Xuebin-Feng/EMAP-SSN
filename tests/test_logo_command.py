@@ -731,9 +731,10 @@ class LogoSynchronousArtifactTests(unittest.TestCase):
             payload = self.make_payload(directory, filename="protected.svg")
             out_file = os.path.join(directory, "protected.svg")
 
-            def save_and_create_competing_output(_figure, partial_path, **_kwargs):
-                with open(partial_path, "wb") as output:
-                    output.write(b"rendered content")
+            def save_and_create_competing_output(_figure, target, **_kwargs):
+                # The figure is saved into the partial file through the renderer's cancellable
+                # file, which for an SVG is a text file, as matplotlib opens a path for one.
+                target.write("rendered content")
                 with open(out_file, "wb") as output:
                     output.write(b"competing content")
 
@@ -1288,11 +1289,10 @@ class LogoPngSizeTests(unittest.TestCase):
         # Capture the figure size and dpi of a real render instead of restating them.
         seen = {}
 
-        def save(figure, partial_path, **kwargs):
+        def save(figure, target, **kwargs):
             seen["inches"] = tuple(figure.get_size_inches())
             seen["dpi"] = kwargs["dpi"]
-            with open(partial_path, "wb") as output:
-                output.write(b"x")
+            target.write(b"x")
 
         for positions in (1, 11, 25):
             with self.subTest(positions=positions), tempfile.TemporaryDirectory() as directory:
@@ -1607,6 +1607,135 @@ class LogoLongHeaderTests(unittest.TestCase):
         _, label = self.render("ignored", numbering="occupancy")
 
         self.assertEqual(label, "Position (occupancy numbering)")
+
+
+class LogoJobCancellationTests(unittest.TestCase):
+    """A logo job that is told to stop while it runs ends as cancelled and leaves no file.
+
+    The job runs on the real background job scheduler's thread; each test asks for
+    the stop from inside the stage named, and for both file types.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6 import QtCore
+
+        cls.application = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+
+    def setUp(self):
+        import time
+        from Background_Job_Scheduler import BackgroundJobScheduler
+
+        class StatusLine:
+            def set_background_job_status(self, message):
+                pass
+
+        self.status = StatusLine()
+        self.scheduler = BackgroundJobScheduler(self.status)
+        self.addCleanup(self.scheduler.shutdown)
+        self.reports = []
+        self.scheduler.job_succeeded.connect(lambda job, result, elapsed: self.reports.append("succeeded"))
+        self.scheduler.job_failed.connect(lambda job, error, detail, elapsed: self.reports.append("failed"))
+        self.scheduler.job_cancelled.connect(
+            lambda job, started: self.reports.append("stopped" if started else "removed"))
+        self.enterContext(redirect_stdout(io.StringIO()))
+        self.time = time
+
+    def run_job(self, directory, filename, allow_overwrite=False):
+        payload = LogoSynchronousArtifactTests.make_payload(directory, filename, allow_overwrite)
+        self.scheduler.enqueue("logo", f"logo -> {filename}", payload, logo_command._generate_logo_artifact,
+                               os.path.join(directory, filename), allow_overwrite=allow_overwrite)
+        deadline = self.time.monotonic() + 60
+        while self.time.monotonic() < deadline:
+            self.application.processEvents()
+            if self.scheduler.queue_depth == 0 and self.reports:
+                break
+            self.time.sleep(0.005)
+        self.application.processEvents()
+
+    def stop_job(self):
+        (running,) = [entry for entry in self.scheduler.snapshot() if entry.running]
+        self.assertTrue(self.scheduler.cancel(running.job.job_id))
+
+    def stop_when_called(self, owner, name):
+        real = getattr(owner, name)
+        calls = []
+
+        def stopping(*args, **kwargs):
+            if not calls:
+                self.stop_job()
+            calls.append(name)
+            return real(*args, **kwargs)
+
+        # autospec: a method patched on a class is still called with its instance.
+        return mock.patch.object(owner, name, autospec=True, side_effect=stopping), calls
+
+    def test_a_stop_during_each_stage_ends_the_job_with_no_file(self):
+        import logomaker
+        from matplotlib.figure import Figure
+
+        for filename in ("stopped.svg", "stopped.png"):
+            for owner, name in (
+                (logo_command, "calculate_logo_matrix"),
+                (logomaker, "Logo"),
+                (Figure, "tight_layout"),
+            ):
+                with self.subTest(filename=filename, stage=name), tempfile.TemporaryDirectory() as directory:
+                    self.reports.clear()
+                    patch, calls = self.stop_when_called(owner, name)
+                    with patch:
+                        self.run_job(directory, filename)
+                    self.assertTrue(calls, "the stage ran")
+                    self.assertEqual(self.reports, ["stopped"])
+                    self.assertEqual(os.listdir(directory), [])
+                    self.assertEqual(self.scheduler.snapshot(), [])
+
+    def test_a_stop_while_the_image_is_written_deletes_the_partial_file(self):
+        for filename in ("midway.svg", "midway.png"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as directory:
+                self.reports.clear()
+                seen, writes = [], []
+                test = self
+
+                class StopsOnWrite(logo_command.CancellableFile):
+                    def write(inner, data):
+                        if data:
+                            writes.append(1)
+                            if len(writes) == 1:
+                                seen.extend(name for name in os.listdir(directory))
+                                test.stop_job()
+                        return super().write(data)
+
+                with mock.patch.object(logo_command, "CancellableFile", StopsOnWrite):
+                    self.run_job(directory, filename)
+                self.assertEqual(len(seen), 1)
+                self.assertIn(".partial.", seen[0], "the partial file existed when the stop came")
+                self.assertEqual(self.reports, ["stopped"])
+                self.assertEqual(os.listdir(directory), [])
+
+    def test_a_stop_leaves_an_existing_logo_of_that_name_as_it_was(self):
+        with tempfile.TemporaryDirectory() as directory:
+            existing = os.path.join(directory, "again.svg")
+            with open(existing, "wb") as handle:
+                handle.write(b"previous logo")
+            patch, calls = self.stop_when_called(logo_command, "calculate_logo_matrix")
+            with patch:
+                self.run_job(directory, "again.svg", allow_overwrite=True)
+            self.assertEqual(self.reports, ["stopped"])
+            self.assertEqual(os.listdir(directory), ["again.svg"])
+            with open(existing, "rb") as handle:
+                self.assertEqual(handle.read(), b"previous logo")
+
+    def test_the_output_is_free_again_and_the_same_logo_can_be_made_after_a_stop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            patch, _calls = self.stop_when_called(logo_command, "calculate_logo_matrix")
+            with patch:
+                self.run_job(directory, "retry.svg")
+            self.assertFalse(self.scheduler.is_output_path_reserved(os.path.join(directory, "retry.svg")))
+            self.reports.clear()
+            self.run_job(directory, "retry.svg")
+            self.assertEqual(self.reports, ["succeeded"])
+            self.assertEqual(os.listdir(directory), ["retry.svg"])
 
 
 if __name__ == "__main__":

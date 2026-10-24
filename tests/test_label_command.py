@@ -10,6 +10,7 @@ import io
 import os
 import sys
 import tempfile
+import time
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -101,8 +102,14 @@ class LabelWorkbookPercentTests(unittest.TestCase):
         )
 
     def run_label(
-        self, directory, args, viewer=None, identity_weights=None, real_colors=False
+        self, directory, args, viewer=None, identity_weights=None, real_colors=False,
+        scheduler=None, after_run=None,
     ):
+        """Run label on a small alignment; its job runs at once, or on ``scheduler`` if one is given.
+
+        ``after_run(viewer)`` is called while the patches still hold, so that a job a
+        scheduler's thread runs meanwhile sees them.
+        """
         if viewer is None:
             viewer = SimpleNamespace(
                 alignment=AlignmentStub(),
@@ -114,7 +121,7 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 console_text=SimpleNamespace(text=""),
                 last_cluster_params=None,
             )
-        viewer.background_job_scheduler = ImmediateScheduler(viewer)
+        viewer.background_job_scheduler = scheduler if scheduler is not None else ImmediateScheduler(viewer)
         viewer_to_aln = getattr(viewer.alignment, "viewer_to_aln", None)
         if viewer_to_aln is None or np.asarray(viewer_to_aln).shape != (
             len(viewer.full_headers),
@@ -158,6 +165,8 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 ) as identity_weight_mock, \
                 mock.patch.object(application_windows, "open_in_file_manager"):
             label.run(viewer, args)
+            if after_run is not None:
+                after_run(viewer)
         viewer.identity_weight_mock = identity_weight_mock
         return viewer
 
@@ -250,9 +259,10 @@ class LabelWorkbookPercentTests(unittest.TestCase):
 
             def save_and_create_competing_output(
                 _workbook,
-                partial_path,
+                target,
             ):
-                Path(partial_path).write_bytes(b"rendered content")
+                # The workbook is saved into the partial file through label's cancellable file.
+                target.write(b"rendered content")
                 output_path.write_bytes(b"competing content")
 
             with mock.patch.object(
@@ -1222,6 +1232,145 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 self.assertEqual(
                     [path.name for path in Path(directory).iterdir()], [expected]
                 )
+
+
+class StatusLine:
+    """Stands in for the Viewer the scheduler reports its status to."""
+
+    def set_background_job_status(self, message):
+        pass
+
+
+class LabelJobCancellationTests(unittest.TestCase):
+    """A label job that is told to stop while it runs ends as cancelled and leaves no file.
+
+    The job runs on the real background job scheduler's thread, and each test asks
+    for the stop from inside the analysis or the workbook's save, at the point named.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6 import QtCore
+
+        cls.qt = QtCore
+        cls.application = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+
+    def setUp(self):
+        from Background_Job_Scheduler import BackgroundJobScheduler
+
+        self.runner = LabelWorkbookPercentTests()
+        self.status = StatusLine()
+        self.scheduler = BackgroundJobScheduler(self.status)
+        self.addCleanup(self.scheduler.shutdown)
+        self.reports = []
+        self.scheduler.job_succeeded.connect(lambda job, result, elapsed: self.reports.append("succeeded"))
+        self.scheduler.job_failed.connect(lambda job, error, detail, elapsed: self.reports.append("failed"))
+        self.scheduler.job_cancelled.connect(lambda job, started: self.reports.append("stopped" if started else "removed"))
+        self.stack = self.enterContext(redirect_stdout(io.StringIO()))
+
+    def settle(self):
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:
+            self.application.processEvents()
+            if self.scheduler.queue_depth == 0 and self.reports:
+                break
+            time.sleep(0.005)
+        self.application.processEvents()
+
+    def run_label(self, directory, args):
+        return self.runner.run_label(directory, args, scheduler=self.scheduler, after_run=lambda viewer: self.settle())
+
+    def stop_job(self):
+        """Tell the running label job to stop, as the Session card's remove does."""
+        (running,) = [entry for entry in self.scheduler.snapshot() if entry.running]
+        self.assertTrue(self.scheduler.cancel(running.job.job_id))
+
+    def stop_when_called(self, owner, name, then=None):
+        """Patch owner.name to ask for the stop on its first call, and then do what it did."""
+        real = getattr(owner, name)
+        calls = []
+
+        def stopping(*args, **kwargs):
+            if not calls:
+                self.stop_job()
+                if then is not None:
+                    then()
+            calls.append(name)
+            return real(*args, **kwargs)
+
+        return mock.patch.object(owner, name, side_effect=stopping), calls
+
+    def assert_stopped_leaving_nothing(self, directory):
+        self.assertEqual(self.reports, ["stopped"])
+        self.assertEqual(os.listdir(directory), [])
+        self.assertEqual(self.scheduler.snapshot(), [])
+
+    def test_a_stop_during_the_analysis_ends_the_job_with_no_file(self):
+        # Each stage is a call the analysis makes; the stop comes during it, and the next check point ends the job.
+        for owner, name in (
+            (label, "get_sequence_stats"),
+            (label, "_calculate_weighted_frequencies"),
+            (label, "_build_label_tasks"),
+            (label, "_calculate_outside_frequency"),
+        ):
+            with self.subTest(stage=name), tempfile.TemporaryDirectory() as directory:
+                self.reports.clear()
+                patch, calls = self.stop_when_called(owner, name)
+                with patch:
+                    self.run_label(directory, [])
+                self.assertTrue(calls, "the stage ran")
+                self.assert_stopped_leaving_nothing(directory)
+
+    def test_a_stop_while_the_workbook_is_saved_deletes_the_partial_file(self):
+        partial_seen = []
+
+        class StopsOnSecondWrite(label.CancellableFile):
+            def write(inner, data):
+                writes.append(1)
+                if len(writes) == 2:
+                    partial_seen.extend(path.name for path in Path(directory).iterdir())
+                    self.stop_job()
+                return super().write(data)
+
+        writes = []
+        with tempfile.TemporaryDirectory() as directory:
+            with mock.patch.object(label, "CancellableFile", StopsOnSecondWrite):
+                self.run_label(directory, ["report"])
+            self.assertEqual(len(partial_seen), 1)
+            self.assertIn(".partial.xlsx", partial_seen[0], "the partial file existed when the stop came")
+            self.assert_stopped_leaving_nothing(directory)
+
+    def test_a_stop_leaves_an_existing_report_of_that_name_as_it_was(self):
+        with tempfile.TemporaryDirectory() as directory:
+            existing = Path(directory, "report.xlsx")
+            existing.write_bytes(b"previous content")
+            patch, calls = self.stop_when_called(label, "_calculate_weighted_frequencies")
+            with patch:
+                self.run_label(directory, ["report"])
+            self.assertEqual(self.reports, ["stopped"])
+            self.assertEqual(os.listdir(directory), ["report.xlsx"])
+            self.assertEqual(existing.read_bytes(), b"previous content")
+
+    def test_the_output_is_free_again_and_the_next_job_runs_after_a_stop(self):
+        with tempfile.TemporaryDirectory() as directory:
+            patch, _calls = self.stop_when_called(label, "_calculate_weighted_frequencies")
+            with patch:
+                self.run_label(directory, ["report"])
+            self.assertFalse(self.scheduler.is_output_path_reserved(os.path.join(directory, "report.xlsx")))
+            self.reports.clear()
+            self.run_label(directory, ["report"])
+            self.assertEqual(self.reports, ["succeeded"])
+            self.assertEqual(os.listdir(directory), ["report.xlsx"])
+            self.assertIn("Meta Data", openpyxl.load_workbook(Path(directory, "report.xlsx")).sheetnames)
+
+    def test_a_stop_is_a_cancellation_not_a_failure_in_the_labels_own_error_handling(self):
+        # label reports its failures as failed commands; a stop must not reach that handler.
+        with tempfile.TemporaryDirectory() as directory:
+            patch, _calls = self.stop_when_called(label, "_calculate_weighted_frequencies")
+            with patch, mock.patch.object(label.Command_Engine, "command_failed") as failed:
+                self.run_label(directory, [])
+            failed.assert_not_called()
+            self.assertEqual(self.reports, ["stopped"])
 
 
 if __name__ == "__main__":

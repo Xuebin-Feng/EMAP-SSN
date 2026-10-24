@@ -27,6 +27,8 @@ import os
 
 import numpy as np
 
+from utilities.Job_Cancellation import raise_if_cancelled
+
 try:
     from numba import get_num_threads, njit, prange, set_num_threads
 
@@ -168,6 +170,7 @@ def _pack_identity_planes(encoded, block_rows=4096):
     planes = np.empty((sequence_count, 6, word_count), dtype=np.uint64)
     valid_counts = np.empty(sequence_count, dtype=np.int64)
     for start in range(0, sequence_count, block_rows):
+        raise_if_cancelled()
         stop = min(sequence_count, start + block_rows)
         padded = np.full((stop - start, word_count * 64), -1, dtype=np.int8)
         padded[:, :alignment_length] = encoded[start:stop]
@@ -297,6 +300,7 @@ def _calculate_identity_neighbour_counts_numpy(
     block_size = max(1, int(block_size))
 
     for left_start in range(0, len(encoded), block_size):
+        raise_if_cancelled()
         left_end = min(left_start + block_size, len(encoded))
         left_planes = planes[left_start:left_end, :, None, :]
 
@@ -454,6 +458,7 @@ def calculate_logo_matrix(
     shortest_length = min(len(sequence) for sequence in selected_seqs)
 
     for row, col in enumerate(valid_cols):
+        raise_if_cancelled()
         if ascii_sequences and 0 <= col < shortest_length:
             # bincount and cumsum add in sequence order, exactly like the loop.
             codes = _ASCII_TO_STANDARD_CODE[np.frombuffer(
