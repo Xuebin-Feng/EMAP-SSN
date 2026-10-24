@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -82,6 +83,126 @@ class PortalHTTPTests(SnapshotHTTPFixture, unittest.TestCase):
         capture = self.request('capture_view', {'request_id': request_id})['payload']
         self.assertEqual(base64.b64decode(capture['image_base64'])[:8], b'\x89PNG\r\n\x1a\n')
         self.assertEqual(capture['width'], 40)
+
+
+class BusyViewerTests(SnapshotHTTPFixture, unittest.TestCase):
+    """The GUI thread is busy while an MCP client submits: the Viewer's 503 reaches the client, and the retry is safe.
+
+    This test thread plays the GUI thread and answers no inspection call until it processes events, as a
+    Viewer does while it computes. The bridge's wait is made instant, so nothing sleeps; the limit it was
+    given is recorded instead.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import threading
+        from web_ui import Web_Server
+        v = self.viewer
+        v.command_history = []
+        v.history_file = self.directory.name + '/history.txt'
+        v.console_text = SimpleNamespace(text='')
+        v.broadcast_metadata_state = lambda: None
+        v.broadcast_event = lambda event: None
+        v.canvas = SimpleNamespace(render=lambda: np.zeros((30, 40, 4), dtype=np.uint8))
+        self.limits = []
+        limits = self.limits
+
+        class GiveUpAtOnce(threading.Event):
+            def wait(self, timeout=None):
+                limits.append(timeout)
+                return super().wait(0)
+
+        class BusyCall(Web_Server._InspectionCall):
+            def __init__(self, method_name, arguments):
+                super().__init__(method_name, arguments)
+                self.event = GiveUpAtOnce()
+
+        self.busy_patch = mock.patch.object(Web_Server, '_InspectionCall', BusyCall)
+        self.busy_patch.start()
+        self.addCleanup(self.busy_patch.stop)
+        self.session = SimpleNamespace(base_url=f'http://127.0.0.1:{self.server.server_address[1]}',
+                                       token=self.server.inspection_token)
+
+    def submit(self, submission_id, commands=('zoom help',)):
+        """What an MCP client sends, from a thread, while this one stays busy; return the outcome."""
+        from mcp_server.viewer.Viewer_Client import MCPViewerClient
+        client, outcome = MCPViewerClient(), {}
+
+        def work():
+            try:
+                outcome['result'] = client._request(self.session, '/api/mcp/v1/commands', {
+                    'action': 'execute_commands',
+                    'arguments': {'submission_id': submission_id, 'commands': list(commands)}})
+            except Exception as error:
+                outcome['error'] = error
+
+        thread = threading.Thread(target=work)
+        thread.start()
+        thread.join(10)
+        self.assertFalse(thread.is_alive())
+        return outcome
+
+    def test_a_busy_gui_answers_503_with_the_retry_advice_and_the_command_is_queued_once(self):
+        from utilities.Viewer_Sessions import VIEWER_BRIDGE_SECONDS, VIEWER_REQUEST_SECONDS
+        from mcp_server.viewer.Viewer_Client import MCPViewerTimeout
+        sid = 'busy-' + 'a' * 32
+        busy = self.submit(sid)
+        error = busy['error']
+        self.assertIsInstance(error, MCPViewerTimeout)
+        self.assertIn('SAME submission_id', str(error))
+        self.assertIn('wait_command_request', str(error))
+        self.assertNotIn('Could not inspect the Viewer', str(error))
+        # The bridge gave up at its own limit, which is shorter than the client's.
+        self.assertEqual(self.limits, [VIEWER_BRIDGE_SECONDS])
+        self.assertLess(self.limits[0], VIEWER_REQUEST_SECONDS)
+        self.assertFalse(hasattr(self.viewer, 'command_portal'))  # the GUI thread has not run it yet
+        # The GUI thread frees up: the command that timed out is queued, and runs once.
+        self.app.processEvents()
+        portal = get_portal(self.viewer)
+        self.assertEqual(len(portal.requests), 1)
+        first = next(iter(portal.requests.values()))
+        self.assertEqual(first['submission_id'], sid)
+        # The client does what the message says, now that the GUI thread answers: the SAME submission_id
+        # returns the request that is already there.
+        self.busy_patch.stop()
+        self.url = self.url.replace('/data', '/commands')
+        retry = self.request('execute_commands', {'submission_id': sid, 'commands': ['zoom help']})
+        self.assertEqual(retry['status'], 200, retry)
+        self.assertEqual(retry['payload']['request_id'], first['request_id'])
+        self.assertEqual(len(portal.requests), 1)
+
+    def test_a_new_submission_id_after_a_timeout_would_run_the_command_twice(self):
+        """Why the message insists on the SAME id: the timed-out call is queued, so a new id adds a second request."""
+        self.assertIn('error', self.submit('first-' + 'b' * 32))
+        self.assertIn('error', self.submit('second-' + 'b' * 32))
+        self.app.processEvents()
+        self.assertEqual(len(get_portal(self.viewer).requests), 2)
+
+    def test_every_gui_bound_route_gives_up_at_the_bridge_limit(self):
+        from utilities.Viewer_Sessions import VIEWER_BRIDGE_SECONDS
+        from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerTimeout
+        client = MCPViewerClient()
+        for endpoint, body in (('/api/mcp/v1/summary', None),
+                               ('/api/mcp/v1/data', {'action': 'get_summary', 'arguments': {}}),
+                               ('/api/mcp/v1/commands', {'action': 'get_command_request', 'arguments': {'submission_id': 'x'}}),
+                               ('/api/mcp/v1/window', {'action': 'show'})):
+            with self.subTest(endpoint=endpoint):
+                self.limits.clear()
+                outcome = {}
+
+                def work():
+                    try:
+                        client._request(self.session, endpoint, body)
+                    except Exception as error:
+                        outcome['error'] = error
+
+                thread = threading.Thread(target=work)
+                thread.start()
+                thread.join(10)
+                self.assertFalse(thread.is_alive())
+                self.assertIsInstance(outcome['error'], MCPViewerTimeout)
+                self.assertEqual(self.limits, [VIEWER_BRIDGE_SECONDS])
+        self.app.processEvents()
 
 
 class AgentAdapterTests(PortalFixture, unittest.TestCase):

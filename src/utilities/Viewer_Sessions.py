@@ -22,6 +22,13 @@ SESSION_PROTOCOL_VERSION = 1
 LOOPBACK_HOST = "127.0.0.1"
 SESSION_DIRECTORY_ENV = "SSN_VIEWER_SESSION_DIR"
 LAUNCH_ID_ENV = "SSN_VIEWER_LAUNCH_ID"
+# How long the Viewer's HTTP thread waits for its GUI thread before it answers 503 ("retry with the SAME
+# submission_id"), and how long a client waits for any reply. The client must wait longer, or on a busy GUI
+# it gives up first: it reports a timeout for a command the Viewer has queued, and a resubmission under a
+# new id runs it twice. The pair is one decision, so both live here. The Viewer keeps the 5 s it always gave
+# its GUI thread, so a loaded Viewer answers as often as before; the client's wait is what grew.
+VIEWER_BRIDGE_SECONDS = 5.0
+VIEWER_REQUEST_SECONDS = 6.0
 
 
 def session_alias(session_id):

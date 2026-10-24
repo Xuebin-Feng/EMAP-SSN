@@ -19,7 +19,7 @@ import uuid
 
 import psutil
 from utilities.Viewer_Sessions import (
-    SESSION_DIRECTORY_ENV, LAUNCH_ID_ENV, session_directory,
+    SESSION_DIRECTORY_ENV, LAUNCH_ID_ENV, VIEWER_REQUEST_SECONDS, session_directory,
     discover_viewer_sessions, remove_viewer_session, select_viewer_session,
     session_alias,
 )
@@ -33,6 +33,14 @@ LAUNCH_MODES = ("normal", "headless", "hidden")
 
 class MCPViewerError(RuntimeError):
     """Viewer configuration, connection or lifecycle failure."""
+
+
+class MCPViewerTimeout(MCPViewerError):
+    """The Viewer did not answer in time: its own 503, or no reply within the client's wait.
+
+    The Viewer's GUI thread is busy. What the request asked may still happen
+    there, so a submission is retried under the same submission_id, never a new one.
+    """
 
 
 # One start_session or wait_session call waits this long before handing a
@@ -206,7 +214,7 @@ def _terminate_tree(process, timeout=5.0):
 
 
 class MCPViewerClient:
-    def __init__(self, project_root=None, *, discovery_timeout=0.5, request_timeout=5.0, transport_closed=None):
+    def __init__(self, project_root=None, *, discovery_timeout=0.5, request_timeout=VIEWER_REQUEST_SECONDS, transport_closed=None):
         self.project_root = os.path.abspath(project_root or Path(__file__).resolve().parents[3])
         self.discovery_timeout = float(discovery_timeout)
         self.request_timeout = float(request_timeout)
@@ -643,7 +651,15 @@ class MCPViewerClient:
         info = await asyncio.to_thread(self._request, session, '/api/mcp/v1/session')
         if 'commands_v1' not in info.get('inspection_capabilities', []):
             raise MCPViewerError('Viewer does not support the command portal; upgrade and restart the Viewer.')
-        return await asyncio.to_thread(self._request, session, '/api/mcp/v1/commands', {'action': action, 'arguments': arguments})
+        try:
+            return await asyncio.to_thread(self._request, session, '/api/mcp/v1/commands', {'action': action, 'arguments': arguments})
+        except MCPViewerTimeout as error:
+            if action != 'execute_commands' or 'SAME submission_id' in str(error):
+                raise
+            # The commands may be queued already: say how to learn that without running them twice.
+            raise MCPViewerTimeout(
+                f"{error} The commands may already be queued in the Viewer: retry execute_commands with the SAME "
+                "submission_id (it never runs them twice) or call wait_command_request with it.") from error
 
     async def window_action(self, action, session_id=None):
         """Show or hide a Viewer's window (mode hidden); the state comes back after the platform settles."""
@@ -738,14 +754,17 @@ class MCPViewerClient:
                     message = str(error_payload["error"])
             except (OSError, UnicodeError, ValueError):
                 pass
-            raise MCPViewerError(message) from error
+            # The Viewer answers 503 only when its GUI thread did not take the request in time.
+            raise (MCPViewerTimeout if error.code == 503 else MCPViewerError)(message) from error
         except (
             OSError,
             UnicodeError,
             ValueError,
             urllib.error.URLError,
         ) as error:
-            raise MCPViewerError(f"Could not inspect the Viewer: {error}") from error
+            reason = error.reason if isinstance(error, urllib.error.URLError) else error
+            raise (MCPViewerTimeout if isinstance(reason, TimeoutError) else MCPViewerError)(
+                f"Could not inspect the Viewer: {error}") from error
         if not isinstance(payload, Mapping):
             raise MCPViewerError("The Viewer returned an invalid JSON response.")
         return dict(payload)

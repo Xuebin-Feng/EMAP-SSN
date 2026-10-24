@@ -19,6 +19,7 @@ from EMAPSSN_MCP_Server import mcp
 from mcp_server.core.Workflow_Dispatch import REGISTRY, dispatch
 from mcp_server.pipeline.Pipeline_Jobs import MAX_WAIT_SECONDS
 from mcp_server.viewer import Viewer_Operations as ops
+from utilities.Viewer_Sessions import VIEWER_BRIDGE_SECONDS
 
 
 class FakeClock:
@@ -52,7 +53,12 @@ def job(job_id='2', status='running', **extra):
 
 
 class Script:
-    """A portal whose get_command_request answers follow ``states``: (seconds since the first read, record)."""
+    """A portal whose get_command_request answers follow ``states``: (seconds since the first read, record).
+
+    A state that is an exception is raised instead, after the time the Viewer's bridge waits before it
+    answers 503 (a read of a busy Viewer takes that long to fail).
+    """
+    BUSY_READ_SECONDS = VIEWER_BRIDGE_SECONDS
 
     def __init__(self, clock, states):
         self.clock, self.states, self.start, self.calls = clock, states, None, []
@@ -66,6 +72,9 @@ class Script:
         for at, state in self.states:
             if elapsed >= at:
                 current = state
+        if isinstance(current, Exception):
+            self.clock.now += self.BUSY_READ_SECONDS
+            raise current
         return dict(current)
 
 
@@ -123,8 +132,7 @@ class WaitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result['status'], 'running')
         self.assertEqual(result['waited_seconds'], 2.95)
         self.assertEqual(result['next_step'], {'tool': 'emapssn_viewer_data', 'action': 'wait_command_request',
-                                               'arguments': {'request_id': 'r1', 'session_id': 'origin',
-                                                             'timeout_seconds': 2.95}})
+                                               'arguments': {'request_id': 'r1', 'session_id': 'origin'}})
         # It never sleeps past its deadline, and the last read is at the deadline.
         self.assertAlmostEqual(sum(self.clock.pauses), 2.95)
         self.assertEqual(script.calls[-1][2], 'viewer-9')
@@ -156,6 +164,47 @@ class WaitTests(unittest.IsolatedAsyncioTestCase):
         self.assertAlmostEqual(self.clock.pauses[-1], 0.5, places=3)
         self.assertEqual(sorted({round(seconds, 2) for seconds in self.clock.pauses}, reverse=True), [0.5, 0.25, 0.1])
         self.assertLess(len(self.clock.pauses), 140)  # 4 reads a second for 50 s would be 200
+
+    async def test_a_busy_viewer_does_not_end_the_wait(self):
+        busy = ops.ViewerBusy('The Viewer did not answer in time.')
+        states = [(0, record('running')), (1.0, busy), (13.0, record('succeeded'))]
+        result, script, _ = await self.wait(states)
+        self.assertEqual((result['status'], result['waiting']), ('succeeded', False))
+        self.assertNotIn('viewer_busy', result)
+        self.assertGreaterEqual(result['waited_seconds'], 13.0)
+        self.assertGreaterEqual(len(script.calls), 5)  # the busy stretch cost reads of five seconds each
+
+    async def test_a_viewer_still_busy_at_the_deadline_returns_the_last_record_marked_busy(self):
+        busy = ops.ViewerBusy('The Viewer did not answer in time.')
+        result, _, _ = await self.wait([(0, record('running')), (0.5, busy)], timeout_seconds=10)
+        self.assertEqual((result['status'], result['waiting'], result['viewer_busy']), ('running', True, True))
+        self.assertGreaterEqual(result['waited_seconds'], 10.0)
+        self.assertEqual(result['next_step']['action'], 'wait_command_request')
+
+    async def test_a_viewer_busy_from_the_start_is_an_error_once_the_wait_is_over(self):
+        busy = ops.ViewerBusy('The Viewer did not answer in time.')
+        with self.assertRaisesRegex(ToolError, 'did not answer in time') as caught:
+            await self.wait([(0, busy)], timeout_seconds=9)
+        self.assertIsInstance(caught.exception, ops.ViewerBusy)
+        self.assertGreaterEqual(self.clock.now - 1000.0, 9.0)  # it kept asking until the deadline
+
+    async def test_the_heartbeat_says_when_the_viewer_is_busy(self):
+        busy = ops.ViewerBusy('The Viewer did not answer in time.')
+        _, _, ctx = await self.wait([(0, record('running')), (0.5, busy)], timeout_seconds=25)
+        self.assertTrue(ctx.sent[0][2].startswith('running: 0 of 1 commands finished'))
+        self.assertTrue(any(message.endswith('(the Viewer is busy)') for _, _, message, _ in ctx.sent[1:]))
+
+    async def test_a_submission_the_viewer_never_saw_says_it_is_safe_to_send_again(self):
+        error = ToolError('Unknown submission_id in this Viewer')
+        with mock.patch.object(ops, '_portal_call', side_effect=error):
+            with self.assertRaisesRegex(ToolError, 'Unknown submission_id in this Viewer. It was never queued here, so '
+                                                   'execute_commands with the same submission_id is safe to send again'):
+                await ops.wait_command_request(Progress(self.clock), submission_id='s')
+        evicted = ToolError('Submission is known but its result was evicted from this Viewer')
+        with mock.patch.object(ops, '_portal_call', side_effect=evicted):
+            with self.assertRaises(ToolError) as caught:
+                await ops.wait_command_request(Progress(self.clock), submission_id='s')
+        self.assertEqual(str(caught.exception), str(evicted))
 
     async def test_an_error_from_the_viewer_ends_the_wait(self):
         with mock.patch.object(ops, '_portal_call', side_effect=ToolError('Unknown submission_id in this Viewer')):

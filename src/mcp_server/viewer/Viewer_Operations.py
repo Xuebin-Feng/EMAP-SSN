@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 from mcp_server.core.App_Context import AppContext, _viewer
 from mcp_server.pipeline.Pipeline_Jobs import MAX_WAIT_SECONDS
-from mcp_server.viewer.Viewer_Client import DEFAULT_READY_TIMEOUT, MCPViewerError
+from mcp_server.viewer.Viewer_Client import DEFAULT_READY_TIMEOUT, MCPViewerError, MCPViewerTimeout
 from desktop.Viewer_State import (
     get_viewer_settings_schema as viewer_settings_schema,
     read_viewer_settings,
@@ -466,9 +466,15 @@ __all__ = [
 ]
 
 
+class ViewerBusy(ToolError):
+    """The Viewer did not answer in time. What was asked may still happen there; a wait goes on regardless."""
+
+
 async def _portal_call(ctx, action, arguments, session_id):
     try:
         return await _viewer(ctx).command_action(action, arguments, session_id)
+    except MCPViewerTimeout as error:
+        raise ViewerBusy(str(error)) from error
     except MCPViewerError as error:
         raise ToolError(str(error)) from error
 
@@ -511,12 +517,10 @@ def _poll_seconds(elapsed):
             return seconds
 
 
-def _wait_step(record, timeout_seconds=None):
+def _wait_step(record):
     """next_step for a request that has not ended: wait for it, on the Viewer that holds it."""
-    arguments = {'request_id': record['request_id'], 'session_id': record['session_id']}
-    if timeout_seconds is not None:
-        arguments['timeout_seconds'] = timeout_seconds
-    return {'tool': 'emapssn_viewer_data', 'action': 'wait_command_request', 'arguments': arguments}
+    return {'tool': 'emapssn_viewer_data', 'action': 'wait_command_request',
+            'arguments': {'request_id': record['request_id'], 'session_id': record['session_id']}}
 
 
 def _wait_line(record):
@@ -552,18 +556,32 @@ async def wait_command_request(ctx: Context[AppContext], request_id: str | None 
     started = _now()
     arguments = dict(request_id=request_id, offset=offset, limit=limit, command_id=command_id,
                      artifact_offset=artifact_offset, artifact_limit=artifact_limit, submission_id=submission_id)
-    last_line, last_sent = None, None
+    record, busy, last_line, last_sent = None, False, None, None
     while True:
-        record = await _portal_call(ctx, 'get_command_request', arguments, session_id)
+        try:
+            record, busy = await _portal_call(ctx, 'get_command_request', arguments, session_id), False
+        except ViewerBusy:
+            # A busy Viewer is what a wait is for: ask again until the deadline, with the last record
+            # in hand; with none, the error is all there is to report.
+            if record is None and _now() - started >= timeout_seconds:
+                raise
+            busy = True
+        except ToolError as error:
+            if 'Unknown submission_id' in str(error):
+                raise ToolError(f"{error}. It was never queued here, so execute_commands with the same "
+                                "submission_id is safe to send again.") from error
+            raise
         elapsed = _now() - started
-        done = record['status'] in REQUEST_ENDED
+        done = not busy and record['status'] in REQUEST_ENDED
         if done or elapsed >= timeout_seconds:
             record['waited_seconds'] = round(elapsed, 2)
             record['waiting'] = not done
+            if busy:
+                record['viewer_busy'] = True
             if not done:
-                record['next_step'] = _wait_step(record, timeout_seconds)
+                record['next_step'] = _wait_step(record)
             return record
-        line = _wait_line(record)
+        line = (_wait_line(record) if record is not None else 'waiting') + (' (the Viewer is busy)' if busy else '')
         if last_sent is None or (line != last_line and elapsed - last_sent >= PROGRESS_MIN_SECONDS) \
                 or elapsed - last_sent >= HEARTBEAT_SECONDS:
             last_line, last_sent = line, elapsed

@@ -41,6 +41,7 @@ from web_ui.Page_Texts import translated_file
 from utilities.Localization import Message, display_text
 from utilities.Viewer_Sessions import (
     SESSION_PROTOCOL_VERSION,
+    VIEWER_BRIDGE_SECONDS,
     publish_viewer_session,
     remove_viewer_session,
 )
@@ -122,11 +123,13 @@ class QtInspectionBridge(QtCore.QObject):
             QtCore.Qt.ConnectionType.QueuedConnection,
         )
 
-    def request(self, method_name, *, timeout=5.0, **arguments):
+    def request(self, method_name, *, timeout=None, **arguments):
         if QtCore.QThread.currentThread() == self.thread():
             return getattr(self.service, method_name)(**arguments)
         call = _InspectionCall(method_name, arguments)
         self.inspection_signal.emit(call)
+        # Shorter than the client's wait (utilities.Viewer_Sessions), so its 503 reaches the client.
+        timeout = VIEWER_BRIDGE_SECONDS if timeout is None else timeout
         if not call.event.wait(timeout):
             raise TimeoutError("The Viewer did not answer the inspection request in time.")
         if call.error is not None:
@@ -655,7 +658,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                 result = self.server.inspection_bridge.request('command_action', action=action, arguments=arguments)
                 self._send_json(200, result)
             except TimeoutError:
-                self._send_json(503, {'error': 'Viewer response timed out. Retry submission with the SAME submission_id; it may already be queued.'})
+                self._send_json(503, {'error': 'The Viewer did not answer in time and may already have queued the commands. Retry with the SAME submission_id (it never runs them twice) or call wait_command_request with it.'})
             except (ValueError, TypeError, KeyError) as error:
                 self._send_json(400, {'error': str(error)[:1000]},
                                 headers=self._discard_request_body() if body is None else None)

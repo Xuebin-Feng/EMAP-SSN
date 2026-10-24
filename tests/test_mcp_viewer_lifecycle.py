@@ -37,7 +37,7 @@ from desktop.Viewer_State import (
     encode_document,
     VIEWER_SECTIONS,
 )
-from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError
+from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError, MCPViewerTimeout
 from utilities.Terminal_Launcher import TerminalUnavailableError, _find_linux_terminal
 from EMAPSSN_MCP_Server import mcp
 from mcp import Client, StdioServerParameters
@@ -770,6 +770,95 @@ class ViewerRequestTests(unittest.TestCase):
                 error, _calls = self.request(reply)
                 self.assertIsInstance(error, MCPViewerError)
                 self.assertEqual(str(error), message)
+
+    def test_a_503_and_a_socket_timeout_are_timeouts_and_other_failures_are_not(self):
+        busy = b'{"error": "The Viewer did not answer in time. Retry with the SAME submission_id."}'
+        cases = [
+            (urllib.error.HTTPError(self.URL, 503, "Service Unavailable", {}, io.BytesIO(busy)), True,
+             "The Viewer did not answer in time. Retry with the SAME submission_id."),
+            (TimeoutError("timed out"), True, "Could not inspect the Viewer: timed out"),
+            (urllib.error.URLError(TimeoutError("timed out")), True,
+             "Could not inspect the Viewer: <urlopen error timed out>"),
+            (urllib.error.HTTPError(self.URL, 500, "Server Error", {}, io.BytesIO(b'{"error": "boom"}')), False, "boom"),
+            (self.http_error(b'{"error": "Unknown submission_id in this Viewer"}'), False,
+             "Unknown submission_id in this Viewer"),
+            (urllib.error.URLError(ConnectionRefusedError(10061, "refused")), False,
+             "Could not inspect the Viewer: <urlopen error [Errno 10061] refused>"),
+        ]
+        for reply, is_timeout, message in cases:
+            with self.subTest(reply=repr(reply)):
+                error, _calls = self.request(reply)
+                self.assertEqual(isinstance(error, MCPViewerTimeout), is_timeout, error)
+                self.assertIsInstance(error, MCPViewerError)
+                self.assertEqual(str(error), message)
+
+    def test_the_client_waits_longer_than_the_viewer_does_for_its_gui_thread(self):
+        from utilities.Viewer_Sessions import VIEWER_BRIDGE_SECONDS, VIEWER_REQUEST_SECONDS
+        self.assertEqual(MCPViewerClient(PROJECT_ROOT).request_timeout, VIEWER_REQUEST_SECONDS)
+        # The Viewer's own 503 ("retry with the SAME submission_id") must arrive before the client gives up.
+        self.assertGreaterEqual(VIEWER_REQUEST_SECONDS - VIEWER_BRIDGE_SECONDS, 1.0)
+
+    def test_a_timed_out_execute_commands_says_the_commands_may_be_queued(self):
+        client = MCPViewerClient(PROJECT_ROOT)
+
+        def fake_request(session, endpoint, data=None):
+            if endpoint == "/api/mcp/v1/session":
+                return {"inspection_capabilities": ["commands_v1"]}
+            raise MCPViewerTimeout("Could not inspect the Viewer: timed out")
+
+        cases = {
+            "execute_commands": ("may already be queued", "SAME submission_id", "wait_command_request"),
+            "get_command_request": (),
+        }
+        for action, expected in cases.items():
+            with self.subTest(action=action), mock.patch(
+                "mcp_server.viewer.Viewer_Client.select_viewer_session", return_value=self.SESSION,
+            ), mock.patch.object(client, "_request", side_effect=fake_request):
+                with self.assertRaises(MCPViewerTimeout) as raised:
+                    asyncio.run(client.command_action(action, {"submission_id": "s"}, session_id="viewer-1"))
+                text = str(raised.exception)
+                self.assertTrue(text.startswith("Could not inspect the Viewer: timed out"))
+                for phrase in expected:
+                    self.assertIn(phrase, text)
+                if not expected:
+                    self.assertEqual(text, "Could not inspect the Viewer: timed out")
+
+    def test_the_viewers_own_retry_message_is_not_repeated_by_the_client(self):
+        client = MCPViewerClient(PROJECT_ROOT)
+        message = "The Viewer did not answer in time. Retry with the SAME submission_id or call wait_command_request."
+
+        def fake_request(session, endpoint, data=None):
+            if endpoint == "/api/mcp/v1/session":
+                return {"inspection_capabilities": ["commands_v1"]}
+            raise MCPViewerTimeout(message)
+
+        with mock.patch("mcp_server.viewer.Viewer_Client.select_viewer_session", return_value=self.SESSION), \
+                mock.patch.object(client, "_request", side_effect=fake_request):
+            with self.assertRaises(MCPViewerTimeout) as raised:
+                asyncio.run(client.command_action("execute_commands", {"submission_id": "s"}, session_id="viewer-1"))
+        self.assertEqual(str(raised.exception), message)
+
+    def test_a_timeout_reaches_the_agent_as_a_tool_error_with_the_advice(self):
+        from mcp.server.mcpserver.exceptions import ToolError
+        from mcp_server.viewer import Viewer_Operations as ops
+        viewer = MCPViewerClient(PROJECT_ROOT)
+
+        def fake_request(session, endpoint, data=None):
+            if endpoint == "/api/mcp/v1/session":
+                return {"inspection_capabilities": ["commands_v1"]}
+            raise MCPViewerTimeout("Could not inspect the Viewer: timed out")
+
+        async def run():
+            with mock.patch.object(ops, "_viewer", return_value=viewer):
+                return await ops.execute_viewer_commands(SimpleNamespace(), "x" * 36, "zoom help", "viewer-1")
+
+        with mock.patch("mcp_server.viewer.Viewer_Client.select_viewer_session", return_value=self.SESSION), \
+                mock.patch.object(viewer, "_request", side_effect=fake_request):
+            with self.assertRaises(ToolError) as raised:
+                asyncio.run(run())
+        self.assertIsInstance(raised.exception, ops.ViewerBusy)
+        self.assertIn("SAME submission_id", str(raised.exception))
+        self.assertIn("wait_command_request", str(raised.exception))
 
     def test_command_portal_needs_the_commands_capability(self):
         client = MCPViewerClient(PROJECT_ROOT)

@@ -822,7 +822,9 @@ syntax, file effects, history, and manual controls remain the user-command behav
    `waited_seconds` and `waiting`, as soon as the request is succeeded, failed, cancelled, skipped or
    awaiting_user_input (the user must act in the visible Viewer). Otherwise it returns after `timeout_seconds`
    (default 30, at most 50) with `waiting: true` and a `next_step` that waits again, so call it again instead of
-   polling `get_command_request` in a loop. Other calls are served while it waits.
+   polling `get_command_request` in a loop. Other calls are served while it waits. A Viewer that is too busy
+   to answer a read does not end the wait: it asks again until `timeout_seconds` is up, and then returns the
+   last record it had with `viewer_busy: true` (or the error, if it never got one).
    Submission is not completion. States distinguish queued, running,
    awaiting_user_input, succeeded, failed, cancelled, and skipped.
    While it waits, a client that sent a progress token receives `notifications/progress`: one when the request's
@@ -836,7 +838,13 @@ syntax, file effects, history, and manual controls remain the user-command behav
    its `command_id` and `next_artifact_offset` as `artifact_offset`.
 
 Retry an uncertain submission with the **same submission_id and identical payload**.
-A conflicting reuse fails. Evicted submissions are not reexecuted. The Viewer keeps
+When the Viewer's GUI thread is busy (a long computation, a dialog), `execute_commands` can
+time out although the Viewer has queued the commands: the Viewer answers 503 after 5 seconds,
+and the client waits 6 seconds for any reply, so that answer arrives. The error says the
+commands may already be queued. Send `execute_commands` again with the **same** submission_id,
+which never runs them twice, or call `wait_command_request` with it; if that reports an unknown
+submission, nothing was queued and sending again is safe. A **new** submission_id would run the
+commands twice. A conflicting reuse fails. Evicted submissions are not reexecuted. The Viewer keeps
 100 completed requests, never evicts active requests, and caps retained diagnostic
 output at 16 MiB. Truncated output explicitly reports `available_from` and
 `truncated`. `list_command_requests` recovers IDs after MCP reconnection; Viewer
