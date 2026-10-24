@@ -33,7 +33,7 @@ from utilities.Alignment_Profiles import (
     run_identity_neighbour_counts,
     set_num_threads,
 )
-from utilities.Job_Cancellation import CancellableFile, raise_if_cancelled
+from utilities.Job_Cancellation import CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
@@ -246,7 +246,7 @@ def _generate_logo_artifact(payload):
     FigureCanvasAgg(fig)
     ax = fig.subplots()
 
-    partial_path = None
+    partial_path = named_partial = None
     try:
         raise_if_cancelled()
         logo = logomaker.Logo(dataframe, ax=ax, color_scheme=payload["color_scheme"])
@@ -295,13 +295,18 @@ def _generate_logo_artifact(payload):
             dir=logo_dir,
         )
         os.close(file_descriptor)
+        # Named to the scheduler, which deletes it if the Viewer closes while this job is stuck.
+        named_partial = partial_path
+        note_partial_path(named_partial)
         # Every write of the image is a check point (CancellableFile): an SVG goes out as
         # the figure is drawn and a PNG as it is encoded, so a big one stops while it is saved.
         # The file is opened as matplotlib opens a path for the format (an SVG as text, with
-        # the platform's line ends), so the image is the same as before.
-        with open(partial_path, "w", encoding="utf-8") if suffix == ".svg" else open(partial_path, "wb") as handle:
+        # the platform's line ends), so the image is the same as before; and only at its
+        # first write, so nothing holds it open while the figure is drawn.
+        with (CancellableFile.at(partial_path, "w", "utf-8") if suffix == ".svg"
+              else CancellableFile.at(partial_path, "wb")) as target:
             fig.savefig(
-                CancellableFile(handle),
+                target,
                 format=suffix.lstrip("."),
                 transparent=filename.lower().endswith('.png'),
                 dpi=_LOGO_DPI,
@@ -319,6 +324,8 @@ def _generate_logo_artifact(payload):
                 os.remove(partial_path)
             except OSError:
                 pass
+        if named_partial is not None:
+            forget_partial_path(named_partial)
 
     # The background job's report: the console line shows it translated.
     if identity_threshold is None:

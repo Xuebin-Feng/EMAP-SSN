@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import inspect
 import itertools
 import os
 import threading
@@ -29,11 +30,25 @@ import weakref
 from PySide6 import QtCore
 from desktop.Desktop_App import open_in_file_manager
 from desktop.Viewer_Window import viewer_shows_windows
-from utilities.Job_Cancellation import CancelToken, JobCancelled, bound_to
+from utilities.Job_Cancellation import JobCancelled, JobHandle, bound_to
 from utilities.Localization import Message
 
 
-Worker = Callable[[Any], Mapping[str, Any]]
+Worker = Callable[..., Mapping[str, Any]]
+
+# How long closing the Viewer waits for the running job to reach a check point and stop.
+SHUTDOWN_WAIT_SECONDS = 2.5
+
+
+def _takes_handle(worker):
+    """Whether the worker has a second parameter named ``job``, which is the job's JobHandle."""
+    try:
+        parameters = list(inspect.signature(worker).parameters.values())
+    except (TypeError, ValueError):
+        return False
+    positional = [parameter for parameter in parameters
+                  if parameter.kind in (parameter.POSITIONAL_ONLY, parameter.POSITIONAL_OR_KEYWORD)]
+    return len(positional) >= 2 and positional[1].name == "job"
 
 
 @dataclass(frozen=True)
@@ -92,7 +107,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         # The jobs waiting, in the order they will run; the running one is not in it.
         self._queued = []
         self._active_job = None
-        self._active_token = None
+        self._active_handle = None
         self._active_started = None
         self._stopping = False
         # Job numbers: the Viewer's command queue draws from the same count, so
@@ -153,7 +168,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         would have, and is reported as completed. A job already told to stop
         is not told again.
         """
-        removed = None
+        removed = handle = None
         with self._lock:
             index = next((i for i, job in enumerate(self._queued) if job.job_id == job_id), None)
             if index is not None:
@@ -162,11 +177,13 @@ class BackgroundJobScheduler(QtCore.QObject):
             elif (self._active_job is not None and self._active_job.job_id == job_id
                   and not self._stopping):
                 self._stopping = True
-                self._active_token.request()
+                handle = self._active_handle
             else:
                 return False
         if removed is not None:
             self.job_cancelled.emit(removed, False)
+        if handle is not None:
+            handle.request()
         self.changed.emit()
         return True
 
@@ -246,8 +263,18 @@ class BackgroundJobScheduler(QtCore.QObject):
         self._set_viewer_status(message)
         return job_id
 
-    def shutdown(self):
-        """Discard queued jobs and tell the running one to stop, without waiting for the daemon worker."""
+    def shutdown(self, wait=SHUTDOWN_WAIT_SECONDS):
+        """Close the line: discard the waiting jobs and stop the running one, within ``wait`` seconds.
+
+        The running job is told to stop and given up to ``wait`` seconds to reach
+        a check point, where its worker deletes its partial file and the job ends.
+        A job that has not stopped by then is left to the daemon thread, which
+        ends with the process; its partial files are deleted here instead, the
+        ones its worker named (JobHandle.note_partial), so that closing the
+        Viewer in the middle of a write leaves no half-written file whatever the
+        job's thread is doing. A file it renames into place afterwards cannot
+        appear: the partial file it would rename is gone.
+        """
         with self._lock:
             if not self._accepting:
                 return
@@ -255,9 +282,19 @@ class BackgroundJobScheduler(QtCore.QObject):
             for job in self._queued:
                 self._reserved_output_paths.discard(self._output_key(job.output_path))
             self._queued.clear()
-            if self._active_token is not None:
-                self._active_token.request()
+            handle = self._active_handle
             self._wake.notify_all()
+        if handle is not None:
+            handle.request()
+        self._thread.join(max(0.0, wait))
+        with self._lock:
+            stuck = self._active_handle
+        if stuck is not None:
+            for path in stuck.partial_paths():
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
 
     def _worker_loop(self):
         while True:
@@ -267,9 +304,9 @@ class BackgroundJobScheduler(QtCore.QObject):
                 if not self._accepting:
                     return
                 job = self._queued.pop(0)
-                token = CancelToken()
+                handle = JobHandle(on_change=self._announce_change)
                 self._active_job = job
-                self._active_token = token
+                self._active_handle = handle
                 self._active_started = time.monotonic()
                 self._stopping = False
 
@@ -278,8 +315,11 @@ class BackgroundJobScheduler(QtCore.QObject):
             self.changed.emit()
             try:
                 from Viewer_Command_Portal import bind
-                with bound_to(token), bind(job.command_context):
-                    result = dict(job.worker(job.payload))
+                with bound_to(handle), bind(job.command_context):
+                    if _takes_handle(job.worker):
+                        result = dict(job.worker(job.payload, job=handle))
+                    else:
+                        result = dict(job.worker(job.payload))
                 elapsed = time.perf_counter() - started_at
                 with self._lock:
                     accepting = self._accepting
@@ -300,7 +340,7 @@ class BackgroundJobScheduler(QtCore.QObject):
             finally:
                 with self._lock:
                     self._active_job = None
-                    self._active_token = None
+                    self._active_handle = None
                     self._active_started = None
                     self._stopping = False
                     self._reserved_output_paths.discard(
@@ -309,6 +349,11 @@ class BackgroundJobScheduler(QtCore.QObject):
                     accepting = self._accepting
                 if accepting:
                     self.changed.emit()
+
+    def _announce_change(self):
+        """A running job reported progress or a log: the card is told, once the signal is delivered."""
+        if self._accepting:
+            self.changed.emit()
 
     def _set_viewer_status(self, message):
         viewer = self._viewer_ref()

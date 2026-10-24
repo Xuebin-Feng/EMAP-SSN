@@ -10,6 +10,7 @@ import io
 import os
 import sys
 import tempfile
+import threading
 import time
 import unittest
 from contextlib import redirect_stdout
@@ -30,6 +31,7 @@ import Alignment_Manager
 from commands import label
 from desktop import Desktop_App as application_windows
 from tests.sparse_alignment import sparse_alignment
+from utilities.Job_Cancellation import cancel_requested
 
 
 class AlignmentStub:
@@ -1362,6 +1364,65 @@ class LabelJobCancellationTests(unittest.TestCase):
             self.assertEqual(self.reports, ["succeeded"])
             self.assertEqual(os.listdir(directory), ["report.xlsx"])
             self.assertIn("Meta Data", openpyxl.load_workbook(Path(directory, "report.xlsx")).sheetnames)
+
+    def close_the_viewer_during_the_save(self, directory, *, job_obeys, wait=2.5):
+        """Run a label job and close the scheduler, as closing the Viewer does, at the first write of its workbook.
+
+        With ``job_obeys`` the job waits at that write until it is told to stop, as a job
+        does that checks; without, it holds there until the test lets it go, as a job stuck
+        in one long call does. Returns (how long closing took, what the folder held when
+        closing returned, which is before the job is let go).
+        """
+        entered, release, test = threading.Event(), threading.Event(), self
+        took = []
+
+        class HoldsAtFirstWrite(label.CancellableFile):
+            held = False
+
+            def write(inner, data):
+                if data and not HoldsAtFirstWrite.held:
+                    HoldsAtFirstWrite.held = True
+                    entered.set()
+                    if job_obeys:
+                        while not cancel_requested():
+                            time.sleep(0.005)
+                    else:
+                        release.wait(30)
+                return super().write(data)
+
+        def close(viewer):
+            self.assertTrue(entered.wait(30))
+            started = time.monotonic()
+            self.scheduler.shutdown(wait=wait)
+            took.append((time.monotonic() - started, sorted(os.listdir(directory))))
+            release.set()
+            deadline = time.monotonic() + 30
+            while self.scheduler._thread.is_alive() and time.monotonic() < deadline:
+                time.sleep(0.005)
+
+        with mock.patch.object(label, "CancellableFile", HoldsAtFirstWrite):
+            self.runner.run_label(directory, ["report"], scheduler=self.scheduler, after_run=close)
+        return took[0]
+
+    def test_closing_the_viewer_during_the_save_leaves_neither_a_partial_file_nor_the_report(self):
+        for job_obeys in (True, False):
+            with self.subTest(job_obeys=job_obeys), tempfile.TemporaryDirectory() as directory:
+                took, left_when_closed = self.close_the_viewer_during_the_save(directory, job_obeys=job_obeys, wait=0.4)
+                self.assertLess(took, 3.0, "closing returns within the bound")
+                # Before the job that ignores the stop is let go: the scheduler deleted the partial file itself.
+                self.assertEqual(left_when_closed, [])
+                self.assertEqual(os.listdir(directory), [])
+                self.scheduler = type(self.scheduler)(self.status)   # the next subtest's scheduler
+                self.addCleanup(self.scheduler.shutdown)
+
+    def test_closing_the_viewer_during_a_report_leaves_an_earlier_finished_one_as_it_was(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_label(directory, ["first"])
+            self.assertEqual(self.reports, ["succeeded"])
+            before = Path(directory, "first.xlsx").read_bytes()
+            self.close_the_viewer_during_the_save(directory, job_obeys=False, wait=0.3)
+            self.assertEqual(os.listdir(directory), ["first.xlsx"])
+            self.assertEqual(Path(directory, "first.xlsx").read_bytes(), before)
 
     def test_a_stop_is_a_cancellation_not_a_failure_in_the_labels_own_error_handling(self):
         # label reports its failures as failed commands; a stop must not reach that handler.

@@ -12,6 +12,7 @@ import threading
 import time
 import unittest
 import gc
+from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
@@ -467,6 +468,7 @@ class LineOrderTests(LineTestCase):
                     self.scheduler.move(job_id, generator.choice((-3, -1, 1, 3)))
                 else:
                     self.scheduler.cancel(job_id)
+                time.sleep(0.0002)  # as fast as is fair: the lock is not a queue
 
         mover = threading.Thread(target=stir, daemon=True)
         mover.start()
@@ -635,6 +637,146 @@ class LineRemovalTests(LineTestCase):
         self.assertTrue(wait_for(lambda: seen == ["told"]))
         self.wait_idle()
         self.assertNotIn(("started", waiting), self.reports)
+
+
+class ShutdownCleanupTests(LineTestCase):
+    """Closing the Viewer while a job writes: the job stops and no half-written file is left, within a bound."""
+
+    def stop_scheduler(self):
+        self.release.set()
+        self.scheduler.shutdown(wait=0.2)
+        wait_for(lambda: self.scheduler.queue_depth == 0)
+
+    def partial_job(self, name, *, cooperative, hold=None):
+        """A worker that writes a partial file named to the scheduler, then renames it into place if it ever finishes.
+
+        A cooperative one checks for the stop between its steps and deletes the file itself; the
+        other ignores the stop, as a job stuck in one long call does.
+        """
+        partial, target = self.path(f".{name}.partial"), self.path(name)
+        reached = threading.Event()
+        gate = hold if hold is not None else self.release
+
+        def worker(payload, job):
+            job.note_partial(partial)
+            try:
+                with open(partial, "wb") as handle:
+                    handle.write(b"half")
+                reached.set()
+                while not gate.wait(0.005):
+                    if cooperative:
+                        job.raise_if_cancelled()
+                os.replace(partial, target)
+                job.forget_partial(partial)
+            finally:
+                if cooperative and os.path.exists(partial):
+                    os.remove(partial)
+            return {"message": "done"}
+
+        return worker, partial, target, reached
+
+    def test_the_worker_gets_its_handle_when_it_names_a_second_parameter_job(self):
+        seen = []
+
+        def with_handle(payload, job):
+            seen.append(("handle", type(job).__name__))
+            return {}
+
+        def without(payload):
+            seen.append(("payload", payload))
+            return {}
+
+        self.enqueue("a", with_handle)
+        self.enqueue("b", without)
+        self.wait_idle()
+        self.assertEqual(seen, [("handle", "JobHandle"), ("payload", "b")])
+
+    def test_closing_stops_a_cooperative_job_at_once_and_its_partial_file_is_gone(self):
+        worker, partial, target, reached = self.partial_job("report.xlsx", cooperative=True)
+        self.enqueue("report.xlsx", worker)
+        self.assertTrue(reached.wait(STARTUP_TIMEOUT))
+        self.assertTrue(os.path.exists(partial))
+        started = time.monotonic()
+        self.scheduler.shutdown()
+        self.assertLess(time.monotonic() - started, 1.5, "a job that checks stops long before the bound")
+        self.assertEqual(os.listdir(self.directory.name), [])
+
+    def test_closing_returns_within_the_bound_when_the_job_ignores_the_stop_and_its_partial_file_is_deleted(self):
+        worker, partial, target, reached = self.partial_job("stuck.png", cooperative=False)
+        self.enqueue("stuck.png", worker)
+        waiting = self.enqueue("queued")
+        self.assertTrue(reached.wait(STARTUP_TIMEOUT))
+        self.assertTrue(os.path.exists(partial))
+        started = time.monotonic()
+        self.scheduler.shutdown(wait=0.3)
+        elapsed = time.monotonic() - started
+        self.assertGreaterEqual(elapsed, 0.25, "it waited for the job to stop")
+        self.assertLess(elapsed, 2.0, "and no longer than the bound")
+        self.assertFalse(os.path.exists(partial), "the scheduler deleted the partial file the job named")
+        self.assertFalse(self.scheduler.is_output_path_reserved(self.path("queued.svg")))
+        self.assertNotIn("queued", self.ran)
+        # What the job does when it finally gets on cannot put a file in place: its partial file is gone.
+        self.release.set()
+        self.assertTrue(wait_for(lambda: self.scheduler.queue_depth == 0))
+        self.assertFalse(os.path.exists(target))
+
+    def test_a_file_the_worker_renamed_into_place_before_the_close_is_left_alone(self):
+        finished = self.path("finished.png")
+        gate = threading.Event()
+        after = threading.Event()
+
+        def worker(payload, job):
+            partial = self.path(".finished.partial")
+            job.note_partial(partial)
+            with open(partial, "wb") as handle:
+                handle.write(b"whole")
+            os.replace(partial, finished)
+            job.forget_partial(partial)
+            after.set()
+            gate.wait(BLOCKED_JOB_SECONDS)   # a later step that ignores the stop
+            return {}
+
+        self.enqueue("finished", worker)
+        self.assertTrue(after.wait(STARTUP_TIMEOUT))
+        self.scheduler.shutdown(wait=0.2)
+        gate.set()
+        self.assertEqual(Path(finished).read_bytes(), b"whole")
+        self.assertEqual(os.listdir(self.directory.name), ["finished.png"])
+
+    def test_closing_with_no_job_running_returns_at_once_and_twice_is_harmless(self):
+        started = time.monotonic()
+        self.scheduler.shutdown()
+        self.scheduler.shutdown()
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertFalse(self.scheduler._thread.is_alive())
+
+
+class CloseWiringTests(unittest.TestCase):
+    """Every way the Viewer closes ends at the scheduler's shutdown, which stops the running job and deletes its partial files."""
+
+    SRC = Path(__file__).resolve().parents[1] / "src"
+
+    def test_the_window_and_the_application_quit_both_close_the_scheduler(self):
+        source = (self.SRC / "EMAPSSN_Viewer.py").read_text(encoding="utf-8")
+        # The window's close button (the canvas's close event) and the application's quit, which every
+        # other way of closing comes to: the launcher's, and the MCP server's shutdown request below.
+        self.assertRegex(source, r"canvas\.events\.close\.connect\(\s*lambda _event: self\.background_job_scheduler\.shutdown\(\)")
+        self.assertIn("qapp.aboutToQuit.connect(self.background_job_scheduler.shutdown)", source)
+
+    def test_the_mcp_servers_close_asks_the_application_to_quit_before_it_ends_the_process(self):
+        server = (self.SRC / "web_ui" / "Web_Server.py").read_text(encoding="utf-8")
+        shutdown = server[server.index('"/api/mcp/v1/shutdown"'):]
+        self.assertIn('qapp, "quit"', shutdown[:2000])
+        client = (self.SRC / "mcp_server" / "viewer" / "Viewer_Client.py").read_text(encoding="utf-8")
+        close = client[client.index("async def close_session"):]
+        # It posts the shutdown request first and ends the process only after the timeout.
+        self.assertLess(close.index("/api/mcp/v1/shutdown"), close.index("_terminate_tree"))
+
+    def test_the_wait_is_shorter_than_the_five_seconds_the_mcp_server_gives_a_viewer_to_exit(self):
+        from Background_Job_Scheduler import SHUTDOWN_WAIT_SECONDS
+
+        self.assertGreaterEqual(SHUTDOWN_WAIT_SECONDS, 2.0)
+        self.assertLessEqual(SHUTDOWN_WAIT_SECONDS, 3.0)
 
 
 class LinePortalTests(LineTestCase):

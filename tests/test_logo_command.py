@@ -29,6 +29,7 @@ import Alignment_Manager
 import Command_Engine
 from tests.sparse_alignment import sparse_alignment
 from commands import logo as logo_command
+from utilities.Job_Cancellation import cancel_requested
 from utilities import Alignment_Profiles
 from commands.logo import (
     _configure_logo_y_axis,
@@ -1712,6 +1713,73 @@ class LogoJobCancellationTests(unittest.TestCase):
                 self.assertIn(".partial.", seen[0], "the partial file existed when the stop came")
                 self.assertEqual(self.reports, ["stopped"])
                 self.assertEqual(os.listdir(directory), [])
+
+    def close_the_viewer_during_the_save(self, directory, filename, *, job_obeys, wait=2.5):
+        """Run a logo job and close the scheduler, as closing the Viewer does, at the first write of its image.
+
+        With ``job_obeys`` the job waits at that write until it is told to stop; without, it
+        holds there until the test lets it go, as a job stuck in one long call does. Returns
+        (how long closing took, what the folder held when closing returned, which is before
+        the job is let go).
+        """
+        import threading
+
+        entered, release = threading.Event(), threading.Event()
+
+        class HoldsAtFirstWrite(logo_command.CancellableFile):
+            held = False
+
+            def write(inner, data):
+                if data and not HoldsAtFirstWrite.held:
+                    HoldsAtFirstWrite.held = True
+                    entered.set()
+                    if job_obeys:
+                        while not cancel_requested():
+                            self.time.sleep(0.005)
+                    else:
+                        release.wait(30)
+                return super().write(data)
+
+        payload = LogoSynchronousArtifactTests.make_payload(directory, filename)
+        with mock.patch.object(logo_command, "CancellableFile", HoldsAtFirstWrite):
+            self.scheduler.enqueue("logo", f"logo -> {filename}", payload, logo_command._generate_logo_artifact,
+                                   os.path.join(directory, filename))
+            self.assertTrue(entered.wait(60))
+            started = self.time.monotonic()
+            self.scheduler.shutdown(wait=wait)
+            took = self.time.monotonic() - started
+            left_when_closed = sorted(os.listdir(directory))
+            release.set()
+            deadline = self.time.monotonic() + 30
+            while self.scheduler._thread.is_alive() and self.time.monotonic() < deadline:
+                self.time.sleep(0.005)
+        return took, left_when_closed
+
+    def test_closing_the_viewer_during_the_save_leaves_neither_a_partial_file_nor_the_logo(self):
+        from Background_Job_Scheduler import BackgroundJobScheduler
+
+        for filename in ("closing.svg", "closing.png"):
+            for job_obeys in (True, False):
+                with self.subTest(filename=filename, job_obeys=job_obeys), tempfile.TemporaryDirectory() as directory:
+                    self.scheduler = BackgroundJobScheduler(self.status)
+                    self.addCleanup(self.scheduler.shutdown)
+                    took, left_when_closed = self.close_the_viewer_during_the_save(
+                        directory, filename, job_obeys=job_obeys, wait=0.4)
+                    self.assertLess(took, 3.0, "closing returns within the bound")
+                    # Before the job that ignores the stop is let go: the scheduler deleted the partial file itself.
+                    self.assertEqual(left_when_closed, [])
+                    self.assertEqual(os.listdir(directory), [])
+
+    def test_closing_the_viewer_during_a_logo_leaves_an_earlier_finished_one_as_it_was(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.run_job(directory, "first.svg")
+            self.assertEqual(self.reports, ["succeeded"])
+            with open(os.path.join(directory, "first.svg"), "rb") as handle:
+                before = handle.read()
+            self.close_the_viewer_during_the_save(directory, "second.svg", job_obeys=False, wait=0.3)
+            self.assertEqual(os.listdir(directory), ["first.svg"])
+            with open(os.path.join(directory, "first.svg"), "rb") as handle:
+                self.assertEqual(handle.read(), before)
 
     def test_a_stop_leaves_an_existing_logo_of_that_name_as_it_was(self):
         with tempfile.TemporaryDirectory() as directory:

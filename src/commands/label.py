@@ -33,7 +33,7 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
 from utilities import Alignment_Profiles
-from utilities.Job_Cancellation import CancellableFile, raise_if_cancelled
+from utilities.Job_Cancellation import CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled
 from utilities.Localization import Message
 from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
@@ -1722,11 +1722,14 @@ def _run_label_artifact(viewer, args):
                 dir=out_dir,
             )
             os.close(file_descriptor)
+            # Named to the scheduler, which deletes it if the Viewer closes while this job is stuck.
+            named_partial = partial_path
+            note_partial_path(named_partial)
             try:
                 # Every write of the workbook is a check point (CancellableFile), so a
                 # large one stops while it is saved; the partial file is deleted below.
-                with open(partial_path, "wb") as handle:
-                    wb.save(CancellableFile(handle))
+                with CancellableFile.at(partial_path, "wb") as target:
+                    wb.save(target)
                 raise_if_cancelled()
                 if not allow_overwrite and os.path.exists(out_path):
                     raise FileExistsError(Message(
@@ -1740,6 +1743,7 @@ def _run_label_artifact(viewer, args):
                         os.remove(partial_path)
                     except OSError:
                         pass
+                forget_partial_path(named_partial)
             
             msg = Message("Exported to {path}", path=out_path)
             Command_Engine.show_status(viewer, msg)

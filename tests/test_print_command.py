@@ -2793,7 +2793,8 @@ class PrintBackgroundJobTests(unittest.TestCase):
                 class StopsOnWrite(print_command.CancellableFile):
                     def write(inner, data):
                         writes.append(1)
-                        if len(writes) == 1:
+                        # The partial file is opened by the first write, so it is there for the second.
+                        if len(writes) == 2:
                             seen.extend(os.listdir(test.save_dir))
                             test.stop_job()
                         return super().write(data)
@@ -2838,6 +2839,85 @@ class PrintBackgroundJobTests(unittest.TestCase):
         self.assertEqual(len(seen), 1)
         self.assertIn(".partial.svg", seen[0])
         self.assertEqual(os.listdir(self.save_dir), [])
+
+    def close_the_viewer_during_the_save(self, arguments, *, job_obeys, wait=2.5, at_write=1):
+        """Run print and close the scheduler, as closing the Viewer does, at a write of its PNG.
+
+        With ``job_obeys`` the job waits at that write until it is told to stop; without, it
+        holds there until the test lets it go, as a job stuck in one long encode does. The
+        file is opened by the first write, so it exists from the second on. Returns (how long
+        closing took, what the folder held when closing returned, which is before the job is
+        let go).
+        """
+        from Background_Job_Scheduler import BackgroundJobScheduler
+        from utilities.Job_Cancellation import cancel_requested
+
+        self.scheduler = BackgroundJobScheduler(self.status)
+        self.addCleanup(self.stop_scheduler)
+        viewer = self.viewer()
+        entered, release = threading.Event(), threading.Event()
+
+        class HoldsAtFirstWrite(print_command.CancellableFile):
+            writes = 0
+
+            def write(inner, data):
+                if data:
+                    HoldsAtFirstWrite.writes += 1
+                    if HoldsAtFirstWrite.writes == at_write:
+                        entered.set()
+                        if job_obeys:
+                            while not cancel_requested():
+                                time.sleep(0.005)
+                        else:
+                            release.wait(30)
+                return super().write(data)
+
+        with mock.patch.object(print_command, "_render_tile", side_effect=lambda v, t: white_renders(v, t, TILE_SHAPE)),                 mock.patch.object(print_command, "_capture_tile", return_value=np.ones((40, 60, 4), dtype=np.float32)),                 mock.patch.object(print_command, "CancellableFile", HoldsAtFirstWrite):
+            print_command.run(viewer, arguments)
+            self.assertTrue(entered.wait(30))
+            started = time.monotonic()
+            self.scheduler.shutdown(wait=wait)
+            took = time.monotonic() - started
+            left_when_closed = sorted(os.listdir(self.save_dir)) if os.path.isdir(self.save_dir) else []
+            release.set()
+            deadline = time.monotonic() + 30
+            while self.scheduler._thread.is_alive() and time.monotonic() < deadline:
+                time.sleep(0.005)
+        return took, left_when_closed
+
+    def test_closing_the_viewer_during_the_save_leaves_neither_a_partial_file_nor_the_picture(self):
+        for arguments in (["closing"], ["closing", "full"]):
+            for job_obeys in (True, False):
+                with self.subTest(arguments=arguments, job_obeys=job_obeys):
+                    if os.path.isdir(self.save_dir):
+                        shutil.rmtree(self.save_dir)
+                    took, left_when_closed = self.close_the_viewer_during_the_save(arguments, job_obeys=job_obeys, wait=0.4)
+                    self.assertLess(took, 3.0, "closing returns within the bound")
+                    self.assertEqual(left_when_closed, [])
+                    self.assertEqual(os.listdir(self.save_dir), [])
+
+    def test_a_picture_the_job_is_stuck_in_the_middle_of_is_deleted_by_the_scheduler_where_the_system_allows(self):
+        # Held after the first write, the PNG's partial file is open in the job's thread. Closing
+        # deletes it where a file can be deleted while open; Windows cannot, and there it goes
+        # when the job gets on (the stop is then waiting for it), which is all the process needs.
+        took, left_when_closed = self.close_the_viewer_during_the_save(["held"], job_obeys=False, wait=0.4, at_write=2)
+        self.assertLess(took, 3.0)
+        if os.name != "nt":
+            self.assertEqual(left_when_closed, [])
+        self.assertEqual(os.listdir(self.save_dir), [])
+
+    def test_closing_the_viewer_during_a_print_leaves_an_earlier_finished_picture_as_it_was(self):
+        viewer = self.viewer()
+        with mock.patch.object(print_command, "_capture_tile", return_value=np.ones((40, 60, 4), dtype=np.float32)):
+            print_command.run(viewer, ["first"])
+            self.finished()
+        first = os.path.join(self.save_dir, "first.png")
+        with open(first, "rb") as handle:
+            before = handle.read()
+        self.close_the_viewer_during_the_save(["second"], job_obeys=False, wait=0.3)
+        self.assertEqual(os.listdir(self.save_dir), ["first.png"])
+        with open(first, "rb") as handle:
+            self.assertEqual(handle.read(), before)
 
     def test_a_stop_leaves_an_existing_picture_of_that_name_as_it_was(self):
         os.makedirs(self.save_dir)

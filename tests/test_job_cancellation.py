@@ -17,6 +17,7 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 SRC = Path(__file__).resolve().parents[1] / "src"
@@ -35,8 +36,12 @@ from utilities.Job_Cancellation import (  # noqa: E402
     CancelToken,
     CancellableFile,
     JobCancelled,
+    JobHandle,
     bound_to,
     cancel_requested,
+    current_job,
+    forget_partial_path,
+    note_partial_path,
     raise_if_cancelled,
 )
 
@@ -187,6 +192,129 @@ class CancellableFileTests(unittest.TestCase):
         wrapper.close()
         self.assertFalse(target.closed)
         self.assertFalse(wrapper.closed)
+
+
+class JobHandleTests(unittest.TestCase):
+    """What a job's worker and the scheduler share: the stop request and its stop functions, partial files, progress."""
+
+    def test_the_stop_functions_a_worker_registered_are_called_once_when_the_job_is_told_to_stop(self):
+        handle, calls = JobHandle(), []
+        handle.on_cancel(lambda: calls.append("process"))
+        handle.on_cancel(lambda: calls.append("second"))
+        self.assertEqual(calls, [])
+        handle.request()
+        handle.request()
+        self.assertEqual(calls, ["process", "second"])
+        self.assertTrue(handle.requested)
+
+    def test_a_stop_function_registered_after_the_request_is_called_at_once(self):
+        handle, calls = JobHandle(), []
+        handle.request()
+        handle.on_cancel(lambda: calls.append("late"))
+        self.assertEqual(calls, ["late"])
+
+    def test_a_stop_function_that_fails_does_not_keep_the_others_from_running(self):
+        handle, calls = JobHandle(), []
+
+        def broken():
+            raise OSError("process already gone")
+
+        handle.on_cancel(broken)
+        handle.on_cancel(lambda: calls.append("second"))
+        with mock.patch("builtins.print") as said:
+            handle.request()
+        self.assertIn("process already gone", str(said.call_args))
+        self.assertEqual(calls, ["second"])
+        self.assertTrue(handle.requested)
+
+    def test_partial_files_are_kept_in_the_order_named_until_forgotten(self):
+        handle = JobHandle()
+        handle.note_partial(Path("a.partial"))
+        handle.note_partial("b.partial")
+        self.assertEqual(handle.partial_paths(), ["a.partial", "b.partial"])
+        handle.forget_partial("a.partial")
+        handle.forget_partial("never named")
+        self.assertEqual(handle.partial_paths(), ["b.partial"])
+
+    def test_progress_and_the_log_path_tell_the_scheduler_only_when_they_change(self):
+        told = []
+        handle = JobHandle(on_change=lambda: told.append(1))
+        handle.progress("Folding 1 of 3")
+        handle.progress("Folding 1 of 3")
+        handle.set_log_path(Path("run.log"))
+        handle.set_log_path("run.log")
+        handle.progress(None)
+        self.assertEqual(len(told), 3)
+        self.assertEqual((handle.progress_text, handle.log_path), (None, "run.log"))
+
+    def test_the_module_functions_reach_the_handle_bound_to_the_thread_and_do_nothing_outside(self):
+        note_partial_path("outside.partial")
+        forget_partial_path("outside.partial")
+        self.assertIsNone(current_job())
+        handle = JobHandle()
+        with bound_to(handle):
+            self.assertIs(current_job(), handle)
+            note_partial_path("inside.partial")
+            self.assertEqual(handle.partial_paths(), ["inside.partial"])
+            forget_partial_path("inside.partial")
+        self.assertEqual(handle.partial_paths(), [])
+        self.assertIsNone(current_job())
+
+    def test_the_old_name_of_the_stop_request_still_works(self):
+        self.assertIs(CancelToken, JobHandle)
+
+
+class OpenAtFirstWriteTests(unittest.TestCase):
+    """CancellableFile.at opens the file only when something is written, and never once the job was told to stop."""
+
+    def test_nothing_exists_until_the_first_write_and_the_file_is_closed_on_exit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "image.png")
+            with CancellableFile.at(path, "wb") as target:
+                target.write(b"")
+                target.flush()
+                self.assertEqual((target.tell(), os.path.exists(path)), (0, False), "an empty write opens nothing")
+                target.write(b"abc")
+                self.assertTrue(os.path.exists(path))
+                target.write(b"def")
+            self.assertTrue(target.closed)
+            self.assertEqual(Path(path).read_bytes(), b"abcdef")
+
+    def test_a_zip_writers_seek_to_the_start_opens_nothing_either(self):
+        # ZipFile seeks to the start of the file it is given before it writes anything.
+        import zipfile
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "book.xlsx")
+            with CancellableFile.at(path, "wb") as target:
+                archive = zipfile.ZipFile(target, "w")
+                self.assertFalse(os.path.exists(path))
+                archive.writestr("a.txt", "x")
+                archive.close()
+            with zipfile.ZipFile(path) as written:
+                self.assertEqual(written.read("a.txt"), b"x")
+
+    def test_a_job_told_to_stop_never_opens_the_file(self):
+        handle = JobHandle()
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "image.png")
+            with bound_to(handle):
+                with self.assertRaises(JobCancelled), CancellableFile.at(path, "wb") as target:
+                    handle.request()
+                    target.write(b"abc")
+            self.assertEqual(os.listdir(directory), [])
+
+    def test_a_text_file_takes_text_and_a_binary_one_bytes_as_files_do(self):
+        # matplotlib tells a text file from a binary one by whether a bytes write is refused.
+        with tempfile.TemporaryDirectory() as directory:
+            with CancellableFile.at(os.path.join(directory, "t.svg"), "w", "utf-8") as text:
+                with self.assertRaises(TypeError):
+                    text.write(b"")
+                text.write("é")
+            with CancellableFile.at(os.path.join(directory, "b.png"), "wb") as binary:
+                with self.assertRaises(TypeError):
+                    binary.write("text")
+            self.assertEqual(Path(directory, "t.svg").read_bytes(), "é".encode("utf-8"))
 
 
 class EncodersThroughItTests(unittest.TestCase):

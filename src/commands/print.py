@@ -29,7 +29,7 @@ from vispy.scene.visuals import VisualNode
 from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
 from commands.zoom import ZOOM_100_PERCENT_WIDTH, view_for_zoom, zoom_percent
-from utilities.Job_Cancellation import CancellableFile, raise_if_cancelled
+from utilities.Job_Cancellation import CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import edge_stages, opengl_failure_note
@@ -801,6 +801,8 @@ def _write_svg(snapshot, filepath):
         os.makedirs(save_dir, exist_ok=True)
     stem = os.path.splitext(os.path.basename(filepath))[0]
     partial_path = os.path.join(save_dir, f".{stem}.{uuid.uuid4().hex}.partial.svg")
+    # Named to the scheduler, which deletes it if the Viewer closes while this job is stuck.
+    note_partial_path(partial_path)
     try:
         with open(partial_path, 'x', encoding='utf-8') as handle:
             handle.write('\n'.join(header) + '\n')
@@ -825,6 +827,8 @@ def _write_svg(snapshot, filepath):
         except OSError:
             pass
         raise
+    finally:
+        forget_partial_path(partial_path)
     print(f"Successfully generated structured SVG at: {filepath}")
 
 
@@ -992,11 +996,13 @@ def _write_png(filepath, image):
     directory = os.path.dirname(filepath)
     stem = os.path.splitext(os.path.basename(filepath))[0]
     partial_path = os.path.join(directory, f".{stem}.{uuid.uuid4().hex}.partial.png")
+    # Named to the scheduler, which deletes it if the Viewer closes while this job is stuck.
+    note_partial_path(partial_path)
     try:
         # Every write of the PNG is a check point (CancellableFile), so the encoding of a large
         # picture stops within a chunk of output when its job is cancelled.
-        with open(partial_path, 'xb') as handle:
-            mpimg.imsave(CancellableFile(handle), image, format='png')
+        with CancellableFile.at(partial_path, 'xb') as target:
+            mpimg.imsave(target, image, format='png')
         raise_if_cancelled()
         os.replace(partial_path, filepath)
     except BaseException:
@@ -1005,6 +1011,8 @@ def _write_png(filepath, image):
         except OSError:
             pass
         raise
+    finally:
+        forget_partial_path(partial_path)
 
 
 class _CaptureInterrupted(RuntimeError):
