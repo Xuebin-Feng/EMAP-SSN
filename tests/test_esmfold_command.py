@@ -565,6 +565,70 @@ class TokenTests(CommandCase):
         self.assertEqual(viewer.background_job_scheduler.jobs, [])
 
 
+class PrepareAgainTests(unittest.TestCase):
+    """What is got ready for the second worker after Biohub rejected the token: the first worker's traces go, the records shrink."""
+
+    class Tracker:
+        """Stands in for the first worker's WorkerTracker: it keeps what was asked of it."""
+
+        def __init__(self):
+            self.calls = []
+            self.timer = SimpleNamespace(stop=lambda: self.calls.append("stop"))
+
+        def poll(self):
+            self.calls.append("poll")
+
+        def deleteLater(self):
+            self.calls.append("deleted")
+
+    def setUp(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        patcher = mock.patch.object(Viewer_Worker_Tracking, "__file__", str(root / "src" / "Viewer_Worker_Tracking.py"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        records = [["one", "AC", {"x": 1}], ["two", "DE", {"x": 2}], ["three", "FG", {"x": 3}]]
+        self.run_ = esmfold_command.FoldRun(
+            records, [(record[0], record[1]) for record in records], mode="large", device=None,
+            structures_dir=str(root), action_url="", portal=True)
+        Path(self.run_.status_path).parent.mkdir(parents=True, exist_ok=True)
+        self.run_.write_input()
+        self.addCleanup(self.run_.discard_input)
+        self.first_input = self.run_.input_path
+        self.addCleanup(esmfold_command._discard_worker_input, self.first_input)
+
+    def test_the_first_workers_status_files_go_so_that_the_second_workers_tracker_does_not_read_them(self):
+        for suffix in ("", ".partial", ".stdout", ".stderr"):
+            Path(self.run_.status_path + suffix).write_text("the first worker's", encoding="utf-8")
+        self.run_.prepare_again()
+        for suffix in ("", ".partial", ".stdout", ".stderr"):
+            self.assertFalse(os.path.exists(self.run_.status_path + suffix), suffix or "the status file")
+
+    def test_the_records_become_those_not_folded_in_a_new_input_file(self):
+        self.run_.folded.update({"one"})
+        self.run_.prepare_again()
+        self.assertEqual([record[0] for record in self.run_.records], ["two", "three"])
+        self.assertNotEqual(self.run_.input_path, self.first_input, "the first was the first worker's to read and delete")
+        with open(self.run_.input_path, encoding="utf-8") as handle:
+            self.assertEqual(json.load(handle), [["two", "DE", {"x": 2}], ["three", "FG", {"x": 3}]])
+
+    def test_the_first_tracker_takes_a_last_look_and_stops_and_the_link_to_its_worker_is_cut(self):
+        tracker = self.Tracker()
+        self.run_.tracker, self.run_.process, self.run_.worker = tracker, object(), object()
+        self.run_.prepare_again()
+        self.assertEqual(tracker.calls, ["poll", "stop", "deleted"])
+        self.assertEqual((self.run_.tracker, self.run_.process, self.run_.worker), (None, None, None))
+
+    def test_the_second_worker_gets_a_tracker_of_its_own(self):
+        started = []
+        self.run_.job = SimpleNamespace()
+        with mock.patch.object(esmfold_command.FoldRun, "started", autospec=True,
+                               side_effect=lambda run, job: started.append(job)):
+            self.run_.prepare_again()
+        self.assertEqual(started, [self.run_.job])
+        self.run_.job = None
+        self.run_.prepare_again()  # no job yet: nothing to start, and no error
+
+
 class ReportingTests(CommandCase):
     def test_nodes_without_a_sequence_are_named_in_the_outcome(self):
         viewer = make_viewer(3)
