@@ -494,6 +494,17 @@ still change before version 1.0.0.
     session is never overwritten.
   - **Residue card:** each structure's name stays on one line beside its colour, cut short
     with "…" when it is long (hover shows the whole name), and values never wrap.
+  - **Long names stay inside their boxes everywhere:** the hover tooltip, the Structures
+    rows and their details, failed-fold rows, the Residue card, the layer notes, the
+    legends (on the canvas and in a saved image), the folding card and the status line.
+    A name too long to show whole is cut with "…" and shown whole on hover, or breaks
+    across lines where it must be read in full. The residue in the tooltip stays on one line.
+  - **Choosing a coloring no longer rearranges the Color by buttons.** A taller legend used
+    to bring up the side panel's scrollbar, whose width pushed a layer button onto its own
+    line and shifted the whole panel sideways. The panel now always keeps room for it.
+  - **The side panel can be made wider,** from 340 px up to half the window (640 px at
+    most), by dragging the handle on its left edge, or with the arrow keys once the handle
+    has focus. Double-click or Home resets it. The browser remembers the width.
 
 ### Fixed
 
