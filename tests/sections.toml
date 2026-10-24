@@ -327,6 +327,7 @@ seconds = 10
 modules = [
     "test_app_settings",
     "test_application_window_activation",
+    "test_console_capture",
     "test_dependency_installation",
     "test_desktop_launcher_monitor",
     "test_desktop_openers",

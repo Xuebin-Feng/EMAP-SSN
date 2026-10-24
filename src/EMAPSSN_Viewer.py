@@ -28,7 +28,7 @@ def _configure_headless_platform(argv=None, environment=None):
     return False
 
 
-_configure_headless_platform()
+_HEADLESS_LAUNCH = _configure_headless_platform()
 
 
 def _configure_hidden_platform(environment=None, platform_name=None):
@@ -74,9 +74,12 @@ def _parse_viewer_arguments(argv=None):
 _startup_settings = None
 _startup_args = None
 if __name__ == "__main__":
-    # Before any output: an MCP client gives the Viewer a pipe (Viewer_Terminal.py) or a log file.
-    from utilities.Output_Streams import configure_output_streams
-    configure_output_streams()
+    # Before any output: an MCP client gives the Viewer a pipe (Viewer_Terminal.py) or a log file, and a
+    # Config window gives it a hidden console. A headless Viewer, or --console, only gets UTF-8 streams
+    # (utilities.Console_Capture); every other keeps what it prints for the Console window, and still
+    # passes it on to a pipe or file that is read.
+    from utilities.Console_Capture import start as start_console_capture
+    start_console_capture("viewer", headless=_HEADLESS_LAUNCH)
     from desktop.Viewer_State import read_viewer_settings, resolve_viewer_document
     _startup_args = _parse_viewer_arguments()
     print("Validating Viewer settings and inputs...", flush=True)
@@ -3851,6 +3854,8 @@ class MainViewer:
             return
         
 if __name__ == '__main__':
+    from utilities.Console_Capture import install_qt_message_handler
+    install_qt_message_handler()  # Qt's warnings reach the Console tagged; a no-op without a capture
     # Set the identity before VisPy creates QApplication or any native window.
     QtWidgets.QApplication.setApplicationVersion(APPLICATION_VERSION)
     configure_linux_qt_desktop_identity(

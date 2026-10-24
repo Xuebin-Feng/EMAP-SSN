@@ -16,9 +16,10 @@
 import unicodedata  # Pre-load to prevent Windows DLL search path conflicts with Qt/OpenGL
 import sys
 if __name__ == "__main__":
-    # Before any output: the desktop launcher and MCP give this process a log file or a pipe.
-    from utilities.Output_Streams import configure_output_streams
-    configure_output_streams()
+    # Before any output: the desktop launcher gives this process a hidden console, MCP a pipe.
+    # A headless run, or --console, only gets UTF-8 streams (utilities.Console_Capture).
+    from utilities.Console_Capture import start as start_console_capture
+    start_console_capture("config")
 if __name__ == "__main__" and "--headless" in sys.argv:
     from utilities.Headless_Settings import main as headless_main
     raise SystemExit(headless_main("config"))
@@ -35,6 +36,7 @@ from types import SimpleNamespace
 import traceback
 from pathlib import Path
 from utilities.Localization import QT_TRANSLATE_NOOP, Message, display_text
+from utilities.Console_Capture import install_qt_message_handler
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from desktop.Desktop_App import (
     APPLICATION_VERSION,
@@ -5223,6 +5225,7 @@ if __name__ == "__main__":
 
     existing_qt_application = QApplication.instance()
     app = existing_qt_application or QApplication(sys.argv)
+    install_qt_message_handler()  # Qt's warnings reach the Console tagged; a no-op without a capture
     app.setApplicationVersion(APPLICATION_VERSION)
     try:
         install_translations(app, startup_language())

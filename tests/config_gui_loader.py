@@ -43,8 +43,11 @@ def load_config_namespace():
         if hasattr(stream, "reconfigure")
     ]
     try:
+        # SSN_NO_CONSOLE_CAPTURE: the entry point's first step would take over this process's
+        # standard streams (utilities.Console_Capture); they are the test runner's.
         with tempfile.TemporaryDirectory() as directory, mock.patch.dict(
-            os.environ, {"SSN_VIEWER_SETTINGS_PATH": str(Path(directory) / "missing.json")}
+            os.environ, {"SSN_VIEWER_SETTINGS_PATH": str(Path(directory) / "missing.json"),
+                         "SSN_NO_CONSOLE_CAPTURE": "1"}
         ):
             source = text.split(APPLICATION_MARKER)[0]
             exec(compile(source, str(CONFIG_PATH), "exec"), namespace)

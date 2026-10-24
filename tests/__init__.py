@@ -17,6 +17,9 @@ files and shell, whichever subset of modules runs:
 * SSN_APP_SETTINGS_PATH points the program's own settings (app_settings.json,
   which holds the language) into that folder too, so no test reads or writes
   the developer's.
+* SSN_LOG_DIR points the logs of the windows' output capture
+  (utilities/Console_Capture.py) into that folder too, so a window started by a
+  test never writes into the project's temp/logs.
 * SSN_BENCHMARK_WORK_DIR points the benchmark's temp/ folder and its reports
   (src/resources/benchmark/Run_Benchmark.py) into that folder too, so no test
   writes into the real benchmark folder.
@@ -100,6 +103,7 @@ if not os.environ.get(_ROOT_PROCESS_MARKER):
     os.environ["SSN_LAYOUT_GPU_KERNEL_CACHE"] = os.path.join(_SESSION_DIRECTORY, "gpu_kernels")
     os.environ["SSN_APP_SETTINGS_PATH"] = os.path.join(_SESSION_DIRECTORY, "app_settings.json")
     os.environ["SSN_BENCHMARK_WORK_DIR"] = os.path.join(_SESSION_DIRECTORY, "benchmark")
+    os.environ["SSN_LOG_DIR"] = os.path.join(_SESSION_DIRECTORY, "logs")
     # Registered first, so it runs last: after Qt, the pools and every other exit handler.
     atexit.register(_end_session, _SESSION_DIRECTORY, _RUNNER_OWNS_SESSION)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
