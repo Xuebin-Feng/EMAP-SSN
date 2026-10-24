@@ -606,7 +606,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2685"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2613"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -619,7 +619,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2578"/>
+        <location line="-2508"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -2968,12 +2968,11 @@ Command-line usage:
         <location line="+313"/>
         <location line="+42"/>
         <location line="+3"/>
-        <location line="+34"/>
         <source>Console</source>
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-431"/>
+        <location line="-397"/>
         <location line="+3"/>
         <source>Search the output…</source>
         <translation type="unfinished">搜索输出内容…</translation>
@@ -3098,9 +3097,8 @@ Command-line usage:
         <translation type="unfinished">{window} – 控制台</translation>
     </message>
     <message>
-        <location line="+25"/>
         <source>Show everything this program has printed: progress, warnings and errors. The log file keeps it for later.</source>
-        <translation type="unfinished">显示本程序打印的全部内容：进度、警告和错误。日志文件会保留这些内容，以便日后查看。</translation>
+        <translation type="obsolete">显示本程序打印的全部内容：进度、警告和错误。日志文件会保留这些内容，以便日后查看。</translation>
     </message>
 </context>
 <context>
@@ -4391,7 +4389,7 @@ Command-line usage:
         <translation type="unfinished">窗口使用的语言。本窗口会立即切换，已打开的另一个配置或工具窗口在下次点击该窗口时切换；其余窗口在下次打开时生效。</translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="+46"/>
         <source>Language Not Saved</source>
         <translation type="unfinished">语言未保存</translation>
     </message>
@@ -9568,7 +9566,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ThemeColorSwitch</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+151"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+115"/>
         <source>Purple</source>
         <translation type="unfinished">紫色</translation>
     </message>
@@ -9691,7 +9689,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ToggleSwitch</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="-853"/>
+        <location filename="../../../desktop/Desktop_App.py" line="-783"/>
         <source>ON</source>
         <translation type="unfinished">开</translation>
     </message>

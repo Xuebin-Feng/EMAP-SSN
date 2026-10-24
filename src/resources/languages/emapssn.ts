@@ -1922,10 +1922,6 @@ Command-line usage:
         <source>{window} – Console</source>
         <translation type="unfinished"></translation>
     </message>
-    <message>
-        <source>Show everything this program has printed: progress, warnings and errors. The log file keeps it for later.</source>
-        <translation type="unfinished"></translation>
-    </message>
 </context>
 <context>
     <name>EsmfoldPage</name>

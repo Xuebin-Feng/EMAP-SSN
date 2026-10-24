@@ -5,10 +5,12 @@
 """The Console window: what this program's process has printed, in a window of the Studio theme.
 
 Config, Tools, VR Config and the Viewer no longer show a terminal on Windows,
-so everything they print is kept (utilities.Console_Capture) and shown here:
-live, in the order it arrived, with the time of each line. It shows the last
+so everything they print is kept (utilities.Console_Capture). The Viewer, which
+runs for hours and prints the output of its commands, shows it here: live, in
+the order it arrived, with the time of each line. It shows the last
 Console_Capture.RING_LINES lines; the log file the footer names holds all of
-them.
+them. Config and Tools show what they print on the start-up splash (desktop/Splash.py,
+Show details) and keep it in temp/logs.
 
 * A line is an error, a warning or plain output, decided by what it says
   (classify), not by the stream it came on: Python, Qt and CUDA libraries write
@@ -28,9 +30,8 @@ them.
 A progress bar that rewrites its line with carriage returns is one line that
 changes where it is. The window feeds from the capture only while it is shown.
 
-show_console opens this process's Console (or brings it forward), and
-console_button is the button the language row of Config, Tools and VR Config
-shows, and the Viewer's sidebar shares the icon.
+show_console opens this process's Console (or brings it forward): the Viewer's
+`console` command, its sidebar button and its Session card's link call it.
 """
 
 from __future__ import annotations
@@ -79,7 +80,6 @@ from desktop.Studio_Theme import (
     QSS_ICON_VARIANTS,
     TOKENS,
     coloured_svg,
-    icon_button,
     icon_svg,
     page_tokens,
     qss_icon_path,
@@ -652,25 +652,3 @@ def show_console(parent=None, capture=None, *, dark=False):
     _window.activateWindow()
     return _window
 
-
-CONSOLE_BUTTON_WIDTH = 36
-
-
-def console_button(parent=None):
-    """The Console button of the language row: the terminal icon alone, as wide as the other icon buttons.
-
-    Only the icon: the row sets the right-hand pane's width in Config and Tools, and the button
-    takes no room from the window: the language dropdown, which language_selector_row lets give
-    way (LanguageSelector.give_way), is narrower by the button's width where the row is tight. A
-    button with the word "Console" would take 113 px more of the dropdown's.
-    """
-    button = icon_button("square-terminal", QCoreApplication.translate(
-        "Console",
-        "Show everything this program has printed: progress, warnings and errors. "
-        "The log file keeps it for later."
-    ), parent)
-    button.setObjectName("consoleButton")
-    button.setFixedWidth(CONSOLE_BUTTON_WIDTH)
-    button.setAccessibleName(QCoreApplication.translate("Console", "Console"))
-    button.clicked.connect(lambda: show_console(button.window()))
-    return button

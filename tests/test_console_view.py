@@ -28,7 +28,7 @@ from PySide6.QtWidgets import QApplication, QPushButton, QWidget  # noqa: E402
 
 from desktop import Console_View, Desktop_App  # noqa: E402
 from desktop.Console_View import (  # noqa: E402
-    ERROR, INFO, WARNING, Classifier, ConsoleWindow, classify, console_button, dark_tokens, show_console,
+    ERROR, INFO, WARNING, Classifier, ConsoleWindow, classify, dark_tokens, show_console,
 )
 from desktop.Studio_Theme import TOKENS, apply_studio_theme, set_theme_color, theme_color  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
@@ -585,103 +585,27 @@ class EntryPointTests(WindowCase):
         self.assertEqual(window.windowTitle(), "EMAP-SSN Viewer – Console")
         window.close()
 
-    def test_the_console_button_opens_the_console_of_its_window(self):
-        host = QWidget()
-        self.addCleanup(host.deleteLater)
-        button = console_button(host)
-        with mock.patch.object(Console_View, "show_console") as opens:
-            button.click()
-        opens.assert_called_once_with(host)
-        # Icon only: a "Console" label would widen the language row, which sets the side pane's
-        # minimum width in Config and Tools.
-        self.assertEqual(button.text(), "")
-        self.assertEqual(button.accessibleName(), "Console")
-        self.assertFalse(button.icon().isNull())
-        self.assertTrue(button.toolTip())
-        self.assertEqual(button.width(), Console_View.CONSOLE_BUTTON_WIDTH)
+    def test_the_language_row_of_config_tools_and_vr_config_is_as_it_was_with_no_console_button(self):
+        import inspect
 
-    def test_the_language_row_of_config_tools_and_vr_config_ends_in_the_console_button_and_can_leave_it_out(self):
+        from PySide6.QtWidgets import QHBoxLayout
+
+        # The Console is the Viewer's (its command, sidebar button and Session card link); Config and Tools
+        # show what they print on the start-up splash, and their windows keep the footer they always had.
+        self.assertEqual(list(inspect.signature(Desktop_App.language_selector_row).parameters),
+                         ["selector", "theme_switch", "leading"])
         host = QWidget()
         self.addCleanup(host.deleteLater)
         selector = Desktop_App.LanguageSelector(host)
-        row = Desktop_App.language_selector_row(selector)
+        row = Desktop_App.language_selector_row(selector, QWidget(host))
+        self.assertIs(type(row), QHBoxLayout)
         widgets = [row.itemAt(index).widget() for index in range(row.count()) if row.itemAt(index).widget()]
-        names = [widget.objectName() for widget in widgets]
-        self.assertIn("consoleButton", names)
-        self.assertLess(names.index("consoleButton"), widgets.index(selector))
-        self.assertEqual(widgets[-1], selector)
-        left_out = Desktop_App.language_selector_row(selector, console=False)
-        self.assertNotIn("consoleButton", [left_out.itemAt(i).widget().objectName() for i in range(left_out.count())
-                                           if left_out.itemAt(i).widget()])
-
-
-class LanguageRowRoomTests(WindowCase):
-    """The Console button takes no room from anything but the language dropdown, in the row's least and preferred width."""
-
-    def make_row(self, **options):
-        from PySide6.QtWidgets import QVBoxLayout
-
-        host = QWidget()
-        self.addCleanup(host.deleteLater)
-        outer = QVBoxLayout(host)
-        outer.setSpacing(8)  # the side panes' own: the row takes its spacing from the layout it joins
-        selector = Desktop_App.LanguageSelector(host)
-        row = Desktop_App.language_selector_row(selector, **options)
-        outer.addLayout(row)
-        host.ensurePolished()
-        for widget in host.findChildren(QWidget):
-            widget.ensurePolished()
-        return host, row, selector
-
-    def test_the_row_is_as_wide_with_the_button_as_without_it_least_and_preferred(self):
-        with_button = self.make_row()
-        without = self.make_row(console=False)
-        for options in ({}, {"theme_switch": QWidget()}):
-            if options:
-                with_button = self.make_row(theme_switch=QWidget())
-                without = self.make_row(theme_switch=QWidget(), console=False)
-            self.assertEqual(with_button[1].minimumSize().width(), without[1].minimumSize().width())
-            self.assertEqual(with_button[1].sizeHint().width(), without[1].sizeHint().width())
-        # The dropdown alone gave the room up: its least width is smaller by the button and its gap, its preferred width is not.
-        room = Console_View.CONSOLE_BUTTON_WIDTH + 8
-        self.assertEqual(without[2].minimumSizeHint().width() - with_button[2].minimumSizeHint().width(), room)
-        self.assertEqual(with_button[2].sizeHint().width(), without[2].sizeHint().width())
-
-    def test_a_row_with_room_to_spare_shows_the_choice_in_full_and_the_button_too(self):
-        host, row, selector = self.make_row()
-        host.resize(max(host.minimumSizeHint().width(), row.sizeHint().width() + 120), 80)
-        host.show()
-        flush(self.app)
-        button = host.findChild(QPushButton, "consoleButton")
-        self.assertGreaterEqual(selector.width(), selector.sizeHint().width())
-        self.assertEqual(button.width(), Console_View.CONSOLE_BUTTON_WIDTH)
-        self.assertLessEqual(button.geometry().right(), selector.geometry().left())
-
-    def test_a_row_with_no_room_cuts_the_choice_with_an_ellipsis_not_in_half_a_letter(self):
-        host, row, selector = self.make_row()
-        host.resize(host.minimumSizeHint().width(), 80)
-        host.show()
-        flush(self.app)
-        self.assertLess(selector.width(), selector.sizeHint().width())
-        shown = []
-        original = Desktop_App.QStylePainter.drawControl
-
-        def record(painter, element, option):
-            shown.append(option.currentText)
-            return original(painter, element, option)
-
-        with mock.patch.object(Desktop_App.QStylePainter, "drawControl", record):
-            selector.grab()
-        self.assertEqual(len(shown), 1)
-        self.assertTrue(shown[0].endswith("…"), shown)
-        self.assertTrue(selector.currentText().startswith(shown[0].rstrip("…")))
-        # With room it is drawn whole.
-        host.resize(host.width() + 200, 80)
-        flush(self.app)
-        shown.clear()
-        with mock.patch.object(Desktop_App.QStylePainter, "drawControl", record):
-            selector.grab()
-        self.assertEqual(shown, [selector.currentText()])
+        self.assertEqual([widget.objectName() for widget in widgets[:2]], ["languageGlobe", "languageSelector"])
+        self.assertEqual(len(widgets), 3)  # the globe, the dropdown and the theme switch: no other button
+        # The dropdown asks for what any dropdown of its choices asks for: no room given away, no own painting.
+        for name in ("minimumSizeHint", "paintEvent", "give_way"):
+            self.assertNotIn(name, vars(Desktop_App.LanguageSelector))
+        self.assertEqual(selector.minimumSizeHint().width(), selector.sizeHint().width())
 
 
 class ViewerEntryPointTests(WindowCase):

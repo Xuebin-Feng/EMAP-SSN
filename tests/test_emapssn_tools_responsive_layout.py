@@ -191,16 +191,13 @@ class ResponsiveToolsTests(unittest.TestCase):
             )
             tip, left = box(window.tip_panel), box(window.left_widget)
             globe = box(window.findChild(QWidget, "languageGlobe"))
-            console = box(window.findChild(QWidget, "consoleButton"))
             with self.subTest(help_width=help_width):
                 self.assertTrue(window.right_widget.isAncestorOf(window.btn_exit))
                 self.assertEqual(exit_button.left(), help_card.left())
                 self.assertGreater(exit_button.top(), help_card.bottom())
-                # Exit takes all the room up to the Console button, which sits before the globe and the dropdown.
-                self.assertLess(exit_button.right(), console.left())
-                self.assertLessEqual(console.left() - exit_button.right(), 12)
-                self.assertLess(console.right(), globe.left())
-                self.assertLessEqual(globe.left() - console.right(), 12)
+                # Exit takes all the room up to the globe before the dropdown.
+                self.assertLess(exit_button.right(), globe.left())
+                self.assertLessEqual(globe.left() - exit_button.right(), 12)
                 if help_width:
                     self.assertGreater(exit_button.width(), window.btn_exit.minimumSizeHint().width() + 100)
                 self.assertAlmostEqual(exit_button.center().y(), language.center().y(), delta=1)
