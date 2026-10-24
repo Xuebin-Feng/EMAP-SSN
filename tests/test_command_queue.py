@@ -667,6 +667,79 @@ class PortalMappingTests(QueueTestCase):
         self.assertEqual(record['commands'][0]['jobs'][0]['status'], 'succeeded')
         self.assertEqual(sorted(self.viewer.selected_indices), [0, 1, 2, 3])
 
+    def start_cluster(self, submission):
+        """Submit a clustering through the portal and let it start: its compute step waits for finish_compute."""
+        request = self.portal.submit(submission, [CLUSTER])
+        for _ in range(20):
+            self.app.processEvents()
+        return request['request_id'], self.viewer.command_queue.running()
+
+    def entry(self, request_id):
+        return self.portal.get(request_id)['commands'][0]['jobs'][0]
+
+    def test_a_computing_commands_progress_reaches_its_job_entry_once_per_status_tick(self):
+        queue = self.viewer.command_queue
+        request_id, job = self.start_cluster('p1')
+        self.assertIsNone(self.entry(request_id)['progress'])
+        queue._show_running()
+        self.assertIsNone(self.entry(request_id)['progress'])  # nothing reported yet
+        job.progress_text = 'pass 1 of 3'  # what the worker thread's progress('pass 1 of 3') sets
+        self.assertIsNone(self.entry(request_id)['progress'])  # the record is only written on the GUI thread
+        queue._show_running()
+        self.assertEqual(self.entry(request_id)['progress'], 'pass 1 of 3')
+        job.progress_text = 'pass 2 of 3'
+        self.assertEqual(self.entry(request_id)['progress'], 'pass 1 of 3')  # held until the next tick
+        queue._show_running()
+        self.assertEqual(self.entry(request_id)['progress'], 'pass 2 of 3')
+        self.finish_compute()
+        self.assertEqual(self.wait_request(request_id)['status'], 'succeeded')
+
+    def test_progress_reported_after_the_last_tick_is_kept_when_the_job_finishes(self):
+        request_id, job = self.start_cluster('p2')
+        job.progress_text = 'pass 1 of 3'
+        self.viewer.command_queue._show_running()
+        job.progress_text = 'last pass'
+        self.finish_compute()
+        record = self.wait_request(request_id)
+        self.assertEqual(record['commands'][0]['jobs'][0]['status'], 'succeeded')
+        self.assertEqual(record['commands'][0]['jobs'][0]['progress'], 'last pass')
+
+    def test_a_cancelled_job_keeps_what_it_reported(self):
+        request_id, job = self.start_cluster('p3')
+        job.progress_text = 'pass 2 of 3'
+        self.viewer.command_queue.cancel(job)
+        entry = self.entry(request_id)
+        self.assertEqual((entry['status'], entry['progress']), ('cancelled', 'pass 2 of 3'))
+
+    def test_a_job_that_reports_nothing_and_a_typed_job_have_no_progress_and_no_error(self):
+        queue = self.viewer.command_queue
+        request_id, job = self.start_cluster('p4')
+        queue._show_running()
+        self.assertIsNone(self.entry(request_id)['progress'])
+        self.finish_compute()
+        self.assertIsNone(self.wait_request(request_id)['commands'][0]['jobs'][0]['progress'])
+        self.viewer.type(CLUSTER)  # typed: no portal entry to copy into
+        typed = queue.running()
+        self.assertIsNone(typed.context)
+        typed.progress_text = 'pass 1 of 3'
+        queue._show_running()
+        self.finish_compute()
+
+    def test_the_status_timer_calls_the_copy(self):
+        """The 500 ms status timer is the throttle: it is connected to the method that copies the text."""
+        from Command_Queue import STATUS_REFRESH_MS
+        queue = self.viewer.command_queue
+        self.assertEqual(queue._status_timer.interval(), STATUS_REFRESH_MS)
+        request_id, job = self.start_cluster('p5')
+        self.assertTrue(queue._status_timer.isActive())
+        job.progress_text = 'from the timer'
+        deadline = time.monotonic() + 10
+        while self.entry(request_id)['progress'] is None and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.assertEqual(self.entry(request_id)['progress'], 'from the timer')
+        self.finish_compute()
+
     def test_a_portal_command_behind_a_typed_one_says_where_it_waits(self):
         self.viewer.type(CLUSTER)
         request = self.portal.submit('s2', ["color red"])

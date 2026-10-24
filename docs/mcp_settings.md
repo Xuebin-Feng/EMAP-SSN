@@ -855,6 +855,15 @@ output at 16 MiB. Truncated output explicitly reports `available_from` and
 `truncated`. `list_command_requests` recovers IDs after MCP reconnection; Viewer
 exit loses this in-memory history. Disconnecting does not cancel work.
 
+A command's `jobs` list has an entry per job it queued: `job_id`, `status`, `kind`, `lane` and
+`lane_title`, `description`, `position` and `waiting_for` while it waits, `cancellable`, `stopping`,
+`stop_requested`, `releases_request`, `started_at`, `finished_at`, `message`, `output_path` and `progress`.
+`progress` is null until the job reports one, then one plain line such as `MCL iteration 4`. Lane jobs of the
+background scheduler (files, folds) give theirs while they run. A command that computes in the command queue
+gives the text it reports (MCL clustering is the one built-in command that does today), copied in about twice a
+second, at most 256 characters, with the last line kept after the job ends. `wait_command_request`'s progress
+notifications include it.
+
 Agent batches are sequential and stop after failure/cancellation; completed effects
 are not rolled back. Label/logo/print jobs and ESMFold folds are jobs of the Viewer's
 background job scheduler and are tracked to their final result. The file jobs share one

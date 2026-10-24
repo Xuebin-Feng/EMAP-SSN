@@ -33,6 +33,8 @@ APPROVAL = {'run': None, 'approve': 'pending', 'refuse': 'refused'}
 REFUSED = 'Agent replies cannot run this command; type it in the Viewer terminal instead.'
 # The most commands a run script may hold, typed or sent through the portal.
 MAX_SCRIPT_COMMANDS = 1000
+# The longest `progress` line a job entry keeps.
+MAX_PROGRESS_CHARACTERS = 256
 # Commands that end background work, as their lower-case words. The request at the
 # head of the queue waits for its jobs to end, so a stop command queued behind it
 # would wait as long: a request that holds only these runs at once instead
@@ -197,6 +199,23 @@ class ExecutionContext:
                     self.report(status, message)
                 break
         self.portal.changed.emit(self.request_id)
+
+    def job_progress(self, job_id, text):
+        """Show what a job reports as it goes in its entry, as `progress`; return whether the entry changed.
+
+        `progress` (None in a new entry) is one plain line, here no markup and at most MAX_PROGRESS_CHARACTERS.
+        The command queue's computing commands are fed through this; the background scheduler writes the same
+        field for its lane jobs itself (Background_Job_Scheduler._update_records). Call it on the Viewer's
+        thread, which also reads the record, and throttle there: this keeps only a line that differs.
+        """
+        text = ' '.join(str(text).split())[:MAX_PROGRESS_CHARACTERS] if text is not None else ''
+        for job in self.record['jobs']:
+            if job['job_id'] == str(job_id):
+                if text and job.get('progress') != text:
+                    job['progress'] = text
+                    return True
+                break
+        return False
 
     def children(self, commands):
         if len(commands) > MAX_SCRIPT_COMMANDS or any(not isinstance(c, str) or not c.strip() or len(c) > 8192 or '\n' in c or '\r' in c for c in commands):

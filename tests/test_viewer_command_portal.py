@@ -1115,6 +1115,78 @@ class StartedWorkerTests(HiddenWorkerFixture, unittest.TestCase):
         application.aboutToQuit.connect.assert_called_once_with(Viewer_Worker_Tracking.tidy_workers)
 
 
+class JobProgressTests(PortalFixture, unittest.TestCase):
+    """A job entry's `progress`: one plain line, copied in by whatever feeds the job, kept only when it changes."""
+
+    def running_job(self):
+        """Submit a request whose command starts a job that stays running; return (request id, its context)."""
+        started = {}
+
+        def run(viewer, args):
+            context = CURRENT.get()
+            context.add_job('job-1')
+            context.job_event('job-1', 'running')
+            started['context'] = context
+            ce.command_succeeded(viewer)
+
+        stack = fake_test_command(run)
+        stack.start()
+        self.addCleanup(stack.stop)
+        request_id = self.portal.submit('progress', 'test')['request_id']
+        deadline = time.monotonic() + 30
+        while 'context' not in started:
+            self.assertLess(time.monotonic(), deadline, 'The request never started its job')
+            self.app.processEvents()
+            time.sleep(0.005)
+        return request_id, started['context']
+
+    def entry(self, request_id):
+        return self.portal.get(request_id)['commands'][0]['jobs'][0]
+
+    def test_a_job_has_no_progress_until_something_reports_one(self):
+        request_id, context = self.running_job()
+        self.assertIsNone(self.entry(request_id)['progress'])
+        for blank in (None, '', '   \n '):
+            self.assertFalse(context.job_progress('job-1', blank))
+        self.assertIsNone(self.entry(request_id)['progress'])
+
+    def test_progress_appears_in_the_record_and_changes_only_when_the_text_does(self):
+        request_id, context = self.running_job()
+        self.assertTrue(context.job_progress('job-1', 'pass 1 of 3'))
+        self.assertEqual(self.entry(request_id)['progress'], 'pass 1 of 3')
+        self.assertFalse(context.job_progress('job-1', 'pass 1 of 3'))
+        self.assertTrue(context.job_progress('job-1', 'pass 2 of 3'))
+        self.assertEqual(self.entry(request_id)['progress'], 'pass 2 of 3')
+        self.assertEqual(self.entry(request_id)['status'], 'running')
+
+    def test_progress_is_a_plain_one_line_string_of_bounded_length(self):
+        from Viewer_Command_Portal import MAX_PROGRESS_CHARACTERS
+        request_id, context = self.running_job()
+        context.job_progress('job-1', 'step\n  4 of 9\t(50%)\r\n')
+        self.assertEqual(self.entry(request_id)['progress'], 'step 4 of 9 (50%)')
+        context.job_progress('job-1', 'x' * 5000)
+        self.assertEqual(self.entry(request_id)['progress'], 'x' * MAX_PROGRESS_CHARACTERS)
+        context.job_progress('job-1', 42)
+        self.assertEqual(self.entry(request_id)['progress'], '42')
+        self.assertIsInstance(self.entry(request_id)['progress'], str)
+
+    def test_progress_for_an_unknown_job_is_ignored_and_other_jobs_keep_theirs(self):
+        request_id, context = self.running_job()
+        context.add_job('job-2')
+        self.assertFalse(context.job_progress('missing', 'text'))
+        context.job_progress('job-1', 'one')
+        context.job_progress('job-2', 'two')
+        jobs = self.portal.get(request_id)['commands'][0]['jobs']
+        self.assertEqual([(job['job_id'], job['progress']) for job in jobs], [('job-1', 'one'), ('job-2', 'two')])
+
+    def test_the_last_progress_stays_in_the_entry_when_the_job_ends(self):
+        request_id, context = self.running_job()
+        context.job_progress('job-1', 'pass 3 of 3')
+        context.job_event('job-1', 'succeeded', 'done')
+        self.assertEqual(self.entry(request_id)['status'], 'succeeded')
+        self.assertEqual(self.entry(request_id)['progress'], 'pass 3 of 3')
+
+
 class StopRequestTests(PortalFixture, unittest.TestCase):
     """A request that holds only stop commands runs at once, even while the request at the head waits for its job."""
 

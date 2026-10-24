@@ -499,6 +499,7 @@ class CommandQueue(QtCore.QObject):
                 self._step(job, viewer, lambda: Command_Engine.command_failed(
                     viewer, 'Command handler did not report an explicit outcome.'))
             status = job.outcome if job.outcome in ('succeeded', 'failed', 'cancelled') else 'failed'
+        self._copy_progress(job)  # what it last reported, though no status tick came after it
         job.finished = True
         job.status = status
         job.message = message
@@ -620,9 +621,19 @@ class CommandQueue(QtCore.QObject):
 
     # --- the status line -----------------------------------------------------
 
+    @staticmethod
+    def _copy_progress(job):
+        """Show the progress text a compute step reports in the job's command portal entry, as `progress`."""
+        if job.context is not None and job.progress_text:
+            job.context.job_progress(str(job.job_id), job.progress_text)
+
     def _show_running(self):
         viewer = self._viewer()
         job = self.running()
+        if job is not None and job.status == 'running':
+            # The step reports from its worker thread; the portal record is read on this one, so the text
+            # is copied here, once per tick of the status timer: that is the throttle.
+            self._copy_progress(job)
         if viewer is None or job is None or job.status != 'running' or not hasattr(viewer, 'set_background_job_status'):
             return
         seconds = f"{job.seconds():.0f}"
