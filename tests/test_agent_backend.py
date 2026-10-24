@@ -940,3 +940,40 @@ class RememberedSamplingTests(unittest.TestCase):
             agent.on_web_worker_finished(viewer, 'hello', *emitted[0], generation=0, worker=worker)
         self.assertEqual((viewer.llm_temperature, viewer.llm_options), (None, {'reasoning_effort': 'low'}))
         self.assertTrue(self.saved()['cards'][0]['omit_sampling'])
+
+
+class AgentSnapshotTests(unittest.TestCase):
+    """A turn's snapshot must not push an MCP client's out of the Viewer's shared snapshot store."""
+
+    def setUp(self):
+        from desktop.Viewer_Inspection import ViewerInspectionService
+        self.viewer = SimpleNamespace(
+            n_nodes=4, full_headers=['A', 'B', 'C', 'D'], visible_mask=[True, True, True, True], selected_indices=[1],
+            edges=[(0, 1)], metadata={'score': {'type': 'numeric', 'values': [1.0, 2.0, 3.0, 4.0]}},
+            cluster_labels=[1, 1, 2, 2], group_labels=[set(), set(), set(), set()], current_slider_threshold=0.5)
+        config = SimpleNamespace(NODE_FASTA_FILE=None, INPUT_HDF5='network.h5', MSA_FILE='', TARGET_CACHE_PATH=None,
+                                 TARGET_CACHE_FILE=None, SIMILARITY_THRESHOLD=0.1)
+        self.service = ViewerInspectionService(self.viewer, config)
+        self.viewer.viewer_inspection = self.service
+
+    def test_a_turn_reads_the_snapshot_it_sends_and_leaves_the_shared_store_alone(self):
+        text = agent.get_viewer_session_context(self.viewer)
+        self.assertTrue(text.startswith('\n--- ACTIVE VIEWER SNAPSHOT ---\n'))
+        document = json.loads(text.split('---\n', 1)[1])
+        self.assertEqual((document['summary']['node_count'], document['summary']['selected_node_count']), (4, 1))
+        self.assertIn('score', json.dumps(document['fields']))
+        self.assertEqual(len(self.service.snapshots.items), 0)
+
+    def test_an_mcp_snapshot_stays_retrievable_after_several_agent_turns(self):
+        # The store holds two snapshots; both MCP clients' must survive every turn.
+        first, second = self.service.capture_snapshot(), self.service.capture_snapshot()
+        for _ in range(5):
+            self.assertIn('ACTIVE VIEWER SNAPSHOT', agent.get_viewer_session_context(self.viewer))
+        for snapshot in (first, second):
+            self.assertEqual(self.service.snapshots.execute('get_summary', snapshot)['node_count'], 4)
+        self.assertEqual(len(self.service.snapshots.items), 2)
+
+    def test_a_viewer_without_an_inspection_service_gets_one(self):
+        del self.viewer.viewer_inspection
+        self.assertIn('ACTIVE VIEWER SNAPSHOT', agent.get_viewer_session_context(self.viewer))
+        self.assertIsNotNone(self.viewer.viewer_inspection)

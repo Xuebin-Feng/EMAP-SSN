@@ -613,13 +613,17 @@ def _apply_call_notes(viewer, report, card_ref):
 
 def get_viewer_session_context(viewer):
     """Use the same bounded snapshot contract as MCP, without MCP transport."""
-    from desktop.Viewer_Inspection import ViewerInspectionService
+    from desktop.Viewer_Inspection import SnapshotStore, ViewerInspectionService
     service = getattr(viewer, 'viewer_inspection', None) or ViewerInspectionService(viewer)
     viewer.viewer_inspection = service
+    # The service's own store holds two snapshots for every MCP client, and a
+    # client whose snapshot is pushed out is told to capture another. A turn's
+    # snapshot is read once, so it lives in a store of its own, dropped on return.
+    store = SnapshotStore()
     try:
-        sid = service.capture_snapshot()
-        summary = service.snapshots.execute('get_summary', sid, max_bytes=16384)
-        fields = service.snapshots.execute('describe_fields', sid, limit=25, max_bytes=8192)
+        sid = store.capture(service)
+        summary = store.execute('get_summary', sid, max_bytes=16384)
+        fields = store.execute('describe_fields', sid, limit=25, max_bytes=8192)
         return '\n--- ACTIVE VIEWER SNAPSHOT ---\n' + json.dumps({'summary': summary, 'fields': fields}, ensure_ascii=False)
     except (ValueError, TypeError) as error:
         return '\nViewer inspection unavailable: ' + str(error)[:1000]
