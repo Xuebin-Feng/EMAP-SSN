@@ -904,11 +904,23 @@ must decode in the browser; they are normalized to PNG with a maximum dimension
 of 1600 pixels. Animated and multi-frame images, non-image files, and unsupported
 formats are rejected before submission. SVG images must be static and
 self-contained (no scripts, animation, or embedded images). Sent images remain
-in the existing saved chat history and are included in later model turns and
+in the saved chat history and are sent with the turn that holds them and its
 command-result analysis. Pending attachments are page-local and are cleared by
-Clear Chat or a page reload. Saved history has no automatic message limit; Clear
-Chat asks for confirmation before deleting all saved messages and images.
-A vision-capable model/provider is required; image
+Clear Chat or a page reload. The saved history has no automatic message limit
+and the page shows all of it; Clear Chat asks for confirmation before deleting
+all saved messages and images.
+
+What a model request re-sends of the history is limited, so a long chat does not
+grow every request: the last 10 turns, within about 8,000 tokens (estimated as
+characters divided by 4, a picture counting as 1,000;
+`HISTORY_MAX_TURNS`, `HISTORY_TOKEN_BUDGET` and `CHARS_PER_TOKEN` in
+`src/web_ui/agent_images.py`). The newest turn is sent whole, with its images and
+command output. An older turn carries the user's text, the model's explanation and
+one line for each command it ran with that command's status, but no command
+output and no images, which also keeps node headers and other data of the
+session from being sent again.
+
+A vision-capable model/provider is required when a message carries images; image
 errors are shown rather than silently sending text alone.
 
 ### Visual readback
