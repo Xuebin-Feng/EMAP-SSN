@@ -1316,6 +1316,30 @@ class GuiCallTests(LineTestCase):
         self.assertEqual(order, ["closed", "dialog ended"])
         self.assertIn(("stopped", job_id), self.reports)
 
+    def test_a_dialog_that_will_not_close_does_not_keep_a_stopped_job_waiting_for_ever(self):
+        from utilities import Job_Cancellation
+        shown, ended = threading.Event(), threading.Event()
+        job = []
+        self.scheduler.job_cancelled.connect(lambda cancelled, started: ended.set())
+
+        def dialog():
+            # The user's click on Stop is handled inside the modal loop; close() does nothing, as if the dialog hung.
+            shown.set()
+            QtCore.QTimer.singleShot(0, lambda: self.scheduler.cancel(job[0]))
+            deadline = time.monotonic() + STARTUP_TIMEOUT
+            while not ended.is_set() and time.monotonic() < deadline:
+                QtCore.QCoreApplication.processEvents()
+                time.sleep(0.005)
+
+        with mock.patch.object(Job_Cancellation, "GUI_CLOSE_WAIT_SECONDS", 0.3):
+            job_id, seen = self.run_job(lambda handle: handle.call_in_gui(dialog, close=lambda: None))
+            job.append(job_id)
+            self.assertTrue(wait_for(shown.is_set))
+            self.assertTrue(ended.is_set(), "the job ended although its dialog did not close")
+        self.wait_idle()
+        self.assertIsInstance(seen["error"], JobCancelled)
+        self.assertIn(("stopped", job_id), self.reports)
+
     def test_a_job_already_told_to_stop_asks_for_nothing(self):
         ran = []
         started = threading.Event()

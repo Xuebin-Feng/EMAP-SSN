@@ -1344,31 +1344,43 @@ class DownloadProgressTests(unittest.TestCase):
         # afterwards and leave orphan copies of its modules behind.
         import tqdm.auto  # noqa: F401
 
-    def bars(self, reports, times):
-        clock = iter(times)
-        patcher = mock.patch("time.monotonic", lambda: next(clock))
+    def bars(self, reports):
+        """The class, with the clock the worker reads in self.now."""
+        self.now = 100.0
+        patcher = mock.patch("time.monotonic", lambda: self.now)
         patcher.start()
         self.addCleanup(patcher.stop)
         return esmfold_worker.download_progress_class(reports.append)
 
     def test_the_percent_of_the_bytes_is_reported_not_going_back_and_not_too_often(self):
         reports = []
-        progress = self.bars(reports, [0.0, 0.1, 0.2, 0.7, 0.8, 5.0, 6.0, 7.0, 8.0, 9.0])
+        progress = self.bars(reports)
         # Named as huggingface_hub names its bars; the count of files is no byte count.
-        files = progress(total=3, unit="it", name="files", file=io.StringIO())
-        bar = progress(total=1000, unit="B", name="huggingface_hub.snapshot_download.transfer", file=io.StringIO())
-        for chunk in (100, 100, 100):
-            bar.update(chunk)
+        files = progress(total=3, unit="it", name="files", file=io.StringIO(), mininterval=0, miniters=1)
         files.update(1)
-        bar.total = 4000  # the total grows as more files start: the percent does not go down
+        self.assertEqual(reports, [], "a bar that does not count bytes says nothing")
+        bar = progress(total=1000, unit="B", name="huggingface_hub.snapshot_download.transfer", file=io.StringIO(),
+                       mininterval=0, miniters=1)
+        self.assertEqual(reports, [0], "the first look")
+        self.now = 100.1
         bar.update(100)
-        bar.update(3200)
-        bar.update(500)
+        self.assertEqual(reports, [0], "10% so soon after the last report is not reported")
+        self.now = 100.7
+        bar.update(100)
+        self.assertEqual(reports, [0, 20])
+        self.now = 100.8
+        bar.update(100)
+        self.assertEqual(reports, [0, 20], "30% 0.1 s later is not reported")
+        # More files start: the total grows and the percent of the bytes falls, which is not reported.
+        self.now = 101.5
+        bar.total = 4000
+        bar.update(100)
+        self.assertEqual(reports, [0, 20], "the percent never goes back")
+        self.now = 101.6
+        bar.update(3600)
+        self.assertEqual(reports, [0, 20, 100], "the end is reported")
         bar.close()
         files.close()
-        self.assertTrue(reports)
-        self.assertEqual(reports, sorted(reports))
-        self.assertEqual(reports[-1], 100)
 
     def test_the_first_download_hands_the_class_to_huggingface_and_reports_its_events(self):
         events = []

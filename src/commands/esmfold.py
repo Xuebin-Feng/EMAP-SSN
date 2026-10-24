@@ -460,6 +460,9 @@ class FoldRun:
         tracker = self.tracker
         if tracker is not None:
             try:
+                if outcome == "succeeded":
+                    # One last look, for what the worker saved last: it may have ended between two of the tracker's.
+                    tracker.poll()
                 tracker.timer.stop()
             except RuntimeError:
                 pass  # The tracker's Qt object is deleted already.

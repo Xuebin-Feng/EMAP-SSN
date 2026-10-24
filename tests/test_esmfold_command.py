@@ -1996,6 +1996,9 @@ class RejectedTokenProcessTests(ProcessCase):
         [job] = result["commands"][0]["jobs"]
         self.assertEqual((job["job_id"], job["status"]), ("1", "succeeded"))
         self.assertEqual(self.finish(request_id)["commands"][0]["status"], "succeeded")
+        # What the first worker saved and what the second did are artifacts of the one request: each worker has its tracker.
+        self.assertEqual(sorted(os.path.basename(path) for path in result["commands"][0]["artifacts"]),
+                         ["one.pdb", "three.pdb", "two.pdb"])
         shown = self.everything_shown(request_id)
         self.assertNotIn(NEW_TOKEN, shown)
         self.assertNotIn(OLD_TOKEN, shown)
