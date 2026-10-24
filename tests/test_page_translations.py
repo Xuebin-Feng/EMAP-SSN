@@ -1084,10 +1084,7 @@ class AgentMessageTests(unittest.TestCase):
         worker = agent.AgentWorker("server", "http://localhost:1", "1", "", "2", [], 0, None)
         emitted = []
         worker.finished.connect(lambda *values: emitted.append(values))
-        failure = ValueError(Message(
-            "Model request failed (HTTP {code}): {response}. Image messages require a vision-capable "
-            "model/provider.", code=500, response="8",
-        ))
+        failure = ValueError(agent._request_failed(500, "8", images=True))
         with mock.patch.object(agent, "call_api", side_effect=failure):
             worker.run()
         with mock.patch.object(agent, "call_api", return_value=None):

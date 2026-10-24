@@ -18,6 +18,7 @@ import urllib.error
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from PySide6 import QtCore
+from utilities.Localization import display_text
 from web_ui import agent_backend as agent
 from web_ui.agent_prompt import PLACEHOLDERS
 from tests.agent_fixtures import FakeProvider, Stalled, completion, self_signed_tls
@@ -1669,3 +1670,35 @@ class SnapshotPathsTests(unittest.TestCase):
         self.assertEqual(result['alignment'], summary['alignment'])
         self.assertEqual(summary['inputs']['node_fasta'], '/data/set.fasta')  # the argument is not changed
         self.assertEqual(agent.agent_summary({'node_count': 3}), {'node_count': 3})
+
+
+class ErrorSentenceTests(unittest.TestCase):
+    """A refused model request is told it needs a vision-capable model only when it held images."""
+    IMAGE = [{'type': 'text', 'text': 'look'}, {'type': 'image_url', 'image_url': {'url': 'data:image/png;base64,AAAA'}}]
+
+    def refused(self, query, history=None):
+        with FakeProvider(lambda payload: (400, 'unsupported value')) as provider:
+            with redirect_stdout(io.StringIO()), self.assertRaises(ValueError) as caught:
+                agent.call_api(provider.url, 'm', 'system', query, history=history)
+        return caught.exception
+
+    def test_a_text_request_gets_no_sentence_about_images(self):
+        error = self.refused('hello')
+        self.assertEqual(str(error), 'Model request failed (HTTP 400): unsupported value.')
+        self.assertEqual(display_text(error), str(error))
+
+    def test_a_request_with_an_image_gets_it(self):
+        expected = 'Model request failed (HTTP 400): unsupported value. Image messages require a vision-capable model/provider.'
+        for label, query, history in (('in the message', self.IMAGE, None),
+                                      ('in the history', 'hello', [{'role': 'user', 'content': self.IMAGE}, {'role': 'assistant', 'content': 'seen'}])):
+            with self.subTest(label):
+                error = self.refused(query, history)
+                self.assertEqual(str(error), expected)
+                self.assertEqual(display_text(error), expected)
+
+    def test_a_message_that_only_looks_like_it_has_an_image_does_not_count(self):
+        # Text that names an image, and a list without an image part, are not images.
+        self.assertEqual(str(self.refused('what is "image_url"?')), 'Model request failed (HTTP 400): unsupported value.')
+        self.assertEqual(str(self.refused([{'type': 'text', 'text': 'image_url'}])), 'Model request failed (HTTP 400): unsupported value.')
+        self.assertFalse(agent._has_images([{'content': 'text'}, {'content': [{'type': 'text'}]}, {'content': None}, {}]))
+        self.assertTrue(agent._has_images([{'content': 'text'}, {'content': self.IMAGE}]))

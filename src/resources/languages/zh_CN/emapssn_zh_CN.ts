@@ -92,12 +92,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+958"/>
+        <location line="+964"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-957"/>
+        <location line="-963"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -510,7 +510,7 @@
     </message>
     <message>
         <location line="+9"/>
-        <location line="+102"/>
+        <location line="+108"/>
         <source>LLM</source>
         <translation type="unfinished">LLM</translation>
     </message>
@@ -540,7 +540,7 @@
         <translation type="unfinished">思考中（{model}）…</translation>
     </message>
     <message>
-        <location line="+198"/>
+        <location line="+200"/>
         <source>&lt;b&gt;Error:&lt;/b&gt; {error}</source>
         <translation type="unfinished">&lt;b&gt;错误：&lt;/b&gt;{error}</translation>
     </message>
@@ -549,12 +549,12 @@
         <translation type="obsolete">⏳ 思考中（{model}）…</translation>
     </message>
     <message>
-        <location line="-144"/>
+        <location line="-146"/>
         <source>Image</source>
         <translation type="unfinished">图片</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+59"/>
         <source>Assistant</source>
         <translation type="unfinished">助手</translation>
     </message>
@@ -7125,12 +7125,21 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">LLM 智能体已停用。已卸载：{model}（{backend}）</translation>
     </message>
     <message>
-        <location line="+191"/>
-        <source>Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.</source>
-        <translation type="unfinished">模型请求失败（HTTP {code}）：{response}。带图片的消息需要支持视觉的模型或服务商。</translation>
+        <location line="+108"/>
+        <source>Model request failed (HTTP {code}): {response}.</source>
+        <translation type="unfinished">模型请求失败（HTTP {code}）：{response}。</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+3"/>
+        <source>Image messages require a vision-capable model/provider.</source>
+        <translation type="unfinished">图像消息需要支持视觉的模型或服务商。</translation>
+    </message>
+    <message>
+        <source>Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.</source>
+        <translation type="obsolete">模型请求失败（HTTP {code}）：{response}。带图片的消息需要支持视觉的模型或服务商。</translation>
+    </message>
+    <message>
+        <location line="+132"/>
         <source>No response received from LLM.</source>
         <translation type="unfinished">未收到 LLM 的回复。</translation>
     </message>

@@ -544,6 +544,20 @@ class RequestHandle:
         return urllib.request.build_opener(HTTPHandler, HTTPSHandler)
 
 
+def _has_images(messages):
+    return any(isinstance(message.get("content"), list)
+               and any(isinstance(part, dict) and part.get("type") == "image_url" for part in message["content"])
+               for message in messages)
+
+
+def _request_failed(code, response, images):
+    """The error for a refused request. Only a request that held images is told a vision-capable model is needed."""
+    failed = Message("Model request failed (HTTP {code}): {response}.", code=code, response=response)
+    if not images:
+        return failed
+    return JoinedMessage([failed, Message("Image messages require a vision-capable model/provider.")])
+
+
 def _post_chat(url, payload, headers, handle=None):
     request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
     if handle is None:
@@ -635,10 +649,8 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=No
                     report["sampling_rejected"] = True
                 print("Agent: the model server rejected sampling parameters; sending the request again without them.")
                 continue
-            raise ValueError(Message(
-                "Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.",
-                code=e.code, response=(body or _redact(str(e.reason), api_key))[:2000],
-            )) from e
+            raise ValueError(_request_failed(
+                e.code, (body or _redact(str(e.reason), api_key))[:2000], _has_images(payload["messages"]))) from e
         except (OSError, http.client.HTTPException) as e:
             # A shut-down socket surfaces as whichever of these the read was in.
             if handle is not None and handle.aborted:

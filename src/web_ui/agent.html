@@ -1943,7 +1943,13 @@
                     break;
                 }
                 case "agent_accepted":
-                    acceptSubmission(event);
+                    if (event.submission_id) {
+                        acceptSubmission(event);
+                    } else {
+                        // A message typed in the Viewer's terminal: the page shows it as one sent from
+                        // here (agent_thinking, sent first, has locked the composer and shown Stop).
+                        appendUserMsg(event.query || "", event.attachments || []);
+                    }
                     break;
                 case "backend_state":
                     if (pendingSubmission) finishSubmission({submission_id: pendingSubmission.submission_id}, true);
@@ -2104,7 +2110,9 @@
                 images.appendChild(img);
             });
             wrapper.firstElementChild.appendChild(images);
-            chatLog.appendChild(wrapper);
+            // The Viewer says it is thinking before it says it accepted the message: the
+            // message still goes above the spinner that waits for its answer.
+            chatLog.insertBefore(wrapper, document.getElementById("thinking-bubble"));
             chatLog.scrollTop = chatLog.scrollHeight;
             return wrapper;
         }

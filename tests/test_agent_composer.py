@@ -975,6 +975,61 @@ class ModelCardPageTests(unittest.TestCase):
                                              {'id': 'b', 'name': 'B', 'url': 'http://gpu-box.lan/v1'}]}).encode())
         self.assertEqual(self.js("Array.from(document.querySelectorAll('.model-card .card-note.is-warning')).filter(n => !n.hidden).length"), 0)
 
+    def log(self):
+        """The chat log as [kind, text] for each message in it."""
+        return json.loads(self.js("""JSON.stringify(Array.from(document.querySelectorAll('#chat-log .msg-wrapper'), wrapper => {
+            const message = wrapper.querySelector('.msg');
+            return [Array.from(message.classList).find(name => name !== 'msg'), message.textContent.trim().replace(/\\s+/g, ' '),
+                    wrapper.querySelectorAll('img').length];
+        }))"""))
+
+    def test_a_message_typed_in_the_terminal_is_shown_as_the_users_and_its_answer_follows(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[]}})")
+        # The events a turn started by `agent <message>` sends: they name no submission.
+        self.js("handleServerEvent({type:'agent_thinking', model_name:'m'});"
+                "handleServerEvent({type:'agent_accepted', query:'hide noise clusters', attachments:[]})")
+        # The message, then the spinner that waits for its answer, whichever of the two events came first.
+        self.assertEqual([entry[:2] for entry in self.log()][-2:], [['msg-user', 'hide noise clusters'], ['msg-system', 'Thinking (m)...']])
+        locked = self.stop_button()
+        self.assertEqual((locked['shown'], locked['send'], locked['input']), (True, True, True))
+
+        self.js("handleServerEvent({type:'agent_response', explanation:'Hidden.', commands:'hide #noise#', terminal_output:'', tokens:null, reasoning:''})")
+        self.assertEqual([entry[0] for entry in self.log()][-2:], ['msg-user', 'msg-agent'])
+        self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user').length"), 1)
+        done = self.stop_button()
+        self.assertEqual((done['shown'], done['send'], done['input']), (False, False, False))
+        self.assertTrue(self.js('pendingSubmission === null'))
+
+    def test_a_terminal_message_is_shown_as_text_and_with_its_images(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[]}})")
+        shown = '<img src=x onerror="window.pwned = 1"> & <b>bold</b>'
+        png = base64.b64encode(image_bytes()).decode()
+        event = {'type': 'agent_accepted', 'query': shown, 'attachments': [{'name': 'a.png', 'data_url': 'data:image/png;base64,' + png},
+                                                                          {'name': 'bad', 'data_url': 'https://example.org/x.png'}]}
+        self.js(f'handleServerEvent({json.dumps(event)})')
+        QTest.qWait(200)
+        [entry] = [entry for entry in self.log() if entry[0] == 'msg-user']
+        self.assertEqual(entry[1], shown)
+        self.assertEqual(entry[2], 1)  # The picture; a link that is not an image the page was sent is not shown.
+        self.assertIsNone(self.js('window.pwned ?? null') or None)
+
+    def test_a_turn_of_another_page_is_not_shown_here(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[]}})")
+        before = self.log()
+        self.js("handleServerEvent({type:'agent_accepted', submission_id:'someone else', query:'not mine', attachments:[]});"
+                "handleServerEvent({type:'agent_thinking', model_name:'m', submission_id:'someone else'})")
+        self.assertEqual(self.log(), before)
+        self.assertFalse(self.stop_button()['shown'])
+
+    def test_a_message_sent_from_the_page_is_still_shown_once(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.start_turn('from here')
+        self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user').length"), 1)
+        self.assertEqual([entry[1] for entry in self.log() if entry[0] == 'msg-user'], ['from here'])
+
     def test_a_command_waiting_for_approval_is_run_or_discarded(self):
         self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API'}]}).encode())
         waiting = {'command_id': 'c1', 'command': 'save <img src=x onerror=alert(1)>.h5',

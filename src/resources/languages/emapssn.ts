@@ -6059,7 +6059,11 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.</source>
+        <source>Model request failed (HTTP {code}): {response}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Image messages require a vision-capable model/provider.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
