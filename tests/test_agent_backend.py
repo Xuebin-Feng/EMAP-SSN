@@ -18,7 +18,7 @@ import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
-from PySide6 import QtCore
+from PySide6 import QtWidgets
 from utilities.Localization import display_text
 from web_ui import agent_backend as agent
 from web_ui.agent_prompt import PLACEHOLDERS
@@ -1227,7 +1227,8 @@ class StopTurnTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+        # A QApplication, as the page tests of the same process need: a bare QCoreApplication would stand in their way.
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
 
     @staticmethod
     def running_viewer(submission_id='s1', **attributes):
