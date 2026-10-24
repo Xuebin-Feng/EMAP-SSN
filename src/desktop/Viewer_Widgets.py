@@ -771,6 +771,9 @@ class ControlsCard(QWidget):
         self.place()
         self.show()
         self.raise_()
+        if self.jobs_section is not None:
+            # Rows made before the card was styled and shown change size as they are: measure again after.
+            self._jobs_resized()
         return self
 
     def paintEvent(self, event):

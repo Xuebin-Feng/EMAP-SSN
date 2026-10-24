@@ -531,6 +531,21 @@ class CardTests(ScheduledJobsCase):
         self.assertTrue(card.isVisible())
         return card
 
+    def test_a_card_opened_over_jobs_that_are_already_there_fits_them_without_scrolling(self):
+        # The rows are made before the card is styled and shown, and size themselves as they are: the card
+        # measures again once they have, or its last rows would be cut off and need a scroll bar.
+        self.host.setGeometry(10, 0, 1000, 1600)
+        self.button.move(20, 1560)
+        first, entered = self.hold("a")
+        self.assertTrue(entered.wait(10))
+        self.hold("b")
+        self.hold("c", lane="folding", lane_title=Message("Folding"))
+        card = self.open_card()
+        QTest.qWait(150)   # the card measures again on the event loop's next turn, long before a clock tick
+        flush(self.app)
+        self.assertEqual(card.scroll.verticalScrollBar().maximum(), 0, "nothing is left to scroll to")
+        self.assertEqual(card.scroll.horizontalScrollBar().maximum(), 0)
+
     def test_the_open_log_link_keeps_the_height_its_text_needs_inside_the_card(self):
         # The card's stylesheet shapes the link: a rule that lets the layout squeeze it cuts the text off below.
         log = self.path("fold.log")
