@@ -278,12 +278,14 @@ class ShellTests(PageTestCase):
             ["Move", "Drag with the right button, or Shift + drag"],
             ["Pin a residue", "Click it, in 3D or in the sequence; click empty space to let go"],
             ["Measure or label", "Choose the ruler or the tag in the toolbar, then click two residues (one for a label)"],
+            ["Resize the panel", "Drag the handle on its left edge; double-click it to restore the width"],
         ])
         self.assertEqual(keyboard, [
             ["Tab", "Moves through the controls; the 3D view and the sequence are one stop each"],
             ["Arrow keys", "Pin the next or previous residue; in the sequence, Up and Down move ten"],
             ["F", "Comes to the pinned residue"],
             ["R", "Resets the view"],
+            ["Left Right Home", "On the handle of the panel: make it wider or narrower, or restore its width"],
             ["Esc", "Closes a dialog, leaves Measure or Labels, lets go of the pin, or leaves the Advanced view, in that order"],
         ])
 

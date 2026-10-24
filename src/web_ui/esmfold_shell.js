@@ -467,6 +467,7 @@ function setAdvanced(on) {
     document.body.dataset.adv = on ? '1' : '0';
     byId('t-adv').setAttribute('aria-pressed', on ? 'true' : 'false');
     plugin.layout.updateProps({showControls: on});
+    showSideWidth();
     setTimeout(() => viewerInstance.handleResize(), 50);
     (on ? byId('adv-back') : byId('t-adv')).focus();
 }
@@ -485,6 +486,121 @@ byId('side-grip').addEventListener('click', () => setPanel(document.body.dataset
 (() => {
     const width = byId('app').clientWidth;
     setPanel(!(width <= 1040 && width > 700));
+})();
+
+// ---- The panel's width: beside the canvas a handle on its left edge makes it wider ----
+// Beside the canvas (a window wider than 1040 px) the panel is 340 px wide, and can be made wider, up to half the window and
+// 640 px: by dragging the handle on its left edge, or with Left and Right on the handle (20 px a press, 100 with Shift) and End
+// (the widest); a double click or Home gives it its 340 px back. The canvas takes the room the panel leaves. esmfold.html holds the
+// width in --side-width and clamps it to the window's (the same limits are worked out here for the handle's values), so a
+// window that gets smaller takes the panel in with it, and the width comes back when the window does. The width is kept in this
+// browser (localStorage, as the theme is) and is no part of the saved session. The drawer of a narrower window and the strip of a
+// phone have a width of their own and no handle.
+const SIDE_MIN = 340;
+const SIDE_CAP = 640;
+const SIDE_SHARE = 0.5;
+const SIDE_STEP = 20;
+const SIDE_BIG_STEP = 100;
+const SIDE_STORE = 'ssn_fold_panel_width';
+const sideResizer = byId('side-resizer');
+let sideDrag = null;
+
+// The narrowest and the widest the panel can be in the window as it is.
+function sideLimits() {
+    return { min: SIDE_MIN, max: Math.max(SIDE_MIN, Math.min(SIDE_CAP, Math.floor(byId('app').clientWidth * SIDE_SHARE))) };
+}
+
+function sideWidth() {
+    return Math.round(byId('side').getBoundingClientRect().width);
+}
+
+// The handle says what the panel is and what it can be (what the panel is while it is shown: Advanced hides it).
+function showSideWidth() {
+    const { min, max } = sideLimits();
+    sideResizer.setAttribute('aria-valuemin', String(min));
+    sideResizer.setAttribute('aria-valuemax', String(max));
+    const width = sideWidth();
+    if (width > 0) sideResizer.setAttribute('aria-valuenow', String(width));
+}
+
+function rememberSideWidth(width) {
+    try {
+        if (width === null || width <= SIDE_MIN) localStorage.removeItem(SIDE_STORE);
+        else localStorage.setItem(SIDE_STORE, String(width));
+    } catch (error) {}
+}
+
+// Mol* follows its container's size on its own; this says so to it in step with a drag too.
+let sideResizeFrame = 0;
+function resizeCanvas() {
+    if (sideResizeFrame) return;
+    sideResizeFrame = requestAnimationFrame(() => {
+        sideResizeFrame = 0;
+        if (viewerInstance) viewerInstance.handleResize();
+    });
+}
+
+// Makes the panel `width` pixels wide, or as near as the limits allow (the window's are applied by esmfold.html, so a width the
+// window has no room for waits for one that has); `keep` keeps what is shown for the next visit.
+function setSideWidth(width, keep = true) {
+    byId('app').style.setProperty('--side-width', Math.round(Math.min(SIDE_CAP, Math.max(SIDE_MIN, width))) + 'px');
+    showSideWidth();
+    if (keep) rememberSideWidth(sideWidth());
+    resizeCanvas();
+}
+
+function resetSideWidth() {
+    byId('app').style.removeProperty('--side-width');
+    showSideWidth();
+    rememberSideWidth(null);
+    resizeCanvas();
+}
+
+sideResizer.addEventListener('pointerdown', event => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    try {
+        sideResizer.setPointerCapture(event.pointerId);
+    } catch (error) {}
+    // Where the pointer took hold of the edge, so that the edge stays under it.
+    sideDrag = { id: event.pointerId, grab: event.clientX - byId('side').getBoundingClientRect().left };
+    document.body.dataset.resizing = '1';
+    sideResizer.focus();
+});
+sideResizer.addEventListener('pointermove', event => {
+    if (!sideDrag || event.pointerId !== sideDrag.id) return;
+    setSideWidth(byId('side').getBoundingClientRect().right - (event.clientX - sideDrag.grab), false);
+});
+function endSideDrag(event) {
+    if (!sideDrag || event.pointerId !== sideDrag.id) return;
+    sideDrag = null;
+    delete document.body.dataset.resizing;
+    rememberSideWidth(sideWidth());
+    resizeCanvas();
+}
+sideResizer.addEventListener('pointerup', endSideDrag);
+sideResizer.addEventListener('pointercancel', endSideDrag);
+sideResizer.addEventListener('lostpointercapture', endSideDrag);
+sideResizer.addEventListener('dblclick', resetSideWidth);
+sideResizer.addEventListener('keydown', event => {
+    const step = event.shiftKey ? SIDE_BIG_STEP : SIDE_STEP;
+    // The panel is on the right: the edge moving left makes it wider.
+    if (event.key === 'ArrowLeft') setSideWidth(sideWidth() + step);
+    else if (event.key === 'ArrowRight') setSideWidth(sideWidth() - step);
+    else if (event.key === 'Home') resetSideWidth();
+    else if (event.key === 'End') setSideWidth(SIDE_CAP);
+    else return;
+    event.preventDefault();
+});
+new ResizeObserver(showSideWidth).observe(byId('app'));
+(() => {
+    let stored = null;
+    try {
+        stored = Number(localStorage.getItem(SIDE_STORE));
+    } catch (error) {}
+    // Only a width the handle could have made counts: a whole number from 341 px to the cap (a smaller window shows less of it).
+    if (Number.isInteger(stored) && stored > SIDE_MIN && stored <= SIDE_CAP) setSideWidth(stored, false);
+    else showSideWidth();
 })();
 
 // ---- The panel's tabs: on a phone the cards take turns in the strip; elsewhere all are in view ----

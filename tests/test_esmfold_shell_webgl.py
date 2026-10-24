@@ -173,6 +173,35 @@ class ShellWebglTests(unittest.TestCase):
                 self.assertAlmostEqual(found["restored"]["radius"], found["saved"]["radius"], places=3)
                 self.assertGreater(found["drawn"], 0.002)
 
+    def test_the_canvas_follows_the_panels_handle_is_drawn_again_at_its_new_size_and_is_not_stretched(self):
+        steps = {step["label"]: step for step in self.found["panel"]}
+        self.assertEqual(list(steps), ["default", "dragging", "let go", "widest", "window of 1100 px", "restored"])
+        # A real pointer pulled the edge 200 px to the left, and the keys and the window took it further and back.
+        self.assertEqual([round(steps[label]["panel"]) for label in steps], [340, 540, 540, 640, 550, 340])
+        first = steps["default"]
+        for label, step in steps.items():
+            with self.subTest(step=label):
+                # The canvas is as big as the stage (inside its 1 px border), and as big in its own pixels as in the page's (what
+                # is drawn again, not scaled).
+                self.assertLessEqual(abs(step["client"][0] - step["stage"][0]), 2.5)
+                self.assertLessEqual(abs(step["client"][1] - step["stage"][1]), 2.5)
+                ratio = step["ratio"]
+                self.assertLessEqual(abs(step["buffer"][0] - step["client"][0] * ratio), 1)
+                self.assertLessEqual(abs(step["buffer"][1] - step["client"][1] * ratio), 1)
+                # The camera draws into the same shape: no stretch in the picture the canvas shows.
+                self.assertAlmostEqual(step["viewport"][0] / step["viewport"][1], step["client"][0] / step["client"][1], delta=0.01)
+                self.assertAlmostEqual(step["shot"][0] / step["shot"][1], step["client"][0] / step["client"][1], delta=0.01)
+                self.assertGreater(step["drawn"], 0.002)
+                # Two residues are as far apart on the screen as they were: the structure is drawn at its size, not scaled with the canvas.
+                self.assertLess(abs(step["apart"][0] - first["apart"][0]), 2.5)
+                self.assertLess(abs(step["apart"][1] - first["apart"][1]), 2.5)
+        # The stage gave up as much as the panel took.
+        self.assertAlmostEqual(first["stage"][0] - steps["let go"]["stage"][0], 200, delta=1)
+        self.assertAlmostEqual(first["stage"][0] - steps["widest"]["stage"][0], 300, delta=1)
+        self.assertAlmostEqual(steps["restored"]["stage"][0], first["stage"][0], delta=1)
+        # Mol* was told too (it also watches its container), at the end of the drag and for each key.
+        self.assertGreater(steps["restored"]["calls"], steps["default"]["calls"])
+
     def test_the_page_draws_its_canvas_in_simplified_chinese_too(self):
         self.assertEqual((self.found["chineseHeader"], self.found["chineseView"]), ("EMAP-SSN 结构视图", "ready"))
 

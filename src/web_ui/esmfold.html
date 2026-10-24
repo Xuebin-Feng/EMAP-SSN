@@ -377,7 +377,7 @@
         body[data-adv="1"] .adv-banner { display: flex; }
         body[data-adv="1"] #viewer { top: 46px; }
         body[data-adv="1"] .view-toolbar, body[data-adv="1"] .empty { display: none !important; }
-        @container app (min-width: 1041px) { body[data-adv="1"] .side { display: none; } }
+        @container app (min-width: 1041px) { body[data-adv="1"] .side, body[data-adv="1"] .side-resizer { display: none; } }
 
         /* The status line, drawn as the windows' tooltips are */
         .toast {
@@ -416,7 +416,7 @@
         .empty .reason:empty { display: none; }
         .empty .retry { margin: 0 0 14px; }
         body[data-view="failed"] #viewer, body[data-view="failed"] .view-toolbar, body[data-view="failed"] .side,
-        body[data-view="failed"] #panel-toggle, body[data-view="failed"] .skip-link, body[data-view="failed"] .seqbar,
+        body[data-view="failed"] #panel-toggle, body[data-view="failed"] .skip-link, body[data-view="failed"] .seqbar, body[data-view="failed"] .side-resizer,
         body[data-view="failed"] .drop-hint { display: none !important; }
         code { font-family: var(--font-mono); font-size: 12px; background: var(--code-inline-bg); color: var(--code-inline-text); padding: 2px 6px; border-radius: 6px; }
 
@@ -492,8 +492,18 @@
         .side-tabs button:focus-visible { box-shadow: inset 0 0 0 1px var(--accent); border-radius: 6px; }
 
         /* ── Side panel ──────────────────────────────────── */
-        .side { width: 340px; flex-shrink: 0; background: var(--bg-card); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; min-height: 0; }
+        /* Beside the canvas the panel is 340 px wide, or what a person made it by dragging the handle on its edge (--side-width,
+           which esmfold_shell.js sets and keeps): never less than 340 px, never more than half the window or 640 px. The drawer and the
+           strip below set their own width. */
+        .side { width: 340px; width: clamp(340px, var(--side-width, 340px), min(640px, 50cqw)); flex-shrink: 0; background: var(--bg-card); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; min-height: 0; }
         .side-grip { display: none; }
+        /* The handle: a line of no width on the panel's left edge, with a hit area of 10 px across the edge and a grip of 4 px at its middle. */
+        .side-resizer { flex: none; position: relative; z-index: 2; width: 0; cursor: col-resize; touch-action: none; outline: none; }
+        .side-resizer::before { content: ""; position: absolute; top: 0; bottom: 0; left: -5px; width: 10px; }
+        .side-resizer::after { content: ""; position: absolute; top: 50%; left: -2px; width: 4px; height: 44px; margin-top: -22px; border-radius: 2px; background: var(--field-border); transition: background-color 0.15s; }
+        .side-resizer:hover::after, body[data-resizing="1"] .side-resizer::after { background: var(--accent); }
+        .side-resizer:focus-visible::after { background: var(--accent); box-shadow: var(--focus-ring); }
+        body[data-resizing="1"] { cursor: col-resize; user-select: none; }
         /* A scrollbar that comes and goes takes its 8 px from the cards' width, and the text in them wraps differently: the chips of
            the Color by card, for one, went from a row to a column when a longer legend made the panel scroll. The room for the bar is
            always there, and the padding beside it is smaller by as much, so the cards are as wide as they always were without one. */
@@ -685,6 +695,7 @@
 
         /* ── A narrow window: the panel is a drawer, and on a phone a strip under the canvas ── */
         @container app (max-width: 1040px) {
+            .side-resizer { display: none; }
             .side { position: absolute; right: 0; top: 0; bottom: 0; z-index: 20; width: min(340px, 92%); box-shadow: var(--shadow-dialog); transform: translateX(105%); transition: transform 0.2s ease; }
             body[data-panel="1"] .side { transform: none; }
             #panel-toggle { display: inline-flex; }
@@ -875,6 +886,7 @@
                 </div>
             </div>
 
+            <div class="side-resizer" id="side-resizer" role="separator" aria-orientation="vertical" aria-controls="side" aria-label="Resize the panel" title="Drag to resize the panel. Double-click to restore its width." aria-valuemin="340" aria-valuemax="640" aria-valuenow="340" tabindex="0"></div>
             <aside class="side" id="side" aria-label="Scene">
                 <button class="side-grip" id="side-grip" type="button" aria-expanded="true" aria-controls="side-scroll"><span data-i18n>Scene</span></button>
                 <div class="side-tabs" role="tablist" aria-label="Scene panels">
@@ -912,6 +924,7 @@
                 <tr><td data-i18n>Move</td><td data-i18n>Drag with the right button, or Shift + drag</td></tr>
                 <tr><td data-i18n>Pin a residue</td><td data-i18n>Click it, in 3D or in the sequence; click empty space to let go</td></tr>
                 <tr><td data-i18n>Measure or label</td><td data-i18n>Choose the ruler or the tag in the toolbar, then click two residues (one for a label)</td></tr>
+                <tr><td data-i18n>Resize the panel</td><td data-i18n>Drag the handle on its left edge; double-click it to restore the width</td></tr>
             </table>
             <h4 data-i18n>Keyboard</h4>
             <table>
@@ -919,6 +932,7 @@
                 <tr><td><kbd data-i18n>Arrow keys</kbd></td><td data-i18n>Pin the next or previous residue; in the sequence, Up and Down move ten</td></tr>
                 <tr><td><kbd data-i18n>F</kbd></td><td data-i18n>Comes to the pinned residue</td></tr>
                 <tr><td><kbd data-i18n>R</kbd></td><td data-i18n>Resets the view</td></tr>
+                <tr><td><kbd data-i18n>Left</kbd> <kbd data-i18n>Right</kbd> <kbd data-i18n>Home</kbd></td><td data-i18n>On the handle of the panel: make it wider or narrower, or restore its width</td></tr>
                 <tr><td><kbd data-i18n>Esc</kbd></td><td data-i18n>Closes a dialog, leaves Measure or Labels, lets go of the pin, or leaves the Advanced view, in that order</td></tr>
             </table>
             <h4 data-i18n>Advanced</h4>

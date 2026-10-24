@@ -105,7 +105,7 @@ modules = [
 # The Fold View page tests (tests/esmfold_page_harness.py) open esmfold.html in Qt WebEngine over the real
 # web server and the bundled Mol*, and spend most of their time in waits for Mol* and the page's saves. They
 # were one section with the rest of plugins, which made it by far the slowest (475 s alone, where the next
-# slowest took 174 s) and so the whole run's time; sections run in parallel, so these seven share the work,
+# slowest took 174 s) and so the whole run's time; sections run in parallel, so these eight share the work,
 # each of them 60 to 110 s.
 [sections.fold_color]
 description = "Fold View page: Color by card, residue tooltip, pinned residue and Residue card"
@@ -154,6 +154,13 @@ description = "Fold View page: a sweep of every name, file name, log path and re
 seconds = 70
 modules = [
     "test_esmfold_long_text",
+]
+
+[sections.fold_panel]
+description = "Fold View page: the resizable side panel (its handle, its limits, the keys, the width kept in the browser)"
+seconds = 60
+modules = [
+    "test_esmfold_panel",
 ]
 
 [sections.fold_webgl]
@@ -355,12 +362,12 @@ paths = [
     "src/web_ui/esmfold.html", "src/web_ui/esmfold_*.js", "src/web_ui/page_text.js", "src/web_ui/residue_layers.py",
     "tests/esmfold_*", "tests/molstar_api_probe.py",
 ]
-sections = ["fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_webgl"]
+sections = ["fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_panel", "fold_webgl"]
 
 # The vendored Mol* (molstar.js, its stylesheets, licence and notices) is what the page tests load.
 [[rules]]
 paths = ["src/resources/esmfold/molstar*", "src/resources/esmfold/*.molstar*", "src/resources/esmfold/NOTICES.*"]
-sections = ["plugins", "viewer", "fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_webgl"]
+sections = ["plugins", "viewer", "fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_panel", "fold_webgl"]
 
 # What the Fold View page is served by and fed from. (The page sections that run the command or read what
 # the worker writes are found by the reference scan.)

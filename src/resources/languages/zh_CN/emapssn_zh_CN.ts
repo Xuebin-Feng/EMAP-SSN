@@ -2896,17 +2896,17 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location line="+304"/>
+        <location line="+309"/>
         <location line="+51"/>
-        <location filename="../../../web_ui/esmfold_image.js" line="+54"/>
+        <location filename="../../../web_ui/esmfold_image.js" line="+66"/>
         <location filename="../../../web_ui/esmfold_residue.js" line="-2"/>
-        <location line="+180"/>
-        <location filename="../../../web_ui/esmfold_structures.js" line="+408"/>
+        <location line="+185"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="+410"/>
         <source>No data</source>
         <translation type="unfinished">无数据</translation>
     </message>
     <message>
-        <location line="-294"/>
+        <location line="-299"/>
         <source>Could not color {file} by that layer.</source>
         <translation type="unfinished">无法按该图层给 {file} 着色。</translation>
     </message>
@@ -2937,7 +2937,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+4"/>
-        <location filename="../../../web_ui/esmfold_residue.js" line="-302"/>
+        <location filename="../../../web_ui/esmfold_residue.js" line="-307"/>
         <source>Helix</source>
         <translation type="unfinished">螺旋</translation>
     </message>
@@ -2963,7 +2963,7 @@ Command-line usage:
         <translation type="unfinished">C 端</translation>
     </message>
     <message>
-        <location line="+124"/>
+        <location line="+129"/>
         <source>{names}: the colors are the file&apos;s B-factor column. In an experimental structure that is not confidence.</source>
         <translation type="unfinished">{names}：颜色来自文件的 B 因子列。在实验测定的结构中，它不代表置信度。</translation>
     </message>
@@ -2974,7 +2974,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+52"/>
-        <location filename="../../../web_ui/esmfold.html" line="+872"/>
+        <location filename="../../../web_ui/esmfold.html" line="+903"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3027,7 +3027,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/esmfold.html" line="-99"/>
+        <location filename="../../../web_ui/esmfold.html" line="-100"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -3165,7 +3165,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+20"/>
-        <location filename="../../../web_ui/esmfold_structures.js" line="-370"/>
+        <location filename="../../../web_ui/esmfold_structures.js" line="-372"/>
         <source>Structure</source>
         <translation type="unfinished">结构</translation>
     </message>
@@ -3175,7 +3175,7 @@ Command-line usage:
         <translation type="unfinished">Cα–Cα (Å)</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+24"/>
         <source>Each structure shows the residue at the same place of the alignment.</source>
         <translation type="unfinished">每个结构显示比对中相同位置的残基。</translation>
     </message>
@@ -3196,7 +3196,7 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../web_ui/esmfold_structures.js" line="+235"/>
-        <location filename="../../../web_ui/esmfold.html" line="+49"/>
+        <location filename="../../../web_ui/esmfold.html" line="+50"/>
         <source>Color</source>
         <translation type="unfinished">着色</translation>
     </message>
@@ -3206,7 +3206,7 @@ Command-line usage:
         <translation type="unfinished">与场景相同</translation>
     </message>
     <message>
-        <location line="+123"/>
+        <location line="+125"/>
         <source>Pivot</source>
         <translation type="unfinished">基准</translation>
     </message>
@@ -3216,13 +3216,13 @@ Command-line usage:
         <translation type="unfinished">其他结构都向它对齐。</translation>
     </message>
     <message>
-        <location line="-73"/>
-        <location line="+75"/>
+        <location line="-75"/>
+        <location line="+77"/>
         <source>RMSD {rmsd} Å</source>
         <translation type="unfinished">RMSD {rmsd} Å</translation>
     </message>
     <message>
-        <location line="-320"/>
+        <location line="-322"/>
         <source>Cartoon</source>
         <translation type="unfinished">卡通</translation>
     </message>
@@ -3272,7 +3272,7 @@ Command-line usage:
         <translation type="unfinished">表示方式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_color.js" line="-431"/>
+        <location filename="../../../web_ui/esmfold_color.js" line="-436"/>
         <location filename="../../../web_ui/esmfold_structures.js" line="+11"/>
         <source>Other (set in Advanced)</source>
         <translation type="unfinished">其他（在高级视图中设置）</translation>
@@ -3348,7 +3348,7 @@ Command-line usage:
         <translation type="unfinished">下载 PDB</translation>
     </message>
     <message>
-        <location line="+41"/>
+        <location line="+43"/>
         <source>Aligned to the pivot: {used} of {aligned} Cα pairs, {identity}% sequence identity.</source>
         <translation type="unfinished">已对齐到基准结构：{aligned} 个 Cα 配对中使用了 {used} 个，序列一致性 {identity}%。</translation>
     </message>
@@ -3429,7 +3429,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+1"/>
-        <location filename="../../../web_ui/esmfold.html" line="-103"/>
+        <location filename="../../../web_ui/esmfold.html" line="-104"/>
         <source>Saved automatically after every change</source>
         <translation type="unfinished">每次更改后自动保存</translation>
     </message>
@@ -3496,8 +3496,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-737"/>
-        <location line="+732"/>
+        <location filename="../../../web_ui/esmfold.html" line="-767"/>
+        <location line="+762"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -3568,13 +3568,13 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location line="+75"/>
+        <location line="+76"/>
         <location line="+1"/>
         <source>Scene</source>
         <translation type="unfinished">场景</translation>
     </message>
     <message>
-        <location line="-71"/>
+        <location line="-72"/>
         <source>Advanced view: Mol*&apos;s own panels (English only). The same scene, the same session.</source>
         <translation type="unfinished">高级视图：Mol* 自带的面板（仅英文）。场景和会话与简易视图相同。</translation>
     </message>
@@ -3621,12 +3621,12 @@ Command-line usage:
     <message>
         <location line="+2"/>
         <location line="+0"/>
-        <location line="+122"/>
+        <location line="+125"/>
         <source>Save an image</source>
         <translation type="unfinished">保存图片</translation>
     </message>
     <message>
-        <location line="-121"/>
+        <location line="-124"/>
         <location line="+0"/>
         <source>Full screen</source>
         <translation type="unfinished">全屏</translation>
@@ -3703,7 +3703,18 @@ Command-line usage:
         <translation type="unfinished">已保存的会话未受影响，3D 视图启动后会恢复。</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+19"/>
+        <location line="+38"/>
+        <source>Resize the panel</source>
+        <translation type="unfinished">调整面板宽度</translation>
+    </message>
+    <message>
+        <location line="-38"/>
+        <source>Drag to resize the panel. Double-click to restore its width.</source>
+        <translation type="unfinished">拖动可调整面板宽度，双击可恢复原宽度。</translation>
+    </message>
+    <message>
+        <location line="+36"/>
         <source>Pin a residue</source>
         <translation type="unfinished">固定残基</translation>
     </message>
@@ -3721,6 +3732,11 @@ Command-line usage:
         <location line="+0"/>
         <source>Choose the ruler or the tag in the toolbar, then click two residues (one for a label)</source>
         <translation type="unfinished">在工具栏中选择尺子或标签，然后单击两个残基（标注只需一个）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Drag the handle on its left edge; double-click it to restore the width</source>
+        <translation type="unfinished">拖动面板左边缘的手柄；双击手柄可恢复宽度</translation>
     </message>
     <message>
         <location line="+4"/>
@@ -3758,11 +3774,31 @@ Command-line usage:
         <translation type="unfinished">重置视图</translation>
     </message>
     <message>
+        <location line="+1"/>
+        <source>Left</source>
+        <translation type="unfinished">向左键</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Right</source>
+        <translation type="unfinished">向右键</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Home</source>
+        <translation type="unfinished">Home</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>On the handle of the panel: make it wider or narrower, or restore its width</source>
+        <translation type="unfinished">在面板的手柄上：加宽或收窄面板，或恢复其宽度</translation>
+    </message>
+    <message>
         <source>This Viewer has no window. Run &lt;code&gt;esmfold&lt;/code&gt; from its command line or an MCP client: the structures appear here.</source>
         <translation type="obsolete">此查看器没有窗口。请在它的命令行或 MCP 客户端中运行 &lt;code&gt;esmfold&lt;/code&gt;：结构会显示在这里。</translation>
     </message>
     <message>
-        <location line="-71"/>
+        <location line="-74"/>
         <source>This Viewer has no window. An MCP client, or whatever else drives it, selects a node and runs &lt;code&gt;esmfold&lt;/code&gt;; the structure appears here.</source>
         <translation type="unfinished">此查看器没有窗口。由 MCP 客户端（或其他驱动它的程序）选择节点并运行 &lt;code&gt;esmfold&lt;/code&gt;；结构会显示在这里。</translation>
     </message>
@@ -3797,7 +3833,7 @@ Command-line usage:
         <translation type="unfinished">序列所属的结构和链</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Scene panels</source>
         <translation type="unfinished">场景面板</translation>
     </message>
@@ -3867,7 +3903,7 @@ Command-line usage:
         <translation type="obsolete">单击残基；单击空白处取消</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
         <source>Keyboard</source>
         <translation type="unfinished">键盘</translation>
     </message>
@@ -3885,7 +3921,7 @@ Command-line usage:
         <translation type="obsolete">关闭此对话框，或退出高级视图</translation>
     </message>
     <message>
-        <location line="+4"/>
+        <location line="+5"/>
         <source>Esc</source>
         <translation type="unfinished">Esc</translation>
     </message>
@@ -3956,7 +3992,7 @@ Command-line usage:
         <translation type="unfinished">{name} · 链 {chain}</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+20"/>
         <source>Sequence of {name}, chain {chain}</source>
         <translation type="unfinished">{name} 链 {chain} 的序列</translation>
     </message>
@@ -3976,7 +4012,7 @@ Command-line usage:
         <translation type="unfinished">3D 结构视图。方向键逐个选择残基，F 缩放到已固定的残基，R 重置视图，Esc 取消固定。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_image.js" line="+102"/>
+        <location filename="../../../web_ui/esmfold_image.js" line="+108"/>
         <source>Saved fold-view.png.</source>
         <translation type="unfinished">已保存 fold-view.png。</translation>
     </message>
@@ -4024,12 +4060,12 @@ Command-line usage:
     </message>
     <message>
         <location line="-75"/>
-        <location line="+79"/>
+        <location line="+80"/>
         <source>Folding {index} of {total}</source>
         <translation type="unfinished">正在折叠第 {index} 个，共 {total} 个</translation>
     </message>
     <message>
-        <location line="-58"/>
+        <location line="-59"/>
         <source>A structure</source>
         <translation type="unfinished">一个结构</translation>
     </message>
@@ -4065,7 +4101,7 @@ Command-line usage:
         <translation type="unfinished">已折叠 {done}/{total}。</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+65"/>
         <source>Failed</source>
         <translation type="unfinished">失败</translation>
     </message>
@@ -4446,7 +4482,7 @@ Command-line usage:
         <location filename="../../../commands/agent.py" line="+74"/>
         <location line="+127"/>
         <location filename="../../../commands/esmfold.py" line="+108"/>
-        <location line="+579"/>
+        <location line="+582"/>
         <location line="+91"/>
         <location line="+114"/>
         <location line="+49"/>
@@ -4691,7 +4727,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/esmfold.py" line="-545"/>
+        <location filename="../../../commands/esmfold.py" line="-548"/>
         <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
         <translation type="unfinished">
             <numerusform>%n 个结构没有逐残基比对数据：不在比对中。</numerusform>
@@ -4761,7 +4797,7 @@ Command-line usage:
         <translation type="unfinished">折叠工作进程已停止（退出码 {code}）；其输出在 {log} 中。</translation>
     </message>
     <message>
-        <location line="+158"/>
+        <location line="+161"/>
         <source>Starting the folding worker…</source>
         <translation type="unfinished">正在启动折叠工作进程…</translation>
     </message>

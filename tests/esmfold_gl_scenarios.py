@@ -361,6 +361,52 @@ class Scenario(FoldViewPageMixin, FoldViewServerMixin, unittest.TestCase):
         FACTS["closedSameCanvas"] = self.script("return plugin.canvas3d === window.__canvas")
         FACTS["closedDrawn"] = self.script("return (await canvasPixels()).drawn")
 
+        # The panel's width: a real pointer drags the handle on the panel's edge, and the canvas, a real one, takes the room that is
+        # left. It is as wide as the stage, drawn again at that size (its buffer, and the camera's viewport) and not stretched: two
+        # residues are as many pixels apart as before, which a picture that was only scaled up or down would not leave them.
+        def canvas_now(label):
+            found = self.script("""
+                const canvas = document.querySelector('#viewer canvas');
+                const stage = document.getElementById('stage').getBoundingClientRect();
+                const a = spotOf(0, 4), b = spotOf(0, 28), viewport = plugin.canvas3d.camera.viewport;
+                const picture = await canvasPixels();
+                return {panel: document.getElementById('side').getBoundingClientRect().width, client: [canvas.clientWidth, canvas.clientHeight],
+                        buffer: [canvas.width, canvas.height], ratio: window.devicePixelRatio, stage: [stage.width, stage.height],
+                        viewport: [viewport.width, viewport.height], apart: [b[0] - a[0], b[1] - a[1]], drawn: picture.drawn,
+                        shot: [picture.width, picture.height], calls: window.__resizeCalls || 0};""")
+            found["label"] = label
+            FACTS["panel"].append(found)
+
+        FACTS["panel"] = []
+        self.script("window.__resizeCalls = 0; const resize = viewerInstance.handleResize.bind(viewerInstance); viewerInstance.handleResize = () => { window.__resizeCalls++; return resize(); }; return 1")
+        self.wait(400)
+        canvas_now("default")
+        edge = self.script("const r = document.getElementById('side-resizer').getBoundingClientRect(); return [document.getElementById('side').getBoundingClientRect().left, r.top + r.height / 2]")
+        start = QPoint(round(edge[0]) + 2, round(edge[1]))
+        QTest.mouseMove(widget, start)
+        QTest.mousePress(widget, Qt.LeftButton, Qt.NoModifier, start)
+        for step in range(1, 6):
+            QTest.mouseMove(widget, QPoint(start.x() - 40 * step, start.y()))
+            self.pump(0.05)
+        self.pump(0.6)
+        canvas_now("dragging")
+        QTest.mouseRelease(widget, Qt.LeftButton, Qt.NoModifier, QPoint(start.x() - 200, start.y()))
+        self.pump(0.5)
+        canvas_now("let go")
+        key = "document.getElementById('side-resizer').focus(); document.getElementById('side-resizer').dispatchEvent(new KeyboardEvent('keydown', {key: %s, bubbles: true, cancelable: true})); return 1"
+        self.script(key % "'End'")
+        self.wait(600)
+        canvas_now("widest")
+        self.view.resize(1100, 800)
+        self.wait(800)
+        canvas_now("window of 1100 px")
+        self.view.resize(1300, 800)
+        self.wait(500)
+        self.script(key % "'Home'")
+        self.wait(600)
+        canvas_now("restored")
+        self.picture("panel-restored-dark")
+
         # Sessions saved by an earlier Mol* (tests/esmfold_saved_sessions.py) carry the camera of a page with a canvas:
         # it comes back, by the Viewer's route and from the downloaded file, and the structures are in view.
         FACTS["savedCamera"] = {}

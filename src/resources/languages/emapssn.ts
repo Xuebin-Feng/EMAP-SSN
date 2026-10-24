@@ -2528,6 +2528,14 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Resize the panel</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Drag to resize the panel. Double-click to restore its width.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Scene panels</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2592,6 +2600,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Drag the handle on its left edge; double-click it to restore the width</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Keyboard</source>
         <translation type="unfinished"></translation>
     </message>
@@ -2625,6 +2637,22 @@ Command-line usage:
     </message>
     <message>
         <source>Resets the view</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Left</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Right</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Home</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>On the handle of the panel: make it wider or narrower, or restore its width</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
