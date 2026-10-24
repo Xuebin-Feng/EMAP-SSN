@@ -207,5 +207,99 @@ class FoldedStructureEventTests(unittest.TestCase):
         self.assertEqual(viewer.events, [])
 
 
+class OpenLogTests(unittest.TestCase):
+    """The page's Open log button names a run; the Viewer finds the log it made for that run, and opens it only where a person is."""
+
+    class Viewer(RecordingViewer):
+        def __init__(self, shows=True):
+            super().__init__()
+            self.shows = shows
+
+        def shows_windows(self):
+            return self.shows
+
+    def setUp(self):
+        import Viewer_Worker_Tracking
+        from commands import esmfold
+        self.esmfold = esmfold
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        patcher = mock.patch.object(Viewer_Worker_Tracking, "__file__", str(self.root / "src" / "Viewer_Worker_Tracking.py"))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.run = esmfold.FoldRun([], [], mode="large", device=None, structures_dir=str(self.root), action_url="", portal=False)
+        Path(self.run.log_path).parent.mkdir(parents=True, exist_ok=True)
+        Path(self.run.log_path).write_text("worker output", encoding="utf-8")
+        esmfold.RUNS[self.run.run_id] = self.run
+        self.addCleanup(esmfold.RUNS.clear)
+        patcher = mock.patch("desktop.Viewer_Jobs.QDesktopServices.openUrl", return_value=True)
+        self.open_url = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def not_opened(self, viewer):
+        return [event for event in viewer.events if event == {"type": "esmfold_job", "event": "log_not_opened"}]
+
+    def test_the_log_of_the_run_the_page_names_is_opened_and_nothing_else(self):
+        viewer = self.Viewer()
+        esmfold_backend.handle_open_log(viewer, {
+            "run": self.run.run_id, "path": str(self.root / "elsewhere.txt"), "log": r"C:\Windows\win.ini"})
+        self.open_url.assert_called_once()
+        opened = self.open_url.call_args.args[0].toLocalFile()
+        self.assertEqual(os.path.normcase(opened), os.path.normcase(os.path.abspath(self.run.log_path)))
+        self.assertEqual(viewer.events, [])
+
+    def test_a_run_this_viewer_did_not_start_or_a_bad_id_opens_nothing_and_the_page_is_told(self):
+        for data in ({}, {"run": "nosuchrun"}, {"run": "../../etc/passwd"}, {"run": 5}, {"path": self.run.log_path}):
+            with self.subTest(data=data):
+                self.open_url.reset_mock()
+                viewer = self.Viewer()
+                esmfold_backend.handle_open_log(viewer, data)
+                self.open_url.assert_not_called()
+                self.assertEqual(len(self.not_opened(viewer)), 1)
+
+    def test_a_viewer_with_no_window_opens_nothing_and_says_so(self):
+        viewer = self.Viewer(shows=False)
+        esmfold_backend.handle_open_log(viewer, {"run": self.run.run_id})
+        self.open_url.assert_not_called()
+        self.assertEqual(len(self.not_opened(viewer)), 1)
+
+    def test_a_log_that_is_gone_opens_nothing_and_says_so(self):
+        os.unlink(self.run.log_path)
+        viewer = self.Viewer()
+        esmfold_backend.handle_open_log(viewer, {"run": self.run.run_id})
+        self.open_url.assert_not_called()
+        self.assertEqual(len(self.not_opened(viewer)), 1)
+
+    def test_a_log_outside_the_workers_folder_is_never_named(self):
+        outside = self.root / "outside.log"
+        outside.write_text("not a worker log", encoding="utf-8")
+        self.run.log_path = str(outside)
+        self.assertIsNone(self.esmfold.log_of(self.run.run_id))
+        viewer = self.Viewer()
+        esmfold_backend.handle_open_log(viewer, {"run": self.run.run_id})
+        self.open_url.assert_not_called()
+        self.assertEqual(len(self.not_opened(viewer)), 1)
+
+    def test_the_action_reaches_the_handler(self):
+        registry = RecordingRegistry()
+        viewer = self.Viewer()
+        with mock.patch.object(esmfold_backend, "get_structures_directory", return_value="structures"):
+            esmfold_backend.register_backend(registry, viewer)
+        registry.actions[("esmfold", "esmfold_open_log")]({"run": self.run.run_id})
+        self.open_url.assert_called_once()
+
+    def test_an_event_of_a_known_run_carries_the_log_the_viewer_made_not_the_workers_own(self):
+        viewer = self.Viewer()
+        esmfold_backend.handle_esmfold_job(viewer, {
+            "event": "failed", "reason": "stopped", "run": self.run.run_id, "log": r"C:\temp\esmfold-x.json.stdout"})
+        [message] = viewer.events
+        self.assertEqual(message["log"], self.run.log_path)
+        self.assertEqual(message["run"], self.run.run_id)
+        viewer = self.Viewer()
+        esmfold_backend.handle_esmfold_job(viewer, {"event": "failed", "run": "unknownrun", "log": "worker.stdout"})
+        self.assertEqual(viewer.events[0]["log"], "worker.stdout")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -36,8 +36,8 @@ function jobHeading() {
 }
 
 // ---- What the Viewer says -----------------------------------------------------------------------------
-function addFailure(name, reason, log) {
-    failures.push({ id: ++failureCount, name, reason, log: log || '' });
+function addFailure(name, reason, log, run) {
+    failures.push({ id: ++failureCount, name, reason, log: log || '', run: run || '' });
     scheduleStructures();
 }
 
@@ -53,12 +53,14 @@ function handleJobEvent(message) {
         job.name = message.name || '';
         if (!jobTimer) jobTimer = setInterval(tickJob, 1000);
     } else if (message.event === 'structure_failed') {
-        addFailure(message.name || t("A structure"), message.reason || t("The folding worker stopped."), message.log);
+        addFailure(message.name || t("A structure"), message.reason || t("The folding worker stopped."), message.log, message.run);
         showStatus(t("Folding {name} failed: {reason}", {name: message.name || '', reason: message.reason || ''}), 8000, {error: true});
     } else if (message.event === 'failed') {
-        addFailure(job?.name || t("Folding"), message.reason || t("The folding worker stopped."), message.log);
+        addFailure(job?.name || t("Folding"), message.reason || t("The folding worker stopped."), message.log, message.run);
         if (job) job.finished = true;
         showStatus(t("The folding worker stopped: {reason}", {reason: message.reason || ''}), 8000, {error: true});
+    } else if (message.event === 'log_not_opened') {
+        showStatus(t("The log could not be opened: it is gone, or this Viewer shows no window."), 6000, {error: true});
     } else if (message.event === 'finished') {
         if (job) job.finished = true;
         if (!message.failed) showStatus(t("Folded {done} of {total}.", {done: message.succeeded ?? 0, total: message.total ?? 0}));
@@ -133,6 +135,13 @@ function jobRows() {
         main.append(swatch, text);
         const body = make('div', 'srow-body');
         const actions = make('div', 'row-actions');
+        if (failure.run) {
+            // The Viewer opens it in the system's text viewer, from the run's id: a Viewer with no window has none to open it in.
+            const open = make('button', 'btn btn-sm withwindow', t("Open log"));
+            open.type = 'button';
+            open.addEventListener('click', () => openLog(failure.run));
+            actions.append(open);
+        }
         if (failure.log) {
             const copy = make('button', 'btn btn-sm', t("Copy log path"));
             copy.type = 'button';
@@ -151,6 +160,14 @@ function jobRows() {
         rows.push(row);
     }
     return rows;
+}
+
+function openLog(run) {
+    fetch('/api/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'esmfold_open_log', run })
+    }).catch(() => showStatus(t("Connection error: could not reach the Viewer."), 6000, {error: true}));
 }
 
 function copyText(text) {

@@ -146,6 +146,51 @@ class FailureTests(JobTestCase):
         self.assertEqual(self.script("return window.__copied"), [r"C:\runs\worker.stdout"])
         self.assertEqual(self.script("return document.getElementById('toast').querySelector('span').textContent"), "Copied the log path.")
 
+    def intercept_open_log(self):
+        """Record the page's requests to open a log instead of sending them; return nothing."""
+        self.script("""
+            window.__opened = [];
+            const send = window.fetch;
+            window.fetch = (url, options) => {
+                if (options && options.body && String(options.body).includes('esmfold_open_log')) {
+                    window.__opened.push(JSON.parse(options.body));
+                    return Promise.resolve(new Response('{}'));
+                }
+                return send(url, options);
+            };
+            return 1;
+            """)
+
+    def test_a_failure_of_a_run_the_viewer_started_opens_its_log_through_the_viewer(self):
+        self.write_all()
+        self.open_page()
+        self.intercept_open_log()
+        self.event("structure_failed", name="node_b", reason="stopped", run="r1", log=r"C:\runs\esmfold-r1.log")
+        self.assertEqual(self.rows()[0]["buttons"], ["Open log", "Copy log path", "Dismiss"])
+        self.click("#struct-list .srow.failed .btn", 300)
+        # The run's id, never a path: the Viewer finds the log it made.
+        self.assertEqual(self.script("return window.__opened"), [{"action": "esmfold_open_log", "run": "r1"}])
+
+    def test_a_failure_with_no_run_has_no_open_log_button(self):
+        self.write_all()
+        self.open_page()
+        self.event("failed", reason="stopped", log=r"C:\runs\worker.stdout")
+        self.assertEqual(self.rows()[0]["buttons"], ["Copy log path", "Dismiss"])
+
+    def test_the_button_gives_way_in_a_viewer_with_no_window_and_a_log_that_will_not_open_is_said(self):
+        self.write_all()
+        self.open_page()
+        self.event("failed", reason="stopped", run="r1")
+        show = "return getComputedStyle([...document.querySelectorAll('#struct-list .srow.failed button')].find(b => b.textContent === 'Open log')).display"
+        self.assertNotEqual(self.script(show), "none")
+        self.broadcast({"type": "viewer_info", "hidden": True})
+        self.settle(300)
+        self.assertEqual(self.script(show), "none", "a Viewer with no window has none to open a log in")
+        self.broadcast({"type": "viewer_info", "hidden": False})
+        self.event("log_not_opened")
+        self.assertEqual(self.script("return document.getElementById('toast').querySelector('span').textContent"),
+                         "The log could not be opened: it is gone, or this Viewer shows no window.")
+
     def test_a_structure_that_cannot_be_loaded_has_a_row_too(self):
         self.write_all()
         self.open_page()

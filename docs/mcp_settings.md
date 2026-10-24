@@ -843,7 +843,7 @@ the final status and artifacts then, and the next request runs at once, so a fil
 fold requested one after the other really run side by side. A request with commands
 after the job, with work in the Viewer's command queue, or awaiting user input keeps its
 place as before. A failed or cancelled job fails or cancels its request. A fold runs
-without any window, its output in a log file the outcome names. A fold's artifacts are its PDB
+without any window, its output in a log file the outcome names (a failed fold's log opens from the Session card or the Fold View page, where a person is at the Viewer). A fold's artifacts are its PDB
 files and, beside each one folded with an alignment loaded, its per-residue data file
 (`<pdb name>.residues.json`). `esmfold stop` ends the running fold with every process it
 started, takes the waiting folds out of the line and reports their jobs cancelled; `run

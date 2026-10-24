@@ -1888,6 +1888,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>The log could not be opened: it is gone, or this Viewer shows no window.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Folded {done} of {total}.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -1896,11 +1900,19 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Open log</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Copy log path</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Dismiss</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Connection error: could not reach the Viewer.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

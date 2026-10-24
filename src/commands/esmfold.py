@@ -472,6 +472,20 @@ def _remember(run):
         RUNS.popitem(last=False)
 
 
+def log_of(run_id):
+    """The log of the run this Viewer started with this id, or None: a path is never taken from anyone else.
+
+    The path is the one the run made for itself in the workers' folder; it is checked to lie there all the same.
+    """
+    from web_ui.Web_Server import contained_path
+    run = RUNS.get(run_id)
+    if run is None:
+        return None
+    directory = str(worker_directory())
+    path = contained_path(directory, os.path.basename(run.log_path))
+    return path if path is not None and os.path.normcase(path) == os.path.normcase(os.path.abspath(run.log_path)) else None
+
+
 def note_job_event(viewer, message):
     """An esmfold_job event reached the Viewer: pass it to the run it is of, if this Viewer started that run."""
     run = RUNS.get(message.get("run"))

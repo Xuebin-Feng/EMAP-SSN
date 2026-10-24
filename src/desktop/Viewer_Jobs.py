@@ -148,14 +148,21 @@ class ViewerJobs:
     def open_log(self, job_id):
         """Open the log a job names in the system's default text viewer; return whether one was opened.
 
-        A Viewer with no windows (headless, or hidden and not shown) opens nothing, and
-        so does a log that is not there. The job is found by its number, never by a path.
+        The job is found by its number, never by a path.
         """
         scheduler = self.scheduler
-        path = scheduler.log_path_of(job_id) if scheduler is not None else None
-        if path is None or not os.path.isfile(path) or not viewer_shows_windows(self._viewer):
-            return False
-        return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
+        return open_log_file(self._viewer, scheduler.log_path_of(job_id) if scheduler is not None else None)
+
+
+def open_log_file(viewer, path):
+    """Open the log file at path in the system's default text viewer; return whether one was opened.
+
+    A Viewer with no windows (headless, or hidden and not shown) opens nothing, and
+    so does a log that is not there.
+    """
+    if path is None or not os.path.isfile(path) or not viewer_shows_windows(viewer):
+        return False
+    return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
 
 
 class JobsBadge(QLabel):

@@ -4018,18 +4018,18 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../web_ui/esmfold_jobs.js" line="+34"/>
-        <location line="+74"/>
+        <location line="+76"/>
         <source>Getting the model ready...</source>
         <translation type="unfinished">正在准备模型…</translation>
     </message>
     <message>
-        <location line="-73"/>
-        <location line="+77"/>
+        <location line="-75"/>
+        <location line="+79"/>
         <source>Folding {index} of {total}</source>
         <translation type="unfinished">正在折叠第 {index} 个，共 {total} 个</translation>
     </message>
     <message>
-        <location line="-56"/>
+        <location line="-58"/>
         <source>A structure</source>
         <translation type="unfinished">一个结构</translation>
     </message>
@@ -4055,6 +4055,11 @@ Command-line usage:
         <translation type="unfinished">折叠进程已停止：{reason}</translation>
     </message>
     <message>
+        <location line="+2"/>
+        <source>The log could not be opened: it is gone, or this Viewer shows no window.</source>
+        <translation type="unfinished">无法打开日志：它已不存在，或此查看器没有显示窗口。</translation>
+    </message>
+    <message>
         <location line="+3"/>
         <source>Folded {done} of {total}.</source>
         <translation type="unfinished">已折叠 {done}/{total}。</translation>
@@ -4065,7 +4070,12 @@ Command-line usage:
         <translation type="unfinished">失败</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
+        <source>Open log</source>
+        <translation type="unfinished">打开日志</translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <source>Copy log path</source>
         <translation type="unfinished">复制日志路径</translation>
     </message>
@@ -4075,7 +4085,12 @@ Command-line usage:
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location line="+19"/>
+        <source>Connection error: could not reach the Viewer.</source>
+        <translation type="unfinished">连接错误：无法连接到查看器。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
         <source>Copied the log path.</source>
         <translation type="unfinished">已复制日志路径。</translation>
     </message>
@@ -4431,7 +4446,7 @@ Command-line usage:
         <location filename="../../../commands/agent.py" line="+74"/>
         <location line="+127"/>
         <location filename="../../../commands/esmfold.py" line="+108"/>
-        <location line="+565"/>
+        <location line="+579"/>
         <location line="+91"/>
         <location line="+114"/>
         <location line="+49"/>
@@ -4676,7 +4691,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/esmfold.py" line="-531"/>
+        <location filename="../../../commands/esmfold.py" line="-545"/>
         <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
         <translation type="unfinished">
             <numerusform>%n 个结构没有逐残基比对数据：不在比对中。</numerusform>
@@ -4746,7 +4761,7 @@ Command-line usage:
         <translation type="unfinished">折叠工作进程已停止（退出码 {code}）；其输出在 {log} 中。</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+158"/>
         <source>Starting the folding worker…</source>
         <translation type="unfinished">正在启动折叠工作进程…</translation>
     </message>
@@ -7137,7 +7152,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已在 {url} 打开{page}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_backend.py" line="+91"/>
+        <location filename="../../../web_ui/esmfold_backend.py" line="+96"/>
         <source>ESMFold Mol* UI</source>
         <translation type="unfinished">ESMFold Mol* 界面</translation>
     </message>
@@ -12759,7 +12774,7 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished">失败：{reason}</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+57"/>
         <source>Background jobs</source>
         <translation type="unfinished">后台任务</translation>
     </message>

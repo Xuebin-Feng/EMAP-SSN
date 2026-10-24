@@ -54,6 +54,11 @@ def register_backend(registry, viewer):
     )
     registry.register_action(
         "esmfold",
+        "esmfold_open_log",
+        lambda data: handle_open_log(viewer, data),
+    )
+    registry.register_action(
+        "esmfold",
         "console_debug_err",
         lambda data: handle_console_debug_err(viewer, data),
     )
@@ -157,8 +162,33 @@ def handle_esmfold_job(viewer, data):
     run = _run_id(data.get("run"))
     if run:
         message["run"] = run
+        # The log the Viewer made for this run, whatever the worker says its own is.
+        log = _log_of(run)
+        if log:
+            message["log"] = log[:500]
     viewer.broadcast_event(message)
     _tell_command(viewer, "note_job_event", message)
+
+
+def _log_of(run_id):
+    try:
+        from commands import esmfold
+        return esmfold.log_of(run_id)
+    except Exception as error:
+        print(f"Warning: The esmfold command could not name the log of a run: {error}")
+        return None
+
+
+def handle_open_log(viewer, data):
+    """The page's Open log button: open the log of the run it names in the system's text viewer.
+
+    The run is found by its id among those this Viewer started; a path in the request is never read.
+    Where no one is at the Viewer, or the log is gone, nothing opens and the page is told.
+    """
+    from desktop.Viewer_Jobs import open_log_file
+    run = _run_id(data.get("run"))
+    if not open_log_file(viewer, _log_of(run) if run else None):
+        viewer.broadcast_event({"type": "esmfold_job", "event": "log_not_opened"})
 
 
 def handle_load_session(viewer, data):
