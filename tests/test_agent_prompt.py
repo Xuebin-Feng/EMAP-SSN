@@ -143,6 +143,15 @@ class ReviewTests(unittest.TestCase):
                 self.assertEqual(default, rule['default'])
                 self.assertEqual(forms, {word: kind for word, kind in rule['first_argument'].items() if kind != rule['default']})
 
+    def test_the_jobs_listing_runs_and_jobs_cancel_waits_for_the_user(self):
+        # Cancelling discards the user's own commands and jobs; listing them changes nothing.
+        for command in ('jobs cancel', 'jobs cancel 14', 'jobs cancel #14 15', 'jobs cancel all', 'JOBS CANCEL'):
+            self.assertEqual(agent_policy(command), 'approve', command)
+        for command in ('jobs', 'jobs help', 'jobs --help'):
+            self.assertEqual(agent_policy(command), 'run', command)
+        line = next(line for line in self.lists()[3] if line.startswith('  - `jobs` '))
+        self.assertEqual(self.parse_form(line), ('jobs', {'cancel': 'approve'}, 'run'))
+
     def test_the_lists_follow_the_policy_and_are_not_a_copy_of_it(self):
         added = {'zzz_plugin': policy('approve'), 'yyy_plugin': policy('run', {'danger': 'approve', '': 'refuse'}),
                  'xxx_plugin': policy('refuse')}
