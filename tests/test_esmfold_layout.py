@@ -13,6 +13,7 @@ and measure where each text is laid out. Like the other page tests they open esm
 the real server and Mol*.
 """
 
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -24,7 +25,7 @@ for folder in (SRC, ROOT):
         sys.path.insert(0, str(folder))
 
 from tests import esmfold_layer_fixtures as fixtures
-from tests.esmfold_long_names import SECOND_NAME, UNDERSCORE_NAME, USER_MSA, USER_NAME, write_long
+from tests.esmfold_long_names import NAME_120, OPENED_NAME, SECOND_NAME, UNDERSCORE_NAME, USER_MSA, USER_NAME, write_long
 from tests.test_esmfold_residue import ResidueTestCase
 
 from PySide6.QtCore import QUrl  # noqa: E402  (after the harness has set the engine's environment)
@@ -68,21 +69,104 @@ window.tipLayout = function () {
 """
 
 
-class TooltipLayoutTests(ResidueTestCase):
-    """The residue's label stays on one line; a long name breaks anywhere to fit the box, in two lines at most, with an ellipsis."""
+# Where a text or a box of a part of the page is laid out beyond what holds it. `overflowing(selector)` lists, for the part
+# the selector names (a card, the tooltip, the status line), every text and every element that lies outside it, or outside an
+# element between it and the part that clips (overflow other than visible), or is cut with an ellipsis without the whole text on hover.
+# An empty list is a part with nothing out of its place.
+OVERFLOW = """
+window.overflowing = function (selector) {
+    const root = document.querySelector(selector);
+    if (!root) return ['missing ' + selector];
+    const limit = root.getBoundingClientRect();
+    const found = [];
+    const label = node => node.tagName.toLowerCase() + (node.id ? '#' + node.id : '') + [...node.classList].map(name => '.' + name).join('');
+    const drawn = node => {
+        const style = getComputedStyle(node), box = node.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && (box.width > 0 || box.height > 0);
+    };
+    const clips = node => getComputedStyle(node).overflowX !== 'visible';
+    const cuts = node => clips(node) && getComputedStyle(node).textOverflow === 'ellipsis';
+    const inner = node => { const box = node.getBoundingClientRect(); return {left: box.left + node.clientLeft, right: box.left + node.clientLeft + node.clientWidth}; };
+    const within = (box, area) => box.left >= area.left - 0.5 && box.right <= area.right + 0.5;
+    const above = node => { const list = []; for (let a = node.parentElement; a && a !== root; a = a.parentElement) list.push(a); return list; };
+    const report = (node, what, box, area) => found.push(label(node) + ': ' + what + ' ' + Math.round(box.left) + '..' + Math.round(box.right)
+        + ' not in ' + Math.round(area.left) + '..' + Math.round(area.right));
+    const check = (node, boxes, ancestors) => {
+        for (const box of boxes) {
+            for (const holder of ancestors) if (clips(holder) && !within(box, inner(holder))) return report(node, 'beyond ' + label(holder), box, inner(holder));
+            if (!within(box, limit)) return report(node, 'beyond the card', box, limit);
+        }
+    };
+    for (const node of root.querySelectorAll('*')) {
+        if (!drawn(node) || node.closest('.sr-only, svg')) continue;
+        const ancestors = above(node);
+        if (ancestors.some(cuts)) continue;
+        check(node, [node.getBoundingClientRect()], ancestors);
+    }
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+    for (let text = walker.nextNode(); text; text = walker.nextNode()) {
+        const element = text.parentElement;
+        if (!text.textContent.trim() || !drawn(element) || element.closest('.sr-only, svg')) continue;
+        const range = document.createRange();
+        range.selectNodeContents(text);
+        const boxes = [...range.getClientRects()].filter(box => box.width > 0 && box.height > 0);
+        const ancestors = [element, ...above(element)];
+        const cutter = ancestors.find(cuts);
+        if (cutter) {
+            // Cut with an ellipsis on purpose: the whole text is on hover.
+            const titled = cutter.closest('[title]');
+            if (!titled || !titled.title.includes(text.textContent.trim())) found.push(label(cutter) + ': cut with no whole text on hover: ' + text.textContent.trim().slice(0, 40));
+            continue;
+        }
+        check(element, boxes, ancestors);
+    }
+    for (const holder of [root, ...root.querySelectorAll('*')]) {
+        if (clips(holder) && holder.scrollWidth > holder.clientWidth + 1 && drawn(holder) && !cuts(holder)) {
+            found.push(label(holder) + ': scrolls sideways ' + holder.scrollWidth + ' > ' + holder.clientWidth);
+        }
+    }
+    return found;
+};
+"""
 
-    def scene(self, *names, layer="information_content", first=1, **labels):
+
+class LongNameTestCase(ResidueTestCase):
+    """A scene of the structures `names`, which have the two usual layers, whose source is a long file name."""
+
+    def scene(self, *names, layer=None, first=1, msa=USER_MSA, **labels):
         """The structures `names` (each of the two fixture sequences in turn), numbered from `first`, colored by `layer`.
 
         `labels` (label_a, label_b) name the two layers.
         """
         for index, name in enumerate(names):
-            write_long(self.directory, name, fixtures.FIRST_SEQUENCE if index % 2 == 0 else fixtures.SECOND_SEQUENCE, USER_MSA,
+            write_long(self.directory, name, fixtures.FIRST_SEQUENCE if index % 2 == 0 else fixtures.SECOND_SEQUENCE, msa,
                        shift=(3.0 * index, 1.0 * index, 0.0), wobble=0.4 * index, first=first, **labels)
         self.open_scene(*[name + ".pdb" for name in names])
+        self.js(OVERFLOW)
         self.js(TIP_LAYOUT)
         if layer:
             self.choose(layer)
+
+    def at(self, width, tab="color"):
+        """The page with the window `width` pixels wide: the panel beside the canvas, a drawer over it, or a strip."""
+        self.view.resize(width, 800)
+        self.addCleanup(self.view.resize, 1300, 800)
+        self.script("setPanel(true); setTab(%s); await new Promise(resolve => setTimeout(resolve, 450)); return 1" % json.dumps(tab))
+
+    def overflowing(self, selector):
+        return self.script("return overflowing(%s)" % json.dumps(selector))
+
+    def reset_page(self):
+        self.view.setUrl(QUrl("about:blank"))
+        self.pump(0.3)
+
+
+class TooltipLayoutTests(LongNameTestCase):
+    """The residue's label stays on one line; a long name breaks anywhere to fit the box, in two lines at most, with an ellipsis."""
+
+    def scene(self, *names, layer="information_content", **options):
+        # Colored by a layer, so that the tip has a row of its value beside the pLDDT's.
+        super().scene(*names, layer=layer, **options)
 
     def tip_at(self, width=1300, group=5, structure=0, x=200, y=120):
         self.view.resize(width, 800)
@@ -178,10 +262,6 @@ class TooltipLayoutTests(ResidueTestCase):
                 self.script("await hoverOff(); return 1")
                 self.reset_page()
 
-    def reset_page(self):
-        self.view.setUrl(QUrl("about:blank"))
-        self.pump(0.3)
-
     def test_the_whole_name_is_where_the_tip_sends_a_person_for_it(self):
         self.scene(USER_NAME)
         self.script("await clickOn(0, 5); return 1")
@@ -198,6 +278,75 @@ class TooltipLayoutTests(ResidueTestCase):
         layout = self.tip_at()
         self.assert_laid_out(layout, "zh_CN", clipped=True)
         self.assertEqual(layout["label"], "Ile 185")
+
+
+class LegendNoteTests(LongNameTestCase):
+    """The notes and legends of the Color by card say a file's name and a structure's: they stay inside the card."""
+
+    COLORINGS = ("plddt", "builtin:structure", "information_content", "same_residue_pct", "builtin:secondary-structure",
+                 "builtin:residue-position")
+
+    def test_the_source_note_breaks_anywhere_inside_its_card_and_keeps_the_whole_file_name(self):
+        self.scene(USER_NAME, SECOND_NAME)
+        for layer in ("information_content", "same_residue_pct"):
+            self.choose(layer)
+            for width in (1300, 1040, 600):
+                with self.subTest(layer=layer, width=width):
+                    self.at(width)
+                    note = self.script("""
+                        const details = document.querySelector('#color-legend details.src');
+                        const span = details.querySelector('summary span');
+                        const range = document.createRange();
+                        range.selectNodeContents(span);
+                        return {text: span.textContent, lines: new Set([...range.getClientRects()].map(r => Math.round(r.top))).size,
+                                open: details.open, ellipsis: getComputedStyle(span).textOverflow};""")
+                    # The whole name, as the Viewer words it, on as many lines as it takes, and nothing cut.
+                    self.assertEqual(note["text"], f"From {USER_MSA}, computed when folded, using 3925 sequences")
+                    self.assertGreater(note["lines"], 1)
+                    self.assertEqual(note["ellipsis"], "clip")
+                    self.assertEqual(self.overflowing("#color-legend"), [])
+                    # Open, the layer's description is inside the card as well.
+                    self.script("document.querySelector('#color-legend details.src').open = true; return 1")
+                    self.assertEqual(self.overflowing("#color-legend"), [])
+                    self.script("document.querySelector('#color-legend details.src').open = false; return 1")
+
+    def test_every_coloring_of_the_card_with_long_names_has_nothing_outside_the_card(self):
+        # Three structures that are folded (one has no residue data) and one opened from a file, whose names have no spaces to break at.
+        self.write_with(NAME_120 + ".pdb", shift=(-2.0, 4.0, 1.0), wobble=0.7)
+        self.scene(USER_NAME, SECOND_NAME)
+        self.push(NAME_120 + ".pdb")
+        self.script("openStructureFiles([new File([%s], %s)]); await structureQueue; return 1" % (
+            json.dumps(fixtures.helix_pdb(fixtures.FIRST_SEQUENCE, fixtures.plddt_values(33), shift=(1.0, 2.0, 0.0))),
+            json.dumps(OPENED_NAME + ".pdb")))
+        self.settle(600)
+        # The opened file shows pLDDT too, which says its colors are its B-factors (the note that holds its name).
+        self.script("await setStructureColoring(loadedStructures()[3].cell.transform.ref, 'plddt'); return 1")
+        self.settle(500)
+        # (Secondary structure and Residue position are under More colorings.)
+        self.script("document.querySelector('.more-toggle').click(); return 1")
+        self.settle(150)
+        for coloring in self.COLORINGS:
+            self.choose(coloring)
+            self.settle(150)
+            for width in (1300, 1040, 600):
+                with self.subTest(coloring=coloring, width=width):
+                    self.at(width)
+                    self.assertEqual(self.overflowing("section[data-tab=color]"), [])
+                    # The legend drawn over the canvas (which a canvas-less engine hides, so the test says it is ready).
+                    self.assertEqual(self.script("""
+                        document.body.dataset.view = 'ready';
+                        const found = overflowing('#canvas-legend');
+                        updateView();
+                        return found;"""), [])
+        # The notes of the card do hold the names.
+        self.choose("information_content")
+        card = self.script("return card()")
+        self.assertIn(NAME_120, card["noData"])
+        self.assertIn(OPENED_NAME, card["noData"])
+        self.assertTrue(any(NAME_120 in note for note in card["layerNotes"]), card["layerNotes"])
+        self.choose("plddt")
+        self.assertIn(OPENED_NAME, self.script("return card().caution"))
+        self.assertEqual(self.console_errors(), [])
 
 
 if __name__ == "__main__":

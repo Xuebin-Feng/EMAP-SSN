@@ -450,7 +450,9 @@
         .more-toggle .icon { width: 14px; height: 14px; transition: transform 0.2s ease; }
         .more-toggle[aria-expanded="true"] .icon { transform: rotate(180deg); }
         .more-colorings { margin-top: 8px; }
-        .legend { margin-top: 12px; padding: 10px 10px 9px; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-card); }
+        /* What a legend says comes from the data (a file name, a structure's name, a layer's own words), and a name has no
+           spaces to break at: all of it breaks anywhere to stay inside the card. */
+        .legend { overflow-wrap: anywhere; margin-top: 12px; padding: 10px 10px 9px; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-card); }
         .legend .t { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; }
         .ramp { height: 10px; border-radius: 5px; }
         .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-subtle); margin-top: 3px; font-variant-numeric: tabular-nums; }
@@ -472,7 +474,7 @@
         .legend .src p { margin: 6px 0 0 19px; }
         .legend .nodata { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 11.5px; color: var(--warning); background: var(--warning-soft); border-radius: 6px; padding: 5px 8px; }
         .legend .nodata i { width: 14px; height: 10px; border-radius: 3px; background: #dcdcdc; border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent); flex: none; }
-        .empty-layers { display: flex; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-subtle); line-height: 1.45; }
+        .empty-layers { display: flex; gap: 8px; margin-top: 8px; font-size: 12px; color: var(--text-subtle); line-height: 1.45; overflow-wrap: anywhere; }
         .filter { height: 28px; margin: 0 0 8px; width: 100%; padding: 0 10px; border: 1px solid var(--field-border); border-radius: var(--radius); background: var(--input-bg); color: var(--input-text); font-size: 12.5px; outline: none; }
         .filter:focus { border-color: var(--accent); box-shadow: var(--focus-ring); }
         .chip.warn { background: var(--warning-soft); color: var(--warning); }

@@ -30,6 +30,8 @@ MSA_120 = (
     "Fungal_Expansins_Loosenins_Simplified_(trimmed)_mafft_einsi_alignment_with_gaps_removed_at_90pct_"
     "and_duplicates_collapsed_2024-03-18_final_v7.fasta"
 )
+# The name of a file a person opens (an experimental structure), with the spaces and brackets a file name may have.
+OPENED_NAME = "Fungal Expansin (crystal structure) 1.8 A resolution, chain A, PDB 6XYZ refined 2024-03_final_version_2"
 # Nearly 150 characters with no hyphen, dot or space: only underscores, which are no place to break a line at, between its words.
 UNDERSCORE_NAME = (
     "serine_protease_inhibitor_kazal_type_domain_containing_protein_putative_uncharacterized_protein_isoform_x1_"
