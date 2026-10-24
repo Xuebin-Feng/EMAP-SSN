@@ -237,6 +237,14 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **Command files declare how they are run.** A command file can say that it runs at once
+  even while other commands wait (`QUEUE = "instant"` or a `queue_kind(args, source)`
+  function), that it starts a model request (`STARTS_MODEL_REQUEST`), or that it acts on
+  waiting jobs (`ACTS_ON_JOBS`). The command engine and the command portal read these
+  instead of keeping lists of command names, so a new command file needs no change
+  elsewhere. A command that declares nothing waits its turn, as before. `jobs`, `zoom`,
+  `run`, `esmfold stop`, typed `undo`/`redo`, `meta` and the `agent` settings behave
+  exactly as they did. The conventions are described in `src/Command_Declarations.py`.
 - **Agent chat (beta) fixes.**
   - **No `temperature` by default.** A model card's Temperature is sent only when filled in;
     the local default cards keep 0. A provider that refuses a sampling setting (as current
@@ -536,6 +544,9 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- A model-generated `agent` command with a tab after the word `agent` could start another
+  model request, because the check read the text after the first space. The check now reads
+  the same words the command does, so it is refused like any other.
 - A finished `print`, `label` or `logo` job no longer opens its folder in the file manager
   after the Viewer that ran it has closed. It opens the folder only from a Viewer that is
   still open and shows windows.
