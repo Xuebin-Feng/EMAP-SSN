@@ -1684,12 +1684,15 @@ class LogoJobCancellationTests(unittest.TestCase):
                 with self.subTest(filename=filename, stage=name), tempfile.TemporaryDirectory() as directory:
                     self.reports.clear()
                     patch, calls = self.stop_when_called(owner, name)
-                    with patch:
+                    with patch, mock.patch.object(logo_command.tempfile, "mkstemp",
+                                                  wraps=logo_command.tempfile.mkstemp) as made:
                         self.run_job(directory, filename)
                     self.assertTrue(calls, "the stage ran")
                     self.assertEqual(self.reports, ["stopped"])
                     self.assertEqual(os.listdir(directory), [])
                     self.assertEqual(self.scheduler.snapshot(), [])
+                    # The job stopped at its next check point, before it made its partial file to draw into.
+                    made.assert_not_called()
 
     def test_a_stop_while_the_image_is_written_deletes_the_partial_file(self):
         for filename in ("midway.svg", "midway.png"):

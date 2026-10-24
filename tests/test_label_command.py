@@ -1318,10 +1318,12 @@ class LabelJobCancellationTests(unittest.TestCase):
             with self.subTest(stage=name), tempfile.TemporaryDirectory() as directory:
                 self.reports.clear()
                 patch, calls = self.stop_when_called(owner, name)
-                with patch:
+                with patch, mock.patch.object(label.tempfile, "mkstemp", wraps=label.tempfile.mkstemp) as made:
                     self.run_label(directory, [])
                 self.assertTrue(calls, "the stage ran")
                 self.assert_stopped_leaving_nothing(directory)
+                # The job stopped at its next check point, before it built the workbook or made its partial file.
+                made.assert_not_called()
 
     def test_a_stop_while_the_workbook_is_saved_deletes_the_partial_file(self):
         partial_seen = []
