@@ -699,6 +699,8 @@ class ModelCardPageTests(unittest.TestCase):
         # Two cards, the second one below the conversation and showing its own buttons.
         self.assertEqual([card['request'] for card in self.request_cards()], ['r1', 'r2'])
         self.assertTrue(self.js(f"{self.IN_VIEW}(document.querySelector('.command-request[data-request-id=r2] .command-approval'))"))
+        # The whole card the buttons are in, where it fits, so the commands around them are seen too.
+        self.assertTrue(self.js(f"{self.IN_VIEW}(document.querySelector('.command-request[data-request-id=r2]'))"))
         self.assertEqual(self.js("document.querySelectorAll('.command-request[data-request-id=r1] .command-approval').length"), 0)
         # A later update of the first request, which finished meanwhile, goes to its own card; one of a request
         # this page never showed is not this page's.
