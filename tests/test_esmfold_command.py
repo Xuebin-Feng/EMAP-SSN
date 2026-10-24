@@ -1839,7 +1839,12 @@ class FoldQueueProcessTests(ProcessCase):
         self.addCleanup(gate.set)
         self.scheduler.enqueue("print", "print -> map.png", None, lambda payload: gate.wait(30) and {},
                                str(self.root / "map.png"))
-        self.wait_for(lambda: {lane.name for lane in job_lanes(self.scheduler)} == {"files", "folding"}, "lanes")
+
+        def both_run():
+            seen = {lane.name: lane for lane in job_lanes(self.scheduler)}
+            return set(seen) == {"files", "folding"} and [row.state for row in seen["files"].rows] == ["running"]
+
+        self.wait_for(both_run, "The file job never ran beside the fold")
         lanes = {lane.name: lane for lane in job_lanes(self.scheduler)}
         self.assertEqual([row.state for row in lanes["folding"].rows], ["running", "queued"])
         self.assertEqual([row.state for row in lanes["files"].rows], ["running"])
