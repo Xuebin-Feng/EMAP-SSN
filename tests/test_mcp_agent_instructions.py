@@ -44,6 +44,7 @@ class GuideLoadingTests(unittest.TestCase):
         self.assertIn('after 50 seconds at most with waiting=true: call it again', guide)
         self.assertIn('Never poll get_command_request in a loop', guide)
         self.assertIn('retry with the same submission_id, never a new one', guide)
+        self.assertIn('submission_id, a new random UUID for each different submission', guide)
         self.assertIn('Report completion only after status succeeded', guide)
         self.assertNotIn('to poll the originating session', guide)
         self.assertNotIn('Poll get_command_request', guide)

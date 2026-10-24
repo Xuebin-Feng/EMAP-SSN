@@ -22,7 +22,7 @@ for _path_str in (str(_SRC_DIR), _PROJECT_ROOT):
 
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.exceptions import ToolError
-from pydantic import BaseModel, Field
+from pydantic import AfterValidator, BaseModel, Field
 
 from mcp_server.core.App_Context import AppContext, _viewer
 from mcp_server.pipeline.Pipeline_Jobs import MAX_WAIT_SECONDS
@@ -478,9 +478,33 @@ async def _portal_call(ctx, action, arguments, session_id):
     except MCPViewerError as error:
         raise ToolError(str(error)) from error
 
-async def execute_viewer_commands(ctx: Context[AppContext], submission_id: str,
+# Submission ids name a request in the whole Viewer, whoever submitted it: a second client that reuses an id with
+# the same payload is silently handed the first client's request. So every different submission needs an id no
+# other client will pick, which a random UUID (32 hex digits, 36 with dashes) is. Length is all a server can check;
+# the portal's own limit is 128.
+SUBMISSION_ID_LENGTH = (32, 128)
+
+
+def _random_submission_id(value):
+    low, high = SUBMISSION_ID_LENGTH
+    if not low <= len(value) <= high:
+        raise ValueError(
+            f"submission_id must be a new random UUID (or other random text) of {low} to {high} characters, "
+            f"not {value[:40]!r}: ids are shared by every client of a Viewer. Use a different one for each "
+            "different submission, and the same one only to retry an identical payload.")
+    return value
+
+
+SubmissionId = Annotated[str, Field(
+    description=("A new random UUID for every different submission, such as one from uuid4(); reuse it only to retry "
+                 "the same commands. Ids are shared by every client of the Viewer."),
+    json_schema_extra={'minLength': SUBMISSION_ID_LENGTH[0], 'maxLength': SUBMISSION_ID_LENGTH[1]}),
+    AfterValidator(_random_submission_id)]
+
+
+async def execute_viewer_commands(ctx: Context[AppContext], submission_id: SubmissionId,
         commands: str | list[str], session_id: str | None = None) -> dict[str, Any]:
-    """Submit existing user commands, ordered and stopped on failure. Reuse submission_id on retries. Follow next_step: wait_command_request until the request ends, never polling get_command_request in a loop; accepted is not completed. May write files, open dialogs, and start external work."""
+    """Submit existing user commands, ordered and stopped on failure. Give each different submission its own random UUID as submission_id; reuse it only to retry the same commands. Follow next_step: wait_command_request until the request ends, never polling get_command_request in a loop; accepted is not completed. May write files, open dialogs, and start external work."""
     result = await _portal_call(ctx, 'execute_commands', dict(submission_id=submission_id, commands=commands), session_id)
     return result | {'next_step': _wait_step(result)}
 

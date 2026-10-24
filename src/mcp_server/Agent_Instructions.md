@@ -163,8 +163,8 @@ Explicit IDs target that call without changing the selection.
 
 `emapssn_viewer_control(action="disconnect_session")` clears selection and leaves the Viewer running.
 `emapssn_viewer_control(action="close_session")` terminates it. A closed Viewer makes reads fail;
-connect to another session explicitly. Backend shutdown ends the connection. Independent
-Viewers remain available for reconnection. A Windows host that forbids independent
+connect to another session explicitly. Backend shutdown ends the connection; Viewers
+stay available for reconnection. A Windows host that forbids independent
 launch reports an error; an existing GUI/CLI Viewer can still be connected.
 
 Pipeline, layout and benchmark jobs share a FIFO queue owned by this server. Use
@@ -191,8 +191,9 @@ Discover summaries, arguments, choices/aliases and syntax with get_command_catal
 This is read-only and does not require execute_commands.
 General catalog entries have help=null; syntax lists extracted usage signatures
 and may be empty.
-Submit emapssn_viewer_control(action="execute_commands") with submission_id; after an error such as a
-timeout the commands may be queued, so retry with the same submission_id, never a new one.
+Submit emapssn_viewer_control(action="execute_commands") with submission_id, a new random UUID for each
+different submission; after an error such as a timeout the commands may be queued, so retry with the same
+submission_id, never a new one.
 Follow its next_step: wait_command_request returns when the request ends, or after 50 seconds
 at most with waiting=true: call it again. Never poll get_command_request in a loop.
 get_command_request, wait_command_request and read_command_output accept exactly one nonempty
@@ -218,5 +219,4 @@ Positions are explicit displayed labels, including negatives and insertions, not
 On alignment snapshots, create_subset accepts residue predicates with the existing
 Boolean grammar. No live selection changes are needed.
 query_nodes(fields=["node_id"]) returns only node IDs.
-read_command_output captures MCP-submitted commands even in attached Viewers;
-read_log needs launch-time capture.
+read_command_output captures MCP-submitted commands even in attached Viewers.

@@ -17,6 +17,7 @@ from pathlib import Path
 import sys
 import time
 import unittest
+import uuid
 from unittest import mock
 
 import psutil
@@ -97,7 +98,7 @@ class HiddenViewerTests(unittest.IsolatedAsyncioTestCase):
 
     async def run_command(self, client, session_id, text, name):
         record = await self.answered(lambda: client.command_action(
-            "execute_commands", {"submission_id": name, "commands": [text]}, session_id=session_id))
+            "execute_commands", {"submission_id": f"{name}-{uuid.uuid4().hex}", "commands": [text]}, session_id=session_id))
         for _ in range(300):
             if record["status"] in {"succeeded", "failed", "cancelled", "skipped"}:
                 break

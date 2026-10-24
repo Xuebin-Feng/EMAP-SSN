@@ -23,10 +23,10 @@ class PortalHTTPTests(SnapshotHTTPFixture, unittest.TestCase):
         write_fasta(msa, [(h, 'AC') for h in self.viewer.full_headers])
         self.viewer.alignment = load_manager(msa, self.viewer.full_headers, self.viewer.full_headers[0])
         self.viewer.active_reference = self.viewer.full_headers[0]
-        result = self.request('execute_commands', {'submission_id':'query-output', 'commands':'query [1]'})
+        result = self.request('execute_commands', {'submission_id':'query-output-0123456789abcdef0123456789', 'commands':'query [1]'})
         self.assertEqual(result['status'], 200, result)
         self.app.processEvents()
-        output = self.request('read_command_output', {'submission_id':'query-output'})
+        output = self.request('read_command_output', {'submission_id':'query-output-0123456789abcdef0123456789'})
         self.assertEqual(output['status'], 200, output)
         self.assertIn('100.0%', output['payload']['text'])
         self.assertIn('Pos 1', output['payload']['text'])
@@ -53,19 +53,34 @@ class PortalHTTPTests(SnapshotHTTPFixture, unittest.TestCase):
         self.assertIn('targets', [a['name'] for a in detailed['commands'][0]['arguments']])
         self.assertEqual(len(portal.requests), before)
 
+    def test_submission_ids_are_checked_and_a_conflict_is_named_over_http(self):
+        short = self.request('execute_commands', {'submission_id': 'task-1', 'commands': ['zoom help']})
+        self.assertEqual(short['status'], 400, short)
+        self.assertIn('new random UUID', short['payload']['error'])
+        self.assertEqual(len(getattr(get_portal(self.viewer), 'requests', {})), 0)
+        sid = 'two-clients-one-id-0123456789abcdef01'
+        first = self.request('execute_commands', {'submission_id': sid, 'commands': ['zoom help']})
+        self.assertEqual(first['status'], 200, first)
+        clash = self.request('execute_commands', {'submission_id': sid, 'commands': ['select help']})
+        self.assertEqual(clash['status'], 400, clash)
+        self.assertIn(f"request {first['payload']['request_id']}", clash['payload']['error'])
+        self.assertIn('different payload', clash['payload']['error'])
+        self.app.processEvents()
+        self.assertEqual(len(get_portal(self.viewer).requests), 1)
+
     def test_identifier_lookup_over_http(self):
-        request = self.request('execute_commands', {'submission_id': 'lookup', 'commands': ['zoom help']})['payload']
+        request = self.request('execute_commands', {'submission_id': 'lookup' + '-0' * 16, 'commands': ['zoom help']})['payload']
         self.app.processEvents()
         for action in ('get_command_request', 'read_command_output'):
             by_request = self.request(action, {'request_id': request['request_id']})
-            by_submission = self.request(action, {'submission_id': 'lookup'})
+            by_submission = self.request(action, {'submission_id': 'lookup' + '-0' * 16})
             self.assertEqual(by_request['payload'], by_submission['payload'])
             for args in ({}, {'submission_id': ''}, {'submission_id': 12},
-                         {'submission_id': 'lookup', 'request_id': request['request_id']}):
+                         {'submission_id': 'lookup' + '-0' * 16, 'request_id': request['request_id']}):
                 self.assertEqual(self.request(action, args)['status'], 400)
 
     def test_command_http_auth_retry_results_capture_and_catalog(self):
-        args = {'submission_id': 'http-retry', 'commands': ['zoom help', 'unknown_command', 'zoom help']}
+        args = {'submission_id': 'http-retry-0123456789abcdef0123456789', 'commands': ['zoom help', 'unknown_command', 'zoom help']}
         self.assertEqual(self.request('execute_commands', args, token=False)['status'], 401)
         response = self.request('execute_commands', args)
         self.assertEqual(response['status'], 200, response)

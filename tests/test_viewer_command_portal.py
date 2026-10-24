@@ -361,6 +361,39 @@ class LookupTests(PortalFixture, unittest.TestCase):
             self.portal.submit('submission', 'select help')
         self.assertEqual(len(self.portal.requests), 1)
 
+    def test_reusing_an_id_with_another_payload_names_the_request_that_holds_it(self):
+        sid = 'shared-by-two-clients-0123456789abcdef'
+        with redirect_stdout(io.StringIO()):
+            request = self.portal.submit(sid, 'select help')
+            self.finish(request['request_id'])
+        with self.assertRaises(ValueError) as caught:
+            self.portal.submit(sid, 'zoom help')
+        message = str(caught.exception)
+        self.assertIn(repr(sid), message)
+        self.assertIn('different payload', message)
+        self.assertIn(f"request {request['request_id']}", message)
+        self.assertIn('succeeded', message)
+        self.assertIn(self.portal.requests[request['request_id']]['submitted_at'], message)
+        self.assertIn('nothing was run', message)
+        self.assertIn('new random UUID', message)
+        # Another source is another payload too, and an identical retry still returns the request.
+        with self.assertRaisesRegex(ValueError, 'different payload'):
+            self.portal.submit(sid, 'select help', source='web_agent')
+        self.assertEqual(self.portal.submit(sid, 'select help')['request_id'], request['request_id'])
+        self.assertEqual(len(self.portal.requests), 1)
+
+    def test_a_conflict_with_an_evicted_request_says_so(self):
+        sid = 'evicted-then-reused-0123456789abcdef01'
+        with redirect_stdout(io.StringIO()):
+            request = self.portal.submit(sid, 'select help')
+            self.finish(request['request_id'])
+        del self.portal.requests[request['request_id']]
+        with self.assertRaises(ValueError) as caught:
+            self.portal.submit(sid, 'zoom help')
+        self.assertIn(f"request {request['request_id']}, whose result has since been evicted", str(caught.exception))
+        with self.assertRaisesRegex(ValueError, 'evicted'):
+            self.portal.submit(sid, 'select help')
+
     def test_invalid_unknown_evicted_and_isolated_lookups_never_submit(self):
         invalid = [{}, {'request_id': 'a', 'submission_id': 'b'}, {'request_id': ''},
                    {'submission_id': ' '}, {'request_id': 12}, {'submission_id': False},

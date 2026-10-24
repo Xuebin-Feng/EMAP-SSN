@@ -248,7 +248,13 @@ class ViewerCommandPortal(QtCore.QObject):
         if submission_id in self.submissions:
             old_signature, request_id = self.submissions[submission_id]
             if old_signature != signature:
-                raise ValueError('submission_id already used with a different payload')
+                first = self.requests.get(request_id)
+                made = (f"request {request_id}, {first['status']}, submitted {first['submitted_at']}" if first
+                        else f"request {request_id}, whose result has since been evicted")
+                raise ValueError(
+                    f"submission_id {submission_id!r} was already used with a different payload ({made}). Ids are shared "
+                    "by every client of this Viewer, and nothing was run. Use a new random UUID for each different "
+                    "submission, and the same one only to retry an identical payload.")
             if request_id not in self.requests:
                 raise ValueError('Submission already executed; its result was evicted. It will not be executed again.')
             return self.get(request_id)

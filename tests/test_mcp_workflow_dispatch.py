@@ -204,6 +204,9 @@ class WorkflowDispatchTests(unittest.IsolatedAsyncioTestCase):
                     self.assertTrue((await client.call_tool("emapssn_pipeline", args)).is_error)
 
 
+UUID = '3f2b8c1e-7a64-4d0b-9c1e-5b8a2d6f4e10'
+
+
 class MCPFollowupTests(unittest.IsolatedAsyncioTestCase):
     async def test_lookup_validation_and_schema_before_transport(self):
         import jsonschema
@@ -233,13 +236,44 @@ class MCPFollowupTests(unittest.IsolatedAsyncioTestCase):
         with mock.patch.object(ops, '_portal_call', new_callable=mock.AsyncMock, return_value=result):
             for _ in range(2):
                 response = await dispatch('emapssn_viewer_control', 'execute_commands',
-                                          {'submission_id': 's', 'commands': 'select help'}, None)
+                                          {'submission_id': UUID, 'commands': 'select help'}, None)
                 step = response['next_step']
                 self.assertEqual(step, {'tool': 'emapssn_viewer_data', 'action': 'wait_command_request',
                                         'arguments': {'request_id': 'r', 'session_id': 'origin'}})
                 REGISTRY[step['tool']][step['action']].model.model_validate(step['arguments'])
                 self.assertNotIn('next_step', result)
         self.assertNotIn('execute_commands', REGISTRY['emapssn_viewer_data'])
+
+    async def test_submission_ids_must_be_random_uuid_length_before_anything_is_sent(self):
+        import uuid
+        accepted = [UUID, str(uuid.uuid4()), uuid.uuid4().hex, 'a' * 32, 'b' * 128]
+        refused = ['', 's', 'task-1', 'x' * 31, 'y' * 129, ' ' * 10, 7, None, ['a' * 40]]
+        result = {'request_id': 'r', 'session_id': 'origin', 'submission_id': 's', 'status': 'queued'}
+        with mock.patch.object(ops, '_portal_call', new_callable=mock.AsyncMock, return_value=result) as transport:
+            for value in accepted:
+                with self.subTest(accepted=value):
+                    await dispatch('emapssn_viewer_control', 'execute_commands',
+                                   {'submission_id': value, 'commands': 'select help'}, None)
+            self.assertEqual(transport.await_count, len(accepted))
+            transport.reset_mock()
+            for value in refused:
+                with self.subTest(refused=value):
+                    with self.assertRaises(ToolError) as caught:
+                        await dispatch('emapssn_viewer_control', 'execute_commands',
+                                       {'submission_id': value, 'commands': 'select help'}, None)
+                    if isinstance(value, str):
+                        self.assertIn('must be a new random UUID', str(caught.exception))
+                        self.assertIn('shared by every client of a Viewer', str(caught.exception))
+            transport.assert_not_called()
+
+    async def test_the_schema_tells_agents_what_a_submission_id_is(self):
+        description = await dispatch('emapssn_viewer_control', 'describe', {'action': 'execute_commands'}, None)
+        schema = description['arguments_schema']['properties']['submission_id']
+        self.assertEqual((schema['minLength'], schema['maxLength']), (32, 128))
+        self.assertIn('new random UUID for every different submission', schema['description'])
+        self.assertIn('shared by every client', schema['description'])
+        self.assertIn('random UUID', description['description'])
+        self.assertGreaterEqual(len(description['example']['arguments']['submission_id']), 32)
 
     async def test_session_selection_and_reconnect_keep_lookup_local(self):
         from mcp_server.viewer.Viewer_Client import MCPViewerClient

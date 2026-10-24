@@ -433,7 +433,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
             info = await client.launch_session(settings_document=fixture.document, mode="headless", timeout=120)
             self.assertEqual(info["status"], "ready", info)
             try:
-                submission = {"submission_id": "non-ansi", "commands": ["hide (α-amylase"]}
+                submission = {"submission_id": "non-ansi-0123456789abcdef0123456789", "commands": ["hide (α-amylase"]}
                 record = await client.command_action("execute_commands", submission, session_id=info["session_id"])
                 for _ in range(600):
                     if record["status"] in {"succeeded", "failed", "cancelled", "skipped"}:
@@ -615,7 +615,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(residues.is_error, str(residues))
                     command = await first.call_tool("emapssn_viewer_control", {
                         "action": "execute_commands", "arguments": {
-                            "submission_id": "missing-reference-help", "commands": ["offset help"],
+                            "submission_id": "missing-reference-help-0123456789abcdef", "commands": ["offset help"],
                         },
                     })
                     self.assertFalse(command.is_error, str(command))

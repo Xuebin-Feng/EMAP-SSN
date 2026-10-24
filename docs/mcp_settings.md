@@ -815,9 +815,13 @@ syntax, file effects, history, and manual controls remain the user-command behav
 
 1. Connect to the intended Viewer and call `emapssn_viewer_data(action="get_command_catalog")`.
    Supply `command` to read an individual command's source help and effects.
-2. Call `emapssn_viewer_control(action="execute_commands", arguments={"submission_id": "a-client-generated-unique-id", "commands": ["select \"example\"", "color \"example\" red"]})`.
+2. Call `emapssn_viewer_control(action="execute_commands", arguments={"submission_id": "<a new random UUID>", "commands": ["select \"example\"", "color \"example\" red"]})`.
+   `submission_id` must be 32 to 128 characters: a fresh random UUID (for example from `uuid4()`) for every
+   different submission. Ids name a request in the whole Viewer, whichever client sent it, so a second client
+   that reused an id with the same commands would silently be handed the first client's request; shorter ids
+   such as `task-1` are refused before anything is sent.
 3. Follow the execution response's `next_step`, which contains the tool, action and arguments (including the resolved `session_id`): it points at
-   `emapssn_viewer_data(action="wait_command_request", arguments={"submission_id": "a-client-generated-unique-id", "session_id": "viewer-session-id", "timeout_seconds": 30})`;
+   `emapssn_viewer_data(action="wait_command_request", arguments={"submission_id": "<a new random UUID>", "session_id": "viewer-session-id", "timeout_seconds": 30})`;
    `request_id` works in place of `submission_id`. The wait returns the same record as `get_command_request`, plus
    `waited_seconds` and `waiting`, as soon as the request is succeeded, failed, cancelled, skipped or
    awaiting_user_input (the user must act in the visible Viewer). Otherwise it returns after `timeout_seconds`
@@ -844,7 +848,8 @@ and the client waits 6 seconds for any reply, so that answer arrives. The error 
 commands may already be queued. Send `execute_commands` again with the **same** submission_id,
 which never runs them twice, or call `wait_command_request` with it; if that reports an unknown
 submission, nothing was queued and sending again is safe. A **new** submission_id would run the
-commands twice. A conflicting reuse fails. Evicted submissions are not reexecuted. The Viewer keeps
+commands twice. A conflicting reuse fails with an error that names the id, the request that holds it
+(its id, status and submission time) and says nothing was run. Evicted submissions are not reexecuted. The Viewer keeps
 100 completed requests, never evicts active requests, and caps retained diagnostic
 output at 16 MiB. Truncated output explicitly reports `available_from` and
 `truncated`. `list_command_requests` recovers IDs after MCP reconnection; Viewer
@@ -939,7 +944,7 @@ request IDs, paging and byte cursors. For example:
 
 ```python
 emapssn_viewer_data(action="read_command_output", arguments={
-    "submission_id": "a-client-generated-unique-id", "session_id": "viewer-session-id",
+    "submission_id": "<a new random UUID>", "session_id": "viewer-session-id",
     "stream": "stdout", "offset": 0, "limit": 8192
 })
 ```

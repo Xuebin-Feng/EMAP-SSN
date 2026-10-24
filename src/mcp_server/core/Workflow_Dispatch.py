@@ -100,7 +100,7 @@ _SPECS = {
         "read_log": (viewer_ops, "read_viewer_log", "Read a bounded byte page of captured Viewer output.", {}),
     },
     "emapssn_viewer_control": {
-        "execute_commands": (viewer_ops, "execute_viewer_commands", "Execute existing Viewer commands; can write files and open interactive interfaces.", {"submission_id": "client-generated-id", "commands": ["select help"]}),
+        "execute_commands": (viewer_ops, "execute_viewer_commands", "Execute existing Viewer commands; can write files and open interactive interfaces.", {"submission_id": "REPLACE-WITH-A-NEW-RANDOM-UUID-V4", "commands": ["select help"]}),
         "get_settings_schema": (viewer_ops, "get_viewer_settings_schema", "Read the Viewer settings contract.", {}),
         "export_settings": (viewer_ops, "export_viewer_settings", "Create a full Viewer settings file inheriting saved Config preferences.", {}),
         "validate_settings": (viewer_ops, "validate_viewer_settings", "Read and validate Viewer inputs/cache identity without launching.", {"settings_path": "viewer.json"}),
