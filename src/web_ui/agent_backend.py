@@ -46,6 +46,7 @@ from utilities.Localization import JoinedMessage, Message, display_text
 from web_ui.Plugin_Manager import ensure_registry
 from desktop.Viewer_State import resolve_selected_cache
 from web_ui.agent_images import validate_attachments, message_content, history_messages
+from web_ui.agent_prompt import render_system_prompt
 
 # ─── Model card helpers ───────────────────────────────────────────────────────
 
@@ -737,7 +738,8 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None, *, 
 
     try:
         with open(prompt_path, "r", encoding="utf-8") as f:
-            system_prompt = f.read()
+            # How a command in a reply is handled is written from the catalog's policy.
+            system_prompt = render_system_prompt(f.read())
     except Exception as e:
         return _reject_turn(viewer, Message("Could not read prompt file: {error}", error=e), turn, on_rejected)
 

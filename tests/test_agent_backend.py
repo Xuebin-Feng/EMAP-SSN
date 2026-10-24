@@ -17,6 +17,7 @@ import urllib.error
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from web_ui import agent_backend as agent
+from web_ui.agent_prompt import PLACEHOLDERS
 from tests.agent_fixtures import FakeProvider, completion
 
 
@@ -576,7 +577,7 @@ class AgentCommandTests(unittest.TestCase):
         self.agent_folder = Path(directory.name, 'resources', 'agent')
         self.agent_folder.mkdir(parents=True)
         (self.agent_folder / 'model_card.json').write_text(json.dumps(self.CARDS), encoding='utf-8')
-        (self.agent_folder / 'system_prompt.md').write_text('Prompt.', encoding='utf-8')
+        (self.agent_folder / 'system_prompt.md').write_text('Prompt. ' + ' '.join(PLACEHOLDERS), encoding='utf-8')
         from commands import agent as agent_command
         self.command = agent_command
         engine = agent_command.Command_Engine

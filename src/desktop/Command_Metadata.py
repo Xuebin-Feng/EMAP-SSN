@@ -215,6 +215,28 @@ def agent_policy(command):
     return rule['first_argument'].get(words[1].lower() if len(words) > 1 else '', rule['default'])
 
 
+def agent_policy_summary():
+    """AGENT_POLICY grouped the way the Agent's instructions list it.
+
+    Returns (plain, by_form). plain maps each class, 'run', 'approve' and
+    'refuse', to the names of the commands handled that way whatever follows
+    them, in AGENT_POLICY's order. by_form lists the others, each as
+    (name, default class, {first argument: class}), with '' standing for no
+    argument at all: the first word after the command decides how they are
+    handled. The Agent's system prompt is written from this, so it cannot
+    disagree with agent_policy().
+    """
+    plain = {'run': [], 'approve': [], 'refuse': []}
+    by_form = []
+    for name, rule in AGENT_POLICY.items():
+        exceptions = {word: kind for word, kind in rule['first_argument'].items() if kind != rule['default']}
+        if exceptions:
+            by_form.append((name, rule['default'], exceptions))
+        else:
+            plain[rule['default']].append(name)
+    return plain, by_form
+
+
 def get_command_metadata(name):
     """Return independent response data so callers cannot mutate the catalog."""
     return deepcopy(COMMAND_METADATA[name])
