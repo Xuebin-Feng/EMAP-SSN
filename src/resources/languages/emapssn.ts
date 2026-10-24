@@ -228,6 +228,14 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>blank: not sent</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The provider rejected sampling parameters, so none is sent. Edit the temperature to send it again.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>API Key</source>
         <translation type="unfinished"></translation>
     </message>

@@ -586,6 +586,54 @@ class ModelCardPageTests(unittest.TestCase):
         self.assertIsInstance(action.get('card_id'), str)
         self.assertEqual(self.js('modelCards[0].id'), action['card_id'])
 
+    def card_inputs(self, card_index):
+        """The text fields of a card in the panel: name, URL, model, temperature."""
+        return f"document.querySelectorAll('.model-card')[{card_index}].querySelectorAll('.card-field input')"
+
+    def type_into(self, input_expression, text):
+        self.js(f"(() => {{ const field = {input_expression}; field.value = {json.dumps(text)}; field.dispatchEvent(new Event('input')); }})()")
+
+    def test_a_blank_temperature_is_kept_blank_and_zero_is_kept_zero(self):
+        self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API', 'temperature': 0.3}, {'id': 'two', 'name': 'Second'}]}).encode())
+        shown = json.loads(self.js(f"JSON.stringify([0, 1].map(i => {{ const field = {self.card_inputs('i')}[3]; return [field.value, field.placeholder]; }}))"))
+        self.assertEqual(shown, [['0.3', 'blank: not sent'], ['', 'blank: not sent']])
+
+        field = f"{self.card_inputs(0)}[3]"
+        for text, expected in (('', None), ('0', 0), ('0.7', 0.7), ('', None)):
+            with self.subTest(text=text):
+                self.type_into(field, text)
+                self.assertEqual(json.loads(self.js('JSON.stringify(modelCards[0].temperature)')), expected)
+        self.type_into(field, '0.2')
+        self.js("document.getElementById('save-cards-btn').click()")
+        [save] = [a for a in self.state()['actions'] if a['action'] == 'save_model_cards']
+        self.assertEqual([card.get('temperature') for card in save['cards']], [0.2, None])
+
+        self.js("document.getElementById('add-card-btn').click()")
+        self.assertEqual(json.loads(self.js('JSON.stringify(modelCards[2].temperature)')), None)
+        self.assertEqual(self.js(f"{self.card_inputs(2)}[3].value"), '')
+
+    def test_the_viewer_telling_the_page_about_a_card_is_not_undone_by_the_next_save(self):
+        self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API', 'url': 'https://api.example/v1', 'temperature': 0.0}]}).encode())
+        note = "document.querySelector('.model-card .card-note')"
+        self.assertTrue(self.js(f'{note}.hidden'))
+        update = {'type': 'model_card_updated', 'card_id': 'mine', 'fields': {'omit_sampling': True}}
+        self.js(f'handleServerEvent({json.dumps(update)})')
+        self.assertFalse(self.js(f'{note}.hidden'))
+        self.assertIn('rejected sampling parameters', self.js(f'{note}.textContent'))
+        self.js("handleServerEvent({type:'model_card_updated', card_id:'nobody', fields:{omit_sampling:true}})")
+
+        # The change is the saved card's too, so activating it is not "using the saved settings".
+        self.js("document.getElementById('agent-toggle-input').click()")
+        self.assertEqual(self.system_messages(), [])
+        self.js("document.getElementById('save-cards-btn').click()")
+        [save] = [a for a in self.state()['actions'] if a['action'] == 'save_model_cards']
+        self.assertEqual(save['cards'][0]['omit_sampling'], True)
+
+        # Typing a temperature asks for it to be sent again.
+        self.type_into(f"{self.card_inputs(0)}[3]", '0.5')
+        self.assertTrue(self.js(f'{note}.hidden'))
+        self.assertNotIn('omit_sampling', json.loads(self.js('JSON.stringify(modelCards[0])')))
+
     def test_a_command_waiting_for_approval_is_run_or_discarded(self):
         self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API'}]}).encode())
         waiting = {'command_id': 'c1', 'command': 'save <img src=x onerror=alert(1)>.h5',

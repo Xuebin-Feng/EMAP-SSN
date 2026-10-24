@@ -28,6 +28,7 @@ import json
 import urllib.request
 import urllib.error
 import gc
+import math
 import re
 import tempfile
 import time
@@ -205,11 +206,36 @@ def detect_running_servers():
 
 # ─── Activation / deactivation ────────────────────────────────────────────────
 
+def _card_temperature(card):
+    """The card's temperature as a number, or None when it is blank (not sent).
+
+    A value that is not a finite number raises ValueError.
+    """
+    raw = card.get("temperature")
+    if raw is None or (isinstance(raw, str) and not raw.strip()):
+        return None
+    value = float(raw)
+    if not math.isfinite(value):
+        raise ValueError("temperature must be a finite number")
+    return value
+
+
+def _without_sampling(options):
+    """The card's custom options without the sampling parameters, or None when none are left."""
+    if not isinstance(options, dict):
+        return None
+    kept = {key: value for key, value in options.items() if key not in SAMPLING_PARAMETERS}
+    return kept or None
+
+
 def activate_agent_from_card(viewer, card, quiet=False):
     """Activates the LLM agent using a model card dict.
 
     A card that cannot be used is refused before the active model, if any,
     is unloaded, so a refused card leaves that model as it was.
+    A blank temperature is not sent. So are all sampling parameters of a
+    card marked omit_sampling, which the Viewer sets once the provider has
+    rejected them (_apply_call_notes).
     """
     url         = (card.get("url") or "").strip().rstrip("/")
     model       = (card.get("model") or "").strip() or "default"
@@ -218,13 +244,15 @@ def activate_agent_from_card(viewer, card, quiet=False):
     options     = card.get("options") or None
 
     try:
-        temperature = float(card.get("temperature") or 0.0)
+        temperature = _card_temperature(card)
     except (TypeError, ValueError):
         Command_Engine.print_help(viewer, Message(
             "Error: Model card '{card}' has an invalid temperature ({temperature}). Open ⚙ Models to edit it.",
             card=name, temperature=card.get("temperature"),
         ))
         return False
+    if card.get("omit_sampling"):
+        temperature, options = None, _without_sampling(options)
 
     if not url:
         Command_Engine.print_help(viewer, Message(
@@ -267,6 +295,7 @@ def activate_agent_from_card(viewer, card, quiet=False):
     viewer.llm_temperature = temperature
     viewer.llm_api_key     = api_key
     viewer.llm_options     = options
+    viewer.llm_card_ref    = {"id": card.get("id"), "name": card.get("name"), "url": card.get("url")}
 
     if not quiet:
         Command_Engine.print_help(viewer, Message("LLM Agent Activated: {card} → {model}", card=name, model=model))
@@ -301,6 +330,7 @@ def activate_agent(viewer, force_backend=None, quiet=False):
             viewer.llm_loaded      = True
             viewer.llm_temperature = 0.0
             viewer.llm_api_key     = None
+            viewer.llm_card_ref    = None
             if not quiet:
                 Command_Engine.print_help(viewer, Message(
                     "LLM Agent Activated: {card} → {model}", card=backend['name'], model=backend['model']
@@ -342,7 +372,7 @@ def deactivate_agent(viewer, quiet=False):
     backend    = getattr(viewer, "llm_backend", None)
     model_name = getattr(viewer, "llm_model_name", "Unknown")
 
-    for attr in ("llm_backend", "llm_url", "llm_model_name", "llm_temperature", "llm_api_key", "llm_options"):
+    for attr in ("llm_backend", "llm_url", "llm_model_name", "llm_temperature", "llm_api_key", "llm_options", "llm_card_ref"):
         if hasattr(viewer, attr):
             delattr(viewer, attr)
 
@@ -360,19 +390,76 @@ def deactivate_agent(viewer, quiet=False):
 # A local model can take minutes to write a whole reply; urllib's timeout limits each read, not the reply.
 AGENT_REPLY_TIMEOUT_SECONDS = 300.0
 
-def call_api(url, model, system_prompt, user_query, history=None, temperature=0.0, api_key=None, options=None):
-    """Sends an OpenAI-compatible chat completion request."""
+# The request fields that steer how a model samples. Some providers refuse them
+# (Anthropic's OpenAI-compatible endpoint rejects a temperature below 1 on recent
+# models, and reasoning models take only the default), so a card sends one only
+# when it is set, and call_api drops them once for a provider that says no.
+SAMPLING_PARAMETERS = ("temperature", "top_p", "top_k")
+_SAMPLING_NAME = re.compile(r"\b(?:temperature|top_p|top_k)\b", re.IGNORECASE)
+
+
+def _redact(text, api_key):
+    """text without the card's API key, which some providers repeat in an error."""
+    if api_key and len(api_key) >= 4:
+        return text.replace(api_key, "***")
+    return text
+
+
+def _post_chat(url, payload, headers):
+    request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+    with urllib.request.urlopen(request, timeout=AGENT_REPLY_TIMEOUT_SECONDS) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
+def _parse_chat_response(res_data):
+    """The reply, its reasoning and its token counts, or None when it holds no choice."""
+    if "choices" not in res_data or not res_data["choices"]:
+        return None
+    msg = res_data["choices"][0]["message"]
+    content = msg.get("content") or ""
+    content = content.strip()
+    reasoning = msg.get("reasoning_content") or ""
+    reasoning = reasoning.strip()
+
+    for close_tag in ["</think>", "</thought>"]:
+        if close_tag in content:
+            parts = content.split(close_tag, 1)
+            think_part = parts[0]
+            open_tag = close_tag.replace("/", "")
+            if open_tag in think_part:
+                think_part = think_part.split(open_tag, 1)[1]
+            content = parts[1].strip()
+            if think_part.strip() and not reasoning:
+                reasoning = think_part.strip()
+            break
+
+    usage   = res_data.get("usage", {})
+    tokens  = {
+        "prompt":     usage.get("prompt_tokens", 0),
+        "completion": usage.get("completion_tokens", 0),
+        "total":      usage.get("total_tokens", 0)
+    }
+    return {"content": content, "reasoning": reasoning, "tokens": tokens}
+
+
+def call_api(url, model, system_prompt, user_query, history=None, temperature=None, api_key=None, options=None, report=None):
+    """Sends an OpenAI-compatible chat completion request.
+
+    A temperature of None is not sent. When the server answers HTTP 400 with a
+    body that names temperature, top_p or top_k, and the request held one, it
+    is sent once more without any of them, and report (a dict, when given) is
+    marked sampling_rejected so the Viewer can remember it on the card.
+    The API key is never printed or put in an error.
+    """
     if history is None:
         history = []
 
     if not url.endswith("/chat/completions"):
         url = url.rstrip("/") + "/chat/completions"
 
-    payload = {
-        "model": model,
-        "messages": [{"role": "system", "content": system_prompt}] + history + [{"role": "user", "content": user_query}],
-        "temperature": temperature
-    }
+    payload = {"model": model}
+    if temperature is not None:
+        payload["temperature"] = temperature
     if options and isinstance(options, dict):
         payload.update(options)
     # Model-card options must not replace the user's text or attachments.
@@ -382,46 +469,26 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=0.
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
-    req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=AGENT_REPLY_TIMEOUT_SECONDS) as response:
-            res_data = json.loads(response.read().decode("utf-8"))
-            if "choices" in res_data and res_data["choices"]:
-                msg = res_data["choices"][0]["message"]
-                content = msg.get("content") or ""
-                content = content.strip()
-                reasoning = msg.get("reasoning_content") or ""
-                reasoning = reasoning.strip()
-
-                for close_tag in ["</think>", "</thought>"]:
-                    if close_tag in content:
-                        parts = content.split(close_tag, 1)
-                        think_part = parts[0]
-                        open_tag = close_tag.replace("/", "")
-                        if open_tag in think_part:
-                            think_part = think_part.split(open_tag, 1)[1]
-                        content = parts[1].strip()
-                        if think_part.strip() and not reasoning:
-                            reasoning = think_part.strip()
-                        break
-
-                usage   = res_data.get("usage", {})
-                tokens  = {
-                    "prompt":     usage.get("prompt_tokens", 0),
-                    "completion": usage.get("completion_tokens", 0),
-                    "total":      usage.get("total_tokens", 0)
-                }
-                return {"content": content, "reasoning": reasoning, "tokens": tokens}
-    except urllib.error.HTTPError as e:
+    for attempt in (1, 2):
         try:
-            body = e.read().decode("utf-8")
-            print(f"\n[Agent Error Detail]\nHTTP Status Code: {e.code}\nServer Response: {body}\n")
-        except Exception:
-            pass
-        raise ValueError(Message(
-            "Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.",
-            code=e.code, response=body[:2000] if "body" in locals() else e.reason,
-        )) from e
+            return _parse_chat_response(_post_chat(url, payload, headers))
+        except urllib.error.HTTPError as e:
+            try:
+                body = _redact(e.read().decode("utf-8", errors="replace"), api_key)
+                print(f"\n[Agent Error Detail]\nHTTP Status Code: {e.code}\nServer Response: {body}\n")
+            except Exception:
+                body = ""
+            if (attempt == 1 and e.code == 400 and _SAMPLING_NAME.search(body)
+                    and any(key in payload for key in SAMPLING_PARAMETERS)):
+                payload = {key: value for key, value in payload.items() if key not in SAMPLING_PARAMETERS}
+                if report is not None:
+                    report["sampling_rejected"] = True
+                print("Agent: the model server rejected sampling parameters; sending the request again without them.")
+                continue
+            raise ValueError(Message(
+                "Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.",
+                code=e.code, response=(body or _redact(str(e.reason), api_key))[:2000],
+            )) from e
     return None
 
 # ─── Worker threads ───────────────────────────────────────────────────────────
@@ -431,7 +498,7 @@ class AgentWorker(QtCore.QThread):
     # or Message itself, so the Agent page can show it translated.
     finished = QtCore.Signal(str, str, str, object)
 
-    def __init__(self, backend, url, model_name, system_prompt, query, history, temperature, api_key, options=None):
+    def __init__(self, backend, url, model_name, system_prompt, query, history, temperature, api_key, options=None, card_ref=None):
         super().__init__()
         self.backend       = backend
         self.url           = url
@@ -442,12 +509,15 @@ class AgentWorker(QtCore.QThread):
         self.temperature   = temperature
         self.api_key       = api_key
         self.options       = options
+        # What call_api learned (see _apply_call_notes) and the card the request used.
+        self.report        = {}
+        self.card_ref      = card_ref
 
     def run(self):
         try:
             res_dict = None
             if self.backend == "server":
-                res_dict = call_api(self.url, self.model_name, self.system_prompt, self.query, self.history, self.temperature, self.api_key, self.options)
+                res_dict = call_api(self.url, self.model_name, self.system_prompt, self.query, self.history, self.temperature, self.api_key, self.options, report=self.report)
             if not res_dict or not res_dict.get("content"):
                 self.finished.emit("", "", "", Message("No response received from LLM."))
             else:
@@ -459,7 +529,7 @@ class AgentWorker(QtCore.QThread):
 class RefinementWorker(QtCore.QThread):
     finished = QtCore.Signal(str, str, str, str)  # (refined_explanation, reasoning, tokens_json, error)
 
-    def __init__(self, backend, url, model_name, user_query, commands, terminal_output, temperature, api_key, options=None, attachments=None, history=None):
+    def __init__(self, backend, url, model_name, user_query, commands, terminal_output, temperature, api_key, options=None, attachments=None, history=None, card_ref=None):
         super().__init__()
         self.backend         = backend
         self.url             = url
@@ -472,6 +542,8 @@ class RefinementWorker(QtCore.QThread):
         self.temperature     = temperature
         self.api_key         = api_key
         self.options         = options
+        self.report          = {}
+        self.card_ref        = card_ref
 
     def run(self):
         try:
@@ -487,13 +559,54 @@ class RefinementWorker(QtCore.QThread):
             )
             res_dict = None
             if self.backend == "server":
-                res_dict = call_api(self.url, self.model_name, "You are a helpful biological assistant.", message_content(refinement_prompt, self.attachments), history=self.history, temperature=self.temperature, api_key=self.api_key, options=self.options)
+                res_dict = call_api(self.url, self.model_name, "You are a helpful biological assistant.", message_content(refinement_prompt, self.attachments), history=self.history, temperature=self.temperature, api_key=self.api_key, options=self.options, report=self.report)
             if not res_dict or not res_dict.get("content"):
                 self.finished.emit("", "", "", "No response from refinement.")
             else:
                 self.finished.emit(res_dict["content"], res_dict.get("reasoning", ""), json.dumps(res_dict.get("tokens", {})), "")
         except Exception as e:
             self.finished.emit("", "", "", str(e))
+
+def _card_matches(card, ref):
+    if ref.get("id"):
+        return card.get("id") == ref["id"]
+    return card.get("name") == ref.get("name") and card.get("url") == ref.get("url")
+
+
+def _remember_on_card(viewer, ref, **fields):
+    """Save fields on the saved card ref names, and tell the Agent page, which holds its own copy.
+
+    The file is written by save_model_cards, as the page's Save writes it. A
+    failure is reported on the terminal and leaves the file as it was.
+    """
+    try:
+        cards = load_model_cards()
+        card = next((c for c in cards if _card_matches(c, ref)), None)
+        if card is None:
+            return False
+        card.update(fields)
+        save_model_cards(cards)
+    except (ModelCardsError, OSError, ValueError) as error:
+        print(f"Warning: The model card could not be updated ({error}).")
+        return False
+    viewer.broadcast_event({"type": "model_card_updated", "card_id": card.get("id"), "fields": fields})
+    return True
+
+
+def _apply_call_notes(viewer, report, card_ref):
+    """Act on what a model request learned (call_api's report).
+
+    A provider that refused sampling parameters is not sent them again: not in
+    this session, and not after a restart, since the card remembers it.
+    """
+    if not isinstance(report, dict) or not report.get("sampling_rejected"):
+        return
+    if getattr(viewer, "llm_loaded", False) and getattr(viewer, "llm_card_ref", None) == card_ref:
+        viewer.llm_temperature = None
+        viewer.llm_options = _without_sampling(getattr(viewer, "llm_options", None))
+    if card_ref:
+        _remember_on_card(viewer, card_ref, omit_sampling=True)
+
 
 # ─── Viewer context ───────────────────────────────────────────────────────────
 
@@ -638,7 +751,7 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None, *, 
 
     backend     = viewer.llm_backend
     url         = getattr(viewer, "llm_url", None)
-    temperature = getattr(viewer, "llm_temperature", 0.0)
+    temperature = getattr(viewer, "llm_temperature", None)
     api_key     = getattr(viewer, "llm_api_key", None)
     options     = getattr(viewer, "llm_options", None)
 
@@ -647,16 +760,18 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None, *, 
 
     history = history_messages(viewer.llm_history)
 
-    viewer._web_agent_worker = AgentWorker(backend, url, model_name, system_prompt, message_content(query, turn['attachments']), history, temperature, api_key, options)
-    _retain_worker(viewer, viewer._web_agent_worker)
-    viewer._web_agent_worker.finished.connect(lambda res, reasoning, tokens, err: on_web_worker_finished(viewer, query, res, reasoning, tokens, err, generation, turn))
+    worker = viewer._web_agent_worker = AgentWorker(backend, url, model_name, system_prompt, message_content(query, turn['attachments']), history, temperature, api_key, options, card_ref=getattr(viewer, "llm_card_ref", None))
+    _retain_worker(viewer, worker)
+    worker.finished.connect(lambda res, reasoning, tokens, err: on_web_worker_finished(viewer, query, res, reasoning, tokens, err, generation, turn, worker))
     _agent_event(viewer, {'type': 'agent_accepted', 'query': query, 'attachments': turn['attachments']}, turn)
     viewer._web_agent_worker.start()
     return True
 
 # ─── Response handling ────────────────────────────────────────────────────────
 
-def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_json, error_msg, generation=None, turn=None):
+def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_json, error_msg, generation=None, turn=None, worker=None):
+    if worker is not None:
+        _apply_call_notes(viewer, worker.report, worker.card_ref)
     if generation is not None and generation != getattr(viewer, '_agent_generation', 0):
         return
     if error_msg:
@@ -775,17 +890,20 @@ def start_refinement_worker(viewer, query, original_explanation, commands, termi
 
     backend     = viewer.llm_backend
     url         = getattr(viewer, "llm_url", None)
-    temperature = getattr(viewer, "llm_temperature", 0.0)
+    temperature = getattr(viewer, "llm_temperature", None)
     api_key     = getattr(viewer, "llm_api_key", None)
     options     = getattr(viewer, "llm_options", None)
 
-    viewer._refinement_worker = RefinementWorker(backend, url, model_name, query, commands, terminal_output, temperature, api_key, options,
-                                                attachments=(turn or {}).get('attachments'), history=history_messages(getattr(viewer, 'llm_history', [])))
+    worker = viewer._refinement_worker = RefinementWorker(
+        backend, url, model_name, query, commands, terminal_output, temperature, api_key, options,
+        attachments=(turn or {}).get('attachments'), history=history_messages(getattr(viewer, 'llm_history', [])),
+        card_ref=getattr(viewer, "llm_card_ref", None))
 
     generation = getattr(viewer, "_agent_generation", 0)
-    _retain_worker(viewer, viewer._refinement_worker)
+    _retain_worker(viewer, worker)
 
     def on_refinement_finished(refined_explanation, refinement_reasoning, refinement_tokens_json, err):
+        _apply_call_notes(viewer, worker.report, worker.card_ref)
         if generation != getattr(viewer, "_agent_generation", 0):
             return
         final_explanation  = refined_explanation if not err and refined_explanation else original_explanation
@@ -812,8 +930,8 @@ def start_refinement_worker(viewer, query, original_explanation, commands, termi
         if err:
             print(f"Agent error: result analysis failed: {err}")
 
-    viewer._refinement_worker.finished.connect(on_refinement_finished)
-    viewer._refinement_worker.start()
+    worker.finished.connect(on_refinement_finished)
+    worker.start()
 
 # ─── Viewer registration ──────────────────────────────────────────────────────
 

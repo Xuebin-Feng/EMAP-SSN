@@ -881,6 +881,14 @@
         .card-field input:focus, .card-options:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
         .card-options.is-invalid, .card-options.is-invalid:hover { border-color: var(--danger); }
 
+        /* A note under a card's fields: what the Viewer learned about the card, or a warning about it. */
+        .card-note {
+            font-size: 12px; line-height: 1.45; color: var(--text-secondary);
+            border-left: 3px solid var(--field-border); padding: 2px 0 2px 9px;
+            overflow-wrap: anywhere;
+        }
+        .card-note.is-warning { color: var(--warning); border-left-color: var(--warning); }
+
         .card-key-row { display: flex; gap: 6px; align-items: center; }
         .card-key-row input { flex: 1; }
 
@@ -1209,6 +1217,28 @@
             }
         }
 
+        // The Viewer changed a saved card itself (it learned that the provider
+        // refuses sampling parameters, or the user accepted what a remote
+        // server receives). The page keeps its own copy of the cards and saves
+        // them whole, so it takes the change over, or its next Save would undo it.
+        function applyCardUpdate(cardId, fields) {
+            const card = modelCards.find(c => c.id === cardId);
+            if (card) Object.assign(card, fields);
+            if (savedCardsJson) {
+                const saved = JSON.parse(savedCardsJson);
+                const savedCard = saved.find(c => c.id === cardId);
+                if (savedCard) {
+                    Object.assign(savedCard, fields);
+                    savedCardsJson = JSON.stringify(saved);
+                }
+            }
+            refreshCardNotes();
+        }
+
+        function refreshCardNotes() {
+            document.querySelectorAll(".model-card").forEach(element => { if (element._refresh) element._refresh(); });
+        }
+
         function showCardsSaved() {
             const saveCardsBtn = document.getElementById("save-cards-btn");
             const label = document.getElementById("save-cards-label");
@@ -1288,7 +1318,7 @@
                 { key: "name",        label: t("Name"),        type: "text",     placeholder: t("e.g. My Ollama")                          },
                 { key: "url",         label: t("Base URL"),    type: "text",     placeholder: "http://localhost:11434/v1"                  },
                 { key: "model",       label: t("Model Name"),  type: "text",     placeholder: t("e.g. qwen2.5:1.5b (leave blank = auto)")  },
-                { key: "temperature", label: t("Temperature"), type: "number",   placeholder: "0.0", min: "0", max: "2", step: "0.1", width: "80px" }
+                { key: "temperature", label: t("Temperature"), type: "number",   placeholder: t("blank: not sent"), min: "0", max: "2", step: "0.1", width: "120px" }
             ];
 
             fields.forEach(({ key, label, type, placeholder, min, max, step, width }) => {
@@ -1300,18 +1330,40 @@
                 const inp = document.createElement("input");
                 inp.type = type;
                 inp.placeholder = placeholder;
-                inp.value = key === "temperature" ? (card[key] ?? 0.0) : (card[key] || "");
+                inp.value = key === "temperature" ? (card[key] ?? "") : (card[key] || "");
                 if (min !== undefined) { inp.min = min; inp.max = max; inp.step = step; }
                 if (width) inp.style.width = width;
                 inp.addEventListener("input", () => {
                     if (!modelCards[index]) return;
-                    modelCards[index][key] = key === "temperature" ? (parseFloat(inp.value) || 0.0) : inp.value;
+                    if (key === "temperature") {
+                        // A blank temperature is not sent; so is every sampling
+                        // parameter once the provider has refused them, until a
+                        // value is typed here again.
+                        const number = parseFloat(inp.value);
+                        modelCards[index].temperature = Number.isNaN(number) ? null : number;
+                        delete modelCards[index].omit_sampling;
+                        div._refresh();
+                    } else {
+                        modelCards[index][key] = inp.value;
+                    }
                     if (key === "name") { nameLabel.textContent = inp.value || t("Model {number}", {number: index + 1}); populateDropdown(); }
                 });
                 fieldDiv.appendChild(lbl);
                 fieldDiv.appendChild(inp);
                 body.appendChild(fieldDiv);
             });
+
+            const samplingNote = document.createElement("div");
+            samplingNote.className = "card-note";
+            samplingNote.setAttribute("role", "note");
+            samplingNote.textContent = t("The provider rejected sampling parameters, so none is sent. Edit the temperature to send it again.");
+            body.appendChild(samplingNote);
+            // The notes below the fields follow the card as it is edited, and as the Viewer updates it.
+            div._refresh = () => {
+                const current = modelCards[index] || {};
+                samplingNote.hidden = !current.omit_sampling;
+            };
+            div._refresh();
 
             // API key field (password with show/hide toggle)
             const apiDiv = document.createElement("div");
@@ -1472,7 +1524,7 @@
 
         function addCard() {
             // The name is saved in model_card.json, so it stays English.
-            modelCards.push({ id: uid(), name: "New Model", url: "", model: "", api_key: "", temperature: 0.0 });
+            modelCards.push({ id: uid(), name: "New Model", url: "", model: "", api_key: "", temperature: null });
             populateDropdown();
             renderCardsPanel();
             const cards = document.querySelectorAll(".model-card");
@@ -1681,6 +1733,9 @@
                 case "model_cards_error":
                     if (event.save_id === cardsSaveId) cardsSaveId = null;
                     appendErrorMsg(event.error, true);
+                    break;
+                case "model_card_updated":
+                    applyCardUpdate(event.card_id, event.fields);
                     break;
             }
         }

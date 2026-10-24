@@ -81,7 +81,7 @@
         <translation type="obsolete">🌙 深色模式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent.html" line="+978"/>
+        <location filename="../../../web_ui/agent.html" line="+986"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -92,12 +92,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+714"/>
+        <location line="+761"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-713"/>
+        <location line="-760"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -225,8 +225,8 @@
     </message>
     <message>
         <location line="+24"/>
+        <location line="+90"/>
         <location line="+68"/>
-        <location line="+58"/>
         <source>Model {number}</source>
         <translation type="unfinished">模型 {number}</translation>
     </message>
@@ -235,7 +235,7 @@
         <translation type="obsolete">正在使用“{model}”已保存的设置：要使用此处的修改，请点击 💾 保存。</translation>
     </message>
     <message>
-        <location line="-101"/>
+        <location line="-133"/>
         <source>this model</source>
         <translation type="unfinished">此模型</translation>
     </message>
@@ -244,8 +244,8 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-1186"/>
-        <location line="+953"/>
+        <location line="-1194"/>
+        <location line="+961"/>
         <source>EMAP-SSN Agent (Beta)</source>
         <translation type="unfinished">EMAP-SSN 智能体（测试版）</translation>
     </message>
@@ -286,7 +286,7 @@
         <translation type="unfinished">正在使用“{model}”已保存的设置：要使用此处的修改，请点击保存。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+31"/>
         <source>Saved!</source>
         <translation type="unfinished">已保存！</translation>
     </message>
@@ -336,7 +336,17 @@
         <translation type="unfinished">温度</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+0"/>
+        <source>blank: not sent</source>
+        <translation type="unfinished">留空：不发送</translation>
+    </message>
+    <message>
+        <location line="+38"/>
+        <source>The provider rejected sampling parameters, so none is sent. Edit the temperature to send it again.</source>
+        <translation type="unfinished">服务商拒绝了采样参数，因此不再发送任何采样参数。修改温度即可重新发送。</translation>
+    </message>
+    <message>
+        <location line="+14"/>
         <source>API Key</source>
         <translation type="unfinished">API 密钥</translation>
     </message>
@@ -421,7 +431,7 @@
         <translation type="unfinished">智能体未启用。请选择一个模型，然后点击开关启用。</translation>
     </message>
     <message>
-        <location line="+75"/>
+        <location line="+78"/>
         <source>LLM</source>
         <translation type="unfinished">LLM</translation>
     </message>
@@ -4501,7 +4511,7 @@ Command-line usage:
         <location filename="../../../commands/query.py" line="+583"/>
         <location filename="../../../commands/reset.py" line="+114"/>
         <location filename="../../../commands/select.py" line="-195"/>
-        <location filename="../../../web_ui/agent_backend.py" line="+280"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+309"/>
         <location filename="../../../web_ui/meta_backend.py" line="+57"/>
         <source>Error: {error}</source>
         <translation type="unfinished">错误：{error}</translation>
@@ -6893,7 +6903,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+238"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+257"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -6908,7 +6918,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">每条命令必须是非空的单行，且最多 8192 个字符</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+16"/>
         <source>Viewer command queue is full; retry later with the same submission_id</source>
         <translation type="unfinished">查看器的命令队列已满；请稍后用相同的 submission_id 重试</translation>
     </message>
@@ -6952,7 +6962,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="obsolete">此无界面查看器没有可用于渲染的 OpenGL 上下文；请以正常模式重新启动它以截取视图。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent_backend.py" line="-171"/>
+        <location filename="../../../web_ui/agent_backend.py" line="-199"/>
         <source>The file was left unchanged: correct it, or delete it to start over from the default cards.</source>
         <translation type="unfinished">该文件保持不变：请修正它，或删除它以从默认的模型卡重新开始。</translation>
     </message>
@@ -6977,30 +6987,30 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">请求必须包含非空的 &quot;cards&quot; 对象列表</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <location line="+96"/>
         <source>Error: Model card &apos;{card}&apos; has an invalid temperature ({temperature}). Open ⚙ Models to edit it.</source>
         <translation type="unfinished">错误：模型卡“{card}”的温度无效（{temperature}）。请打开 ⚙ 模型进行编辑。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+9"/>
         <source>Error: Model card &apos;{card}&apos; has no URL configured. Open ⚙ Models to edit it.</source>
         <translation type="unfinished">错误：模型卡“{card}”未配置 URL。请打开 ⚙ 模型进行编辑。</translation>
     </message>
     <message>
-        <location line="+42"/>
-        <location line="+33"/>
+        <location line="+43"/>
+        <location line="+34"/>
         <source>LLM Agent Activated: {card} → {model}</source>
         <translation type="unfinished">LLM 智能体已启用：{card} → {model}</translation>
     </message>
     <message>
-        <location line="-17"/>
+        <location line="-18"/>
         <source>Error: No model card with an API key found.
 Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">错误：未找到带 API 密钥的模型卡。
 请在智能体界面的 ⚙ 模型面板中添加。</translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+22"/>
         <source>Error: No local running server (Ollama, LM Studio, Llama.cpp) was detected.</source>
         <translation type="unfinished">错误：未检测到在本地运行的服务器（Ollama、LM Studio、Llama.cpp）。</translation>
     </message>
@@ -7025,17 +7035,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">LLM 智能体已停用。已卸载：{model}（{backend}）</translation>
     </message>
     <message>
-        <location line="+68"/>
+        <location line="+105"/>
         <source>Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.</source>
         <translation type="unfinished">模型请求失败（HTTP {code}）：{response}。带图片的消息需要支持视觉的模型或服务商。</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+34"/>
         <source>No response received from LLM.</source>
         <translation type="unfinished">未收到 LLM 的回复。</translation>
     </message>
     <message>
-        <location line="+148"/>
+        <location line="+191"/>
         <source>Invalid submission ID.</source>
         <translation type="unfinished">无效的提交 ID。</translation>
     </message>
@@ -7065,7 +7075,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">无法读取提示文件：{error}</translation>
     </message>
     <message>
-        <location line="+224"/>
+        <location line="+229"/>
         <source>Reload the Agent page to switch models.</source>
         <translation type="unfinished">请重新加载智能体页面以切换模型。</translation>
     </message>
@@ -7087,7 +7097,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <location filename="../../../web_ui/agent_images.py" line="+21"/>
-        <location filename="../../../web_ui/Web_Server.py" line="+753"/>
+        <location filename="../../../web_ui/Web_Server.py" line="+756"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
     </message>
@@ -8603,7 +8613,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">#{job} {command}：正在等待 #{ahead} {ahead_command}。</translation>
     </message>
     <message>
-        <location line="+204"/>
+        <location line="+205"/>
         <source>Cancelled: #{job}, given before it, failed.</source>
         <translation type="unfinished">已取消：在它之前提交的 #{job} 失败了。</translation>
     </message>
@@ -8637,7 +8647,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已取消：查看器已关闭。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+26"/>
         <source>Running #{job} {command}: {progress} ({seconds} s).</source>
         <translation type="unfinished">正在运行 #{job} {command}：{progress}（{seconds} 秒）。</translation>
     </message>

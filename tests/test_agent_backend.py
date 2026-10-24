@@ -17,6 +17,7 @@ import urllib.error
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from web_ui import agent_backend as agent
+from tests.agent_fixtures import FakeProvider, completion
 
 
 class CardActivationTests(unittest.TestCase):
@@ -734,3 +735,207 @@ class AgentCommandTests(unittest.TestCase):
         viewer = self.open_viewer(False, connected=True)
         self.run_command(viewer)
         viewer.open_agent_ui.assert_called_once_with(show_existing_dialog=False)
+
+
+class SamplingParameterTests(unittest.TestCase):
+    """A blank temperature is not sent; a provider that refuses sampling parameters is asked once more without them."""
+    KEY = 'sk-FAKE-KEY-for-tests-0000'
+
+    def call(self, provider, **options):
+        report = {}
+        output = io.StringIO()
+        with redirect_stdout(output):
+            result = agent.call_api(provider.url, 'm', 'system', 'question', report=report, **options)
+        return result, report, output.getvalue()
+
+    @staticmethod
+    def refuse(*names, status=400):
+        """A provider that answers `status` while the request holds one of names, and accepts it otherwise."""
+        def respond(payload):
+            if any(name in payload for name in names):
+                return status, {'error': {'message': "Unsupported value: 'temperature' does not support 0.0 with this model."}}
+            return 200, completion('fine')
+        return respond
+
+    def test_a_blank_temperature_is_not_sent_and_a_number_is(self):
+        with FakeProvider() as provider:
+            self.call(provider)
+            self.call(provider, temperature=0.0)
+            self.call(provider, temperature=0.7)
+        self.assertEqual([('temperature' in r['payload'], r['payload'].get('temperature')) for r in provider.requests],
+                         [(False, None), (True, 0.0), (True, 0.7)])
+
+    def test_a_card_with_a_blank_temperature_is_activated_without_one(self):
+        for label, value in (('missing', None), ('null', None), ('empty', ''), ('spaces', '  ')):
+            card = {'name': 'Remote', 'url': 'https://api.example/v1', 'model': 'm'}
+            if label != 'missing':
+                card['temperature'] = value
+            with self.subTest(label):
+                viewer = SimpleNamespace()
+                self.assertTrue(agent.activate_agent_from_card(viewer, card, quiet=True))
+                self.assertIsNone(viewer.llm_temperature)
+        for value, expected in ((0.0, 0.0), (0, 0.0), ('0.3', 0.3), (1, 1.0)):
+            with self.subTest(value=value):
+                viewer = SimpleNamespace()
+                self.assertTrue(agent.activate_agent_from_card(viewer, {'url': 'http://x/v1', 'model': 'm', 'temperature': value}, quiet=True))
+                self.assertEqual(viewer.llm_temperature, expected)
+        for value in ('warm', float('nan'), float('inf'), [1]):
+            with self.subTest(value=value), mock.patch.object(agent.Command_Engine, 'print_help'):
+                self.assertFalse(agent.activate_agent_from_card(SimpleNamespace(), {'url': 'http://x/v1', 'temperature': value}, quiet=True))
+
+    def test_the_local_default_cards_keep_a_temperature_of_zero(self):
+        with tempfile.TemporaryDirectory() as folder, mock.patch.object(agent, '_SRC_DIR', folder):
+            defaults = agent.load_model_cards()
+        self.assertEqual([card['temperature'] for card in defaults], [0.0, 0.0, 0.0])
+
+    def test_a_refusal_naming_a_sampling_parameter_is_retried_once_without_them(self):
+        options = {'top_p': 0.9, 'top_k': 5, 'reasoning_effort': 'low'}
+        with FakeProvider(self.refuse('temperature', 'top_p', 'top_k')) as provider:
+            result, report, output = self.call(provider, temperature=0.0, options=options)
+        first, second = (r['payload'] for r in provider.requests)
+        self.assertEqual(len(provider.requests), 2)
+        self.assertEqual({k: first[k] for k in ('temperature', 'top_p', 'top_k')}, {'temperature': 0.0, 'top_p': 0.9, 'top_k': 5})
+        self.assertFalse({'temperature', 'top_p', 'top_k'} & set(second))
+        # What is not a sampling parameter, and the whole conversation, are sent again as they were.
+        self.assertEqual(second['reasoning_effort'], 'low')
+        self.assertEqual(second['messages'], first['messages'])
+        self.assertEqual((result['content'], report), ('fine', {'sampling_rejected': True}))
+        self.assertIn('sending the request again without them', output)
+
+    def test_each_sampling_parameter_alone_triggers_the_retry(self):
+        for name in ('temperature', 'top_p', 'top_k'):
+            with self.subTest(name), FakeProvider(self.refuse(name)) as provider:
+                _, report, _ = self.call(provider, temperature=0.5 if name == 'temperature' else None,
+                                         options={name: 1} if name != 'temperature' else None)
+                self.assertEqual(len(provider.requests), 2)
+                self.assertTrue(report['sampling_rejected'])
+
+    def test_other_failures_are_not_retried(self):
+        cases = {
+            'a 400 about something else': (lambda payload: (400, 'image input unsupported'), {'temperature': 0.0}),
+            'a 500 naming temperature': (self.refuse('temperature', status=500), {'temperature': 0.0}),
+            'a 429': (lambda payload: (429, 'rate limit: slow down'), {'temperature': 0.0}),
+            'a 400 naming temperature when none was sent': (self.refuse('model'), {}),
+        }
+        for label, (respond, options) in cases.items():
+            with self.subTest(label), FakeProvider(respond) as provider:
+                with self.assertRaises(ValueError) as caught:
+                    self.call(provider, **options)
+                self.assertEqual(len(provider.requests), 1)
+                self.assertIn('Model request failed (HTTP', str(caught.exception))
+
+    def test_a_second_refusal_ends_the_request(self):
+        always = lambda payload: (400, "temperature is not supported; top_p is not supported either")
+        with FakeProvider(always) as provider:
+            with self.assertRaises(ValueError) as caught:
+                self.call(provider, temperature=0.0)
+        self.assertEqual(len(provider.requests), 2)
+        self.assertIn('HTTP 400', str(caught.exception))
+
+    def test_the_key_is_never_printed_or_shown(self):
+        echoing = lambda payload: (400 if 'temperature' in payload else 401, f"Incorrect API key provided: {self.KEY}; temperature too")
+        for options in ({'temperature': 0.0}, {}):
+            with self.subTest(options=options), FakeProvider(echoing) as provider:
+                output = io.StringIO()
+                with redirect_stdout(output), self.assertRaises(ValueError) as caught:
+                    agent.call_api(provider.url, 'm', 's', 'q', api_key=self.KEY, **options)
+                shown = output.getvalue() + str(caught.exception) + repr(caught.exception.args)
+                self.assertNotIn(self.KEY, shown)
+                self.assertIn('Incorrect API key provided', shown)
+                # The key was sent as the provider's credential, and only there.
+                self.assertTrue(all(r['headers'].get('Authorization') == f'Bearer {self.KEY}' for r in provider.requests))
+                self.assertNotIn(self.KEY, json.dumps([r['payload'] for r in provider.requests]))
+
+
+class RememberedSamplingTests(unittest.TestCase):
+    """The card remembers a provider's refusal: this session, the card file, and the Agent page's own copy."""
+    CARD = {'id': 'mine', 'name': 'My API', 'url': 'https://api.example/v1', 'model': 'm', 'api_key': 'sk-FAKE-0000',
+            'temperature': 0.0, 'options': {'top_p': 0.9, 'reasoning_effort': 'low'}, 'extra': 'kept'}
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.folder = Path(directory.name, 'resources', 'agent')
+        self.folder.mkdir(parents=True)
+        self.path = self.folder / 'model_card.json'
+        self.path.write_text(json.dumps({'cards': [dict(self.CARD), {'id': 'other', 'name': 'Other'}], 'note': 'kept'}), encoding='utf-8')
+        patcher = mock.patch.object(agent, '_SRC_DIR', directory.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.viewer = SimpleNamespace(events=[])
+        self.viewer.broadcast_event = self.viewer.events.append
+        self.assertTrue(agent.activate_agent_from_card(self.viewer, dict(self.CARD), quiet=True))
+
+    def saved(self):
+        return json.loads(self.path.read_text(encoding='utf-8'))
+
+    def test_a_refusal_is_remembered_in_the_session_and_on_the_saved_card(self):
+        self.assertEqual((self.viewer.llm_temperature, self.viewer.llm_options), (0.0, {'top_p': 0.9, 'reasoning_effort': 'low'}))
+        agent._apply_call_notes(self.viewer, {'sampling_rejected': True}, self.viewer.llm_card_ref)
+
+        self.assertEqual((self.viewer.llm_temperature, self.viewer.llm_options), (None, {'reasoning_effort': 'low'}))
+        document = self.saved()
+        self.assertEqual(document['note'], 'kept')
+        self.assertEqual(document['cards'][0], {**self.CARD, 'omit_sampling': True})
+        self.assertEqual(document['cards'][1], {'id': 'other', 'name': 'Other'})
+        self.assertEqual(os.listdir(self.folder), ['model_card.json'])
+        # The page keeps its own copy of the cards and saves them whole: it is told.
+        self.assertEqual(self.viewer.events, [{'type': 'model_card_updated', 'card_id': 'mine', 'fields': {'omit_sampling': True}}])
+
+        # After a restart the card still sends nothing: even the temperature a card holds.
+        restarted = SimpleNamespace()
+        self.assertTrue(agent.activate_agent_from_card(restarted, agent.load_model_cards()[0], quiet=True))
+        self.assertEqual((restarted.llm_temperature, restarted.llm_options), (None, {'reasoning_effort': 'low'}))
+
+    def test_nothing_is_remembered_without_a_refusal(self):
+        before = self.path.read_bytes()
+        for report in ({}, {'sampling_rejected': False}, None, mock.Mock()):
+            agent._apply_call_notes(self.viewer, report, self.viewer.llm_card_ref)
+        self.assertEqual((self.path.read_bytes(), self.viewer.events, self.viewer.llm_temperature), (before, [], 0.0))
+
+    def test_a_refusal_met_after_the_model_was_switched_updates_only_the_card(self):
+        old_ref = self.viewer.llm_card_ref
+        self.assertTrue(agent.activate_agent_from_card(self.viewer, {'id': 'other', 'name': 'Other', 'url': 'http://x/v1', 'temperature': 0.2}, quiet=True))
+        agent._apply_call_notes(self.viewer, {'sampling_rejected': True}, old_ref)
+        self.assertEqual(self.viewer.llm_temperature, 0.2)
+        self.assertTrue(self.saved()['cards'][0]['omit_sampling'])
+        self.assertNotIn('omit_sampling', self.saved()['cards'][1])
+
+    def test_a_card_without_an_id_is_found_by_its_name_and_address(self):
+        card = {'name': 'Hand-written', 'url': 'http://remote.example/v1', 'temperature': 0.0}
+        self.path.write_text(json.dumps({'cards': [card, {'name': 'Hand-written', 'url': 'http://elsewhere/v1'}]}), encoding='utf-8')
+        viewer = SimpleNamespace(events=[])
+        viewer.broadcast_event = viewer.events.append
+        agent.activate_agent_from_card(viewer, card, quiet=True)
+        agent._apply_call_notes(viewer, {'sampling_rejected': True}, viewer.llm_card_ref)
+        cards = self.saved()['cards']
+        self.assertEqual([c.get('omit_sampling') for c in cards], [True, None])
+
+    def test_a_card_that_cannot_be_saved_still_stops_the_session_sending_them(self):
+        output = io.StringIO()
+        with mock.patch.object(agent, 'save_model_cards', side_effect=OSError('disk full')), redirect_stdout(output):
+            agent._apply_call_notes(self.viewer, {'sampling_rejected': True}, self.viewer.llm_card_ref)
+        self.assertIsNone(self.viewer.llm_temperature)
+        self.assertEqual(self.viewer.events, [])
+        self.assertIn('could not be updated (disk full)', output.getvalue())
+        self.assertNotIn('sk-FAKE-0000', output.getvalue())
+        self.assertNotIn('omit_sampling', self.saved()['cards'][0])
+
+    def test_a_worker_that_met_a_refusal_hands_it_to_the_turn(self):
+        refusing = SamplingParameterTests.refuse('temperature', 'top_p')
+        with FakeProvider(refusing) as provider:
+            card = {**self.CARD, 'url': provider.url}
+            self.assertTrue(agent.activate_agent_from_card(self.viewer, card, quiet=True))
+            viewer = self.viewer
+            worker = agent.AgentWorker('server', viewer.llm_url, 'm', 'system', 'hello', [], viewer.llm_temperature,
+                                       viewer.llm_api_key, viewer.llm_options, card_ref=viewer.llm_card_ref)
+            emitted = []
+            worker.finished.connect(lambda *values: emitted.append(values))
+            with redirect_stdout(io.StringIO()):
+                worker.run()
+        self.assertEqual((emitted[0][0], len(provider.requests)), ('fine', 2))
+        viewer._agent_busy, viewer._agent_generation = True, 0
+        with mock.patch.object(agent, 'save_and_broadcast_agent_response'):
+            agent.on_web_worker_finished(viewer, 'hello', *emitted[0], generation=0, worker=worker)
+        self.assertEqual((viewer.llm_temperature, viewer.llm_options), (None, {'reasoning_effort': 'low'}))
+        self.assertTrue(self.saved()['cards'][0]['omit_sampling'])
