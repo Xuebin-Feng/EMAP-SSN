@@ -299,7 +299,7 @@ def run(viewer, args):
             f"  zoom 50%   (Sets the zoom to 50%, a view {ZOOM_100_PERCENT_WIDTH * 2:g} units wide)",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
 
     # `zoom 200 %` reaches here as two words: the sign may stand apart. Any other

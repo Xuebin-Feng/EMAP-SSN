@@ -354,7 +354,7 @@ class CancelAndUndoTests(QueueTestCase):
         listing = self.output.getvalue()
         self.assertIn("#1     running", listing)
         self.assertIn("#2     waiting", listing)
-        self.assertEqual(viewer.console_text.text, "2 jobs waiting or running; the list is in the terminal.")
+        self.assertEqual(viewer.console_text.text, "2 jobs waiting or running; the list is in the Console.")
         viewer.type("jobs cancel all")
         self.assertEqual(viewer.queue.pending(), [])
         viewer.type("jobs cancel")

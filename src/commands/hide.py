@@ -47,7 +47,7 @@ def run(viewer, args):
             "To unhide nodes, use the `reset hide` command.",
         ], separator="\n\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
 
     # reset, single and free are whole commands: a word after one would be

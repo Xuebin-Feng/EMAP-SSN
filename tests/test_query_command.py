@@ -289,7 +289,7 @@ class QueryPositionBreakdownTests(unittest.TestCase):
                 "Pos     7: [Not found in active alignment mapping]",
             ],
         )
-        self.assertEqual(viewer.console_text.text, "Queried 1 position. Check terminal.")
+        self.assertEqual(viewer.console_text.text, "Queried 1 position. Check the Console.")
 
     @staticmethod
     def other_lines(output):
@@ -507,7 +507,7 @@ class QueryPositionBreakdownTests(unittest.TestCase):
 
         failed.assert_not_called()
         succeeded.assert_called_once()
-        self.assertEqual(str(succeeded.call_args.args[1]), "Queried 1 position. Check terminal.")
+        self.assertEqual(str(succeeded.call_args.args[1]), "Queried 1 position. Check the Console.")
 
     def test_matched_nodes_that_are_not_aligned_say_so(self):
         # Node 2 is the only member of cluster 2 and the MSA lacks it.

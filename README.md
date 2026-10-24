@@ -605,6 +605,8 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
    * **🪟 Windows**:
      Double-click `install.bat` in the project root to generate Windows Shortcuts (`.lnk` files) in the project root and optionally on your Desktop.
 
+     Where the C# compiler that ships with Windows (the .NET Framework's `csc.exe`) is present, the installer also builds `EMAP-SSN.exe`, a small launcher that opens no console window, and the shortcuts start it. If the build fails, the shortcuts run the batch files in a console window, as before.
+
      > [!TIP]
      > It is highly recommended to enable **Developer Mode** in your Windows Settings (Search for "Developer settings" in Windows). This allows symbolic links to be created without elevation, which is required by the Hugging Face `transformers` cache model download system to avoid duplicating file storage.
 
@@ -661,6 +663,12 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
    - **Linux:** Run `./emapssn` or `./emapssn_tools`, or use the generated desktop application entries.
 
    `emapssn` opens the configuration GUI first. Select the input files and layout settings there, then click **Save & Run** to save the settings and launch the visualization window. On the first application launch, the managed launcher creates `.venv`, installs the pinned dependencies, and validates the selected compute backend; later launches reuse that environment while it remains compatible.
+
+### The Console and the start-up screen
+
+On Windows no console window opens when you start a window from a shortcut: a start-up screen shows the progress (the dependency check, then loading PyTorch and building the window) and closes when the window is ready. If something goes wrong it shows the last lines of the output, with buttons to copy them and to open the log.
+
+Everything a window prints, its warnings and errors included, is kept. The **Console** button, beside the language selector of the Configuration and Tools windows and at the foot of the Viewer's sidebar, opens a window that shows it with the time of each line, searches and filters it, and opens its log file; the Viewer's `console` command opens the same window. The logs are in `temp/logs` of the project folder (one file per run, 8 MB at most, the ten latest of each window kept). To see the output in a terminal as before, start a window with `--console` (`EMAP-SSN.exe viewer --console`) or run `src\bin\EMAPSSN.bat` or `src\bin\EMAPSSN_Tools.bat` from a terminal. The Linux and macOS launchers still start the windows in a terminal, and the Console shows the same output there.
 
 ### Headless layout-cache generation
 
@@ -778,7 +786,8 @@ Sans SC while Simplified Chinese shows.
 ```directory
 EMAP-SSN/
 │
-├── install.bat               # Windows installer (creates .lnk shortcuts)
+├── install.bat               # Windows installer (builds EMAP-SSN.exe, creates .lnk shortcuts)
+├── EMAP-SSN.exe              # Windows launcher without a console window, built by install.bat (not committed)
 ├── install.sh                # Linux/macOS installer with platform-specific launchers
 │
 ├── src/                      # Source code directory
@@ -793,6 +802,7 @@ EMAP-SSN/
 │   │   ├── EMAPSSN_Tools.bat     # Windows Tools startup script
 │   │   ├── EMAPSSN.sh           # Linux/macOS platform startup script
 │   │   ├── EMAPSSN_Tools.sh      # Linux/macOS Tools startup script
+│   │   ├── Launcher.cs          # Source of EMAP-SSN.exe (the Windows launcher stub)
 │   │   ├── EMAPSSN_Desktop_Launcher.bat
 │   │   ├── EMAPSSN_Desktop_Launcher.sh
 │   │   ├── EMAPSSN_Terminal_Launcher.sh

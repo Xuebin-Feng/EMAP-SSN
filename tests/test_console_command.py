@@ -74,7 +74,7 @@ class RunTests(unittest.TestCase):
                 succeeded, failed, printed = run_command(console_command, fake, [word])
                 fake.open_console_window.assert_not_called()
                 failed.assert_not_called()
-                self.assertEqual(succeeded.call_args.args[1], "Help information printed to the terminal.")
+                self.assertEqual(succeeded.call_args.args[1], "Help information printed to the Console.")
                 self.assertIn("Usage: console", printed)
                 self.assertIn("Examples:", printed)
 

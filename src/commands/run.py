@@ -210,7 +210,7 @@ def run(viewer, args):
             "  run stop",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
     if args and args[0].lower() == 'stop':
         stop_scripts(viewer)

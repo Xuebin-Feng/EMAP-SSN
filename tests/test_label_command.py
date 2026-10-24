@@ -1042,7 +1042,7 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 failed.assert_not_called()
                 self.assertIn("Differential Labeling", output.getvalue())
                 self.assertEqual(
-                    viewer.console_text.text, "Help information printed to the terminal"
+                    viewer.console_text.text, "Help information printed to the Console"
                 )
 
     def test_help_describes_reset_and_the_exclusive_gmax(self):

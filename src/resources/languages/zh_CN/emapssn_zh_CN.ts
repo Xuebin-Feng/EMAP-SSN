@@ -4461,7 +4461,7 @@ Command-line usage:
         <translation type="unfinished">后台任务 #{job} 已完成，用时 {seconds} 秒：{detail}</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+29"/>
         <source>Background job #{job} was stopped before it finished: {description}</source>
         <translation type="unfinished">后台任务 #{job} 在完成前已停止：{description}</translation>
     </message>
@@ -4700,7 +4700,7 @@ Command-line usage:
         <translation type="unfinished">已重置：{targets}。</translation>
     </message>
     <message>
-        <location line="+218"/>
+        <location line="+213"/>
         <source>Running {command}...</source>
         <translation type="unfinished">正在运行 {command}…</translation>
     </message>
@@ -4716,10 +4716,10 @@ Command-line usage:
     </message>
     <message>
         <location line="+8"/>
-        <location filename="../../../commands/agent.py" line="+75"/>
+        <location filename="../../../commands/agent.py" line="+101"/>
         <location line="+16"/>
         <location line="+127"/>
-        <location filename="../../../commands/esmfold.py" line="+108"/>
+        <location filename="../../../commands/esmfold.py" line="+120"/>
         <location line="+582"/>
         <location line="+91"/>
         <location line="+114"/>
@@ -4730,7 +4730,7 @@ Command-line usage:
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
-        <location filename="../../../commands/meta.py" line="+177"/>
+        <location filename="../../../commands/meta.py" line="+187"/>
         <location line="+119"/>
         <location filename="../../../commands/print.py" line="-77"/>
         <location line="+52"/>
@@ -4745,16 +4745,20 @@ Command-line usage:
         <translation type="unfinished">错误：{error}</translation>
     </message>
     <message>
+        <source>Help information printed to the terminal</source>
+        <translation type="obsolete">帮助信息已打印到终端</translation>
+    </message>
+    <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+49"/>
         <location filename="../../../commands/cluster.py" line="+346"/>
         <location filename="../../../commands/color.py" line="+95"/>
-        <location filename="../../../commands/console.py" line="+50"/>
+        <location filename="../../../commands/console.py" line="+54"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
         <location filename="../../../commands/esmfold.py" line="-234"/>
         <location filename="../../../commands/export.py" line="+108"/>
         <location filename="../../../commands/group.py" line="+138"/>
-        <location filename="../../../commands/jobs.py" line="+217"/>
+        <location filename="../../../commands/jobs.py" line="+216"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
@@ -4765,8 +4769,8 @@ Command-line usage:
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+181"/>
         <location filename="../../../commands/subcluster.py" line="+192"/>
-        <source>Help information printed to the terminal</source>
-        <translation type="unfinished">帮助信息已打印到终端</translation>
+        <source>Help information printed to the Console</source>
+        <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
     <message>
         <location line="+58"/>
@@ -4786,7 +4790,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/alignment.py" line="+22"/>
         <location filename="../../../commands/embedding.py" line="+20"/>
-        <location filename="../../../commands/run.py" line="+220"/>
+        <location filename="../../../commands/run.py" line="+234"/>
         <source>Error opening file dialog: {error}</source>
         <translation type="unfinished">打开文件对话框出错：{error}</translation>
     </message>
@@ -4873,7 +4877,7 @@ Command-line usage:
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../Command_Engine.py" line="-256"/>
+        <location filename="../../../Command_Engine.py" line="-251"/>
         <location filename="../../../commands/cluster.py" line="+157"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
@@ -5467,15 +5471,15 @@ Command-line usage:
         <location filename="../../../commands/hide.py" line="+37"/>
         <location filename="../../../commands/jobs.py" line="+11"/>
         <location filename="../../../commands/meta.py" line="+10"/>
-        <location filename="../../../commands/redo.py" line="+48"/>
+        <location filename="../../../commands/redo.py" line="+57"/>
         <location line="+26"/>
         <location filename="../../../commands/reference.py" line="+84"/>
         <location filename="../../../commands/run.py" line="-47"/>
         <location filename="../../../commands/save.py" line="+31"/>
         <location filename="../../../commands/subcluster.py" line="-217"/>
-        <location filename="../../../commands/undo.py" line="+48"/>
+        <location filename="../../../commands/undo.py" line="+57"/>
         <location line="+13"/>
-        <location filename="../../../commands/zoom.py" line="+285"/>
+        <location filename="../../../commands/zoom.py" line="+289"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
@@ -6095,15 +6099,27 @@ Command-line usage:
     </message>
     <message numerus="yes">
         <location line="+25"/>
-        <source>Found %n matching position(s). Check terminal.</source>
+        <source>Found %n matching position(s). Check the Console.</source>
         <translation type="unfinished">
-            <numerusform>找到 %n 个匹配的位置。请查看终端。</numerusform>
+            <numerusform>找到 %n 个匹配的位置。请查看控制台。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
         <location line="+55"/>
-        <source>Queried %n position(s). Check terminal.</source>
+        <source>Queried %n position(s). Check the Console.</source>
         <translation type="unfinished">
+            <numerusform>已查询 %n 个位置。请查看控制台。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Found %n matching position(s). Check terminal.</source>
+        <translation type="obsolete">
+            <numerusform>找到 %n 个匹配的位置。请查看终端。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Queried %n position(s). Check terminal.</source>
+        <translation type="obsolete">
             <numerusform>已查询 %n 个位置。请查看终端。</numerusform>
         </translation>
     </message>
@@ -7146,7 +7162,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+275"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+268"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -7166,7 +7182,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">查看器的命令队列已满；请稍后用相同的 submission_id 重试</translation>
     </message>
     <message>
-        <location line="+188"/>
+        <location line="+194"/>
         <source>That command is not waiting to be run or discarded.</source>
         <translation type="unfinished">该命令当前不处于待运行或待丢弃状态。</translation>
     </message>
@@ -8962,14 +8978,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">#{job} {command} 在 {seconds} 秒后失败。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/jobs.py" line="-78"/>
         <source>%n job(s) waiting or running; the list is in the terminal.</source>
-        <translation type="unfinished">
+        <translation type="obsolete">
             <numerusform>有 %n 个任务在等待或运行；列表已输出到终端。</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+2"/>
+        <location filename="../../../commands/jobs.py" line="-76"/>
         <source>No commands wait or run, and no file is being written.</source>
         <translation type="unfinished">没有等待或运行中的命令，也没有正在写入的文件。</translation>
     </message>
@@ -9005,7 +9020,14 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+3"/>
+        <location line="-48"/>
+        <source>%n job(s) waiting or running; the list is in the Console.</source>
+        <translation type="unfinished">
+            <numerusform>有 %n 个任务在等待或运行；列表已输出到控制台。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+51"/>
         <source>Told %n running job(s) to stop: {jobs}. Each ends at its next step; until then jobs lists it as stopping.</source>
         <translation type="unfinished">
             <numerusform>已要求 %n 个运行中的任务停止：{jobs}。每个任务会在下一步结束；在此之前 jobs 会将其列为正在停止。</numerusform>

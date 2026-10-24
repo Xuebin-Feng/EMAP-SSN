@@ -41,7 +41,7 @@ class FeedbackTests(PortalFixture, unittest.TestCase):
             for entry in command_catalog()['commands']:
                 with self.subTest(command=entry['command']):
                     record = self.execute(entry['command'] + ' help')
-                    self.assertEqual(self.success_text(record), 'Help information printed to the terminal.')
+                    self.assertEqual(self.success_text(record), 'Help information printed to the Console.')
                     self.assertEqual(len(record['messages']), 1, record)
 
     def test_reset_reports_actual_targets_and_retry_does_not_repeat(self):

@@ -60,7 +60,7 @@ def run(viewer, args):
             "  - With N, a positive whole number, it undoes up to N steps, stops early when the history runs out, and reports once how many it undid.",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
     steps = 1
     if args:

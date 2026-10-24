@@ -69,7 +69,7 @@
         </div>
     </header>
 
-    <aside id="sidebar" data-source-sha256="840852fe4c8c71663c45833b18eba0dca75a55ef3935c2aa03312bcae92d3681">
+    <aside id="sidebar" data-source-sha256="c615f13ffa3e460ba757ce70077adf5b052283857b7040be1bc48706b6948ab6">
         <div class="sidebar-header">
             <div class="sidebar-title">EMAP-SSN 命令参考</div>
             <div class="sidebar-subtitle">交互式手册与设置指南</div>
@@ -98,6 +98,7 @@
                 <li class="menu-item" data-target="cmd-hide"><a href="#cmd-hide"><span>hide</span></a></li>
                 <li class="menu-item" data-target="cmd-undoredo"><a href="#cmd-undoredo"><span>undo &amp; redo</span></a></li>
                 <li class="menu-item" data-target="cmd-run"><a href="#cmd-run"><span>run</span></a></li>
+                <li class="menu-item" data-target="cmd-console"><a href="#cmd-console"><span>console</span></a></li>
             </ul>
 
             <div class="menu-category">比对</div>
@@ -142,20 +143,20 @@
 
     <main>
         <div class="content-wrapper">
-            <header class="page-header" id="docs-intro" data-source-sha256="fe18f98f7cd5fdbf569c3ec34e1fc9bd31887d3cdd7fc1dded1107fb7137328e">
+            <header class="page-header" id="docs-intro" data-source-sha256="9c45a0b9cfb91c8eab8e6b724d2a26d83769c6707ebd20590b0b1dbeafa49c5b">
                 <h1>EMAP-SSN 查看器</h1>
                 <div class="subtitle">命令行界面（CLI）手册与参考指南</div>
                 <p>
                     本参考文档介绍所有可用的可视化、物理和社区聚类（community clustering）命令。可通过侧边栏动态搜索或筛选命令。核心命令作用于内存中的可视化状态，而外部脚本运行高级生物信息学算法，并把输出结果导出到磁盘。
                 </p>
                 <p>
-                    <code>COMMAND help</code>、<code>COMMAND -h</code> 或 <code>COMMAND --help</code> 会在终端中打印命令自带的帮助；<code>export</code> 和 <code>label</code> 还接受 <code>-?</code>。<code>label help</code> 不需要比对（alignment）或参考序列（reference sequence）。
+                    <code>COMMAND help</code>、<code>COMMAND -h</code> 或 <code>COMMAND --help</code> 会在控制台窗口中打印命令自带的帮助；<code>export</code> 和 <code>label</code> 还接受 <code>-?</code>。<code>label help</code> 不需要比对（alignment）或参考序列（reference sequence）。
                 </p>
             </header>
 
 
             <div class="section-divider" id="sec-expression" data-source-sha256="8ac4baedea5ccf5723de95944c94446708729c7a6a76f851047e347b75aaa93d">表达式解释器语法规则</div>
-            <div class="command-card" id="expr-interpreter" data-source-sha256="ea5d25c44af62ed25348a5764638d8772291b373a1422c85ac7465a6da2d446b">
+            <div class="command-card" id="expr-interpreter" data-source-sha256="f21b5dc18bc65c74747ae3c5529d124427db672e1455eec7e92de2de36b05fc2">
                 <p><strong>概述：</strong>通用表达式解释器是把文本查询解析为数学选择的底层引擎。<code>color</code>、<code>group</code>、<code>hide</code>、<code>logo</code>、<code>query</code>、<code>select</code> 和 <code>spectrum</code> 都使用它，它支持对网络节点（node）进行复杂的多层定位。</p>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>重要的空格规则</div>
@@ -205,7 +206,7 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header"><span>4. 外部文件交叉引用（<code>@Filename@</code>）</span></div>
                     <div class="collapsible-content">
-                        <p>用 <code>@</code> 符号括住文件名，会把网络与位于 <code>Header_Lists</code> 目录中的文本文件或 FASTA 文件交叉引用。文件名必须是该目录中的纯文件名：含文件夹、<code>..</code>、盘符（如 <code>C:</code>）或网络共享路径的名称会被拒绝，命令不会做任何更改。文件必须是 UTF-8 文本；与任何节点都不匹配的条目会列在终端中。</p>
+                        <p>用 <code>@</code> 符号括住文件名，会把网络与位于 <code>Header_Lists</code> 目录中的文本文件或 FASTA 文件交叉引用。文件名必须是该目录中的纯文件名：含文件夹、<code>..</code>、盘符（如 <code>C:</code>）或网络共享路径的名称会被拒绝，命令不会做任何更改。文件必须是 UTF-8 文本；与任何节点都不匹配的条目会列在控制台窗口中。</p>
                         <ul>
                             <li><strong>直接匹配：</strong><code>@my_targets.txt@</code> 会选中完整序列标题与文件中某一行匹配的节点，不区分字母大小写；FASTA 文件则提供其中以 <code>&gt;</code> 开头的序列标题行。每一行会先按构建网络时对序列标题的清理（sanitize）方式处理（连续空格变为一个 <code>_</code>，方括号变为圆括号），因此从原始 FASTA 复制的序列标题仍能匹配。<code>.txt</code> 会追加在不以 <code>.txt</code>、<code>.fasta</code>、<code>.fa</code>、<code>.faa</code> 或 <code>.fas</code>（不区分大小写）结尾的文件名之后，因此由 <code>select save hits.fa</code> 写出的文件可用 <code>@hits.fa@</code> 读回。旧版本保存为 <code>hits.fa.txt</code> 的序列标题列表，仍可用 <code>@hits.fa@</code> 读取，前提是不存在名为 <code>hits.fa</code> 的文件（<code>.faa</code> 和 <code>.fas</code> 同理）；两者都存在时，完全相同的文件名优先。</li>
                             <li><strong>NCBI 提取：</strong><code>@[NCBI]my_targets.txt@</code> 会自动在文本文件中扫描标准的 NCBI accession 编号（如 <code>WP_01234.1</code>），并匹配包含这些编号的网络序列标题，忽略其周围的文本。</li>
@@ -245,7 +246,7 @@
                 <div class="callout callout-note">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>严格的上下文验证</div>
                     <p>应用表达式之前，解释器会验证所引用的每个簇、噪声标签、自定义分组、显示的比对位置、元数据属性和序列标题列表文件是否都存在于当前序列相似性网络（SSN）上下文中。元数据比较还必须使用与属性类型兼容的值和运算符。</p>
-                    <p>如果任何引用或条件无效，整条提交的命令都会中止，不会对网络做任何更改。控制台中会显示一条简明的错误，终端则包含该表达式和可用的有效目标。确实存在但恰好匹配零个节点的目标不属于表达式错误。</p>
+                    <p>如果任何引用或条件无效，整条提交的命令都会中止，不会对网络做任何更改。控制台中会显示一条简明的错误，控制台窗口则包含该表达式和可用的有效目标。确实存在但恰好匹配零个节点的目标不属于表达式错误。</p>
                 </div>
             </div>
 
@@ -413,6 +414,32 @@
                 </ul>
             </section>
 
+            <section class="command-card" id="cmd-console" data-source-sha256="ddb41906073400e561d25edc5b5912542c0a1ca203c84a1f9bbb214f0faa872a">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">console</span>
+                        <span class="command-card-desc-title">&ndash; 打开控制台窗口</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">console</div>
+                    <button class="copy-btn" onclick="copyText('console', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>打开控制台窗口；如果它已经打开，则将其置于最前。控制台窗口会随输出到达，实时显示本查看器自启动以来打印的全部内容，并附上每一行的时间：包括各命令的输出（含命令自带的帮助），以及所有警告和错误，它们分别以琥珀色和红色标出。侧边栏底部的“控制台”按钮会打开同一个窗口。</p>
+                <div class="subheading">控制台详情</div>
+                <ul>
+                    <li><strong>搜索与筛选：</strong>窗口可以搜索其文本并在匹配项之间跳转，可以只显示警告和错误，也可以随新行到达自动跟随。它可以复制所选内容（或全部文本），并把当前显示的文本保存到文件。</li>
+                    <li><strong>保留的内容：</strong>窗口显示最近的 20,000 行。窗口所标明的日志文件位于项目文件夹的 <code>temp/logs</code> 中，保留本次会话的每一行；达到 8 MB 时会滚动换文件，并为每个窗口保留最新的十份日志。窗口中的按钮可打开日志及其所在文件夹。输出中的 API 密钥和令牌在窗口和日志中都会被隐藏。</li>
+                    <li><strong>不同于命令覆盖层：</strong>画布上的命令覆盖层显示命令的简短消息；控制台窗口则保存命令打印的全部内容。</li>
+                    <li><strong>没有窗口时：</strong>不显示窗口的查看器（无界面运行，或已隐藏且尚未显示）没有控制台窗口：请读取其日志文件，或通过 MCP 服务器读取它的日志页。以 <code>--console</code> 启动的程序会把输出打印到启动它的终端，同样没有控制台窗口。</li>
+                </ul>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>console</span><button class="copy-btn" onclick="copyText('console', this)">复制</button></li>
+                </ul>
+            </section>
+
 <div class="section-divider" id="sec-alignment" data-source-sha256="1caec69619a437827e92e2a641ed6b1de9ee4bccc55d82e31c8985bfa18f91e5">比对</div>
 
             <section class="command-card" id="cmd-reference" data-source-sha256="6b09767490de0284455a16fbc5508de2055dd5eb5f2768f05ae9925d0a5c5d09">
@@ -466,7 +493,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-alignment" data-source-sha256="374f4c285ce74aa0fc4f80f3e334fca95364e5a4230bae3ab081f10873e89616">
+            <section class="command-card" id="cmd-alignment" data-source-sha256="fe72417086c6a4cf6cd94f25efe493d5dd63beb556c4c91588ffee5c17c8e9b9">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">alignment</span>
@@ -486,7 +513,7 @@
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>加载规则与完整性检查</div>
-<p>MSA 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。覆盖情况按完整序列标题的精确匹配来计算。缺失的节点仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖比对的分析之外。部分加载会在终端中打印红色警告，并给出覆盖率详情；只有无法读取或格式错误的比对文件才会导致回滚。</p>
+<p>MSA 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。覆盖情况按完整序列标题的精确匹配来计算。缺失的节点仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖比对的分析之外。部分加载会在控制台窗口中打印红色警告，并给出覆盖率详情；只有无法读取或格式错误的比对文件才会导致回滚。</p>
 <p>对于氨基酸表达式，缺失的比对行视为未知：<code>P106</code> 和 <code>!P106</code> 都不会匹配未比对的节点。独立的序列标题、元数据、簇、分组或文件子句仍可按普通布尔逻辑匹配该节点。</p>
                 </div>
                 <div class="subheading">示例</div>
@@ -497,7 +524,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-embedding" data-source-sha256="c37f50a3e42c1da80ad42f9abdb0939007d7fde18cc9c8435132d8337646ffe5">
+            <section class="command-card" id="cmd-embedding" data-source-sha256="a69b057f9be295cf6cb4de2c0ffdf0dbfbaf249817f7e43b71489f6e2b596c3f">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">embedding</span>
@@ -517,7 +544,7 @@
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>加载规则与完整性检查</div>
-<p>embedding 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。只有当文件包含某个节点完整的序列标题且序列完全相同时，该节点才算被覆盖。缺失的节点，以及序列与文件中不同的节点，仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖 embedding 的分析之外。该命令会报告有多少节点具有 embedding，以及 embedding 的模型、宽度和保存模式；部分加载还会在终端中打印红色警告，并给出覆盖率详情。只有无法读取、格式错误或不完整的 embedding 文件才会导致回滚，回滚会恢复之前的 embedding。</p>
+<p>embedding 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。只有当文件包含某个节点完整的序列标题且序列完全相同时，该节点才算被覆盖。缺失的节点，以及序列与文件中不同的节点，仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖 embedding 的分析之外。该命令会报告有多少节点具有 embedding，以及 embedding 的模型、宽度和保存模式；部分加载还会在控制台窗口中打印红色警告，并给出覆盖率详情。只有无法读取、格式错误或不完整的 embedding 文件才会导致回滚，回滚会恢复之前的 embedding。</p>
 <p>若网络由与该 embedding 不同的模型构建，查看器仍会接受，并给出提示：embedding 命令使用该 embedding 的模型。</p>
                 </div>
                 <div class="subheading">示例</div>
@@ -646,7 +673,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-subcluster" data-source-sha256="bb017151695e52d28ded96d622690f6dd32a2eb7d35c0cd70065c12a0ea8f096">
+            <section class="command-card" id="cmd-subcluster" data-source-sha256="bf1b92983a20a8caf7ee018b6d2e1503365ef3597264e239ab03de19951ce0db">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">subcluster</span>
@@ -658,7 +685,7 @@
                     <div class="syntax-content">subcluster &lt;cluster_name&gt; [mode] [param_1] [min_size]  |  subcluster clear</div>
                     <button class="copy-btn" onclick="copyText('subcluster', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>对指定的拓扑簇执行子聚类，创建名为 <code>subcluster_N_M</code> 的自定义分组标签（其中 N 是原始簇 ID，M 是子簇（subcluster）ID）。子簇与簇一样按大小编号，因此 <code>subcluster_N_1</code> 是最大的；大小相同时按其最小成员节点索引排序。主拓扑簇标签会保留，而目标簇中的节点会按子簇重新着色，小于 <code>min_size</code> 的节点着灰色。再次运行 <code>cluster</code> 会移除这些生成的分组，因为它们描述的是被替换的簇。终端报告使用同样高饱和度的子簇调色板。</p>
+                <p><strong>概述：</strong>对指定的拓扑簇执行子聚类，创建名为 <code>subcluster_N_M</code> 的自定义分组标签（其中 N 是原始簇 ID，M 是子簇（subcluster）ID）。子簇与簇一样按大小编号，因此 <code>subcluster_N_1</code> 是最大的；大小相同时按其最小成员节点索引排序。主拓扑簇标签会保留，而目标簇中的节点会按子簇重新着色，小于 <code>min_size</code> 的节点着灰色。再次运行 <code>cluster</code> 会移除这些生成的分组，因为它们描述的是被替换的簇。控制台窗口中的报告使用同样高饱和度的子簇调色板。</p>
                 
                 <div class="subheading">参数</div>
                 <ul>
@@ -685,7 +712,7 @@
                 <div class="subheading">重要说明</div>
                 <ul>
                     <li>子聚类会覆盖目标簇内的颜色，但保留其主簇标签。使用 <code>undo</code> 可恢复之前的状态。<code>subcluster clear</code> 只移除生成的标签，其 N 和 M 都是不带前导零的正整数。名称相似的自定义分组（如 <code>subcluster_0_2</code>、<code>subcluster_001_2</code> 和 <code>subcluster_2_002</code>）会保留，再次对 <code>cluster_2</code> 子聚类时只会替换它生成的标签。该操作不会改动颜色。</li>
-                    <li>终端统计报告使用丰富的高饱和度 HLS 配色（饱和度 0.95，明度 0.35 - 0.65）着色，以便把子簇与主簇使用的柔和颜色区分开。</li>
+                    <li>控制台窗口中的统计报告使用丰富的高饱和度 HLS 配色（饱和度 0.95，明度 0.35 - 0.65）着色，以便把子簇与主簇使用的柔和颜色区分开。</li>
                 </ul>
             </section>
 
@@ -822,7 +849,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-label" data-source-sha256="6de30134fe3c2e8ffa1893254868ec93b29af15f44e3b62bc10e73c735e16ec3">
+            <section class="command-card" id="cmd-label" data-source-sha256="b1ae04c2e06c7a4f19b5f81aac559d3940cb0601ca8899600c9213cc3b0e614d">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">label</span>
@@ -835,7 +862,7 @@
                     <button class="copy-btn" onclick="copyText('label', this)">复制</button>
                 </div>
                 <p><strong>概述：</strong>label 命令执行差异序列分析，旨在识别特异性决定位点（SDP）——在特定簇或分组内高度保守、但在更广泛的蛋白质家族中存在差异的氨基酸。它会导出一份内容丰富、带颜色编码的 Microsoft Excel（.xlsx）报告，详细说明究竟是哪些残基定义了各个亚家族。</p>
-                <p>标签计算和工作簿生成在查看器共用的后台任务队列中运行。命令在提交时会捕获其比对映射、簇/分组成员关系、参考序列编号、参数和输出元数据，因此之后对查看器所做的更改不会影响已排队的报告。label 和 logo 任务按顺序执行；排队和完成的消息会显示在控制台和终端中。</p>
+                <p>标签计算和工作簿生成在查看器共用的后台任务队列中运行。命令在提交时会捕获其比对映射、簇/分组成员关系、参考序列编号、参数和输出元数据，因此之后对查看器所做的更改不会影响已排队的报告。label 和 logo 任务按顺序执行；排队和完成的消息会显示在控制台和控制台窗口中。</p>
                 
                 <div class="callout callout-note">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>前提条件</div>
@@ -1077,7 +1104,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-logo" data-source-sha256="89849ea412628f44f454d2c18d89d681a92f5e31656745fb3407bfec5ddf70da">
+            <section class="command-card" id="cmd-logo" data-source-sha256="452275464872bdd19cba3a31ddbff0c310e6ad551abf6e3ad9d6e82b1aa182d1">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">logo</span>
@@ -1090,7 +1117,7 @@
                     <button class="copy-btn" onclick="copyText('logo', this)">复制</button>
                 </div>
                 <p><strong>概述：</strong>logo 命令生成可直接用于发表的序列标识图（矢量 .svg 或透明 .png 格式），以可视化方式表示网络特定子集中的氨基酸保守性。把该工具与通用表达式解释器结合使用，可以直接在查看器中立即比较不同蛋白质亚家族的结合基序、活性位点或结构变异。</p>
-                <p>序列标识图的计算和文件生成在查看器共用的后台任务队列中运行，因此查看器保持可交互。所选的比对序列、映射位置、参考序列和渲染选项会在命令提交时被捕获。精确的冗余计算在可用时使用均衡的并行 Numba 内核，否则回退到 NumPy。label 和 logo 任务按顺序执行；排队和完成的消息会显示在控制台和终端中。</p>
+                <p>序列标识图的计算和文件生成在查看器共用的后台任务队列中运行，因此查看器保持可交互。所选的比对序列、映射位置、参考序列和渲染选项会在命令提交时被捕获。精确的冗余计算在可用时使用均衡的并行 Numba 内核，否则回退到 NumPy。label 和 logo 任务按顺序执行；排队和完成的消息会显示在控制台和控制台窗口中。</p>
                 
                 <div class="callout callout-note">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>前提条件</div>
@@ -1236,7 +1263,7 @@
                 let visibleChildren = false;
 
                 if (targetId === 'sec-core') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query'))

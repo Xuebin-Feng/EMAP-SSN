@@ -135,8 +135,8 @@ def run(viewer, args):
     if not args or args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+            Command_Engine.show_status(viewer, Message("Help information printed to the Console"))
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
 
     # --- LIST COMMAND ---

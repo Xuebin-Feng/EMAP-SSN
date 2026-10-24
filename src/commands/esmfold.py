@@ -719,8 +719,8 @@ def run(viewer, args):
             _report_usage_error(viewer, Message("Help cannot be combined with other keywords."))
             return
         print_help()
-        _set_console_text(viewer, Message("Help information printed to the terminal"))
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        _set_console_text(viewer, Message("Help information printed to the Console"))
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
 
     if args and args[0].lower() == 'stop':

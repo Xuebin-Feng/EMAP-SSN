@@ -195,8 +195,8 @@ class ArgumentFormTests(EmbeddingFixture, unittest.TestCase):
             with self.subTest(word=word):
                 viewer = make_viewer()
                 succeeded, failed, printed = run(viewer, word)
-                self.assertEqual((succeeded, failed), ("Help information printed to the terminal.", []))
-                self.assertEqual(viewer.console_text.text, "Help information printed to the terminal")
+                self.assertEqual((succeeded, failed), ("Help information printed to the Console.", []))
+                self.assertEqual(viewer.console_text.text, "Help information printed to the Console")
                 for line in ("Embedding Switcher Tool", "embedding [filename.h5]", "embedding help",
                              "is not an undo step"):
                     self.assertIn(line, printed)
@@ -552,7 +552,7 @@ class PortalTests(EmbeddingFixture, PortalFixture, unittest.TestCase):
         self.assertEqual(self.viewer.embedding.embed_file, slashed(self.first))
         record = self.submit("embedding help")
         self.assertEqual([m["text"] for m in record["messages"] if m["status"] == "succeeded"],
-                         ["Help information printed to the terminal."])
+                         ["Help information printed to the Console."])
 
     def test_a_failure_is_reported_once_with_the_reason_and_nothing_succeeds(self):
         # The dialog must never be reached here; were it, a real one would block this test forever.

@@ -472,8 +472,8 @@ def run(viewer, args):
     if args[0].lower() in ['help', '-h', '--help']:
         print_help()
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+            Command_Engine.show_status(viewer, Message("Help information printed to the Console"))
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
 
     alignment = getattr(viewer, 'alignment', None)
@@ -710,7 +710,7 @@ def run(viewer, args):
             print("[No positions matched the search criteria]")
 
         print("-" * 50)
-        message = Message("Found %n matching position(s). Check terminal.", n=len(matching_labels))
+        message = Message("Found %n matching position(s). Check the Console.", n=len(matching_labels))
         if hasattr(viewer, 'console_text'):
             Command_Engine.show_status(viewer, message)
         Command_Engine.command_succeeded(viewer, message)
@@ -765,7 +765,7 @@ def run(viewer, args):
     print("-" * 50)
     
     if found_count > 0:
-        message = Message("Queried %n position(s). Check terminal.", n=found_count)
+        message = Message("Queried %n position(s). Check the Console.", n=found_count)
         Command_Engine.show_status(viewer, message)
         Command_Engine.command_succeeded(viewer, message)
     else:

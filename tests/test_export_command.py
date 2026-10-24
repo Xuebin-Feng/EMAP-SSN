@@ -300,7 +300,7 @@ class ExportBranchTests(unittest.TestCase):
                         reported_outcomes() as (succeeded, failed), redirect_stdout(output):
                     export_command.run(viewer, [flag])
                 self.assertIn("Hidden nodes are included", output.getvalue())
-                succeeded.assert_called_once_with(viewer, "Help information printed to the terminal.")
+                succeeded.assert_called_once_with(viewer, "Help information printed to the Console.")
                 failed.assert_not_called()
         self.assertEqual(self.written(), [])
 

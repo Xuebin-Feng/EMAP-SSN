@@ -166,8 +166,8 @@ def run(viewer, args):
     if first_arg in ['help', '-h', '--help']:
         print_help(meta_dir)
         if hasattr(viewer, 'console_text'):
-            Command_Engine.show_status(viewer, Message("Help information printed to the terminal"))
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+            Command_Engine.show_status(viewer, Message("Help information printed to the Console"))
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
 
     # 4. Delete Metadata Columns

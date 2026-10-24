@@ -37,7 +37,7 @@ def run(viewer, args):
             "Examples:\n  save\n  save my_layout.h5",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
         
     try:

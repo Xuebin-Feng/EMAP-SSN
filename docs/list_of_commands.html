@@ -97,6 +97,7 @@
                 <li class="menu-item" data-target="cmd-hide"><a href="#cmd-hide"><span>hide</span></a></li>
                 <li class="menu-item" data-target="cmd-undoredo"><a href="#cmd-undoredo"><span>undo &amp; redo</span></a></li>
                 <li class="menu-item" data-target="cmd-run"><a href="#cmd-run"><span>run</span></a></li>
+                <li class="menu-item" data-target="cmd-console"><a href="#cmd-console"><span>console</span></a></li>
             </ul>
 
             <div class="menu-category">Alignment</div>
@@ -148,7 +149,7 @@
                     This reference documents all available visual, physical, and community-clustering commands. Use the sidebar to search or filter commands dynamically. Core commands operate on the visual state in memory, while external scripts execute advanced bioinformatics algorithms and export outputs to the disk.
                 </p>
                 <p>
-                    <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the terminal; <code>export</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference.
+                    <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the Console; <code>export</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference.
                 </p>
             </header>
 
@@ -204,7 +205,7 @@
                 <div class="collapsible-container">
                     <div class="collapsible-header"><span>4. External File Cross-Referencing (<code>@Filename@</code>)</span></div>
                     <div class="collapsible-content">
-                        <p>Surrounding a filename with the <code>@</code> symbol cross-references the network against a text file or FASTA file located in the <code>Header_Lists</code> directory. The name must be a plain file name in that directory: a name with a folder, <code>..</code>, a drive such as <code>C:</code> or a network share is refused, and the command changes nothing. The file must be UTF-8 text; entries that match no node are listed in the terminal.</p>
+                        <p>Surrounding a filename with the <code>@</code> symbol cross-references the network against a text file or FASTA file located in the <code>Header_Lists</code> directory. The name must be a plain file name in that directory: a name with a folder, <code>..</code>, a drive such as <code>C:</code> or a network share is refused, and the command changes nothing. The file must be UTF-8 text; entries that match no node are listed in the Console.</p>
                         <ul>
                             <li><strong>Direct Match:</strong> <code>@my_targets.txt@</code> selects nodes whose full header matches a line of the file, ignoring letter case; a FASTA file contributes its <code>&gt;</code> header lines. Each line is first cleaned up as headers were when the network was built (runs of spaces become one <code>_</code>, square brackets become parentheses), so a header copied from the original FASTA still matches. <code>.txt</code> is appended when the name ends in none of <code>.txt</code>, <code>.fasta</code>, <code>.fa</code>, <code>.faa</code> and <code>.fas</code> (any case), so a file written by <code>select save hits.fa</code> is read back with <code>@hits.fa@</code>. A header list saved under an older version as <code>hits.fa.txt</code> is still read by <code>@hits.fa@</code> when no file named <code>hits.fa</code> exists (the same for <code>.faa</code> and <code>.fas</code>); the exact name wins when both exist.</li>
                             <li><strong>NCBI Extraction:</strong> <code>@[NCBI]my_targets.txt@</code> automatically scans the text file for standard NCBI accession codes (e.g., <code>WP_01234.1</code>) and matches the network headers containing those codes, ignoring surrounding text.</li>
@@ -244,7 +245,7 @@
                 <div class="callout callout-note">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Strict Context Validation</div>
                     <p>Before an expression is applied, the interpreter verifies that every referenced cluster, noise label, custom group, displayed alignment position, metadata property, and header-list file exists in the current SSN context. Metadata comparisons must also use a value and operator compatible with the property type.</p>
-                    <p>If any reference or predicate is invalid, the entire submitted command is aborted and no network changes are applied. A concise error appears in the command overlay, while the terminal includes the expression and available valid targets. An existing target that legitimately matches zero nodes is not an expression error.</p>
+                    <p>If any reference or predicate is invalid, the entire submitted command is aborted and no network changes are applied. A concise error appears in the command overlay, while the Console includes the expression and available valid targets. An existing target that legitimately matches zero nodes is not an expression error.</p>
                 </div>
             </div>
 
@@ -412,6 +413,32 @@
                 </ul>
             </section>
 
+            <section class="command-card" id="cmd-console">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">console</span>
+                        <span class="command-card-desc-title">&ndash; Open the Console Window</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">console</div>
+                    <button class="copy-btn" onclick="copyText('console', this)">Copy</button>
+                </div>
+                <p><strong>Function:</strong> Opens the Console window, or brings it forward if it is already open. The Console shows everything this viewer has printed since it started, as it arrives and with the time of each line: the output of the commands, including each command's help, and every warning and error, marked in amber and red. The Console button at the foot of the sidebar opens the same window.</p>
+                <div class="subheading">Console Details</div>
+                <ul>
+                    <li><strong>Search and Filter:</strong> The window searches its text and steps through the matches, can be limited to warnings and errors, and can follow new lines as they arrive. It copies the selection (or all of its text) and saves the text it shows to a file.</li>
+                    <li><strong>What It Keeps:</strong> The window shows the last 20,000 lines. The log file it names, in <code>temp/logs</code> of the project folder, keeps every line of the session; it rolls over at 8 MB, and the ten latest logs of each window are kept. Buttons in the window open the log and its folder. API keys and tokens in the output are hidden, in the window and in the log.</li>
+                    <li><strong>Not the Command Overlay:</strong> The overlay on the canvas shows a command's short message; the Console holds everything the command printed.</li>
+                    <li><strong>No Window:</strong> A viewer that shows no window (headless, or hidden and not yet shown) has no Console: read its log file, or its log pages through the MCP server. A program started with <code>--console</code> prints to the terminal it was started from and has no Console window either.</li>
+                </ul>
+                <div class="subheading">Examples</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>console</span><button class="copy-btn" onclick="copyText('console', this)">Copy</button></li>
+                </ul>
+            </section>
+
 <div class="section-divider" id="sec-alignment">Alignment</div>
 
             <section class="command-card" id="cmd-reference">
@@ -485,7 +512,7 @@
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Loading Rules &amp; Integrity Checks</div>
-<p>The MSA may contain all, some, or none of the sequence headers currently plotted in the viewer. Coverage is matched by exact full headers. Missing nodes remain visible and usable for topology and metadata operations, but they are excluded from alignment-dependent analyses. A partial load prints a red terminal warning with coverage details; only unreadable or malformed alignment files cause rollback.</p>
+<p>The MSA may contain all, some, or none of the sequence headers currently plotted in the viewer. Coverage is matched by exact full headers. Missing nodes remain visible and usable for topology and metadata operations, but they are excluded from alignment-dependent analyses. A partial load prints a red warning in the Console with coverage details; only unreadable or malformed alignment files cause rollback.</p>
 <p>For amino-acid expressions, a missing alignment row is treated as unknown: neither <code>P106</code> nor <code>!P106</code> matches an unaligned node. Independent header, metadata, cluster, group, or file clauses can still match that node through normal Boolean logic.</p>
                 </div>
                 <div class="subheading">Examples</div>
@@ -516,7 +543,7 @@
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Loading Rules &amp; Integrity Checks</div>
-<p>The embedding may contain all, some, or none of the sequence headers currently plotted in the viewer. A node is covered when the file holds its exact full header with the identical sequence. Missing nodes, and nodes whose sequence differs from the file's, remain visible and usable for topology and metadata operations, but they are excluded from embedding-dependent analyses. The command reports how many nodes are embedded and the embedding's model, width and saving mode; a partial load also prints a red terminal warning with coverage details. Only an unreadable, malformed or incomplete embedding file causes rollback, which restores the previous embedding.</p>
+<p>The embedding may contain all, some, or none of the sequence headers currently plotted in the viewer. A node is covered when the file holds its exact full header with the identical sequence. Missing nodes, and nodes whose sequence differs from the file's, remain visible and usable for topology and metadata operations, but they are excluded from embedding-dependent analyses. The command reports how many nodes are embedded and the embedding's model, width and saving mode; a partial load also prints a red warning in the Console with coverage details. Only an unreadable, malformed or incomplete embedding file causes rollback, which restores the previous embedding.</p>
 <p>A network built with another model than the embedding's is accepted, with a note: embedding commands use the embedding's model.</p>
                 </div>
                 <div class="subheading">Examples</div>
@@ -657,7 +684,7 @@
                     <div class="syntax-content">subcluster &lt;cluster_name&gt; [mode] [param_1] [min_size]  |  subcluster clear</div>
                     <button class="copy-btn" onclick="copyText('subcluster', this)">Copy</button>
                 </div>
-                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). Subclusters are numbered by size, as clusters are, so <code>subcluster_N_1</code> is the largest; equal sizes are ordered by their lowest member node index. The main topology-cluster labels are retained, while nodes in the target cluster are recolored by subcluster and nodes below <code>min_size</code> are colored gray. Running <code>cluster</code> again removes these generated groups, because they describe the clusters it replaces. The terminal report uses the same highly saturated subcluster palette.</p>
+                <p><strong>Overview:</strong> Performs subclustering on a specific topology cluster, creating custom group labels named <code>subcluster_N_M</code> (where N is the original cluster ID, and M is the subcluster ID). Subclusters are numbered by size, as clusters are, so <code>subcluster_N_1</code> is the largest; equal sizes are ordered by their lowest member node index. The main topology-cluster labels are retained, while nodes in the target cluster are recolored by subcluster and nodes below <code>min_size</code> are colored gray. Running <code>cluster</code> again removes these generated groups, because they describe the clusters it replaces. The Console report uses the same highly saturated subcluster palette.</p>
                 
                 <div class="subheading">Arguments</div>
                 <ul>
@@ -684,7 +711,7 @@
                 <div class="subheading">Important Notes</div>
                 <ul>
                     <li>Subclustering overwrites colors within the target cluster but preserves its main cluster labels. Use <code>undo</code> to restore the prior state. <code>subcluster clear</code> removes only generated labels, whose N and M are positive integers without leading zeros. Custom groups with lookalike names, such as <code>subcluster_0_2</code>, <code>subcluster_001_2</code>, and <code>subcluster_2_002</code>, are kept, and subclustering <code>cluster_2</code> again replaces only its generated labels. It leaves colors as they are.</li>
-                    <li>The terminal statistics report is color-coded using a rich, highly saturated HLS scheme (saturation 0.95, lightness 0.35 - 0.65) to differentiate subclusters from the pastel colors used for main clusters.</li>
+                    <li>The Console statistics report is color-coded using a rich, highly saturated HLS scheme (saturation 0.95, lightness 0.35 - 0.65) to differentiate subclusters from the pastel colors used for main clusters.</li>
                 </ul>
             </section>
 
@@ -834,7 +861,7 @@
                     <button class="copy-btn" onclick="copyText('label', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The label command performs Differential Sequence Analysis. It is designed to identify Specificity-Determining Positions (SDPs)—amino acids that are highly conserved within a specific cluster or group, but vary across the broader protein family. It exports a rich, color-coded Microsoft Excel (.xlsx) report detailing exactly which residues define your sub-families.</p>
-                <p>Label calculation and workbook generation run in the viewer's shared background-job queue. The command captures its alignment mapping, cluster/group memberships, reference numbering, parameters, and output metadata when submitted, so later viewer changes do not alter a queued report. Label and logo jobs execute sequentially; queue and completion messages are shown in the command overlay and terminal.</p>
+                <p>Label calculation and workbook generation run in the viewer's shared background-job queue. The command captures its alignment mapping, cluster/group memberships, reference numbering, parameters, and output metadata when submitted, so later viewer changes do not alter a queued report. Label and logo jobs execute sequentially; queue and completion messages are shown in the command overlay and the Console.</p>
                 
                 <div class="callout callout-note">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Prerequisites</div>
@@ -1091,7 +1118,7 @@
                     <button class="copy-btn" onclick="copyText('logo', this)">Copy</button>
                 </div>
                 <p><strong>Overview:</strong> The logo command generates publication-ready sequence logos (in vector .svg or transparent .png format) to visually represent amino acid conservation across a specific subset of your network. By combining this tool with the Common Expression Interpreter, you can instantly compare the binding motifs, active sites, or structural variations of different protein sub-families directly from the viewer.</p>
-                <p>Logo calculation and file generation run in the viewer's shared background-job queue so the viewer remains interactive. The selected aligned sequences, mapped positions, reference, and rendering options are captured when the command is submitted. Exact redundancy calculations use a balanced parallel Numba kernel when available and fall back to NumPy otherwise. Label and logo jobs execute sequentially; queue and completion messages are shown in the command overlay and terminal.</p>
+                <p>Logo calculation and file generation run in the viewer's shared background-job queue so the viewer remains interactive. The selected aligned sequences, mapped positions, reference, and rendering options are captured when the command is submitted. Exact redundancy calculations use a balanced parallel Numba kernel when available and fall back to NumPy otherwise. Label and logo jobs execute sequentially; queue and completion messages are shown in the command overlay and the Console.</p>
                 
                 <div class="callout callout-note">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-info"/></svg>Prerequisites</div>
@@ -1237,7 +1264,7 @@
                 let visibleChildren = false;
 
                 if (targetId === 'sec-core') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query'))

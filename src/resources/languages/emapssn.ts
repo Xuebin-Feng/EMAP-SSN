@@ -3318,7 +3318,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Help information printed to the terminal</source>
+        <source>Help information printed to the Console</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3926,7 +3926,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <source>%n job(s) waiting or running; the list is in the terminal.</source>
+        <source>%n job(s) waiting or running; the list is in the Console.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
@@ -4400,13 +4400,13 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <source>Found %n matching position(s). Check terminal.</source>
+        <source>Found %n matching position(s). Check the Console.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>Queried %n position(s). Check terminal.</source>
+        <source>Queried %n position(s). Check the Console.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>

@@ -95,7 +95,7 @@ def run(viewer, args):
             "Examples:\n  reference\n  reference SeqA",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
 
     if len(args) > 1:

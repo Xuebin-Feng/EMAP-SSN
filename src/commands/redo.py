@@ -59,7 +59,7 @@ def run(viewer, args):
             "  - With N, a positive whole number, it reapplies up to N states, stops early when there is nothing left to redo, and reports once how many it redid.",
         ], separator="\n")
         Command_Engine.print_help(viewer, msg, report_message=False)
-        Command_Engine.command_succeeded(viewer, 'Help information printed to the terminal.')
+        Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
     # Typed by hand while commands wait, redo would change the network under
     # them. They come after the undone steps, as a new action does, and a new
