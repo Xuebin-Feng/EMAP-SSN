@@ -27,6 +27,7 @@ modules = [
     "test_group_command",
     "test_hide_command",
     "test_incomplete_alignment",
+    "test_job_cancellation",
     "test_label_analysis",
     "test_label_command",
     "test_logo_command",

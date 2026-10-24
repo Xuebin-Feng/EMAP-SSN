@@ -20,7 +20,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 import itertools
 import os
-import queue
 import threading
 import time
 import traceback
@@ -30,6 +29,7 @@ import weakref
 from PySide6 import QtCore
 from desktop.Desktop_App import open_in_file_manager
 from desktop.Viewer_Window import viewer_shows_windows
+from utilities.Job_Cancellation import CancelToken, JobCancelled, bound_to
 from utilities.Localization import Message
 
 
@@ -47,38 +47,65 @@ class BackgroundJob:
     command_context: Any = None
 
 
+@dataclass(frozen=True)
+class JobStatus:
+    """One unfinished job as snapshot() reports it.
+
+    ``position`` is its place in the line, the running job being 1;
+    ``started_at`` is the running job's time.monotonic() start, None for a
+    waiting one; ``stopping`` is true for the running job once it was told to stop.
+    """
+    job: BackgroundJob
+    running: bool
+    position: int
+    started_at: float | None = None
+    stopping: bool = False
+
+
 class BackgroundJobScheduler(QtCore.QObject):
-    """Run mixed command jobs in strict FIFO order on one daemon thread."""
+    """Run mixed command jobs one at a time on one daemon thread, in the order of the line.
+
+    The line is a list the GUI thread may rearrange (move) while the thread
+    takes jobs from its front: every change to the list, and the choice of the
+    next job, happen under one lock, so a job is either still in the line,
+    where it can be moved or removed, or running, where it cannot be moved and
+    can only be told to stop (cancel). A running job stops at the next check
+    point of its worker (utilities.Job_Cancellation.raise_if_cancelled); the
+    worker deletes what it had written, and the job ends as cancelled.
+    """
 
     job_started = QtCore.Signal(object)
     job_succeeded = QtCore.Signal(object, object, float)
     # The error itself, not its text, so a Message it holds shows translated.
     job_failed = QtCore.Signal(object, object, str, float)
-    job_cancelled = QtCore.Signal(object)
-
-    _STOP = object()
+    # The job, and whether it had started: a job removed from the line, or one stopped while it ran.
+    job_cancelled = QtCore.Signal(object, bool)
+    # The line or the running job changed: sent once the new state stands, for whatever lists the jobs.
+    changed = QtCore.Signal()
 
     def __init__(self, viewer, job_numbers=None):
         super().__init__()
         self._viewer_ref = weakref.ref(viewer)
-        self._jobs = queue.Queue()
         self._lock = threading.Lock()
+        self._wake = threading.Condition(self._lock)
         self._accepting = True
+        # The jobs waiting, in the order they will run; the running one is not in it.
+        self._queued = []
         self._active_job = None
-        self._outstanding_count = 0
+        self._active_token = None
+        self._active_started = None
+        self._stopping = False
         # Job numbers: the Viewer's command queue draws from the same count, so
         # every job the Viewer lists has a number of its own.
         self._job_numbers = job_numbers if job_numbers is not None else itertools.count(1)
         self._reserved_output_paths = set()
-        # The jobs not yet finished, in the order queued, and those cancelled before they started.
-        self._waiting = {}
-        self._cancelled = set()
 
         queued = QtCore.Qt.ConnectionType.QueuedConnection
         self.job_started.connect(self._report_started, queued)
         self.job_succeeded.connect(self._report_succeeded, queued)
         self.job_failed.connect(self._report_failed, queued)
         self.job_cancelled.connect(self._report_cancelled, queued)
+        self.changed.connect(self._update_places, queued)
 
         self._thread = threading.Thread(
             target=self._worker_loop,
@@ -95,24 +122,69 @@ class BackgroundJobScheduler(QtCore.QObject):
     def queue_depth(self):
         """Return the number of running and queued jobs."""
         with self._lock:
-            return self._outstanding_count
+            return len(self._queued) + (self._active_job is not None)
+
+    def _line(self):
+        """The unfinished jobs in the order of the line, the running one first; call with the lock held."""
+        return ([self._active_job] if self._active_job is not None else []) + self._queued
 
     def listing(self):
-        """The jobs not yet finished, oldest first, as (job, running) pairs."""
+        """The jobs not yet finished, in the order of the line, as (job, running) pairs."""
         with self._lock:
-            active = self._active_job
-            return [(job, job is active) for job in self._waiting.values()]
+            return [(job, job is self._active_job) for job in self._line()]
+
+    def snapshot(self):
+        """The unfinished jobs in the order of the line, as JobStatus entries, read at one moment."""
+        with self._lock:
+            entries = []
+            if self._active_job is not None:
+                entries.append(JobStatus(self._active_job, True, 1, self._active_started, self._stopping))
+            first = len(entries) + 1
+            entries.extend(JobStatus(job, False, first + index) for index, job in enumerate(self._queued))
+            return entries
 
     def cancel(self, job_id):
-        """Cancel a job that has not started; return whether there was one.
+        """Take a job out of the line, or tell the running one to stop; return whether there was one to.
 
-        A job that writes its file already is left to finish.
+        A waiting job is gone at once: its output is released and it is reported
+        cancelled. The running job is told to stop and ends at the next check
+        point of its worker, which deletes its unfinished file; it is reported
+        cancelled then. A worker with no check point finishes its file as it
+        would have, and is reported as completed. A job already told to stop
+        is not told again.
+        """
+        removed = None
+        with self._lock:
+            index = next((i for i, job in enumerate(self._queued) if job.job_id == job_id), None)
+            if index is not None:
+                removed = self._queued.pop(index)
+                self._reserved_output_paths.discard(self._output_key(removed.output_path))
+            elif (self._active_job is not None and self._active_job.job_id == job_id
+                  and not self._stopping):
+                self._stopping = True
+                self._active_token.request()
+            else:
+                return False
+        if removed is not None:
+            self.job_cancelled.emit(removed, False)
+        self.changed.emit()
+        return True
+
+    def move(self, job_id, offset):
+        """Move a waiting job ``offset`` places along the line (negative is earlier); return whether it moved.
+
+        It stops at the ends of the waiting jobs, and the running job never
+        moves and is never passed: a job that is running, or gone, does not move.
         """
         with self._lock:
-            job = self._waiting.get(job_id)
-            if job is None or job is self._active_job or job_id in self._cancelled:
+            index = next((i for i, job in enumerate(self._queued) if job.job_id == job_id), None)
+            if index is None:
                 return False
-            self._cancelled.add(job_id)
+            target = max(0, min(len(self._queued) - 1, index + int(offset)))
+            if target == index:
+                return False
+            self._queued.insert(target, self._queued.pop(index))
+        self.changed.emit()
         return True
 
     def is_output_path_reserved(self, path):
@@ -129,7 +201,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         output_path,
         allow_overwrite=False,
     ):
-        """Reserve an output and append one immutable job to the FIFO queue."""
+        """Reserve an output and put one immutable job at the end of the line."""
         from Viewer_Command_Portal import CURRENT
         command_context = CURRENT.get()
         output_path = os.path.abspath(os.fspath(output_path))
@@ -145,7 +217,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                 ))
 
             job_id = next(self._job_numbers)
-            queue_position = self._outstanding_count + 1
+            queue_position = len(self._queued) + (self._active_job is not None) + 1
             job = BackgroundJob(
                 job_id=job_id,
                 command_name=str(command_name),
@@ -156,11 +228,12 @@ class BackgroundJobScheduler(QtCore.QObject):
                 command_context=command_context,
             )
             self._reserved_output_paths.add(output_key)
-            self._outstanding_count += 1
-            self._waiting[job_id] = job
+            self._queued.append(job)
             if command_context is not None:
                 command_context.add_job(job_id, output_path=output_path)
-            self._jobs.put(job)
+            self._wake.notify()
+        self._update_places()
+        self.changed.emit()
 
         message = Message(
             "Queued background job #{job}: {command} (position {position}) -> {file}",
@@ -174,60 +247,49 @@ class BackgroundJobScheduler(QtCore.QObject):
         return job_id
 
     def shutdown(self):
-        """Discard queued jobs without waiting for the daemon worker."""
+        """Discard queued jobs and tell the running one to stop, without waiting for the daemon worker."""
         with self._lock:
             if not self._accepting:
                 return
             self._accepting = False
-
-        while True:
-            try:
-                item = self._jobs.get_nowait()
-            except queue.Empty:
-                break
-            if isinstance(item, BackgroundJob):
-                with self._lock:
-                    self._reserved_output_paths.discard(
-                        self._output_key(item.output_path)
-                    )
-                    self._outstanding_count -= 1
-                    self._waiting.pop(item.job_id, None)
-            self._jobs.task_done()
-        self._jobs.put(self._STOP)
+            for job in self._queued:
+                self._reserved_output_paths.discard(self._output_key(job.output_path))
+            self._queued.clear()
+            if self._active_token is not None:
+                self._active_token.request()
+            self._wake.notify_all()
 
     def _worker_loop(self):
         while True:
-            job = self._jobs.get()
-            if job is self._STOP:
-                self._jobs.task_done()
-                return
-
             with self._lock:
-                cancelled = job.job_id in self._cancelled
-                if not self._accepting or cancelled:
-                    self._reserved_output_paths.discard(
-                        self._output_key(job.output_path)
-                    )
-                    self._outstanding_count -= 1
-                    self._waiting.pop(job.job_id, None)
-                    self._cancelled.discard(job.job_id)
-                    self._jobs.task_done()
-                    if cancelled and self._accepting:
-                        self.job_cancelled.emit(job)
-                    continue
+                while self._accepting and not self._queued:
+                    self._wake.wait()
+                if not self._accepting:
+                    return
+                job = self._queued.pop(0)
+                token = CancelToken()
                 self._active_job = job
+                self._active_token = token
+                self._active_started = time.monotonic()
+                self._stopping = False
 
             started_at = time.perf_counter()
             self.job_started.emit(job)
+            self.changed.emit()
             try:
                 from Viewer_Command_Portal import bind
-                with bind(job.command_context):
+                with bound_to(token), bind(job.command_context):
                     result = dict(job.worker(job.payload))
                 elapsed = time.perf_counter() - started_at
                 with self._lock:
                     accepting = self._accepting
                 if accepting:
                     self.job_succeeded.emit(job, result, elapsed)
+            except JobCancelled:
+                with self._lock:
+                    accepting = self._accepting
+                if accepting:
+                    self.job_cancelled.emit(job, True)
             except Exception as error:
                 elapsed = time.perf_counter() - started_at
                 detail = traceback.format_exc()
@@ -238,18 +300,35 @@ class BackgroundJobScheduler(QtCore.QObject):
             finally:
                 with self._lock:
                     self._active_job = None
+                    self._active_token = None
+                    self._active_started = None
+                    self._stopping = False
                     self._reserved_output_paths.discard(
                         self._output_key(job.output_path)
                     )
-                    self._outstanding_count -= 1
-                    self._waiting.pop(job.job_id, None)
-                self._jobs.task_done()
+                    accepting = self._accepting
+                if accepting:
+                    self.changed.emit()
 
     def _set_viewer_status(self, message):
         viewer = self._viewer_ref()
         if viewer is None or not hasattr(viewer, "set_background_job_status"):
             return
         viewer.set_background_job_status(message)
+
+    @QtCore.Slot()
+    def _update_places(self):
+        """Each unfinished job's place in the line, in its portal record: position and the job ahead of it."""
+        with self._lock:
+            line = list(self._line())
+        for position, job in enumerate(line, 1):
+            context = job.command_context
+            if context is None:
+                continue
+            for entry in context.record['jobs']:
+                if entry['job_id'] == str(job.job_id):
+                    entry['position'] = position
+                    entry['waiting_for'] = str(line[position - 2].job_id) if position > 1 else None
 
     @QtCore.Slot(object)
     def _report_started(self, job):
@@ -286,10 +365,14 @@ class BackgroundJobScheduler(QtCore.QObject):
         if job.command_context is not None:
             job.command_context.job_event(job.job_id, "succeeded", message, [job.output_path])
 
-    @QtCore.Slot(object)
-    def _report_cancelled(self, job):
-        message = Message("Background job #{job} was cancelled before it started: {description}",
-                          job=job.job_id, description=job.description)
+    @QtCore.Slot(object, bool)
+    def _report_cancelled(self, job, started):
+        if started:
+            message = Message("Background job #{job} was stopped before it finished; no file was written: {description}",
+                              job=job.job_id, description=job.description)
+        else:
+            message = Message("Background job #{job} was cancelled before it started: {description}",
+                              job=job.job_id, description=job.description)
         print(message)
         self._set_viewer_status(message)
         if job.command_context is not None:

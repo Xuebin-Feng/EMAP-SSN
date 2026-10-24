@@ -512,7 +512,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2566"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2576"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -525,7 +525,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2461"/>
+        <location line="-2471"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -612,23 +612,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3942"/>
+        <location line="+3943"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3941"/>
+        <location line="-3942"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4523"/>
+        <location line="+4541"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4515"/>
+        <location line="-4533"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -669,7 +669,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+665"/>
+        <location line="+666"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -718,12 +718,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+4"/>
-        <location line="+3589"/>
+        <location line="+3606"/>
         <source>Export Layout Settings</source>
         <translation type="unfinished">导出布局设置</translation>
     </message>
     <message>
-        <location line="-3586"/>
+        <location line="-3603"/>
         <source>Export a generation-only JSON file for the selected new layout cache.</source>
         <translation type="unfinished">为所选的新布局缓存导出仅用于生成布局的 JSON 文件。</translation>
     </message>
@@ -764,12 +764,12 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
     </message>
     <message>
         <location line="+231"/>
-        <location line="+2343"/>
+        <location line="+2360"/>
         <source>Unavailable saved device [{device}]</source>
         <translation type="unfinished">不可用的已保存设备 [{device}]</translation>
     </message>
     <message>
-        <location line="-2262"/>
+        <location line="-2279"/>
         <source>this tab does not provide a default profile</source>
         <translation type="unfinished">此选项卡不提供默认配置方案</translation>
     </message>
@@ -1369,12 +1369,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
     </message>
     <message>
         <location line="+105"/>
-        <location line="+1345"/>
+        <location line="+1362"/>
         <source>Open Folder</source>
         <translation type="unfinished">打开文件夹</translation>
     </message>
     <message>
-        <location line="-1311"/>
+        <location line="-1328"/>
         <source>Sequence Set / Subset (.fasta):</source>
         <translation type="unfinished">序列集/子集（.fasta）：</translation>
     </message>
@@ -1563,7 +1563,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">比对长度</translation>
     </message>
     <message>
-        <location line="-565"/>
+        <location line="-566"/>
         <source>No Zoom or Sidebar Animation:</source>
         <translation type="unfinished">无缩放和侧边栏动画：</translation>
     </message>
@@ -1583,7 +1583,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">显示帧率（FPS）：</translation>
     </message>
     <message>
-        <location line="+563"/>
+        <location line="+564"/>
         <source>Shorter Sequence</source>
         <comment>normalization</comment>
         <translation type="unfinished">较短序列长度</translation>
@@ -2622,7 +2622,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">低资源模式：</translation>
     </message>
     <message>
-        <location line="+351"/>
+        <location line="+368"/>
         <source>Auto Benchmark</source>
         <translation type="unfinished">自动基准测试</translation>
     </message>
@@ -4089,7 +4089,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1869"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1879"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -4120,17 +4120,17 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
-        <location filename="../../../Background_Job_Scheduler.py" line="+139"/>
+        <location filename="../../../Background_Job_Scheduler.py" line="+211"/>
         <source>The background job scheduler is shutting down.</source>
         <translation type="unfinished">后台任务调度器正在关闭。</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../../commands/label.py" line="+1268"/>
-        <location line="+447"/>
-        <location filename="../../../commands/logo.py" line="+239"/>
-        <location line="+59"/>
-        <location filename="../../../commands/print.py" line="+1310"/>
+        <location filename="../../../commands/label.py" line="+1278"/>
+        <location line="+454"/>
+        <location filename="../../../commands/logo.py" line="+242"/>
+        <location line="+70"/>
+        <location filename="../../../commands/print.py" line="+1321"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
@@ -4138,17 +4138,17 @@ Command-line usage:
         <location line="+2"/>
         <location filename="../../../commands/label.py" line="+140"/>
         <location filename="../../../commands/logo.py" line="+640"/>
-        <location filename="../../../commands/print.py" line="+217"/>
+        <location filename="../../../commands/print.py" line="+219"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+23"/>
         <source>Queued background job #{job}: {command} (position {position}) -&gt; {file}</source>
         <translation type="unfinished">已排队后台任务 #{job}：{command}（第 {position} 位）→ {file}</translation>
     </message>
     <message>
-        <location line="+93"/>
+        <location line="+99"/>
         <source>Running background job #{job}: {description}</source>
         <translation type="unfinished">正在运行后台任务 #{job}：{description}</translation>
     </message>
@@ -4163,7 +4163,12 @@ Command-line usage:
         <translation type="unfinished">后台任务 #{job} 已完成，用时 {seconds} 秒：{detail}</translation>
     </message>
     <message>
-        <location line="+24"/>
+        <location line="+25"/>
+        <source>Background job #{job} was stopped before it finished; no file was written: {description}</source>
+        <translation type="unfinished">后台任务 #{job} 在完成前已停止，未写入任何文件：{description}</translation>
+    </message>
+    <message>
+        <location line="+3"/>
         <source>Background job #{job} was cancelled before it started: {description}</source>
         <translation type="unfinished">后台任务 #{job} 在开始前已取消：{description}</translation>
     </message>
@@ -4442,7 +4447,7 @@ Command-line usage:
         <location filename="../../../commands/esmfold.py" line="-76"/>
         <location filename="../../../commands/export.py" line="+108"/>
         <location filename="../../../commands/group.py" line="+138"/>
-        <location filename="../../../commands/jobs.py" line="+186"/>
+        <location filename="../../../commands/jobs.py" line="+195"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
@@ -5065,7 +5070,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/label.py" line="-1288"/>
+        <location filename="../../../commands/label.py" line="-1302"/>
         <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
         <translation type="unfinished">{argument} 阈值“{value}”超出了支持的范围 0 到 100%。</translation>
     </message>
@@ -5125,7 +5130,7 @@ Command-line usage:
         <translation type="unfinished">输入有歧义：“{key}”既以位置参数又以关键字参数给出。</translation>
     </message>
     <message>
-        <location line="+385"/>
+        <location line="+386"/>
         <source>Error: Global Alignment not loaded.</source>
         <translation type="unfinished">错误：未加载全局比对。</translation>
     </message>
@@ -5144,12 +5149,12 @@ Command-line usage:
         <translation type="obsolete">错误：未定义任何簇或分组。</translation>
     </message>
     <message>
-        <location line="+336"/>
+        <location line="+342"/>
         <source>Error: &apos;openpyxl&apos; is required for XLSX export. Run: {command}</source>
         <translation type="unfinished">错误：导出 XLSX 需要 &apos;openpyxl&apos;。请运行：{command}</translation>
     </message>
     <message>
-        <location line="+403"/>
+        <location line="+410"/>
         <source>Exported to {path}</source>
         <translation type="unfinished">已导出到 {path}</translation>
     </message>
@@ -5210,7 +5215,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/logo.py" line="-574"/>
+        <location filename="../../../commands/logo.py" line="-587"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -5230,7 +5235,7 @@ Command-line usage:
         <translation type="unfinished">序列标识图重新加权只能提供一个一致性阈值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+179"/>
+        <location line="+192"/>
         <source>Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个已比对节点的 {gap_mode} {mode} 序列标识图保存到 {file}</numerusform>
@@ -5456,7 +5461,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../../commands/print.py" line="-395"/>
+        <location filename="../../../commands/print.py" line="-399"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -5474,12 +5479,12 @@ Command-line usage:
         <translation type="obsolete">错误：{syntax} 需要一个视图宽度，例如 {example}。</translation>
     </message>
     <message>
-        <location line="+202"/>
+        <location line="+204"/>
         <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at most {n}, or zoom out. The limit is {setting} in {file}.</source>
         <translation type="unfinished">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过 {limit} 百万像素的上限。请使用 {syntax}，并让 N 不超过 {n}，或缩小视图。此上限由 {file} 中的 {setting} 设定。</translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+85"/>
         <source>Warning: the image is only {width}×{height} px. N in {syntax} is the zoom percentage, so a bigger N zooms in and gives a larger image.</source>
         <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是缩放百分比，N 越大，视图放得越大，图像也越大。</translation>
     </message>
@@ -6172,7 +6177,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4852"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4869"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -8438,7 +8443,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">#{job} {command} 在 {seconds} 秒后失败。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/jobs.py" line="-78"/>
+        <location filename="../../../commands/jobs.py" line="-73"/>
         <source>%n job(s) waiting or running; the list is in the terminal.</source>
         <translation type="unfinished">
             <numerusform>有 %n 个任务在等待或运行；列表已输出到终端。</numerusform>
@@ -8460,17 +8465,16 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">错误：“{word}”不是任务编号。请使用 jobs cancel N 或 jobs cancel all。</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+10"/>
         <source>Error: No job #{job} waits or runs; nothing was cancelled.</source>
         <translation type="unfinished">错误：没有等待或运行中的任务 #{job}；未取消任何任务。</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Error: Job #{job} is writing its file and cannot be cancelled; nothing was cancelled.</source>
-        <translation type="unfinished">错误：任务 #{job} 正在写入文件，无法取消；未取消任何任务。</translation>
+        <translation type="obsolete">错误：任务 #{job} 正在写入文件，无法取消；未取消任何任务。</translation>
     </message>
     <message>
-        <location line="+12"/>
+        <location line="+11"/>
         <source>Nothing to cancel: no command waits or runs.</source>
         <translation type="unfinished">没有可取消的内容：没有等待或运行中的命令。</translation>
     </message>
@@ -9007,7 +9011,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1497"/>
+        <location line="-1507"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>

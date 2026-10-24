@@ -474,43 +474,97 @@ class FileJobTests(QueueTestCase):
         self.started = threading.Event()
         self.ran = []
         self.cancelled = []
-        self.scheduler.job_cancelled.connect(lambda job: self.cancelled.append(job.job_id))
+        self.scheduler.job_cancelled.connect(lambda job, started: self.cancelled.append((job.job_id, started)))
+
+    def path(self, name):
+        return Path(self.folder.name) / name
 
     def worker(self, payload):
-        self.ran.append(payload)
-        if payload == "first":
+        """A file job that holds its thread: a partial file exists while it runs, and the job stops at its check point."""
+        from utilities.Job_Cancellation import raise_if_cancelled
+        if payload != "first":
+            self.ran.append(payload)
+            return {"message": payload}
+        partial = self.path(".first.partial.svg")
+        partial.write_bytes(b"half")
+        try:
             self.started.set()
-            self.release.wait(10)
+            while not self.release.wait(0.005):
+                pass
+            raise_if_cancelled()
+            self.ran.append(payload)
+        finally:
+            partial.unlink()
         return {"message": payload}
 
     def enqueue(self, payload):
         return self.scheduler.enqueue("logo", f"logo -> {payload}.svg", payload, self.worker,
-                                      str(Path(self.folder.name) / f"{payload}.svg"))
+                                      str(self.path(f"{payload}.svg")))
 
-    def test_a_file_job_not_started_is_cancelled_and_one_being_written_is_not(self):
+    def wait_for(self, condition, timeout=10):
+        deadline = time.monotonic() + timeout
+        while not condition() and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.005)
+        self.app.processEvents()
+        return condition()
+
+    def test_a_file_job_not_started_is_dropped_and_one_being_written_is_stopped(self):
         self.viewer.type(CLUSTER)  # job 1
         writing = self.enqueue("first")  # job 2
         self.assertTrue(self.started.wait(10))
         waiting = self.enqueue("second")  # job 3
-        self.assertEqual((writing, waiting), (2, 3))
+        after = self.enqueue("third")  # job 4
+        self.assertEqual((writing, waiting, after), (2, 3, 4))
         self.viewer.type("jobs")
         listing = self.output.getvalue()
         self.assertIn("#2     writing", listing)
         self.assertIn("#3     waiting", listing)
-        self.viewer.type("jobs cancel 2")
-        self.assertIn("Error: Job #2 is writing its file and cannot be cancelled; nothing was cancelled.",
-                      self.output.getvalue())
         self.viewer.type("jobs cancel 3")
         self.assertIn("Cancelled 1 job: #3 logo -> second.svg.", self.output.getvalue())
+        self.assertFalse(self.scheduler.is_output_path_reserved(str(self.path("second.svg"))))
+        # The one being written is cancelled too; it stops at its next check point, not before.
+        self.viewer.type("jobs cancel 2")
+        self.assertIn("Cancelled 1 job: #2 logo -> first.svg.", self.output.getvalue())
+        self.assertNotIn("cannot be cancelled", self.output.getvalue())
+        self.assertTrue(self.path(".first.partial.svg").exists())
+        self.output.truncate(0)
+        self.output.seek(0)
+        self.viewer.type("jobs")
+        self.assertIn("#2     stopping", self.output.getvalue())
         self.release.set()
-        deadline = time.monotonic() + 10
-        while not self.cancelled and time.monotonic() < deadline:
-            self.app.processEvents()
-            time.sleep(0.005)
-        self.assertEqual(self.cancelled, [3])
-        self.assertEqual(self.ran, ["first"])
-        self.assertEqual(self.scheduler.listing(), [])
-        self.assertFalse(self.scheduler.is_output_path_reserved(str(Path(self.folder.name) / "second.svg")))
+        self.assertTrue(self.wait_for(lambda: (2, True) in self.cancelled and "third" in self.ran))
+        self.assertEqual(sorted(self.cancelled), [(2, True), (3, False)])
+        self.assertEqual(self.ran, ["third"], "the line goes on with the job after it")
+        self.assertFalse(self.path(".first.partial.svg").exists(), "the unfinished file is deleted")
+        self.assertFalse(self.path("first.svg").exists())
+        self.assertTrue(self.wait_for(lambda: self.scheduler.listing() == []))
+        self.assertFalse(self.scheduler.is_output_path_reserved(str(self.path("first.svg"))))
+
+    def test_cancel_all_takes_in_the_file_being_written_and_the_ones_waiting(self):
+        self.viewer.type(CLUSTER)  # job 1
+        self.enqueue("first")  # job 2
+        self.assertTrue(self.started.wait(10))
+        self.enqueue("second")  # job 3
+        self.viewer.type("jobs cancel all")
+        text = self.output.getvalue()
+        self.assertIn("Cancelled 3 jobs:", text)
+        self.assertIn("#2 logo -> first.svg", text)
+        self.assertIn("#3 logo -> second.svg", text)
+        self.release.set()
+        self.assertTrue(self.wait_for(lambda: len(self.cancelled) == 2))
+        self.assertEqual(sorted(self.cancelled), [(2, True), (3, False)])
+        self.assertEqual(self.ran, [])
+        self.assertFalse(self.path(".first.partial.svg").exists())
+
+    def test_a_number_that_names_no_job_cancels_nothing_not_even_the_file_being_written(self):
+        self.enqueue("first")  # job 1
+        self.assertTrue(self.started.wait(10))
+        self.viewer.type("jobs cancel 1 99")
+        self.assertIn("Error: No job #99 waits or runs; nothing was cancelled.", self.output.getvalue())
+        self.assertEqual([entry.stopping for entry in self.scheduler.snapshot()], [False])
+        self.release.set()
+        self.assertTrue(self.wait_for(lambda: self.ran == ["first"]))
 
 
 class TurnTests(QueueTestCase):

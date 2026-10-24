@@ -2828,6 +2828,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Background job #{job} was stopped before it finished; no file was written: {description}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Background job #{job} was cancelled before it started: {description}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3591,10 +3595,6 @@ Command-line usage:
     </message>
     <message>
         <source>Error: No job #{job} waits or runs; nothing was cancelled.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Job #{job} is writing its file and cannot be cancelled; nothing was cancelled.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

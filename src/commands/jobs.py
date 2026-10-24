@@ -35,15 +35,21 @@ def print_help():
                           that run, then the last few commands that finished.
       cancel            - Cancels the newest command that waits or runs.
       cancel N [N ...]  - Cancels those jobs, by number (14 or #14). A file that
-                          is being written finishes; one not started is dropped.
-                          A number that names no waiting job cancels nothing.
+                          is being written is stopped and its unfinished file
+                          deleted; one not started is dropped. A number that
+                          names no waiting job cancels nothing.
       cancel all        - Cancels every command that waits or runs, and every
-                          file not started.
+                          file, written or not.
 
     Notes:
       A cancelled command that is computing stops at its next step (MCL) or
       runs to its end in the background (Leiden, Jaccard); its result is
       thrown away, and the commands after it go on at once.
+      A file being written stops at its next step, which
+      takes a moment, longer where one step is a large picture or report; what
+      it had written is deleted, and a file of that name from before stays as
+      it was. The Viewer's Session card lists the files too, where a waiting
+      one can also be moved.
       Undo typed by hand (or Ctrl+Z) while commands wait cancels the newest
       of them. esmfold stop and run stop end folding workers and Python scripts.
 
@@ -60,9 +66,17 @@ def _queue(viewer):
 
 
 def _file_jobs(viewer):
-    """The file jobs not finished, as (job, writing) pairs: the background scheduler's listing."""
-    listing = getattr(getattr(viewer, 'background_job_scheduler', None), 'listing', None)
-    return listing() if listing is not None else []
+    """The file jobs not finished, in the order of the line, as (job, state) pairs.
+
+    The state is 'waiting', 'writing', or 'stopping' for a file already told to stop.
+    """
+    scheduler = getattr(viewer, 'background_job_scheduler', None)
+    snapshot = getattr(scheduler, 'snapshot', None)
+    if snapshot is not None:
+        return [(entry.job, 'stopping' if entry.stopping else 'writing' if entry.running else 'waiting')
+                for entry in snapshot()]
+    listing = getattr(scheduler, 'listing', None)
+    return [(job, 'writing' if running else 'waiting') for job, running in (listing() if listing is not None else [])]
 
 
 def _cancel_file_job(viewer, job_id):
@@ -95,9 +109,9 @@ def _lines(viewer):
         timing = f"{job.seconds():6.1f} s" if job.status != 'queued' else " " * 8
         progress = f"  [{job.progress_text}]" if job.status == 'running' and job.progress_text else ""
         lines.append(f"#{job.job_id:<5} {state:<9} {timing}  {job.line}{progress}  ({job.source})")
-    for job, running in _file_jobs(viewer):
+    for job, state in _file_jobs(viewer):
         count += 1
-        lines.append(f"#{job.job_id:<5} {'writing' if running else 'waiting':<9} {' ' * 8}  {job.description}  (file)")
+        lines.append(f"#{job.job_id:<5} {state:<9} {' ' * 8}  {job.description}  (file)")
     # The desktop Viewer tracks its folding workers and scripts; the VR viewer, which has no queue, does not.
     workers, scripts = _external_counts() if queue is not None else (0, 0)
     if workers:
@@ -137,8 +151,8 @@ def cancel_jobs(viewer, words):
     elif len(words) == 1 and words[0].lower() == 'all':
         cancelled = queue.cancel_all(reason) if queue is not None else []
         names = [job.label() for job in cancelled]
-        for job, running in _file_jobs(viewer):
-            if not running and _cancel_file_job(viewer, job.job_id):
+        for job, _state in _file_jobs(viewer):
+            if _cancel_file_job(viewer, job.job_id):
                 names.append(f"#{job.job_id} {job.description}")
     else:
         # Every number must name a job that can be cancelled, or nothing is cancelled.
@@ -154,16 +168,11 @@ def cancel_jobs(viewer, words):
             if job is not None:
                 targets.append(('command', job))
                 continue
-            entry = next(((file_job, running) for file_job, running in _file_jobs(viewer)
-                          if file_job.job_id == number), None)
+            entry = next((file_job for file_job, _state in _file_jobs(viewer) if file_job.job_id == number), None)
             if entry is None:
                 _refuse(viewer, Message("Error: No job #{job} waits or runs; nothing was cancelled.", job=number))
                 return
-            if entry[1]:
-                _refuse(viewer, Message("Error: Job #{job} is writing its file and cannot be cancelled; "
-                                        "nothing was cancelled.", job=number))
-                return
-            targets.append(('file', entry[0]))
+            targets.append(('file', entry))
         names = []
         for kind, job in targets:
             if kind == 'command':
