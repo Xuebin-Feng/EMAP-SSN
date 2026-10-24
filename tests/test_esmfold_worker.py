@@ -276,6 +276,7 @@ class ESMFoldWorkerTests(unittest.TestCase):
 
         with (
             mock.patch.dict(sys.modules, fake_esm_modules()),
+            mock.patch.object(esmfold_worker, "can_ask", return_value=True),
             mock.patch.object(
                 esmfold_worker.Biohub_API,
                 "refresh_api_token",
@@ -305,6 +306,7 @@ class ESMFoldWorkerTests(unittest.TestCase):
 
         with (
             mock.patch.dict(sys.modules, fake_esm_modules()),
+            mock.patch.object(esmfold_worker, "can_ask", return_value=True),
             mock.patch.object(
                 esmfold_worker.Biohub_API,
                 "refresh_api_token",
@@ -549,6 +551,20 @@ class ViewerNotificationTests(unittest.TestCase):
         payload = self.posted_payload("node/1", "node_1.pdb")
         del payload["pdb_filename"]
         self.assertEqual(self.dispatch(payload), [])
+
+    def test_download_and_authentication_events_pass_their_numbers_on(self):
+        self.assertEqual(
+            self.dispatch({"action": "esmfold_job", "event": "downloading", "percent": 42, "run": "r1"}),
+            [{"type": "esmfold_job", "event": "downloading", "percent": 42, "run": "r1"}])
+        self.assertEqual(
+            self.dispatch({"action": "esmfold_job", "event": "authentication", "status": 401, "run": "r1"}),
+            [{"type": "esmfold_job", "event": "authentication", "status": 401, "run": "r1"}])
+
+    def test_a_percent_that_is_not_a_number_is_dropped(self):
+        for value in (True, -1, "50", 10 ** 12, None):
+            with self.subTest(value=value):
+                [message] = self.dispatch({"action": "esmfold_job", "event": "downloading", "percent": value})
+                self.assertNotIn("percent", message)
 
 
 class LocalModelDataRootTests(unittest.TestCase):
@@ -1209,6 +1225,226 @@ class ResidueDataMainTests(unittest.TestCase):
         self.assertEqual([os.path.basename(path) for path in status["artifacts"]], ["node_a.residues.json"])
         self.assertEqual(status["result"], {"succeeded": 1, "total": 1})
         self.assertIn("Refreshed the residue data of 1 of them.", output)
+
+
+class NeverAskTests(unittest.TestCase):
+    """The worker has no window and no input: it never waits for someone to answer, and Biohub's rejection ends the run cleanly."""
+
+    SETTINGS = {"ESM_API_TOKEN": "saved-secret-token", "ESM_API_URL": "https://biohub.ai", "ESM3_MODEL": "esm3-large-2024-03"}
+
+    def setUp(self):
+        portal = mock.patch.multiple(
+            esmfold_worker, _portal_path=None, _portal_noninteractive=False, _portal_state={"artifacts": []})
+        portal.start()
+        self.addCleanup(portal.stop)
+
+    def terminal(self, is_terminal):
+        stdin = mock.Mock()
+        stdin.isatty.return_value = is_terminal
+        return mock.patch.object(sys, "stdin", stdin)
+
+    def test_it_can_ask_only_where_a_terminal_can_answer(self):
+        with self.terminal(True):
+            self.assertTrue(esmfold_worker.can_ask())
+            with mock.patch.object(esmfold_worker, "_portal_noninteractive", True):
+                self.assertFalse(esmfold_worker.can_ask(), "--noninteractive says there is no one")
+        with self.terminal(False):
+            self.assertFalse(esmfold_worker.can_ask(), "no terminal, whatever the flag")
+        with mock.patch.object(sys, "stdin", None):
+            self.assertFalse(esmfold_worker.can_ask())
+
+    def test_it_never_waits_for_input_without_a_terminal(self):
+        def forbidden(*args, **kwargs):
+            raise AssertionError("the worker waited for input")
+
+        for flag in (True, False):
+            with self.subTest(noninteractive=flag), self.terminal(False), \
+                    mock.patch.object(esmfold_worker, "_portal_noninteractive", flag), \
+                    mock.patch("builtins.input", forbidden), \
+                    mock.patch.object(esmfold_worker.getpass, "getpass", forbidden):
+                esmfold_worker.portal_pause("Press Enter")
+                with self.assertRaises(RuntimeError):
+                    esmfold_worker._terminal_token_prompt(False)
+                with self.assertRaises(RuntimeError):
+                    esmfold_worker._terminal_token_prompt(True)
+
+    def test_run_by_hand_in_a_terminal_it_still_pauses_and_prompts(self):
+        with self.terminal(True), mock.patch("builtins.input") as pause, \
+                mock.patch.object(esmfold_worker.getpass, "getpass", return_value="typed") as prompt:
+            esmfold_worker.portal_pause("Press Enter")
+            self.assertEqual(esmfold_worker._terminal_token_prompt(False), "typed")
+        pause.assert_called_once_with("Press Enter")
+        prompt.assert_called_once()
+
+    def test_a_rejected_token_ends_the_run_without_refreshing_when_no_one_can_be_asked(self):
+        client = FakeClient([FakeProteinError(401)])
+        auth_state = {"settings": dict(self.SETTINGS), "refresh_attempted": False}
+        with self.terminal(False), mock.patch.dict(sys.modules, fake_esm_modules()), \
+                mock.patch.object(esmfold_worker.Biohub_API, "refresh_api_token") as refresh:
+            with self.assertRaises(esmfold_worker.Biohub_API.BiohubAuthenticationError) as caught:
+                esmfold_worker._generate_remote_structure(
+                    client, FakeProtein("ACDE"), FakeGenerationConfig("structure", 8), auth_state)
+        refresh.assert_not_called()
+        self.assertEqual(caught.exception.error_code, 401)
+        self.assertNotIn("saved-secret-token", str(caught.exception))
+
+    def test_a_rejection_in_the_middle_keeps_what_was_saved_and_is_not_counted_as_a_failed_structure(self):
+        client = FakeClient([FakeOutput(), FakeProteinError(403)])
+        events = []
+        with tempfile.TemporaryDirectory() as structures_dir, self.terminal(False), \
+                mock.patch.dict(sys.modules, fake_esm_modules()), \
+                mock.patch.object(esmfold_worker, "_load_large_client", return_value=(client, dict(self.SETTINGS))), \
+                redirect_stdout(io.StringIO()):
+            with self.assertRaises(esmfold_worker.Biohub_API.BiohubAuthenticationError):
+                esmfold_worker.run_predictions(
+                    [["node_a", "ACDE"], ["node_b", "ACDF"], ["node_c", "ACDG"]], structures_dir, mode="large",
+                    notifier=mock.Mock(), job_event=lambda event, **fields: events.append((event, fields)))
+            saved = sorted(os.listdir(structures_dir))
+        self.assertEqual(saved, ["node_a_esm3-large-2024-03.pdb"])
+        self.assertEqual([event for event, _ in events], ["progress", "progress"], "no structure_failed for the rejection")
+        self.assertTrue(client.closed)
+
+    def run_main_rejected(self, status_path):
+        events = []
+        output = io.StringIO()
+        error = esmfold_worker.Biohub_API.BiohubAuthenticationError(401, "Biohub rejected the saved API token.")
+        with tempfile.TemporaryDirectory() as structures_dir, \
+                mock.patch.object(esmfold_worker, "_load_nodes", return_value=[["node_1", "ACDE"], ["node_2", "FG"]]), \
+                mock.patch.object(esmfold_worker, "run_predictions", side_effect=error), \
+                mock.patch.object(esmfold_worker, "notify_job",
+                                  side_effect=lambda event, url, **fields: events.append((event, fields))), \
+                redirect_stdout(output):
+            result = esmfold_worker.main([
+                "input.json", structures_dir, "--action-url", "http://127.0.0.1:49123/api/action",
+                "--noninteractive", "--run-id", "run1", "--portal-status", status_path])
+        return result, events, output.getvalue()
+
+    def test_main_exits_with_its_own_code_and_says_authentication_not_failed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            status_path = os.path.join(directory, "status.json")
+            result, events, output = self.run_main_rejected(status_path)
+            with open(status_path, encoding="utf-8") as handle:
+                status = json.load(handle)
+        self.assertEqual(result, esmfold_worker.EXIT_AUTHENTICATION)
+        self.assertEqual(esmfold_worker.EXIT_AUTHENTICATION, 3)
+        self.assertEqual([event for event, _ in events], ["started", "authentication"])
+        self.assertEqual(events[-1][1], {"status": 401, "run": "run1"})
+        # A status that waits for the user, never failed: the Viewer reads failed as the end of the job.
+        self.assertEqual(status["status"], "awaiting_user_input")
+        self.assertEqual(status["result"]["authentication"], 401)
+        self.assertNotIn("saved-secret-token", output + json.dumps(status))
+
+
+class DownloadProgressTests(unittest.TestCase):
+    """The weights of the local model are downloaded once; the Viewer is told how far it has got."""
+
+    @classmethod
+    def setUpClass(cls):
+        # Imported here, not for the first time inside a patched sys.modules, which would drop the package again
+        # afterwards and leave orphan copies of its modules behind.
+        import tqdm.auto  # noqa: F401
+
+    def bars(self, reports, times):
+        clock = iter(times)
+        patcher = mock.patch("time.monotonic", lambda: next(clock))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return esmfold_worker.download_progress_class(reports.append)
+
+    def test_the_percent_of_the_bytes_is_reported_not_going_back_and_not_too_often(self):
+        reports = []
+        progress = self.bars(reports, [0.0, 0.1, 0.2, 0.7, 0.8, 5.0, 6.0, 7.0, 8.0, 9.0])
+        # Named as huggingface_hub names its bars; the count of files is no byte count.
+        files = progress(total=3, unit="it", name="files", file=io.StringIO())
+        bar = progress(total=1000, unit="B", name="huggingface_hub.snapshot_download.transfer", file=io.StringIO())
+        for chunk in (100, 100, 100):
+            bar.update(chunk)
+        files.update(1)
+        bar.total = 4000  # the total grows as more files start: the percent does not go down
+        bar.update(100)
+        bar.update(3200)
+        bar.update(500)
+        bar.close()
+        files.close()
+        self.assertTrue(reports)
+        self.assertEqual(reports, sorted(reports))
+        self.assertEqual(reports[-1], 100)
+
+    def test_the_first_download_hands_the_class_to_huggingface_and_reports_its_events(self):
+        events = []
+        reached = {}
+
+        def snapshot_download(**options):
+            if options.get("local_files_only"):
+                raise FileNotFoundError("not cached")
+            reached["options"] = options
+            bar = options["tqdm_class"](total=100, unit="B", name="x", file=io.StringIO())
+            bar.update(100)
+            bar.close()
+            return "downloaded-esm3"
+
+        modules = self.model_modules(snapshot_download)
+        with mock.patch.dict(sys.modules, modules), redirect_stdout(io.StringIO()):
+            esmfold_worker._load_local_model("cpu", lambda event, **fields: events.append((event, fields)))
+            root = modules["esm.pretrained"].data_root("esm3")
+        self.assertEqual(root, Path("downloaded-esm3"))
+        self.assertEqual(reached["options"]["repo_id"], "biohub/esm3-sm-open-v1")
+        self.assertEqual(events[-1], ("downloading", {"percent": 100}))
+
+    def test_a_cached_model_reports_nothing_and_without_an_event_function_nothing_changes(self):
+        downloads = []
+        modules = self.model_modules(lambda **options: downloads.append(options) or "cached-esm3")
+        with mock.patch.dict(sys.modules, modules), redirect_stdout(io.StringIO()):
+            esmfold_worker._load_local_model("cpu", lambda event, **fields: self.fail(event))
+            modules["esm.pretrained"].data_root("esm3")
+        self.assertEqual(downloads, [{"repo_id": "biohub/esm3-sm-open-v1", "local_files_only": True}])
+
+    def test_hugging_face_refusing_access_is_explained_and_other_errors_pass_through(self):
+        class Refused(Exception):
+            response = types.SimpleNamespace(status_code=401)
+
+        def refusing(**options):
+            if options.get("local_files_only"):
+                raise FileNotFoundError("not cached")
+            raise Refused("401 Client Error")
+
+        modules = self.model_modules(refusing)
+        with mock.patch.dict(sys.modules, modules), redirect_stdout(io.StringIO()):
+            esmfold_worker._load_local_model("cpu")
+            with self.assertRaises(RuntimeError) as caught:
+                modules["esm.pretrained"].data_root("esm3")
+        text = str(caught.exception)
+        self.assertIn("Hugging Face refused access", text)
+        self.assertIn("hf auth login", text)
+        self.assertIn("esmfold large", text)
+
+        def broken(**options):
+            if options.get("local_files_only"):
+                raise FileNotFoundError("not cached")
+            raise ConnectionError("no network")
+
+        modules = self.model_modules(broken)
+        with mock.patch.dict(sys.modules, modules), redirect_stdout(io.StringIO()):
+            esmfold_worker._load_local_model("cpu")
+            with self.assertRaises(ConnectionError):
+                modules["esm.pretrained"].data_root("esm3")
+
+    @staticmethod
+    def model_modules(snapshot_download):
+        """The stubs LocalModelDataRootTests uses, so that nothing is downloaded or imported for real."""
+        modules = {name: types.ModuleType(name) for name in (
+            "esm", "esm.pretrained", "esm.utils", "esm.utils.constants",
+            "esm.utils.constants.esm3", "esm.models", "esm.models.esm3",
+        )}
+        for name, module in modules.items():
+            if "." in name:
+                parent, child = name.rsplit(".", 1)
+                setattr(modules[parent], child, module)
+        modules["esm.utils.constants.esm3"].data_root = lambda model_type: Path("package") / model_type
+        modules["esm.models.esm3"].ESM3 = mock.Mock()
+        modules["huggingface_hub"] = types.ModuleType("huggingface_hub")
+        modules["huggingface_hub"].snapshot_download = snapshot_download
+        return modules
 
 
 if __name__ == "__main__":

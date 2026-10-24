@@ -39,6 +39,10 @@ from resources import Biohub_API
 # A Viewer that is busy or gone must not stall folding.
 NOTIFY_TIMEOUT_SECONDS = 5.0
 
+# The exit code of a run that Biohub's rejection of the API token ended. The Viewer that started it, which has a
+# window to ask in, asks for a replacement and runs the structures not yet folded again.
+EXIT_AUTHENTICATION = 3
+
 
 def sanitize_filename(name):
     return re.sub(r"[^a-zA-Z0-9_\-\.]", "_", name)
@@ -239,8 +243,22 @@ def portal_event(status, message=None, **result):
             pass
 
 
+def can_ask():
+    """Whether anyone can be asked something: not under --noninteractive, and the input is a terminal.
+
+    The Viewer starts the worker with no window and no input, and says --noninteractive; run by hand from
+    a terminal, it still pauses and prompts. Without a terminal it never waits for input that cannot come.
+    """
+    if _portal_noninteractive:
+        return False
+    try:
+        return bool(sys.stdin) and sys.stdin.isatty()
+    except (AttributeError, ValueError):
+        return False
+
+
 def portal_pause(message):
-    if not _portal_noninteractive:
+    if can_ask():
         input(message)
 
 
@@ -288,7 +306,7 @@ def parse_arguments(argv=None):
 
 
 def _terminal_token_prompt(replacement=False):
-    if _portal_noninteractive:
+    if not can_ask():
         raise RuntimeError("Biohub credentials require terminal input; configure credentials before headless execution.")
     portal_event("awaiting_user_input", "Enter Biohub credentials in the worker terminal")
     action = "Replacement" if replacement else "Biohub"
@@ -322,7 +340,42 @@ def _load_nodes(input_json_path, delete=False):
     return nodes_to_fold
 
 
-def _load_local_model(device):
+def download_progress_class(report):
+    """A tqdm class for huggingface_hub's snapshot_download: it draws nothing and calls report(percent).
+
+    The percent is that of the bytes of the weights fetched so far, never going back
+    (the total grows as the files start), at most twice a second and each whole percent once.
+    """
+    import time
+    from tqdm.auto import tqdm
+
+    state = {"percent": -1, "time": 0.0}
+
+    class Progress(tqdm):
+        def __init__(self, *args, **kwargs):
+            kwargs.pop("name", None)  # huggingface_hub names its bars for its own class
+            super().__init__(*args, **kwargs)
+
+        def display(self, msg=None, pos=None):
+            total = self.total
+            if self.unit != "B" or not total:
+                return
+            percent = int(100 * min(self.n, total) / total)
+            moment = time.monotonic()
+            if percent > state["percent"] and (percent >= 100 or moment - state["time"] >= 0.5):
+                state["percent"], state["time"] = percent, moment
+                report(percent)
+
+    return Progress
+
+
+def _gated_error(error):
+    """Whether error is Hugging Face refusing access to the weights: not logged in, or the terms not accepted."""
+    status = getattr(getattr(error, "response", None), "status_code", None)
+    return type(error).__name__ in {"GatedRepoError", "RepositoryNotFoundError"} or status in {401, 403}
+
+
+def _load_local_model(device, job_event=None):
     import esm.pretrained
     from esm.utils.constants.esm3 import data_root as package_data_root
     from huggingface_hub import snapshot_download
@@ -347,7 +400,18 @@ def _load_local_model(device):
                 "MIT-licensed ESM3 1.4B model weights "
                 "(biohub/esm3-sm-open-v1)..."
             )
-            return Path(snapshot_download(repo_id="biohub/esm3-sm-open-v1"))
+            options = {}
+            if job_event is not None:
+                options["tqdm_class"] = download_progress_class(lambda percent: job_event("downloading", percent=percent))
+            try:
+                return Path(snapshot_download(repo_id="biohub/esm3-sm-open-v1", **options))
+            except Exception as error:
+                if not _gated_error(error):
+                    raise
+                raise RuntimeError(
+                    "Hugging Face refused access to the ESM3 weights (biohub/esm3-sm-open-v1). Accept the "
+                    "model's terms on its Hugging Face page and log in (hf auth login), or fold with esmfold large."
+                ) from error
 
     esm.pretrained.data_root = custom_data_root
     from esm.models.esm3 import ESM3
@@ -384,6 +448,9 @@ def _generate_remote_structure(model, protein, generation_config, auth_state):
 
     result = model.generate(protein, generation_config)
     status = Biohub_API.authentication_status(result)
+    if status is not None and not auth_state["refresh_attempted"] and not can_ask():
+        # No terminal to ask in: end the run, and the Viewer that started it asks in its own window.
+        raise Biohub_API.BiohubAuthenticationError(status, "Biohub rejected the saved API token.")
     if status is not None and not auth_state["refresh_attempted"]:
         auth_state["refresh_attempted"] = True
         print("Biohub rejected the saved API token. Enter a replacement to retry once.")
@@ -526,7 +593,7 @@ def run_predictions(
         if device.type == "mps":
             os.environ["PYTORCH_ENABLE_MPS_FALLBACK"] = "1"
         print(f"Using device: {device}")
-        model = _load_local_model(device)
+        model = _load_local_model(device, job_event)
 
     folded_count = 0
     skipped_count = 0
@@ -602,6 +669,8 @@ def run_predictions(
                 if sidecar and residue_data_saved is not None:
                     residue_data_saved(os.path.join(structures_dir, sidecar))
                 folded_count += 1
+            except Biohub_API.BiohubAuthenticationError:
+                raise  # Not this structure's failure: the run ends, and says why.
             except Exception as error:
                 print(f"Error folding sequence {rec_id}: {error}")
                 errors_occurred = True
@@ -704,6 +773,14 @@ def main(argv=None):
             residue_data_saved=residue_data_saved,
             job_event=job_event,
         )
+    except Biohub_API.BiohubAuthenticationError as error:
+        # Not a failure: the structures folded so far are kept, and the Viewer may ask for a replacement token
+        # and fold the rest. The status is one that waits for the user, so that it is not read as an end.
+        print(f"Biohub rejected the API token (HTTP {error.error_code}); the structures already saved are kept.")
+        job_event("authentication", status=error.error_code)
+        portal_event("awaiting_user_input", "Biohub rejected the API token", authentication=error.error_code,
+                     succeeded=len(folded), total=len(nodes_to_fold))
+        return EXIT_AUTHENTICATION
     except Exception as error:
         print(f"Error initializing ESM3 prediction: {error}")
         job_event("failed", reason=str(error), log=log_path)

@@ -19,6 +19,9 @@ the worker through it, so the scheduler names no command:
   file is renamed into place or deleted. When the Viewer closes and a job does
   not stop in time, the scheduler deletes the files still named, so that a
   half-written file does not depend on the job's thread to be deleted.
+* **Asking the user.** handle.call_in_gui(function, close=None) runs a function on the GUI
+  thread, a dialog for instance, and waits for what it returns; a stop request closes
+  the dialog (``close``) and ends the call, so a job never leaves one behind.
 * **Progress and log.** handle.progress(text) is what the card shows of a running
   job beside its time; handle.set_log_path(path) names the log its process writes,
   which the card offers to open.
@@ -44,16 +47,39 @@ from contextlib import contextmanager
 import io
 import os
 import threading
+import time
+
+
+# How long a stopped job waits for the function it asked the GUI thread to run to end, once told to close it.
+GUI_CLOSE_WAIT_SECONDS = 5.0
 
 
 class JobCancelled(BaseException):
     """Raised at a check point of a background job that was told to stop."""
 
 
+class GuiCall:
+    """A function posted to the GUI thread, and what it came to; ``done`` is set when it has run."""
+
+    def __init__(self, function):
+        self.function = function
+        self.done = threading.Event()
+        self.result = None
+        self.error = None
+
+    def run(self):
+        try:
+            self.result = self.function()
+        except Exception as error:  # Handed to the job's thread, which raises it.
+            self.error = error
+        finally:
+            self.done.set()
+
+
 class JobHandle:
     """One running job, as its worker and the scheduler share it. Every method is safe from any thread."""
 
-    def __init__(self, on_change=None):
+    def __init__(self, on_change=None, call_in_gui=None):
         self._lock = threading.Lock()
         self._event = threading.Event()
         self._stoppers = []
@@ -62,6 +88,8 @@ class JobHandle:
         self._log_path = None
         # Called, with nothing, after the progress or the log path changed: the scheduler tells its card.
         self._on_change = on_change
+        # The scheduler's way to run a function on the GUI thread: it returns a GuiCall.
+        self._call_in_gui = call_in_gui
 
     # --- stopping ---
 
@@ -106,6 +134,32 @@ class JobHandle:
         """The check point: raise JobCancelled if the job was told to stop."""
         if self._event.is_set():
             raise JobCancelled()
+
+    # --- the GUI thread ---
+
+    def call_in_gui(self, function, *, close=None):
+        """Run ``function()`` on the GUI thread and return what it returns (or raise what it raises).
+
+        For a dialog the job needs the user for. If the job is told to stop meanwhile, ``close()``
+        is run on the GUI thread (to close the dialog), the call is waited for a little longer
+        and JobCancelled is raised. Without a scheduler to run it on, the function is just called.
+        """
+        self.raise_if_cancelled()
+        if self._call_in_gui is None:
+            return function()
+        call = self._call_in_gui(function)
+        closing = None
+        while not call.done.wait(0.05):
+            if self.requested and closing is None:
+                closing = time.monotonic()
+                if close is not None:
+                    self._call_in_gui(close)
+            if closing is not None and time.monotonic() - closing > GUI_CLOSE_WAIT_SECONDS:
+                raise JobCancelled()
+        if call.error is not None:
+            raise call.error
+        self.raise_if_cancelled()
+        return call.result
 
     # --- partial files ---
 

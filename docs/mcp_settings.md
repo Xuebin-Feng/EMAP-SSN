@@ -854,6 +854,7 @@ otherwise keep it queued behind that request.
 tracked children (maximum 1000 single-line commands). Manual interaction remains
 available while background work runs, so subsequent commands use current live state.
 Visible dialogs report awaiting_user_input; headless dialog requests, and those of a hidden Viewer not shown, fail clearly.
+`esmfold large` without a saved Biohub token asks for it in such a dialog (never as a command argument), and so does a fold whose saved token Biohub rejects while it runs: the request shows awaiting_user_input meanwhile, and a Viewer that shows no windows fails the command or the job.
 Agent UI/configuration commands remain available, but model-generated nested model
 requests are rejected. General cancellation and rollback are not exposed.
 

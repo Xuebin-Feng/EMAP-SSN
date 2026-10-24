@@ -110,7 +110,7 @@ def handle_save_session(viewer, data):
     except Exception as e:
         print(f"Error saving Mol* session: {e}")
 
-JOB_EVENTS = ("started", "progress", "structure_failed", "failed", "finished")
+JOB_EVENTS = ("started", "downloading", "progress", "structure_failed", "authentication", "failed", "finished")
 
 
 def _short_text(value, limit):
@@ -141,7 +141,7 @@ def handle_esmfold_job(viewer, data):
     if event not in JOB_EVENTS:
         return
     message = {"type": "esmfold_job", "event": event}
-    for key in ("total", "index", "succeeded"):
+    for key in ("total", "index", "succeeded", "percent", "status"):
         value = data.get(key)
         if isinstance(value, int) and not isinstance(value, bool) and 0 <= value < 10 ** 9:
             message[key] = value

@@ -51,7 +51,7 @@ import weakref
 from PySide6 import QtCore
 from desktop.Desktop_App import open_in_file_manager
 from desktop.Viewer_Window import viewer_shows_windows
-from utilities.Job_Cancellation import JobCancelled, JobHandle, bound_to
+from utilities.Job_Cancellation import GuiCall, JobCancelled, JobHandle, bound_to
 from utilities.Localization import Message
 
 
@@ -166,6 +166,8 @@ class BackgroundJobScheduler(QtCore.QObject):
     job_cancelled = QtCore.Signal(object, bool)
     # A line or a running job changed: sent once the new state stands, for whatever lists the jobs.
     changed = QtCore.Signal()
+    # A job asks for a function to be run on the GUI thread (JobHandle.call_in_gui).
+    _gui_requested = QtCore.Signal(object)
 
     def __init__(self, viewer, job_numbers=None):
         super().__init__()
@@ -191,6 +193,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         self.job_failed.connect(self._report_failed, queued)
         self.job_cancelled.connect(self._report_cancelled, queued)
         self.changed.connect(self._update_records, queued)
+        self._gui_requested.connect(self._run_gui_call, queued)
 
         with self._lock:
             default = self._lane(DEFAULT_LANE, Message("Files"))
@@ -553,7 +556,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                 if not self._accepting:
                     return
                 job = lane.queued.pop(0)
-                handle = JobHandle(on_change=self._announce_change)
+                handle = JobHandle(on_change=self._announce_change, call_in_gui=self._post_gui_call)
                 lane.active = job
                 lane.handle = handle
                 lane.started = time.monotonic()
@@ -601,6 +604,16 @@ class BackgroundJobScheduler(QtCore.QObject):
                 self._clean_up(job)
                 if accepting:
                     self.changed.emit()
+
+    def _post_gui_call(self, function):
+        """Have the GUI thread run function; return the GuiCall that says when it has."""
+        call = GuiCall(function)
+        self._gui_requested.emit(call)
+        return call
+
+    @QtCore.Slot(object)
+    def _run_gui_call(self, call):
+        call.run()
 
     def _announce_change(self):
         """A running job reported progress or a log: the card is told, once the signal is delivered."""

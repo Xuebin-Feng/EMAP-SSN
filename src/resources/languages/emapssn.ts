@@ -3300,6 +3300,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Downloading the model… {percent}%</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Folding {index} of {total}: {name}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3321,6 +3325,12 @@ Command-line usage:
         <source>The folding worker stopped (exit code {code}); its output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message numerus="yes">
+        <source>Folded %n structure(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message>
         <source>Starting the folding worker…</source>
         <translation type="unfinished"></translation>
@@ -3334,11 +3344,25 @@ Command-line usage:
         <source>ESMFold worker stopped</source>
         <translation type="unfinished"></translation>
     </message>
-    <message numerus="yes">
-        <source>Folded %n structure(s).</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
+    <message>
+        <source>Biohub rejected the replacement token too; folding stopped. The structures folded before then are kept.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biohub rejected the API token; waiting for a replacement…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biohub rejected the saved API token, and a replacement cannot be asked for: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biohub rejected the API token, and the replacement could not be saved: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biohub rejected the API token and no replacement was entered. The structures folded before then are kept.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
         <source>Stopped %n ESMFold worker(s); structures already saved are kept.</source>
@@ -3362,6 +3386,18 @@ Command-line usage:
     </message>
     <message>
         <source>Duplicate esmfold keyword: {keyword}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not ask for the Biohub API token: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biohub API token entry was cancelled; nothing was queued.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not save the Biohub API token: {error}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3406,7 +3442,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Biohub API credentials are not saved. Create the Biohub API settings file or set ESM_API_KEY before folding with esmfold large.</source>
+        <source>The Biohub API settings cannot be used: {error} Fix or delete the file, then run esmfold large again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8408,6 +8444,18 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Python Scripts (*.py)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biohub API Token</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Biohub rejected the saved API token. Enter a replacement to fold the remaining structures; it replaces the saved token.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folding with Biohub needs your Biohub API token. It is saved for later folds and is not shown again.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

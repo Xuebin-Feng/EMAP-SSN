@@ -4120,12 +4120,12 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
-        <location filename="../../../Background_Job_Scheduler.py" line="+196"/>
+        <location filename="../../../Background_Job_Scheduler.py" line="+199"/>
         <source>Files</source>
         <translation type="unfinished">文件</translation>
     </message>
     <message>
-        <location line="+245"/>
+        <location line="+250"/>
         <source>The background job scheduler is shutting down.</source>
         <translation type="unfinished">后台任务调度器正在关闭。</translation>
     </message>
@@ -4153,7 +4153,7 @@ Command-line usage:
         <translation type="unfinished">已排队后台任务 #{job}：{command}（第 {position} 位）→ {file}</translation>
     </message>
     <message>
-        <location line="+184"/>
+        <location line="+194"/>
         <source>Running background job #{job}: {description}</source>
         <translation type="unfinished">正在运行后台任务 #{job}：{description}</translation>
     </message>
@@ -4430,11 +4430,11 @@ Command-line usage:
         <location line="+8"/>
         <location filename="../../../commands/agent.py" line="+74"/>
         <location line="+127"/>
-        <location filename="../../../commands/esmfold.py" line="+99"/>
-        <location line="+496"/>
-        <location line="+93"/>
-        <location line="+22"/>
-        <location line="+45"/>
+        <location filename="../../../commands/esmfold.py" line="+108"/>
+        <location line="+565"/>
+        <location line="+91"/>
+        <location line="+114"/>
+        <location line="+49"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
         <location filename="../../../commands/logo.py" line="-221"/>
@@ -4461,7 +4461,7 @@ Command-line usage:
         <location filename="../../../commands/cluster.py" line="+346"/>
         <location filename="../../../commands/color.py" line="+95"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
-        <location filename="../../../commands/esmfold.py" line="-231"/>
+        <location filename="../../../commands/esmfold.py" line="-234"/>
         <location filename="../../../commands/export.py" line="+108"/>
         <location filename="../../../commands/group.py" line="+138"/>
         <location filename="../../../commands/jobs.py" line="+217"/>
@@ -4676,7 +4676,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/esmfold.py" line="-371"/>
+        <location filename="../../../commands/esmfold.py" line="-531"/>
         <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
         <translation type="unfinished">
             <numerusform>%n 个结构没有逐残基比对数据：不在比对中。</numerusform>
@@ -4709,9 +4709,14 @@ Command-line usage:
         <translation type="unfinished">未保存逐残基比对数据：未加载比对。</translation>
     </message>
     <message>
-        <location line="+108"/>
+        <location line="+117"/>
         <source>Getting the model ready…</source>
         <translation type="unfinished">正在准备模型…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Downloading the model… {percent}%</source>
+        <translation type="unfinished">正在下载模型… {percent}%</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -4741,7 +4746,7 @@ Command-line usage:
         <translation type="unfinished">折叠工作进程已停止（退出码 {code}）；其输出在 {log} 中。</translation>
     </message>
     <message>
-        <location line="+54"/>
+        <location line="+144"/>
         <source>Starting the folding worker…</source>
         <translation type="unfinished">正在启动折叠工作进程…</translation>
     </message>
@@ -4758,11 +4763,36 @@ Command-line usage:
         <translation type="unfinished">ESMFold 工作进程已停止</translation>
     </message>
     <message numerus="yes">
-        <location line="+9"/>
+        <location line="-25"/>
         <source>Folded %n structure(s).</source>
         <translation type="unfinished">
             <numerusform>已折叠 %n 个结构。</numerusform>
         </translation>
+    </message>
+    <message>
+        <location line="+40"/>
+        <source>Biohub rejected the replacement token too; folding stopped. The structures folded before then are kept.</source>
+        <translation type="unfinished">Biohub 也拒绝了替换的令牌，折叠已停止。此前已折叠的结构会保留。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Biohub rejected the API token; waiting for a replacement…</source>
+        <translation type="unfinished">Biohub 拒绝了 API 令牌，正在等待替换令牌…</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Biohub rejected the saved API token, and a replacement cannot be asked for: {reason}</source>
+        <translation type="unfinished">Biohub 拒绝了已保存的 API 令牌，且无法询问替换令牌：{reason}</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Biohub rejected the API token, and the replacement could not be saved: {reason}</source>
+        <translation type="unfinished">Biohub 拒绝了 API 令牌，且替换令牌无法保存：{reason}</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Biohub rejected the API token and no replacement was entered. The structures folded before then are kept.</source>
+        <translation type="unfinished">Biohub 拒绝了 API 令牌，且没有输入替换令牌。此前已折叠的结构会保留。</translation>
     </message>
     <message numerus="yes">
         <location line="+29"/>
@@ -4794,7 +4824,22 @@ Command-line usage:
         <translation type="unfinished">重复的 esmfold 关键字：{keyword}</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+50"/>
+        <source>Could not ask for the Biohub API token: {error}</source>
+        <translation type="unfinished">无法询问 Biohub API 令牌：{error}</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Biohub API token entry was cancelled; nothing was queued.</source>
+        <translation type="unfinished">已取消输入 Biohub API 令牌，没有任何折叠加入队列。</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Could not save the Biohub API token: {error}</source>
+        <translation type="unfinished">无法保存 Biohub API 令牌：{error}</translation>
+    </message>
+    <message>
+        <location line="+25"/>
         <source>Help cannot be combined with other keywords.</source>
         <translation type="unfinished">help 不能与其他关键字同时使用。</translation>
     </message>
@@ -4819,17 +4864,21 @@ Command-line usage:
         <translation type="unfinished">错误：选择了多个节点。请使用 &apos;esmfold multi&apos;。</translation>
     </message>
     <message>
-        <location line="+98"/>
-        <source>Biohub API credentials are not saved. Create the Biohub API settings file or set ESM_API_KEY before folding with esmfold large.</source>
-        <translation type="unfinished">尚未保存 Biohub API 凭据。请先创建 Biohub API 设置文件，或设置 ESM_API_KEY，再使用 esmfold large 进行折叠。</translation>
+        <location line="+101"/>
+        <source>The Biohub API settings cannot be used: {error} Fix or delete the file, then run esmfold large again.</source>
+        <translation type="unfinished">无法使用 Biohub API 设置：{error} 请修复或删除该文件，然后再次运行 esmfold large。</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <source>Biohub API credentials are not saved. Create the Biohub API settings file or set ESM_API_KEY before folding with esmfold large.</source>
+        <translation type="obsolete">尚未保存 Biohub API 凭据。请先创建 Biohub API 设置文件，或设置 ESM_API_KEY，再使用 esmfold large 进行折叠。</translation>
+    </message>
+    <message>
+        <location line="+21"/>
         <source>Every selected node is already queued or being folded: {nodes}.</source>
         <translation type="unfinished">所选节点都已在排队或正在折叠：{nodes}。</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+39"/>
         <source>Folding</source>
         <translation type="unfinished">折叠</translation>
     </message>
@@ -4869,7 +4918,7 @@ Command-line usage:
         <translation type="obsolete">一个 esmfold 工作进程仍在运行。请等它结束或关闭它的控制台窗口，然后再折叠新的结构。</translation>
     </message>
     <message>
-        <location line="-173"/>
+        <location line="-176"/>
         <source>Error: PyTorch/Hardware_Utils missing</source>
         <translation type="unfinished">错误：缺少 PyTorch/Hardware_Utils</translation>
     </message>
@@ -4913,7 +4962,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+99"/>
+        <location line="+102"/>
         <source>Skipped %n selected node(s) without a sequence.</source>
         <translation type="unfinished">
             <numerusform>已跳过 %n 个没有序列的选中节点。</numerusform>
@@ -5320,7 +5369,7 @@ Command-line usage:
         <translation type="unfinished">未定义任何簇或分组。</translation>
     </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="-184"/>
+        <location filename="../../../commands/esmfold.py" line="-187"/>
         <location filename="../../../commands/label.py" line="+5"/>
         <location filename="../../../commands/print.py" line="+138"/>
         <source>The background job scheduler is unavailable.</source>
@@ -6793,7 +6842,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+233"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+238"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -6813,7 +6862,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">查看器的命令队列已满；请稍后用相同的 submission_id 重试</translation>
     </message>
     <message>
-        <location line="+137"/>
+        <location line="+181"/>
         <source>That command is not waiting to be run or discarded.</source>
         <translation type="unfinished">该命令当前不处于待运行或待丢弃状态。</translation>
     </message>
@@ -12480,6 +12529,21 @@ Fedora / RHEL：
         <location line="+3"/>
         <source>Embedding Files (*.h5)</source>
         <translation type="unfinished">Embedding 文件 (*.h5)</translation>
+    </message>
+    <message>
+        <location filename="../../../desktop/Biohub_Token_Dialog.py" line="+24"/>
+        <source>Biohub API Token</source>
+        <translation type="unfinished">Biohub API 令牌</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Biohub rejected the saved API token. Enter a replacement to fold the remaining structures; it replaces the saved token.</source>
+        <translation type="unfinished">Biohub 拒绝了已保存的 API 令牌。请输入替换令牌以折叠其余结构；它会取代已保存的令牌。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Folding with Biohub needs your Biohub API token. It is saved for later folds and is not shown again.</source>
+        <translation type="unfinished">使用 Biohub 折叠需要你的 Biohub API 令牌。它会被保存供以后的折叠使用，且不会再次显示。</translation>
     </message>
 </context>
 <context>

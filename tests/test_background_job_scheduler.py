@@ -1251,6 +1251,93 @@ class CloseWiringTests(unittest.TestCase):
         self.assertLessEqual(SHUTDOWN_WAIT_SECONDS, 3.0)
 
 
+class GuiCallTests(LineTestCase):
+    """A job asks for a function to be run on the GUI thread, a dialog for instance, and waits for its answer."""
+
+    def run_job(self, body):
+        """Queue a job whose worker is body(job); return (job id, what the body saw)."""
+        seen = {}
+
+        def worker(payload, job):
+            seen["thread"] = threading.current_thread()
+            try:
+                seen["result"] = body(job)
+            except BaseException as error:  # JobCancelled included: the job reports it
+                seen["error"] = error
+                raise
+            return {"message": "done"}
+
+        job_id = self.enqueue("gui", worker)
+        return job_id, seen
+
+    def test_the_function_runs_on_the_gui_thread_and_its_answer_comes_back(self):
+        ran_on = []
+        job_id, seen = self.run_job(lambda job: job.call_in_gui(lambda: ran_on.append(threading.current_thread()) or "typed"))
+        self.wait_idle()
+        self.assertEqual(seen["result"], "typed")
+        self.assertIsNot(seen["thread"], threading.main_thread(), "the job ran on a lane thread")
+        self.assertEqual(ran_on, [threading.main_thread()], "the function ran on the GUI thread")
+
+    def test_an_error_of_the_function_is_raised_in_the_job(self):
+        def fails():
+            raise ValueError("no dialog")
+
+        job_id, seen = self.run_job(lambda job: job.call_in_gui(fails))
+        self.wait_idle()
+        self.assertIsInstance(seen["error"], ValueError)
+        self.assertIn(("failed", job_id), self.reports)
+
+    def test_a_stop_while_the_function_waits_closes_it_and_cancels_the_job(self):
+        shown, closed = threading.Event(), threading.Event()
+        order = []
+        job = []
+
+        def dialog():
+            # The GUI thread, inside a modal loop, where the user's click on Stop is handled: that stops the job,
+            # and the dialog ends when close() is run from the same event loop.
+            shown.set()
+            QtCore.QTimer.singleShot(0, lambda: self.scheduler.cancel(job[0]))
+            deadline = time.monotonic() + STARTUP_TIMEOUT
+            while not closed.is_set() and time.monotonic() < deadline:
+                QtCore.QCoreApplication.processEvents()
+                time.sleep(0.005)
+            order.append("dialog ended")
+            return "late answer"
+
+        def close():
+            order.append("closed")
+            closed.set()
+
+        job_id, seen = self.run_job(lambda handle: handle.call_in_gui(dialog, close=close))
+        job.append(job_id)
+        self.assertTrue(wait_for(shown.is_set))
+        self.wait_idle()
+        self.assertIsInstance(seen["error"], JobCancelled)
+        self.assertEqual(order, ["closed", "dialog ended"])
+        self.assertIn(("stopped", job_id), self.reports)
+
+    def test_a_job_already_told_to_stop_asks_for_nothing(self):
+        ran = []
+        started = threading.Event()
+
+        def body(job):
+            started.set()
+            while not job.requested:
+                time.sleep(0.005)
+            return job.call_in_gui(lambda: ran.append(1))
+
+        job_id, seen = self.run_job(body)
+        self.assertTrue(started.wait(STARTUP_TIMEOUT))
+        self.scheduler.cancel(job_id)
+        self.wait_idle()
+        self.assertIsInstance(seen["error"], JobCancelled)
+        self.assertEqual(ran, [])
+
+    def test_without_a_scheduler_the_function_is_just_called(self):
+        from utilities.Job_Cancellation import JobHandle
+        self.assertEqual(JobHandle().call_in_gui(lambda: 7), 7)
+
+
 class LinePortalTests(LineTestCase):
     """The command portal's record of each job: its place in the line, and the events it gets."""
 

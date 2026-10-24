@@ -30,6 +30,7 @@ if SRC_DIR not in sys.path:
 
 import numpy as np
 import psutil
+from PySide6 import QtCore
 
 import Viewer_Worker_Tracking
 from Background_Job_Scheduler import BackgroundJobScheduler
@@ -139,7 +140,7 @@ class CommandCase(unittest.TestCase):
         self.track_worker = patcher.start()
         self.addCleanup(patcher.stop)
         # Every ready credential lookup stays on this machine's own files: none is read here.
-        patcher = mock.patch.object(esmfold_command, "_credentials_available", return_value=True)
+        patcher = mock.patch.object(esmfold_command, "_credentials_state", return_value=("saved", None))
         self.credentials = patcher.start()
         self.addCleanup(patcher.stop)
         patcher = mock.patch.object(esmfold_command, "_model_suffix", side_effect=lambda large: "esm3-large-2024-03" if large else None)
@@ -437,17 +438,131 @@ class QueuedFoldTests(CommandCase):
                                       structures=self.enterContext(tempfile.TemporaryDirectory()))
         self.assertIn("as job #2. It is number 2 in the folding line.", succeeded.call_args.args[1])
 
-    def test_the_credentials_of_a_large_run_are_checked_before_anything_is_queued(self):
-        self.credentials.return_value = False
-        viewer = make_viewer(1)
+    def test_a_local_run_needs_no_credentials(self):
+        self.credentials.return_value = ("missing", None)
+        with mock.patch.object(Hardware_Utils, "get_optimal_device", return_value=FakeDevice("cpu")), \
+                mock.patch.object(esmfold_command.token_dialog, "ask_token",
+                                  side_effect=AssertionError("a local fold asks for no token")):
+            self.queued(make_viewer(1), [])
+
+
+SECRET = "typed-secret-token-0123"
+
+
+class TokenTests(CommandCase):
+    """esmfold large without a saved token asks for it in a dialog; the token goes nowhere but the settings file."""
+
+    def setUp(self):
+        super().setUp()
+        directory = self.enterContext(tempfile.TemporaryDirectory())
+        self.settings_path = os.path.join(directory, "Biohub_API.json")
+        from resources import Biohub_API
+        self.Biohub_API = Biohub_API
+        patcher = mock.patch.object(Biohub_API, "API_SETTINGS_FILE", self.settings_path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.credentials.return_value = ("missing", None)
+        self.asked = []
+
+        def ask_token(parent, **options):
+            self.asked.append(options)
+            return self.answer
+
+        self.answer = SECRET
+        patcher = mock.patch.object(esmfold_command.token_dialog, "ask_token", side_effect=ask_token)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(esmfold_command.Command_Engine, "command_cancelled")
+        self.cancelled = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def viewer(self, state="normal", count=1):
+        from tests.viewer_fixtures import apply_window_state
+        return apply_window_state(make_viewer(count), state)
+
+    def test_the_token_is_asked_for_saved_and_the_fold_queued_without_showing_it_anywhere(self):
+        viewer, output = self.viewer(), io.StringIO()
+        run, succeeded = self.queued(viewer, ["large"], output=output)
+
+        self.assertEqual(self.asked, [{}], "asked once, for a token, not for a replacement")
+        with open(self.settings_path, encoding="utf-8") as handle:
+            saved = json.load(handle)
+        self.assertEqual(saved["ESM_API_TOKEN"], SECRET)
+        self.assertEqual(saved["ESM3_MODEL"], "esm3-large-2024-03")
+        everything = "\n".join([
+            output.getvalue(), str(succeeded.call_args), viewer.console_text.text, json.dumps(run.records),
+            " ".join(run.command()), str(run.failures), str(run.log_path),
+        ])
+        self.assertNotIn(SECRET, everything)
+        self.assertEqual(len(viewer.background_job_scheduler.jobs), 1)
+        self.cancelled.assert_not_called()
+
+    def test_a_token_already_saved_asks_for_nothing(self):
+        self.credentials.return_value = ("saved", None)
+        self.queued(self.viewer(), ["large"])
+        self.assertEqual(self.asked, [])
+
+    def test_cancelling_the_dialog_queues_nothing_and_leaves_no_file(self):
+        self.answer = None
+        viewer = self.viewer()
+        succeeded, failed = self.run_reporting(viewer, ["large"])
+
+        succeeded.assert_not_called()
+        failed.assert_not_called()
+        self.cancelled.assert_called_once()
+        self.assertEqual(str(self.cancelled.call_args.args[1]), "Biohub API token entry was cancelled; nothing was queued.")
+        self.assertEqual(viewer.background_job_scheduler.jobs, [])
+        self.assertEqual(len(esmfold_command.RUNS), 0)
+        self.assertFalse(os.path.exists(self.settings_path))
+
+    def test_a_viewer_with_no_windows_fails_at_once_and_opens_no_dialog(self):
+        for state in NO_WINDOW_STATES:
+            with self.subTest(state=state):
+                self.asked.clear()
+                viewer = self.viewer(state)
+                succeeded, failed = self.run_reporting(viewer, ["large"])
+                succeeded.assert_not_called()
+                failed.assert_called_once()
+                text = failed.call_args.args[1]
+                self.assertIn("Could not ask for the Biohub API token", text)
+                self.assertIn("requires a visible Viewer and user input", text)
+                if state == "hidden_unshown":
+                    self.assertIn("Show the window first", text)
+                self.assertEqual(self.asked, [], "no dialog where nobody could answer it")
+                self.assertEqual(viewer.background_job_scheduler.jobs, [])
+                self.assertFalse(os.path.exists(self.settings_path))
+
+    def test_a_settings_file_that_cannot_be_used_is_refused_not_written_over(self):
+        self.credentials.return_value = ("invalid", self.Biohub_API.BiohubSettingsError("Could not read valid Biohub API JSON."))
+        viewer = self.viewer()
         succeeded, failed = self.run_reporting(viewer, ["large"])
         succeeded.assert_not_called()
         failed.assert_called_once()
-        self.assertIn("Biohub API credentials are not saved", failed.call_args.args[1])
+        self.assertIn("The Biohub API settings cannot be used: Could not read valid Biohub API JSON.", failed.call_args.args[1])
+        self.assertEqual(self.asked, [])
         self.assertEqual(viewer.background_job_scheduler.jobs, [])
-        # A local run needs none.
-        with mock.patch.object(Hardware_Utils, "get_optimal_device", return_value=FakeDevice("cpu")):
-            self.queued(make_viewer(1), [])
+
+    def test_nothing_is_asked_when_every_node_is_already_queued(self):
+        viewer = self.viewer()
+        folder = self.enterContext(tempfile.TemporaryDirectory())
+        self.credentials.return_value = ("saved", None)
+        self.run_reporting(viewer, ["large"], structures=folder)
+        self.credentials.return_value = ("missing", None)
+        succeeded, failed = self.run_reporting(viewer, ["large"], structures=folder)
+        succeeded.assert_not_called()
+        self.assertIn("Every selected node is already queued or being folded", failed.call_args.args[1])
+        self.assertEqual(self.asked, [], "no one is asked for a token in vain")
+
+    def test_a_token_that_cannot_be_saved_fails_the_command_without_naming_it(self):
+        viewer = self.viewer()
+        error = self.Biohub_API.BiohubSettingsError(f"Could not write Biohub API settings to '{self.settings_path}'.")
+        with mock.patch.object(esmfold_command.token_dialog, "save_token", side_effect=error):
+            succeeded, failed = self.run_reporting(viewer, ["large"])
+        succeeded.assert_not_called()
+        failed.assert_called_once()
+        self.assertIn("Could not save the Biohub API token", failed.call_args.args[1])
+        self.assertNotIn(SECRET, failed.call_args.args[1])
+        self.assertEqual(viewer.background_job_scheduler.jobs, [])
 
 
 class ReportingTests(CommandCase):
@@ -736,7 +851,7 @@ class WindowStateTests(unittest.TestCase):
             enter(mock.patch.object(esmfold_command.esmfold_backend, "get_structures_directory",
                                     return_value=str(root / "structures")))
             enter(mock.patch.object(esmfold_command.esmfold_backend, "register"))
-            enter(mock.patch.object(esmfold_command, "_credentials_available", return_value=True))
+            enter(mock.patch.object(esmfold_command, "_credentials_state", return_value=("saved", None)))
             enter(mock.patch.object(esmfold_command, "_model_suffix", return_value=None))
             if "large" not in arguments:
                 enter(mock.patch.object(Hardware_Utils, "get_optimal_device", return_value=FakeDevice("cuda")))
@@ -1280,13 +1395,14 @@ class ProcessCase(PortalFixture, unittest.TestCase):
         self.scripts = 0
         self.current_script = None
         self.script_of = {}
+        self.address = ADDRESS
         stack = contextlib.ExitStack()
         self.addCleanup(stack.close)
         enter = stack.enter_context
         enter(mock.patch.object(esmfold_command.esmfold_backend, "get_structures_directory",
                                 return_value=str(self.root / "structures")))
         enter(mock.patch.object(esmfold_command.esmfold_backend, "register"))
-        enter(mock.patch.object(esmfold_command, "_credentials_available", return_value=True))
+        enter(mock.patch.object(esmfold_command, "_credentials_state", return_value=("saved", None)))
         enter(mock.patch.object(esmfold_command, "_model_suffix", return_value=None))
         self.browser = enter(mock.patch.object(Browser_Page.webbrowser, "open"))
         self.critical = enter(mock.patch.object(esmfold_command.QMessageBox, "critical"))
@@ -1316,19 +1432,22 @@ class ProcessCase(PortalFixture, unittest.TestCase):
             if os.path.exists(path):
                 os.unlink(path)
 
-    def make_viewer(self, headless=True, selected=(0,)):
+    def make_viewer(self, headless=True, selected=(0,), state=None):
+        """The Viewer the commands run in; ``state`` is one of tests.viewer_fixtures.WINDOW_STATES."""
         viewer = self.viewer
         viewer.headless = headless
         viewer.selected_indices = list(selected)
         viewer.selected_node_idx = None
         viewer.sequences_map = {"one": "ACDE", "two": "ACDF", "three": "ACDG"}
         viewer.full_headers = ["one", "two", "three"]
-        viewer.get_web_url = lambda path="/": f"{ADDRESS}/{str(path).lstrip('/')}"
+        viewer.get_web_url = lambda path="/": f"{self.address}/{str(path).lstrip('/')}"
         viewer.web_server = SimpleNamespace(has_event_client=lambda client_id: False)
         viewer._open_web_ui = lambda *args, **kwargs: Browser_Page.open_browser_page(viewer, *args, **kwargs)
+        if state is not None:
+            apply_window_state(viewer, state)
         return viewer
 
-    def run_in_portal(self, script_text, arguments=("large",), selected=(0,), name=None):
+    def run_in_portal(self, script_text, arguments=("large",), selected=(0,), name=None, state=None):
         """Run esmfold as a portal command whose worker is script_text; return (request id, context, mocks).
 
         The job launches the worker when its turn comes, after the command has returned, so the stand-ins
@@ -1345,10 +1464,10 @@ class ProcessCase(PortalFixture, unittest.TestCase):
         context = ExecutionContext(self.portal, request_id, record)
         with redirect_stdout(io.StringIO()):
             with bind(context):
-                esmfold_command.run(self.make_viewer(selected=selected), list(arguments))
+                esmfold_command.run(self.make_viewer(selected=selected, state=state), list(arguments))
         return request_id, context, SimpleNamespace(browser=self.browser, critical=self.critical)
 
-    def run_typed(self, script_text, arguments=("large",), selected=(0,)):
+    def run_typed(self, script_text, arguments=("large",), selected=(0,), state=None):
         """Run esmfold as the user types it, with no portal request: a fold with no status file and no tracker."""
         self.scripts += 1
         script = self.root / f"stand_in_{self.scripts}.py"
@@ -1356,7 +1475,7 @@ class ProcessCase(PortalFixture, unittest.TestCase):
         self.current_script = script
         with redirect_stdout(io.StringIO()):
             with bind(None):
-                esmfold_command.run(self.make_viewer(selected=selected), list(arguments))
+                esmfold_command.run(self.make_viewer(selected=selected, state=state), list(arguments))
 
     def logs(self):
         return sorted((self.root / "temp" / "command_workers").glob("*.log"))
@@ -1727,6 +1846,238 @@ class FoldQueueProcessTests(ProcessCase):
         self.assertEqual(display_text(lanes["folding"].title), "Folding")
         self.assertEqual(lanes["folding"].rows[0].description, "esmfold large -> one")
         self.assertEqual(lanes["folding"].rows[0].log_path, str(self.logs()[0]))
+
+
+# Runs the real worker's main() with the folding replaced by a stand-in: the first run folds its first record and
+# meets Biohub's rejection of the token at its second (raising what the real client does), and every later run
+# folds what it is given. It writes the node ids each run was given to a file, and posts what it folds to the Viewer
+# through the real notifier. REJECT_EVERY_RUN makes every run meet the rejection at its first record.
+STAND_IN_REJECTED = """
+import os, sys
+src, *arguments = sys.argv[1:]
+sys.path.insert(0, src)
+from resources.esmfold import esmfold_worker as worker
+
+MARKER = MARKER_PATH
+GIVEN = GIVEN_PATH
+EVERY_RUN = REJECT_EVERY_RUN
+
+def run_predictions(nodes, structures_dir, *, notifier, **options):
+    first_run = not os.path.exists(MARKER)
+    open(MARKER, "w").close()
+    with open(GIVEN, "a") as handle:
+        handle.write(",".join(node[0] for node in nodes) + "\\n")
+    rejected_at = 0 if EVERY_RUN and not first_run else 1
+    for index, node in enumerate(nodes):
+        if (first_run or EVERY_RUN) and index == rejected_at:
+            raise worker.Biohub_API.BiohubAuthenticationError(401, "Biohub rejected the saved API token.")
+        name = worker.prediction_filename(node[0])
+        with open(os.path.join(structures_dir, name), "w") as handle:
+            handle.write("ATOM\\n")
+        notifier(node[0], name)
+    return len(nodes), False
+
+worker.run_predictions = run_predictions
+raise SystemExit(worker.main(arguments))
+"""
+
+OLD_TOKEN = "old-saved-token-4567"
+NEW_TOKEN = "replacement-token-8901"
+
+
+class ActionServer:
+    """Receives the worker's posts to /api/action as the Viewer's web server does and hands them to the esmfold backend."""
+
+    def __init__(self, viewer):
+        import http.server
+        import threading
+        backend = esmfold_command.esmfold_backend
+        handlers = {"structure_folded": backend.handle_structure_folded, "esmfold_job": backend.handle_esmfold_job}
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                handler = handlers.get(body.get("action"))
+                if handler is not None:
+                    handler(viewer, body)
+                self.send_response(200)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+
+            def log_message(self, *arguments):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.address = f"http://127.0.0.1:{self.server.server_address[1]}"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class RejectedTokenProcessTests(ProcessCase):
+    """Biohub rejects the saved token: the Viewer asks for another in a dialog and folds the rest with it."""
+
+    def setUp(self):
+        super().setUp()
+        from resources import Biohub_API
+        self.Biohub_API = Biohub_API
+        self.settings_path = str(self.root / "Biohub_API.json")
+        patcher = mock.patch.object(Biohub_API, "API_SETTINGS_FILE", self.settings_path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        Biohub_API.write_api_settings(
+            {"ESM_API_TOKEN": OLD_TOKEN, "ESM_API_URL": "https://biohub.example", "ESM3_MODEL": "esm3-large-2024-03"},
+            self.settings_path)
+        self.server = ActionServer(self.viewer)
+        self.addCleanup(self.server.close)
+        self.address = self.server.address
+        self.marker = self.root / "worker-ran-once"
+        self.given = self.root / "given.txt"
+        self.replies = []
+        self.dialogs = []
+        patcher = mock.patch.object(esmfold_command.token_dialog, "ask_token", side_effect=self.ask_token)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def ask_token(self, parent, *, replacement=False, shown=None):
+        context = CURRENT.get()
+        status = context.portal.requests[context.request_id]["status"] if context is not None else None
+        self.dialogs.append({"replacement": replacement, "request_status": status})
+        answer = self.replies.pop(0)
+        return answer(shown) if callable(answer) else answer
+
+    def script(self, every_run=False):
+        return (STAND_IN_REJECTED.replace("MARKER_PATH", repr(str(self.marker)))
+                .replace("GIVEN_PATH", repr(str(self.given))).replace("REJECT_EVERY_RUN", repr(every_run)))
+
+    def fold_three(self, **options):
+        script = self.script(options.pop("every_run", False))
+        return self.run_in_portal(script, arguments=("large", "multi"), selected=(0, 1, 2),
+                                  state=options.pop("state", "normal"))
+
+    def given_lines(self):
+        return self.given.read_text().split() if self.given.exists() else []
+
+    def saved_settings(self):
+        return self.Biohub_API.read_api_settings(self.settings_path)
+
+    def everything_shown(self, request_id):
+        """Every text a request, its output, its log and the saved status files hold."""
+        parts = [json.dumps(self.portal.get(request_id, limit=100)),
+                 self.portal.read_output(request_id, "stdout")["text"], self.portal.read_output(request_id, "stderr")["text"]]
+        parts += [path.read_text(encoding="utf-8", errors="replace") for path in self.logs()]
+        parts += [path.read_text(encoding="utf-8", errors="replace")
+                  for path in (self.root / "temp" / "command_workers").glob("*") if path.suffix != ".log" and path.is_file()]
+        return "\n".join(parts)
+
+    def test_the_token_is_replaced_in_a_dialog_and_only_the_structures_not_yet_folded_run_again(self):
+        self.replies = [NEW_TOKEN]
+        request_id, _, _ = self.fold_three()
+
+        result = self.finish(request_id)
+
+        self.assertEqual(result["status"], "succeeded", result)
+        # Asked once, as a replacement, while the request waited for the user: not as a failure.
+        self.assertEqual(self.dialogs, [{"replacement": True, "request_status": "awaiting_user_input"}])
+        self.assertEqual(self.given_lines(), ["one,two,three", "two,three"], "the folded structure is not folded again")
+        self.assertEqual(sorted(path.name for path in (self.root / "structures").glob("*.pdb")),
+                         ["one.pdb", "three.pdb", "two.pdb"])
+        saved = self.saved_settings()
+        self.assertEqual((saved["ESM_API_TOKEN"], saved["ESM_API_URL"], saved["ESM3_MODEL"]),
+                         (NEW_TOKEN, "https://biohub.example", "esm3-large-2024-03"), "the URL and model are kept")
+        # One job, one entry, from queued to succeeded: the second worker is the same job.
+        [job] = result["commands"][0]["jobs"]
+        self.assertEqual((job["job_id"], job["status"]), ("1", "succeeded"))
+        self.assertEqual(self.finish(request_id)["commands"][0]["status"], "succeeded")
+        shown = self.everything_shown(request_id)
+        self.assertNotIn(NEW_TOKEN, shown)
+        self.assertNotIn(OLD_TOKEN, shown)
+        self.assertEqual(self.scheduler.snapshot(), [])
+
+    def test_a_replacement_that_is_rejected_too_ends_the_job_and_keeps_what_was_folded(self):
+        self.replies = [NEW_TOKEN]
+        request_id, _, _ = self.fold_three(every_run=True)
+
+        result = self.finish(request_id)
+
+        self.assertEqual(result["status"], "failed", result)
+        self.assertIn("Biohub rejected the replacement token too", result["commands"][0]["jobs"][0]["message"])
+        self.assertEqual(len(self.dialogs), 1, "asked once, never again")
+        self.assertEqual(sorted(path.name for path in (self.root / "structures").glob("*.pdb")), ["one.pdb"])
+        self.assertNotIn(NEW_TOKEN, self.everything_shown(request_id))
+
+    def test_cancelling_the_dialog_fails_the_job_and_leaves_the_saved_token_alone(self):
+        self.replies = [None]
+        request_id, _, _ = self.fold_three()
+
+        result = self.finish(request_id)
+
+        self.assertEqual(result["status"], "failed", result)
+        self.assertIn("no replacement was entered", result["commands"][0]["jobs"][0]["message"])
+        self.assertEqual(self.saved_settings()["ESM_API_TOKEN"], OLD_TOKEN)
+        self.assertEqual(self.given_lines(), ["one,two,three"], "no second worker")
+        self.assertEqual(sorted(path.name for path in (self.root / "structures").glob("*.pdb")), ["one.pdb"])
+
+    def test_a_viewer_with_no_windows_cannot_ask_and_the_job_fails_saying_so(self):
+        for state in NO_WINDOW_STATES:
+            with self.subTest(state=state):
+                self.marker.unlink(missing_ok=True)
+                self.given.unlink(missing_ok=True)
+                self.dialogs.clear()
+                request_id, _, _ = self.fold_three(state=state)
+                result = self.finish(request_id)
+                self.assertEqual(result["status"], "failed", result)
+                message = result["commands"][0]["jobs"][0]["message"]
+                self.assertIn("a replacement cannot be asked for", message)
+                self.assertIn("requires a visible Viewer and user input", message)
+                self.assertEqual(self.dialogs, [])
+                self.assertEqual(self.saved_settings()["ESM_API_TOKEN"], OLD_TOKEN)
+                self.assertEqual(self.given_lines(), ["one,two,three"])
+
+    def test_a_stop_while_the_dialog_is_open_closes_it_and_cancels_the_job(self):
+        closed = []
+
+        class Dialog:
+            rejected = False
+
+            def reject(self):
+                closed.append(True)
+                self.rejected = True
+
+        def answer(shown):
+            dialog = Dialog()
+            shown(dialog)
+            # The user types `esmfold stop` in the Viewer while the dialog is open: it runs in this event loop.
+            QtCore.QTimer.singleShot(0, lambda: esmfold_command.run(self.make_viewer(state="normal"), ["stop"]))
+            deadline = time.monotonic() + 30
+            while not dialog.rejected and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(0.005)
+            return None
+
+        self.replies = [answer]
+        request_id, _, _ = self.fold_three()
+
+        result = self.finish(request_id)
+
+        self.assertEqual(result["status"], "cancelled", result)
+        self.assertEqual(closed, [True], "the dialog was closed, not left open")
+        self.assertEqual(self.given_lines(), ["one,two,three"])
+        self.wait_for(lambda: self.scheduler.snapshot() == [], "The line never emptied")
+
+    def test_a_typed_fold_asks_too_and_runs_again_with_no_portal_request(self):
+        self.replies = [NEW_TOKEN]
+        self.run_typed(self.script(), arguments=("large", "multi"), selected=(0, 1, 2), state="normal")
+
+        self.wait_for(lambda: self.given_lines() == ["one,two,three", "two,three"] and not self.scheduler.snapshot(),
+                      "The fold never ran again")
+
+        self.assertEqual(self.dialogs, [{"replacement": True, "request_status": None}])
+        self.assertEqual(self.saved_settings()["ESM_API_TOKEN"], NEW_TOKEN)
+        self.assertEqual(sorted(path.name for path in (self.root / "structures").glob("*.pdb")),
+                         ["one.pdb", "three.pdb", "two.pdb"])
 
 
 if __name__ == "__main__":

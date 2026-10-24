@@ -21,10 +21,12 @@ import sys
 import tempfile
 import threading
 import uuid
+import weakref
 import Command_Engine
 import EMAPSSN_Config as cfg
 import web_ui.esmfold_backend as esmfold_backend
 from PySide6.QtWidgets import QApplication, QMessageBox
+from desktop import Biohub_Token_Dialog as token_dialog
 from desktop.Desktop_App import translate
 from utilities import Residue_Data
 from utilities.Localization import JoinedMessage, Message
@@ -74,6 +76,13 @@ def print_help():
     The worker runs without any window, with its output in a log file that the outcome
     names. A headless Viewer (no screen) also opens no browser page, and the outcome gives
     the structure viewer's address. Closing the Viewer ends the worker.
+
+    Biohub token: esmfold large needs your Biohub API token, saved in Biohub_API.json (or
+    given as ESM_API_KEY). Without one, the Viewer asks for it in a dialog (typed hidden)
+    before the fold is queued, and saves it; cancelling queues nothing. If Biohub rejects the
+    saved token while folding, the Viewer asks for a replacement, and the structures not yet
+    folded go on with it, once. A Viewer that shows no windows cannot ask: the command fails.
+    The token is never taken from a command, and is shown and logged nowhere.
     """)
 
 # A command's outcome names the selected nodes it skipped when there are this few.
@@ -241,8 +250,12 @@ class FoldRun:
     shows on the Session card.
     """
 
-    def __init__(self, records, nodes, *, mode, device, structures_dir, action_url, portal):
+    def __init__(self, records, nodes, *, mode, device, structures_dir, action_url, portal, viewer=None):
         self.run_id = uuid.uuid4().hex[:12]
+        try:
+            self.viewer_ref = weakref.ref(viewer)
+        except TypeError:  # A stand-in that cannot be weakly referenced.
+            self.viewer_ref = lambda: viewer
         self.records = records
         self.nodes = list(nodes)
         self.mode = mode
@@ -263,6 +276,11 @@ class FoldRun:
         self.folded = set()
         self.failures = []
         self.reason = None
+        # Whether a replacement token was asked for already, and the dialog open for one (to close it on a stop).
+        self.replaced = False
+        self._dialog = None
+        # The scheduler's job, once it began (what its owner needs: the request that gave it).
+        self.job = None
         self._lock = threading.Lock()
 
     # --- the worker's input ---
@@ -327,6 +345,8 @@ class FoldRun:
         event = message.get("event")
         if event == "started":
             self.say(Message("Getting the model ready…"))
+        elif event == "downloading":
+            self.say(Message("Downloading the model… {percent}%", percent=message.get("percent", 0)))
         elif event == "progress":
             self.say(Message("Folding {index} of {total}: {name}",
                              index=message.get("index", 0), total=message.get("total", 0),
@@ -355,11 +375,82 @@ class FoldRun:
         return Message("The folding worker stopped (exit code {code}); its output is in {log}.",
                        code=code, log=self.log_path)
 
+    # --- Biohub rejected the token ---
+
+    def remaining_records(self):
+        """The records of the structures this run has not folded: what a run again is for."""
+        return [record for record in self.records if record[0] not in self.folded]
+
+    def ask_replacement(self):
+        """Ask, in a dialog, for a token to replace the rejected one, and save it (the GUI thread).
+
+        Returns ("saved", None), or why not: ("unavailable", reason) where no one is at the Viewer
+        to ask, ("cancelled", None), or ("not saved", reason). A request from the portal shows
+        awaiting_user_input while the dialog is open.
+        """
+        from Viewer_Command_Portal import CommandInteractionError, bind, user_interaction
+        from resources import Biohub_API
+        viewer = self.viewer_ref()
+        if viewer is None:
+            return ("unavailable", "the Viewer is closing")
+        parent = getattr(getattr(viewer, "canvas", None), "native", None)
+        with bind(getattr(self.job, "command_context", None)):
+            try:
+                with user_interaction(viewer, "Enter a replacement Biohub API token in the Viewer dialog"):
+                    token = token_dialog.ask_token(parent, replacement=True, shown=self._dialog_shown)
+            except CommandInteractionError as error:
+                return ("unavailable", str(error))
+            finally:
+                self._dialog = None
+        if token is None:
+            return ("cancelled", None)
+        try:
+            token_dialog.save_token(token, replacement=True)
+        except Biohub_API.BiohubSettingsError as error:
+            return ("not saved", str(error))
+        self.prepare_again()
+        return ("saved", None)
+
+    def _dialog_shown(self, dialog):
+        self._dialog = dialog
+
+    def close_dialog(self):
+        """The job was told to stop while its dialog was open: close it (the GUI thread)."""
+        dialog = self._dialog
+        if dialog is not None:
+            dialog.reject()
+
+    def prepare_again(self):
+        """Get ready to run the worker again for what is left (the GUI thread).
+
+        The first worker's tracker takes a last look and stops, its status files go, and the
+        records become those not folded, in a new private input file (the worker deleted the
+        first when it read it); the new worker gets a tracker of its own.
+        """
+        tracker = self.tracker
+        if tracker is not None:
+            try:
+                tracker.poll()
+                tracker.timer.stop()
+                tracker.deleteLater()
+            except RuntimeError:
+                pass  # The tracker's Qt object is deleted already.
+        if self.status_path:
+            for suffix in ("", ".partial", ".stdout", ".stderr"):
+                _discard_worker_input(self.status_path + suffix)
+        with self._lock:
+            self.tracker = self.process = self.worker = None
+        self.records = self.remaining_records()
+        self.write_input()
+        if self.job is not None:
+            self.started(self.job)
+
     # --- the job's ends ---
 
     def started(self, job):
         """The scheduler began the job (GUI thread): a portal request follows the worker through its status file."""
         from Viewer_Worker_Tracking import WorkerTracker
+        self.job = job
         if job.command_context is not None and self.status_path:
             self.set_tracker(WorkerTracker(job.command_context, job_id=str(job.job_id),
                                            path=self.status_path, add_job=False))
@@ -402,10 +493,29 @@ def fold_job(run, job):
     ends the worker and everything it started through the function it registered with
     its handle; the structures the worker had saved stay and a half-written one is deleted.
     """
-    from Viewer_Worker_Tracking import StartedWorker, track_hidden_worker, track_worker
     job.raise_if_cancelled()
     run.handle = job
     job.set_log_path(run.log_path)
+    while True:
+        code = _run_worker(run, job)
+        job.raise_if_cancelled()
+        if code == 0:
+            return {"message": Message("Folded %n structure(s).", n=len(run.nodes))}
+        if code != worker_exit_authentication():
+            raise RuntimeError(run.failure(code))
+        # Biohub rejected the token: ask for another, and fold the rest with it.
+        _replace_rejected_token(run, job)
+
+
+def worker_exit_authentication():
+    """The exit code of a worker that Biohub's rejection of its token ended."""
+    from resources.esmfold import esmfold_worker
+    return esmfold_worker.EXIT_AUTHENTICATION
+
+
+def _run_worker(run, job):
+    """Launch the worker once and wait for it to end; return its exit code."""
+    from Viewer_Worker_Tracking import track_hidden_worker, track_worker
     job.progress(Message("Starting the folding worker…"))
     project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     try:
@@ -418,14 +528,33 @@ def fold_job(run, job):
     job.on_cancel(lambda: worker.stop(Message("ESMFold worker stopped")))
     while True:
         try:
-            code = process.wait(timeout=0.2)
-            break
+            return process.wait(timeout=0.2)
         except subprocess.TimeoutExpired:
             continue
-    job.raise_if_cancelled()
-    if code == 0:
-        return {"message": Message("Folded %n structure(s).", n=len(run.nodes))}
-    raise RuntimeError(run.failure(code))
+
+
+def _replace_rejected_token(run, job):
+    """Ask for a token to replace the one Biohub rejected and get the run ready to go again; raise to end the job.
+
+    Only once for a run: a replacement that is rejected too ends it. Where no one can be asked (a Viewer
+    that shows no windows) or no token is given, the job fails and the structures folded so far stay.
+    """
+    if run.replaced:
+        raise RuntimeError(Message(
+            "Biohub rejected the replacement token too; folding stopped. The structures folded before then are kept."))
+    job.progress(Message("Biohub rejected the API token; waiting for a replacement…"))
+    state, reason = job.call_in_gui(run.ask_replacement, close=run.close_dialog)
+    if state == "saved":
+        run.replaced = True
+        return
+    if state == "unavailable":
+        raise RuntimeError(Message(
+            "Biohub rejected the saved API token, and a replacement cannot be asked for: {reason}", reason=reason))
+    if state == "not saved":
+        raise RuntimeError(Message(
+            "Biohub rejected the API token, and the replacement could not be saved: {reason}", reason=reason))
+    raise RuntimeError(Message(
+        "Biohub rejected the API token and no replacement was entered. The structures folded before then are kept."))
 
 
 def _folding_jobs(scheduler):
@@ -492,16 +621,56 @@ def _model_suffix(is_large):
     return (settings or {}).get("ESM3_MODEL", Biohub_API.DEFAULT_ESM3_MODEL)
 
 
-def _credentials_available():
-    """Whether Biohub API credentials are saved, or given in the environment, for a run through Biohub."""
+def _credentials_state():
+    """What a run through Biohub has for credentials: ("saved", None), ("missing", None), or ("invalid", error).
+
+    Saved means a settings file that holds a token, or ESM_API_KEY in the environment. A settings file that
+    is there but unusable is not "missing": asking for a token would overwrite what the user wrote in it.
+    """
     from resources import Biohub_API
     try:
-        if Biohub_API.read_api_settings() is not None:
-            return True
-    except Biohub_API.BiohubSettingsError:
-        return False
+        if Biohub_API.read_api_settings(Biohub_API.API_SETTINGS_FILE) is not None:
+            return ("saved", None)
+    except Biohub_API.BiohubSettingsError as error:
+        return ("invalid", error)
     token = os.environ.get("ESM_API_KEY")
-    return isinstance(token, str) and bool(token.strip())
+    return ("saved", None) if isinstance(token, str) and token.strip() else ("missing", None)
+
+
+def _ask_for_token(viewer):
+    """Ask for the Biohub API token in a dialog and save it; return whether it is saved. Says why not.
+
+    A command from the portal shows awaiting_user_input while the dialog is open, and a Viewer that
+    shows no windows fails it at once, as every command that needs a dialog does. The token is only
+    ever typed in the dialog, never taken from a command, and is in no message.
+    """
+    from Viewer_Command_Portal import CommandInteractionError, user_interaction
+    from resources import Biohub_API
+    parent = getattr(getattr(viewer, "canvas", None), "native", None)
+    try:
+        with user_interaction(viewer, "Enter the Biohub API token in the Viewer dialog"):
+            token = token_dialog.ask_token(parent)
+    except CommandInteractionError as error:
+        _report_failure(viewer, Message("Could not ask for the Biohub API token: {error}", error=error))
+        return False
+    if token is None:
+        message = Message("Biohub API token entry was cancelled; nothing was queued.")
+        print(message)
+        _set_console_text(viewer, message)
+        Command_Engine.command_cancelled(viewer, message)
+        return False
+    try:
+        token_dialog.save_token(token)
+    except Biohub_API.BiohubSettingsError as error:
+        _report_failure(viewer, Message("Could not save the Biohub API token: {error}", error=error))
+        return False
+    return True
+
+
+def _report_failure(viewer, message):
+    print(f"Error: {message}")
+    Command_Engine.command_failed(viewer, f"Error: {message}")
+    _set_console_text(viewer, Message("Error: {error}", error=message))
 
 
 def run(viewer, args):
@@ -677,15 +846,14 @@ def run(viewer, args):
         _set_console_text(viewer, Message("Error: Viewer web server unavailable."))
         return
 
-    # 8b. A run through Biohub needs the credentials, which no worker without a window can ask for.
-    if is_large and not _credentials_available():
-        refusal = Message(
-            "Biohub API credentials are not saved. Create the Biohub API settings file or set ESM_API_KEY "
-            "before folding with esmfold large."
-        )
-        print(f"Error: {refusal}")
-        Command_Engine.command_failed(viewer, f'Error: {refusal}')
-        _set_console_text(viewer, Message("Error: {error}", error=refusal))
+    # 8b. A run through Biohub needs the credentials. A worker with no window cannot ask for them, so the
+    # Viewer does, below, once it is sure there is something to fold; a settings file it cannot use is not
+    # written over.
+    credentials = _credentials_state() if is_large else ("saved", None)
+    if credentials[0] == "invalid":
+        _report_failure(viewer, Message(
+            "The Biohub API settings cannot be used: {error} Fix or delete the file, then run esmfold large again.",
+            error=credentials[1]))
         return
 
     # 8c. A node another fold waits to write, or is writing, is left out of this one: two folds never
@@ -711,6 +879,10 @@ def run(viewer, args):
         return
     nodes_to_fold, fold_indices = kept_nodes, kept_indices
 
+    # 8d. Nothing is left to ask in vain about: ask for the token a run through Biohub still lacks.
+    if credentials[0] == "missing" and not _ask_for_token(viewer):
+        return
+
     # 9. The records are fixed now, with the per-residue data of the alignment as it is now: they go to a
     # private file the worker reads when its turn comes.
     from Viewer_Command_Portal import CURRENT
@@ -718,7 +890,7 @@ def run(viewer, args):
     records, residue_notes = _worker_records(viewer, fold_indices, nodes_to_fold)
     run = FoldRun(
         records, nodes_to_fold, mode="large" if is_large else "local", device=device_str,
-        structures_dir=abs_structures_dir, action_url=action_url, portal=context is not None,
+        structures_dir=abs_structures_dir, action_url=action_url, portal=context is not None, viewer=viewer,
     )
     run.write_input()
     paths = []

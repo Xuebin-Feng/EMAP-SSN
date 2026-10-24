@@ -92,6 +92,7 @@ modules = [
     "test_agent_composer",
     "test_agent_images",
     "test_biohub_api",
+    "test_biohub_token_dialog",
     "test_esmc_6b_api",
     "test_esmfold_backend",
     "test_esmfold_command",

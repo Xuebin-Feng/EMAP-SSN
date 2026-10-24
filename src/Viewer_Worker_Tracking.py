@@ -100,6 +100,11 @@ class WorkerTracker(QtCore.QObject):
             if data['status'] in {'succeeded', 'failed', 'cancelled'}:
                 self.timer.stop()
                 return
+            if data.get('result', {}).get('authentication') is not None:
+                # The worker ended because Biohub rejected its token. That is no failure of the job: whoever
+                # owns the job asks for another token and runs a worker again, with a tracker of its own.
+                self.timer.stop()
+                return
         if self.identity is not None:
             try:
                 process = psutil.Process(self.identity[0])
