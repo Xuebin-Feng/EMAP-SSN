@@ -230,6 +230,166 @@ class DesktopLauncherMonitorTests(unittest.TestCase):
             )
 
 
+class SessionAndStatusTests(unittest.TestCase):
+    """The monitor runs a Viewer for Config too, tells the window where to report its start, passes the window's
+    arguments, and reports a crash after the window opened in a dialog when no terminal is open."""
+
+    @staticmethod
+    def _process(returncode):
+        process = mock.Mock(pid=12345)
+        process.wait.return_value = returncode
+        return process
+
+    def test_a_session_runs_the_viewer_script_with_the_arguments_it_was_given(self):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(2)
+        ) as popen:
+            Desktop_Launcher_Monitor.run_monitor(
+                "session", Path(temp_dir) / "state", app_args=["--settings", "C:/t/ssn_viewer_1.json", "--delete-settings"]
+            )
+        command = popen.call_args.args[0]
+        self.assertEqual(Path(command[2]), PROJECT_ROOT / "src" / "EMAPSSN_Viewer.py")
+        self.assertEqual(command[3:], ["--settings", "C:/t/ssn_viewer_1.json", "--delete-settings"])
+
+    def test_the_window_is_told_where_to_report_its_readiness_and_its_progress(self):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(2)
+        ) as popen:
+            state = Path(temp_dir) / "state"
+            Desktop_Launcher_Monitor.run_monitor("tools", state)
+            environment = popen.call_args.kwargs["env"]
+            self.assertEqual(environment["SSN_GUI_READY_FILE"], str((state / "gui.ready").resolve()))
+            self.assertEqual(environment["SSN_STARTUP_STATUS_FILE"], str((state / "startup.status").resolve()))
+
+    def test_every_kind_has_a_script_that_exists(self):
+        self.assertEqual(sorted(Desktop_Launcher_Monitor.APP_SCRIPTS), ["session", "tools", "viewer"])
+        for kind, script in Desktop_Launcher_Monitor.APP_SCRIPTS.items():
+            with self.subTest(kind=kind):
+                self.assertTrue((PROJECT_ROOT / script).is_file())
+
+    def test_a_crash_after_the_window_opened_is_reported_in_a_dialog_when_asked(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = Path(temp_dir) / "state"
+            state.mkdir()
+            (state / "gui.ready").write_text("ready\n", encoding="utf-8")
+            (state / "terminal.dismissed").write_text("dismissed\n", encoding="utf-8")
+            with mock.patch.object(
+                Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(9)
+            ), mock.patch.object(Desktop_Launcher_Monitor, "_open_error_terminal") as terminal, mock.patch.object(
+                Desktop_Launcher_Monitor, "_report_application_failure"
+            ) as dialog:
+                result = Desktop_Launcher_Monitor.run_monitor("viewer", state, failure_report="dialog")
+        self.assertEqual(result, 9)
+        terminal.assert_not_called()
+        dialog.assert_called_once_with(state.resolve() / "application.log")
+
+    def test_a_failure_before_the_window_opened_leaves_the_report_to_the_launcher_whichever_way(self):
+        for report in ("terminal", "dialog"):
+            with self.subTest(report=report), tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+                Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(7)
+            ), mock.patch.object(Desktop_Launcher_Monitor, "_open_error_terminal") as terminal, mock.patch.object(
+                Desktop_Launcher_Monitor, "_report_application_failure"
+            ) as dialog:
+                Desktop_Launcher_Monitor.run_monitor("tools", Path(temp_dir) / "state", failure_report=report)
+            terminal.assert_not_called()
+            dialog.assert_not_called()
+
+    def test_the_default_report_is_still_the_terminal(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            state = Path(temp_dir) / "state"
+            state.mkdir()
+            (state / "gui.ready").write_text("ready\n", encoding="utf-8")
+            (state / "terminal.dismissed").write_text("dismissed\n", encoding="utf-8")
+            with mock.patch.object(
+                Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(9)
+            ), mock.patch.object(Desktop_Launcher_Monitor, "_open_error_terminal", return_value=True) as terminal:
+                Desktop_Launcher_Monitor.run_monitor("viewer", state)
+        terminal.assert_called_once()
+
+    def test_the_crash_dialog_shows_the_last_lines_and_names_the_log_in_the_windows_language(self):
+        from PySide6.QtWidgets import QApplication
+        from tests.translation_fixtures import outside_the_catalog, pseudo_language
+
+        app = QApplication.instance() or QApplication([])
+        pseudo_language(self, app)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            log = Path(temp_dir) / "application.log"
+            log.write_text("".join(f"line {number}\n" for number in range(30)) + "\n   \nValueError: boom\n", encoding="utf-8")
+            with mock.patch("PySide6.QtWidgets.QMessageBox.critical") as critical:
+                Desktop_Launcher_Monitor._report_application_failure(log)
+        critical.assert_called_once()
+        _parent, title, text = critical.call_args.args
+        self.assertIn("ValueError: boom", text)
+        self.assertIn("line 20", text)
+        self.assertNotIn("line 5\n", text)  # only the last lines
+        self.assertIn(str(log), text)
+        self.assertEqual(outside_the_catalog(title), "")
+        self.assertEqual(text.count("\n\n"), 2)  # the lead, the lines, the log's name
+
+    def test_a_log_that_cannot_be_read_still_gets_a_dialog(self):
+        with mock.patch("PySide6.QtWidgets.QMessageBox.critical") as critical:
+            Desktop_Launcher_Monitor._report_application_failure(Path("no/such/application.log"))
+        critical.assert_called_once()
+        self.assertIn("application.log", critical.call_args.args[2])
+
+    def test_the_detached_monitor_is_started_with_the_report_and_arguments_it_was_given(self):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)
+        ) as popen:
+            Desktop_Launcher_Monitor.launch_detached_monitor(
+                "session", Path(temp_dir) / "state", platform_name="win32", failure_report="dialog",
+                app_args=["--settings", "x.json"],
+            )
+        command = popen.call_args.args[0]
+        self.assertEqual(command[1], "-u")
+        self.assertEqual(command[3:], ["--failure-report", "dialog", "session", str((Path(temp_dir) / "state").resolve()),
+                                       "--settings", "x.json"])
+
+    def test_the_default_start_adds_nothing_to_the_command(self):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)
+        ) as popen:
+            Desktop_Launcher_Monitor.launch_detached_monitor("tools", Path(temp_dir) / "state", platform_name="linux")
+        self.assertEqual(popen.call_args.args[0][3:], ["tools", str((Path(temp_dir) / "state").resolve())])
+
+    def test_an_unknown_report_or_kind_is_refused(self):
+        with self.assertRaises(ValueError):
+            Desktop_Launcher_Monitor.launch_detached_monitor("tools", Path("state"), failure_report="popup")
+        with self.assertRaises(ValueError):
+            Desktop_Launcher_Monitor.launch_detached_monitor("elsewhere", Path("state"))
+
+    def test_the_command_line_passes_the_report_and_the_windows_arguments_on(self):
+        with mock.patch.object(Desktop_Launcher_Monitor, "run_monitor", return_value=0) as run:
+            Desktop_Launcher_Monitor.main(["--failure-report", "dialog", "session", "state", "--settings", "x.json", "--delete-settings"])
+        run.assert_called_once_with("session", Path("state"), app_args=["--settings", "x.json", "--delete-settings"],
+                                    failure_report="dialog")
+        with mock.patch.object(Desktop_Launcher_Monitor, "run_monitor", return_value=0) as run:
+            Desktop_Launcher_Monitor.main(["viewer", "state"])
+        run.assert_called_once_with("viewer", Path("state"), app_args=[], failure_report="terminal")
+
+    def test_a_viewer_session_for_config_has_no_console_a_launcher_and_the_settings_to_delete(self):
+        env = {"SSN_TARGET_CACHE_PATH": "a/b.h5"}
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)) as popen:
+            Desktop_Launcher_Monitor.launch_viewer_session(
+                PROJECT_ROOT, env, settings_path="C:/t/ssn_viewer_1.json", executable="C:/py/python.exe"
+            )
+        command = popen.call_args.args[0]
+        self.assertEqual(command[:2], ["C:/py/python.exe", "-u"])
+        self.assertEqual(Path(command[2]), PROJECT_ROOT / "src" / "desktop" / "Desktop_Launcher.py")
+        self.assertEqual(command[3:], ["session", "--settings", "C:/t/ssn_viewer_1.json", "--delete-settings"])
+        kwargs = popen.call_args.kwargs
+        self.assertIs(kwargs["env"], env)
+        self.assertEqual(Path(kwargs["cwd"]), PROJECT_ROOT)
+        self.assertEqual(kwargs["creationflags"], 0x08000000)
+        for stream in ("stdin", "stdout", "stderr"):
+            self.assertIs(kwargs[stream], Desktop_Launcher_Monitor.subprocess.DEVNULL)
+
+    def test_a_viewer_session_without_settings_gets_no_settings_arguments(self):
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)) as popen:
+            Desktop_Launcher_Monitor.launch_viewer_session(PROJECT_ROOT, {})
+        self.assertEqual(popen.call_args.args[0][3:], ["session"])
+
+
 class ManagedEnvironmentTests(unittest.TestCase):
     monitor = Desktop_Launcher_Monitor
 

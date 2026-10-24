@@ -40,12 +40,15 @@ from utilities.Console_Capture import install_qt_message_handler
 from utilities import Startup_Status
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from desktop.Desktop_App import (
+    APP_USER_MODEL_IDS,
     APPLICATION_VERSION,
     CONFIG_DISPLAY_NAME,
     VIEWER_DISPLAY_NAME,
     VIEWER_DESKTOP_FILE_NAME,
     configure_linux_qt_desktop_identity,
+    set_app_user_model_id,
 )
+from desktop.Desktop_Launcher_Monitor import launch_viewer_session
 from Layout_Cache_Generator import LayoutGenerationSettings
 from desktop.Viewer_State import (
     INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS, DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS, PROFILE_ENUM_VALUES, PROFILE_RANGES,
@@ -500,9 +503,17 @@ def _handoff_to_viewer(
     platform_name=None,
     executable=None,
 ):
-    """Launch the viewer while preserving each platform's terminal contract."""
+    """Launch the viewer: on Windows without a console, elsewhere in the platform's terminal.
+
+    A Windows Viewer starts through desktop/Desktop_Launcher.py, which shows a splash and runs
+    it with a hidden console; the Viewer keeps what it prints for its Console window
+    (utilities/Console_Capture.py), so no terminal is needed. The other platforms keep the
+    terminal contract (utilities/Terminal_Launcher.py).
+    """
     executable = executable or sys.executable
     project_root = os.path.abspath(project_root)
+    if (platform_name or sys.platform) == "win32":
+        return launch_viewer_session(project_root, env, settings_path=settings_path, executable=executable)
     viewer_script = os.path.join(project_root, "src", "EMAPSSN_Viewer.py")
     argv = [executable, "-u", viewer_script]
     if settings_path:
@@ -5230,6 +5241,7 @@ if __name__ == "__main__":
     existing_qt_application = QApplication.instance()
     app = existing_qt_application or QApplication(sys.argv)
     install_qt_message_handler()  # Qt's warnings reach the Console tagged; a no-op without a capture
+    set_app_user_model_id(APP_USER_MODEL_IDS["config"])  # before the first window: the taskbar says EMAP-SSN
     app.setApplicationVersion(APPLICATION_VERSION)
     try:
         install_translations(app, startup_language())

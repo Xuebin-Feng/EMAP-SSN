@@ -170,6 +170,7 @@ from utilities.Sequence_Utils import (
 )
 from utilities.Localization import JoinedMessage, Message, display_text
 from desktop.Desktop_App import (
+    APP_USER_MODEL_IDS,
     APPLICATION_VERSION,
     CONFIG_THEME_SETTING,
     UI_QSS_FONT_STACK,
@@ -184,6 +185,7 @@ from desktop.Desktop_App import (
     install_translations,
     installed_language,
     register_vispy_application_fonts,
+    set_app_user_model_id,
     signal_launcher_ready,
     startup_language,
     translate,
@@ -3896,6 +3898,7 @@ class MainViewer:
 if __name__ == '__main__':
     from utilities.Console_Capture import install_qt_message_handler
     install_qt_message_handler()  # Qt's warnings reach the Console tagged; a no-op without a capture
+    set_app_user_model_id(APP_USER_MODEL_IDS["viewer"])  # the taskbar says EMAP-SSN, grouped apart from Config
     # Set the identity before VisPy creates QApplication or any native window.
     QtWidgets.QApplication.setApplicationVersion(APPLICATION_VERSION)
     configure_linux_qt_desktop_identity(

@@ -116,6 +116,36 @@ TOOLS_DESKTOP_FILE_NAME = "emapssn_tools"
 VIEWER_DESKTOP_FILE_NAME = "emapssn"
 
 
+# The AppUserModelID of each window's process, and of its shortcut (install.bat sets the same IDs on
+# the shortcuts it makes, tests/test_launcher_stub.py keeps the two in step): Windows groups a
+# process's windows in the taskbar under the shortcut that carries its ID, with the shortcut's name and
+# icon, so the taskbar says "EMAP-SSN" and not "Python", and a pinned shortcut finds its window again.
+APP_USER_MODEL_IDS = {
+    "config": "ca.utoronto.emapssn.config",
+    "tools": "ca.utoronto.emapssn.tools",
+    "viewer": "ca.utoronto.emapssn.viewer",
+    "vr_config": "ca.utoronto.emapssn.vrconfig",
+}
+
+
+def set_app_user_model_id(app_id):
+    """Give this process its taskbar identity (Windows only; call it before the first window exists).
+
+    Returns whether Windows accepted it; anywhere else it does nothing and returns False.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        function = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        function.argtypes = [ctypes.c_wchar_p]
+        function.restype = ctypes.c_long
+        return function(app_id) == 0
+    except (AttributeError, OSError):
+        return False
+
+
 def configure_linux_qt_desktop_identity(application, desktop_file_name):
     """Let Linux desktops associate a Qt window with its ``.desktop`` file."""
     if not sys.platform.startswith("linux"):

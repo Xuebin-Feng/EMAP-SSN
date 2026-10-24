@@ -606,7 +606,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2590"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2620"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -619,12 +619,12 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2485"/>
+        <location line="-2515"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="+186"/>
+        <location filename="../../../EMAPSSN_Config.py" line="+189"/>
         <source>Input File Directory:</source>
         <translation type="unfinished">输入文件目录：</translation>
     </message>
@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3946"/>
+        <location line="+3954"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3945"/>
+        <location line="-3953"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4544"/>
+        <location line="+4552"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4536"/>
+        <location line="-4544"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -763,7 +763,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
 {summary}</translation>
     </message>
     <message>
-        <location line="+667"/>
+        <location line="+675"/>
         <location line="+20"/>
         <location line="+50"/>
         <source>Missing examples: {examples}</source>
@@ -1657,7 +1657,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">比对长度</translation>
     </message>
     <message>
-        <location line="-567"/>
+        <location line="-575"/>
         <source>No Zoom or Sidebar Animation:</source>
         <translation type="unfinished">无缩放和侧边栏动画：</translation>
     </message>
@@ -1677,7 +1677,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">显示帧率（FPS）：</translation>
     </message>
     <message>
-        <location line="+565"/>
+        <location line="+573"/>
         <source>Shorter Sequence</source>
         <comment>normalization</comment>
         <translation type="unfinished">较短序列长度</translation>
@@ -2955,7 +2955,7 @@ Command-line usage:
 {error}</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+24"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>
@@ -4377,7 +4377,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1886"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1916"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -6629,17 +6629,30 @@ Command-line usage:
         <translation type="obsolete">缩放已对齐到视图宽度：{width}</translation>
     </message>
     <message>
-        <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+133"/>
+        <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+161"/>
         <source>SSN could not open a terminal to display the application failure. Review the retained log at {log}. Terminal error: {error}</source>
         <translation type="unfinished">SSN 无法打开终端来显示应用程序故障。请查看保留在 {log} 的日志。终端错误：{error}</translation>
     </message>
     <message>
-        <location line="+19"/>
+        <location line="+28"/>
+        <source>EMAP-SSN stopped unexpectedly. The last lines it printed:
+
+{lines}
+
+The whole output is in {log}.</source>
+        <translation type="unfinished">EMAP-SSN 意外停止了。它最后输出的内容：
+
+{lines}
+
+完整输出保存在 {log}。</translation>
+    </message>
+    <message>
+        <location line="-36"/>
         <source>SSN Application Failure</source>
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4873"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4882"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6681,7 +6694,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1446"/>
+        <location line="+1454"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -6741,7 +6754,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1417"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1419"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -9484,12 +9497,23 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">它最后输出的内容：</translation>
     </message>
     <message>
+        <location filename="../../../desktop/Desktop_Launcher.py" line="+81"/>
         <location filename="../../../utilities/Startup_Status.py" line="+36"/>
         <source>Starting…</source>
         <translation type="unfinished">正在启动…</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+290"/>
+        <source>The window could not be started.</source>
+        <translation type="unfinished">无法启动窗口。</translation>
+    </message>
+    <message>
+        <location line="+24"/>
+        <source>{window} did not open a window within {minutes} minutes.</source>
+        <translation type="unfinished">{window} 在 {minutes} 分钟内没有打开窗口。</translation>
+    </message>
+    <message>
+        <location filename="../../../utilities/Startup_Status.py" line="+1"/>
         <source>Checking the Python environment…</source>
         <translation type="unfinished">正在检查 Python 环境…</translation>
     </message>
@@ -9658,12 +9682,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1514"/>
+        <location line="-1544"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Tools.py" line="+136"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+138"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>
@@ -12785,7 +12809,7 @@ Fedora / RHEL：
         <translation type="unfinished">缺少文档</translation>
     </message>
     <message>
-        <location line="+1991"/>
+        <location line="+1992"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>

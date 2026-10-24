@@ -110,6 +110,7 @@ from tools.tool_helpers.Tool_Pipeline import (
     write_json_document,
 )
 from desktop.Desktop_App import (
+    APP_USER_MODEL_IDS,
     APPLICATION_VERSION,
     SingleInstanceController,
     TOOLS_DESKTOP_FILE_NAME,
@@ -120,6 +121,7 @@ from desktop.Desktop_App import (
     instance_handover_message,
     NAME_ITEM_ROLE,
     mark_name_item,
+    set_app_user_model_id,
     show_window_in_front,
     # The Tools window files its texts under one context, "Tools".
     translate,
@@ -5276,6 +5278,7 @@ class ToolsGUI(QMainWindow):
             )
 
 if __name__ == "__main__":
+    set_app_user_model_id(APP_USER_MODEL_IDS["tools"])  # before the first window: the taskbar says EMAP-SSN
     existing_qt_application = QApplication.instance()
     app = existing_qt_application or QApplication(sys.argv)
     install_qt_message_handler()  # Qt's warnings reach the Console tagged; a no-op without a capture

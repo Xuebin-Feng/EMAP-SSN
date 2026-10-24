@@ -4840,11 +4840,19 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>SSN Application Failure</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>SSN could not open a terminal to display the application failure. Review the retained log at {log}. Terminal error: {error}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>SSN Application Failure</source>
+        <source>EMAP-SSN stopped unexpectedly. The last lines it printed:
+
+{lines}
+
+The whole output is in {log}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
@@ -6721,6 +6729,18 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Splash</name>
     <message>
+        <source>Starting…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The window could not be started.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{window} did not open a window within {minutes} minutes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Configuration</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6770,10 +6790,6 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>The last lines it printed:</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Starting…</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

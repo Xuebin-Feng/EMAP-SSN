@@ -45,21 +45,46 @@ if not exist "src\bin\logos\viewer_logo_large.ico" (
 set "VIEWER_ICON=!PROJECT_ROOT!\src\bin\logos\viewer_logo_large.ico"
 set "TOOL_ICON=!PROJECT_ROOT!\src\bin\logos\tool_logo_large.ico"
 
-:: 3. Create a visible-startup Windows shortcut for the EMAP-SSN platform.
+:: 3. Build EMAP-SSN.exe, the launcher the shortcuts start: a few kilobytes with no console window, which shows
+::    the splash within a third of a second (src\bin\Launcher.cs). The C# compiler that ships with Windows
+::    builds it in a fraction of a second and nothing is downloaded. If it cannot be built, the shortcuts run the
+::    batch file in a console window, as before.
+set "LAUNCHER_EXE=!PROJECT_ROOT!\EMAP-SSN.exe"
+set "CSC_EXE="
+for %%C in ("%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" "%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe") do (
+    if exist "%%~C" if not defined CSC_EXE set "CSC_EXE=%%~C"
+)
+set "USE_LAUNCHER_EXE="
+if defined CSC_EXE (
+    del /q "!LAUNCHER_EXE!" >nul 2>nul
+    "!CSC_EXE!" /nologo /target:winexe /optimize+ /out:"!LAUNCHER_EXE!" /win32icon:"!VIEWER_ICON!" "src\bin\Launcher.cs" >nul 2>nul
+    if exist "!LAUNCHER_EXE!" set "USE_LAUNCHER_EXE=1"
+)
+if defined USE_LAUNCHER_EXE (
+    echo [OK] Built EMAP-SSN.exe, the launcher with no console window.
+) else (
+    echo [INFO] Could not build EMAP-SSN.exe ^(the C# compiler of the .NET Framework is missing or failed^).
+    echo        The shortcuts will open the launcher in a console window instead.
+)
+
+:: 4. Create the Windows shortcut for the EMAP-SSN platform.
 echo Creating shortcut for EMAP-SSN...
-powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN.lnk'); $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\EMAPSSN_Desktop_Launcher.bat' + $q + ' viewer' + $q; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:VIEWER_ICON; $Shortcut.Save();"
+powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN.lnk'); if ($env:USE_LAUNCHER_EXE) { $Shortcut.TargetPath = $env:PROJECT_ROOT + '\EMAP-SSN.exe'; $Shortcut.Arguments = 'viewer' } else { $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\EMAPSSN_Desktop_Launcher.bat' + $q + ' viewer' + $q }; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:VIEWER_ICON; $Shortcut.Save();"
 if exist "EMAP-SSN.lnk" (
+    :: The taskbar groups the windows of the process with this ID under the shortcut, with its name and icon.
+    powershell -NoProfile -ExecutionPolicy Bypass -File "src\bin\Set_Shortcut_AppId.ps1" -Lnk "!PROJECT_ROOT!\EMAP-SSN.lnk" -AppId ca.utoronto.emapssn.config
     echo [OK] Created EMAP-SSN.lnk in project root.
 )
 
-:: 4. Create a visible-startup Windows shortcut for EMAP-SSN Tools.
+:: 5. Create the Windows shortcut for EMAP-SSN Tools.
 echo Creating shortcut for EMAP-SSN Tools...
-powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN Tools.lnk'); $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\EMAPSSN_Desktop_Launcher.bat' + $q + ' tools' + $q; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:TOOL_ICON; $Shortcut.Save();"
+powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN Tools.lnk'); if ($env:USE_LAUNCHER_EXE) { $Shortcut.TargetPath = $env:PROJECT_ROOT + '\EMAP-SSN.exe'; $Shortcut.Arguments = 'tools' } else { $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\EMAPSSN_Desktop_Launcher.bat' + $q + ' tools' + $q }; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:TOOL_ICON; $Shortcut.Save();"
 if exist "EMAP-SSN Tools.lnk" (
+    powershell -NoProfile -ExecutionPolicy Bypass -File "src\bin\Set_Shortcut_AppId.ps1" -Lnk "!PROJECT_ROOT!\EMAP-SSN Tools.lnk" -AppId ca.utoronto.emapssn.tools
     echo [OK] Created EMAP-SSN Tools.lnk in project root.
 )
 
-:: 5. Optional: Copy shortcuts to Desktop
+:: 6. Optional: Copy shortcuts to Desktop
 echo.
 choice /M "Would you like to copy these shortcuts to your Desktop"
 if %ERRORLEVEL% equ 1 (

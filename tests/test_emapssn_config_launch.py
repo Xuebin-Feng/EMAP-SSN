@@ -74,6 +74,45 @@ class ViewerHandoffTests(unittest.TestCase):
         )
         self.assertEqual(launch.call_args.kwargs["platform_name"], "darwin")
 
+    def test_on_windows_the_viewer_starts_without_a_terminal_through_the_session_launcher(self):
+        process = object()
+        env = {"SSN_TARGET_CACHE_MODE": "existing"}
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            EMAPSSN_Config, "launch_in_terminal"
+        ) as terminal, mock.patch.object(
+            EMAPSSN_Config, "launch_viewer_session", return_value=process
+        ) as session:
+            result = EMAPSSN_Config._handoff_to_viewer(
+                temp_dir, env, settings_path="C:/t/ssn_viewer_1.json", platform_name="win32", executable="C:/py/python.exe"
+            )
+
+        self.assertIs(result, process)
+        terminal.assert_not_called()
+        session.assert_called_once_with(
+            os.path.abspath(temp_dir), env, settings_path="C:/t/ssn_viewer_1.json", executable="C:/py/python.exe"
+        )
+
+    def test_the_other_platforms_keep_the_terminal_contract(self):
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+                EMAPSSN_Config, "launch_in_terminal", return_value=object()
+            ) as terminal, mock.patch.object(EMAPSSN_Config, "launch_viewer_session") as session:
+                EMAPSSN_Config._handoff_to_viewer(temp_dir, {}, platform_name=platform, executable="/python")
+            terminal.assert_called_once()
+            session.assert_not_called()
+
+    def test_the_layout_generator_handoff_keeps_its_terminal_on_every_platform(self):
+        # A layout generation is a job: its output is the point, so it keeps a terminal.
+        for platform in ("win32", "linux", "darwin"):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+                EMAPSSN_Config, "launch_in_terminal", return_value=object()
+            ) as terminal, mock.patch.object(EMAPSSN_Config, "launch_viewer_session") as session:
+                EMAPSSN_Config._handoff_to_layout_generator(
+                    temp_dir, "settings.json", {}, platform_name=platform, executable="/python"
+                )
+            terminal.assert_called_once()
+            session.assert_not_called()
+
     def test_settings_snapshots_are_unique_and_immutable_copies(self):
         first = EMAPSSN_Config._create_viewer_settings_snapshot({"NODE_FASTA_FILE": "first.fasta"})
         second = EMAPSSN_Config._create_viewer_settings_snapshot({"NODE_FASTA_FILE": "second.fasta"})

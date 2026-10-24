@@ -8,6 +8,9 @@ Cache_Files_VR/
 msa_benchmark/
 temp/
 
+# Built by install.bat from src/bin/Launcher.cs: what the desktop shortcuts start.
+EMAP-SSN.exe
+
 # User-specified files
 viewer_settings.json
 tools_settings.json
