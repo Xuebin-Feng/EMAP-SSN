@@ -135,6 +135,9 @@ class BusyViewerTests(SnapshotHTTPFixture, unittest.TestCase):
         self.busy_patch = mock.patch.object(Web_Server, '_InspectionCall', BusyCall)
         self.busy_patch.start()
         self.addCleanup(self.busy_patch.stop)
+        # A command queued while the GUI was busy runs on a later test's event loop unless the
+        # portal is shut down; it would write its history into the folder this test removed.
+        self.addCleanup(lambda: getattr(self.viewer, 'command_portal', None) is None or self.viewer.command_portal.shutdown())
         self.session = SimpleNamespace(base_url=f'http://127.0.0.1:{self.server.server_address[1]}',
                                        token=self.server.inspection_token)
 

@@ -122,6 +122,10 @@ class QueueViewer:
         self.selected_indices = list(indices)
         self.selection_epoch += 1
 
+    def close(self):
+        """Remove the history folder now: a scheduler that points back at the viewer keeps it alive to the end of the run."""
+        self._history_folder.cleanup()
+
     @property
     def queue(self):
         return self.command_queue
@@ -142,6 +146,7 @@ class QueueTestCase(unittest.TestCase):
         redirect.__enter__()
         self.addCleanup(redirect.__exit__, None, None, None)
         self.viewer = QueueViewer()
+        self.addCleanup(self.viewer.close)
         self.addCleanup(self.viewer.command_queue.shutdown)
 
     def settle(self, timeout=10):
@@ -810,6 +815,7 @@ class GuiResponsivenessTests(QueueTestCase):
             self.skipTest("graspologic_native is not installed")
         self.viewer.command_queue.shutdown()
         self.viewer = QueueViewer(executor=ThreadExecutor())
+        self.addCleanup(self.viewer.close)
         self.addCleanup(self.viewer.command_queue.shutdown)
         edges, scores = synthetic_network()
         self.viewer.n_nodes = 10000

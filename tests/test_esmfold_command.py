@@ -586,6 +586,19 @@ class PrepareAgainTests(unittest.TestCase):
         patcher = mock.patch.object(Viewer_Worker_Tracking, "__file__", str(root / "src" / "Viewer_Worker_Tracking.py"))
         patcher.start()
         self.addCleanup(patcher.stop)
+        # Each prepare_again() writes a new input file and leaves the old one to the worker that read it,
+        # so every file written is removed here, not only the first and the last.
+        self.inputs = []
+        write_input = esmfold_command.FoldRun.write_input
+
+        def recording_write_input(run):
+            write_input(run)
+            self.inputs.append(run.input_path)
+
+        patcher = mock.patch.object(esmfold_command.FoldRun, "write_input", recording_write_input)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(lambda: [esmfold_command._discard_worker_input(path) for path in self.inputs])
         records = [["one", "AC", {"x": 1}], ["two", "DE", {"x": 2}], ["three", "FG", {"x": 3}]]
         self.run_ = esmfold_command.FoldRun(
             records, [(record[0], record[1]) for record in records], mode="large", device=None,

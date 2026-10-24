@@ -6,6 +6,7 @@ below decides exactly when the request changes, with no real waiting.
 import asyncio
 from pathlib import Path
 import sys
+import tempfile
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -283,8 +284,12 @@ class ProtocolTests(unittest.IsolatedAsyncioTestCase):
 
     def setUp(self):
         self.clock = FakeClock()
+        # The in-process server makes its jobs folder under the temp folder: give it one to remove.
+        jobs = tempfile.TemporaryDirectory()
+        self.addCleanup(jobs.cleanup)
         for patch in (mock.patch.object(ops, '_now', self.clock.monotonic),
-                      mock.patch.object(ops, '_pause', self.clock.pause)):
+                      mock.patch.object(ops, '_pause', self.clock.pause),
+                      mock.patch.object(tempfile, 'tempdir', jobs.name)):
             patch.start()
             self.addCleanup(patch.stop)
 
