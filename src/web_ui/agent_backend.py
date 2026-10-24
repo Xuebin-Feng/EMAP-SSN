@@ -775,6 +775,46 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None, *, 
 
 # ─── Response handling ────────────────────────────────────────────────────────
 
+def _command_summaries(request):
+    """The commands of a portal request as the Agent page lists them (what the portal publishes)."""
+    return [{'command_id': c['command_id'], 'command': c['command'], 'status': c['status'], 'approval': c.get('approval')}
+            for c in request['commands']]
+
+
+def _watch_approvals(viewer, portal):
+    """Have a command that waits for the user's Run announced where the user may not be looking."""
+    if getattr(viewer, '_agent_approvals_watched', None) is portal:
+        return
+    viewer._agent_approvals_watched = portal
+    # Later, off the portal's own pass over the queue: opening a page is not part of it.
+    portal.approval_needed.connect(lambda request_id, command_id: QtCore.QTimer.singleShot(
+        0, lambda: _announce_approval(viewer, portal, request_id, command_id)))
+
+
+def _announce_approval(viewer, portal, request_id, command_id):
+    """Tell the user in the terminal that an agent's command waits for them, and open the Agent page.
+
+    The page shows the Run and Discard buttons, so with it open there is nothing to add. The page is
+    opened only where the Viewer shows windows; a Viewer that shows none refuses the command instead
+    (the portal's NOBODY_CAN_APPROVE).
+    """
+    from Viewer_Command_Portal import agent_page_connected, viewer_shows_windows
+    if request_id != getattr(viewer, '_agent_request_id', None) or agent_page_connected(viewer):
+        return
+    try:
+        [record] = portal.get(request_id, command_id=command_id)['commands']
+    except ValueError:
+        return
+    if record.get('approval') != 'pending' or record['status'] != 'awaiting_user_input':
+        return  # Decided, or discarded with its turn, in the meantime.
+    Command_Engine.print_help(viewer, Message(
+        "The agent wants to run {command}, which needs your approval. Open the Agent page to run or discard it.",
+        command=record['command'],
+    ))
+    if viewer_shows_windows(viewer):
+        viewer.open_agent_ui(show_existing_dialog=False)
+
+
 def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_json, error_msg, generation=None, turn=None, worker=None):
     if worker is not None:
         _apply_call_notes(viewer, worker.report, worker.card_ref)
@@ -823,7 +863,9 @@ def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_j
             return
         request_id = request['request_id']
         viewer._agent_request_id = request_id
-        _agent_event(viewer, {'type': 'agent_command_request', 'request_id': request_id, 'status': request['status']}, turn)
+        _watch_approvals(viewer, portal)
+        _agent_event(viewer, {'type': 'agent_command_request', 'request_id': request_id, 'status': request['status'],
+                              'commands': _command_summaries(request)}, turn)
         def finished(completed_id):
             if completed_id != request_id:
                 return

@@ -280,7 +280,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Viewer commands: {status}</source>
+        <source>waiting for your approval</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -293,6 +293,10 @@
     </message>
     <message>
         <source>Discard</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Viewer commands</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -6024,6 +6028,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>Could not read prompt file: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The agent wants to run {command}, which needs your approval. Open the Agent page to run or discard it.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -31,6 +31,12 @@ CURRENT = ContextVar('viewer_command_context', default=None)
 REVIEWED_SOURCES = {'web_agent'}
 APPROVAL = {'run': None, 'approve': 'pending', 'refuse': 'refused'}
 REFUSED = 'Agent replies cannot run this command; type it in the Viewer terminal instead.'
+# A command that needs approval is refused at once where nobody can give it, instead
+# of waiting for ever at the head of the queue: the Viewer shows no window (headless,
+# or hidden and not shown) and no Agent page is open to hold the Run and Discard buttons.
+NOBODY_CAN_APPROVE = ("This command needs the user to press Run in the Agent page, but the Viewer shows no window and no "
+                      "Agent page is open, so nobody can. Show the Viewer's window or open the Agent page first, or type "
+                      "the command in the Viewer terminal.")
 # The most commands a run script may hold, typed or sent through the portal.
 MAX_SCRIPT_COMMANDS = 1000
 # The longest `progress` line a job entry keeps.
@@ -100,6 +106,12 @@ def viewer_shows_windows(viewer):
     that method counts as headless when its flag or the environment says so.
     """
     return _viewer_shows_windows(viewer, environment=True)
+
+
+def agent_page_connected(viewer):
+    """Whether an Agent page is open, which is where a reviewed command gets its Run and Discard buttons."""
+    has_event_client = getattr(getattr(viewer, 'web_server', None), 'has_event_client', None)
+    return bool(callable(has_event_client) and has_event_client('agent'))
 
 
 @contextmanager
@@ -226,6 +238,8 @@ class ExecutionContext:
 class ViewerCommandPortal(QtCore.QObject):
     changed = QtCore.Signal(str)
     completed = QtCore.Signal(str)
+    # (request_id, command_id): a reviewed command now waits for the user to run or discard it.
+    approval_needed = QtCore.Signal(str, str)
 
     def __init__(self, viewer):
         super().__init__()
@@ -237,6 +251,10 @@ class ViewerCommandPortal(QtCore.QObject):
         self.output_lock = threading.RLock()
         self.max_output_bytes = 16 * 1024**2
         self.history_limit = 100
+        # The commands approval_needed has been sent for, and why a command that nobody could
+        # approve was refused.
+        self._announced = set()
+        self._refusals = {}
         self._busy = False
         self._closed = False
         # Requests that left the head of the line while only their background jobs were left.
@@ -301,13 +319,20 @@ class ViewerCommandPortal(QtCore.QObject):
             return True
         if not record['dispatched']:
             if record.get('approval') == 'pending':
-                record['status'] = 'awaiting_user_input'
-                return False
+                if _viewer_shows_windows(self.viewer) or agent_page_connected(self.viewer):
+                    record['status'] = 'awaiting_user_input'
+                    if record['command_id'] not in self._announced:
+                        self._announced.add(record['command_id'])
+                        self.approval_needed.emit(request_id, record['command_id'])
+                    return False
+                # Nobody can press Run: fail the command now, and so skip the rest of the request.
+                record['approval'] = 'refused'
+                self._refusals[record['command_id']] = NOBODY_CAN_APPROVE
             import Command_Engine
             record.update(status='running', started_at=now(), dispatched=True)
             context = ExecutionContext(self, request_id, record)
             if record.get('approval') == 'refused':
-                context.report('failed', REFUSED)
+                context.report('failed', self._refusals.pop(record['command_id'], REFUSED))
             else:
                 with bind(context):
                     try:

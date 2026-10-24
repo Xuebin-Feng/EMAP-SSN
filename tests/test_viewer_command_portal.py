@@ -610,6 +610,79 @@ class AgentReviewTests(PortalFixture, unittest.TestCase):
         self.assertEqual((saves, self.viewer.selected_indices), ([], [1]))
 
 
+    def test_a_command_nobody_can_approve_is_refused_at_once(self):
+        # A Viewer that shows no window (headless, or hidden and not shown) with no Agent page open has
+        # nobody to press Run: the command fails now, the rest of the request is skipped, and the
+        # queue is not held for a decision that cannot come.
+        saves = self.stand_in('save')
+        silent = {'headless': lambda: setattr(self.viewer, 'headless', True),
+                  'hidden, not shown': lambda: setattr(self.viewer, 'shows_windows', lambda: False)}
+        for label, make_silent in silent.items():
+            with self.subTest(label):
+                make_silent()
+                r = self.portal.submit(f'nobody {label}', ['select "one"', 'save x.h5', 'select "two"'], source='web_agent')
+                result = self.finish(r['request_id'])
+                self.assertEqual(result['status'], 'failed', result)
+                self.assertEqual([c['status'] for c in result['commands']], ['succeeded', 'failed', 'skipped'])
+                self.assertEqual([c.get('approval') for c in result['commands']], [None, 'refused', None])
+                message = result['commands'][1]['messages'][-1]['text']
+                self.assertIn('Viewer shows no window', message)
+                self.assertIn('nobody can', message)
+                later = self.finish(self.portal.submit(f'later {label}', 'select "two"')['request_id'])
+                self.assertEqual(later['status'], 'succeeded', later)
+                self.assertEqual(self.portal.queue, [])
+        self.assertEqual(saves, [])
+        # Commands that need no approval are not affected, and nothing waited or was announced.
+        self.assertFalse([e for e in self.viewer.events if e.get('status') == 'awaiting_user_input'])
+
+    def test_an_open_agent_page_or_a_shown_window_can_approve(self):
+        saves = self.stand_in('save')
+        self.viewer.headless = True
+        self.viewer.web_server = SimpleNamespace(has_event_client=lambda client: client == 'agent')
+        r = self.portal.submit('page open', ['save x.h5'], source='web_agent')
+        waiting = self.wait_until(r['request_id'], 'awaiting_user_input')
+        self.assertEqual(waiting['commands'][0]['approval'], 'pending')
+        self.portal.decide(r['request_id'], waiting['commands'][0]['command_id'], True)
+        self.assertEqual(self.finish(r['request_id'])['status'], 'succeeded')
+        self.assertEqual(saves, [['x.h5']])
+
+        # A page for some other client does not count, and a window that is shown does.
+        self.viewer.web_server = SimpleNamespace(has_event_client=lambda client: client == 'meta')
+        refused = self.finish(self.portal.submit('meta page only', ['save y.h5'], source='web_agent')['request_id'])
+        self.assertEqual(refused['commands'][0]['approval'], 'refused')
+        del self.viewer.headless
+        self.viewer.shows_windows = lambda: True
+        r = self.portal.submit('window shown', ['save z.h5'], source='web_agent')
+        self.wait_until(r['request_id'], 'awaiting_user_input')
+        self.portal.discard_pending(r['request_id'])
+        self.assertEqual(self.finish(r['request_id'])['status'], 'cancelled')
+
+    def test_the_portal_announces_a_command_when_it_starts_waiting_once(self):
+        self.stand_in('save')
+        announced = []
+        self.portal.approval_needed.connect(lambda request_id, command_id: announced.append((request_id, command_id)))
+        r = self.portal.submit('announce', ['select "one"', 'save a.h5', 'save b.h5'], source='web_agent')
+        first = self.wait_until(r['request_id'], 'awaiting_user_input')['commands'][1]
+        for _ in range(20):  # Further passes over the queue do not announce it again.
+            self.portal.pump()
+            self.app.processEvents()
+            time.sleep(.005)
+        self.assertEqual(announced, [(r['request_id'], first['command_id'])])
+        self.portal.decide(r['request_id'], first['command_id'], True)
+        deadline = time.monotonic() + 10
+        while len(announced) < 2 and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(.005)
+        second = self.portal.get(r['request_id'])['commands'][2]
+        self.assertEqual(announced[1], (r['request_id'], second['command_id']))
+        self.portal.discard_pending(r['request_id'])
+        self.finish(r['request_id'])
+        # A command that needs no review is never announced.
+        before = len(announced)
+        self.finish(self.portal.submit('plain', 'select "two"', source='web_agent')['request_id'])
+        self.assertEqual(len(announced), before)
+
+
 class WorkerTrackingTests(PortalFixture, unittest.TestCase):
     """Detached workers and command scripts that end without a usable result fail their request."""
 

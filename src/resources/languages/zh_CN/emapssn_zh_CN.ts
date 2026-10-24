@@ -81,7 +81,7 @@
         <translation type="obsolete">🌙 深色模式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent.html" line="+986"/>
+        <location filename="../../../web_ui/agent.html" line="+1018"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -92,12 +92,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+761"/>
+        <location line="+837"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-760"/>
+        <location line="-836"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -244,8 +244,8 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-1194"/>
-        <location line="+961"/>
+        <location line="-1226"/>
+        <location line="+993"/>
         <source>EMAP-SSN Agent (Beta)</source>
         <translation type="unfinished">EMAP-SSN 智能体（测试版）</translation>
     </message>
@@ -401,12 +401,17 @@
         <translation type="unfinished">正在重新连接…</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+15"/>
+        <source>waiting for your approval</source>
+        <translation type="unfinished">等待您的批准</translation>
+    </message>
+    <message>
         <source>Viewer commands: {status}</source>
-        <translation type="unfinished">查看器命令：{status}</translation>
+        <translation type="obsolete">查看器命令：{status}</translation>
     </message>
     <message>
         <location line="+9"/>
+        <location line="+4"/>
         <source>The agent wants to run {command}</source>
         <translation type="unfinished">智能体想要运行 {command}</translation>
     </message>
@@ -421,7 +426,13 @@
         <translation type="unfinished">丢弃</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+31"/>
+        <location line="+4"/>
+        <source>Viewer commands</source>
+        <translation type="unfinished">查看器命令</translation>
+    </message>
+    <message>
+        <location line="+58"/>
         <source>Agent active: {model}</source>
         <translation type="unfinished">智能体已启用：{model}</translation>
     </message>
@@ -431,7 +442,7 @@
         <translation type="unfinished">智能体未启用。请选择一个模型，然后点击开关启用。</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+85"/>
         <source>LLM</source>
         <translation type="unfinished">LLM</translation>
     </message>
@@ -4511,7 +4522,7 @@ Command-line usage:
         <location filename="../../../commands/query.py" line="+583"/>
         <location filename="../../../commands/reset.py" line="+114"/>
         <location filename="../../../commands/select.py" line="-195"/>
-        <location filename="../../../web_ui/agent_backend.py" line="+309"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+310"/>
         <location filename="../../../web_ui/meta_backend.py" line="+57"/>
         <source>Error: {error}</source>
         <translation type="unfinished">错误：{error}</translation>
@@ -6903,7 +6914,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+257"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+275"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -6923,7 +6934,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">查看器的命令队列已满；请稍后用相同的 submission_id 重试</translation>
     </message>
     <message>
-        <location line="+181"/>
+        <location line="+188"/>
         <source>That command is not waiting to be run or discarded.</source>
         <translation type="unfinished">该命令当前不处于待运行或待丢弃状态。</translation>
     </message>
@@ -7045,7 +7056,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">未收到 LLM 的回复。</translation>
     </message>
     <message>
-        <location line="+191"/>
+        <location line="+195"/>
         <source>Invalid submission ID.</source>
         <translation type="unfinished">无效的提交 ID。</translation>
     </message>
@@ -7070,12 +7081,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">在 {path} 找不到系统提示文件</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>Could not read prompt file: {error}</source>
         <translation type="unfinished">无法读取提示文件：{error}</translation>
     </message>
     <message>
-        <location line="+229"/>
+        <location line="+62"/>
+        <source>The agent wants to run {command}, which needs your approval. Open the Agent page to run or discard it.</source>
+        <translation type="unfinished">智能体想要运行 {command}，该命令需要您的批准。请打开智能体页面来运行或放弃它。</translation>
+    </message>
+    <message>
+        <location line="+209"/>
         <source>Reload the Agent page to switch models.</source>
         <translation type="unfinished">请重新加载智能体页面以切换模型。</translation>
     </message>

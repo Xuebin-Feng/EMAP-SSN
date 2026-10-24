@@ -634,6 +634,118 @@ class ModelCardPageTests(unittest.TestCase):
         self.assertTrue(self.js(f'{note}.hidden'))
         self.assertNotIn('omit_sampling', json.loads(self.js('JSON.stringify(modelCards[0])')))
 
+    CARD = {'cards': [{'id': 'mine', 'name': 'My API'}]}
+
+    @staticmethod
+    def command(command_id, text, status, approval=None):
+        return {'command_id': command_id, 'command': text, 'status': status, 'approval': approval}
+
+    def request_event(self, request_id, *commands, status='awaiting_user_input', kind='command_request_updated'):
+        event = {'type': kind, 'request_id': request_id, 'status': status, 'commands': list(commands)}
+        self.js(f'handleServerEvent({json.dumps(event)})')
+
+    def request_cards(self):
+        return json.loads(self.js("""JSON.stringify(Array.from(document.querySelectorAll('#chat-log .command-request'), card => ({
+            request: card.dataset.requestId, status: card.dataset.status,
+            commands: Array.from(card.querySelectorAll('.command-item'), item => [
+                item.querySelector('.command-text').textContent, item.dataset.status,
+                item.querySelector('.command-status').textContent, item.querySelectorAll('.command-approval').length])})))"""))
+
+    IN_VIEW = """(element => { const log = document.getElementById('chat-log').getBoundingClientRect();
+        const box = element.getBoundingClientRect(); return box.top >= log.top - 1 && box.bottom <= log.bottom + 1; })"""
+
+    def fill_the_log(self, count=40):
+        self.js(f"for (let i = 0; i < {count}; i++) appendSystemMsg('Earlier message ' + i + ' of the conversation.')")
+        self.assertTrue(self.js("document.getElementById('chat-log').scrollHeight > document.getElementById('chat-log').clientHeight"))
+
+    def test_each_request_has_its_own_card_with_a_status_for_every_command(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        select = self.command('a1', 'select "a"', 'succeeded')
+        save = self.command('a2', 'save x.h5', 'awaiting_user_input', 'pending')
+        printing = self.command('a3', 'print', 'queued')
+        self.request_event('r1', select, save, printing, kind='agent_command_request')
+
+        [card] = self.request_cards()
+        self.assertEqual((card['request'], card['status']), ('r1', 'awaiting_user_input'))
+        self.assertEqual(card['commands'], [['select "a"', 'succeeded', 'succeeded', 0],
+                                            ['save x.h5', 'awaiting_user_input', 'waiting for your approval', 1],
+                                            ['print', 'queued', 'queued', 0]])
+        # There is no single line of status any more.
+        self.assertEqual(self.js("document.querySelectorAll('#command-request-status').length"), 0)
+        self.assertEqual(self.js("document.querySelector('.command-request').getAttribute('aria-label')"), 'Viewer commands')
+
+        # An update changes the statuses and keeps the rows, and the buttons, that it leaves as they were.
+        self.js("window.firstRow = document.querySelector('.command-item'); window.runButton = document.querySelector('.command-approval button')")
+        self.request_event('r1', select, save, {**printing, 'status': 'skipped'})
+        self.assertTrue(self.js("document.querySelector('.command-item') === window.firstRow && "
+                                "document.querySelector('.command-approval button') === window.runButton"))
+        self.assertEqual(self.request_cards()[0]['commands'][2][1:3], ['skipped', 'skipped'])
+
+        self.request_event('r1', select, {**save, 'status': 'running', 'approval': 'approved'}, printing, status='running')
+        self.assertEqual(self.request_cards()[0]['commands'][1], ['save x.h5', 'running', 'running', 0])
+        self.request_event('r1', select, {**save, 'status': 'failed', 'approval': 'approved'},
+                           {**printing, 'status': 'skipped'}, status='failed')
+        [card] = self.request_cards()
+        self.assertEqual((card['status'], [c[1] for c in card['commands']]), ('failed', ['succeeded', 'failed', 'skipped']))
+        self.assertEqual(len(card['commands']), 3)
+
+    def test_a_later_requests_buttons_are_in_view_and_have_the_focus(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.request_event('r1', self.command('a1', 'select "a"', 'succeeded'), status='succeeded', kind='agent_command_request')
+        self.fill_the_log()
+        self.js("document.getElementById('chat-log').scrollTop = 0")
+        self.request_event('r2', self.command('b1', 'save y.h5', 'awaiting_user_input', 'pending'), kind='agent_command_request')
+
+        # Two cards, the second one below the conversation and showing its own buttons.
+        self.assertEqual([card['request'] for card in self.request_cards()], ['r1', 'r2'])
+        self.assertTrue(self.js(f"{self.IN_VIEW}(document.querySelector('.command-request[data-request-id=r2] .command-approval'))"))
+        self.assertEqual(self.js("document.querySelectorAll('.command-request[data-request-id=r1] .command-approval').length"), 0)
+        # A later update of the first request, which finished meanwhile, goes to its own card; one of a request
+        # this page never showed is not this page's.
+        self.request_event('r1', self.command('a1', 'select "a"', 'failed'), status='failed')
+        self.request_event('r0', self.command('z1', 'zoom 100', 'running'), status='running')
+        self.assertEqual([(card['request'], card['commands'][0][1]) for card in self.request_cards()], [('r1', 'failed'), ('r2', 'awaiting_user_input')])
+        # The row has the focus, not Run: a key pressed at that moment approves nothing.
+        focused = json.loads(self.js("""JSON.stringify({row: document.activeElement.classList.contains('command-approval'),
+            tag: document.activeElement.tagName, label: document.activeElement.getAttribute('aria-label'),
+            role: document.activeElement.getAttribute('role'), run: document.activeElement.querySelector('button').textContent})"""))
+        self.assertEqual(focused, {'row': True, 'tag': 'DIV', 'label': 'The agent wants to run save y.h5', 'role': 'group', 'run': 'Run'})
+        self.assertEqual(self.state()['actions'], [])
+
+    def test_the_buttons_come_into_view_without_taking_the_focus_from_the_cards_panel(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.fill_the_log()
+        self.js("document.getElementById('chat-log').scrollTop = 0;"
+                "document.getElementById('models-panel-btn').click();"
+                "document.querySelector('.model-card-header').click();"
+                "document.querySelector('.model-card .card-field input').focus()")
+        self.request_event('r1', self.command('a1', 'save y.h5', 'awaiting_user_input', 'pending'), kind='agent_command_request')
+        self.assertTrue(self.js(f"{self.IN_VIEW}(document.querySelector('.command-approval'))"))
+        self.assertTrue(self.js("document.activeElement.matches('.model-card .card-field input')"))
+
+    def test_a_page_opened_while_a_command_waits_shows_it_in_view_with_the_focus(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        history = [item for number in range(25) for item in (
+            {'role': 'user', 'content': f'question {number}'},
+            {'role': 'assistant', 'content': f'answer {number}', 'explanation': f'answer {number}', 'commands': '', 'terminal_output': ''})]
+        request = {'request_id': 'r9', 'status': 'awaiting_user_input',
+                   'commands': [self.command('c1', 'save z.h5', 'awaiting_user_input', 'pending')]}
+        init = {'type': 'init', 'data': {'llm_loaded': True, 'llm_history': history, 'agent_request_id': 'r9', 'agent_command_request': request}}
+        self.js(f'handleServerEvent({json.dumps(init)})')
+        self.assertTrue(self.js(f"{self.IN_VIEW}(document.querySelector('.command-approval'))"))
+        self.assertTrue(self.js("document.activeElement.classList.contains('command-approval')"))
+        # The same request, shown again by a later event, keeps its one card and one pair of buttons.
+        self.request_event('r9', *request['commands'])
+        self.assertEqual((len(self.request_cards()), self.js("document.querySelectorAll('.command-approval').length")), (1, 1))
+
+    def test_a_card_whose_log_was_cleared_is_made_again(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.request_event('r1', self.command('a1', 'select "a"', 'running'), status='running', kind='agent_command_request')
+        self.js("document.getElementById('chat-log').innerHTML = ''")
+        self.request_event('r1', self.command('a1', 'select "a"', 'succeeded'), status='succeeded')
+        self.assertEqual(self.request_cards(), [{'request': 'r1', 'status': 'succeeded',
+                                                 'commands': [['select "a"', 'succeeded', 'succeeded', 0]]}])
+
     def test_a_command_waiting_for_approval_is_run_or_discarded(self):
         self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API'}]}).encode())
         waiting = {'command_id': 'c1', 'command': 'save <img src=x onerror=alert(1)>.h5',

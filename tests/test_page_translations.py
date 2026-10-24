@@ -609,8 +609,9 @@ class AgentPageTests(WebPageTestCase):
         self.collect()
         statuses = ("queued", "running", "succeeded", "failed", "cancelled", "skipped", "awaiting_user_input")
         for status in statuses:
-            self.run_and_collect(f"activeCommandRequest = 'request'; showCommandStatus('{status}', ["
-                                 "{approval: 'pending', status: 'awaiting_user_input', command: '19', command_id: 'c'}])")
+            self.run_and_collect(f"activeCommandRequest = 'request'; showCommandRequest('request', '{status}', ["
+                                 "{approval: 'pending', status: 'awaiting_user_input', command: '19', command_id: 'c'},"
+                                 f"{{approval: null, status: '{status}', command: '20', command_id: 'status-{status}'}}])")
         self.assertEqual(self.js("document.querySelectorAll('.command-approval button').length"), 2)
         self.run_and_collect("sendAction({action: 'fail'})")
         self.wait_for("document.querySelectorAll('#chat-log .msg-error').length === 2")

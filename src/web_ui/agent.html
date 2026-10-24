@@ -431,13 +431,47 @@
         /* A square button showing only an icon */
         .btn-icon { width: 30px; padding: 0; }
 
+        /* The commands a reply started: one card for each request, a row for each command. */
+        .command-request {
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            background-color: var(--bg-inset);
+            padding: 8px 12px 10px;
+            font-size: 12.5px;
+        }
+        .command-request-title {
+            font-size: 11px; font-weight: 600; color: var(--text-subtle);
+            text-transform: uppercase; letter-spacing: 0.05em;
+            margin-bottom: 6px;
+        }
+        .command-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+        .command-item { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+        .command-text {
+            font-family: var(--font-mono); font-size: 12px; color: var(--code-text);
+            overflow-wrap: anywhere; min-width: 0;
+        }
+        .command-status {
+            font-size: 11.5px; line-height: 18px; padding: 0 8px; border-radius: 6px;
+            background: var(--bg-muted); color: var(--text-secondary); white-space: nowrap;
+        }
+        .command-item[data-status="succeeded"] .command-status { background: var(--success-soft); color: var(--success); }
+        .command-item[data-status="failed"] .command-status { background: var(--danger-soft); color: var(--danger); }
+        .command-item[data-status="awaiting_user_input"] .command-status { background: var(--warning-soft); color: var(--warning); }
+
         .command-approval {
+            flex-basis: 100%;
             display: flex;
             flex-wrap: wrap;
             align-items: center;
             gap: 8px;
-            margin-top: 6px;
+            margin-top: 2px;
+            padding: 6px 8px;
+            border: 1px solid var(--warning);
+            border-radius: var(--radius);
+            background-color: var(--warning-soft);
         }
+        /* The row takes the focus when a command starts waiting, so it shows it for any way it got it. */
+        .command-approval:focus { outline: none; box-shadow: 0 0 0 2px var(--accent); }
 
         .command-approval code {
             font-family: var(--font-mono);
@@ -447,8 +481,6 @@
             padding: 1px 0.4em;
             overflow-wrap: anywhere;
         }
-
-        #command-request-status { font-size: 12.5px; color: var(--text-secondary); }
 
         /* ── Chat log ────────────────────────────────────── */
         #chat-log {
@@ -1626,26 +1658,29 @@
         }
 
         let activeCommandRequest = null;
-        // A command from the agent's reply that writes or imports files, runs
-        // programs or spends credit waits here until the user runs or discards it.
-        function showCommandStatus(status, commands = []) {
-            let element = document.getElementById('command-request-status');
-            if (!element) {
-                element = document.createElement('div');
-                element.id = 'command-request-status';
-                document.getElementById('chat-log').appendChild(element);
-            }
-            element.textContent = t("Viewer commands: {status}", {status: COMMAND_STATUSES[status] || status.replaceAll('_', ' ')});
-            const waiting = commands.find(c => c.approval === 'pending' && c.status === 'awaiting_user_input');
-            if (!waiting) return;
-            const requestId = activeCommandRequest;
+        // One card for each request of commands that the agent's replies started, where
+        // the request began in the chat log (so a later request's buttons are not left
+        // above the visible part of the log), and one row for each command in it. A
+        // command that writes or imports files, runs programs or spends credit waits
+        // here until the user runs or discards it.
+        const commandRequests = new Map();
+
+        function commandStatusText(command) {
+            if (command.approval === 'pending' && command.status === 'awaiting_user_input') return t("waiting for your approval");
+            return COMMAND_STATUSES[command.status] || command.status.replaceAll('_', ' ');
+        }
+
+        function buildApprovalRow(requestId, command) {
             const row = document.createElement('div');
             row.className = 'command-approval';
-            const command = document.createElement('code');
-            command.textContent = waiting.command;
+            row.setAttribute('role', 'group');
+            row.setAttribute('tabindex', '-1');
+            row.setAttribute('aria-label', t("The agent wants to run {command}", {command: command.command}));
+            const code = document.createElement('code');
+            code.textContent = command.command;
             // The command goes where the sentence names it, in any language.
             const [before, after = ''] = t("The agent wants to run {command}").split('{command}');
-            row.append(before, command, after);
+            row.append(before, code, after);
             for (const [label, run] of [[t('Run'), true], [t('Discard'), false]]) {
                 const button = document.createElement('button');
                 button.type = 'button';
@@ -1653,12 +1688,78 @@
                 button.textContent = label;
                 button.addEventListener('click', () => {
                     row.querySelectorAll('button').forEach(b => { b.disabled = true; });
-                    sendAction({ action: 'decide_agent_command', request_id: requestId, command_id: waiting.command_id, run });
+                    sendAction({ action: 'decide_agent_command', request_id: requestId, command_id: command.command_id, run });
                 });
                 row.append(button);
             }
-            element.append(row);
+            return row;
         }
+
+        // Bring a command's Run and Discard buttons into view, and the keyboard to them
+        // unless the user is typing somewhere else (the cards panel, say). The row takes
+        // the focus, not Run: a key pressed at that moment must not approve anything.
+        function revealApproval(row) {
+            row.scrollIntoView({ block: 'nearest' });
+            const active = document.activeElement;
+            if (!active || active === document.body || active.closest('#chat-composer, #chat-log')) {
+                row.focus({ preventScroll: true });
+            }
+        }
+
+        function showCommandRequest(requestId, status, commands = []) {
+            let element = commandRequests.get(requestId);
+            if (!element || !element.isConnected) {
+                element = document.createElement('div');
+                element.className = 'command-request';
+                element.setAttribute('role', 'group');
+                element.setAttribute('aria-label', t("Viewer commands"));
+                element.dataset.requestId = requestId;
+                const title = document.createElement('div');
+                title.className = 'command-request-title';
+                title.textContent = t("Viewer commands");
+                const list = document.createElement('ul');
+                list.className = 'command-list';
+                list.setAttribute('aria-live', 'polite');
+                element.append(title, list);
+                document.getElementById('chat-log').appendChild(element);
+                commandRequests.set(requestId, element);
+            }
+            element.dataset.status = status;
+            const list = element.querySelector('.command-list');
+            // A row is kept while its command is listed, so the buttons a user is
+            // about to press are not replaced by an update of another command.
+            const rows = new Map(Array.from(list.children, item => [item.dataset.commandId, item]));
+            let waiting = null;
+            commands.forEach((command, position) => {
+                let item = rows.get(command.command_id);
+                if (!item) {
+                    item = document.createElement('li');
+                    item.className = 'command-item';
+                    item.dataset.commandId = command.command_id;
+                    const text = document.createElement('code');
+                    text.className = 'command-text';
+                    text.textContent = command.command;
+                    const state = document.createElement('span');
+                    state.className = 'command-status';
+                    item.append(text, state);
+                }
+                rows.delete(command.command_id);
+                list.insertBefore(item, list.children[position] || null);
+                item.dataset.status = command.status;
+                item.querySelector('.command-status').textContent = commandStatusText(command);
+                const needsApproval = command.approval === 'pending' && command.status === 'awaiting_user_input';
+                const row = item.querySelector('.command-approval');
+                if (needsApproval && !row) {
+                    waiting = buildApprovalRow(requestId, command);
+                    item.append(waiting);
+                } else if (!needsApproval && row) {
+                    row.remove();
+                }
+            });
+            rows.forEach(item => item.remove());
+            if (waiting) revealApproval(waiting);
+        }
+
         function handleServerEvent(event) {
             if (event.submission_id && event.submission_id !== pendingSubmission?.submission_id) return;
             switch (event.type) {
@@ -1677,7 +1778,10 @@
                             : t("Agent is inactive. Select a model and press the toggle button to activate."));
                     }
                     reconcileSubmission(event.data.llm_history || []);
-                    if (event.data.agent_command_request) showCommandStatus(event.data.agent_command_request.status, event.data.agent_command_request.commands);
+                    if (event.data.agent_command_request) {
+                        const request = event.data.agent_command_request;
+                        showCommandRequest(request.request_id, request.status, request.commands);
+                    }
                     // Rendering the history cleared the chat log, which is where
                     // a model_card.json problem found at page load is shown.
                     if (modelCardsLoadError) {
@@ -1687,10 +1791,14 @@
                     break;
                 case "agent_command_request":
                     activeCommandRequest = event.request_id;
-                    showCommandStatus(event.status);
+                    showCommandRequest(event.request_id, event.status, event.commands);
                     break;
                 case "command_request_updated":
-                    if (event.request_id === activeCommandRequest) showCommandStatus(event.status, event.commands);
+                    // The request the current turn started, or one already shown here;
+                    // another page's request is not this page's to show.
+                    if (event.request_id === activeCommandRequest || commandRequests.has(event.request_id)) {
+                        showCommandRequest(event.request_id, event.status, event.commands);
+                    }
                     break;
                 case "agent_command_error":
                     appendErrorMsg(event.error, true);

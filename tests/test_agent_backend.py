@@ -19,6 +19,7 @@ sys.path.insert(0, str(ROOT / 'src'))
 from web_ui import agent_backend as agent
 from web_ui.agent_prompt import PLACEHOLDERS
 from tests.agent_fixtures import FakeProvider, completion
+from tests.viewer_fixtures import PortalFixture
 
 
 class CardActivationTests(unittest.TestCase):
@@ -977,3 +978,108 @@ class AgentSnapshotTests(unittest.TestCase):
         del self.viewer.viewer_inspection
         self.assertIn('ACTIVE VIEWER SNAPSHOT', agent.get_viewer_session_context(self.viewer))
         self.assertIsNotNone(self.viewer.viewer_inspection)
+
+
+class ApprovalNoticeTests(PortalFixture, unittest.TestCase):
+    """A command the user must approve, started from the terminal or while the page is closed, is announced."""
+
+    def setUp(self):
+        super().setUp()
+        self.viewer.shows_windows = lambda: True
+        self.viewer.open_agent_ui = mock.Mock(return_value=True)
+        self.viewer.llm_loaded, self.viewer.llm_backend = True, 'server'
+        patcher = mock.patch.object(agent.Command_Engine, 'print_help')
+        self.print_help = patcher.start()
+        self.addCleanup(patcher.stop)
+        # What the model is asked after the commands ended is not under test, and no request is sent.
+        patcher = mock.patch.object(agent, 'start_refinement_worker')
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def announcements(self):
+        return [str(call.args[1]) for call in self.print_help.call_args_list if 'needs your approval' in str(call.args[1])]
+
+    def reply(self, text):
+        self.viewer._agent_busy = True
+        agent.on_web_worker_finished(self.viewer, 'question', text, '', '{}', '')
+        return self.viewer._agent_request_id
+
+    def settle(self, until=lambda: False, seconds=0.3):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline and not until():
+            self.app.processEvents()
+            time.sleep(0.005)
+
+    def test_the_terminal_is_told_and_the_page_opens_when_no_page_is_open(self):
+        request_id = self.reply('command: select "one"\ncommand: save x.h5')
+        self.settle(self.announcements, seconds=5)
+        [message] = self.announcements()
+        self.assertIn('The agent wants to run save x.h5, which needs your approval.', message)
+        self.viewer.open_agent_ui.assert_called_once_with(show_existing_dialog=False)
+        self.assertEqual(self.portal.get(request_id)['status'], 'awaiting_user_input')
+        # The page, once open, is sent the request with its commands.
+        [event] = [e for e in self.viewer.events if e['type'] == 'agent_command_request']
+        self.assertEqual([(c['command'], c['approval']) for c in event['commands']], [('select "one"', None), ('save x.h5', 'pending')])
+
+    def test_an_open_page_needs_no_notice(self):
+        self.viewer.web_server = SimpleNamespace(has_event_client=lambda client: client == 'agent')
+        self.reply('command: save x.h5')
+        self.settle()
+        self.assertEqual(self.announcements(), [])
+        self.viewer.open_agent_ui.assert_not_called()
+
+    def test_a_viewer_without_windows_is_not_asked_to_open_a_page(self):
+        # The command waits only if the Agent page is open: the page is then served to a browser by hand.
+        self.viewer.shows_windows = lambda: False
+        self.viewer.web_server = SimpleNamespace(has_event_client=lambda client: False)
+        request_id = self.reply('command: save x.h5')
+        self.settle()
+        self.viewer.open_agent_ui.assert_not_called()
+        self.assertEqual(self.announcements(), [])
+        result = self.portal.get(request_id)
+        self.assertEqual((result['status'], result['commands'][0]['approval']), ('failed', 'refused'))
+
+    def test_the_page_is_opened_only_where_the_viewer_shows_windows(self):
+        record = {'approval': 'pending', 'status': 'awaiting_user_input', 'command': 'save x.h5'}
+        portal = mock.Mock()
+        portal.get.return_value = {'commands': [record]}
+        for shows, opens in ((True, True), (False, False)):
+            with self.subTest(shows_windows=shows):
+                self.viewer.shows_windows = lambda shows=shows: shows
+                self.viewer.open_agent_ui.reset_mock()
+                self.print_help.reset_mock()
+                self.viewer._agent_request_id = 'r'
+                agent._announce_approval(self.viewer, portal, 'r', 'c')
+                # The terminal is told either way; the page is opened only for a user who can see it.
+                self.assertEqual(len(self.announcements()), 1)
+                self.assertEqual(self.viewer.open_agent_ui.called, opens)
+
+    def test_a_waiting_command_of_another_request_is_not_announced(self):
+        record = {'approval': 'pending', 'status': 'awaiting_user_input', 'command': 'save x.h5'}
+        portal = mock.Mock()
+        portal.get.return_value = {'commands': [record]}
+        self.viewer._agent_request_id = 'the turn running now'
+        agent._announce_approval(self.viewer, portal, 'a turn that was stopped', 'c')
+        self.assertEqual(self.announcements(), [])
+        agent._announce_approval(self.viewer, portal, 'the turn running now', 'c')
+        self.assertEqual(len(self.announcements()), 1)
+
+    def test_nothing_is_announced_for_a_turn_that_was_stopped(self):
+        request_id = self.reply('command: save x.h5')
+        agent._invalidate_agent_turn(self.viewer)  # Before the portal's first pass over the queue.
+        self.settle()
+        self.assertEqual(self.announcements(), [])
+        self.viewer.open_agent_ui.assert_not_called()
+        self.assertEqual(self.portal.get(request_id)['status'], 'cancelled')
+
+    def test_a_command_decided_in_the_meantime_or_of_another_request_is_not_announced(self):
+        request = self.portal.get(self.reply('command: save y.h5'))
+        command = request['commands'][0]
+        self.settle(self.announcements, seconds=5)
+        self.print_help.reset_mock()
+        self.portal.decide(request['request_id'], command['command_id'], True)
+        agent._announce_approval(self.viewer, self.portal, request['request_id'], command['command_id'])
+        self.assertEqual(self.announcements(), [])
+        agent._announce_approval(self.viewer, self.portal, 'another request', command['command_id'])
+        self.assertEqual(self.announcements(), [])
+        self.portal.discard_pending(request['request_id'])
