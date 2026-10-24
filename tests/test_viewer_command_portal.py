@@ -1723,4 +1723,106 @@ class FreedLineTests(PortalFixture, unittest.TestCase):
         self.release['a'].set()
 
 
+
+    # --- An Agent reply's commands that need approval, beside requests that left the head of the line ---
+
+    def save_stand_in(self):
+        """Replace `save`, a command that needs approval, with one that records its arguments."""
+        calls = []
+
+        def run(viewer, args):
+            calls.append(args)
+            ce.command_succeeded(viewer, 'save stand-in ran.')
+
+        stack = fake_test_command(run, 'save')
+        stack.start()
+        self.addCleanup(stack.stop)
+        return calls
+
+    def test_a_reply_behind_a_parked_request_is_refused_at_once_where_nobody_can_approve_it(self):
+        saves = self.save_stand_in()
+        self.command()
+        self.viewer.headless = True
+        parked = self.portal.submit('one', 'test a')['request_id']
+        self.settle(self.running('a'), 'the job never ran')
+        self.idle(10)
+        self.assertEqual((self.status(parked), self.portal.queue), ('running', []))
+
+        reply = self.portal.submit('two', ['select "one"', 'save x.h5', 'select "two"'], source='web_agent')['request_id']
+        result = self.finish(reply)
+        self.assertEqual(result['status'], 'failed', result)
+        self.assertEqual([(c['status'], c.get('approval')) for c in result['commands']],
+                         [('succeeded', None), ('failed', 'refused'), ('skipped', None)])
+        self.assertIn('nobody can', result['commands'][1]['messages'][-1]['text'])
+        self.assertEqual(saves, [])
+        # The parked request's job ran on, and the line is free for what comes next.
+        self.assertEqual(self.status(parked), 'running')
+        self.assertEqual(self.finish(self.portal.submit('three', 'select "two"')['request_id'])['status'], 'succeeded')
+        self.release['a'].set()
+        self.assertEqual(self.finish(parked)['status'], 'succeeded')
+
+    def test_a_reply_behind_a_parked_request_waits_for_approval_where_it_can_be_given(self):
+        saves = self.save_stand_in()
+        self.command()
+        self.viewer.headless = True
+        self.viewer.web_server = SimpleNamespace(has_event_client=lambda client: client == 'agent')
+        announced = []
+        self.portal.approval_needed.connect(lambda request_id, command_id: announced.append(command_id))
+        parked = self.portal.submit('one', 'test a')['request_id']
+        self.settle(self.running('a'), 'the job never ran')
+        self.idle(10)
+
+        reply = self.portal.submit('two', ['select "one"', 'save x.h5'], source='web_agent')['request_id']
+        self.settle(lambda: self.status(reply) == 'awaiting_user_input', 'the command never waited for approval')
+        waiting = self.portal.get(reply)['commands'][1]
+        self.assertEqual((waiting['status'], waiting['approval']), ('awaiting_user_input', 'pending'))
+        self.assertEqual(announced, [waiting['command_id']])
+        self.assertEqual(self.status(parked), 'running')
+
+        # The parked request ending changes nothing for the one waiting, which is decided as ever.
+        self.release['a'].set()
+        self.assertEqual(self.finish(parked)['status'], 'succeeded')
+        self.idle(10)
+        self.assertEqual((self.status(reply), saves, announced), ('awaiting_user_input', [], [waiting['command_id']]))
+        self.portal.decide(reply, waiting['command_id'], True)
+        self.assertEqual(self.finish(reply)['status'], 'succeeded')
+        self.assertEqual(saves, [['x.h5']])
+
+    def test_a_command_approved_into_a_background_job_frees_the_line_for_the_next_reply(self):
+        saves = self.save_stand_in()
+        self.command()
+        self.viewer.shows_windows = lambda: True
+        # `test` is no command of the catalog, so a reply's `test a` waits for approval; once it is
+        # run, its job holds only its own request, which leaves the head of the line.
+        first = self.portal.submit('one', 'test a', source='web_agent')['request_id']
+        self.settle(lambda: self.status(first) == 'awaiting_user_input', 'the first command never waited')
+        self.portal.decide(first, self.portal.get(first)['commands'][0]['command_id'], True)
+        self.settle(self.running('a'), 'the approved job never ran')
+        self.idle(10)
+        self.assertEqual((self.status(first), self.portal.queue), ('running', []))
+
+        second = self.portal.submit('two', 'save y.h5', source='web_agent')['request_id']
+        self.settle(lambda: self.status(second) == 'awaiting_user_input', 'the second command never waited')
+        self.portal.decide(second, self.portal.get(second)['commands'][0]['command_id'], True)
+        self.assertEqual(self.finish(second)['status'], 'succeeded')
+        self.assertEqual((saves, self.status(first)), ([['y.h5']], 'running'))
+        self.release['a'].set()
+        self.assertEqual(self.finish(first)['status'], 'succeeded')
+
+    def test_a_stopped_replys_waiting_command_is_discarded_beside_a_parked_request(self):
+        self.save_stand_in()
+        self.command()
+        self.viewer.shows_windows = lambda: True
+        parked = self.portal.submit('one', 'test a')['request_id']
+        self.settle(self.running('a'), 'the job never ran')
+        reply = self.portal.submit('two', 'save x.h5', source='web_agent')['request_id']
+        self.settle(lambda: self.status(reply) == 'awaiting_user_input', 'the command never waited')
+        self.portal.discard_pending(reply)
+        self.assertEqual(self.finish(reply)['status'], 'cancelled')
+        # Discarding the reply's command leaves the parked request's job alone.
+        self.assertEqual(self.status(parked), 'running')
+        self.assertFalse(self.release['a'].is_set())
+        self.release['a'].set()
+        self.assertEqual(self.finish(parked)['status'], 'succeeded')
+
 if __name__ == '__main__': unittest.main()
