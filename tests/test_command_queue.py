@@ -566,6 +566,33 @@ class FileJobTests(QueueTestCase):
         self.assertEqual(self.ran, [])
         self.assertFalse(self.path(".first.partial.svg").exists())
 
+    def test_the_jobs_waiting_behind_a_running_one_are_taken_out_before_it_is_told_to_stop(self):
+        # The running job ends the moment it is told to, while its stop function (ending a process, say) is
+        # still running; a job behind it that was still in the line would start in that moment.
+        from utilities.Job_Cancellation import raise_if_cancelled
+        started = threading.Event()
+
+        def running(payload, job):
+            job.on_cancel(lambda: time.sleep(0.3))
+            started.set()
+            while True:
+                time.sleep(0.002)
+                raise_if_cancelled()
+
+        def behind(payload):
+            self.ran.append(payload)
+            return {}
+
+        self.scheduler.enqueue("test", "running", "running", running, str(self.path("running.svg")))
+        self.assertTrue(started.wait(10))
+        self.scheduler.enqueue("test", "behind", "behind", behind, str(self.path("behind.svg")))
+        self.scheduler.enqueue("test", "behind too", "behind too", behind, str(self.path("behind_too.svg")))
+
+        self.viewer.type("jobs cancel all")
+
+        self.assertTrue(self.wait_for(lambda: self.scheduler.listing() == []))
+        self.assertEqual(self.ran, [], "neither job behind the running one started")
+
     def test_a_number_that_names_no_job_cancels_nothing_not_even_the_file_being_written(self):
         self.enqueue("first")  # job 1
         self.assertTrue(self.started.wait(10))
