@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 import sys
+import time
 from typing import Annotated, Any, Literal
 
 _CORE_DIR = Path(__file__).resolve().parent
@@ -24,6 +25,7 @@ from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import BaseModel, Field
 
 from mcp_server.core.App_Context import AppContext, _viewer
+from mcp_server.pipeline.Pipeline_Jobs import MAX_WAIT_SECONDS
 from mcp_server.viewer.Viewer_Client import DEFAULT_READY_TIMEOUT, MCPViewerError
 from desktop.Viewer_State import (
     get_viewer_settings_schema as viewer_settings_schema,
@@ -472,19 +474,101 @@ async def _portal_call(ctx, action, arguments, session_id):
 
 async def execute_viewer_commands(ctx: Context[AppContext], submission_id: str,
         commands: str | list[str], session_id: str | None = None) -> dict[str, Any]:
-    """Submit existing user commands, ordered and stopped on failure. Reuse submission_id on retries. Poll get_command_request; accepted is not completed. May write files, open dialogs, and start external work."""
+    """Submit existing user commands, ordered and stopped on failure. Reuse submission_id on retries. Follow next_step: wait_command_request until the request ends, never polling get_command_request in a loop; accepted is not completed. May write files, open dialogs, and start external work."""
     result = await _portal_call(ctx, 'execute_commands', dict(submission_id=submission_id, commands=commands), session_id)
-    return result | {'next_step': {'tool': 'emapssn_viewer_data',
-        'action': 'get_command_request', 'arguments': {
-            'request_id': result['request_id'], 'session_id': result['session_id']}}}
+    return result | {'next_step': _wait_step(result)}
 
 async def get_command_request(ctx: Context[AppContext], request_id: str | None = None,
         session_id: str | None = None, offset: Annotated[int, Field(ge=0)] = 0,
         limit: Annotated[int, Field(ge=1, le=100)] = 25, command_id: str | None = None,
         artifact_offset: Annotated[int, Field(ge=0)] = 0, artifact_limit: Annotated[int, Field(ge=1, le=100)] = 25,
         submission_id: str | None = None) -> dict[str, Any]:
-    """Read by exactly one request_id or submission_id in the selected Viewer. Page outcomes, messages, jobs and artifacts. status indicates execution completion; complete only describes pagination. Awaiting input requires interaction in the visible Viewer."""
+    """Read by exactly one request_id or submission_id in the selected Viewer, once. Page outcomes, messages, jobs and artifacts. status indicates execution completion; complete only describes pagination. To follow a request until it ends use wait_command_request, not repeated reads. Awaiting input requires interaction in the visible Viewer."""
     return await _portal_call(ctx, 'get_command_request', dict(request_id=request_id, offset=offset, limit=limit, command_id=command_id, artifact_offset=artifact_offset, artifact_limit=artifact_limit, submission_id=submission_id), session_id)
+
+
+# The states of a finished command or request (tests pin them to Viewer_Command_Portal.TERMINAL). A wait
+# also ends on awaiting_user_input, which only the user at the visible Viewer can end.
+FINISHED_STATES = frozenset({'succeeded', 'failed', 'cancelled', 'skipped'})
+REQUEST_ENDED = FINISHED_STATES | {'awaiting_user_input'}
+# How often the Viewer is asked while waiting: quickly at first, since light commands end within a
+# fraction of a second, then less often (each read is two small HTTP requests).
+WAIT_POLL_SECONDS = ((2.0, 0.1), (10.0, 0.25), (None, 0.5))
+# A progress notification when what the request reports changes, at most this often, and a heartbeat
+# when nothing changed for this long, so a client that ends calls with no news keeps waiting.
+PROGRESS_MIN_SECONDS = 1.0
+HEARTBEAT_SECONDS = 10.0
+_now = time.monotonic
+
+
+async def _pause(seconds):
+    await asyncio.sleep(seconds)
+
+
+def _poll_seconds(elapsed):
+    for until, seconds in WAIT_POLL_SECONDS:
+        if until is None or elapsed < until:
+            return seconds
+
+
+def _wait_step(record, timeout_seconds=None):
+    """next_step for a request that has not ended: wait for it, on the Viewer that holds it."""
+    arguments = {'request_id': record['request_id'], 'session_id': record['session_id']}
+    if timeout_seconds is not None:
+        arguments['timeout_seconds'] = timeout_seconds
+    return {'tool': 'emapssn_viewer_data', 'action': 'wait_command_request', 'arguments': arguments}
+
+
+def _wait_line(record):
+    """One line saying where a request stands: how many commands have finished, the one at work, its jobs and their progress."""
+    commands = record.get('commands', [])
+    total = record.get('total_commands', len(commands))
+    unfinished = [command for command in commands if command['status'] not in FINISHED_STATES]
+    line = f"{record['status']}: {len(commands) - len(unfinished)} of {total} commands finished"
+    # The command at work, else the next one waiting.
+    current = next((command for command in unfinished if command['status'] != 'queued'), unfinished[0] if unfinished else None)
+    if current is not None:
+        text = current['command'] if len(current['command']) <= 60 else current['command'][:57] + '...'
+        jobs = '; '.join(
+            f"job {job['job_id']} {job['status']}" + (f" at {job['position']}" if job.get('position') else '')
+            + (f", {job['progress']}" if job.get('progress') else '')
+            for job in current.get('jobs', []) if job['status'] not in FINISHED_STATES)
+        line += f"; {current['status']}: {text}" + (f" ({jobs})" if jobs else '')
+    return line
+
+
+async def wait_command_request(ctx: Context[AppContext], request_id: str | None = None,
+        session_id: str | None = None, submission_id: str | None = None,
+        timeout_seconds: Annotated[float, Field(ge=0, le=MAX_WAIT_SECONDS, description=(
+            "Seconds to wait for the request to end before returning its current state"))] = 30.0,
+        offset: Annotated[int, Field(ge=0)] = 0, limit: Annotated[int, Field(ge=1, le=100)] = 100,
+        command_id: str | None = None, artifact_offset: Annotated[int, Field(ge=0)] = 0,
+        artifact_limit: Annotated[int, Field(ge=1, le=100)] = 25) -> dict[str, Any]:
+    """Wait for a command request instead of polling get_command_request, by exactly one request_id or submission_id.
+    Returns the request as get_command_request does as soon as its status is succeeded, failed, cancelled, skipped or
+    awaiting_user_input (the user must act in the visible Viewer), or after timeout_seconds (at most 50) with waiting=true
+    while it is still queued or running: call again to keep waiting; next_step says how. Sends progress notifications
+    to a client that asks for them. Report completion only when status is succeeded."""
+    started = _now()
+    arguments = dict(request_id=request_id, offset=offset, limit=limit, command_id=command_id,
+                     artifact_offset=artifact_offset, artifact_limit=artifact_limit, submission_id=submission_id)
+    last_line, last_sent = None, None
+    while True:
+        record = await _portal_call(ctx, 'get_command_request', arguments, session_id)
+        elapsed = _now() - started
+        done = record['status'] in REQUEST_ENDED
+        if done or elapsed >= timeout_seconds:
+            record['waited_seconds'] = round(elapsed, 2)
+            record['waiting'] = not done
+            if not done:
+                record['next_step'] = _wait_step(record, timeout_seconds)
+            return record
+        line = _wait_line(record)
+        if last_sent is None or (line != last_line and elapsed - last_sent >= PROGRESS_MIN_SECONDS) \
+                or elapsed - last_sent >= HEARTBEAT_SECONDS:
+            last_line, last_sent = line, elapsed
+            await ctx.report_progress(progress=round(elapsed, 2), total=timeout_seconds, message=line)
+        await _pause(min(_poll_seconds(elapsed), max(timeout_seconds - elapsed, 0.0)))
 
 async def list_command_requests(ctx: Context[AppContext], session_id: str | None = None,
         offset: Annotated[int, Field(ge=0)] = 0, limit: Annotated[int, Field(ge=1, le=100)] = 25) -> dict[str, Any]:

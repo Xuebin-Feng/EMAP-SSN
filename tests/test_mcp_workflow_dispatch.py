@@ -235,7 +235,7 @@ class MCPFollowupTests(unittest.IsolatedAsyncioTestCase):
                 response = await dispatch('emapssn_viewer_control', 'execute_commands',
                                           {'submission_id': 's', 'commands': 'select help'}, None)
                 step = response['next_step']
-                self.assertEqual(step, {'tool': 'emapssn_viewer_data', 'action': 'get_command_request',
+                self.assertEqual(step, {'tool': 'emapssn_viewer_data', 'action': 'wait_command_request',
                                         'arguments': {'request_id': 'r', 'session_id': 'origin'}})
                 REGISTRY[step['tool']][step['action']].model.model_validate(step['arguments'])
                 self.assertNotIn('next_step', result)

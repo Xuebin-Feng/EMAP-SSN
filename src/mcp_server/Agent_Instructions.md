@@ -148,7 +148,7 @@ missing/invalid values, noise, and overlapping groups before interpreting result
 Data responses default to 16 KiB (max_bytes maximum 64 KiB); use next_cursor to
 continue the same snapshot/query. Oversized values have explicit read_value
 references: concatenate its JSON-text slices from next_offset, then JSON-decode.
-No scientific value is silently shortened. Snapshots expire after 15 idle minutes;
+Snapshots expire after 15 idle minutes;
 only two and 256 MiB are retained per Viewer, with 32 subsets each. Refresh via
 get_summary after expiry or to see edits; never mix different snapshots.
 
@@ -188,21 +188,20 @@ obtained.
 
 Discover summaries, arguments, choices/aliases and syntax with get_command_catalog. For detailed help, use
 `emapssn_viewer_data(action="get_command_catalog", arguments={"command":"reset"})`.
-This is read-only and does not require execute_commands or a queued help command.
+This is read-only and does not require execute_commands.
 General catalog entries have help=null; syntax lists extracted usage signatures
-and may be empty when source help has no extractable signature.
+and may be empty.
 Submit emapssn_viewer_control(action="execute_commands") with submission_id; reuse it on retries.
-Follow its next_step (tool, action, arguments) to poll the originating session.
-get_command_request and read_command_output accept exactly one nonempty request_id
-or submission_id. IDs are Viewer-local; after reconnecting, supply session_id
+Follow its next_step: wait_command_request returns when the request ends, or after 50 seconds
+at most with waiting=true: call it again. Never poll get_command_request in a loop.
+get_command_request, wait_command_request and read_command_output accept exactly one nonempty
+request_id or submission_id. IDs are Viewer-local; after reconnecting, supply session_id
 (list_command_requests recovers IDs).
 Unknown/evicted submissions return errors without executing work.
-Poll get_command_request and inspect per-command messages for outcome summaries.
-Execution completion is indicated by status (succeeded, failed, or cancelled);
-the complete flag describes pagination only and does not indicate execution completion.
+Then inspect per-command messages for outcome summaries. Report completion only after status
+succeeded; failed, cancelled and skipped also end a request. The complete flag describes pagination only.
 Use read_command_output for additional diagnostics or full printed content,
-not as a mandatory step after every success. Submission messages for background
-work do not prove job completion; continue checking status and jobs.
+not as a mandatory step after every success.
 Batches stop on failure. Awaiting_user_input requires interaction.
 Use capture_view for current PNG/HUD verification. For visual node fields, get_summary(include_visual=true), then query_nodes(visual_fields).
 

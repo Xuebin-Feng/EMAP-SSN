@@ -592,6 +592,15 @@ class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("secret-path", json.dumps(payload))
 
 
+class ServerVersionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_clients_and_the_settings_doc_see_the_same_server_version(self):
+        from EMAPSSN_MCP_Server import MCP_SERVER_VERSION
+        async with Client(mcp) as client:
+            self.assertEqual(client.server_info.version, MCP_SERVER_VERSION)
+        heading = (PROJECT_ROOT / "docs" / "mcp_settings.md").read_text(encoding="utf-8").splitlines()[0]
+        self.assertIn(f"server {MCP_SERVER_VERSION}", heading)
+
+
 class LayoutOverrideTests(unittest.TestCase):
     """start_layout_job's `parameters` accept only layout fields."""
 

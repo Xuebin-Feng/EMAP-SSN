@@ -19,7 +19,7 @@ PipelineAction = Literal[
     "inspect_file", "network_statistics", "export_tool_settings", "export_layout_settings", "validate_settings",
     "start_job", "start_layout_job", "start_benchmark", "list_jobs", "get_job", "wait_job", "read_log", "cancel_job",
 ]
-ViewerDataAction = Literal["get_residue_distribution", "help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog"]
+ViewerDataAction = Literal["get_residue_distribution", "help", "describe", "list_sessions", "get_summary", "query_nodes", "read_log", "describe_fields", "create_subset", "summarize_subset", "read_value", "get_command_request", "wait_command_request", "list_command_requests", "read_command_output", "capture_view", "get_command_catalog"]
 ViewerControlAction = Literal[
     "help", "describe", "get_settings_schema", "export_settings", "validate_settings",
     "start_session", "wait_session", "connect_session", "disconnect_session", "close_session", "execute_commands",
@@ -85,6 +85,7 @@ _SPECS = {
     "emapssn_viewer_data": {
         "get_residue_distribution": (viewer_ops, "get_residue_distribution", "Read paged residue distributions/cross-tabs from an alignment snapshot.", {"snapshot_id": "snapshot-id", "positions": ["1883"]}),
         "get_command_request": (viewer_ops, "get_command_request", 'Read command outcomes using exactly one request_id or submission_id in the selected Viewer.', {'submission_id': 'client-generated-id'}),
+        "wait_command_request": (viewer_ops, "wait_command_request", 'Wait for a command request instead of polling: returns when it ends (or needs the user), or after timeout_seconds (at most 50) still running, so call again; use exactly one request_id or submission_id.', {'submission_id': 'client-generated-id', 'timeout_seconds': 30}),
         "list_command_requests": (viewer_ops, "list_command_requests", 'Recover Viewer command requests.', {}),
         "read_command_output": (viewer_ops, "read_command_output", 'Read command-scoped diagnostics using exactly one request_id or submission_id.', {'request_id': 'request-id'}),
         "capture_view": (viewer_ops, "capture_view", 'Read current canvas as a PNG image.', {}),
@@ -123,7 +124,7 @@ def _build_action(workflow, name, spec):
         key: (hints[key], ... if parameter.default is inspect.Parameter.empty else parameter.default)
         for key, parameter in parameters.items() if key != "ctx"
     }
-    base = CommandLookupArguments if name in {'get_command_request', 'read_command_output'} else Arguments
+    base = CommandLookupArguments if name in {'get_command_request', 'wait_command_request', 'read_command_output'} else Arguments
     model = create_model(f"{workflow}_{name}_Arguments", __base__=base, **fields)
     return Action(module, handler_name, model, "ctx" in parameters, effects, example)
 

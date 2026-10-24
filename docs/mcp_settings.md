@@ -1,4 +1,4 @@
-# MCP settings (server 0.14.0, pipeline settings schema 1)
+# MCP settings (server 0.16.0, pipeline settings schema 1)
 
 ## Three workflow tools (breaking migration)
 
@@ -816,9 +816,20 @@ syntax, file effects, history, and manual controls remain the user-command behav
 1. Connect to the intended Viewer and call `emapssn_viewer_data(action="get_command_catalog")`.
    Supply `command` to read an individual command's source help and effects.
 2. Call `emapssn_viewer_control(action="execute_commands", arguments={"submission_id": "a-client-generated-unique-id", "commands": ["select \"example\"", "color \"example\" red"]})`.
-3. Follow the execution response's `next_step`, which contains the tool, action and arguments (including the resolved `session_id`). Alternatively poll `emapssn_viewer_data(action="get_command_request", arguments={"submission_id": "a-client-generated-unique-id", "session_id": "viewer-session-id"})`; `request_id` remains supported.
+3. Follow the execution response's `next_step`, which contains the tool, action and arguments (including the resolved `session_id`): it points at
+   `emapssn_viewer_data(action="wait_command_request", arguments={"submission_id": "a-client-generated-unique-id", "session_id": "viewer-session-id", "timeout_seconds": 30})`;
+   `request_id` works in place of `submission_id`. The wait returns the same record as `get_command_request`, plus
+   `waited_seconds` and `waiting`, as soon as the request is succeeded, failed, cancelled, skipped or
+   awaiting_user_input (the user must act in the visible Viewer). Otherwise it returns after `timeout_seconds`
+   (default 30, at most 50) with `waiting: true` and a `next_step` that waits again, so call it again instead of
+   polling `get_command_request` in a loop. Other calls are served while it waits.
    Submission is not completion. States distinguish queued, running,
    awaiting_user_input, succeeded, failed, cancelled, and skipped.
+   While it waits, a client that sent a progress token receives `notifications/progress`: one when the request's
+   status line changes (a command ends, a job starts or reports new progress), at most once a second, and a
+   heartbeat about every 10 seconds with the same line, so a client that ends calls without news keeps waiting.
+   `progress` counts seconds waited and `total` is `timeout_seconds`. A client that sent no token gets none, and the
+   server sends nothing while no wait is open.
 4. Read diagnostics using `read_command_output` with byte offsets. Inspect final
    command statuses, messages, jobs, and artifact paths before claiming success.
    Use `next_offset` for command pages. For a command with many artifacts, pass
@@ -912,7 +923,7 @@ read from this installation's command sources and marked `source: "installation"
 A connected or explicitly identified Viewer answers itself, since the code it runs
 may predate an upgrade.
 
-Both `get_command_request` and `read_command_output` accept exactly one non-null,
+`get_command_request`, `wait_command_request` and `read_command_output` accept exactly one non-null,
 nonempty `request_id` or `submission_id`. Lookup is read-only and limited to the
 selected/explicit Viewer session. Unknown submissions and known-but-evicted results
 produce distinct errors; lookup never submits work. Responses retain canonical

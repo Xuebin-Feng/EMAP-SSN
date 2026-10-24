@@ -1330,6 +1330,94 @@ class FreedLineTests(PortalFixture, unittest.TestCase):
         self.assertIn('expected job failure', result['commands'][0]['jobs'][0]['message'])
         self.assertEqual(self.completed, [request_id])
 
+    def wait_for(self, request_id, timeout=30, release=None, after=4):
+        """Run wait_command_request on the real portal, with Qt events pumped as the Viewer pumps them.
+
+        Time is fake (each pause moves it by its length), so nothing waits for real. After ``after`` pauses the
+        job named ``release`` is let go. Returns (the wait's result, the pauses it took, its progress calls).
+        """
+        import asyncio
+        from mcp_server.viewer import Viewer_Operations as ops
+        clock, pauses, notes = [0.0], [], []
+
+        async def portal_call(ctx, action, arguments, session_id):
+            self.assertEqual(action, 'get_command_request')
+            return self.portal.get(**arguments)
+
+        async def pause(seconds):
+            pauses.append(seconds)
+            clock[0] += seconds
+            self.app.processEvents()
+            if release is not None and len(pauses) == after:
+                self.release[release].set()
+            await asyncio.sleep(0.005)  # the job's worker thread runs meanwhile
+
+        async def report_progress(progress, total=None, message=None):
+            notes.append(message)
+
+        context = SimpleNamespace(report_progress=report_progress)
+        with mock.patch.object(ops, '_portal_call', portal_call), mock.patch.object(ops, '_pause', pause), \
+                mock.patch.object(ops, '_now', lambda: clock[0]):
+            result = asyncio.run(ops.wait_command_request(context, request_id=request_id, timeout_seconds=timeout))
+        return result, pauses, notes
+
+    def test_a_wait_on_a_parked_request_returns_when_its_jobs_end_not_when_the_line_is_freed(self):
+        self.command()
+        request_id = self.portal.submit('one', 'test a')['request_id']
+        self.settle(self.running('a'), 'the job never ran')
+        self.settle(lambda: not self.portal.queue, 'the request never left the head of the line')
+        self.assertEqual(self.status(request_id), 'running')
+
+        result, pauses, notes = self.wait_for(request_id, release='a')
+
+        self.assertGreaterEqual(len(pauses), 4, 'it returned while the parked request was still running')
+        self.assertEqual((result['status'], result['waiting']), ('succeeded', False))
+        [command] = result['commands']
+        [job] = command['jobs']
+        self.assertEqual((job['status'], job['kind'], job['lane']), ('succeeded', 'test', 'files'))
+        self.assertEqual([Path(path).name for path in command['artifacts']], ['a.out'])
+        self.assertTrue(notes and 'job' in notes[0], notes)
+        self.assertEqual(self.completed, [request_id])
+
+    def test_a_wait_on_a_parked_request_times_out_while_its_job_runs_and_the_next_call_finishes_it(self):
+        self.command()
+        request_id = self.portal.submit('one', 'test a')['request_id']
+        self.settle(self.running('a'), 'the job never ran')
+
+        first, _, _ = self.wait_for(request_id, timeout=3)
+
+        self.assertEqual((first['status'], first['waiting']), ('running', True))
+        self.assertEqual(first['next_step']['action'], 'wait_command_request')
+        self.assertEqual(first['next_step']['arguments']['request_id'], request_id)
+        self.assertFalse(self.release['a'].is_set())
+
+        second, _, _ = self.wait_for(request_id, release='a')
+
+        self.assertEqual((second['status'], second['waiting']), ('succeeded', False))
+
+    def test_a_wait_on_a_parked_request_whose_job_fails_returns_the_failure(self):
+        self.command()
+        request_id = self.portal.submit('one', 'test fails')['request_id']
+        self.settle(self.running('fails'), 'the job never ran')
+
+        result, _, _ = self.wait_for(request_id, release='fails')
+
+        self.assertEqual((result['status'], result['waiting']), ('failed', False))
+        self.assertIn('expected job failure', result['commands'][0]['jobs'][0]['message'])
+
+    def test_a_request_behind_a_parked_one_is_waited_for_on_its_own(self):
+        self.command(lanes={'b': 'folding'})
+        first = self.portal.submit('one', 'test a')['request_id']
+        second = self.portal.submit('two', 'test b')['request_id']
+        self.settle(self.running('b'), 'the second request never ran beside the first')
+
+        result, _, _ = self.wait_for(second, release='b')
+
+        self.assertEqual((result['request_id'], result['status']), (second, 'succeeded'))
+        self.assertEqual(self.status(first), 'running')
+        self.release['a'].set()
+        self.assertEqual(self.finish(first)['status'], 'succeeded')
+
     def test_a_parked_requests_job_removed_while_it_waits_cancels_the_request(self):
         self.command()
         self.portal.submit('hold', 'test hold')

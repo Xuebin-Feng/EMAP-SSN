@@ -38,6 +38,15 @@ class GuideLoadingTests(unittest.TestCase):
         self.assertIn('inspect per-command messages', guide)
         self.assertIn('not as a mandatory step after every success', guide)
 
+    def test_the_guide_says_to_wait_for_a_command_request_never_to_poll(self):
+        guide = ' '.join(_load_agent_instructions().split())
+        self.assertIn('wait_command_request returns when the request ends', guide)
+        self.assertIn('after 50 seconds at most with waiting=true: call it again', guide)
+        self.assertIn('Never poll get_command_request in a loop', guide)
+        self.assertIn('Report completion only after status succeeded', guide)
+        self.assertNotIn('to poll the originating session', guide)
+        self.assertNotIn('Poll get_command_request', guide)
+
     def test_missing_unreadable_or_invalid_utf8_guide_is_actionable(self):
         for error in (FileNotFoundError(), PermissionError(),
                       UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid")):
