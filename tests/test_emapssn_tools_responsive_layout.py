@@ -42,12 +42,9 @@ class ResponsiveToolsTests(unittest.TestCase):
             self.app.processEvents()
 
     def resize_panel(self, width):
-        # The side panel is as wide as its bottom row (the Exit button, the Console button and
-        # the language selector) allows, at least 326 px.
-        side = max(326, self.window.right_widget.minimumSizeHint().width())
-        self.window.resize(width + side + 34, 850)
+        self.window.resize(width + 360, 850)
         # QTabWidget adds four pixels outside its scroll page.
-        self.window.splitter.setSizes([width + 4, side])
+        self.window.splitter.setSizes([width + 4, 326])
         self.flush()
         delta = width - self.window.tabs.currentWidget().width()
         left, right = self.window.splitter.sizes()

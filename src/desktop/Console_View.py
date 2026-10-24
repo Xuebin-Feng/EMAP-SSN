@@ -659,8 +659,10 @@ CONSOLE_BUTTON_WIDTH = 36
 def console_button(parent=None):
     """The Console button of the language row: the terminal icon alone, as wide as the other icon buttons.
 
-    Only the icon: a button with the word "Console" would make the row, which sets the right-hand
-    pane's minimum width in Config and Tools, 113 px wider and open Tools wider than before.
+    Only the icon: the row sets the right-hand pane's width in Config and Tools, and the button
+    takes no room from the window: the language dropdown, which language_selector_row lets give
+    way (LanguageSelector.give_way), is narrower by the button's width where the row is tight. A
+    button with the word "Console" would take 113 px more of the dropdown's.
     """
     button = icon_button("square-terminal", QCoreApplication.translate(
         "Console",

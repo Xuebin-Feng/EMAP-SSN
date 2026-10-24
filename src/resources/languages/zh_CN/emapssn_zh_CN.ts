@@ -606,7 +606,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2620"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2685"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -619,7 +619,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2515"/>
+        <location line="-2578"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3954"/>
+        <location line="+3952"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3953"/>
+        <location line="-3951"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4552"/>
+        <location line="+4550"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4544"/>
+        <location line="-4542"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -796,7 +796,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
     </message>
     <message>
-        <location line="+410"/>
+        <location line="+408"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -941,14 +941,14 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1179"/>
+        <location line="-1177"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1220"/>
+        <location line="+1218"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1614,7 +1614,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2411"/>
+        <location line="-2409"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
@@ -1625,12 +1625,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+2634"/>
+        <location line="+2632"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3174"/>
+        <location line="-3172"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1777,7 +1777,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2537"/>
+        <location line="+2535"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1889,7 +1889,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-3295"/>
+        <location line="-3293"/>
         <source>Current color: {value}</source>
         <translation type="unfinished">当前颜色：{value}</translation>
     </message>
@@ -1982,7 +1982,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+1269"/>
+        <location line="+1267"/>
         <source>Resolves to {folder}.</source>
         <translation type="unfinished">解析为 {folder}。</translation>
     </message>
@@ -2968,12 +2968,12 @@ Command-line usage:
         <location line="+313"/>
         <location line="+42"/>
         <location line="+3"/>
-        <location line="+32"/>
+        <location line="+34"/>
         <source>Console</source>
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-429"/>
+        <location line="-431"/>
         <location line="+3"/>
         <source>Search the output…</source>
         <translation type="unfinished">搜索输出内容…</translation>
@@ -3098,7 +3098,7 @@ Command-line usage:
         <translation type="unfinished">{window} – 控制台</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+25"/>
         <source>Show everything this program has printed: progress, warnings and errors. The log file keeps it for later.</source>
         <translation type="unfinished">显示本程序打印的全部内容：进度、警告和错误。日志文件会保留这些内容，以便日后查看。</translation>
     </message>
@@ -4391,7 +4391,7 @@ Command-line usage:
         <translation type="unfinished">窗口使用的语言。本窗口会立即切换，已打开的另一个配置或工具窗口在下次点击该窗口时切换；其余窗口在下次打开时生效。</translation>
     </message>
     <message>
-        <location line="+46"/>
+        <location line="+80"/>
         <source>Language Not Saved</source>
         <translation type="unfinished">语言未保存</translation>
     </message>
@@ -6668,7 +6668,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4882"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4880"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6710,7 +6710,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1454"/>
+        <location line="+1452"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -9568,7 +9568,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ThemeColorSwitch</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+122"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+151"/>
         <source>Purple</source>
         <translation type="unfinished">紫色</translation>
     </message>
@@ -9691,7 +9691,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ToggleSwitch</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="-790"/>
+        <location filename="../../../desktop/Desktop_App.py" line="-853"/>
         <source>ON</source>
         <translation type="unfinished">开</translation>
     </message>

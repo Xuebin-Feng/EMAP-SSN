@@ -47,6 +47,8 @@ from PySide6.QtWidgets import (
     QSplitter,
     QStyle,
     QStyleOptionButton,
+    QStyleOptionComboBox,
+    QStylePainter,
     QTabWidget,
     QTextEdit,
     QWidget,
@@ -2041,6 +2043,46 @@ class LanguageSelector(SteadyPopupComboBox):
         self.show_setting(configured_language() if setting is None else setting)
         self.currentIndexChanged.connect(self._chosen)
 
+    def give_way(self, room):
+        """Let a neighbour in the row keep ``room`` pixels of the least width this dropdown asks for.
+
+        room is a number of pixels, or a function that gives them (the row's spacing is known only
+        once the row is in its layout). Its preferred width stays, so a row with room to spare shows
+        the choice in full; where the row has none, a long choice, such as "System default (English)",
+        shows cut short and the dropdown's list still names it whole.
+        """
+        self._give_way = room
+        self.updateGeometry()
+
+    def _room_given(self):
+        room = getattr(self, "_give_way", 0)
+        try:
+            return max(0, int(room() if callable(room) else room))
+        except RuntimeError:  # the row's layout is gone with its window
+            return 0
+
+    def minimumSizeHint(self):
+        hint = super().minimumSizeHint()
+        return QSize(max(0, hint.width() - self._room_given()), hint.height())
+
+    def paintEvent(self, event):
+        """Draw as a dropdown does, but a choice the row has no room for ends in "…", not in half a letter.
+
+        The room for the text is what the widest choice needs, less what the dropdown is narrower than
+        it asks to be: whatever the style adds around the text, that is how much of it shows.
+        """
+        painter = QStylePainter(self)
+        option = QStyleOptionComboBox()
+        self.initStyleOption(option)
+        painter.drawComplexControl(QStyle.ComplexControl.CC_ComboBox, option)
+        narrower = max(0, self.sizeHint().width() - self.width())
+        if narrower:
+            metrics = self.fontMetrics()
+            widest = max((metrics.horizontalAdvance(self.itemText(i)) for i in range(self.count())), default=0)
+            option.currentText = metrics.elidedText(
+                option.currentText, Qt.TextElideMode.ElideRight, max(0, widest - narrower))
+        painter.drawControl(QStyle.ControlElement.CE_ComboBoxLabel, option)
+
     def show_setting(self, setting):
         """Show setting as the saved choice, without announcing it."""
         index = self.findData(setting)
@@ -2156,6 +2198,26 @@ class LanguageFollower(QtCore.QObject):
         return shown
 
 
+class _LanguageRow(QHBoxLayout):
+    """The language row, which does not ask for the room of its Console button.
+
+    The side pane is as wide as this row's preferred width, and the splitter, the window's first
+    size and every row beside it follow that width: the button must not change it. The dropdown
+    gives the room up (LanguageSelector.give_way) where the row is tight; where there is more, the
+    row lays everything out in full.
+    """
+
+    room = None
+
+    def sizeHint(self):
+        hint = super().sizeHint()
+        try:
+            room = max(0, int(self.room())) if self.room is not None else 0
+        except RuntimeError:  # the button is gone with its window
+            room = 0
+        return QSize(max(0, hint.width() - room), hint.height())
+
+
 def language_selector_row(selector, theme_switch=None, leading=None, console=True):
     """A row that ends in the Language dropdown, after a globe, and then theme_switch if given.
 
@@ -2163,22 +2225,31 @@ def language_selector_row(selector, theme_switch=None, leading=None, console=Tru
     Before the globe it shows the Console button (desktop.Console_View), which
     opens the window showing what the program has printed; console=False leaves
     it out. Config, Tools and VR Config share this row, so they share the button.
+    The button adds nothing to the row's least or preferred width: the selector
+    takes its width and gap off its own minimum (LanguageSelector.give_way).
     """
-    row = QHBoxLayout()
+    row = _LanguageRow()
     row.setContentsMargins(0, 0, 0, 0)
     if leading is None:
         row.addStretch()
     else:
         row.addWidget(leading, 1)
+    button = None
     if console:
         from desktop.Console_View import console_button
 
-        row.addWidget(console_button())
+        button = console_button()
+        row.addWidget(button)
     globe = IconLabel("globe")
     globe.setObjectName("languageGlobe")
     globe.setBuddy(selector)
     row.addWidget(globe)
     row.addWidget(selector)
+    if button is not None:
+        # The button is room the row did not need before: the dropdown gives it up, so that the row, and with
+        # it the side pane, the window's default and minimum width and every row beside it stay as they were.
+        row.room = lambda: button.minimumWidth() + max(0, row.spacing())
+        selector.give_way(row.room)
     if theme_switch is not None:
         row.addSpacing(8)
         row.addWidget(theme_switch)
