@@ -459,6 +459,8 @@ class SessionFolderTests(unittest.TestCase):
                 modules = ["test_crash"]
                 [sections.slow]
                 modules = ["test_sleep"]
+                [sections.holder]
+                modules = ["test_holder"]
                 """,
             "tests/test_temp.py": """\
                 import os, tempfile, unittest
@@ -486,6 +488,17 @@ class SessionFolderTests(unittest.TestCase):
                     def test_ends_the_process_without_exit_handlers(self):
                         open("crashed-session.txt", "w").write(os.environ["EMAPSSN_TEST_SESSION_DIR"])
                         os._exit(3)
+                """,
+            "tests/test_holder.py": """\
+                import os, subprocess, sys, tempfile, unittest
+                class HolderTests(unittest.TestCase):
+                    def test_starts_a_process_that_outlives_the_section_and_holds_a_file(self):
+                        # Not in the section's process tree to stop, as a Viewer launched by a test is not.
+                        code = ("import os, sys, time; handle = open(os.path.join(sys.argv[1], 'held.txt'), 'w'); "
+                                "print('ready', flush=True); time.sleep(60)")
+                        child = subprocess.Popen([sys.executable, "-c", code, tempfile.gettempdir()],
+                                                 stdout=subprocess.PIPE, text=True)
+                        self.assertEqual(child.stdout.readline().strip(), "ready")
                 """,
             "tests/test_sleep.py": """\
                 import os, subprocess, sys, time, unittest
@@ -550,6 +563,16 @@ class SessionFolderTests(unittest.TestCase):
         self.assertEqual(code, 1, out)
         self.assertIn("slow: timeout", out)
         self.assertFalse(os.path.exists(self.recorded("slept-session.txt")))
+        self.assertEqual(self.sessions(), self.before)
+
+    @unittest.skipUnless(os.name == "nt", "an open file blocks removing its folder on Windows only")
+    def test_a_process_that_outlived_the_section_and_holds_its_folder_is_stopped(self):
+        self.addCleanup(stop_processes_in, self.root, grace=0)
+        code, out = self.run_main("holder")
+        self.assertEqual(code, 0, out)
+        self.assertRegex(out, r"holder: its tests left \d+ process\(es\) running, which held its session folder, "
+                              r"and the runner stopped them: python")
+        self.assertNotIn("could not be removed", out)
         self.assertEqual(self.sessions(), self.before)
 
     def test_a_folder_that_cannot_be_removed_is_reported(self):

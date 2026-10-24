@@ -135,6 +135,7 @@ class Result:
     problems: list = field(default_factory=list)
     leaks: list = field(default_factory=list)  # what the tests left in their temp folder
     session_problem: str = ""  # why the section's session folder could not be removed
+    stopped: list = field(default_factory=list)  # processes the section left running that were stopped
 
     @property
     def failed(self):
@@ -699,12 +700,18 @@ class Runner:
         environment = child_environment()
         environment[session_folder.SESSION_ENV] = session
         environment.update(session_folder.temp_environment(temp, environment))
+        stopped = []
         try:
             result = self._run_section(section, environment)
         finally:
             leaks = session_folder.leaked(session)
-            problem = session_folder.remove_tree(session)
+            problem = session_folder.remove_tree(session, seconds=1.0)
+            if problem is not None:
+                # Something the section's tests started outlived it and holds the folder.
+                stopped = session_folder.stop_holders(session)
+                problem = session_folder.remove_tree(session)
         result.leaks = leaks
+        result.stopped = stopped
         if problem is not None:
             result.session_problem = f"{session}: {problem}"
         return result
@@ -1013,6 +1020,9 @@ def report(results, wall, log_dir, out):
             shown = ", ".join(result.leaks[:12]) + (f" and {len(result.leaks) - 12} more" if len(result.leaks) > 12 else "")
             print(f"\n{result.name}: its tests left {len(result.leaks)} item(s) in their temp folder "
                   f"(removed with the session): {shown}", file=out)
+        if result.stopped:
+            print(f"\n{result.name}: its tests left {len(result.stopped)} process(es) running, which held its "
+                  f"session folder, and the runner stopped them: {', '.join(result.stopped)}", file=out)
         if result.session_problem:
             print(f"\n{result.name}: its session folder could not be removed: {result.session_problem}", file=out)
     if results and all(result.status in ("empty", "missing") for result in results):

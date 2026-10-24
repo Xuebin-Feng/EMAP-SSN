@@ -118,6 +118,16 @@ class RemoveTreeTests(FolderTestCase):
         self.assertEqual(len(attempts), 3)
         self.assertFalse(os.path.exists(path))
 
+    @unittest.skipUnless(os.name == "nt", "an open file blocks removing its folder on Windows only")
+    def test_a_file_that_is_open_keeps_the_folder_and_is_reported_until_it_is_closed(self):
+        path = self.session()
+        with open(os.path.join(path, "temp", "held.txt"), "w", encoding="utf-8"):
+            problem = session_folder.remove_tree(path, seconds=0.3)
+            self.assertIsInstance(problem, OSError, "rmtree's handler hides the failure; it still counts")
+            self.assertTrue(os.path.isdir(path))
+        self.assertIsNone(session_folder.remove_tree(path))
+        self.assertFalse(os.path.exists(path))
+
     def test_a_folder_that_is_never_let_go_gives_the_error_after_the_time_is_up(self):
         path = self.session()
 
@@ -183,6 +193,62 @@ class SweepTests(FolderTestCase):
 
     def test_a_base_folder_that_cannot_be_listed_sweeps_nothing(self):
         self.assertEqual(session_folder.sweep(os.path.join(self.base, "missing")), [])
+
+
+class StopHoldersTests(FolderTestCase):
+    """A process the section's tests started outside its process tree, which outlived the section."""
+
+    SLEEP = "import time; time.sleep(60)"
+
+    def sleeper(self, *arguments, **options):
+        process = subprocess.Popen([sys.executable, "-c", self.SLEEP, *arguments], **options)
+        self.addCleanup(self.stop_tree, process)
+        return process
+
+    @staticmethod
+    def stop_tree(process):
+        """Stop the process and the interpreter a venv's redirector started."""
+        try:
+            tree = [psutil.Process(process.pid), *psutil.Process(process.pid).children(recursive=True)]
+        except psutil.Error:
+            tree = []
+        for member in tree:
+            try:
+                member.kill()
+            except psutil.Error:
+                pass
+        psutil.wait_procs(tree, timeout=30)
+
+    def test_a_process_with_the_folder_in_its_command_line_is_stopped_and_named(self):
+        path = self.session()
+        holder = self.sleeper(path)
+        bystander = self.sleeper(self.base)  # the same parent folder, not the session
+        stopped = session_folder.stop_holders(path)
+        # (a venv's python.exe is a redirector that starts the interpreter, and both name the folder)
+        self.assertTrue(any(str(holder.pid) in description for description in stopped), stopped)
+        holder.wait(timeout=30)  # a redirector ends once its interpreter has
+        self.assertIsNone(bystander.poll(), "a process that does not hold it is left alone")
+
+    def test_a_process_working_inside_the_folder_is_stopped_too(self):
+        path = self.session()
+        holder = self.sleeper(cwd=os.path.join(path, "temp"))
+        elsewhere = self.sleeper(cwd=self.base)
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline:  # the venv's redirector reports another folder; wait for the interpreter
+            try:
+                if any(os.path.samefile(child.cwd(), os.path.join(path, "temp"))
+                       for child in [psutil.Process(holder.pid), *psutil.Process(holder.pid).children(recursive=True)]):
+                    break
+            except (psutil.Error, OSError):
+                pass
+            time.sleep(0.05)
+        stopped = session_folder.stop_holders(path)
+        self.assertGreaterEqual(len(stopped), 1)
+        holder.wait(timeout=30)  # a redirector ends once its interpreter has
+        self.assertIsNone(elsewhere.poll())
+
+    def test_nothing_holding_the_folder_means_nothing_is_stopped(self):
+        self.assertEqual(session_folder.stop_holders(self.session()), [])
 
 
 class StartedByHandTests(FolderTestCase):

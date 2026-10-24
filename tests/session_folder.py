@@ -94,37 +94,79 @@ def leaked(path):
         return []
 
 
-def _clear_read_only(function, path, *_):
-    try:
-        os.chmod(path, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
-        function(path)
-    except OSError:
-        pass  # rmtree's next pass reports it
-
-
 def remove_tree(path, seconds=REMOVE_SECONDS):
     """Remove the folder, retrying while something still holds part of it. Return None
     once it is gone, else the last error."""
     deadline = time.monotonic() + seconds
     pause = 0.05
     while True:
+        errors = []
+
+        def clear(function, target, *_):
+            # rmtree's error handler: a read-only file gets one more try; what still
+            # fails is kept, because the handler hides it from rmtree's caller.
+            try:
+                os.chmod(target, stat.S_IWRITE | stat.S_IREAD | stat.S_IEXEC)
+                function(target)
+            except FileNotFoundError:
+                pass
+            except OSError as error:
+                errors.append(error)
+
         try:
             if sys.version_info >= (3, 12):
-                shutil.rmtree(path, onexc=_clear_read_only)
+                shutil.rmtree(path, onexc=clear)
             else:
-                shutil.rmtree(path, onerror=_clear_read_only)
+                shutil.rmtree(path, onerror=clear)
         except FileNotFoundError:
             return None
         except OSError as error:
-            problem = error
-        else:
-            return None
+            errors.append(error)
         if not os.path.exists(path):
             return None
+        problem = errors[-1] if errors else OSError(f"{path} is still there")
         if time.monotonic() >= deadline:
             return problem
         time.sleep(pause)
         pause = min(pause * 2, 0.5)
+
+
+def stop_holders(path, wait=5.0):
+    """Stop the processes that still hold the session folder `path`, and name them.
+
+    A test can start a process that is not in its section's process tree (the MCP
+    tests launch a Viewer that breaks away from its parent, as a real launch does), and
+    one that outlives the section keeps files of the folder open. The folder's name is
+    unique to the section, so a process with it in its command line or as its working
+    folder belongs to the section's tests. Nothing is stopped where psutil is missing.
+    """
+    try:
+        import psutil
+    except ImportError:
+        return []
+    needle = os.path.normcase(os.path.abspath(path))
+    found = []
+    for process in psutil.process_iter():
+        try:
+            if process.pid == os.getpid():
+                continue
+            inside = needle in os.path.normcase(" ".join(process.cmdline()))
+            if not inside:
+                try:
+                    inside = os.path.normcase(process.cwd()).startswith(needle)
+                except (psutil.Error, OSError):
+                    pass
+            if inside:
+                found.append((process, f"{process.name()} {process.pid}"))
+        except psutil.Error:
+            continue
+    for process, _ in found:  # parents first, so that none starts a replacement
+        try:
+            process.kill()
+        except psutil.Error:
+            pass
+    psutil.wait_procs([process for process, _ in found], timeout=wait)
+    return [description for _, description in found]
 
 
 def _alive(owner):
