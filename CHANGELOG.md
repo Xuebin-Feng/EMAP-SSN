@@ -237,6 +237,34 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **Agent chat (beta) fixes.**
+  - **No `temperature` by default.** A model card's Temperature is sent only when filled in;
+    the local default cards keep 0. A provider that refuses a sampling setting (as current
+    Claude and OpenAI reasoning models do) gets the request again without it, once, and the
+    card remembers that.
+  - **Approval you can't miss.** Each request has its own list of commands, with the state
+    of each one. A command waiting for Run or Discard is scrolled into view. If the Agent
+    page isn't open, the terminal says so and the page opens. A Viewer with no window refuses
+    such a command at once instead of letting it wait for ever.
+  - **Stop.** A Stop button ends a turn while the model is answering: the network request is
+    closed, its waiting commands are discarded, and the second "explain" call never starts.
+  - **Less sent each turn.** Only the last 10 turns are sent, within about 8,000 tokens,
+    and older turns carry a short summary of their commands instead of their full output
+    and images. The saved history keeps everything.
+  - **What is sent.** The first time a model card that points to another computer is
+    switched on, the page lists what will be sent there and asks to Continue; this is asked
+    again only if the card's address changes. The session summary names input files without
+    their folders. A card that would send its key over plain `http://` to another computer is
+    warned about.
+  - **Instructions.** The model's instructions describe `jobs`, which commands wait for
+    approval (taken from the command list itself, so they can't drift), Viewers with no
+    window, UMAP and PaCMAP layouts, and answering in the user's language. They no longer
+    offer the `agent` command, which is always refused from a reply, and are about 360 words
+    shorter.
+  - **A message sent from the terminal or MCP** now shows in the page. The note about
+    vision-capable models appears only when the request had images.
+  - **The chat history** is saved safely, a failed save is reported, and an unreadable file
+    is kept aside instead of being replaced by an empty history.
 - **MCP `submission_id` must be a random id** of 32 to 128 characters, such as a UUID. A
   shorter one is refused with a message saying so. Reusing an id for a different submission
   is refused with an error naming the request that holds it, and nothing runs.
