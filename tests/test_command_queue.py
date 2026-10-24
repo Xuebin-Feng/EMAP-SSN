@@ -518,7 +518,7 @@ class FileJobTests(QueueTestCase):
         self.assertEqual((writing, waiting, after), (2, 3, 4))
         self.viewer.type("jobs")
         listing = self.output.getvalue()
-        self.assertIn("#2     writing", listing)
+        self.assertIn("#2     running", listing)
         self.assertIn("#3     waiting", listing)
         self.viewer.type("jobs cancel 3")
         self.assertIn("Cancelled 1 job: #3 logo -> second.svg.", self.output.getvalue())

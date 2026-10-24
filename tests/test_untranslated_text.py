@@ -1287,24 +1287,34 @@ class ViewerCanvasTextTests(WindowTestCase):
         Path(existing).write_text("", encoding="utf-8")
         reserved = os.path.abspath(os.path.join(folder, "2.svg"))
 
+        class Stub:
+            """The scheduler keeps a weak reference to its viewer."""
+
+        stub = Stub()
+        release = threading.Event()
+        self.addCleanup(release.set)
+
         def scheduler(accepting=True):
-            return SimpleNamespace(
-                _lock=threading.Lock(), _accepting=accepting, _output_key=BackgroundJobScheduler._output_key,
-                _reserved_output_paths={BackgroundJobScheduler._output_key(reserved)},
-            )
+            """A real scheduler that holds ``reserved`` with a job that waits, or one that is closed."""
+            jobs = BackgroundJobScheduler(stub)
+            self.addCleanup(jobs.shutdown, 0.1)
+            with contextlib.redirect_stdout(io.StringIO()):
+                jobs.enqueue("label", "1", None, lambda payload: release.wait(10) and {}, reserved)
+            if not accepting:
+                jobs.shutdown(0.1)
+            return jobs
 
         for state, path in ((scheduler(accepting=False), reserved), (scheduler(), existing), (scheduler(), reserved)):
             with self.subTest(path=path, accepting=state._accepting), \
                     self.assertRaises((RuntimeError, FileExistsError)) as caught:
-                BackgroundJobScheduler.enqueue(state, "1", "1", None, None, path)
+                state.enqueue("label", "1", None, lambda payload: {}, path)
             self.assert_translated(display_text(caught.exception), path)
         shown = []
-        state = SimpleNamespace(_set_viewer_status=lambda message: shown.append(display_text(message)))
+        state = scheduler()
+        state._set_viewer_status = lambda message: shown.append(display_text(message))
         job = BackgroundJob(7, "label", "label -> 1.xlsx", None, None, "1.xlsx")
         with contextlib.redirect_stdout(io.StringIO()):
-            BackgroundJobScheduler._report_failed(
-                state, job, RuntimeError(Message("Error: No groups defined.")), "", 2.5
-            )
+            state._report_failed(job, RuntimeError(Message("Error: No groups defined.")), "", 2.5)
         self.assert_translated(shown[0], "label", "2.5", "7")
 
         # From the worker thread to the console line, the failed job's error stays a Message.
@@ -1379,13 +1389,19 @@ class ViewerCanvasTextTests(WindowTestCase):
 
         from Background_Job_Scheduler import BackgroundJob, BackgroundJobScheduler
 
+        class Stub:
+            """The scheduler keeps a weak reference to its viewer."""
+
+        stub = Stub()
         shown = []
-        scheduler = SimpleNamespace(_set_viewer_status=lambda message: shown.append(display_text(message)))
+        scheduler = BackgroundJobScheduler(stub)
+        self.addCleanup(scheduler.shutdown, 0.1)
+        scheduler._set_viewer_status = lambda message: shown.append(display_text(message))
         job = BackgroundJob(7, "label", "label -> 1.svg", None, None, "1.svg")
         with contextlib.redirect_stdout(io.StringIO()):
-            BackgroundJobScheduler._report_started(scheduler, job)
-            BackgroundJobScheduler._report_succeeded(scheduler, job, {}, 2.5)
-            BackgroundJobScheduler._report_failed(scheduler, job, "98", "", 2.5)
+            scheduler._report_started(job)
+            scheduler._report_succeeded(job, {}, 2.5)
+            scheduler._report_failed(job, "98", "", 2.5)
         self.assertEqual(len(shown), 3)
         for text in shown:
             with self.subTest(text=text):

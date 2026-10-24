@@ -202,7 +202,7 @@ from desktop.Viewer_Window import HEADLESS, HIDDEN, NORMAL, ViewerWindow
 from desktop.Viewer_Edges import ViewerEdges
 from desktop.Viewer_Motion import MotionDetail
 from desktop.Viewer_Fps import FPS_GAP, FPS_HEIGHT, FpsOverlay
-from desktop.Viewer_Jobs import BADGE_GAP, JobsBadge, job_lines
+from desktop.Viewer_Jobs import BADGE_GAP, JobsBadge, ViewerJobs, job_lines
 from desktop.Viewer_Markers import HoverMarkers, MarkerPicker, symbol_codes_of, uniform_symbol
 from web_ui.Browser_Page import open_browser_page
 
@@ -979,9 +979,8 @@ class MainViewer:
         # Commands that read or change the network run here, one at a time, in the order given.
         self.command_queue = CommandQueue(self, job_numbers=self._job_numbers)
         self.command_queue.changed.connect(self._refresh_jobs_badge)
-        for signal in (self.background_job_scheduler.job_started, self.background_job_scheduler.job_succeeded,
-                       self.background_job_scheduler.job_failed, self.background_job_scheduler.job_cancelled):
-            signal.connect(lambda *_args: self._refresh_jobs_badge())
+        # The badge and the Session card's Background jobs list follow the scheduler's lanes.
+        self.background_job_scheduler.changed.connect(self._on_background_jobs_changed)
         if hasattr(self.canvas.events, "close"):
             self.canvas.events.close.connect(
                 lambda _event: self.command_queue.shutdown()
@@ -1218,6 +1217,8 @@ class MainViewer:
             command=self.process_command,
             # Ctrl+C copies a selected path of the card, unless the command line is open: it copies its own text.
             command_line_open=lambda: getattr(self, 'console_mode', False),
+            # The background jobs the card lists, and its buttons that arrange them.
+            jobs=ViewerJobs(self),
         )
         overlay_layout.addWidget(self.controls_button)
         overlay_layout.addSpacing(SLIDER_INFO_GAP - overlay_layout.spacing())
@@ -3274,6 +3275,13 @@ class MainViewer:
         """The jobs badge (desktop.Viewer_Jobs): shown while commands wait or run, or files are written."""
         self.jobs_badge = JobsBadge(self.canvas)
         self.reposition_expand_btn()
+
+    def _on_background_jobs_changed(self):
+        """A lane or a running job changed: the badge counts again and an open card lists them again."""
+        self._refresh_jobs_badge()
+        button = getattr(self, 'controls_button', None)
+        if button is not None:
+            button.refresh_card_jobs()
 
     def _refresh_jobs_badge(self):
         badge = getattr(self, 'jobs_badge', None)

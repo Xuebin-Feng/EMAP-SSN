@@ -82,6 +82,7 @@ from PySide6.QtWidgets import (
 from commands.zoom import MAX_ZOOM_PERCENT
 from desktop.Desktop_App import button_icon_room, installed_language
 from desktop.Studio_Theme import TOKENS, icon_button, key_cap_qss, studio_icon
+from desktop.Viewer_Jobs_Card import JobsSection, section_qss
 from desktop.Viewer_State import alias_form
 from utilities.Help_Pages import command_list_path
 
@@ -272,7 +273,7 @@ class ControlsCard(QWidget):
     SHADOW = 8
 
     def __init__(self, title, text, anchor=None, parent=None, *, session=None, controls_title=None,
-                 area=None, command=None, command_line_open=None):
+                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsCard")
         self.anchor = anchor
@@ -280,6 +281,11 @@ class ControlsCard(QWidget):
         self.area = area
         self.command = command
         self.command_line_open = command_line_open
+        self.jobs = jobs
+        self.jobs_section = None
+        self._remeasure = QtCore.QTimer(self)
+        self._remeasure.setSingleShot(True)
+        self._remeasure.timeout.connect(self._measure_again)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setMouseTracking(True)
         self.setAccessibleName(title)
@@ -336,10 +342,15 @@ class ControlsCard(QWidget):
         body_layout.setSpacing(10)
         if session is not None:
             body_layout.addLayout(self._session_section())
-            separator = QFrame()
-            separator.setObjectName("controlsSeparator")
-            separator.setFixedHeight(TOKENS["separator_thickness"])
-            body_layout.addWidget(separator)
+            body_layout.addWidget(self._separator())
+            if jobs is not None:
+                # The background jobs, between the files and the controls, each section set off by a separator.
+                self.jobs_section = JobsSection(jobs, confirm=confirm_stop)
+                self.jobs_section.resized.connect(self._jobs_resized)
+                if parent is not None:
+                    self.jobs_section.keyboard_back = parent.setFocus
+                body_layout.addWidget(self.jobs_section)
+                body_layout.addWidget(self._separator())
         body_layout.addLayout(self._controls_section(controls_title if session is not None else None))
         self.scroll = _BodyScroll()
         self.scroll.setObjectName("controlsScroll")
@@ -386,11 +397,13 @@ class ControlsCard(QWidget):
             QPushButton#controlsClose:pressed {{ background: {t['separator']}; }}
             QScrollArea#controlsScroll, QWidget#controlsBody {{ background: transparent; border: none; }}
             QScrollArea#controlsScroll > QWidget#qt_scrollarea_viewport {{ background: transparent; }}
-        """)
+        """ + section_qss(t))
         # Nothing here takes the keyboard: [ENTER] still opens the command line.
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         for child in self.findChildren(QWidget):
-            child.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            # The jobs' buttons are reached with Tab (never by a click), so they keep that.
+            if child.focusPolicy() != Qt.FocusPolicy.TabFocus:
+                child.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         if session is not None:
             self.refresh()
         self.fit(1 << 16, 1 << 16)
@@ -398,6 +411,32 @@ class ControlsCard(QWidget):
             # The key presses the canvas receives, for Copy and Select All (eventFilter); the filter
             # ends with the card, as Qt keeps a filter by pointer.
             parent.installEventFilter(self)
+
+    @staticmethod
+    def _separator():
+        separator = QFrame()
+        separator.setObjectName("controlsSeparator")
+        separator.setFixedHeight(TOKENS["separator_thickness"])
+        return separator
+
+    def _jobs_resized(self):
+        """The jobs section gained or lost rows: take the card's size again, and keep it above its button.
+
+        Qt lays the new rows out in the event loop's next turn, and their sizes can only be read after, so
+        the card measures itself then.
+        """
+        self._natural = None
+        self._remeasure.start(0)
+
+    def _measure_again(self):
+        self._natural = None
+        if not self.isHidden():
+            self.place()
+
+    def refresh_jobs(self):
+        """Show the background jobs as they are now (the scheduler says when they change)."""
+        if self.jobs_section is not None:
+            self.jobs_section.refresh()
 
     def _session_section(self):
         """The nodes and edges on one line, and a row for each file: label, path field, and for a file that can be changed a pick button."""
@@ -684,8 +723,11 @@ class ControlsCard(QWidget):
                 widget.ensurePolished()
             self._share_columns()
             self.scroll.updateGeometry()
-            for layout in (self.layout(), self.body.layout()):
+            # The jobs section is a widget of its own with a layout of its own, which changes while the card is open.
+            sections = (self.jobs_section.layout(),) if self.jobs_section is not None else ()
+            for layout in (self.layout(), self.body.layout(), *sections):
                 _invalidate(layout)
+
             hint = self.layout().sizeHint()
             self._natural = QSize(hint.width(), hint.height())
         return self._natural
@@ -814,7 +856,7 @@ class ControlsButton(QPushButton):
     SIZE = 28   # as tall as a field
 
     def __init__(self, title, text, parent=None, *, host=None, session=None, controls_title=None,
-                 area=None, command=None, command_line_open=None):
+                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsButton")
         self.title = title
@@ -825,6 +867,8 @@ class ControlsButton(QPushButton):
         self.area = area
         self.command = command
         self.command_line_open = command_line_open
+        self.jobs = jobs
+        self.confirm_stop = confirm_stop
         self.card = None
         self.setIcon(studio_icon("info", TOKENS["text_muted"]))
         self.setIconSize(QSize(16, 16))
@@ -866,13 +910,19 @@ class ControlsButton(QPushButton):
         self.card = ControlsCard(self.title, self.text_source, anchor=self, parent=host,
                                  session=self.session, controls_title=self.controls_title,
                                  area=self.area, command=self.command,
-                                 command_line_open=self.command_line_open)
+                                 command_line_open=self.command_line_open,
+                                 jobs=self.jobs, confirm_stop=self.confirm_stop)
         return self.card.open()
 
     def refresh_card(self):
         """Bring an open card's session up to date; nothing happens while it is closed."""
         if self.card_is_open():
             self.card.refresh()
+
+    def refresh_card_jobs(self):
+        """Bring an open card's background jobs up to date; nothing happens while it is closed."""
+        if self.card_is_open():
+            self.card.refresh_jobs()
 
     def place_card(self):
         """Put an open card where the canvas's size and the button now leave it."""

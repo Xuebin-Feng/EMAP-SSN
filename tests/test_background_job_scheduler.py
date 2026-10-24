@@ -1143,27 +1143,54 @@ class SchedulerNamesNoCommandTests(unittest.TestCase):
                       if path.stem != "__init__" and "scheduler.enqueue(" in path.read_text(encoding="utf-8"))
 
     def mentions(self, relative):
-        """Every comment and string of the file, and every name in it but the print function, that is a command's name."""
-        import io
-        import re
-        import tokenize
+        """Where the file names a command: an import of a command module, or a string a program shows or compares.
 
-        source = (self.SRC / relative).read_text(encoding="utf-8")
+        Docstrings and comments are prose and may use the words (a "label" is also a label); the code may not.
+        """
+        return self.mentions_in((self.SRC / relative).read_text(encoding="utf-8"))
+
+    def mentions_in(self, source):
+        import ast
+        import re
+
         words = self.command_words()
         pattern = re.compile(r"\b(" + "|".join(words) + r")\b", re.IGNORECASE)
+        tree = ast.parse(source)
+        docstrings = set()
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)):
+                body = node.body
+                if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                    docstrings.add(id(body[0].value))
         found = []
-        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
-        for index, token in enumerate(tokens):
-            if token.type in (tokenize.COMMENT, tokenize.STRING):
-                found += [(token.start[0], match.group(0)) for match in pattern.finditer(token.string)]
-            elif token.type == tokenize.NAME and token.string in words:
-                called = index + 1 < len(tokens) and tokens[index + 1].string == "("
-                if not (token.string == "print" and called):
-                    found.append((token.start[0], token.string))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
+                found += [(node.lineno, match.group(0)) for match in pattern.finditer(node.value)]
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                names = [alias.name for alias in node.names] + ([node.module] if isinstance(node, ast.ImportFrom) else [])
+                for name in names:
+                    found += [(node.lineno, part) for part in (name or "").split(".") if part in words]
         return found
 
     def test_the_commands_that_queue_jobs_are_found(self):
         self.assertEqual(self.command_words()[:3], ["label", "logo", "print"])
+
+    def test_the_check_finds_a_command_named_in_code_and_leaves_prose_alone(self):
+        flagged = "\n".join([
+            '"""A label is a label."""',
+            "import commands.logo",
+            'value = "print -> map.png"',
+            "if name == 'esmfold':",
+            "    pass",
+        ])
+        self.assertEqual([word for _line, word in self.mentions_in(flagged)], ["logo", "print"])
+        prose = "\n".join([
+            '"""The print of a label."""',
+            "# print label logo",
+            'print("a message")',
+            'label = {"key": "value"}',
+        ])
+        self.assertEqual(self.mentions_in(prose), [])
 
     def test_no_file_of_the_scheduler_names_a_command(self):
         for relative in self.FILES:

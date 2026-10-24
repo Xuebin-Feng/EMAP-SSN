@@ -6284,7 +6284,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1402"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1403"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -6352,7 +6352,7 @@ Command-line usage:
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+426"/>
+        <location line="+433"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -8496,7 +8496,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">错误：无法识别的 jobs 参数“{argument}”。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../desktop/Viewer_Jobs.py" line="+27"/>
+        <location filename="../../../desktop/Viewer_Jobs.py" line="+41"/>
         <source>%n job(s)</source>
         <translation type="unfinished">
             <numerusform>%n 个任务</numerusform>
@@ -12225,7 +12225,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-1926"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-1933"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -12234,7 +12234,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-164"/>
+        <location line="-166"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -12249,7 +12249,7 @@ Fedora / RHEL：
         <translation type="unfinished">会话与操作</translation>
     </message>
     <message>
-        <location line="+51"/>
+        <location line="+53"/>
         <source>Zoom: {zoom}%</source>
         <translation type="unfinished">缩放：{zoom}%</translation>
     </message>
@@ -12357,7 +12357,7 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+118"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+119"/>
         <source>Sequence Set:</source>
         <translation type="unfinished">序列集：</translation>
     </message>
@@ -12402,7 +12402,7 @@ Fedora / RHEL：
         <translation type="unfinished">无</translation>
     </message>
     <message>
-        <location line="+144"/>
+        <location line="+149"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
@@ -12412,7 +12412,7 @@ Fedora / RHEL：
         <translation type="unfinished">会话</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+133"/>
         <source>Nodes:</source>
         <translation type="unfinished">节点：</translation>
     </message>
@@ -12449,6 +12449,132 @@ Fedora / RHEL：
         <location line="+2"/>
         <source>The list of commands is not installed: docs/list_of_commands.html is missing.</source>
         <translation type="unfinished">未安装命令列表：缺少 docs/list_of_commands.html。</translation>
+    </message>
+    <message>
+        <location filename="../../../desktop/Viewer_Jobs_Card.py" line="+114"/>
+        <location line="+5"/>
+        <source>Stop job</source>
+        <translation type="unfinished">停止任务</translation>
+    </message>
+    <message>
+        <location line="-4"/>
+        <source>Stop job #{job} while it is running?</source>
+        <translation type="unfinished">要在任务 #{job} 运行时停止它吗？</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>{description}
+
+It stops at its next step, and the unfinished file it was writing is deleted. A file it had already saved stays.</source>
+        <translation type="unfinished">{description}
+
+它会在下一步停止，正在写入的未完成文件会被删除；已保存的文件会保留。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Keep running</source>
+        <translation type="unfinished">继续运行</translation>
+    </message>
+    <message>
+        <location line="+37"/>
+        <source>Open log</source>
+        <translation type="unfinished">打开日志</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>Open the log file in your text viewer</source>
+        <translation type="unfinished">用文本查看器打开日志文件</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Open the log of #{job}</source>
+        <translation type="unfinished">打开 #{job} 的日志</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Move up</source>
+        <translation type="unfinished">上移</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Move #{job} up</source>
+        <translation type="unfinished">将 #{job} 上移</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Move down</source>
+        <translation type="unfinished">下移</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Move #{job} down</source>
+        <translation type="unfinished">将 #{job} 下移</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Remove from the queue</source>
+        <translation type="unfinished">从队列中移除</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Remove #{job} from the queue</source>
+        <translation type="unfinished">将 #{job} 从队列中移除</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Stop and remove</source>
+        <translation type="unfinished">停止并移除</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Stop and remove #{job}</source>
+        <translation type="unfinished">停止并移除 #{job}</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <location line="+33"/>
+        <source>Stopping…</source>
+        <translation type="unfinished">正在停止…</translation>
+    </message>
+    <message>
+        <location line="-33"/>
+        <source>Stopping #{job}</source>
+        <translation type="unfinished">正在停止 #{job}</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Dismiss</source>
+        <translation type="unfinished">关闭</translation>
+    </message>
+    <message>
+        <location line="+0"/>
+        <source>Dismiss #{job}</source>
+        <translation type="unfinished">清除 #{job}</translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>Running · {time}</source>
+        <translation type="unfinished">运行中 · {time}</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Queued · position {position}</source>
+        <translation type="unfinished">排队中 · 第 {position} 位</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Failed: {reason}</source>
+        <translation type="unfinished">失败：{reason}</translation>
+    </message>
+    <message>
+        <location line="+51"/>
+        <source>Background jobs</source>
+        <translation type="unfinished">后台任务</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>No background jobs.</source>
+        <translation type="unfinished">没有后台任务。</translation>
     </message>
 </context>
 <context>

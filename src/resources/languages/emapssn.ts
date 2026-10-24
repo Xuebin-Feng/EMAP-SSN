@@ -8420,6 +8420,104 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 <context>
     <name>ViewerControls</name>
     <message>
+        <source>Stop job</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stop job #{job} while it is running?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{description}
+
+It stops at its next step, and the unfinished file it was writing is deleted. A file it had already saved stays.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Keep running</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open log</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open the log file in your text viewer</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open the log of #{job}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move #{job} up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move down</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Move #{job} down</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove from the queue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Remove #{job} from the queue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stop and remove</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stop and remove #{job}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stopping…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stopping #{job}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dismiss</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Dismiss #{job}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Running · {time}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Queued · position {position}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Failed: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Background jobs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No background jobs.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Sequence Set:</source>
         <translation type="unfinished"></translation>
     </message>

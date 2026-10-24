@@ -68,15 +68,15 @@ def _queue(viewer):
 def _file_jobs(viewer):
     """The file jobs not finished, in the order of the line, as (job, state) pairs.
 
-    The state is 'waiting', 'writing', or 'stopping' for a file already told to stop.
+    The state is 'waiting', 'running', or 'stopping' for a job already told to stop.
     """
     scheduler = getattr(viewer, 'background_job_scheduler', None)
     snapshot = getattr(scheduler, 'snapshot', None)
     if snapshot is not None:
-        return [(entry.job, 'stopping' if entry.stopping else 'writing' if entry.running else 'waiting')
+        return [(entry.job, 'stopping' if entry.stopping else 'running' if entry.running else 'waiting')
                 for entry in snapshot()]
     listing = getattr(scheduler, 'listing', None)
-    return [(job, 'writing' if running else 'waiting') for job, running in (listing() if listing is not None else [])]
+    return [(job, 'running' if running else 'waiting') for job, running in (listing() if listing is not None else [])]
 
 
 def _cancel_file_job(viewer, job_id):
