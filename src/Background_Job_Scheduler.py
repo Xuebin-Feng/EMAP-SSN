@@ -717,10 +717,11 @@ class BackgroundJobScheduler(QtCore.QObject):
                     entry['stop_requested'] = True
 
         reveal_directory = result.get("reveal_directory")
-        # A job asks for its folder to be shown; where no user is at the Viewer, none is.
+        # A job asks for its folder to be shown. Only a Viewer that is there and shows windows
+        # has a user to show it to: one that is gone (or closing) has none.
         if reveal_directory:
             viewer = self._viewer_ref()
-            if viewer is None or viewer_shows_windows(viewer):
+            if viewer is not None and viewer_shows_windows(viewer):
                 try:
                     open_in_file_manager(reveal_directory)
                 except Exception as error:

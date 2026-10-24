@@ -113,7 +113,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
                 if reveal.called:
                     reveal.assert_called_once_with(directory)
 
-    def test_a_viewer_that_is_gone_still_reveals(self):
+    def test_a_viewer_that_is_gone_reveals_nothing(self):
         scheduler = BackgroundJobScheduler(ViewerStub())
         self.addCleanup(scheduler.shutdown)
         scheduler._viewer_ref = lambda: None
@@ -129,7 +129,8 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
             )
             self.assertTrue(wait_for(lambda: bool(done)))
             wait_for(lambda: False, 0.1)
-        reveal.assert_called_once_with(directory)
+        # Nobody is at a Viewer that is gone, so there is no one to show the folder to.
+        reveal.assert_not_called()
 
     def test_mixed_jobs_are_fifo_nonoverlapping_and_continue_after_failure(self):
         viewer = ViewerStub()

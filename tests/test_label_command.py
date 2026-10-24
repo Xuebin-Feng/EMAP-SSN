@@ -1264,6 +1264,8 @@ class LabelJobCancellationTests(unittest.TestCase):
         self.status = StatusLine()
         self.scheduler = BackgroundJobScheduler(self.status)
         self.addCleanup(self.scheduler.shutdown)
+        # A finished label job asks for its folder to be shown, to a stand-in that has windows.
+        self.reveal = self.enterContext(mock.patch("Background_Job_Scheduler.open_in_file_manager"))
         self.reports = []
         self.scheduler.job_succeeded.connect(lambda job, result, elapsed: self.reports.append("succeeded"))
         self.scheduler.job_failed.connect(lambda job, error, detail, elapsed: self.reports.append("failed"))

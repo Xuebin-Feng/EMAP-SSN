@@ -27,6 +27,12 @@ files and shell, whichever subset of modules runs:
   Without the hook, whichever test module imported a tool first decided the
   globals that every later module saw.
 
+* Nothing a test runs may open a folder, a file, a browser page or a console window
+  on the developer's desktop. tests/desktop_openers.py replaces the calls that do
+  (QDesktopServices.openUrl, webbrowser.open, os.startfile, Popen of an opener
+  program or with CREATE_NEW_CONSOLE) in every process that imports this package,
+  and fails a test that reaches one it did not expect.
+
 Processes that tests spawn inherit the environment of the first test process,
 so the environment is only reset there; the import hook is installed in every
 process that imports this package. Pool workers that a tool starts with the
@@ -121,3 +127,7 @@ class _ToolSettingsFinder(importlib.abc.MetaPathFinder):
 
 if not any(isinstance(finder, _ToolSettingsFinder) for finder in sys.meta_path):
     sys.meta_path.insert(0, _ToolSettingsFinder())
+
+from . import desktop_openers  # noqa: E402
+
+desktop_openers.install()

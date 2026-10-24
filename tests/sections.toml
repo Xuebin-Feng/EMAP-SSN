@@ -328,6 +328,7 @@ modules = [
     "test_application_window_activation",
     "test_dependency_installation",
     "test_desktop_launcher_monitor",
+    "test_desktop_openers",
     "test_detect_gpu",
     "test_launcher_scripts",
     "test_output_streams",
