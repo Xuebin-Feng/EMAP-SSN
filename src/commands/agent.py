@@ -29,6 +29,7 @@ from web_ui.agent_backend import (
     deactivate_agent,
     run_web_agent_query,
     broadcast_backend_state,
+    review_data_use,
     register,
     call_api,
 )
@@ -75,6 +76,22 @@ def _load_saved_cards(viewer):
         Command_Engine.print_help(viewer, message)
         Command_Engine.command_failed(viewer, message)
         return None
+
+def _activation_failed(viewer):
+    """Fail the command for a card that was not switched on.
+
+    A card whose server is not on this computer waits for the user to see in the Agent
+    page what it receives and accept that; the page is shown the notice, and opened where
+    the Viewer shows windows. Any other card was refused with its reason already reported.
+    """
+    review = review_data_use(viewer)
+    if review is None:
+        Command_Engine.command_failed(viewer, "Agent backend activation failed")
+        return
+    message = Message("Error: {error}", error=review)
+    Command_Engine.print_help(viewer, message)
+    Command_Engine.command_failed(viewer, message)
+
 
 def _open_agent_page(viewer):
     """Open the Agent page; return whether it opened.
@@ -155,7 +172,7 @@ def run(viewer, args):
         card = find_matching_card(model_custom_name)
         if card:
             if not activate_agent_from_card(viewer, card):
-                Command_Engine.command_failed(viewer, "Agent backend activation failed")
+                _activation_failed(viewer)
             else:
                 broadcast_backend_state(viewer)
                 Command_Engine.command_succeeded(viewer, f"Activated Agent model {model_custom_name!r}.")
@@ -185,7 +202,7 @@ def run(viewer, args):
             return
         if cards:
             if not activate_agent_from_card(viewer, cards[0], quiet=True):
-                Command_Engine.command_failed(viewer, "Agent backend activation failed")
+                _activation_failed(viewer)
                 return
             broadcast_backend_state(viewer)
         else:

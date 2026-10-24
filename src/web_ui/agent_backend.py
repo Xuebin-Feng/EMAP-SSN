@@ -25,10 +25,12 @@ referenced via that stub by Web_Server.py.
 import os
 import sys
 import ctypes
+import ipaddress
 import json
 import http.client
 import socket
 import threading
+import urllib.parse
 import urllib.request
 import urllib.error
 import gc
@@ -225,6 +227,43 @@ def _card_temperature(card):
     return value
 
 
+def _is_local_host(host):
+    """Whether host names this computer: localhost, a loopback address, or 0.0.0.0."""
+    if host == "localhost" or host.endswith(".localhost"):
+        return True
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return address.is_loopback or address.is_unspecified
+
+
+def card_origin(card):
+    """Where a card sends its requests, or None when its URL names no http(s) host.
+
+    "origin" is the scheme, host and port the user is shown and accepts, "host" the host
+    and port, "remote" whether the server is not on this computer, and "plain_http_key"
+    whether the card would send an API key over plain http:// to such a server.
+    """
+    try:
+        parts = urllib.parse.urlsplit((card.get("url") or "").strip())
+        host, port = (parts.hostname or "").lower(), parts.port
+    except ValueError:
+        return None
+    if not host or parts.scheme not in ("http", "https"):
+        return None
+    shown = f"[{host}]" if ":" in host else host
+    if port is not None:
+        shown += f":{port}"
+    remote = not _is_local_host(host)
+    return {"origin": f"{parts.scheme}://{shown}", "host": shown, "remote": remote,
+            "plain_http_key": remote and parts.scheme == "http" and bool(card.get("api_key"))}
+
+
+def _card_ref(card):
+    return {"id": card.get("id"), "name": card.get("name"), "url": card.get("url")}
+
+
 def _without_sampling(options):
     """The card's custom options without the sampling parameters, or None when none are left."""
     if not isinstance(options, dict):
@@ -233,7 +272,7 @@ def _without_sampling(options):
     return kept or None
 
 
-def activate_agent_from_card(viewer, card, quiet=False):
+def activate_agent_from_card(viewer, card, quiet=False, data_use_accepted=False):
     """Activates the LLM agent using a model card dict.
 
     A card that cannot be used is refused before the active model, if any,
@@ -241,6 +280,12 @@ def activate_agent_from_card(viewer, card, quiet=False):
     A blank temperature is not sent. So are all sampling parameters of a
     card marked omit_sampling, which the Viewer sets once the provider has
     rejected them (_apply_call_notes).
+
+    A card whose server is not on this computer is refused too, until the user has
+    been shown what it receives and accepted that (the card's data_use_accepted is
+    then the server's origin, or data_use_accepted is True): the refusal leaves
+    viewer.llm_pending_data_use for the Agent page to show. Nothing is sent to the
+    server before that, the probe for a blank model name included.
     """
     url         = (card.get("url") or "").strip().rstrip("/")
     model       = (card.get("model") or "").strip() or "default"
@@ -264,6 +309,14 @@ def activate_agent_from_card(viewer, card, quiet=False):
             "Error: Model card '{card}' has no URL configured. Open ⚙ Models to edit it.", card=name
         ))
         return False
+
+    origin = card_origin(card)
+    if origin and origin["remote"] and not data_use_accepted and card.get("data_use_accepted") != origin["origin"]:
+        viewer.llm_pending_data_use = {"card_id": card.get("id"), "ref": _card_ref(card), "name": name,
+                                       "host": origin["host"], "origin": origin["origin"],
+                                       "plain_http_key": origin["plain_http_key"]}
+        return False
+    viewer.llm_pending_data_use = None
 
     # A card may name the chat endpoint itself. Strip it before the /models
     # probe, which belongs on the API base (…/v1/models, not
@@ -300,7 +353,13 @@ def activate_agent_from_card(viewer, card, quiet=False):
     viewer.llm_temperature = temperature
     viewer.llm_api_key     = api_key
     viewer.llm_options     = options
-    viewer.llm_card_ref    = {"id": card.get("id"), "name": card.get("name"), "url": card.get("url")}
+    viewer.llm_card_ref    = _card_ref(card)
+    if origin and origin["plain_http_key"]:
+        # Said each time the card is switched on: the page shows it, and so does the terminal.
+        viewer.llm_card_warning = Message(
+            "Warning: Model card '{card}' sends its API key over plain http:// to {host}, which is not on this "
+            "computer, so anyone on the network path could read it. Use an https:// address.", card=name, host=origin["host"])
+        Command_Engine.print_help(viewer, viewer.llm_card_warning)
 
     if not quiet:
         Command_Engine.print_help(viewer, Message("LLM Agent Activated: {card} → {model}", card=name, model=model))
@@ -377,7 +436,7 @@ def deactivate_agent(viewer, quiet=False):
     backend    = getattr(viewer, "llm_backend", None)
     model_name = getattr(viewer, "llm_model_name", "Unknown")
 
-    for attr in ("llm_backend", "llm_url", "llm_model_name", "llm_temperature", "llm_api_key", "llm_options", "llm_card_ref"):
+    for attr in ("llm_backend", "llm_url", "llm_model_name", "llm_temperature", "llm_api_key", "llm_options", "llm_card_ref", "llm_card_warning"):
         if hasattr(viewer, attr):
             delattr(viewer, attr)
 
@@ -708,6 +767,42 @@ def _apply_call_notes(viewer, report, card_ref):
 
 # ─── Viewer context ───────────────────────────────────────────────────────────
 
+_ABSOLUTE_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\|/)")
+
+
+def _file_name(value):
+    """The file name at the end of a path, whichever separator it was written with."""
+    return re.split(r"[\\/]", value.rstrip("\\/"))[-1] if isinstance(value, str) else value
+
+
+def _without_paths(value):
+    """value with each string in it that is an absolute path replaced by its file name."""
+    if isinstance(value, str):
+        return _file_name(value) if _ABSOLUTE_PATH.match(value) else value
+    if isinstance(value, dict):
+        return {key: _without_paths(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_without_paths(item) for item in value]
+    return value
+
+
+def agent_summary(summary):
+    """The inspection summary as the model gets it: file names where it has the paths of the user's folders.
+
+    This is the agent's own copy; the summary MCP serves is unchanged.
+    """
+    summary = dict(summary)
+    if isinstance(summary.get('inputs'), dict):
+        summary['inputs'] = {key: _file_name(value) for key, value in summary['inputs'].items()}
+    embedding = summary.get('embedding')
+    if isinstance(embedding, dict) and 'file' in embedding:
+        summary['embedding'] = {**embedding, 'file': _file_name(embedding['file'])}
+    provenance = summary.get('provenance')
+    if isinstance(provenance, dict):
+        summary['provenance'] = {**provenance, 'generation_parameters': _without_paths(provenance.get('generation_parameters'))}
+    return summary
+
+
 def get_viewer_session_context(viewer):
     """Use the same bounded snapshot contract as MCP, without MCP transport."""
     from desktop.Viewer_Inspection import SnapshotStore, ViewerInspectionService
@@ -719,7 +814,7 @@ def get_viewer_session_context(viewer):
     store = SnapshotStore()
     try:
         sid = store.capture(service)
-        summary = store.execute('get_summary', sid, max_bytes=16384)
+        summary = agent_summary(store.execute('get_summary', sid, max_bytes=16384))
         fields = store.execute('describe_fields', sid, limit=25, max_bytes=8192)
         return '\n--- ACTIVE VIEWER SNAPSHOT ---\n' + json.dumps({'summary': summary, 'fields': fields}, ensure_ascii=False)
     except (ValueError, TypeError) as error:
@@ -1107,7 +1202,46 @@ def broadcast_backend_state(viewer, error=None):
     }
     if error:
         event["error"] = display_text(error)
+    event.update(_data_use_state(viewer))
     viewer.broadcast_event(event)
+
+
+def _data_use_state(viewer):
+    """What the Agent page is shown about data use: the notice to answer, and the warning of the card loaded."""
+    state = {}
+    pending = getattr(viewer, "llm_pending_data_use", None)
+    if pending:
+        state["data_use"] = pending
+    warning = getattr(viewer, "llm_card_warning", None)
+    if warning:  # Cleared with the model it was about (deactivate_agent).
+        state["warning"] = display_text(warning)
+    return state
+
+
+def review_data_use(viewer):
+    """After a card was refused for want of the user's acceptance: have the page show the notice.
+
+    Used where the card was switched on from the terminal. The page already open shows the
+    notice; where the Viewer shows windows the page is opened. Returns the Message to report as
+    the command's failure, or None when no notice is pending.
+    """
+    pending = getattr(viewer, "llm_pending_data_use", None)
+    if not pending:
+        return None
+    from Viewer_Command_Portal import agent_page_connected, viewer_shows_windows
+    broadcast_backend_state(viewer)
+    if viewer_shows_windows(viewer) and not agent_page_connected(viewer):
+        viewer.open_agent_ui(show_existing_dialog=False)
+    return Message(
+        "Model card '{card}' sends your data to {host}, a server that is not on this computer. Switch the model on in the "
+        "Agent page once to see what it receives and accept that.", card=pending["name"], host=pending["host"])
+
+
+def handle_decline_data_use(viewer, data):
+    """The user chose Cancel on the notice: the card stays unaccepted and the model loaded stays as it was."""
+    viewer.llm_pending_data_use = None
+    broadcast_backend_state(viewer)
+
 
 def handle_set_backend(viewer, data):
     """Activate the saved model card data["card_id"] names; no id deactivates.
@@ -1118,6 +1252,7 @@ def handle_set_backend(viewer, data):
     card_id = data.get("card_id")
     error = None
     if card_id is None and data.get("card") is None:
+        viewer.llm_pending_data_use = None
         deactivate_agent(viewer, quiet=True)
     else:
         card = None
@@ -1136,7 +1271,13 @@ def handle_set_backend(viewer, data):
         if card is None:
             deactivate_agent(viewer, quiet=True)
         else:
-            activate_agent_from_card(viewer, card, quiet=True)
+            # The user's Continue counts only for the card the notice was about.
+            pending = getattr(viewer, "llm_pending_data_use", None)
+            accepted = bool(data.get("accept_data_use")) and bool(pending) and _card_matches(card, pending["ref"])
+            origin = card_origin(card)
+            if accepted and origin:
+                _remember_on_card(viewer, _card_ref(card), data_use_accepted=origin["origin"])
+            activate_agent_from_card(viewer, card, quiet=True, data_use_accepted=accepted)
 
     broadcast_backend_state(viewer, error)
 
@@ -1201,6 +1342,7 @@ def _extend_initial_web_state(viewer, state):
     state['agent_request_id'] = getattr(viewer, '_agent_request_id', None)
     # A page opened during a turn, one started from the terminal say, can still stop it.
     state['agent_busy'] = bool(getattr(viewer, '_agent_busy', False))
+    state.update(_data_use_state(viewer))
     from Viewer_Command_Portal import get_portal
     if state['agent_request_id']:
         try:
@@ -1229,6 +1371,9 @@ def register_backend(registry, viewer):
     )
     registry.register_action(
         "agent", "cancel_turn", lambda data: handle_cancel_turn(viewer, data)
+    )
+    registry.register_action(
+        "agent", "decline_data_use", lambda data: handle_decline_data_use(viewer, data)
     )
     def capture(data):
         from Viewer_Visual_State import capture_view

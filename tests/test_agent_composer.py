@@ -855,6 +855,126 @@ class ModelCardPageTests(unittest.TestCase):
             self.assertAlmostEqual(geometry['height'], geometry['send'], delta=1)
         self.view.resize(1000, 800)
 
+    NOTICE = {'card_id': 'mine', 'name': 'Provider', 'host': 'api.provider.example', 'origin': 'https://api.provider.example',
+              'plain_http_key': False, 'ref': {'id': 'mine', 'name': 'Provider', 'url': 'https://api.provider.example/v1'}}
+
+    def show_notice(self, **changes):
+        event = {'type': 'backend_state', 'llm_loaded': False, 'data_use': {**self.NOTICE, **changes}}
+        self.js(f'handleServerEvent({json.dumps(event)})')
+
+    def notice(self):
+        return json.loads(self.js("""JSON.stringify(Array.from(document.querySelectorAll('#data-use-notice'), notice => ({
+            role: notice.getAttribute('role'), labelled: document.getElementById(notice.getAttribute('aria-labelledby'))?.textContent,
+            title: notice.querySelector('.data-use-title').textContent,
+            paragraphs: Array.from(notice.querySelectorAll(':scope > p'), p => p.textContent),
+            items: Array.from(notice.querySelectorAll('li'), li => li.textContent),
+            warnings: Array.from(notice.querySelectorAll('.is-warning'), w => w.textContent),
+            buttons: Array.from(notice.querySelectorAll('button'), b => [b.textContent, b.className.includes('btn-primary')]),
+            focused: document.activeElement === notice})))"""))
+
+    def test_a_notice_says_what_a_remote_card_receives_and_continue_or_cancel_answers_it(self):
+        self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'Provider', 'url': 'https://api.provider.example/v1'}]}).encode())
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:false, llm_history:[]}})")
+        self.show_notice()
+        [notice] = self.notice()
+        # The wording the user sees before a card first sends anything to a server that is not on this computer.
+        self.assertEqual(notice['role'], 'group')
+        self.assertEqual(notice['labelled'], 'Send data to api.provider.example?')
+        self.assertEqual(notice['paragraphs'], [
+            'With every message, the model card "Provider" sends the following to api.provider.example, a server that is not on this computer.',
+            "api.provider.example's own terms and privacy policy apply to what it receives. "
+            "You are not asked again for this card unless its address changes."])
+        self.assertEqual(notice['items'], [
+            "the agent's instructions",
+            'a summary of the open session: file names, metadata column names, selection counts and the reference header',
+            'your messages, and the output of the commands the agent runs',
+            'any images you attach'])
+        self.assertEqual((notice['warnings'], notice['buttons']), ([], [['Continue', True], ['Cancel', False]]))
+        # It is where the user is looking, and has the keyboard, which reaches the buttons next.
+        self.assertTrue(notice['focused'])
+        self.assertTrue(self.js(f"{self.IN_VIEW}(document.getElementById('data-use-notice'))"))
+        self.assertFalse(self.js("document.getElementById('agent-toggle-input').checked"))
+
+        # Another event for the same notice replaces it; Continue accepts, once, for the card named.
+        self.show_notice()
+        self.assertEqual(len(self.notice()), 1)
+        self.js("document.querySelector('#data-use-notice .btn-primary').click()")
+        self.assertEqual(self.notice(), [])
+        self.assertEqual(self.state()['actions'], [{'action': 'set_backend', 'card_id': 'mine', 'accept_data_use': True}])
+
+        self.show_notice()
+        self.js("document.querySelectorAll('#data-use-notice button')[1].click()")
+        self.assertEqual(self.notice(), [])
+        self.assertEqual(self.state()['actions'][-1], {'action': 'decline_data_use'})
+
+        # The Viewer answering without a notice takes a shown one away.
+        self.show_notice()
+        self.js("handleServerEvent({type:'backend_state', llm_loaded:true, llm_model_name:'big'})")
+        self.assertEqual(self.notice(), [])
+
+    def test_the_notice_of_a_card_whose_key_would_cross_the_network_in_the_clear_says_so(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.show_notice(plain_http_key=True, host='gpu-box.lan:1234', name='LAN box')
+        [notice] = self.notice()
+        self.assertEqual(notice['warnings'], ['This card would also send its API key over plain http://, which anyone on the '
+                                              'network path could read. Use an https:// address.'])
+        self.assertEqual(self.notice()[0]['title'], 'Send data to gpu-box.lan:1234?')
+
+    def test_a_page_opened_while_a_notice_waits_shows_it(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        init = {'type': 'init', 'data': {'llm_loaded': False, 'llm_history': [], 'data_use': self.NOTICE}}
+        self.js(f'handleServerEvent({json.dumps(init)})')
+        [notice] = self.notice()
+        self.assertEqual(notice['title'], 'Send data to api.provider.example?')
+
+    def test_a_card_the_page_knows_by_name_only_is_accepted_by_that_name(self):
+        self.open_page(json.dumps({'cards': [{'name': 'Hand-written', 'url': 'https://api.provider.example/v1'}]}).encode())
+        self.show_notice(card_id=None, name='Hand-written')
+        self.js("document.querySelector('#data-use-notice .btn-primary').click()")
+        [action] = self.state()['actions']
+        self.assertEqual((action['action'], action['accept_data_use']), ('set_backend', True))
+        self.assertEqual(action['card_id'], self.js('modelCards[0].id'))
+
+    def test_a_warning_from_the_viewer_is_shown_when_a_card_is_switched_on(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        text = "Warning: Model card 'LAN box' sends its API key over plain http:// to gpu-box.lan:1234, which is not on this computer."
+        self.js(f"handleServerEvent({{type:'backend_state', llm_loaded:true, llm_model_name:'m', warning:{json.dumps(text)}}})")
+        shown = json.loads(self.js("""JSON.stringify(Array.from(document.querySelectorAll('#chat-log .msg-warning'), w => [w.textContent, w.getAttribute('role'),
+            w.querySelector('use').getAttribute('href')]))"""))
+        self.assertEqual(shown, [[text, 'note', '#i-triangle-alert']])
+
+    def test_the_card_editor_warns_about_a_key_sent_in_the_clear_to_another_computer(self):
+        self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API', 'url': 'http://gpu-box.lan:1234/v1', 'api_key': 'sk-FAKE'}]}).encode())
+        warning = "document.querySelectorAll('.model-card .card-note.is-warning')[0]"
+        text = ('This card would send its API key over plain http:// to gpu-box.lan:1234, which is not on this computer: '
+                'anyone on the network path could read it. Use an https:// address.')
+        self.assertFalse(self.js(f'{warning}.hidden'))
+        self.assertEqual(self.js(f'{warning}.textContent'), text)
+        self.assertEqual(self.js(f"{warning}.getAttribute('role')"), 'note')
+
+        url, key = f"{self.card_inputs(0)}[1]", "document.querySelector('.model-card input[type=password]')"
+        for typed_url, typed_key, shown in (
+            ('https://gpu-box.lan:1234/v1', 'sk-FAKE', False),      # encrypted
+            ('http://localhost:1234/v1', 'sk-FAKE', False),         # this computer
+            ('http://127.0.0.1:1234/v1', 'sk-FAKE', False),
+            ('http://[::1]:1234/v1', 'sk-FAKE', False),
+            ('http://192.168.0.7/v1', '', False),                   # nothing to send
+            ('http://192.168.0.7/v1', 'sk-FAKE', True),
+            ('http://localhost.example.com/v1', 'sk-FAKE', True),
+            ('not a url', 'sk-FAKE', False),
+        ):
+            with self.subTest(url=typed_url, key=typed_key):
+                self.type_into(url, typed_url)
+                self.type_into(key, typed_key)
+                self.assertEqual(not self.js(f'{warning}.hidden'), shown)
+        self.type_into(url, 'http://192.168.0.7/v1')
+        self.assertEqual(self.js(f'{warning}.textContent'), text.replace('gpu-box.lan:1234', '192.168.0.7'))
+
+    def test_a_card_without_a_key_or_with_a_local_address_shows_no_warning(self):
+        self.open_page(json.dumps({'cards': [{'id': 'a', 'name': 'A', 'url': 'http://localhost:1234/v1', 'api_key': 'sk-FAKE'},
+                                             {'id': 'b', 'name': 'B', 'url': 'http://gpu-box.lan/v1'}]}).encode())
+        self.assertEqual(self.js("Array.from(document.querySelectorAll('.model-card .card-note.is-warning')).filter(n => !n.hidden).length"), 0)
+
     def test_a_command_waiting_for_approval_is_run_or_discarded(self):
         self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API'}]}).encode())
         waiting = {'command_id': 'c1', 'command': 'save <img src=x onerror=alert(1)>.h5',

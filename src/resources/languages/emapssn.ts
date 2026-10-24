@@ -240,6 +240,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>This card would send its API key over plain http:// to {host}, which is not on this computer: anyone on the network path could read it. Use an https:// address.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>API Key</source>
         <translation type="unfinished"></translation>
     </message>
@@ -301,6 +305,50 @@
     </message>
     <message>
         <source>Viewer commands</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Send data to {host}?</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>With every message, the model card &quot;{card}&quot; sends the following to {host}, a server that is not on this computer.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the agent&apos;s instructions</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>a summary of the open session: file names, metadata column names, selection counts and the reference header</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>your messages, and the output of the commands the agent runs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>any images you attach</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{host}&apos;s own terms and privacy policy apply to what it receives.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>You are not asked again for this card unless its address changes.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This card would also send its API key over plain http://, which anyone on the network path could read. Use an https:// address.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Continue</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Cancel</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -5978,6 +6026,10 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Warning: Model card &apos;{card}&apos; sends its API key over plain http:// to {host}, which is not on this computer, so anyone on the network path could read it. Use an https:// address.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>LLM Agent Activated: {card} → {model}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6040,6 +6092,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>The agent wants to run {command}, which needs your approval. Open the Agent page to run or discard it.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Model card &apos;{card}&apos; sends your data to {host}, a server that is not on this computer. Switch the model on in the Agent page once to see what it receives and accept that.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -285,7 +285,7 @@ class SetBackendTests(unittest.TestCase):
     A request's own card fields never take effect, so no request can point the
     agent at a server the user did not save. _SRC_DIR points at a temporary tree.
     """
-    SAVED = {'cards': [{'id': 'mine', 'name': 'My API', 'url': 'https://api.example/v1',
+    SAVED = {'cards': [{'id': 'mine', 'name': 'My API', 'url': 'http://localhost:11006/v1',
                         'model': 'big', 'api_key': 'sk-SECRET'}]}
 
     def setUp(self):
@@ -314,7 +314,7 @@ class SetBackendTests(unittest.TestCase):
         viewer, event = self.set_backend({'card_id': 'mine', 'card': {
             'id': 'mine', 'url': 'http://attacker.example/v1', 'model': 'theirs', 'api_key': ''}})
         self.assertEqual((viewer.llm_url, viewer.llm_model_name, viewer.llm_api_key),
-                         ('https://api.example/v1', 'big', 'sk-SECRET'))
+                         ('http://localhost:11006/v1', 'big', 'sk-SECRET'))
         self.assertTrue(event['llm_loaded'])
         self.assertNotIn('error', event)
 
@@ -479,13 +479,13 @@ class CardRefusalTests(unittest.TestCase):
         viewer.broadcast_event = viewer.events.append
         with mock.patch.object(agent.Command_Engine, 'print_help'):
             self.assertTrue(agent.activate_agent_from_card(
-                viewer, {'name': 'Old', 'url': 'http://old.example/v1', 'model': 'old-model', 'temperature': 0.5}, quiet=True))
+                viewer, {'name': 'Old', 'url': 'http://localhost:11001/v1', 'model': 'old-model', 'temperature': 0.5}, quiet=True))
         return viewer
 
     def assert_old_model_kept(self, viewer):
         self.assertTrue(viewer.llm_loaded)
         self.assertEqual((viewer.llm_url, viewer.llm_model_name, viewer.llm_temperature),
-                         ('http://old.example/v1', 'old-model', 0.5))
+                         ('http://localhost:11001/v1', 'old-model', 0.5))
 
     def test_a_card_without_a_url_keeps_the_loaded_model(self):
         viewer = self.loaded_viewer()
@@ -498,7 +498,7 @@ class CardRefusalTests(unittest.TestCase):
         for temperature in ('warm', [0.2], {'t': 1}):
             with self.subTest(temperature=temperature):
                 viewer = self.loaded_viewer()
-                card = {'name': 'New', 'url': 'http://new.example/v1', 'model': 'x', 'temperature': temperature}
+                card = {'name': 'New', 'url': 'http://localhost:11002/v1', 'model': 'x', 'temperature': temperature}
                 with mock.patch.object(agent.Command_Engine, 'print_help') as print_help:
                     self.assertFalse(agent.activate_agent_from_card(viewer, card, quiet=True))
                 self.assert_old_model_kept(viewer)
@@ -507,10 +507,10 @@ class CardRefusalTests(unittest.TestCase):
     def test_a_usable_card_still_replaces_the_loaded_model(self):
         viewer = self.loaded_viewer()
         viewer.llm_history = [{'role': 'user', 'content': 'earlier'}]
-        card = {'name': 'New', 'url': 'http://new.example/v1', 'model': 'x', 'temperature': '0.25'}
+        card = {'name': 'New', 'url': 'http://localhost:11002/v1', 'model': 'x', 'temperature': '0.25'}
         self.assertTrue(agent.activate_agent_from_card(viewer, card, quiet=True))
         self.assertEqual((viewer.llm_url, viewer.llm_model_name, viewer.llm_temperature, viewer.llm_loaded),
-                         ('http://new.example/v1', 'x', 0.25, True))
+                         ('http://localhost:11002/v1', 'x', 0.25, True))
         self.assertEqual(viewer.llm_history, [])
 
 
@@ -537,7 +537,7 @@ class DroppedTurnTests(unittest.TestCase):
 
     def test_switching_models_during_a_turn_ends_it_once(self):
         viewer = self.running_viewer()
-        card = {'name': 'New', 'url': 'http://new.example/v1', 'model': 'x'}
+        card = {'name': 'New', 'url': 'http://localhost:11002/v1', 'model': 'x'}
         self.assertTrue(agent.activate_agent_from_card(viewer, card, quiet=True))
         self.assertEqual([event['type'] for event in viewer.events], ['agent_error'])
 
@@ -571,8 +571,10 @@ class DroppedTurnTests(unittest.TestCase):
 
 class AgentCommandTests(unittest.TestCase):
     """The `agent` command: what it reports, and what the Agent page is told."""
-    CARDS = {'cards': [{'id': 'a', 'name': 'Alpha', 'url': 'http://alpha.example/v1', 'model': 'alpha-1'},
-                       {'id': 'b', 'name': 'Beta', 'url': 'http://beta.example/v1', 'model': 'beta-1'}]}
+    CARDS = {'cards': [{'id': 'a', 'name': 'Alpha', 'url': 'http://alpha.example/v1', 'model': 'alpha-1',
+                        'data_use_accepted': 'http://alpha.example'},
+                       {'id': 'b', 'name': 'Beta', 'url': 'http://beta.example/v1', 'model': 'beta-1',
+                        'data_use_accepted': 'http://beta.example'}]}
 
     def setUp(self):
         directory = tempfile.TemporaryDirectory()
@@ -683,7 +685,7 @@ class AgentCommandTests(unittest.TestCase):
     def test_a_refused_model_card_is_a_failure_and_the_page_hears_nothing(self):
         (self.agent_folder / 'model_card.json').write_text(
             json.dumps({'cards': [{'id': 'a', 'name': 'Alpha', 'url': '', 'model': 'm'}]}), encoding='utf-8')
-        viewer = self.viewer(llm_loaded=True, llm_backend='server', llm_url='http://old/v1', llm_model_name='old')
+        viewer = self.viewer(llm_loaded=True, llm_backend='server', llm_url='http://localhost:11005/v1', llm_model_name='old')
         self.run_command(viewer, '<Alpha>')
         self.failed.assert_called_once()
         self.succeeded.assert_not_called()
@@ -771,7 +773,7 @@ class SamplingParameterTests(unittest.TestCase):
 
     def test_a_card_with_a_blank_temperature_is_activated_without_one(self):
         for label, value in (('missing', None), ('null', None), ('empty', ''), ('spaces', '  ')):
-            card = {'name': 'Remote', 'url': 'https://api.example/v1', 'model': 'm'}
+            card = {'name': 'Remote', 'url': 'http://localhost:11008/v1', 'model': 'm'}
             if label != 'missing':
                 card['temperature'] = value
             with self.subTest(label):
@@ -781,11 +783,11 @@ class SamplingParameterTests(unittest.TestCase):
         for value, expected in ((0.0, 0.0), (0, 0.0), ('0.3', 0.3), (1, 1.0)):
             with self.subTest(value=value):
                 viewer = SimpleNamespace()
-                self.assertTrue(agent.activate_agent_from_card(viewer, {'url': 'http://x/v1', 'model': 'm', 'temperature': value}, quiet=True))
+                self.assertTrue(agent.activate_agent_from_card(viewer, {'url': 'http://localhost:11004/v1', 'model': 'm', 'temperature': value}, quiet=True))
                 self.assertEqual(viewer.llm_temperature, expected)
         for value in ('warm', float('nan'), float('inf'), [1]):
             with self.subTest(value=value), mock.patch.object(agent.Command_Engine, 'print_help'):
-                self.assertFalse(agent.activate_agent_from_card(SimpleNamespace(), {'url': 'http://x/v1', 'temperature': value}, quiet=True))
+                self.assertFalse(agent.activate_agent_from_card(SimpleNamespace(), {'url': 'http://localhost:11004/v1', 'temperature': value}, quiet=True))
 
     def test_the_local_default_cards_keep_a_temperature_of_zero(self):
         with tempfile.TemporaryDirectory() as folder, mock.patch.object(agent, '_SRC_DIR', folder):
@@ -853,7 +855,7 @@ class SamplingParameterTests(unittest.TestCase):
 
 class RememberedSamplingTests(unittest.TestCase):
     """The card remembers a provider's refusal: this session, the card file, and the Agent page's own copy."""
-    CARD = {'id': 'mine', 'name': 'My API', 'url': 'https://api.example/v1', 'model': 'm', 'api_key': 'sk-FAKE-0000',
+    CARD = {'id': 'mine', 'name': 'My API', 'url': 'http://localhost:11007/v1', 'model': 'm', 'api_key': 'sk-FAKE-0000',
             'temperature': 0.0, 'options': {'top_p': 0.9, 'reasoning_effort': 'low'}, 'extra': 'kept'}
 
     def setUp(self):
@@ -899,15 +901,15 @@ class RememberedSamplingTests(unittest.TestCase):
 
     def test_a_refusal_met_after_the_model_was_switched_updates_only_the_card(self):
         old_ref = self.viewer.llm_card_ref
-        self.assertTrue(agent.activate_agent_from_card(self.viewer, {'id': 'other', 'name': 'Other', 'url': 'http://x/v1', 'temperature': 0.2}, quiet=True))
+        self.assertTrue(agent.activate_agent_from_card(self.viewer, {'id': 'other', 'name': 'Other', 'url': 'http://localhost:11004/v1', 'temperature': 0.2}, quiet=True))
         agent._apply_call_notes(self.viewer, {'sampling_rejected': True}, old_ref)
         self.assertEqual(self.viewer.llm_temperature, 0.2)
         self.assertTrue(self.saved()['cards'][0]['omit_sampling'])
         self.assertNotIn('omit_sampling', self.saved()['cards'][1])
 
     def test_a_card_without_an_id_is_found_by_its_name_and_address(self):
-        card = {'name': 'Hand-written', 'url': 'http://remote.example/v1', 'temperature': 0.0}
-        self.path.write_text(json.dumps({'cards': [card, {'name': 'Hand-written', 'url': 'http://elsewhere/v1'}]}), encoding='utf-8')
+        card = {'name': 'Hand-written', 'url': 'http://localhost:11009/v1', 'temperature': 0.0}
+        self.path.write_text(json.dumps({'cards': [card, {'name': 'Hand-written', 'url': 'http://localhost:11010/v1'}]}), encoding='utf-8')
         viewer = SimpleNamespace(events=[])
         viewer.broadcast_event = viewer.events.append
         agent.activate_agent_from_card(viewer, card, quiet=True)
@@ -1259,7 +1261,7 @@ class StopTurnTests(unittest.TestCase):
             ('stop', lambda viewer: agent.handle_cancel_turn(viewer, {})),
             ('switched off', lambda viewer: agent.deactivate_agent(viewer, quiet=True)),
             ('history cleared', lambda viewer: agent.handle_clear_history(viewer, {})),
-            ('another model', lambda viewer: agent.activate_agent_from_card(viewer, {'name': 'New', 'url': 'http://new/v1', 'model': 'x'}, quiet=True)),
+            ('another model', lambda viewer: agent.activate_agent_from_card(viewer, {'name': 'New', 'url': 'http://localhost:11003/v1', 'model': 'x'}, quiet=True)),
         ):
             with self.subTest(label), mock.patch.object(agent, 'save_agent_history'):
                 viewer = self.running_viewer()
@@ -1386,3 +1388,284 @@ class StopWithPortalTests(PortalFixture, unittest.TestCase):
             self.app.processEvents()
             time.sleep(0.005)
         self.explain.assert_called_once()
+
+
+class CardOriginTests(unittest.TestCase):
+    """Where a card sends its requests, and whether that is this computer."""
+
+    def test_which_servers_are_on_this_computer(self):
+        cases = {
+            'http://localhost:11434/v1': (False, 'http://localhost:11434', 'localhost:11434'),
+            'http://LOCALHOST/v1': (False, 'http://localhost', 'localhost'),
+            'http://127.0.0.1:1234/v1': (False, 'http://127.0.0.1:1234', '127.0.0.1:1234'),
+            'http://127.5.6.7/v1': (False, 'http://127.5.6.7', '127.5.6.7'),
+            'http://[::1]:8080/v1': (False, 'http://[::1]:8080', '[::1]:8080'),
+            'http://0.0.0.0:8080/v1': (False, 'http://0.0.0.0:8080', '0.0.0.0:8080'),
+            'http://ollama.localhost:11434/v1': (False, 'http://ollama.localhost:11434', 'ollama.localhost:11434'),
+            'https://api.openai.com/v1': (True, 'https://api.openai.com', 'api.openai.com'),
+            'https://API.Example.com:8443/v1/chat/completions': (True, 'https://api.example.com:8443', 'api.example.com:8443'),
+            'http://192.168.1.20:11434/v1': (True, 'http://192.168.1.20:11434', '192.168.1.20:11434'),
+            'http://10.0.0.5/v1': (True, 'http://10.0.0.5', '10.0.0.5'),
+            'http://gpu-box.local:1234/v1': (True, 'http://gpu-box.local:1234', 'gpu-box.local:1234'),
+            'http://[2001:db8::7]/v1': (True, 'http://[2001:db8::7]', '[2001:db8::7]'),
+            # A name that only starts like a local one is not one.
+            'http://localhost.example.com/v1': (True, 'http://localhost.example.com', 'localhost.example.com'),
+            'http://127.0.0.1.example.com/v1': (True, 'http://127.0.0.1.example.com', '127.0.0.1.example.com'),
+            # What the user typed before @ is not part of where the data goes.
+            'https://user:secret@api.example.com/v1': (True, 'https://api.example.com', 'api.example.com'),
+        }
+        for url, (remote, origin, host) in cases.items():
+            with self.subTest(url=url):
+                found = agent.card_origin({'url': url})
+                self.assertEqual((found['remote'], found['origin'], found['host']), (remote, origin, host))
+        for url in ('', None, 'localhost:11434/v1', 'ftp://example.com/', 'not a url', 'http://host:badport/v1', '/v1'):
+            with self.subTest(url=url):
+                self.assertIsNone(agent.card_origin({'url': url}))
+
+    def test_a_key_over_plain_http_to_another_computer_is_flagged(self):
+        flagged = lambda url, key: agent.card_origin({'url': url, 'api_key': key})['plain_http_key']
+        self.assertTrue(flagged('http://gpu-box:1234/v1', 'sk-FAKE'))
+        self.assertFalse(flagged('http://gpu-box:1234/v1', ''))          # no key to send
+        self.assertFalse(flagged('https://gpu-box:1234/v1', 'sk-FAKE'))  # encrypted
+        self.assertFalse(flagged('http://localhost:1234/v1', 'sk-FAKE'))  # never leaves this computer
+
+
+class DataUseNoticeTests(unittest.TestCase):
+    """A card whose server is not on this computer is not switched on until the user has seen what it receives."""
+    REMOTE = {'id': 'remote', 'name': 'Provider', 'url': 'https://api.provider.example/v1', 'model': 'big', 'api_key': 'sk-FAKE-0000'}
+    LOCAL = {'id': 'local', 'name': 'Local', 'url': 'http://localhost:11434/v1', 'model': 'small'}
+    ORIGIN = 'https://api.provider.example'
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.folder = Path(directory.name, 'resources', 'agent')
+        self.folder.mkdir(parents=True)
+        self.path = self.folder / 'model_card.json'
+        self.path.write_text(json.dumps({'cards': [dict(self.REMOTE), dict(self.LOCAL)], 'note': 'kept'}), encoding='utf-8')
+        patcher = mock.patch.object(agent, '_SRC_DIR', directory.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(agent.Command_Engine, 'print_help')
+        self.print_help = patcher.start()
+        self.addCleanup(patcher.stop)
+        # No probe for a blank model name and no request may leave this computer.
+        patcher = mock.patch.object(agent.urllib.request, 'urlopen', side_effect=AssertionError('a request was sent'))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.viewer = SimpleNamespace(events=[])
+        self.viewer.broadcast_event = self.viewer.events.append
+
+    def saved(self):
+        return json.loads(self.path.read_text(encoding='utf-8'))
+
+    def set_backend(self, **data):
+        self.viewer.events.clear()
+        agent.handle_set_backend(self.viewer, {'action': 'set_backend', **data})
+        return [event for event in self.viewer.events if event['type'] == 'backend_state'][-1]
+
+    def test_a_remote_card_is_refused_until_accepted_and_nothing_is_sent(self):
+        blank_model = {**self.REMOTE, 'model': ''}
+        for card in (self.REMOTE, blank_model):
+            with self.subTest(model=card['model']):
+                viewer = SimpleNamespace()
+                self.assertFalse(agent.activate_agent_from_card(viewer, card, quiet=True))
+                self.assertFalse(getattr(viewer, 'llm_loaded', False))
+                self.assertEqual(viewer.llm_pending_data_use, {
+                    'card_id': 'remote', 'ref': {'id': 'remote', 'name': 'Provider', 'url': 'https://api.provider.example/v1'},
+                    'name': 'Provider', 'host': 'api.provider.example', 'origin': self.ORIGIN, 'plain_http_key': False})
+        self.assertTrue(agent.activate_agent_from_card(SimpleNamespace(), self.LOCAL, quiet=True))
+
+    def test_the_acceptance_is_for_the_server_it_was_given_for(self):
+        for accepted, url, activates in (
+            (self.ORIGIN, 'https://api.provider.example/v1', True),
+            (self.ORIGIN, 'https://api.provider.example/other/path', True),   # the same server
+            (self.ORIGIN, 'http://api.provider.example/v1', False),           # no longer encrypted
+            (self.ORIGIN, 'https://api.provider.example:8443/v1', False),     # another port
+            (self.ORIGIN, 'https://elsewhere.example/v1', False),             # another server
+            ('https://other.example', 'https://api.provider.example/v1', False),
+            (None, 'https://api.provider.example/v1', False),
+        ):
+            with self.subTest(accepted=accepted, url=url):
+                card = {**self.REMOTE, 'url': url, 'model': 'big', 'data_use_accepted': accepted}
+                with mock.patch.object(agent.Command_Engine, 'print_help'):
+                    self.assertEqual(agent.activate_agent_from_card(SimpleNamespace(), card, quiet=True), activates)
+
+    def test_a_refused_card_leaves_the_model_loaded_as_it_was(self):
+        self.assertTrue(agent.activate_agent_from_card(self.viewer, self.LOCAL, quiet=True))
+        self.assertFalse(agent.activate_agent_from_card(self.viewer, self.REMOTE, quiet=True))
+        self.assertEqual((self.viewer.llm_loaded, self.viewer.llm_model_name), (True, 'small'))
+        # Switching to a card that is let through clears the notice.
+        self.assertTrue(self.viewer.llm_pending_data_use)
+        self.assertTrue(agent.activate_agent_from_card(self.viewer, self.LOCAL, quiet=True))
+        self.assertIsNone(self.viewer.llm_pending_data_use)
+
+    def test_the_page_is_asked_then_continue_saves_the_acceptance_and_switches_the_model_on(self):
+        state = self.set_backend(card_id='remote')
+        self.assertFalse(state['llm_loaded'])
+        self.assertEqual(state['data_use'], self.viewer.llm_pending_data_use)
+        self.assertEqual((state['data_use']['name'], state['data_use']['host'], state['data_use']['plain_http_key']),
+                         ('Provider', 'api.provider.example', False))
+        self.assertNotIn('data_use_accepted', self.saved()['cards'][0])
+
+        state = self.set_backend(card_id='remote', accept_data_use=True)
+        self.assertEqual((state['llm_loaded'], state['llm_model_name'], 'data_use' in state), (True, 'big', False))
+        document = self.saved()
+        self.assertEqual(document['cards'][0], {**self.REMOTE, 'data_use_accepted': self.ORIGIN})
+        self.assertEqual(document['cards'][1], self.LOCAL)
+        self.assertEqual(document['note'], 'kept')
+        self.assertEqual(os.listdir(self.folder), ['model_card.json'])
+        # The page keeps its own copy of the cards, and is told, so its next Save keeps this.
+        self.assertIn({'type': 'model_card_updated', 'card_id': 'remote', 'fields': {'data_use_accepted': self.ORIGIN}}, self.viewer.events)
+        # Never asked again for this card: not now, and not after a restart.
+        self.assertEqual(self.set_backend(card_id=None)['llm_loaded'], False)
+        self.assertTrue(self.set_backend(card_id='remote')['llm_loaded'])
+        restarted = SimpleNamespace()
+        self.assertTrue(agent.activate_agent_from_card(restarted, agent.load_model_cards()[0], quiet=True))
+
+    def test_continue_counts_only_for_the_card_the_notice_was_about(self):
+        # No notice was shown, so a request that says it was accepted accepts nothing.
+        state = self.set_backend(card_id='remote', accept_data_use=True)
+        self.assertEqual((state['llm_loaded'], bool(state.get('data_use'))), (False, True))
+        self.assertNotIn('data_use_accepted', self.saved()['cards'][0])
+        # The notice is about the remote card; accepting it for another card does not carry over.
+        other = {**self.REMOTE, 'id': 'other', 'name': 'Another', 'url': 'https://another.example/v1'}
+        self.path.write_text(json.dumps({'cards': [dict(self.REMOTE), other]}), encoding='utf-8')
+        state = self.set_backend(card_id='other', accept_data_use=True)
+        self.assertEqual((state['llm_loaded'], state['data_use']['name']), (False, 'Another'))
+        self.assertNotIn('data_use_accepted', self.saved()['cards'][1])
+
+    def test_cancel_clears_the_notice_and_the_model_loaded_stays(self):
+        self.assertTrue(self.set_backend(card_id='local')['llm_loaded'])
+        self.assertIn('data_use', self.set_backend(card_id='remote'))
+        self.viewer.events.clear()
+        agent.handle_decline_data_use(self.viewer, {})
+        [state] = self.viewer.events
+        self.assertEqual((state['llm_loaded'], state['llm_model_name'], 'data_use' in state), (True, 'small', False))
+        self.assertNotIn('data_use_accepted', self.saved()['cards'][0])
+        # A cancelled notice cannot be accepted afterwards: the notice is asked again, and the model is still the local one.
+        state = self.set_backend(card_id='remote', accept_data_use=True)
+        self.assertEqual((state['llm_model_name'], 'data_use' in state), ('small', True))
+        self.assertNotIn('data_use_accepted', self.saved()['cards'][0])
+        # Switching the agent off clears one too.
+        self.assertIn('data_use', self.set_backend(card_id='remote'))
+        self.assertNotIn('data_use', self.set_backend(card_id=None))
+
+    def test_a_page_opened_while_a_notice_waits_is_sent_it(self):
+        self.set_backend(card_id='remote')
+        with mock.patch.object(agent, 'load_agent_history', return_value=[]):
+            state = agent._extend_initial_web_state(self.viewer, {})
+        self.assertEqual(state['data_use'], self.viewer.llm_pending_data_use)
+        self.assertNotIn('warning', state)
+
+    def test_the_terminal_is_told_which_card_waits_and_the_page_is_shown_the_notice(self):
+        from commands import agent as agent_command
+        cases = {'a page open': (True, True, False), 'windows shown, no page': (True, False, True), 'no windows': (False, False, False)}
+        for label, (windows, page, opens) in cases.items():
+            with self.subTest(label):
+                viewer = SimpleNamespace(events=[], shows_windows=lambda windows=windows: windows, open_agent_ui=mock.Mock(return_value=True),
+                                         web_server=SimpleNamespace(has_event_client=lambda client, page=page: page))
+                viewer.broadcast_event = viewer.events.append
+                self.assertFalse(agent.activate_agent_from_card(viewer, self.REMOTE, quiet=True))
+                message = agent.review_data_use(viewer)
+                self.assertIn("Model card 'Provider' sends your data to api.provider.example", str(message))
+                self.assertEqual(viewer.open_agent_ui.called, opens)
+                self.assertEqual([e['data_use']['name'] for e in viewer.events if e['type'] == 'backend_state'], ['Provider'])
+        self.assertIsNone(agent.review_data_use(SimpleNamespace()))
+
+    def test_the_command_fails_with_the_reason_and_does_not_switch_the_model_on(self):
+        from commands import agent as agent_command
+        engine = agent_command.Command_Engine
+        self.path.write_text(json.dumps({'cards': [dict(self.REMOTE)]}), encoding='utf-8')
+        for args in (['<Provider>'], ['select', 'cluster', '1']):
+            with self.subTest(args=args), mock.patch.object(engine, 'command_failed') as failed, \
+                    mock.patch.object(engine, 'command_succeeded') as succeeded, \
+                    mock.patch.object(agent_command, 'register'), \
+                    mock.patch.object(agent_command, 'run_web_agent_query') as query:
+                viewer = SimpleNamespace(events=[], shows_windows=lambda: True, open_agent_ui=mock.Mock(return_value=True))
+                viewer.broadcast_event = viewer.events.append
+                with redirect_stdout(io.StringIO()):
+                    agent_command.run(viewer, args)
+                failed.assert_called_once()
+                self.assertIn('not on this computer', str(failed.call_args.args[1]))
+                succeeded.assert_not_called()
+                query.assert_not_called()
+                viewer.open_agent_ui.assert_called_once_with(show_existing_dialog=False)
+                self.assertFalse(getattr(viewer, 'llm_loaded', False))
+
+    def test_a_card_that_sends_a_key_over_plain_http_is_warned_about_each_time_it_is_switched_on(self):
+        card = {'id': 'lan', 'name': 'LAN box', 'url': 'http://gpu-box.lan:1234/v1', 'model': 'm', 'api_key': 'sk-FAKE-0000'}
+        self.path.write_text(json.dumps({'cards': [{**card, 'data_use_accepted': 'http://gpu-box.lan:1234'}]}), encoding='utf-8')
+        for _ in range(2):
+            self.print_help.reset_mock()
+            state = self.set_backend(card_id='lan')
+            self.assertTrue(state['llm_loaded'])
+            self.assertIn('sends its API key over plain http:// to gpu-box.lan:1234', state['warning'])
+            self.assertNotIn('sk-FAKE-0000', state['warning'])
+            self.assertIn('plain http://', str(self.print_help.call_args.args[1]))
+            self.set_backend(card_id=None)
+        with mock.patch.object(agent, 'load_agent_history', return_value=[]):
+            self.set_backend(card_id='lan')
+            self.assertIn('warning', agent._extend_initial_web_state(self.viewer, {}))
+        # No warning for a card that cannot send a key that way, nor once it is switched off.
+        self.assertNotIn('warning', self.set_backend(card_id='local'))
+        self.assertNotIn('warning', self.set_backend(card_id=None))
+        # The notice for such a card says so too.
+        self.path.write_text(json.dumps({'cards': [card]}), encoding='utf-8')
+        self.assertTrue(self.set_backend(card_id='lan')['data_use']['plain_http_key'])
+
+
+class SnapshotPathsTests(unittest.TestCase):
+    """The snapshot the model gets names files, not the folders of the user's computer; MCP's summary is unchanged."""
+    DIRECTORY = 'C:\\Users\\Someone\\Private Lab\\Project'
+
+    def viewer(self):
+        from desktop.Viewer_Inspection import ViewerInspectionService
+        viewer = SimpleNamespace(
+            n_nodes=2, full_headers=['A', 'B'], visible_mask=[True, True], selected_indices=[], edges=[(0, 1)],
+            metadata={'score': {'type': 'numeric', 'values': [1.0, 2.0]}}, cluster_labels=[1, 1], group_labels=[set(), set()],
+            current_slider_threshold=0.5)
+        config = SimpleNamespace(
+            NODE_FASTA_FILE=self.DIRECTORY + '\\Input_Files\\set.fasta', INPUT_HDF5='/home/someone/lab/network.h5',
+            MSA_FILE='alignment.fasta', EMBED_FILE=self.DIRECTORY + '\\Embeddings\\set.h5',
+            TARGET_CACHE_PATH=self.DIRECTORY + '\\Cache_Files\\version_00.h5', SIMILARITY_THRESHOLD=0.1)
+        viewer.viewer_inspection = ViewerInspectionService(viewer, config)
+        return viewer
+
+    def test_the_model_gets_file_names_and_mcp_keeps_the_paths(self):
+        viewer = self.viewer()
+        text = agent.get_viewer_session_context(viewer)
+        document = json.loads(text.split('---\n', 1)[1])
+        self.assertEqual(document['summary']['inputs'], {
+            'node_fasta': 'set.fasta', 'network_hdf5': 'network.h5', 'msa': 'alignment.fasta',
+            'embedding': 'set.h5', 'layout_cache': 'version_00.h5'})
+        for private in ('Someone', 'Private Lab', '/home/', 'C:\\\\Users', 'Input_Files'):
+            self.assertNotIn(private, text)
+        # The summary MCP clients read is the service's own, and still has them.
+        service = viewer.viewer_inspection
+        snapshot = service.capture_snapshot()
+        inputs = service.snapshots.execute('get_summary', snapshot)['inputs']
+        self.assertEqual(inputs['node_fasta'], self.DIRECTORY + '\\Input_Files\\set.fasta')
+        self.assertEqual(inputs['network_hdf5'], '/home/someone/lab/network.h5')
+        self.assertEqual(service.get_summary()['inputs']['layout_cache'], self.DIRECTORY + '\\Cache_Files\\version_00.h5')
+
+    def test_the_embedding_file_and_the_generation_parameters_lose_their_folders_too(self):
+        summary = {
+            'inputs': {'node_fasta': '/data/set.fasta', 'msa': None, 'embedding': '', 'layout_cache': 'Cache_Files\\a\\v.h5'},
+            'embedding': {'available': True, 'file': 'D:/emb/set.h5', 'model': 'esm'},
+            'provenance': {'status': 'valid', 'generation_parameters': {
+                'input': 'C:\\data\\x.h5', 'steps': 3, 'nested': [{'path': '/home/u/y.fasta', 'name': 'a/b not a path'}],
+                'mount': '\\\\server\\share\\z.h5'}},
+            'metadata_preview': [{'name': '/looks/like/a/path', 'type': 'text'}],
+            'alignment': {'reference': '/not/a/path|header'},
+        }
+        result = agent.agent_summary(summary)
+        self.assertEqual(result['inputs'], {'node_fasta': 'set.fasta', 'msa': None, 'embedding': '', 'layout_cache': 'v.h5'})
+        self.assertEqual(result['embedding'], {'available': True, 'file': 'set.h5', 'model': 'esm'})
+        self.assertEqual(result['provenance']['generation_parameters'],
+                         {'input': 'x.h5', 'steps': 3, 'nested': [{'path': 'y.fasta', 'name': 'a/b not a path'}], 'mount': 'z.h5'})
+        # Names a command must spell exactly are left alone: only paths of the user's folders change.
+        self.assertEqual(result['metadata_preview'], summary['metadata_preview'])
+        self.assertEqual(result['alignment'], summary['alignment'])
+        self.assertEqual(summary['inputs']['node_fasta'], '/data/set.fasta')  # the argument is not changed
+        self.assertEqual(agent.agent_summary({'node_count': 3}), {'node_count': 3})

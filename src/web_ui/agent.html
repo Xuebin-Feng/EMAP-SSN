@@ -592,6 +592,34 @@
         .msg-agent th, .msg-agent td { border: 1px solid var(--border-color); padding: 4px 8px; }
         .msg-agent th { background: var(--bg-muted); font-weight: 600; }
 
+        .msg-warning {
+            background-color: var(--warning-soft);
+            border: 1px solid var(--warning);
+            border-radius: var(--radius);
+            padding: 8px 12px;
+            max-width: 86%;
+            font-size: 12.5px;
+            line-height: 1.5;
+            overflow-wrap: anywhere;
+        }
+        .msg-warning .icon { width: 14px; height: 14px; color: var(--warning); vertical-align: -2px; margin-right: 6px; }
+
+        /* What a model card sends to a server that is not on this computer, shown before its first use. */
+        .data-use-notice {
+            border: 1px solid var(--warning);
+            border-radius: var(--radius-card);
+            background-color: var(--bg-inset);
+            padding: 12px 14px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .data-use-notice:focus { outline: none; box-shadow: 0 0 0 2px var(--accent); }
+        .data-use-title { font-weight: 600; font-size: 14px; margin-bottom: 6px; }
+        .data-use-notice p { margin: 6px 0; overflow-wrap: anywhere; }
+        .data-use-notice ul { margin: 4px 0 6px; padding-left: 20px; }
+        .data-use-notice .card-note { margin: 8px 0; }
+        .data-use-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+
         .msg-error {
             background-color: var(--danger-soft);
             border: 1px solid var(--danger-border);
@@ -1009,6 +1037,7 @@
         <symbol id="i-copy" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
         <symbol id="i-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/></symbol>
         <symbol id="i-eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.733 5.076a10.744 10.744 0 0 1 11.205 6.575 1 1 0 0 1 0 .696 10.747 10.747 0 0 1-1.444 2.49"/><path d="M14.084 14.158a3 3 0 0 1-4.242-4.242"/><path d="M17.479 17.499a10.75 10.75 0 0 1-15.417-5.151 1 1 0 0 1 0-.696 10.75 10.75 0 0 1 4.446-5.143"/><path d="m2 2 20 20"/></symbol>
+        <symbol id="i-triangle-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/></symbol>
         <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/></symbol>
     </svg>
 
@@ -1251,6 +1280,19 @@
             }
         }
 
+        // Whether a server is on this computer (the Viewer decides the same way: agent_backend.card_origin).
+        function isLocalHost(hostname) {
+            const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+            return host === "localhost" || host.endsWith(".localhost") || host === "::1" || host === "0.0.0.0" || /^127\.\d+\.\d+\.\d+$/.test(host);
+        }
+
+        function cardOrigin(card) {
+            let url;
+            try { url = new URL(String(card.url || "").trim()); } catch (e) { return null; }
+            if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+            return { host: url.host, local: isLocalHost(url.hostname), plainHttp: url.protocol === "http:" };
+        }
+
         // The Viewer changed a saved card itself (it learned that the provider
         // refuses sampling parameters, or the user accepted what a remote
         // server receives). The page keeps its own copy of the cards and saves
@@ -1379,6 +1421,7 @@
                         div._refresh();
                     } else {
                         modelCards[index][key] = inp.value;
+                        if (key === "url") div._refresh();
                     }
                     if (key === "name") { nameLabel.textContent = inp.value || t("Model {number}", {number: index + 1}); populateDropdown(); }
                 });
@@ -1392,10 +1435,18 @@
             samplingNote.setAttribute("role", "note");
             samplingNote.textContent = t("The provider rejected sampling parameters, so none is sent. Edit the temperature to send it again.");
             body.appendChild(samplingNote);
+            const keyWarning = document.createElement("div");
+            keyWarning.className = "card-note is-warning";
+            keyWarning.setAttribute("role", "note");
             // The notes below the fields follow the card as it is edited, and as the Viewer updates it.
             div._refresh = () => {
                 const current = modelCards[index] || {};
                 samplingNote.hidden = !current.omit_sampling;
+                const origin = cardOrigin(current);
+                keyWarning.hidden = !(origin && !origin.local && origin.plainHttp && current.api_key);
+                if (!keyWarning.hidden) {
+                    keyWarning.textContent = t("This card would send its API key over plain http:// to {host}, which is not on this computer: anyone on the network path could read it. Use an https:// address.", {host: origin.host});
+                }
             };
             div._refresh();
 
@@ -1413,6 +1464,7 @@
             apiInp.value = card.api_key || "";
             apiInp.addEventListener("input", () => {
                 if (modelCards[index]) modelCards[index].api_key = apiInp.value;
+                div._refresh();
             });
             // An icon button: an eye shows the key, a crossed-out eye hides it.
             const showBtn = document.createElement("button");
@@ -1436,6 +1488,7 @@
             apiDiv.appendChild(apiLbl);
             apiDiv.appendChild(apiRow);
             body.appendChild(apiDiv);
+            body.appendChild(keyWarning);
 
             // Custom Options (JSON) field
             const optDiv = document.createElement("div");
@@ -1701,11 +1754,11 @@
         // Bring a command's Run and Discard buttons into view, and the keyboard to them
         // unless the user is typing somewhere else (the cards panel, say). The row takes
         // the focus, not Run: a key pressed at that moment must not approve anything.
-        function revealApproval(row) {
-            row.scrollIntoView({ block: 'nearest' });
+        function revealPrompt(element) {
+            element.scrollIntoView({ block: 'nearest' });
             const active = document.activeElement;
             if (!active || active === document.body || active.closest('#chat-composer, #chat-log')) {
-                row.focus({ preventScroll: true });
+                element.focus({ preventScroll: true });
             }
         }
 
@@ -1760,7 +1813,76 @@
                 }
             });
             rows.forEach(item => item.remove());
-            if (waiting) revealApproval(waiting);
+            if (waiting) revealPrompt(waiting);
+        }
+
+        // What a card whose server is not on this computer sends, shown before the card is first
+        // used: Continue is the user accepting it for that card, Cancel leaves the card unused.
+        function removeDataUseNotice() {
+            const notice = document.getElementById('data-use-notice');
+            if (notice) notice.remove();
+        }
+
+        function showDataUseNotice(info) {
+            removeDataUseNotice();
+            const notice = document.createElement('div');
+            notice.id = 'data-use-notice';
+            notice.className = 'data-use-notice';
+            notice.setAttribute('role', 'group');
+            notice.setAttribute('tabindex', '-1');
+            const title = document.createElement('div');
+            title.className = 'data-use-title';
+            title.id = 'data-use-title';
+            title.textContent = t("Send data to {host}?", {host: info.host});
+            notice.setAttribute('aria-labelledby', 'data-use-title');
+            const intro = document.createElement('p');
+            intro.textContent = t('With every message, the model card "{card}" sends the following to {host}, a server that is not on this computer.', {card: info.name, host: info.host});
+            const list = document.createElement('ul');
+            for (const item of [
+                t("the agent's instructions"),
+                t("a summary of the open session: file names, metadata column names, selection counts and the reference header"),
+                t("your messages, and the output of the commands the agent runs"),
+                t("any images you attach"),
+            ]) {
+                const entry = document.createElement('li');
+                entry.textContent = item;
+                list.append(entry);
+            }
+            const terms = document.createElement('p');
+            terms.textContent = t("{host}'s own terms and privacy policy apply to what it receives.", {host: info.host})
+                + " " + t("You are not asked again for this card unless its address changes.");
+            notice.append(title, intro, list, terms);
+            if (info.plain_http_key) {
+                const warning = document.createElement('div');
+                warning.className = 'card-note is-warning';
+                warning.setAttribute('role', 'note');
+                warning.textContent = t("This card would also send its API key over plain http://, which anyone on the network path could read. Use an https:// address.");
+                notice.append(warning);
+            }
+            const buttons = document.createElement('div');
+            buttons.className = 'data-use-buttons';
+            const proceed = document.createElement('button');
+            proceed.type = 'button';
+            proceed.className = 'btn btn-primary';
+            proceed.textContent = t("Continue");
+            const cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.className = 'btn';
+            cancel.textContent = t("Cancel");
+            proceed.addEventListener('click', () => {
+                // A card the page knows without an id is found by its name, as the Viewer finds it.
+                const cardId = info.card_id || (modelCards.find(card => card.name === info.name) || {}).id;
+                removeDataUseNotice();
+                sendAction({ action: 'set_backend', card_id: cardId, accept_data_use: true });
+            });
+            cancel.addEventListener('click', () => {
+                removeDataUseNotice();
+                sendAction({ action: 'decline_data_use' });
+            });
+            buttons.append(proceed, cancel);
+            notice.append(buttons);
+            document.getElementById('chat-log').appendChild(notice);
+            revealPrompt(notice);
         }
 
         function handleServerEvent(event) {
@@ -1781,6 +1903,8 @@
                             : t("Agent is inactive. Select a model and press the toggle button to activate."));
                     }
                     reconcileSubmission(event.data.llm_history || []);
+                    if (event.data.data_use) showDataUseNotice(event.data.data_use);
+                    if (event.data.warning) appendWarningMsg(event.data.warning);
                     // A turn already running (one started from the terminal, say) can be stopped from this page.
                     if (event.data.agent_busy) {
                         composerEnabled = false;
@@ -1826,6 +1950,8 @@
                     if (!event.llm_loaded) setTurnActive(false);
                     updateLLMState(event, false);
                     if (event.error) appendErrorMsg(event.error);
+                    if (event.data_use) showDataUseNotice(event.data_use); else removeDataUseNotice();
+                    if (event.warning) appendWarningMsg(event.warning);
                     break;
                 case "agent_thinking":
                     // A turn started from the terminal locks the composer too.
@@ -1945,6 +2071,20 @@
             const wrapper = document.createElement("div");
             wrapper.className = "msg-wrapper msg-wrapper-system";
             wrapper.innerHTML = `<div class="msg msg-system">${escapeHtml(msg)}</div>`;
+            chatLog.appendChild(wrapper);
+            chatLog.scrollTop = chatLog.scrollHeight;
+        }
+
+        function appendWarningMsg(msg) {
+            const chatLog = document.getElementById("chat-log");
+            const wrapper = document.createElement("div");
+            wrapper.className = "msg-wrapper msg-wrapper-system";
+            const box = document.createElement("div");
+            box.className = "msg msg-warning";
+            box.setAttribute("role", "note");
+            const alertIcon = icon("triangle-alert");
+            box.append(alertIcon, msg);
+            wrapper.appendChild(box);
             chatLog.appendChild(wrapper);
             chatLog.scrollTop = chatLog.scrollHeight;
         }

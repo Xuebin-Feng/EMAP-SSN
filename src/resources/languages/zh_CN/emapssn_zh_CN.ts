@@ -81,7 +81,7 @@
         <translation type="obsolete">🌙 深色模式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent.html" line="+1019"/>
+        <location filename="../../../web_ui/agent.html" line="+1048"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -92,12 +92,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+861"/>
+        <location line="+958"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-860"/>
+        <location line="-957"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -225,8 +225,8 @@
     </message>
     <message>
         <location line="+24"/>
-        <location line="+90"/>
-        <location line="+68"/>
+        <location line="+103"/>
+        <location line="+69"/>
         <source>Model {number}</source>
         <translation type="unfinished">模型 {number}</translation>
     </message>
@@ -235,7 +235,7 @@
         <translation type="obsolete">正在使用“{model}”已保存的设置：要使用此处的修改，请点击 💾 保存。</translation>
     </message>
     <message>
-        <location line="-133"/>
+        <location line="-147"/>
         <source>this model</source>
         <translation type="unfinished">此模型</translation>
     </message>
@@ -244,8 +244,8 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-1228"/>
-        <location line="+994"/>
+        <location line="-1257"/>
+        <location line="+1023"/>
         <source>EMAP-SSN Agent (Beta)</source>
         <translation type="unfinished">EMAP-SSN 智能体（测试版）</translation>
     </message>
@@ -293,7 +293,7 @@
         <translation type="unfinished">正在使用“{model}”已保存的设置：要使用此处的修改，请点击保存。</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+44"/>
         <source>Saved!</source>
         <translation type="unfinished">已保存！</translation>
     </message>
@@ -348,12 +348,17 @@
         <translation type="unfinished">留空：不发送</translation>
     </message>
     <message>
-        <location line="+38"/>
+        <location line="+39"/>
         <source>The provider rejected sampling parameters, so none is sent. Edit the temperature to send it again.</source>
         <translation type="unfinished">服务商拒绝了采样参数，因此不再发送任何采样参数。修改温度即可重新发送。</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+12"/>
+        <source>This card would send its API key over plain http:// to {host}, which is not on this computer: anyone on the network path could read it. Use an https:// address.</source>
+        <translation type="unfinished">此卡片会通过普通的 http:// 把 API 密钥发送到 {host}，该服务器不在本机上：网络路径上的任何人都可能读取它。请使用 https:// 地址。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>API Key</source>
         <translation type="unfinished">API 密钥</translation>
     </message>
@@ -363,7 +368,7 @@
         <translation type="unfinished">sk-...（不需要时留空）</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+14"/>
         <source>Show</source>
         <translation type="unfinished">显示</translation>
     </message>
@@ -373,7 +378,7 @@
         <translation type="unfinished">隐藏</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+21"/>
         <source>Custom Options (JSON)</source>
         <translation type="unfinished">自定义选项（JSON）</translation>
     </message>
@@ -439,7 +444,62 @@
         <translation type="unfinished">查看器命令</translation>
     </message>
     <message>
-        <location line="+58"/>
+        <location line="+61"/>
+        <source>Send data to {host}?</source>
+        <translation type="unfinished">要向 {host} 发送数据吗？</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>With every message, the model card &quot;{card}&quot; sends the following to {host}, a server that is not on this computer.</source>
+        <translation type="unfinished">每发送一条消息，模型卡片“{card}”都会向 {host}（一台不在本机上的服务器）发送以下内容。</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>the agent&apos;s instructions</source>
+        <translation type="unfinished">智能体的指令</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>a summary of the open session: file names, metadata column names, selection counts and the reference header</source>
+        <translation type="unfinished">当前会话的摘要：文件名、元数据列名、选中数量和参考序列标题</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>your messages, and the output of the commands the agent runs</source>
+        <translation type="unfinished">您的消息，以及智能体所运行命令的输出</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>any images you attach</source>
+        <translation type="unfinished">您附加的所有图片</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>{host}&apos;s own terms and privacy policy apply to what it receives.</source>
+        <translation type="unfinished">{host} 自己的服务条款和隐私政策适用于它所收到的内容。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>You are not asked again for this card unless its address changes.</source>
+        <translation type="unfinished">除非此卡片的地址发生变化，否则不会再次询问。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>This card would also send its API key over plain http://, which anyone on the network path could read. Use an https:// address.</source>
+        <translation type="unfinished">此卡片还会通过普通的 http:// 发送其 API 密钥，网络路径上的任何人都可能读取。请使用 https:// 地址。</translation>
+    </message>
+    <message>
+        <location line="+8"/>
+        <source>Continue</source>
+        <translation type="unfinished">继续</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Cancel</source>
+        <translation type="unfinished">取消</translation>
+    </message>
+    <message>
+        <location line="+31"/>
         <source>Agent active: {model}</source>
         <translation type="unfinished">智能体已启用：{model}</translation>
     </message>
@@ -449,8 +509,8 @@
         <translation type="unfinished">智能体未启用。请选择一个模型，然后点击开关启用。</translation>
     </message>
     <message>
-        <location line="+7"/>
-        <location line="+100"/>
+        <location line="+9"/>
+        <location line="+102"/>
         <source>LLM</source>
         <translation type="unfinished">LLM</translation>
     </message>
@@ -480,7 +540,7 @@
         <translation type="unfinished">思考中（{model}）…</translation>
     </message>
     <message>
-        <location line="+184"/>
+        <location line="+198"/>
         <source>&lt;b&gt;Error:&lt;/b&gt; {error}</source>
         <translation type="unfinished">&lt;b&gt;错误：&lt;/b&gt;{error}</translation>
     </message>
@@ -4513,7 +4573,8 @@ Command-line usage:
     </message>
     <message>
         <location line="+8"/>
-        <location filename="../../../commands/agent.py" line="+74"/>
+        <location filename="../../../commands/agent.py" line="+75"/>
+        <location line="+16"/>
         <location line="+127"/>
         <location filename="../../../commands/esmfold.py" line="+108"/>
         <location line="+582"/>
@@ -4535,7 +4596,7 @@ Command-line usage:
         <location filename="../../../commands/query.py" line="+583"/>
         <location filename="../../../commands/reset.py" line="+114"/>
         <location filename="../../../commands/select.py" line="-195"/>
-        <location filename="../../../web_ui/agent_backend.py" line="+314"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+373"/>
         <location filename="../../../web_ui/meta_backend.py" line="+57"/>
         <source>Error: {error}</source>
         <translation type="unfinished">错误：{error}</translation>
@@ -6986,7 +7047,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="obsolete">此无界面查看器没有可用于渲染的 OpenGL 上下文；请以正常模式重新启动它以截取视图。</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent_backend.py" line="-199"/>
+        <location filename="../../../web_ui/agent_backend.py" line="-256"/>
         <source>The file was left unchanged: correct it, or delete it to start over from the default cards.</source>
         <translation type="unfinished">该文件保持不变：请修正它，或删除它以从默认的模型卡重新开始。</translation>
     </message>
@@ -7011,7 +7072,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">请求必须包含非空的 &quot;cards&quot; 对象列表</translation>
     </message>
     <message>
-        <location line="+96"/>
+        <location line="+139"/>
         <source>Error: Model card &apos;{card}&apos; has an invalid temperature ({temperature}). Open ⚙ Models to edit it.</source>
         <translation type="unfinished">错误：模型卡“{card}”的温度无效（{temperature}）。请打开 ⚙ 模型进行编辑。</translation>
     </message>
@@ -7021,7 +7082,12 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">错误：模型卡“{card}”未配置 URL。请打开 ⚙ 模型进行编辑。</translation>
     </message>
     <message>
-        <location line="+43"/>
+        <location line="+51"/>
+        <source>Warning: Model card &apos;{card}&apos; sends its API key over plain http:// to {host}, which is not on this computer, so anyone on the network path could read it. Use an https:// address.</source>
+        <translation type="unfinished">警告：模型卡片“{card}”会通过普通的 http:// 把 API 密钥发送到 {host}，该服务器不在本机上，因此网络路径上的任何人都可能读取它。请使用 https:// 地址。</translation>
+    </message>
+    <message>
+        <location line="+6"/>
         <location line="+34"/>
         <source>LLM Agent Activated: {card} → {model}</source>
         <translation type="unfinished">LLM 智能体已启用：{card} → {model}</translation>
@@ -7069,7 +7135,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">未收到 LLM 的回复。</translation>
     </message>
     <message>
-        <location line="+204"/>
+        <location line="+240"/>
         <source>Invalid submission ID.</source>
         <translation type="unfinished">无效的提交 ID。</translation>
     </message>
@@ -7104,28 +7170,33 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">智能体想要运行 {command}，该命令需要您的批准。请打开智能体页面来运行或放弃它。</translation>
     </message>
     <message>
-        <location line="+210"/>
+        <location line="+224"/>
+        <source>Model card &apos;{card}&apos; sends your data to {host}, a server that is not on this computer. Switch the model on in the Agent page once to see what it receives and accept that.</source>
+        <translation type="unfinished">模型卡片“{card}”会把您的数据发送到 {host}，该服务器不在本机上。请先在智能体页面中开启该模型一次，查看它会收到什么并接受。</translation>
+    </message>
+    <message>
+        <location line="+26"/>
         <source>Reload the Agent page to switch models.</source>
         <translation type="unfinished">请重新加载智能体页面以切换模型。</translation>
     </message>
     <message>
         <location line="+5"/>
-        <location line="+33"/>
+        <location line="+39"/>
         <source>Model cards could not be loaded: {error}</source>
         <translation type="unfinished">无法加载模型卡：{error}</translation>
     </message>
     <message>
-        <location line="-31"/>
+        <location line="-37"/>
         <source>This model is not saved yet: press 💾 Save in ⚙ Models, then switch the agent on again.</source>
         <translation type="unfinished">此模型尚未保存：请在 ⚙ 模型中点击 💾 保存，然后重新开启智能体。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+22"/>
         <source>Model cards were not saved: {error}</source>
         <translation type="unfinished">模型卡未保存：{error}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent_images.py" line="+21"/>
+        <location filename="../../../web_ui/agent_images.py" line="+22"/>
         <location filename="../../../web_ui/Web_Server.py" line="+756"/>
         <source>Each image must be nonempty and at most 20 MiB.</source>
         <translation type="unfinished">每张图片都不能为空，且最大为 20 MiB。</translation>
@@ -12543,7 +12614,7 @@ Fedora / RHEL：
         <translation type="obsolete">🤖 智能体</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent_backend.py" line="+108"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+112"/>
         <source>Agent</source>
         <translation type="unfinished">智能体</translation>
     </message>
