@@ -1148,7 +1148,8 @@
                     <li><strong>No Arguments:</strong> Opens <code>/agent.html</code> on the viewer's active web server in the default browser. The host and port come from the running viewer rather than a fixed URL.</li>
                     <li><strong>&lt;Model Custom Name&gt; (Mandatory Brackets):</strong> Enclosed in <code>&lt;&gt;</code> brackets, this activates the agent and loads the specified model custom name (e.g. <code>agent &lt;Gemini API&gt;</code>).</li>
                     <li><strong>off / deactivate:</strong> Deactivates the LLM agent and unloads the active model.</li>
-                    <li><strong>&quot;message&quot; / message:</strong> Forwards the query directly to the LLM agent. If the agent isn't turned on, it will automatically load the first model card in your list.</li>
+                    <li><strong>&quot;message&quot; / message:</strong> Forwards the query directly to the LLM agent. If the agent isn't turned on, it will automatically load the first model card in your list. The message and its answer appear in the Agent page as if typed there. A command in the reply that needs your approval (one that writes or imports files, opens a dialog or spends credit) waits for <strong>Run</strong> or <strong>Discard</strong> in the page, which opens if the Viewer shows windows; in a Viewer with no window and no open page it is refused at once.</li>
+                    <li><strong>A model card on another computer:</strong> The first time <code>agent &lt;Model Custom Name&gt;</code> or a message would switch on a card whose server is not on this computer, the command fails and the Agent page shows what the card receives; nothing is sent before you press <strong>Continue</strong> there, once for each card address.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>

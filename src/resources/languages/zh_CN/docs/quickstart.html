@@ -506,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="01a6b423bf4ae33dcc313c1f361d256ac92df718061418e71ac0c1ce1fbdeef2">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="4d7de61bd2f3e90e43f9fc05b4d7b857605ecf08e49c39863f494f7503118d44">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -625,6 +625,9 @@
                         <h4><svg class="icon" aria-hidden="true"><use href="#i-bot"/></svg><span>AI 智能体助手</span></h4>
                         <p style="font-size: 0.88rem;">
                             点击<strong>智能体</strong>会打开一个内嵌的对话式 AI 助手。可以提出高层次的问题（例如<em>“哪个簇的催化天冬氨酸保守性最高？”</em>），也可以指示智能体自动运行复杂的多步骤格式设置命令。
+                        </p>
+                        <p style="font-size: 0.88rem;">
+                            智能体回复中仅改变视图的命令会立即运行；写入或导入文件、打开对话框或消耗额度的命令会在聊天中等待，直到您点击<strong>运行</strong>或<strong>丢弃</strong>；<strong>停止</strong>可以结束正在进行的一轮对话。首次开启服务器不在本机上的模型卡片时，页面会显示该卡片将收到的内容（智能体的指令、会话摘要、您的消息和命令输出，以及您附加的图片），在您点击<strong>继续</strong>之前不会发送任何内容。每次请求只会重新发送聊天的最近 10 轮。
                         </p>
                     </div>
                     <div class="grid-card" style="grid-column: 1 / -1;">

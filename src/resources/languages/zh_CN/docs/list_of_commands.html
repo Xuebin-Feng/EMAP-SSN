@@ -1128,7 +1128,7 @@
 
 
             <div class="section-divider" id="sec-agent" data-source-sha256="1d33c7924073645ec8b1b9203dfd78ca88b6470c8ac2f1ea4b87bf12e20181b7">LLM 智能体</div>
-            <section class="command-card" id="cmd-agent" data-source-sha256="914731a1b11b065e54f5f72c6de673bc33ead6135aa8d8e43fda362c5e23e8a7">
+            <section class="command-card" id="cmd-agent" data-source-sha256="a5bccb14aacba722880f8f3123c3d9d879dede5cfa2b1327ef2d793913383cc2">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">agent</span>
@@ -1147,7 +1147,8 @@
                     <li><strong>不带参数：</strong>在默认浏览器中打开查看器当前 Web 服务器上的 <code>/agent.html</code>。主机和端口来自正在运行的查看器，而不是固定的 URL。</li>
                     <li><strong>&lt;Model Custom Name&gt;（必须带尖括号）：</strong>用 <code>&lt;&gt;</code> 括起来，会激活智能体并加载指定的模型自定义名称（例如 <code>agent &lt;Gemini API&gt;</code>）。</li>
                     <li><strong>off / deactivate：</strong>停用 LLM 智能体并卸载当前模型。</li>
-                    <li><strong>&quot;message&quot; / message：</strong>把查询直接转发给 LLM 智能体。如果智能体尚未开启，会自动加载列表中的第一张模型卡。</li>
+                    <li><strong>&quot;message&quot; / message：</strong>把查询直接转发给 LLM 智能体。如果智能体尚未开启，会自动加载列表中的第一张模型卡。该消息及其回答会像在智能体页面中输入的一样显示在页面里。回复中需要您批准的命令（写入或导入文件、打开对话框或消耗额度的命令）会在页面中等待<strong>运行</strong>或<strong>丢弃</strong>；如果查看器显示窗口，页面会自动打开；若查看器没有窗口也没有打开的页面，该命令会被立即拒绝。</li>
+                    <li><strong>位于其他计算机上的模型卡：</strong>首次通过 <code>agent &lt;Model Custom Name&gt;</code> 或一条消息开启服务器不在本机上的模型卡时，命令会失败，智能体页面会显示该卡将收到的内容；在您于页面中点击<strong>继续</strong>之前不会发送任何内容，每个卡片地址只需确认一次。</li>
                 </ul>
 
                 <div class="subheading">示例</div>

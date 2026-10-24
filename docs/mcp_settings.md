@@ -888,12 +888,41 @@ tracked children (maximum 1000 single-line commands). Manual interaction remains
 available while background work runs, so subsequent commands use current live state.
 Visible dialogs report awaiting_user_input; headless dialog requests, and those of a hidden Viewer not shown, fail clearly.
 `esmfold large` without a saved Biohub token asks for it in such a dialog (never as a command argument), and so does a fold whose saved token Biohub rejects while it runs: the request shows awaiting_user_input meanwhile, and a Viewer that shows no windows fails the command or the job.
+A command of a browser Agent reply that needs the user's approval (Run in the Agent
+page) waits as awaiting_user_input while the Viewer shows windows or an Agent page is
+open; in a Viewer with no window and no open page nobody can approve it, so it is
+refused at once, failing its request with a message that says so, instead of holding
+the queue.
 Agent UI/configuration commands remain available, but model-generated nested model
 requests are rejected. General cancellation and rollback are not exposed.
 
 The web agent keeps translate → execute → explain, displays request status, and
-uses final portal outcomes for its explanation. Changing backend or clearing history
-invalidates old model replies without cancelling submitted commands. The Capture
+uses final portal outcomes for its explanation. The page shows each request as its
+own card with a status for every command; a command waiting for approval has its
+Run and Discard buttons brought into view, and when no Agent page is open the
+terminal says so and the page is opened if the Viewer shows windows. Changing backend
+or clearing history invalidates old model replies without cancelling submitted
+commands. The page's Stop button (the `cancel_turn` action) stops the running turn,
+whether the page or the terminal started it: the turn is invalidated, its model request
+is ended, and the commands it left waiting for approval are discarded. Commands that
+already ran are not undone, a running command goes on, and the turn's explain call never
+starts. A message typed as `agent <message>` in the terminal appears in the page as the
+user's.
+
+A model card whose server is not on this computer (not localhost, a loopback address
+or 0.0.0.0) is not switched on until the page has shown what it receives (the agent's
+instructions, a summary of the session with file names, metadata column names,
+selection counts and the reference header, the user's messages and command output,
+and attached images) and the user has accepted that; the acceptance is saved on the
+card as the server's origin, so it is asked again when the address changes. The
+snapshot the model receives names input files by file name, not path; MCP's summary
+keeps the paths. A card that would send its API key over plain `http://` to another
+computer is warned about in the card editor, in that notice and in the terminal. A
+blank Temperature on a card is not sent, and a provider that refuses a sampling
+parameter (temperature, top_p, top_k) is sent the request once more without them and
+remembered on the card (`omit_sampling`). The saved chat history is written atomically;
+a failed save is reported, and a history file that is not valid is renamed to
+`agent_history.json.corrupt-<time>` instead of being replaced. The Capture
 Viewer button adds a pending image attachment to the chat composer. It does not
 send or append the image to the conversation immediately. Drop or paste images
 into the composer to add more; each thumbnail has an X button to remove it.
