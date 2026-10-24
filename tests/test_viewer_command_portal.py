@@ -1220,4 +1220,241 @@ class StopRequestTests(PortalFixture, unittest.TestCase):
         self.assertEqual(self.finish(stop)['status'], 'succeeded')
 
 
+class FreedLineTests(PortalFixture, unittest.TestCase):
+    """A request whose remaining work is only background lane jobs lets the next request run, and ends when its jobs do."""
+
+    def setUp(self):
+        super().setUp()
+        self.scheduler = BackgroundJobScheduler(self.viewer)
+        self.addCleanup(self.scheduler.shutdown)
+        self.release = {}
+        self.begun = {}
+        self.completed = []
+        self.portal.completed.connect(self.completed.append)
+
+    def worker(self, payload):
+        self.begun[payload].set()
+        if not self.release[payload].wait(30):
+            raise RuntimeError('never released')
+        if payload.startswith('fails'):
+            raise ValueError('expected job failure')
+        return {'message': f'done {payload}'}
+
+    def command(self, lanes=None, releases=True):
+        """Make `test NAME` queue one job named NAME, in the lane lanes[NAME] (default: the files lane)."""
+        lanes = lanes or {}
+
+        def run(viewer, args):
+            name = args[0]
+            self.begun[name], self.release[name] = threading.Event(), threading.Event()
+            options = {'lane': lanes[name]} if name in lanes else {}
+            if not releases:
+                options['releases_request'] = False
+            self.scheduler.enqueue('test', f'test {name}', name, self.worker,
+                                   str(Path(self.directory.name) / f'{name}.out'), **options)
+            ce.command_succeeded(viewer)
+
+        stack = fake_test_command(run)
+        stack.start()
+        self.addCleanup(stack.stop)
+
+    def settle(self, condition, message, timeout=30):
+        deadline = time.monotonic() + timeout
+        while not condition():
+            self.assertLess(time.monotonic(), deadline, message)
+            self.app.processEvents()
+            time.sleep(0.005)
+
+    def running(self, name):
+        return lambda: name in self.begun and self.begun[name].is_set()
+
+    def idle(self, turns=20):
+        for _ in range(turns):
+            self.app.processEvents()
+            time.sleep(0.005)
+
+    def status(self, request_id):
+        return self.portal.get(request_id)['status']
+
+    def test_two_requests_with_a_job_in_each_lane_overlap(self):
+        self.command(lanes={'fold': 'folding'})
+        first = self.portal.submit('one', 'test file')['request_id']
+        second = self.portal.submit('two', 'test fold')['request_id']
+
+        # The second runs while the first's job still does: the first no longer holds the head.
+        self.settle(self.running('fold'), 'the second request never ran beside the first')
+        self.assertTrue(self.begun['file'].is_set())
+        self.assertFalse(self.release['file'].is_set())
+        self.assertEqual((self.status(first), self.status(second)), ('running', 'running'))
+
+        self.release['fold'].set()
+        self.assertEqual(self.finish(second)['status'], 'succeeded')
+        self.assertEqual(self.status(first), 'running', 'it ends when its own job does')
+        self.release['file'].set()
+        self.assertEqual(self.finish(first)['status'], 'succeeded')
+        self.assertEqual(sorted(self.completed), sorted([first, second]))
+
+    def test_a_parked_request_ends_with_its_status_its_artifacts_and_one_completed_signal(self):
+        self.command()
+        request_id = self.portal.submit('one', 'test a')['request_id']
+        self.settle(self.running('a'), 'the job never ran')
+        self.idle(10)
+        self.assertEqual(self.status(request_id), 'running')
+        self.assertEqual(self.completed, [], 'completed fires when the jobs end, not when the line is freed')
+
+        self.release['a'].set()
+        result = self.finish(request_id)
+
+        self.assertEqual(result['status'], 'succeeded', result)
+        self.assertTrue(result['finished_at'])
+        self.assertEqual(self.completed, [request_id])
+        [command] = result['commands']
+        self.assertEqual(command['status'], 'succeeded')
+        [job] = command['jobs']
+        self.assertEqual((job['status'], job['kind'], job['lane']), ('succeeded', 'test', 'files'))
+        self.assertTrue(job['finished_at'])
+        self.assertIn('done a', job['message'])
+        self.assertEqual([Path(path).name for path in command['artifacts']], ['a.out'])
+        self.assertEqual(self.portal.queue, [])
+
+    def test_a_parked_requests_failed_job_fails_the_request(self):
+        self.command()
+        request_id = self.portal.submit('one', 'test fails')['request_id']
+        self.settle(self.running('fails'), 'the job never ran')
+        self.release['fails'].set()
+
+        result = self.finish(request_id)
+
+        self.assertEqual(result['status'], 'failed', result)
+        self.assertEqual(result['commands'][0]['status'], 'failed')
+        self.assertIn('expected job failure', result['commands'][0]['jobs'][0]['message'])
+        self.assertEqual(self.completed, [request_id])
+
+    def test_a_parked_requests_job_removed_while_it_waits_cancels_the_request(self):
+        self.command()
+        self.portal.submit('hold', 'test hold')
+        self.settle(self.running('hold'), 'the first job never ran')
+        waiting = self.portal.submit('wait', 'test waits')['request_id']
+        self.settle(lambda: bool(self.portal.get(waiting)['commands'][0]['jobs']), 'the second job was never queued')
+
+        job_id = int(self.portal.get(waiting)['commands'][0]['jobs'][0]['job_id'])
+        self.assertTrue(self.scheduler.cancel(job_id))
+
+        result = self.finish(waiting)
+        self.assertEqual(result['status'], 'cancelled', result)
+        self.assertEqual(result['commands'][0]['jobs'][0]['status'], 'cancelled')
+        self.release['hold'].set()
+
+    def test_a_parked_requests_running_job_stopped_cancels_the_request(self):
+        started = threading.Event()
+
+        def worker(payload, job):
+            started.set()
+            while True:
+                job.raise_if_cancelled()
+                time.sleep(0.005)
+
+        def run(viewer, args):
+            self.scheduler.enqueue('test', 'test x', 'x', worker, str(Path(self.directory.name) / 'x.out'))
+            ce.command_succeeded(viewer)
+
+        with fake_test_command(run):
+            request_id = self.portal.submit('one', 'test x')['request_id']
+            self.settle(started.is_set, 'the job never ran')
+            self.assertTrue(self.scheduler.cancel(1))
+            result = self.finish(request_id)
+
+        self.assertEqual(result['status'], 'cancelled', result)
+
+    def test_a_job_that_does_not_release_its_request_keeps_the_head_as_before(self):
+        self.command(releases=False)
+        first = self.portal.submit('one', 'test a')['request_id']
+        second = self.portal.submit('two', 'test b')['request_id']
+        self.settle(self.running('a'), 'the job never ran')
+        self.idle()
+
+        self.assertEqual((self.status(first), self.status(second)), ('running', 'queued'))
+        self.assertNotIn('b', self.begun)
+        self.release['a'].set()
+        self.assertEqual(self.finish(first)['status'], 'succeeded')
+        self.settle(self.running('b'), 'the second never ran')
+        self.release['b'].set()
+        self.assertEqual(self.finish(second)['status'], 'succeeded')
+
+    def test_work_in_the_command_queue_keeps_the_head(self):
+        # A job entry that does not declare the release, as the command queue's do, holds the head.
+        def run(viewer, args):
+            context = CURRENT.get()
+            context.add_job('queued-1', command='cluster')
+            context.job_event('queued-1', 'running')
+            self.held = context
+            ce.command_succeeded(viewer)
+
+        with fake_test_command(run):
+            first = self.portal.submit('one', 'test a')['request_id']
+            second = self.portal.submit('two', 'select "one"')['request_id']
+            self.idle(30)
+            self.assertEqual((self.status(first), self.status(second)), ('running', 'queued'))
+            self.held.job_event('queued-1', 'succeeded')
+            self.assertEqual(self.finish(first)['status'], 'succeeded')
+            self.assertEqual(self.finish(second)['status'], 'succeeded')
+
+    def test_a_request_with_work_awaiting_the_user_keeps_the_head(self):
+        def run(viewer, args):
+            context = CURRENT.get()
+            context.add_job('ask-1', releases_request=True)
+            context.job_event('ask-1', 'awaiting_user_input')
+            self.held = context
+            ce.command_succeeded(viewer)
+
+        with fake_test_command(run):
+            first = self.portal.submit('one', 'test a')['request_id']
+            second = self.portal.submit('two', 'select "one"')['request_id']
+            self.idle(30)
+            self.assertEqual((self.status(first), self.status(second)), ('awaiting_user_input', 'queued'))
+            self.held.job_event('ask-1', 'succeeded')
+            self.assertEqual(self.finish(first)['status'], 'succeeded')
+            self.assertEqual(self.finish(second)['status'], 'succeeded')
+
+    def test_a_request_with_more_commands_after_the_job_keeps_the_head(self):
+        self.command()
+        first = self.portal.submit('one', ['test a', 'select "two"'])['request_id']
+        second = self.portal.submit('two', 'select "one"')['request_id']
+        self.settle(self.running('a'), 'the job never ran')
+        self.idle()
+        self.assertEqual((self.status(first), self.status(second)), ('running', 'queued'))
+        self.release['a'].set()
+        self.assertEqual(self.finish(first)['status'], 'succeeded')
+        self.assertEqual(self.finish(second)['status'], 'succeeded')
+
+    def test_a_command_with_children_still_to_run_keeps_the_head(self):
+        # A script's commands run after its job; the next request must not slip in between.
+        def run(viewer, args):
+            context = CURRENT.get()
+            self.begun['a'], self.release['a'] = threading.Event(), threading.Event()
+            self.scheduler.enqueue('test', 'test a', 'a', self.worker, str(Path(self.directory.name) / 'a.out'))
+            context.children(['select "two"'])
+            ce.command_succeeded(viewer)
+
+        with fake_test_command(run):
+            first = self.portal.submit('one', 'test a')['request_id']
+            second = self.portal.submit('two', 'select "one"')['request_id']
+            self.settle(self.running('a'), 'the job never ran')
+            self.idle()
+            self.assertEqual((self.status(first), self.status(second)), ('running', 'queued'))
+            self.release['a'].set()
+            self.assertEqual(self.finish(first)['status'], 'succeeded')
+            self.assertEqual(self.finish(second)['status'], 'succeeded')
+
+    def test_closing_the_portal_cancels_a_parked_request(self):
+        self.command()
+        request_id = self.portal.submit('one', 'test a')['request_id']
+        self.settle(self.running('a'), 'the job never ran')
+        self.idle(10)
+        self.assertEqual(self.status(request_id), 'running')
+        self.portal.shutdown()
+        self.assertEqual(self.status(request_id), 'cancelled')
+        self.release['a'].set()
+
+
 if __name__ == '__main__': unittest.main()

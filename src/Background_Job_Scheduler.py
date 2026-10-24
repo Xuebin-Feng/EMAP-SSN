@@ -417,6 +417,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         on_finished=None,
         log_path=None,
         front=False,
+        releases_request=True,
     ):
         """Reserve the outputs and put one immutable job at the end of its lane's line (the front, with front=True).
 
@@ -428,7 +429,11 @@ class BackgroundJobScheduler(QtCore.QObject):
         the scheduler, however it ends; ``on_started(job)`` on the GUI thread when
         it begins to run and ``on_finished(job, outcome, error)`` when its end is
         reported; ``log_path`` names a log the job writes. A worker with a second
-        parameter named ``job`` is given the job's JobHandle.
+        parameter named ``job`` is given the job's JobHandle. ``releases_request``
+        (the default, for a job that runs in a lane) lets the command request that
+        queued the job give up its place at the head of the command portal's line
+        while only such jobs are left of it: the next request runs at once and this
+        one ends, with its status and artifacts, when its jobs have.
         """
         from Viewer_Command_Portal import CURRENT
         command_context = CURRENT.get()
@@ -476,7 +481,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                 command_context.add_job(
                     job_id, output_path=output_path, kind=job.command_name, lane=target.name,
                     lane_title=None if target.title is None else str(target.title),
-                    description=job.description, cancellable=True,
+                    description=job.description, cancellable=True, releases_request=releases_request,
                 )
             self._start(target)
             target.wake.notify()

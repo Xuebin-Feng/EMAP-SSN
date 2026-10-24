@@ -159,19 +159,22 @@ class ExecutionContext:
                 self.record['artifacts'].append(path)
 
     def add_job(self, job_id, *, kind=None, lane=None, lane_title=None, description=None, progress=None,
-                cancellable=False, stopping=False, stop_requested=False, **extra):
+                cancellable=False, stopping=False, stop_requested=False, releases_request=False, **extra):
         """Add a job to the request's record.
 
         ``kind`` names what the job is, ``lane`` and ``lane_title`` the line it waits in
         (None for a job that has none), ``description`` says what it does and ``progress``
         how far it is. ``cancellable`` is whether a stop request would do anything now,
         ``stopping`` whether the job was told to stop and has not ended, and ``stop_requested``
-        whether it was told to stop and finished anyway. The times the job started and
-        finished are set by job_event.
+        whether it was told to stop and finished anyway. ``releases_request`` says that
+        the request that gave the job need not keep its place at the head of the portal's
+        line while only jobs like this are left (see ViewerCommandPortal._frees_the_line).
+        The times the job started and finished are set by job_event.
         """
         job = dict(job_id=str(job_id), status='queued', kind=kind, lane=lane, lane_title=lane_title,
                    description=description, progress=progress, cancellable=cancellable, stopping=stopping,
-                   stop_requested=stop_requested, started_at=None, finished_at=None, **extra)
+                   stop_requested=stop_requested, releases_request=releases_request,
+                   started_at=None, finished_at=None, **extra)
         self.record['jobs'].append(job)
         return job
 
@@ -217,6 +220,8 @@ class ViewerCommandPortal(QtCore.QObject):
         self.history_limit = 100
         self._busy = False
         self._closed = False
+        # Requests that left the head of the line while only their background jobs were left.
+        self._parked = set()
         self.changed.connect(self._changed, QtCore.Qt.ConnectionType.QueuedConnection)
         install_output_capture()
 
@@ -323,7 +328,9 @@ class ViewerCommandPortal(QtCore.QObject):
                 elif not self._advance(request_id, record):
                     request['status'] = record['status']
                     self.publish(request_id)
-                    if record['dispatched']:
+                    if self._frees_the_line(request, record):
+                        self._park(request_id)
+                    elif record['dispatched']:
                         self._run_stop_requests()
                     return
                 elif record['status'] in {'failed', 'cancelled'}:
@@ -336,6 +343,46 @@ class ViewerCommandPortal(QtCore.QObject):
             QtCore.QTimer.singleShot(0, self.pump)
         finally:
             self._busy = False
+
+    @staticmethod
+    def _frees_the_line(request, record):
+        """Whether the request at the head may let the next one run: all that is left of it is background jobs.
+
+        That is so when ``record`` is its last command, which has no children, is
+        not waiting for the user, and every job it has not finished declared at
+        enqueue that it releases its request (a file or a fold in a lane of the
+        background scheduler, which runs beside the commands). A request with
+        more commands after it, with work in the Viewer's command queue, or
+        awaiting user input keeps its place, as before.
+        """
+        pending = [job for job in record['jobs'] if job['status'] not in TERMINAL]
+        return (bool(pending) and all(job.get('releases_request') for job in pending)
+                and record is request['commands'][-1] and not record['children']
+                and record['status'] == 'running')
+
+    def _park(self, request_id):
+        """Take the head request out of the line while its jobs run; the line goes on with the next request.
+
+        Its status stays running. A job event sweeps it (_sweep), and it ends
+        when its jobs have, with completed emitted then.
+        """
+        self.queue.remove(request_id)
+        self._parked.add(request_id)
+        QtCore.QTimer.singleShot(0, self.pump)
+
+    def _sweep(self, request_id):
+        """A job of a parked request reported: finish the request if its jobs have all ended."""
+        request = self.requests[request_id]
+        record = request['commands'][-1]
+        if not self._advance(request_id, record):
+            request['status'] = record['status']
+            return
+        self._parked.discard(request_id)
+        request.update(status=record['status'] if record['status'] in {'failed', 'cancelled'} else 'succeeded',
+                       finished_at=now())
+        self.publish(request_id)
+        self.completed.emit(request_id)
+        self._prune()
 
     @staticmethod
     def _is_stop(record):
@@ -375,6 +422,8 @@ class ViewerCommandPortal(QtCore.QObject):
             self._prune()
 
     def _changed(self, request_id):
+        if request_id in self._parked:
+            self._sweep(request_id)
         self.publish(request_id)
         self.pump()
 
@@ -516,7 +565,7 @@ class ViewerCommandPortal(QtCore.QObject):
 
     def shutdown(self):
         self._closed = True
-        for request_id in self.queue:
+        for request_id in [*self.queue, *self._parked]:
             request = self.requests[request_id]
             request.update(status='cancelled', finished_at=now())
             def abandon(records):
@@ -527,6 +576,7 @@ class ViewerCommandPortal(QtCore.QObject):
             abandon(request['commands'])
             self.publish(request_id)
         self.queue.clear()
+        self._parked.clear()
 
 
 def get_portal(viewer):

@@ -836,8 +836,14 @@ are not rolled back. Label/logo/print jobs and ESMFold folds are jobs of the Vie
 background job scheduler and are tracked to their final result. The file jobs share one
 line and the folds a line of their own, so a fold never waits for a label and the
 other way round; a fold requested while another runs is queued, not refused, and its
-request stays running until its turn comes and the fold ends. A fold runs without any
-window, its output in a log file the outcome names. A fold's artifacts are its PDB
+request stays running until its turn comes and the fold ends. A request whose remaining
+work is only such background jobs (its last command queued them) no longer holds the
+head of the Viewer's request line: its status stays `running` until its jobs end, with
+the final status and artifacts then, and the next request runs at once, so a file and a
+fold requested one after the other really run side by side. A request with commands
+after the job, with work in the Viewer's command queue, or awaiting user input keeps its
+place as before. A failed or cancelled job fails or cancels its request. A fold runs
+without any window, its output in a log file the outcome names. A fold's artifacts are its PDB
 files and, beside each one folded with an alignment loaded, its per-residue data file
 (`<pdb name>.residues.json`). `esmfold stop` ends the running fold with every process it
 started, takes the waiting folds out of the line and reports their jobs cancelled; `run
