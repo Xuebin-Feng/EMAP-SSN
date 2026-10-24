@@ -544,6 +544,13 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- **Test runs no longer leave folders in the temp directory, or open windows on the desktop.**
+  - **Temp folders:** each test section works in its own session folder, with its own temp
+    folder inside it. `tests/run_sections.py` removes that folder when the section ends, even
+    if it was stopped or crashed, and names anything the tests left behind. Five tests that
+    left folders now clean up, and a test started by hand sweeps the folders of killed runs.
+  - **Desktop openers:** during tests, nothing can open a folder, web page or console
+    window, in the main suite or in the VR suite.
 - A model-generated `agent` command with a tab after the word `agent` could start another
   model request, because the check read the text after the first space. The check now reads
   the same words the command does, so it is refused like any other.
