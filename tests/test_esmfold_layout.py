@@ -349,5 +349,205 @@ class LegendNoteTests(LongNameTestCase):
         self.assertEqual(self.console_errors(), [])
 
 
+# What the panel's scroller and the Color by card's buttons are doing: where each button is, and whether the panel scrolls.
+PANEL = """
+window.chipRects = function () {
+    const side = document.getElementById('side-scroll');
+    side.scrollTop = 0;
+    return [...document.querySelectorAll('#color-body [role="radio"]')].map(chip => {
+        const box = chip.getBoundingClientRect();
+        return [chip.dataset.coloring, box.left, box.top, box.width, box.height];
+    });
+};
+window.panelNow = function () {
+    const side = document.getElementById('side-scroll');
+    return {scrolls: side.scrollHeight > side.clientHeight, bar: side.offsetWidth - side.clientWidth, content: side.scrollHeight, client: side.clientHeight};
+};
+"""
+
+
+class ChipLayoutTests(LongNameTestCase):
+    """The Color by card's buttons are where they were whatever is chosen, with the panel's scrollbar there or not."""
+
+    LAYERS = ("builtin:structure", "plddt", "information_content", "same_residue_pct")
+
+    def scene(self, *names, **options):
+        super().scene(*names or (USER_NAME, SECOND_NAME), **options)
+        self.js(PANEL)
+
+    def fit_height(self, width, tab="color"):
+        """Resize the window so that the panel scrolls for pLDDT's legend and does not for Structure color's (shorter one)."""
+        need = []
+        self.view.resize(width, 500)
+        self.addCleanup(self.view.resize, 1300, 800)
+        self.script("setPanel(true); setTab(%s); return 1" % json.dumps(tab))
+        for coloring in ("builtin:structure", "plddt"):
+            self.choose(coloring)
+            self.settle(150)
+            need.append(self.script("return panelNow().content"))
+        # The panel's height follows the window's one for one, beside the canvas and in the drawer; in the strip it is a share of it.
+        slope = 1.0 if width > 700 else 0.46
+        target, height = (need[0] + need[1]) / 2, 500
+        for _ in range(4):
+            self.view.resize(width, height)
+            self.settle(200)
+            height += int((target - self.script("return panelNow().client")) / slope)
+        self.view.resize(width, height)
+        self.settle(300)
+        return height
+
+    def chips_in_every_coloring(self, layers=LAYERS):
+        """Each coloring chosen in turn: the buttons' boxes as they are, whether the panel scrolls, and the room it keeps for a bar."""
+        rects, scrolls, bars = {}, {}, set()
+        for coloring in layers:
+            self.choose(coloring)
+            self.settle(150)
+            rects[coloring] = self.script("return chipRects()")
+            panel = self.script("return panelNow()")
+            scrolls[coloring] = panel["scrolls"]
+            bars.add(panel["bar"])
+        return rects, scrolls, bars
+
+    def test_the_buttons_stay_where_they_are_when_the_chosen_coloring_makes_the_panel_scroll(self):
+        self.scene()
+        for width in (1300, 1040, 600):
+            with self.subTest(width=width):
+                self.at(width)
+                height = self.fit_height(width)
+                rects, scrolls, bars = self.chips_in_every_coloring()
+                # The test is a test only if pLDDT's longer legend makes the panel scroll and Structure color's does not.
+                self.assertEqual((scrolls["builtin:structure"], scrolls["plddt"]), (False, True), (width, height, scrolls))
+                # Every button is exactly where it is for every other coloring, chosen (bold) or not.
+                first = rects["builtin:structure"]
+                for coloring, found in rects.items():
+                    self.assertEqual(found, first, (width, coloring))
+                # The room for the scrollbar is there with or without one.
+                self.assertEqual(len(bars), 1, bars)
+                self.assertGreater(bars.pop(), 0)
+                # The user's two layers share a row beside the canvas and in the drawer (as they did when no bar was there).
+                tops = {name: top for name, _, top, _, _ in first}
+                self.assertEqual(tops["builtin:structure"], tops["plddt"])
+                self.assertEqual(tops["information_content"], tops["same_residue_pct"], (width, tops))
+
+    def test_the_same_in_simplified_chinese(self):
+        from desktop.Desktop_App import install_translations
+
+        install_translations(self.app, "zh_CN")
+        self.addCleanup(install_translations, self.app, None)
+        self.scene()
+        self.at(1300)
+        self.fit_height(1300)
+        rects, scrolls, _ = self.chips_in_every_coloring()
+        self.assertEqual((scrolls["builtin:structure"], scrolls["plddt"]), (False, True), scrolls)
+        self.assertEqual(len({json.dumps(found) for found in rects.values()}), 1)
+
+    def test_a_chosen_chip_is_as_wide_as_it_is_when_it_is_not(self):
+        # The chosen chip's text is bold, which is wider: its width must not depend on its being chosen, or the row it is on
+        # (and the next chip's place) would change with the choice.
+        self.scene(label_a="Alignment_Information_Content", label_b="Residue_Agreement_Share")
+        self.at(1300)
+        widths = {}
+        for coloring in self.LAYERS:
+            self.choose(coloring)
+            self.settle(100)
+            widths[coloring] = {name: width for name, _, _, width, _ in self.script("return chipRects()")}
+        for name in self.LAYERS:
+            self.assertEqual(len({width[name] for width in widths.values()}), 1, (name, widths))
+
+    def test_nothing_else_in_the_panel_moves_sideways_either(self):
+        self.scene()
+        self.script("await clickOn(0, 5); document.querySelector('#struct-list .srow:nth-child(1) .exp-btn').click(); return 1")
+        self.settle(300)
+        selectors = [
+            "section[data-tab=structures]", "section[data-tab=color]", "section[data-tab=residue]",
+            "#struct-list .srow:nth-child(1) .srow-text", "#struct-list .srow:nth-child(1) .srow-main button:last-child",
+            "#struct-list .srow:nth-child(2) .srow-main button:last-child", "#struct-list .srow:nth-child(1) .srow-body select",
+            "#struct-list .srow:nth-child(1) .srow-body input[type=range]", "#struct-list .srow:nth-child(1) .kv",
+            "#color-body .seg", "#residue-body .res-head", "#residue-body .res-table", "#residue-body .res-table th:nth-child(2)",
+            "#residue-body .res-note", "#residue-body .res-foot",
+        ]
+        self.js("window.edges = selectors => Object.fromEntries(selectors.map(s => { const r = document.querySelector(s).getBoundingClientRect(); return [s, [r.left, r.right]]; }))")
+        self.fit_height(1300)
+        found = {}
+        for coloring in ("builtin:structure", "plddt"):
+            self.choose(coloring)
+            self.settle(150)
+            found[coloring] = (self.script("return panelNow().scrolls"), self.script("return edges(%s)" % json.dumps(selectors)))
+        self.assertEqual((found["builtin:structure"][0], found["plddt"][0]), (False, True))
+        self.assertEqual(found["builtin:structure"][1], found["plddt"][1])
+
+    def test_a_label_too_long_for_the_card_is_cut_with_an_ellipsis_and_whole_on_hover(self):
+        # Too long for the 340 px panel, and short enough for the 600 px strip, which is as wide as the window.
+        label = "Information_Content_after_the_small-sample_correction_of_logo"
+        self.scene(label_a=label)
+        for width in (1300, 600):
+            with self.subTest(width=width):
+                self.at(width)
+                self.choose("information_content")
+                chip = self.script("""
+                    const chip = document.querySelector('#color-body [data-coloring="information_content"]');
+                    const text = chip.querySelector('.seg-label'), card = document.getElementById('color-body').getBoundingClientRect();
+                    const box = chip.getBoundingClientRect();
+                    return {title: chip.title, text: text.textContent, cut: text.scrollWidth > text.clientWidth, ellipsis: getComputedStyle(text).textOverflow,
+                            inside: box.right <= card.right, height: box.height};""")
+                self.assertEqual((chip["title"], chip["text"], chip["ellipsis"], chip["height"]), (label, label, "ellipsis", 28))
+                self.assertEqual(chip["cut"], width == 1300)
+                self.assertTrue(chip["inside"])
+                self.assertEqual(self.overflowing("#color-body"), [])
+                # The legend names it whole, breaking anywhere.
+                self.assertIn(label, self.script("return card().legendTitle"))
+
+    def test_a_long_list_of_layers_keeps_its_width_whether_or_not_it_scrolls(self):
+        # With more than eight layers the card has a filter and a list that scrolls when it is longer than 188 px: typing in the
+        # filter makes it shorter, and the bar goes; the room for it must stay, or the chips would go to other rows with it.
+        length = len(fixtures.FIRST_SEQUENCE)
+        fixtures.write_structure(self.directory, "many.pdb", fixtures.FIRST_SEQUENCE, sidecar=False)
+        properties = {f"prop_{index}": fixtures.residue_property(
+            f"Property number {index:02d}", "", [0, 1], [round(((index + step) % 10) / 10, 1) for step in range(length)], None, "")
+            for index in range(16)}
+        fixtures.write_sidecar(self.directory, "many.pdb", fixtures.residue_data("many.pdb", fixtures.FIRST_SEQUENCE, properties=properties))
+        self.open_page()
+        self.push("many.pdb")
+        self.settle(300)
+        self.js(PANEL)
+        found = {}
+        for text in ("", "number 15"):
+            self.script("""
+                const filter = document.querySelector('#color-body .filter');
+                filter.value = %s; filter.dispatchEvent(new Event('input', {bubbles: true}));
+                await new Promise(resolve => setTimeout(resolve, 300));
+                return 1;""" % json.dumps(text))
+            found[text] = self.script("""
+                const list = document.querySelector('#color-body .seg.scroll');
+                return {chips: list.children.length, scrolls: list.scrollHeight > list.clientHeight, client: list.clientWidth, offset: list.offsetWidth};""")
+        self.assertEqual((found[""]["chips"], found["number 15"]["chips"]), (16, 1), found)
+        self.assertEqual((found[""]["scrolls"], found["number 15"]["scrolls"]), (True, False), found)
+        self.assertEqual(found[""]["client"], found["number 15"]["client"], found)
+
+    def test_the_sequence_strip_keeps_its_width_whether_or_not_it_scrolls(self):
+        # A strip of 600 residues scrolls and one of 33 does not; the room for the bar is there in both.
+        sequence = "".join(fixtures.FIRST_SEQUENCE[index % 33] for index in range(600))
+        fixtures.write_structure(self.directory, "short.pdb", fixtures.FIRST_SEQUENCE, sidecar=False)
+        fixtures.write_structure(self.directory, "tall.pdb", sequence, sidecar=False, shift=(5.0, 0.0, 0.0))
+        self.open_page()
+        self.push("short.pdb")
+        self.push("tall.pdb")
+        self.settle(300)
+        widths = {}
+        for value in (0, 1):
+            self.script("""
+                const select = document.getElementById('seq-structure');
+                select.selectedIndex = %d; select.dispatchEvent(new Event('change', {bubbles: true}));
+                await new Promise(resolve => setTimeout(resolve, 300));
+                return 1;""" % value)
+            widths[value] = self.script("""
+                const body = document.getElementById('seq-body');
+                return {client: body.clientWidth, offset: body.offsetWidth, scrolls: body.scrollHeight > body.clientHeight,
+                        letters: body.querySelectorAll('.seq-res').length};""")
+        self.assertEqual([widths[0]["scrolls"], widths[1]["scrolls"]], [False, True], widths)
+        self.assertEqual(widths[0]["client"], widths[1]["client"], widths)
+        self.assertEqual((widths[0]["letters"], widths[1]["letters"]), (33, 600))
+
+
 if __name__ == "__main__":
     unittest.main()

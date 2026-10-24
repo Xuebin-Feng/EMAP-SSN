@@ -437,12 +437,17 @@
 
         /* Color by */
         .seg { display: flex; flex-wrap: wrap; gap: 6px; }
-        .seg-btn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; background: var(--bg-card); border: 1px solid var(--field-border); border-radius: var(--radius); font-size: 12.5px; color: var(--text-primary); cursor: pointer; outline: none; transition: background-color 0.15s, border-color 0.15s; box-shadow: var(--shadow-control); }
+        .seg-btn { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; height: 28px; padding: 0 8px; background: var(--bg-card); border: 1px solid var(--field-border); border-radius: var(--radius); font-size: 12.5px; color: var(--text-primary); cursor: pointer; outline: none; transition: background-color 0.15s, border-color 0.15s; box-shadow: var(--shadow-control); }
         .seg-btn:hover { background: var(--bg-muted); }
         .seg-btn[aria-checked="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
         .seg-btn:focus-visible { border-color: var(--accent); box-shadow: var(--focus-ring); }
-        .seg-btn .cov { font-size: 10.5px; font-weight: 400; color: var(--warning); background: var(--warning-soft); border-radius: 9999px; padding: 0 5px; }
-        .seg.scroll { max-height: 188px; overflow-y: auto; padding: 2px; margin: -2px; }
+        .seg-btn .cov { font-size: 10.5px; font-weight: 400; color: var(--warning); background: var(--warning-soft); border-radius: 9999px; padding: 0 5px; flex: none; }
+        /* The chosen chip's text is bold, which is wider. The same text, bold and unseen, makes every chip as wide as it is when
+           chosen, so choosing a coloring never moves another chip to the next line or back. A label too long for the card is cut
+           with an ellipsis (the whole text is the chip's tooltip). */
+        .seg-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .seg-label::after { content: attr(data-text); display: block; height: 0; overflow: hidden; visibility: hidden; font-weight: 600; }
+        .seg.scroll { max-height: 188px; overflow-y: auto; scrollbar-gutter: stable; padding: 2px; margin: -2px; }
         .group-label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-subtle); margin: 10px 0 6px; }
         .group-label:first-child { margin-top: 0; }
         .more-toggle { display: flex; align-items: center; gap: 4px; margin-top: 10px; background: none; border: 0; padding: 2px 4px 2px 0; color: var(--text-secondary); font-size: 12px; cursor: pointer; border-radius: 6px; outline: none; }
@@ -488,7 +493,10 @@
         /* ── Side panel ──────────────────────────────────── */
         .side { width: 340px; flex-shrink: 0; background: var(--bg-card); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; min-height: 0; }
         .side-grip { display: none; }
-        .side-scroll { flex: 1; overflow-y: auto; padding: 10px 10px 4px; }
+        /* A scrollbar that comes and goes takes its 8 px from the cards' width, and the text in them wraps differently: the chips of
+           the Color by card, for one, went from a row to a column when a longer legend made the panel scroll. The room for the bar is
+           always there, and the padding beside it is smaller by as much, so the cards are as wide as they always were without one. */
+        .side-scroll { flex: 1; overflow-y: auto; scrollbar-gutter: stable; padding: 10px 2px 4px 10px; }
         .sec { border: 1px solid var(--border-color); border-radius: var(--radius-card); margin-bottom: 10px; overflow: hidden; background: var(--bg-card); }
         .sec-head { display: flex; align-items: center; gap: 6px; padding: 6px 6px 6px 12px; min-height: 40px; }
         .sec-title { flex: 1; display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; margin: 0; min-width: 0; }
@@ -608,7 +616,7 @@
         .seqbar[data-open="0"] .seq-head .btn .icon { transform: rotate(-90deg); }
         .seq-select { width: auto; max-width: 260px; height: 26px; font-size: 12px; margin-left: auto; }
         .seq-select[hidden] { display: none; }
-        .seq-body { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 2px 14px 10px; max-height: 132px; overflow-y: auto; font-family: var(--font-mono); }
+        .seq-body { display: flex; flex-wrap: wrap; gap: 6px 12px; padding: 2px 6px 10px 14px; max-height: 132px; overflow-y: auto; scrollbar-gutter: stable; font-family: var(--font-mono); }
         .seqbar[data-open="0"] .seq-body { display: none; }
         .seq-block { display: flex; flex-direction: column; }
         .seq-num { font-size: 9.5px; color: var(--text-subtle); line-height: 1.1; height: 11px; padding-left: 1px; }

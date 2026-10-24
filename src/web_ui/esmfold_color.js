@@ -305,8 +305,13 @@ async function colorModel() {
 }
 
 function colorChip(id, label, model, extra) {
-    const chip = make('button', 'seg-btn', label);
+    const chip = make('button', 'seg-btn');
     chip.type = 'button';
+    chip.title = label;
+    const text = make('span', 'seg-label', label);
+    // The same text, bold and unseen, keeps the chip as wide as it is when chosen (esmfold.html).
+    text.dataset.text = label;
+    chip.append(text);
     chip.setAttribute('role', 'radio');
     chip.setAttribute('aria-checked', model.mode === id ? 'true' : 'false');
     chip.dataset.coloring = id;
