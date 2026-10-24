@@ -1634,26 +1634,28 @@ class ConfigWindowTipTests(WithApplication):
         window.resize(1000, 650)
         self.app.processEvents()
         bar = panel.verticalScrollBar()
-        heights = {}
+        heights, viewports = {}, {}
         for key, entry in window.tip_db_keys.items():
             panel.setTip(window._field_tips.get(key, entry))
             self.app.processEvents()
             needed, available = panel.document().size().height(), panel.viewport().height()
             self.assertEqual(bar.isVisible(), needed > available, (key, needed, available))
             self.assertFalse(panel.horizontalScrollBar().isVisible(), key)
-            heights[key] = needed
-        # Fewer Edges Drawn While Moving's tip, with its four notes, is the
-        # longest, longer than the one with the options table, and scrolls;
-        # the shortest fits.
+            heights[key], viewports[key] = needed, available
+        # Which tip is the tallest depends on the font the run measures with (the Layout
+        # Method dropdown's tip and Fewer Edges Drawn While Moving's are about the same
+        # height), so none is named: the tallest scrolls and the shortest fits, and the
+        # tips span the viewport, so that both halves of the rule above were exercised.
         longest = max(heights, key=heights.get)
         shortest = min(heights, key=heights.get)
-        self.assertEqual(longest, "FEWER_EDGES_WHILE_MOVING")
-        panel.setTip(window._field_tips[longest])
+        self.assertGreater(heights[longest], viewports[longest], "no tip is tall enough to scroll")
+        self.assertLess(heights[shortest], viewports[shortest], "no tip is short enough to fit")
+        panel.setTip(window._field_tips.get(longest, window.tip_db_keys[longest]))
         self.app.processEvents()
-        self.assertTrue(bar.isVisible())
-        panel.setTip(window._field_tips[shortest])
+        self.assertTrue(bar.isVisible(), longest)
+        panel.setTip(window._field_tips.get(shortest, window.tip_db_keys[shortest]))
         self.app.processEvents()
-        self.assertFalse(bar.isVisible())
+        self.assertFalse(bar.isVisible(), shortest)
 
     def test_saved_config_lists_the_entries_of_its_own_tabs_selector(self):
         for tab_id, selector in self.window.profile_selectors.items():
