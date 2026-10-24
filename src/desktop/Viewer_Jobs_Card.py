@@ -155,7 +155,7 @@ class JobRowWidget(QFrame):
         self.log_button = None
         if row.log_path:
             self.log_button = QPushButton(translate("ViewerControls", "Open log"))
-            self.log_button.setObjectName("controlsLink")
+            self.log_button.setObjectName("jobLogLink")
             self.log_button.setIcon(studio_icon("file-text", TOKENS["accent_text"]))
             self.log_button.setIconSize(QSize(14, 14))
             self.log_button.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -242,6 +242,12 @@ def section_qss(tokens):
         QLabel#jobState[failed="true"] {{ color: {t['danger']}; }}
         QLabel#jobEmpty {{ color: {t['text_muted']}; }}
         QFrame#jobRow {{ background: transparent; border: none; }}
+        QPushButton#jobLogLink {{
+            background: transparent; border: none; border-radius: 6px; color: {t['accent_text']};
+            font-weight: 600; text-align: left; padding: 3px 8px 3px 4px; min-height: 20px;
+        }}
+        QPushButton#jobLogLink:hover {{ background: {t['tint_hover']}; }}
+        QPushButton#jobLogLink:pressed {{ background: {t['separator']}; }}
     """
 
 

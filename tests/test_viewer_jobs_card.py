@@ -531,6 +531,25 @@ class CardTests(ScheduledJobsCase):
         self.assertTrue(card.isVisible())
         return card
 
+    def test_the_open_log_link_keeps_the_height_its_text_needs_inside_the_card(self):
+        # The card's stylesheet shapes the link: a rule that lets the layout squeeze it cuts the text off below.
+        log = self.path("fold.log")
+        Path(log).write_text("worker output", encoding="utf-8")
+
+        def worker(payload, job):
+            job.set_log_path(log)
+            raise RuntimeError("it failed")
+
+        self.scheduler.enqueue("test", "fold", None, worker, self.path("fold"))
+        self.assertTrue(self.wait_for(lambda: bool(self.scheduler.failures())))
+        card = self.open_card()
+        flush(self.app)
+        [row] = card.jobs_section.rows.values()
+        link = row.log_button
+        self.assertEqual(link.objectName(), "jobLogLink")
+        self.assertGreaterEqual(link.height(), link.sizeHint().height(), "the link is as tall as its text and padding")
+        self.assertGreaterEqual(link.minimumHeight(), link.sizeHint().height() - 1, "and may not be made shorter")
+
     def test_the_section_sits_between_the_files_and_the_controls_each_set_off_by_a_separator(self):
         card = self.open_card()
         section = card.jobs_section
