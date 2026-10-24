@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from PySide6 import QtWidgets
 import Command_Engine as ce
 from Viewer_Command_Portal import ViewerCommandPortal, CURRENT, bind, user_interaction
+from tests.command_fixtures import scratch_commands
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, PortalFixture, Viewer, apply_window_state
 from Background_Job_Scheduler import BackgroundJobScheduler
 from Viewer_Visual_State import edge_stages, capture_view
@@ -33,14 +34,23 @@ from desktop.Command_Metadata import get_command_metadata
 def fake_test_command(run, command='test'):
     """Resolve ``command`` (by default `test`) to a module whose run() is ``run``.
 
-    Every other import_module call, including the real command modules the
-    Command_Engine imports for the commands that follow, is left unchanged.
+    The stand-in is the real command's module with its run() replaced, so it
+    keeps what the module declares about how it is dispatched (a stop command
+    stays one); a command with no module of its own has only run(). Every other
+    import_module call, including the real command modules the Command_Engine
+    imports for the commands that follow, is left unchanged.
     """
     real_import = importlib.import_module
 
     def import_module(name, package=None):
         if name == f'commands.{command}':
-            return SimpleNamespace(run=run)
+            try:
+                real = real_import(name, package)
+            except ImportError:
+                return SimpleNamespace(run=run)
+            # Without __spec__ and the other dunders: the engine reloads a module that has a spec.
+            kept = {key: value for key, value in vars(real).items() if not key.startswith('__')}
+            return SimpleNamespace(**{**kept, 'run': run})
         return real_import(name, package)
     return mock.patch('importlib.import_module', side_effect=import_module)
 
@@ -1357,6 +1367,41 @@ class StopRequestTests(PortalFixture, unittest.TestCase):
         end_job()
         for request_id in submitted.values():
             self.finish(request_id)
+
+    def test_a_plugin_that_declares_it_acts_on_jobs_runs_ahead_without_any_change_to_the_portal(self):
+        record = ("import Command_Engine\n"
+                  "def run(viewer, args):\n"
+                  "    Command_Engine.SCRATCH_CALLS.append((__name__.split('.')[-1], list(args)))\n"
+                  "    Command_Engine.command_succeeded(viewer)\n")
+        calls = []
+        plugins = {
+            'zzdecl_halt': "def acts_on_jobs(args):\n    return args == ['halt']\n" + record,
+            'zzdecl_always': "ACTS_ON_JOBS = True\n" + record,
+            'zzdecl_plain': record,
+        }
+        with scratch_commands(plugins), mock.patch.object(ce, 'SCRATCH_CALLS', calls, create=True):
+            head, end_job = self.head_waiting_for_a_job()
+            ahead = [self.portal.submit('halt', 'zzdecl_halt halt')['request_id'],
+                     self.portal.submit('always', 'ZZDECL_ALWAYS anything at all')['request_id']]
+            behind = {
+                'other arguments': self.portal.submit('other', 'zzdecl_halt now')['request_id'],
+                'declares nothing': self.portal.submit('plain', 'zzdecl_plain halt')['request_id'],
+                'mixed': self.portal.submit('mixed', ['zzdecl_halt halt', 'zzdecl_plain'])['request_id'],
+            }
+            for request_id in ahead:
+                self.assertEqual(self.finish(request_id)['status'], 'succeeded')
+            for _ in range(30):
+                self.app.processEvents()
+                time.sleep(0.005)
+
+            self.assertEqual(calls, [('zzdecl_halt', ['halt']), ('zzdecl_always', ['anything', 'at', 'all'])])
+            for label, request_id in behind.items():
+                with self.subTest(label):
+                    self.assertEqual(self.portal.get(request_id)['status'], 'queued')
+            self.assertEqual(self.portal.get(head)['status'], 'running')
+            end_job()
+            for request_id in (head, *behind.values()):
+                self.finish(request_id)
 
     def test_a_stop_waiting_for_an_agent_review_does_not_run_ahead(self):
         head, end_job = self.head_waiting_for_a_job()

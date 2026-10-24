@@ -987,6 +987,16 @@ docstring, else the Description or Usage line of its help; `arguments` and `requ
 and `opens_interface` are true because nothing says otherwise; `agent_policy` waits for approval, like any
 command the policy table lacks; and `metadata_declared` is false. Its `syntax` and `help` come from its source
 as for any command.
+How the Viewer dispatches a command is declared by its module too, so a plugin needs no change to the
+program. At its top level a module may define `QUEUE = "instant"` (or `queue_kind(args, source)`, returning
+`"instant"` or `"ordered"`) to run at once even while other commands wait; `STARTS_MODEL_REQUEST = True` (or
+`starts_model_request(args)`) to be refused when a model generated the command, so that a model cannot start
+another model request; and `ACTS_ON_JOBS = True` (or `acts_on_jobs(args)`) for a stop or job command that the
+portal runs ahead of a request waiting for jobs. `args` is the list of words after the command's name and
+`source` is `"typed"`, `"script"` or `"portal"`. A module that declares nothing waits its turn, starts no model
+request and acts on no jobs; a declaration that raises or returns the wrong kind of value counts as
+undeclared, except that an unreadable `STARTS_MODEL_REQUEST` refuses the command. The convention is written
+out in `src/Command_Declarations.py`.
 Finite choices contain `value` and `aliases`; an empty choices list denotes an
 open-ended argument such as a filename, expression or number. Descriptions explain
 defaults and prerequisites. This is documentation, not another command parser.

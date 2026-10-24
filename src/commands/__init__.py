@@ -13,4 +13,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+"""The Viewer's commands: each module here is one command, named by its file, with run(viewer, args).
+
+The program never names a command. A module that needs to be dispatched
+differently says so itself, by declaring any of QUEUE / queue_kind(args, source)
+(runs at once instead of waiting its turn), STARTS_MODEL_REQUEST /
+starts_model_request(args) (refused when a model generated the command) and
+ACTS_ON_JOBS / acts_on_jobs(args) (the portal runs it ahead of a request that
+waits for jobs). A module that declares nothing waits its turn, starts no model
+request and acts on no jobs. The convention is documented in Command_Declarations.
+"""
+
 import Command_Engine

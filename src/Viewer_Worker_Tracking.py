@@ -361,6 +361,19 @@ def track_worker(process, *, input_path=None, output_dir=None, tracker=None):
     return worker
 
 
+def running_worker_count():
+    """How many of the workers a command started run now, as the Viewer follows them."""
+    with _started_lock:
+        return sum(1 for worker in _started_workers
+                   if worker.tracker is not None and _timer_active(worker.tracker))
+
+
+def running_script_count():
+    """How many Python command scripts this process runs now."""
+    with _running_lock:
+        return len(_running_scripts)
+
+
 def stop_workers(message):
     """End every worker a command started that is still running; return how many were.
 
@@ -467,11 +480,18 @@ def start_command_script(path, finished):
 
 
 class ScriptTracker(QtCore.QObject):
+    """A Python command script that a command run for the portal starts; the commands it prints become child commands.
+
+    ``keep_command`` is a function of one command line that says whether the
+    script may run it; the command that starts the script decides, so that this
+    module names no command. Without it every line a script prints is kept.
+    """
     finished = QtCore.Signal(object)
 
-    def __init__(self, context, path):
+    def __init__(self, context, path, keep_command=None):
         super().__init__(context.portal)
         self.context = context
+        self._keep_command = keep_command
         self.job_id = 'script-' + uuid.uuid4().hex
         context.add_job(self.job_id, status_detail='Executing selected Python command script')
         self.finished.connect(self._finish, QtCore.Qt.ConnectionType.QueuedConnection)
@@ -492,7 +512,7 @@ class ScriptTracker(QtCore.QObject):
             return
         from Command_Engine import script_command
         commands = [script_command(line) for line in result.stdout.splitlines()]
-        commands = [line for line in commands if line and line.split()[0].lower() != 'run']
+        commands = [line for line in commands if line and (self._keep_command is None or self._keep_command(line))]
         try:
             self.context.children(commands)
         except ValueError as error:

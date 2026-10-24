@@ -20,6 +20,10 @@ import numpy as np
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
 
+# How the Viewer dispatches this command (Command_Declarations): the camera reads nothing a waiting
+# command would change, so zoom runs at once.
+QUEUE = 'instant'
+
 # The camera stores its scale, canvas width / view width, as float32. Below float32's
 # smallest normal value the scale loses precision, and then it is zero, which makes
 # the camera's matrix singular; above its largest value the scale is infinite.

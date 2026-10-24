@@ -20,6 +20,7 @@ modules = [
     "test_cluster_command",
     "test_color_command",
     "test_command_catalog",
+    "test_command_declarations",
     "test_command_embedding",
     "test_command_feedback",
     "test_command_queue",

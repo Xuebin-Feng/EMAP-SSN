@@ -24,6 +24,15 @@ _STEP_COUNT = re.compile(r"[0-9]+")
 _ALL_STEPS = 10 ** 9
 
 
+def queue_kind(args, source):
+    """How the Viewer dispatches this command (Command_Declarations).
+
+    Redo typed by hand runs at once, as undo does; from a script or the command
+    portal it waits its turn like any other command.
+    """
+    return 'instant' if source == 'typed' else 'ordered'
+
+
 def _steps_argument(args):
     """(steps, None) for the arguments of `redo [N]`, or (None, refusal) naming what is wrong with them."""
     count = args[0]

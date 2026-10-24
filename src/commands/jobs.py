@@ -2,13 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 """jobs: list the commands that wait or run and the files being written, and cancel them.
 
-It runs at once, even while other commands wait (Command_Engine.queue_kind),
-since it acts on them.
+It runs at once, even while other commands wait, since it acts on them.
 """
 import re
 
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+
+# How the Viewer dispatches this command (Command_Declarations): it never waits behind the commands it
+# lists and cancels, and the command portal runs it ahead of a request that waits for jobs.
+QUEUE = 'instant'
+ACTS_ON_JOBS = True
 
 _JOB_NUMBER = re.compile(r"#?([0-9]+)")
 
@@ -107,12 +111,7 @@ def _external_counts():
         import Viewer_Worker_Tracking as tracking
     except ImportError:
         return 0, 0
-    with tracking._started_lock:
-        workers = sum(1 for worker in tracking._started_workers
-                      if worker.tracker is not None and tracking._timer_active(worker.tracker))
-    with tracking._running_lock:
-        scripts = len(tracking._running_scripts)
-    return workers, scripts
+    return tracking.running_worker_count(), tracking.running_script_count()
 
 
 def _lines(viewer):

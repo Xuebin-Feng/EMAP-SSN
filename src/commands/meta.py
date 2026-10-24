@@ -39,6 +39,16 @@ from web_ui.meta_backend import (
     download_metadata,
 )
 
+
+def queue_kind(args, source):
+    """How the Viewer dispatches this command (Command_Declarations).
+
+    `meta` alone opens the Metadata page at once; with arguments it reads or changes
+    the network's metadata, and waits its turn.
+    """
+    return 'ordered' if args else 'instant'
+
+
 def print_help(meta_dir):
     print(f"""
     Node Metadata Manager CLI Portal

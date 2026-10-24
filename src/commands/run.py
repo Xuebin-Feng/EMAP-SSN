@@ -23,6 +23,20 @@ from desktop.Desktop_App import translate
 from utilities.Localization import JoinedMessage, Message
 from Viewer_Command_Portal import user_interaction, CURRENT, MAX_SCRIPT_COMMANDS
 
+# How the Viewer dispatches this command (Command_Declarations). run opens its dialog at once, and the
+# commands of the script then wait their turn like any other.
+QUEUE = 'instant'
+
+
+def acts_on_jobs(args):
+    """`run stop` ends the Python scripts that run, which the request at the head of the portal's line may wait for."""
+    return [word.lower() for word in args] == ['stop']
+
+
+def is_run_command(command_line):
+    """Whether a script line is itself a run command, which a script's commands may not hold."""
+    return command_line.split()[0].lower() == 'run'
+
 # A byte-order mark names a .txt file's encoding. UTF-32 LE's mark begins with
 # UTF-16 LE's, so the UTF-32 marks are checked first.
 BYTE_ORDER_MARKS = (
@@ -64,7 +78,7 @@ def script_commands(command_lines):
         cmd_line = Command_Engine.script_command(line)
         if not cmd_line:
             continue
-        if cmd_line.split()[0].lower() == 'run':
+        if is_run_command(cmd_line):
             print("Warning: Recursive 'run' command in script ignored to prevent infinite loop.")
             continue
         commands.append(cmd_line)
@@ -255,7 +269,7 @@ def run(viewer, args):
 
             if context is not None:
                 from Viewer_Worker_Tracking import ScriptTracker
-                ScriptTracker(context, file_path)
+                ScriptTracker(context, file_path, keep_command=lambda line: not is_run_command(line))
                 Command_Engine.command_succeeded(viewer, 'Python command script started; waiting for its output.')
                 return
 
@@ -271,7 +285,7 @@ def run(viewer, args):
 
         if context is not None:
             commands = [Command_Engine.script_command(line) for line in commands_lines]
-            commands = [line for line in commands if line and line.split()[0].lower() != 'run']
+            commands = [line for line in commands if line and not is_run_command(line)]
             context.children(commands)
             Command_Engine.command_succeeded(viewer, f'Prepared {len(commands)} child commands.')
             return

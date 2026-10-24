@@ -6,6 +6,8 @@ gives a viewer_fixtures.Viewer a three-row C/K/C alignment and a Length column.
 reported_outcomes() records which outcome a command reported. network_viewer()
 and BARBELL_EDGES give the clustering commands a small network, and
 run_command() runs a command quietly and returns its outcomes and output.
+scratch_commands() drops throwaway command modules into the commands package,
+as a plugin is dropped in.
 """
 import io
 import sys
@@ -71,6 +73,40 @@ def reported_outcomes():
     with mock.patch.object(Command_Engine, "command_succeeded", side_effect=in_english(succeeded)), \
             mock.patch.object(Command_Engine, "command_failed", side_effect=in_english(failed)):
         yield succeeded, failed
+
+
+@contextmanager
+def scratch_commands(modules):
+    """Drop command modules into the commands package for the length of the block, as a plugin is dropped in.
+
+    ``modules`` maps a command name to its module's source. The modules are
+    written to a temporary folder that joins commands.__path__ (as the VR
+    viewer's folder of commands does), so nothing is written under src/ and the
+    engine finds them as it finds any command. They are gone from the package
+    and from sys.modules when the block ends.
+    """
+    import importlib
+    import shutil
+    import tempfile
+
+    import commands
+
+    folder = tempfile.mkdtemp(prefix="emapssn-scratch-commands-")
+    try:
+        for name, source in modules.items():
+            Path(folder, name + ".py").write_text(source, encoding="utf-8")
+        commands.__path__.append(folder)
+        importlib.invalidate_caches()
+        yield tuple(modules)
+    finally:
+        if folder in commands.__path__:
+            commands.__path__.remove(folder)
+        for name in modules:
+            sys.modules.pop(f"commands.{name}", None)
+            if hasattr(commands, name):
+                delattr(commands, name)
+        importlib.invalidate_caches()
+        shutil.rmtree(folder, ignore_errors=True)
 
 
 def run_command(command, viewer, args):

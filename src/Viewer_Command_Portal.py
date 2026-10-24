@@ -19,6 +19,7 @@ import uuid
 
 from PySide6 import QtCore
 
+from Command_Declarations import acts_on_jobs
 from desktop.Viewer_Window import viewer_shows_windows as _viewer_shows_windows
 from utilities.Localization import Message
 
@@ -41,14 +42,6 @@ NOBODY_CAN_APPROVE = ("This command needs the user to press Run in the Agent pag
 MAX_SCRIPT_COMMANDS = 1000
 # The longest `progress` line a job entry keeps.
 MAX_PROGRESS_CHARACTERS = 256
-# Commands that end background work, as their lower-case words. The request at the
-# head of the queue waits for its jobs to end, so a stop command queued behind it
-# would wait as long: a request that holds only these runs at once instead
-# (ViewerCommandPortal._run_stop_requests). So do the jobs commands, which list
-# and cancel the commands the Viewer's command queue holds (Command_Queue).
-STOP_COMMANDS = frozenset({('esmfold', 'stop'), ('run', 'stop')})
-CONTROL_COMMANDS = frozenset({'jobs'})
-
 
 def now():
     return datetime.now(timezone.utc).isoformat()
@@ -436,17 +429,23 @@ class ViewerCommandPortal(QtCore.QObject):
 
     @staticmethod
     def _is_stop(record):
-        """Whether record is a stop or jobs command that may run now: not still waiting for an Agent review."""
-        words = tuple(record['command'].lower().split())
-        return ((words in STOP_COMMANDS or (bool(words) and words[0] in CONTROL_COMMANDS))
-                and record.get('approval') in (None, 'approved'))
+        """Whether record is a command that acts on the jobs and may run now: not still waiting for an Agent review.
+
+        A stop command ends the very jobs that keep the request at the head waiting, and a jobs
+        command lists and cancels the commands the Viewer's command queue holds (Command_Queue).
+        Which commands they are is for their modules to declare (Command_Declarations.acts_on_jobs).
+        """
+        if record.get('approval') not in (None, 'approved'):
+            return False
+        words = record['command'].split()
+        return bool(words) and acts_on_jobs(words[0].lower(), words[1:])
 
     def _run_stop_requests(self):
         """Run the queued requests that hold only stop commands, while the request at the head waits for its jobs.
 
-        `esmfold stop` and `run stop` end the very jobs that keep the head waiting, so
-        behind it they could never run. The head stays where it is: its job ends
-        cancelled, and the queue goes on from there.
+        A stop command ends the very jobs that keep the head waiting, so behind it it
+        could never run. The head stays where it is: its job ends cancelled, and the
+        queue goes on from there.
         """
         for request_id in list(self.queue[1:]):
             request = self.requests[request_id]

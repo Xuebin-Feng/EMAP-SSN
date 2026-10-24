@@ -162,6 +162,35 @@ class ScriptOutputTests(RunPaths, unittest.TestCase):
                         commands, diagnostics = path()
                         self.assertEqual(commands, expected, diagnostics)
 
+    def test_a_python_script_that_prints_run_lines_has_them_dropped_typed_and_requested(self):
+        # The run command says which lines a script may not hold, so the portal's script tracker names no command.
+        self.script.write_text("print('run')\nprint('RUN again')\nprint('select \"one\"')\nprint('run stop')\n",
+                               encoding='utf-8')
+        for path in (self.typed, self.requested):
+            with self.subTest(path=path.__name__):
+                commands, diagnostics = path()
+                self.assertEqual(commands, ['select "one"'], diagnostics)
+
+    def test_the_tracker_keeps_every_line_unless_the_command_that_starts_it_says_otherwise(self):
+        from Viewer_Command_Portal import ExecutionContext
+        from Viewer_Worker_Tracking import ScriptTracker
+        self.script.write_text("print('run')\nprint('select \"one\"')\n", encoding='utf-8')
+        # A kept `run` line becomes a child command, which must not reach a dialog.
+        no_dialog = mock.patch.object(QtWidgets.QFileDialog, 'getOpenFileName', side_effect=AssertionError('no dialog'))
+        for keep, expected in ((lambda line: line != 'run', ['select "one"']), (None, ['run', 'select "one"'])):
+            with self.subTest(keep=keep is not None), no_dialog, redirect_stdout(io.StringIO()):
+                request_id = self.portal.submit(str(len(self.portal.requests)), 'run')['request_id']
+                record = self.portal.requests[request_id]['commands'][0]
+                record.update(dispatched=True, outcome='succeeded', status='running')
+                ScriptTracker(ExecutionContext(self.portal, request_id, record), str(self.script), keep_command=keep)
+                self.assertEqual(record['children'], [])
+                deadline = time.monotonic() + 30
+                while not record['children'] and time.monotonic() < deadline:
+                    self.app.processEvents()
+                    time.sleep(.005)
+                self.assertEqual([child['command'] for child in record['children']], expected)
+                self.finish(request_id)
+
     def test_bytes_that_are_not_utf8_stay_visible(self):
         # Dropping the byte would run select "caf", which also matches caffeine.
         self.script.write_text(RAW_BYTE_SCRIPT, encoding='utf-8')

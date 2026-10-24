@@ -34,6 +34,18 @@ from utilities.Terminal_Launcher import launch_without_window
 from Viewer_Worker_Tracking import worker_directory
 from web_ui.Browser_Page import is_headless
 
+
+# How the Viewer dispatches this command (Command_Declarations).
+def queue_kind(args, source):
+    """`esmfold stop` ends the fold the line may be waiting for, so it runs at once; any other form waits its turn."""
+    return 'instant' if args and args[0].lower() == 'stop' else 'ordered'
+
+
+def acts_on_jobs(args):
+    """The command portal runs `esmfold stop` ahead of a request that waits for the very jobs it ends."""
+    return [word.lower() for word in args] == ['stop']
+
+
 def print_help():
     print("""
     ESM3 3D Structure Prediction

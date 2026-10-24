@@ -34,6 +34,32 @@ from web_ui.agent_backend import (
     call_api,
 )
 
+# How the Viewer dispatches this command (Command_Declarations). The forms that only open the Agent page
+# or set up the model (agent, agent off, agent deactivate, agent <Model Name>) send no message to a model.
+_SETTINGS_WORDS = frozenset({'off', 'deactivate'})
+_CONFIGURATION_FORMS = frozenset({'help', '-h', '--help', 'off', 'deactivate', '--register-only'})
+
+
+def _names_a_model(argument):
+    return argument.startswith('<') and argument.endswith('>')
+
+
+def queue_kind(args, source):
+    """The forms that open the page or set up the model run at once; a message to the model waits its turn."""
+    if not args or args[0].lower() in _SETTINGS_WORDS or _names_a_model(' '.join(args)):
+        return 'instant'
+    return 'ordered'
+
+
+def starts_model_request(args):
+    """Whether this agent command sends a message to a model: any form but the page, help, off and <Model Name>.
+
+    A command that a model generated is refused when it does, so a model cannot start another model request.
+    """
+    argument = ' '.join(args)
+    return bool(argument) and argument.lower() not in _CONFIGURATION_FORMS and not _names_a_model(argument)
+
+
 def print_help():
     print("""
     LLM Agent CLI Portal
