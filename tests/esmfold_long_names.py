@@ -32,6 +32,8 @@ MSA_120 = (
 )
 # The name of a file a person opens (an experimental structure), with the spaces and brackets a file name may have.
 OPENED_NAME = "Fungal Expansin (crystal structure) 1.8 A resolution, chain A, PDB 6XYZ refined 2024-03_final_version_2"
+# The same kind of file name without spaces, as a file from a folder of a person's own may well have.
+OPENED_PLAIN = "Fungal_Expansin_crystal_structure_1.8A_resolution_chain_A_PDB_6XYZ_refined_2024-03_final_version_2_no_spaces"
 # Nearly 150 characters with no hyphen, dot or space: only underscores, which are no place to break a line at, between its words.
 UNDERSCORE_NAME = (
     "serine_protease_inhibitor_kazal_type_domain_containing_protein_putative_uncharacterized_protein_isoform_x1_"

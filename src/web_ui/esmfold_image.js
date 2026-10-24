@@ -39,6 +39,18 @@ function roundedBox(context, x, y, width, height, radius) {
     context.closePath();
 }
 
+// `text`, cut with an ellipsis to fit `limit` pixels in the context's font.
+function fitText(context, text, limit) {
+    if (context.measureText(text).width <= limit) return text;
+    let kept = 0, high = text.length;
+    while (kept < high) {
+        const middle = Math.ceil((kept + high) / 2);
+        if (context.measureText(text.slice(0, middle) + '…').width <= limit) kept = middle;
+        else high = middle - 1;
+    }
+    return text.slice(0, kept) + '…';
+}
+
 // Draws the legend of `model` (colorModel()) at the bottom left of a picture `width` by `height`, `k` times
 // the size it has on the page; returns the box it took, or null when the coloring has no legend to draw.
 function drawLegend(context, width, height, k, model) {
@@ -55,7 +67,13 @@ function drawLegend(context, width, height, k, model) {
     }
     context.font = `${small}px ${family}`;
     for (const [, label] of keys) textWidth = Math.max(textWidth, context.measureText(label).width + 20 * k);
-    const barWidth = Math.max(150 * k, textWidth);
+    // As wide as its words ask, at least 150 and at most 200 of the page's pixels (the legend over the canvas is no wider), and
+    // within the picture; a heading or a key too long for that is cut with an ellipsis, as the page's own legend breaks it.
+    const barWidth = Math.min(Math.max(150 * k, textWidth), Math.max(100 * k, Math.min(200 * k, width - 2 * (12 * k + pad))));
+    context.font = `600 ${normal}px ${family}`;
+    const title = fitText(context, heading, barWidth);
+    context.font = `${small}px ${family}`;
+    const shownKeys = keys.map(([color, label]) => [color, fitText(context, label, barWidth - 20 * k)]);
     const hasBar = legend.kind !== 'table';
     const boxWidth = Math.ceil(barWidth + 2 * pad);
     const boxHeight = Math.ceil(2 * pad + normal + gap + (hasBar ? 8 * k + gap + small : 0) + keys.length * (small + 4 * k));
@@ -72,7 +90,7 @@ function drawLegend(context, width, height, k, model) {
     context.textBaseline = 'top';
     context.fillStyle = '#18181b';
     context.font = `600 ${normal}px ${family}`;
-    context.fillText(heading, x + pad, y + pad);
+    context.fillText(title, x + pad, y + pad);
     let at = y + pad + normal + gap;
     if (hasBar) {
         const ramp = legendRamp(legend);
@@ -91,7 +109,7 @@ function drawLegend(context, width, height, k, model) {
         context.textAlign = 'left';
         at += small;
     }
-    for (const [color, label] of keys) {
+    for (const [color, label] of shownKeys) {
         context.fillStyle = color;
         context.fillRect(x + pad, at + 1 * k, 14 * k, small - 2 * k);
         context.fillStyle = '#18181b';

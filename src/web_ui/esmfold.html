@@ -387,12 +387,12 @@
             background: var(--tip-bg); color: var(--tip-text); border: 1px solid var(--tip-border);
             padding: 6px 8px 6px 10px; border-radius: var(--radius);
             box-shadow: 0 4px 12px var(--tip-shadow);
-            font-size: 12px; line-height: 1.4;
+            font-size: 12px; line-height: 1.4; overflow-wrap: anywhere;
         }
         .toast.show { display: flex; }
         .toast .icon { width: 14px; height: 14px; }
         .toast.error { background: var(--danger-soft); color: var(--danger); border-color: var(--danger-border); }
-        .toast .toast-action { background: none; border: 0; color: #a7b0ff; font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 4px; outline: none; }
+        .toast .toast-action { flex: none; background: none; border: 0; color: #a7b0ff; font-size: 12px; font-weight: 600; cursor: pointer; padding: 2px 4px; border-radius: 4px; outline: none; }
         .toast .toast-action:focus-visible { box-shadow: 0 0 0 1px #a7b0ff; }
 
         /* What the stage says when there is nothing to draw */
@@ -405,7 +405,7 @@
         .empty-icon .icon { width: 22px; height: 22px; }
         .empty-icon.warn { background: var(--warning-soft); color: var(--warning); }
         .empty h2 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
-        .empty p { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: var(--text-secondary); }
+        .empty p { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: var(--text-secondary); overflow-wrap: anywhere; }
         .empty .steps { text-align: left; margin: 0 0 14px; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 12.5px; color: var(--text-secondary); }
         .empty .steps li { display: flex; gap: 8px; align-items: baseline; }
         .empty .steps .n { flex: none; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-muted); color: var(--text-secondary); font-size: 11px; font-weight: 600; display: inline-grid; place-items: center; }
@@ -425,7 +425,7 @@
             position: absolute; left: 12px; bottom: 12px; z-index: 4; display: none; min-width: 150px; max-width: 220px;
             padding: 7px 10px 8px; border: 1px solid var(--border-color); border-radius: 10px;
             background: color-mix(in srgb, var(--bg-card) 94%, transparent); box-shadow: var(--shadow-card);
-            font-size: 11.5px;
+            font-size: 11.5px; overflow-wrap: anywhere;
         }
         body[data-view="ready"] .canvas-legend[data-shown="1"] { display: block; }
         body[data-adv="1"] .canvas-legend { display: none !important; }
@@ -459,6 +459,7 @@
            spaces to break at: all of it breaks anywhere to stay inside the card. */
         .legend { overflow-wrap: anywhere; margin-top: 12px; padding: 10px 10px 9px; border: 1px solid var(--border-color); border-radius: var(--radius); background: var(--bg-card); }
         .legend .t { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 12.5px; font-weight: 600; margin-bottom: 6px; }
+        .legend .t small { flex: none; white-space: nowrap; }
         .ramp { height: 10px; border-radius: 5px; }
         .ticks { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-subtle); margin-top: 3px; font-variant-numeric: tabular-nums; }
         .bands { display: grid; gap: 4px; }
@@ -511,6 +512,7 @@
         .srow-swatch { width: 10px; height: 26px; border-radius: 4px; flex: none; margin: 0 4px 0 2px; background: var(--sw, var(--border-color)); }
         .srow-text { flex: 1; min-width: 0; line-height: 1.3; padding: 2px 0; }
         .srow-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .srow.expanded .srow-name { white-space: normal; overflow-wrap: anywhere; }
         .srow-sub { font-size: 11.5px; color: var(--text-subtle); display: flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; margin-top: 1px; }
         .srow.hidden-structure .srow-text { opacity: 0.55; }
         .chip { display: inline-flex; align-items: center; gap: 4px; height: 18px; padding: 0 7px; border-radius: 9999px; background: var(--bg-muted); color: var(--text-secondary); font-size: 11px; font-weight: 400; white-space: nowrap; flex: none; }
@@ -534,9 +536,10 @@
         .select:focus-visible { border-color: var(--accent); box-shadow: var(--focus-ring); }
         input[type="range"] { width: 100%; accent-color: var(--accent); height: 18px; margin: 0; }
         input[type="range"]:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; }
+        /* A name in a term ("Aligned to <name>") breaks anywhere and leaves the room a value needs: a value stays whole. */
         .kv { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; font-size: 12px; margin: 0; }
-        .kv dt { color: var(--text-subtle); }
-        .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+        .kv dt { color: var(--text-subtle); overflow-wrap: anywhere; }
+        .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
         .row-actions { display: flex; flex-wrap: wrap; gap: 6px; }
         .srow-text { cursor: pointer; }
 
@@ -591,7 +594,7 @@
         .tip .pinned-note { margin-top: 5px; color: var(--tip-muted); font-size: 11px; }
 
         /* The Residue card */
-        .res-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 6px; }
+        .res-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 6px; overflow-wrap: anywhere; }
         .res-head span { font-weight: 400; color: var(--text-subtle); font-size: 12px; }
         .res-table { width: 100%; border-collapse: collapse; font-size: 12px; }
         /* No text of the table wraps, but a layer's name in its header, which breaks at its spaces (it is the data's, and as long as the
@@ -599,12 +602,12 @@
            of 100% with max-width 0, the way a table cell is made to shrink) and is cut with an ellipsis; the swatch stays beside it. */
         .res-table th { text-align: left; font-weight: 600; color: var(--text-subtle); padding: 2px 0 4px; font-size: 11px; line-height: 1.25; vertical-align: bottom; white-space: nowrap; }
         .res-table th:not(:first-child), .res-table td:not(:first-child) { text-align: right; padding-left: 8px; }
-        .res-table th.res-layer { white-space: normal; overflow-wrap: break-word; }
+        .res-table th.res-layer { white-space: normal; overflow-wrap: break-word; max-width: 12em; }
         .res-table td { padding: 3px 0; border-top: 1px solid var(--border-color); font-variant-numeric: tabular-nums; white-space: nowrap; }
         .res-table td:first-child { color: var(--text-secondary); }
         .res-table td.res-name { width: 100%; max-width: 0; overflow: hidden; text-overflow: ellipsis; }
         .res-swatch { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
-        .res-note { margin-top: 8px; font-size: 11.5px; color: var(--text-subtle); line-height: 1.5; }
+        .res-note { margin-top: 8px; font-size: 11.5px; color: var(--text-subtle); line-height: 1.5; overflow-wrap: anywhere; }
         .res-foot { display: flex; gap: 6px; margin-top: 10px; }
 
         /* The sequence strip: residues in blocks of ten, each with a bar in its color in 3D */
@@ -640,11 +643,13 @@
         /* Folding: a row for the sequence being folded, a progress bar on the canvas, a row for a failure */
         .srow.pending .srow-name { color: var(--text-secondary); display: flex; align-items: center; gap: 6px; }
         .srow.pending .srow-name .icon { width: 14px; height: 14px; }
+        .srow.pending .srow-name .row-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
         .srow.pending .srow-swatch { background: var(--border-color); }
         .srow.pending .job-elapsed { font-variant-numeric: tabular-nums; }
         .srow.failed { background: var(--danger-soft); border-radius: 8px; }
-        .srow.failed .srow-name { display: flex; align-items: center; gap: 6px; }
-        .srow.failed .srow-sub { color: var(--danger); white-space: normal; word-break: break-word; }
+        .srow.failed .srow-name { display: flex; align-items: flex-start; gap: 6px; white-space: normal; overflow-wrap: anywhere; }
+        .srow.failed .srow-name .chip { margin-top: 1px; }
+        .srow.failed .srow-sub { color: var(--danger); white-space: normal; overflow-wrap: anywhere; }
         .srow.failed .srow-swatch { background: var(--danger); }
         .srow.failed .srow-body { padding-top: 0; }
         .chip.err { background: var(--danger-soft); color: var(--danger); }
@@ -707,7 +712,7 @@
             body[data-tab="structures"] .sec[data-tab="structures"], body[data-tab="color"] .sec[data-tab="color"], body[data-tab="residue"] .sec[data-tab="residue"] { display: block; }
             .canvas-legend { left: 8px; bottom: 8px; max-width: 170px; min-width: 120px; }
             .seqbar { display: none; }
-            .res-table th.res-layer { white-space: nowrap; }
+            .res-table th.res-layer { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 24em; }
             .view-toolbar .narrow-hide { display: none; }
             header .saved-note { display: none; }
             .empty { padding: 16px; }

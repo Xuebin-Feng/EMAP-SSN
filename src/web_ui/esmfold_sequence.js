@@ -116,6 +116,8 @@ function renderSequence() {
     }));
     select.value = target.ref + '|' + target.chain;
     select.hidden = choices.length < 2;
+    // The select shows as much of a long name as it has room for: the whole of it is on hover.
+    select.title = select.selectedOptions[0]?.textContent ?? '';
 
     const body = byId('seq-body');
     const blocks = [];

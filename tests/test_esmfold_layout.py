@@ -79,13 +79,17 @@ window.overflowing = function (selector) {
     if (!root) return ['missing ' + selector];
     const limit = root.getBoundingClientRect();
     const found = [];
-    const label = node => node.tagName.toLowerCase() + (node.id ? '#' + node.id : '') + [...node.classList].map(name => '.' + name).join('');
+    // A part that is not drawn (a state the engine is not in, a closed dialog) has nothing out of its place: no answer to give.
+    if (getComputedStyle(root).display === 'none' || (limit.width === 0 && limit.height === 0)) return ['not drawn: ' + selector];
+    const label = node => node.tagName.toLowerCase() + (node.id ? '#' + node.id : '') + [...node.classList].map(name => '.' + name).join('')
+        + (node.children.length ? '' : ' "' + node.textContent.trim().slice(0, 24) + '"');
     const drawn = node => {
         const style = getComputedStyle(node), box = node.getBoundingClientRect();
         return style.display !== 'none' && style.visibility !== 'hidden' && (box.width > 0 || box.height > 0);
     };
     const clips = node => getComputedStyle(node).overflowX !== 'visible';
-    const cuts = node => clips(node) && getComputedStyle(node).textOverflow === 'ellipsis';
+    // Cut with an ellipsis: an element that clips, says so, and has more text than room.
+    const cuts = node => clips(node) && getComputedStyle(node).textOverflow === 'ellipsis' && node.scrollWidth > node.clientWidth + 1;
     const inner = node => { const box = node.getBoundingClientRect(); return {left: box.left + node.clientLeft, right: box.left + node.clientLeft + node.clientWidth}; };
     const within = (box, area) => box.left >= area.left - 0.5 && box.right <= area.right + 0.5;
     const above = node => { const list = []; for (let a = node.parentElement; a && a !== root; a = a.parentElement) list.push(a); return list; };
@@ -151,7 +155,7 @@ class LongNameTestCase(ResidueTestCase):
         """The page with the window `width` pixels wide: the panel beside the canvas, a drawer over it, or a strip."""
         self.view.resize(width, 800)
         self.addCleanup(self.view.resize, 1300, 800)
-        self.script("setPanel(true); setTab(%s); await new Promise(resolve => setTimeout(resolve, 450)); return 1" % json.dumps(tab))
+        self.script("setPanel(true); setTab(%s); await new Promise(resolve => setTimeout(resolve, 320)); return 1" % json.dumps(tab))
 
     def overflowing(self, selector):
         return self.script("return overflowing(%s)" % json.dumps(selector))
@@ -332,7 +336,11 @@ class LegendNoteTests(LongNameTestCase):
                 with self.subTest(coloring=coloring, width=width):
                     self.at(width)
                     self.assertEqual(self.overflowing("section[data-tab=color]"), [])
-                    # The legend drawn over the canvas (which a canvas-less engine hides, so the test says it is ready).
+                    # The legend drawn over the canvas (which a canvas-less engine hides, so the test says it is ready); Structure
+                    # color has none to draw.
+                    if coloring == "builtin:structure":
+                        self.assertEqual(self.script("return document.getElementById('canvas-legend').dataset.shown"), "0")
+                        continue
                     self.assertEqual(self.script("""
                         document.body.dataset.view = 'ready';
                         const found = overflowing('#canvas-legend');

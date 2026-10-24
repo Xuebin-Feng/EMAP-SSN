@@ -336,7 +336,12 @@ async function renderResidueCard() {
     const columns = [[t("Structure"), undefined], ['pLDDT', undefined]];
     if (layerLabel) columns.push([layerLabel, 'res-layer']);
     if (rows.length > 1) columns.push([t("Cα–Cα (Å)"), 'res-dist']);
-    header.append(...columns.map(([label, className]) => cell('th', label, className)));
+    header.append(...columns.map(([label, className]) => {
+        const node = cell('th', label, className);
+        // In the strip a layer's name is on one line, cut with an ellipsis if it is long: the whole of it is on hover.
+        if (className === 'res-layer') node.title = label;
+        return node;
+    }));
     table.append(header);
     for (const item of rows) {
         const row = make('tr');

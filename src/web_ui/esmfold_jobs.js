@@ -107,8 +107,9 @@ function jobRows() {
         const swatch = make('span', 'srow-swatch');
         const text = make('div', 'srow-text');
         const spinner = icon("loader-circle", 'icon-spin');
-        const label = make('span', undefined, job.name || t("Getting the model ready..."));
+        const label = make('span', 'row-label', job.name || t("Getting the model ready..."));
         const nameLine = make('div', 'srow-name');
+        nameLine.title = label.textContent;
         nameLine.append(spinner, label);
         const sub = make('div', 'srow-sub');
         const progress = make('span', undefined, job.index ? t("Folding {index} of {total}", {index: job.index, total: job.total}) : jobHeading());

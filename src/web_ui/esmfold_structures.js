@@ -392,6 +392,8 @@ function structureRow(structure, index, pivot) {
     const text = make('div', 'srow-text');
     text.addEventListener('click', () => toggleRow(ref));
     const nameLine = make('div', 'srow-name', name);
+    // A name too long for the row is cut with an ellipsis; the whole of it is on hover, and in the row when it is open.
+    nameLine.title = name;
     text.append(nameLine);
     const sub = make('div', 'srow-sub');
     const fit = fitStats.get(ref);
