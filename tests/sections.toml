@@ -334,6 +334,7 @@ modules = [
     "test_launcher_scripts",
     "test_output_streams",
     "test_run_sections",
+    "test_session_folder",
     "test_terminal_launcher",
     "test_terminal_shell_launcher",
 ]

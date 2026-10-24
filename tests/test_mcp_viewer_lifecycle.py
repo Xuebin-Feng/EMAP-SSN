@@ -584,7 +584,7 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
         )
         directory = fixture.root / "sessions"
         environment = _launch_environment(SSN_VIEWER_SESSION_DIR=str(directory),
-                                          TEMP=str(fixture.root), TMP=str(fixture.root))
+                                          TEMP=str(fixture.root), TMP=str(fixture.root), TMPDIR=str(fixture.root))
         parameters = StdioServerParameters(command=sys.executable,
             args=["-u", str(fixtures.SRC / "EMAPSSN_MCP_Server.py")], cwd=str(fixtures.ROOT), env=environment)
         info = None

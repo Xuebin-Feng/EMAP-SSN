@@ -278,7 +278,7 @@ class MCPProtocolTests(unittest.IsolatedAsyncioTestCase):
         self.protocol_temp = tempfile.TemporaryDirectory()
         self.temp_patch = mock.patch.object(tempfile, "tempdir", self.protocol_temp.name)
         self.env_patch = mock.patch.dict(os.environ, {
-            "TEMP": self.protocol_temp.name, "TMP": self.protocol_temp.name,
+            "TEMP": self.protocol_temp.name, "TMP": self.protocol_temp.name, "TMPDIR": self.protocol_temp.name,
             "PYTHONIOENCODING": "utf-8",
         })
         self.temp_patch.start()
@@ -593,6 +593,14 @@ class MCPViewerClientTests(unittest.IsolatedAsyncioTestCase):
 
 
 class ServerVersionTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self):
+        # The in-process server makes its jobs folder under the temp folder: give it one to remove.
+        jobs = tempfile.TemporaryDirectory()
+        self.addCleanup(jobs.cleanup)
+        patcher = mock.patch.object(tempfile, "tempdir", jobs.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     async def test_clients_and_the_settings_doc_see_the_same_server_version(self):
         from EMAPSSN_MCP_Server import MCP_SERVER_VERSION
         async with Client(mcp) as client:

@@ -10,7 +10,8 @@ files and shell, whichever subset of modules runs:
   flag when it starts from explicit settings).
 * SSN_VIEWER_SESSION_DIR points at a folder private to this run, so web servers
   started by tests never publish Viewer session descriptors (with live tokens)
-  where real MCP clients look for Viewers. The folder is removed at exit.
+  where real MCP clients look for Viewers. The folder is the run's session folder
+  (see below) and is removed when the run ends.
 * SSN_LAYOUT_GPU_KERNEL_CACHE points compiled GPU kernels into the same private
   folder, so CUDA tests never write the developer's kernel cache.
 * SSN_APP_SETTINGS_PATH points the program's own settings (app_settings.json,
@@ -26,7 +27,15 @@ files and shell, whichever subset of modules runs:
   for that script (SSN_TOOL_SETTINGS_SCRIPT and SSN_TOOL_SETTINGS_FILE).
   Without the hook, whichever test module imported a tool first decided the
   globals that every later module saw.
-
+* The run's own temp folder is <session folder>/temp: TMP, TEMP (and TMPDIR) and
+  tempfile.tempdir point there, for the process and for every child it starts, so
+  whatever a test leaves in "the temp folder" stays in the session folder and goes
+  with it, and the developer's temp folder stays clean. A test that gives a child
+  another temp folder sets all three variables. tests/session_folder.py has the
+  rules: tests/run_sections.py makes the session folder and removes it after each
+  section's process has ended, however it ended (EMAPSSN_TEST_SESSION_DIR names
+  it); a process started by hand makes and removes its own, retrying while Windows
+  still holds something, and sweeps the folders of runs that were killed.
 * Nothing a test runs may open a folder, a file, a browser page or a console window
   on the developer's desktop. tests/desktop_openers.py replaces the calls that do
   (QDesktopServices.openUrl, webbrowser.open, os.startfile, Popen of an opener
@@ -45,26 +54,54 @@ import atexit
 import importlib.abc
 import importlib.machinery
 import os
-import shutil
 import sys
-import tempfile
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _TOOLS_DIR = os.path.join(_PROJECT_ROOT, "src", "tools")
 MISSING_TOOL_SETTINGS = os.path.join(_PROJECT_ROOT, "tests", "nonexistent-settings.json")
 _ROOT_PROCESS_MARKER = "EMAPSSN_TEST_ENVIRONMENT"
 
+from . import session_folder  # noqa: E402
+
+
+def _start_session():
+    """Enter this process's session folder: the runner's, when it made one, else a new one."""
+    given = os.environ.get(session_folder.SESSION_ENV)
+    runner_owns = bool(given) and os.path.isdir(given)
+    if runner_owns:
+        directory = given
+    else:
+        session_folder.sweep()  # the folders of runs that were killed
+        directory = session_folder.create()
+    session_folder.use_temp(session_folder.adopt(directory))
+    return directory, runner_owns
+
+
+def _end_session(directory, runner_owns):
+    """Remove the session folder as the process ends, unless the runner will (it reports leaks too)."""
+    if runner_owns:
+        return
+    leaked = session_folder.leaked(directory)
+    if leaked:
+        print("Left in the test temp folder, now removed: " + ", ".join(leaked[:20])
+              + (f" and {len(leaked) - 20} more" if len(leaked) > 20 else ""), file=sys.stderr, flush=True)
+    error = session_folder.remove_tree(directory)
+    if error is not None:
+        print(f"Could not remove the test session folder {directory}: {error}", file=sys.stderr, flush=True)
+
+
 if not os.environ.get(_ROOT_PROCESS_MARKER):
     os.environ[_ROOT_PROCESS_MARKER] = str(os.getpid())
     for _name in [name for name in os.environ if name.startswith("SSN_")]:
         del os.environ[_name]
     os.environ["SSN_VIEWER_EXPLICIT_SETTINGS"] = "1"
-    _SESSION_DIRECTORY = tempfile.mkdtemp(prefix="emapssn-test-sessions-")
+    _SESSION_DIRECTORY, _RUNNER_OWNS_SESSION = _start_session()
     os.environ["SSN_VIEWER_SESSION_DIR"] = _SESSION_DIRECTORY
     os.environ["SSN_LAYOUT_GPU_KERNEL_CACHE"] = os.path.join(_SESSION_DIRECTORY, "gpu_kernels")
     os.environ["SSN_APP_SETTINGS_PATH"] = os.path.join(_SESSION_DIRECTORY, "app_settings.json")
     os.environ["SSN_BENCHMARK_WORK_DIR"] = os.path.join(_SESSION_DIRECTORY, "benchmark")
-    atexit.register(shutil.rmtree, _SESSION_DIRECTORY, ignore_errors=True)
+    # Registered first, so it runs last: after Qt, the pools and every other exit handler.
+    atexit.register(_end_session, _SESSION_DIRECTORY, _RUNNER_OWNS_SESSION)
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 

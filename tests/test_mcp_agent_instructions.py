@@ -94,7 +94,7 @@ class GuideProtocolTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(tool.description, tool.name)
 
     async def test_real_stdio_instructions_from_unrelated_directory(self):
-        environment = dict(os.environ, TEMP=self.directory.name, TMP=self.directory.name,
+        environment = dict(os.environ, TEMP=self.directory.name, TMP=self.directory.name, TMPDIR=self.directory.name,
                            SSN_VIEWER_SESSION_DIR=self.directory.name, PYTHONIOENCODING="utf-8")
         parameters = StdioServerParameters(command=sys.executable,
             args=[str(SRC / "EMAPSSN_MCP_Server.py")], cwd=self.directory.name, env=environment)

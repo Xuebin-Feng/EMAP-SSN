@@ -10,6 +10,7 @@ import ast
 import io
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -438,6 +439,129 @@ class RunTests(unittest.TestCase):
         code, out = self.run_main("nonexistent")
         self.assertEqual(code, 2)
         self.assertIn("unknown section(s): nonexistent", out)
+
+
+class SessionFolderTests(unittest.TestCase):
+    """Each section works in a session folder of its own, which the runner removes whatever became of the process."""
+
+    def setUp(self):
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.root = Path(folder.name)
+        write(self.root, {
+            "tests/__init__.py": "",
+            "tests/sections.toml": """\
+                [sections.temp]
+                modules = ["test_temp"]
+                [sections.leaky]
+                modules = ["test_leaky"]
+                [sections.crash]
+                modules = ["test_crash"]
+                [sections.slow]
+                modules = ["test_sleep"]
+                """,
+            "tests/test_temp.py": """\
+                import os, tempfile, unittest
+                class TempTests(unittest.TestCase):
+                    def test_the_temp_folder_is_the_sessions(self):
+                        session = os.environ["EMAPSSN_TEST_SESSION_DIR"]
+                        self.assertTrue(os.path.isdir(session))
+                        temp = os.path.join(session, "temp")
+                        self.assertEqual(os.path.normcase(tempfile.gettempdir()), os.path.normcase(temp))
+                        self.assertEqual(os.path.normcase(os.environ["TMP"]), os.path.normcase(temp))
+                        self.assertEqual(os.path.normcase(os.environ["TEMP"]), os.path.normcase(temp))
+                        self.assertNotIn("EMAPSSN_TEST_ENVIRONMENT", os.environ)
+                """,
+            "tests/test_leaky.py": """\
+                import os, tempfile, unittest
+                class LeakyTests(unittest.TestCase):
+                    def test_forgets_a_folder(self):
+                        folder = tempfile.mkdtemp(prefix="left-behind-")
+                        open(os.path.join(folder, "note.txt"), "w").close()
+                        open("leaked-session.txt", "w").write(os.environ["EMAPSSN_TEST_SESSION_DIR"])
+                """,
+            "tests/test_crash.py": """\
+                import os, unittest
+                class CrashTests(unittest.TestCase):
+                    def test_ends_the_process_without_exit_handlers(self):
+                        open("crashed-session.txt", "w").write(os.environ["EMAPSSN_TEST_SESSION_DIR"])
+                        os._exit(3)
+                """,
+            "tests/test_sleep.py": """\
+                import os, subprocess, sys, time, unittest
+                class SleepTests(unittest.TestCase):
+                    def test_sleeps(self):
+                        open("slept-session.txt", "w").write(os.environ["EMAPSSN_TEST_SESSION_DIR"])
+                        subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+                        time.sleep(60)
+                """,
+        })
+        patcher = mock.patch.object(run_sections, "LOG_BASE", self.root / "logs")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        marker = mock.patch.dict(os.environ, {"EMAPSSN_TEST_ENVIRONMENT": "1"})
+        marker.start()
+        self.addCleanup(marker.stop)
+        self.logs = self.root / "run"
+        self.before = self.sessions()
+
+    def sessions(self):
+        """The session folders in this process's temp folder (private to the run, so these are the runner's)."""
+        return sorted(name for name in os.listdir(tempfile.gettempdir()) if name.startswith("emapssn-test-sessions-"))
+
+    def run_main(self, *arguments):
+        out = io.StringIO()
+        code = run_sections.main([*arguments, "--log-dir", str(self.logs)], root=self.root, out=out)
+        return code, out.getvalue()
+
+    def recorded(self, name):
+        return (self.root / name).read_text(encoding="utf-8")
+
+    def test_a_section_runs_in_a_session_folder_whose_temp_folder_is_its_temp_folder(self):
+        code, out = self.run_main("temp")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.sessions(), self.before, "removed when the section ended")
+        self.assertNotIn("temp folder", out)
+
+    def test_the_session_folders_of_sections_that_ran_together_are_different_ones(self):
+        code, out = self.run_main("temp", "leaky", "-j", "2")
+        self.assertEqual(code, 0, out)
+        self.assertEqual(self.sessions(), self.before)
+
+    def test_what_a_sections_tests_left_in_their_temp_folder_is_named_and_removed(self):
+        code, out = self.run_main("leaky")
+        self.assertEqual(code, 0, "a leak is reported, not a failure: " + out)
+        self.assertRegex(out, r"leaky: its tests left 1 item\(s\) in their temp folder.*left-behind-")
+        self.assertFalse(os.path.exists(self.recorded("leaked-session.txt")))
+        self.assertEqual(self.sessions(), self.before)
+
+    def test_a_section_that_ends_without_exit_handlers_leaves_no_session_folder(self):
+        code, out = self.run_main("crash")
+        self.assertEqual(code, 1, out)
+        self.assertIn("crash: crashed", out)
+        session = self.recorded("crashed-session.txt")
+        self.assertEqual(os.path.normcase(os.path.dirname(session)), os.path.normcase(tempfile.gettempdir()))
+        self.assertFalse(os.path.exists(session), "the process never ran its exit handlers")
+        self.assertEqual(self.sessions(), self.before)
+
+    def test_a_section_stopped_at_its_timeout_leaves_no_session_folder(self):
+        self.addCleanup(stop_processes_in, self.root, grace=0)
+        code, out = self.run_main("slow", "--timeout", "3")
+        self.assertEqual(code, 1, out)
+        self.assertIn("slow: timeout", out)
+        self.assertFalse(os.path.exists(self.recorded("slept-session.txt")))
+        self.assertEqual(self.sessions(), self.before)
+
+    def test_a_folder_that_cannot_be_removed_is_reported(self):
+        # The folder the stand-in leaves is this test's to remove, not the outer run's to report.
+        self.addCleanup(lambda: [shutil.rmtree(os.path.join(tempfile.gettempdir(), name), ignore_errors=True)
+                                 for name in set(self.sessions()) - set(self.before)])
+        with mock.patch.object(run_sections.session_folder, "remove_tree",
+                               return_value=PermissionError(13, "in use")):
+            code, out = self.run_main("temp")
+        self.assertEqual(code, 0, out)
+        self.assertIn("temp: its session folder could not be removed", out)
+        self.assertIn("in use", out)
 
 
 class RealTreeTestCase(unittest.TestCase):

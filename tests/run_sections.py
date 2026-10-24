@@ -25,6 +25,13 @@ touches src/**/*.py also runs the repository-wide checks listed there.
 Each section writes its output to its own log file; the summary names the logs
 of failed sections and their failing tests. The exit code is 0 when every
 selected section passed, 1 when any failed, and 2 for a usage error.
+
+Each section works in a session folder of its own, `emapssn-test-sessions-<section>-*`
+in the temp folder, whose `temp` subfolder is the section's temp folder
+(tests/session_folder.py). The runner removes the folder after the section's process
+has ended, however it ended, so a timeout, a crash or a kill leaves nothing in the
+temp folder, and the summary names what the section's tests left in their temp
+folder (a leak the tests should clean up; it does not fail the section).
 """
 from __future__ import annotations
 
@@ -51,6 +58,11 @@ try:
     import psutil  # in src/requirements.txt; without it, Windows stops trees with taskkill
 except ImportError:
     psutil = None
+
+if __package__:
+    from . import session_folder
+else:  # run as a script: tests/ itself is on sys.path
+    import session_folder
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CONFIG_PATH = Path("tests") / "sections.toml"
@@ -121,6 +133,8 @@ class Result:
     seconds: float = 0.0
     log: Path | None = None
     problems: list = field(default_factory=list)
+    leaks: list = field(default_factory=list)  # what the tests left in their temp folder
+    session_problem: str = ""  # why the section's session folder could not be removed
 
     @property
     def failed(self):
@@ -677,6 +691,25 @@ class Runner:
             print(text, file=self.out, flush=True)
 
     def run_one(self, section):
+        """Run the section in a session folder of its own, and remove the folder afterwards
+        whatever became of the process. Its temp folder's contents are the section's leaks."""
+        session = session_folder.create(section.name)
+        temp = os.path.join(session, session_folder.TEMP_NAME)
+        os.makedirs(temp, exist_ok=True)
+        environment = child_environment()
+        environment[session_folder.SESSION_ENV] = session
+        environment.update(session_folder.temp_environment(temp, environment))
+        try:
+            result = self._run_section(section, environment)
+        finally:
+            leaks = session_folder.leaked(session)
+            problem = session_folder.remove_tree(session)
+        result.leaks = leaks
+        if problem is not None:
+            result.session_problem = f"{session}: {problem}"
+        return result
+
+    def _run_section(self, section, environment):
         cwd = self.root / section.cwd if section.cwd else self.root
         log = self.log_dir / f"{section.name}.log"
         if section.discover and not (cwd / "tests").is_dir():
@@ -691,7 +724,7 @@ class Runner:
             handle.flush()
             if self._stopping:
                 return Result(section.name, "interrupted", log=log)
-            process = subprocess.Popen(command, cwd=cwd, env=child_environment(),
+            process = subprocess.Popen(command, cwd=cwd, env=environment,
                                        stdin=subprocess.DEVNULL, stdout=handle,
                                        stderr=subprocess.STDOUT, **options)
             with self._lock:
@@ -975,6 +1008,13 @@ def report(results, wall, log_dir, out):
             print(f"    {problem}", file=out)
         if len(result.problems) > 25:
             print(f"    ... {len(result.problems) - 25} more in the log", file=out)
+    for result in results:
+        if result.leaks:
+            shown = ", ".join(result.leaks[:12]) + (f" and {len(result.leaks) - 12} more" if len(result.leaks) > 12 else "")
+            print(f"\n{result.name}: its tests left {len(result.leaks)} item(s) in their temp folder "
+                  f"(removed with the session): {shown}", file=out)
+        if result.session_problem:
+            print(f"\n{result.name}: its session folder could not be removed: {result.session_problem}", file=out)
     if results and all(result.status in ("empty", "missing") for result in results):
         print("No tests ran.", file=out)
     return 1 if failed else 0
