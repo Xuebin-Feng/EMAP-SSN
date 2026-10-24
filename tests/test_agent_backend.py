@@ -1,6 +1,7 @@
 """In-Viewer agent backend (web_ui/agent_backend): model-card activation, loading and saving,
 activation by saved card id, and running or discarding commands an Agent reply left waiting."""
 from contextlib import redirect_stdout
+import http.client
 import io
 import json
 import os
@@ -1194,6 +1195,19 @@ class RequestAbortTests(unittest.TestCase):
             self.assertEqual((result['content'], len(provider.requests), report), ('fine', 2, {'sampling_rejected': True}))
             handle.abort()  # Too late to matter, and no error.
             self.assertTrue(handle.aborted)
+
+    def test_whatever_a_socket_that_was_shut_down_raises_is_an_abort_only_after_one(self):
+        raised = (OSError('connection aborted'), http.client.RemoteDisconnected('closed'), http.client.IncompleteRead(b''),
+                  ValueError('Read on closed or unwrapped SSL socket.'))
+        for error in raised:
+            with self.subTest(error=type(error).__name__):
+                handle = agent.RequestHandle()
+                with mock.patch.object(agent, '_post_chat', side_effect=error):
+                    with self.assertRaises(type(error)):  # No abort: it is the error it is.
+                        agent.call_api('http://127.0.0.1:1/v1', 'm', 's', 'q', handle=handle)
+                    handle.abort()
+                    with self.assertRaises(agent.RequestAborted):
+                        agent.call_api('http://127.0.0.1:1/v1', 'm', 's', 'q', handle=handle)
 
     def test_an_error_from_the_provider_is_still_the_providers_error(self):
         with FakeProvider(lambda payload: (500, 'overloaded')) as provider:

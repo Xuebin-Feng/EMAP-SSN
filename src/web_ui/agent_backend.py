@@ -651,8 +651,9 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=No
                 continue
             raise ValueError(_request_failed(
                 e.code, (body or _redact(str(e.reason), api_key))[:2000], _has_images(payload["messages"]))) from e
-        except (OSError, http.client.HTTPException) as e:
-            # A shut-down socket surfaces as whichever of these the read was in.
+        except (OSError, http.client.HTTPException, ValueError) as e:
+            # A shut-down socket surfaces as whichever of these the read was in (a TLS socket
+            # read after the abort says ValueError: Read on closed or unwrapped SSL socket).
             if handle is not None and handle.aborted:
                 raise RequestAborted() from e
             raise
