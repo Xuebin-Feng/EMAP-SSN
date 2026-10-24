@@ -13,7 +13,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""One sequential, viewer-owned queue for expensive command artifacts."""
+"""The Viewer's background jobs: lanes of work that run beside each other, each in the order of its own line.
+
+A command that has slow work to do hands it to the scheduler with enqueue() and
+says, in that call, everything the scheduler and the Session card need to know
+about it: the lane it goes in, its description, the output paths it reserves, the
+function that cleans up after it, and a log it writes. Nothing here, and nothing
+in the card, names a command, so a command module (a plugin) can use the
+scheduler without the scheduler being changed.
+
+* **Lanes.** A lane is a line of jobs run one at a time, in order, on a daemon
+  thread of its own; the lanes run side by side. "files" is the default lane. A
+  job names another lane, and the first job to name it creates it;
+  register_lane() gives a lane its title for the card.
+* **The line.** Each lane's waiting jobs are a list the GUI thread may rearrange
+  (move) or remove from (cancel) while the lane's thread takes the next job.
+* **Stopping.** A running job is told to stop (cancel) and ends at the next check
+  point of its worker (utilities.Job_Cancellation), which deletes its partial
+  files; or, for a job that waits on a process, at the stop function the worker
+  registered with its JobHandle.
+* **Closing.** shutdown() stops every running job, waits a moment, and deletes
+  the partial files of a job that did not stop.
+"""
 
 from __future__ import annotations
 
@@ -36,8 +57,12 @@ from utilities.Localization import Message
 
 Worker = Callable[..., Mapping[str, Any]]
 
-# How long closing the Viewer waits for the running job to reach a check point and stop.
+# How long closing the Viewer waits for the running jobs to reach a check point and stop.
 SHUTDOWN_WAIT_SECONDS = 2.5
+# The lane a job goes in unless it names another, and its title.
+DEFAULT_LANE = "files"
+# How many failed jobs are kept for the card to show, until each is dismissed.
+KEPT_FAILURES = 5
 
 
 def _takes_handle(worker):
@@ -53,6 +78,14 @@ def _takes_handle(worker):
 
 @dataclass(frozen=True)
 class BackgroundJob:
+    """One job, as the command that queued it described it.
+
+    ``reserved_paths`` are every output the job reserves, ``output_path`` first;
+    ``cleanup()`` is called once when the job leaves the scheduler, however it
+    ends; ``on_finished(job, outcome, error)`` is called on the GUI thread once
+    the job's end is reported, outcome being "succeeded", "failed" or "cancelled"
+    and error the error of a failed job; ``log_path`` is a log the job writes.
+    """
     job_id: int
     command_name: str
     description: str
@@ -60,60 +93,93 @@ class BackgroundJob:
     worker: Worker
     output_path: str
     command_context: Any = None
+    lane: str = DEFAULT_LANE
+    reserved_paths: tuple = ()
+    cleanup: Callable[[], None] | None = None
+    on_finished: Callable[..., None] | None = None
+    log_path: str | None = None
 
 
 @dataclass(frozen=True)
 class JobStatus:
     """One unfinished job as snapshot() reports it.
 
-    ``position`` is its place in the line, the running job being 1;
+    ``position`` is its place in its lane's line, the running job being 1;
     ``started_at`` is the running job's time.monotonic() start, None for a
-    waiting one; ``stopping`` is true for the running job once it was told to stop.
+    waiting one; ``stopping`` is true for the running job once it was told to
+    stop; ``progress`` is what the running job says it is doing; ``log_path``
+    the log it writes, when it names one.
     """
     job: BackgroundJob
     running: bool
     position: int
     started_at: float | None = None
     stopping: bool = False
+    lane: str = DEFAULT_LANE
+    progress: Any = None
+    log_path: str | None = None
+
+
+@dataclass(frozen=True)
+class FailedJob:
+    """A job that failed, kept for the card to show with its reason and, if it wrote one, its log."""
+    job_id: int
+    description: str
+    lane: str
+    error: Any
+    log_path: str | None
+
+
+class _Lane:
+    """One line of jobs and the thread that runs them. Every field is guarded by the scheduler's lock."""
+
+    def __init__(self, name, title, lock):
+        self.name = name
+        self.title = title
+        # The jobs waiting, in the order they will run; the running one is not in it.
+        self.queued = []
+        self.active = None
+        self.handle = None
+        self.started = None
+        self.stopping = False
+        self.thread = None
+        self.wake = threading.Condition(lock)
 
 
 class BackgroundJobScheduler(QtCore.QObject):
-    """Run mixed command jobs one at a time on one daemon thread, in the order of the line.
+    """Run command jobs in lanes: one job at a time within a lane, the lanes side by side.
 
-    The line is a list the GUI thread may rearrange (move) while the thread
-    takes jobs from its front: every change to the list, and the choice of the
-    next job, happen under one lock, so a job is either still in the line,
-    where it can be moved or removed, or running, where it cannot be moved and
-    can only be told to stop (cancel). A running job stops at the next check
-    point of its worker (utilities.Job_Cancellation.raise_if_cancelled); the
-    worker deletes what it had written, and the job ends as cancelled.
+    Everything that reads or changes a lane's line, or chooses its next job,
+    happens under one lock, so a job is either still in its line, where it can
+    be moved or removed, or running, where it cannot be moved and can only be
+    told to stop. A lane's thread takes the job at the front of its own line
+    and no other, so rearranging one lane never touches another's.
     """
 
     job_started = QtCore.Signal(object)
     job_succeeded = QtCore.Signal(object, object, float)
     # The error itself, not its text, so a Message it holds shows translated.
     job_failed = QtCore.Signal(object, object, str, float)
-    # The job, and whether it had started: a job removed from the line, or one stopped while it ran.
+    # The job, and whether it had started: a job removed from its line, or one stopped while it ran.
     job_cancelled = QtCore.Signal(object, bool)
-    # The line or the running job changed: sent once the new state stands, for whatever lists the jobs.
+    # A line or a running job changed: sent once the new state stands, for whatever lists the jobs.
     changed = QtCore.Signal()
 
     def __init__(self, viewer, job_numbers=None):
         super().__init__()
         self._viewer_ref = weakref.ref(viewer)
         self._lock = threading.Lock()
-        self._wake = threading.Condition(self._lock)
         self._accepting = True
-        # The jobs waiting, in the order they will run; the running one is not in it.
-        self._queued = []
-        self._active_job = None
-        self._active_handle = None
-        self._active_started = None
-        self._stopping = False
+        self._lanes = {}
         # Job numbers: the Viewer's command queue draws from the same count, so
         # every job the Viewer lists has a number of its own.
         self._job_numbers = job_numbers if job_numbers is not None else itertools.count(1)
-        self._reserved_output_paths = set()
+        # Every output path a job not yet finished reserves, and the job.
+        self._reserved = {}
+        self._cleaned = set()
+        self._failures = []
+        # The log a job that failed named while it ran, until its failure is reported.
+        self._logs = {}
 
         queued = QtCore.Qt.ConnectionType.QueuedConnection
         self.job_started.connect(self._report_started, queued)
@@ -122,92 +188,196 @@ class BackgroundJobScheduler(QtCore.QObject):
         self.job_cancelled.connect(self._report_cancelled, queued)
         self.changed.connect(self._update_places, queued)
 
-        self._thread = threading.Thread(
-            target=self._worker_loop,
-            name="SSN-Background-Jobs",
-            daemon=True,
-        )
-        self._thread.start()
+        with self._lock:
+            default = self._lane(DEFAULT_LANE, Message("Files"))
+            self._start(default)
+        # The default lane's thread, which the tests wait on.
+        self._thread = default.thread
 
     @staticmethod
     def _output_key(path):
         return os.path.normcase(os.path.abspath(os.fspath(path)))
 
+    # --- lanes ---
+
+    def _lane(self, name, title=None):
+        """The lane called name, made if there is none; call with the lock held."""
+        lane = self._lanes.get(name)
+        if lane is None:
+            lane = self._lanes[name] = _Lane(name, title if title is not None else name, self._lock)
+        elif title is not None:
+            lane.title = title
+        return lane
+
+    def _start(self, lane):
+        """Start the lane's thread if it has none; call with the lock held."""
+        if lane.thread is None:
+            lane.thread = threading.Thread(
+                target=self._run_lane, args=(lane,),
+                name="SSN-Background-Jobs" if lane.name == DEFAULT_LANE else f"SSN-Background-Jobs-{lane.name}",
+                daemon=True,
+            )
+            lane.thread.start()
+
+    def register_lane(self, name, title):
+        """Give the lane its title for the Session card (a Message or text), making the lane if it is new."""
+        with self._lock:
+            self._lane(name, title)
+
+    def lanes(self):
+        """(name, title) of every lane, in the order the lanes were made."""
+        with self._lock:
+            return [(lane.name, lane.title) for lane in self._lanes.values()]
+
     @property
     def queue_depth(self):
         """Return the number of running and queued jobs."""
         with self._lock:
-            return len(self._queued) + (self._active_job is not None)
+            return sum(len(lane.queued) + (lane.active is not None) for lane in self._lanes.values())
 
-    def _line(self):
-        """The unfinished jobs in the order of the line, the running one first; call with the lock held."""
-        return ([self._active_job] if self._active_job is not None else []) + self._queued
+    def _line(self, lane):
+        """The lane's unfinished jobs in the order of its line, the running one first; call with the lock held."""
+        return ([lane.active] if lane.active is not None else []) + lane.queued
 
     def listing(self):
-        """The jobs not yet finished, in the order of the line, as (job, running) pairs."""
+        """The jobs not yet finished, lane after lane, each in the order of its line, as (job, running) pairs."""
         with self._lock:
-            return [(job, job is self._active_job) for job in self._line()]
+            return [(job, job is lane.active) for lane in self._lanes.values() for job in self._line(lane)]
 
     def snapshot(self):
-        """The unfinished jobs in the order of the line, as JobStatus entries, read at one moment."""
+        """The unfinished jobs, lane after lane, each lane in the order of its line, as JobStatus entries, read at one moment."""
         with self._lock:
             entries = []
-            if self._active_job is not None:
-                entries.append(JobStatus(self._active_job, True, 1, self._active_started, self._stopping))
-            first = len(entries) + 1
-            entries.extend(JobStatus(job, False, first + index) for index, job in enumerate(self._queued))
+            for lane in self._lanes.values():
+                position = 1
+                if lane.active is not None:
+                    handle = lane.handle
+                    entries.append(JobStatus(
+                        lane.active, True, position, lane.started, lane.stopping, lane.name,
+                        handle.progress_text if handle is not None else None,
+                        (handle.log_path if handle is not None else None) or lane.active.log_path,
+                    ))
+                    position += 1
+                for job in lane.queued:
+                    entries.append(JobStatus(job, False, position, None, False, lane.name, None, job.log_path))
+                    position += 1
             return entries
 
-    def cancel(self, job_id):
-        """Take a job out of the line, or tell the running one to stop; return whether there was one to.
+    def failures(self):
+        """The jobs that failed lately, oldest first, as FailedJob entries, until each is dismissed."""
+        with self._lock:
+            return list(self._failures)
 
-        A waiting job is gone at once: its output is released and it is reported
+    def dismiss_failure(self, job_id):
+        """Forget a failed job the card showed; return whether there was one."""
+        with self._lock:
+            kept = [failure for failure in self._failures if failure.job_id != job_id]
+            found = len(kept) != len(self._failures)
+            self._failures = kept
+        if found:
+            self.changed.emit()
+        return found
+
+    def log_path_of(self, job_id):
+        """The log a job names, by its number: a job waiting or running, or one that failed lately; else None."""
+        with self._lock:
+            for lane in self._lanes.values():
+                for job in self._line(lane):
+                    if job.job_id == job_id:
+                        handle = lane.handle if job is lane.active else None
+                        return (handle.log_path if handle is not None else None) or job.log_path
+            for failure in self._failures:
+                if failure.job_id == job_id:
+                    return failure.log_path
+        return None
+
+    def reservation_holder(self, path):
+        """The number of the job that reserves path, or None."""
+        with self._lock:
+            return self._reserved.get(self._output_key(path))
+
+    def _find(self, job_id):
+        """(lane, index of the waiting job or None for the running one) of an unfinished job, or (None, None)."""
+        for lane in self._lanes.values():
+            for index, job in enumerate(lane.queued):
+                if job.job_id == job_id:
+                    return lane, index
+            if lane.active is not None and lane.active.job_id == job_id:
+                return lane, None
+        return None, None
+
+    # --- the line ---
+
+    def cancel(self, job_id):
+        """Take a job out of its line, or tell the running one to stop; return whether there was one to.
+
+        A waiting job is gone at once: its outputs are released and it is reported
         cancelled. The running job is told to stop and ends at the next check
-        point of its worker, which deletes its unfinished file; it is reported
+        point of its worker, which deletes its unfinished files; it is reported
         cancelled then. A worker with no check point finishes its file as it
         would have, and is reported as completed. A job already told to stop
         is not told again.
         """
         removed = handle = None
         with self._lock:
-            index = next((i for i, job in enumerate(self._queued) if job.job_id == job_id), None)
+            lane, index = self._find(job_id)
+            if lane is None:
+                return False
             if index is not None:
-                removed = self._queued.pop(index)
-                self._reserved_output_paths.discard(self._output_key(removed.output_path))
-            elif (self._active_job is not None and self._active_job.job_id == job_id
-                  and not self._stopping):
-                self._stopping = True
-                handle = self._active_handle
+                removed = lane.queued.pop(index)
+                self._release(removed)
+            elif not lane.stopping:
+                lane.stopping = True
+                handle = lane.handle
             else:
                 return False
         if removed is not None:
             self.job_cancelled.emit(removed, False)
+            self._clean_up(removed)
         if handle is not None:
             handle.request()
         self.changed.emit()
         return True
 
     def move(self, job_id, offset):
-        """Move a waiting job ``offset`` places along the line (negative is earlier); return whether it moved.
+        """Move a waiting job ``offset`` places along its lane's line (negative is earlier); return whether it moved.
 
         It stops at the ends of the waiting jobs, and the running job never
         moves and is never passed: a job that is running, or gone, does not move.
         """
         with self._lock:
-            index = next((i for i, job in enumerate(self._queued) if job.job_id == job_id), None)
-            if index is None:
+            lane, index = self._find(job_id)
+            if lane is None or index is None:
                 return False
-            target = max(0, min(len(self._queued) - 1, index + int(offset)))
+            target = max(0, min(len(lane.queued) - 1, index + int(offset)))
             if target == index:
                 return False
-            self._queued.insert(target, self._queued.pop(index))
+            lane.queued.insert(target, lane.queued.pop(index))
         self.changed.emit()
         return True
 
     def is_output_path_reserved(self, path):
         key = self._output_key(path)
         with self._lock:
-            return key in self._reserved_output_paths
+            return key in self._reserved
+
+    def _release(self, job):
+        """Free the paths the job reserved; call with the lock held."""
+        for path in job.reserved_paths:
+            self._reserved.pop(self._output_key(path), None)
+
+    def _clean_up(self, job):
+        """Call the job's cleanup function, once, for whatever reason the job left the scheduler."""
+        if job.cleanup is None:
+            return
+        with self._lock:
+            if job.job_id in self._cleaned:
+                return
+            self._cleaned.add(job.job_id)
+        try:
+            job.cleanup()
+        except Exception as error:  # A cleanup that fails must not stop the lane.
+            print(f"Warning: Could not clean up after background job #{job.job_id}: {error}")
 
     def enqueue(
         self,
@@ -217,24 +387,46 @@ class BackgroundJobScheduler(QtCore.QObject):
         worker,
         output_path,
         allow_overwrite=False,
+        *,
+        lane=DEFAULT_LANE,
+        lane_title=None,
+        extra_paths=(),
+        cleanup=None,
+        on_finished=None,
+        log_path=None,
+        front=False,
     ):
-        """Reserve an output and put one immutable job at the end of the line."""
+        """Reserve the outputs and put one immutable job at the end of its lane's line (the front, with front=True).
+
+        ``output_path`` and ``extra_paths`` are everything the job writes: each
+        is reserved until the job ends, and a second job may not reserve one.
+        ``output_path`` must not exist, unless allow_overwrite. ``lane`` names
+        the line the job goes in, made if it is new, with ``lane_title`` as its
+        title for the card. ``cleanup`` is called once when the job leaves
+        the scheduler, however it ends; ``on_finished(job, outcome, error)`` on
+        the GUI thread when its end is reported; ``log_path`` names a log the job
+        writes. A worker with a second parameter named ``job`` is given the job's JobHandle.
+        """
         from Viewer_Command_Portal import CURRENT
         command_context = CURRENT.get()
         output_path = os.path.abspath(os.fspath(output_path))
-        output_key = self._output_key(output_path)
+        paths = tuple(dict.fromkeys(
+            os.path.abspath(os.fspath(path)) for path in (output_path, *extra_paths)
+        ))
         with self._lock:
             if not self._accepting:
                 raise RuntimeError(Message("The background job scheduler is shutting down."))
             if not allow_overwrite and os.path.exists(output_path):
                 raise FileExistsError(Message("Output file already exists: {path}", path=output_path))
-            if output_key in self._reserved_output_paths:
-                raise FileExistsError(Message(
-                    "Output file is already reserved by a background job: {path}", path=output_path
-                ))
+            for path in paths:
+                if self._output_key(path) in self._reserved:
+                    raise FileExistsError(Message(
+                        "Output file is already reserved by a background job: {path}", path=path
+                    ))
 
+            target = self._lane(lane, lane_title)
             job_id = next(self._job_numbers)
-            queue_position = len(self._queued) + (self._active_job is not None) + 1
+            queue_position = len(target.queued) + (target.active is not None) + 1
             job = BackgroundJob(
                 job_id=job_id,
                 command_name=str(command_name),
@@ -243,12 +435,23 @@ class BackgroundJobScheduler(QtCore.QObject):
                 worker=worker,
                 output_path=output_path,
                 command_context=command_context,
+                lane=target.name,
+                reserved_paths=paths,
+                cleanup=cleanup,
+                on_finished=on_finished,
+                log_path=None if log_path is None else os.fspath(log_path),
             )
-            self._reserved_output_paths.add(output_key)
-            self._queued.append(job)
+            for path in paths:
+                self._reserved[self._output_key(path)] = job_id
+            if front:
+                target.queued.insert(0, job)
+                queue_position = 1 + (target.active is not None)
+            else:
+                target.queued.append(job)
             if command_context is not None:
                 command_context.add_job(job_id, output_path=output_path)
-            self._wake.notify()
+            self._start(target)
+            target.wake.notify()
         self._update_places()
         self.changed.emit()
 
@@ -264,51 +467,64 @@ class BackgroundJobScheduler(QtCore.QObject):
         return job_id
 
     def shutdown(self, wait=SHUTDOWN_WAIT_SECONDS):
-        """Close the line: discard the waiting jobs and stop the running one, within ``wait`` seconds.
+        """Close the lines: discard the waiting jobs and stop the running ones, within ``wait`` seconds.
 
-        The running job is told to stop and given up to ``wait`` seconds to reach
-        a check point, where its worker deletes its partial file and the job ends.
-        A job that has not stopped by then is left to the daemon thread, which
-        ends with the process; its partial files are deleted here instead, the
-        ones its worker named (JobHandle.note_partial), so that closing the
-        Viewer in the middle of a write leaves no half-written file whatever the
-        job's thread is doing. A file it renames into place afterwards cannot
-        appear: the partial file it would rename is gone.
+        Each running job is told to stop and given up to ``wait`` seconds (all
+        of them together) to reach a check point, where its worker deletes its
+        partial files and the job ends. A job that has not stopped by then is
+        left to its daemon thread, which ends with the process; its partial
+        files are deleted here instead, the ones its worker named
+        (JobHandle.note_partial), and its cleanup function is called, so that
+        closing the Viewer in the middle of a write leaves no half-written file
+        whatever the job's thread is doing. A file it renames into place
+        afterwards cannot appear: the partial file it would rename is gone.
         """
         with self._lock:
             if not self._accepting:
                 return
             self._accepting = False
-            for job in self._queued:
-                self._reserved_output_paths.discard(self._output_key(job.output_path))
-            self._queued.clear()
-            handle = self._active_handle
-            self._wake.notify_all()
-        if handle is not None:
+            discarded, handles, threads = [], [], []
+            for lane in self._lanes.values():
+                for job in lane.queued:
+                    self._release(job)
+                    discarded.append(job)
+                lane.queued.clear()
+                if lane.handle is not None:
+                    handles.append(lane.handle)
+                if lane.thread is not None:
+                    threads.append(lane.thread)
+                lane.wake.notify_all()
+        for job in discarded:
+            self._clean_up(job)
+        for handle in handles:
             handle.request()
-        self._thread.join(max(0.0, wait))
+        deadline = time.monotonic() + max(0.0, wait)
+        for thread in threads:
+            thread.join(max(0.0, deadline - time.monotonic()))
         with self._lock:
-            stuck = self._active_handle
-        if stuck is not None:
-            for path in stuck.partial_paths():
+            stuck = [(lane.active, lane.handle) for lane in self._lanes.values() if lane.active is not None]
+        for job, handle in stuck:
+            for path in handle.partial_paths() if handle is not None else ():
                 try:
                     os.remove(path)
                 except OSError:
                     pass
+            self._clean_up(job)
 
-    def _worker_loop(self):
+    def _run_lane(self, lane):
+        """The lane's thread: take the job at the front of the line, run it, and report how it ended."""
         while True:
             with self._lock:
-                while self._accepting and not self._queued:
-                    self._wake.wait()
+                while self._accepting and not lane.queued:
+                    lane.wake.wait()
                 if not self._accepting:
                     return
-                job = self._queued.pop(0)
+                job = lane.queued.pop(0)
                 handle = JobHandle(on_change=self._announce_change)
-                self._active_job = job
-                self._active_handle = handle
-                self._active_started = time.monotonic()
-                self._stopping = False
+                lane.active = job
+                lane.handle = handle
+                lane.started = time.monotonic()
+                lane.stopping = False
 
             started_at = time.perf_counter()
             self.job_started.emit(job)
@@ -335,18 +551,19 @@ class BackgroundJobScheduler(QtCore.QObject):
                 detail = traceback.format_exc()
                 with self._lock:
                     accepting = self._accepting
+                    if handle.log_path:
+                        self._logs[job.job_id] = handle.log_path
                 if accepting:
                     self.job_failed.emit(job, error, detail, elapsed)
             finally:
                 with self._lock:
-                    self._active_job = None
-                    self._active_handle = None
-                    self._active_started = None
-                    self._stopping = False
-                    self._reserved_output_paths.discard(
-                        self._output_key(job.output_path)
-                    )
+                    lane.active = None
+                    lane.handle = None
+                    lane.started = None
+                    lane.stopping = False
+                    self._release(job)
                     accepting = self._accepting
+                self._clean_up(job)
                 if accepting:
                     self.changed.emit()
 
@@ -363,17 +580,27 @@ class BackgroundJobScheduler(QtCore.QObject):
 
     @QtCore.Slot()
     def _update_places(self):
-        """Each unfinished job's place in the line, in its portal record: position and the job ahead of it."""
+        """Each unfinished job's place in its lane's line, in its portal record: position and the job ahead of it."""
         with self._lock:
-            line = list(self._line())
-        for position, job in enumerate(line, 1):
-            context = job.command_context
-            if context is None:
-                continue
-            for entry in context.record['jobs']:
-                if entry['job_id'] == str(job.job_id):
-                    entry['position'] = position
-                    entry['waiting_for'] = str(line[position - 2].job_id) if position > 1 else None
+            lines = [list(self._line(lane)) for lane in self._lanes.values()]
+        for line in lines:
+            for position, job in enumerate(line, 1):
+                context = job.command_context
+                if context is None:
+                    continue
+                for entry in context.record['jobs']:
+                    if entry['job_id'] == str(job.job_id):
+                        entry['position'] = position
+                        entry['waiting_for'] = str(line[position - 2].job_id) if position > 1 else None
+
+    def _finished(self, job, outcome, error=None):
+        """Tell the job's own on_finished, on the GUI thread, how it ended."""
+        if job.on_finished is None:
+            return
+        try:
+            job.on_finished(job, outcome, error)
+        except Exception as problem:  # What a command does with the news must not stop the reports.
+            print(f"Warning: Background job #{job.job_id}'s follow-up failed: {problem}")
 
     @QtCore.Slot(object)
     def _report_started(self, job):
@@ -398,7 +625,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         self._set_viewer_status(message)
 
         reveal_directory = result.get("reveal_directory")
-        # print and label ask for their folder to be shown; where no user is at the Viewer, none is.
+        # A job asks for its folder to be shown; where no user is at the Viewer, none is.
         if reveal_directory:
             viewer = self._viewer_ref()
             if viewer is None or viewer_shows_windows(viewer):
@@ -409,6 +636,7 @@ class BackgroundJobScheduler(QtCore.QObject):
 
         if job.command_context is not None:
             job.command_context.job_event(job.job_id, "succeeded", message, [job.output_path])
+        self._finished(job, "succeeded")
 
     @QtCore.Slot(object, bool)
     def _report_cancelled(self, job, started):
@@ -422,6 +650,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         self._set_viewer_status(message)
         if job.command_context is not None:
             job.command_context.job_event(job.job_id, 'cancelled', str(message))
+        self._finished(job, "cancelled")
 
     @QtCore.Slot(object, object, str, float)
     def _report_failed(self, job, error, detail, elapsed):
@@ -436,6 +665,12 @@ class BackgroundJobScheduler(QtCore.QObject):
         print(f"\n{message}")
         print(detail)
         self._set_viewer_status(message)
+        with self._lock:
+            log_path = self._logs.pop(job.job_id, None) or job.log_path
+            self._failures.append(FailedJob(job.job_id, job.description, job.lane, error, log_path))
+            del self._failures[:-KEPT_FAILURES]
         if job.command_context is not None:
             job.command_context.portal.append_output(job.command_context.request_id, 'stderr', detail)
             job.command_context.job_event(job.job_id, 'failed', str(error))
+        self.changed.emit()
+        self._finished(job, "failed", error)

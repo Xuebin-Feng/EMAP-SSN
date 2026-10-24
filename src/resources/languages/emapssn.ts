@@ -2800,6 +2800,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Files</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>The background job scheduler is shutting down.</source>
         <translation type="unfinished"></translation>
     </message>

@@ -111,7 +111,7 @@ def _lines(viewer):
         lines.append(f"#{job.job_id:<5} {state:<9} {timing}  {job.line}{progress}  ({job.source})")
     for job, state in _file_jobs(viewer):
         count += 1
-        lines.append(f"#{job.job_id:<5} {state:<9} {' ' * 8}  {job.description}  (file)")
+        lines.append(f"#{job.job_id:<5} {state:<9} {' ' * 8}  {job.description}  ({job.lane})")
     # The desktop Viewer tracks its folding workers and scripts; the VR viewer, which has no queue, does not.
     workers, scripts = _external_counts() if queue is not None else (0, 0)
     if workers:

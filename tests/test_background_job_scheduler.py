@@ -27,6 +27,7 @@ from PySide6 import QtCore
 from Background_Job_Scheduler import BackgroundJobScheduler
 from Viewer_Command_Portal import ExecutionContext, ViewerCommandPortal, bind
 from utilities.Job_Cancellation import JobCancelled, cancel_requested, raise_if_cancelled
+from utilities.Localization import Message, display_text
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_state
 
 
@@ -749,6 +750,425 @@ class ShutdownCleanupTests(LineTestCase):
         self.scheduler.shutdown()
         self.assertLess(time.monotonic() - started, 1.0)
         self.assertFalse(self.scheduler._thread.is_alive())
+
+
+class LaneTests(LineTestCase):
+    """Lanes: lines of jobs that run side by side, each in its own order, made by the first job that names them."""
+
+    def lane_job(self, name, lane, worker=None, **options):
+        return self.scheduler.enqueue("test", f"{name} description", name, worker or self.worker,
+                                      self.path(f"{name}.out"), lane=lane, **options)
+
+    def hold(self, name, lane, gate):
+        """A job in ``lane`` that runs until ``gate`` is set; returns its number once it runs."""
+        entered = threading.Event()
+
+        def worker(payload):
+            entered.set()
+            gate.wait(BLOCKED_JOB_SECONDS)
+            return {"message": name}
+
+        job_id = self.lane_job(name, lane, worker)
+        self.assertTrue(entered.wait(STARTUP_TIMEOUT))
+        return job_id
+
+    def lines(self):
+        grouped = {}
+        for entry in self.scheduler.snapshot():
+            grouped.setdefault(entry.lane, []).append(entry.job.job_id)
+        return grouped
+
+    def test_a_job_that_names_a_new_lane_makes_it_and_run_beside_the_first_lane(self):
+        files_gate, fold_gate = threading.Event(), threading.Event()
+        self.addCleanup(files_gate.set)
+        self.addCleanup(fold_gate.set)
+        first = self.hold("a", "files", files_gate)
+        second = self.hold("b", "folding", fold_gate)
+        running = {entry.lane: entry.running for entry in self.scheduler.snapshot()}
+        self.assertEqual(running, {"files": True, "folding": True}, "both run at the same time")
+        self.assertEqual([name for name, _title in self.scheduler.lanes()], ["files", "folding"])
+        self.assertEqual((first, second), (1, 2), "one count of job numbers for every lane")
+        self.assertEqual(self.scheduler.queue_depth, 2)
+        files_gate.set()
+        fold_gate.set()
+        self.wait_idle()
+
+    def test_each_lane_runs_one_job_at_a_time_in_its_own_order_while_the_lanes_overlap(self):
+        lock = threading.Lock()
+        running = {"files": 0, "folding": 0}
+        most = {"files": 0, "folding": 0, "both": 0}
+        order = {"files": [], "folding": []}
+
+        def make(lane):
+            def worker(payload):
+                with lock:
+                    running[lane] += 1
+                    most[lane] = max(most[lane], running[lane])
+                    most["both"] = max(most["both"], sum(running.values()))
+                    order[lane].append(payload)
+                time.sleep(0.02)
+                with lock:
+                    running[lane] -= 1
+                return {}
+            return worker
+
+        gate = threading.Event()
+        self.hold("start-files", "files", gate)
+        self.hold("start-folding", "folding", gate)
+        for index in range(4):
+            self.lane_job(f"f{index}", "files", make("files"))
+            self.lane_job(f"g{index}", "folding", make("folding"))
+        gate.set()
+        self.wait_idle()
+        self.assertEqual(order["files"], ["f0", "f1", "f2", "f3"])
+        self.assertEqual(order["folding"], ["g0", "g1", "g2", "g3"])
+        self.assertEqual((most["files"], most["folding"]), (1, 1))
+        self.assertEqual(most["both"], 2, "the two lanes ran at the same time")
+
+    def test_a_move_or_a_removal_in_one_lane_leaves_the_other_alone(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        self.hold("a-run", "files", gate)
+        self.hold("b-run", "folding", gate)
+        a1, a2, a3 = (self.lane_job(name, "files") for name in ("a1", "a2", "a3"))
+        b1, b2 = (self.lane_job(name, "folding") for name in ("b1", "b2"))
+        self.assertEqual(self.lines(), {"files": [1, a1, a2, a3], "folding": [2, b1, b2]})
+        self.assertTrue(self.scheduler.move(a3, -2))
+        self.assertEqual(self.lines(), {"files": [1, a3, a1, a2], "folding": [2, b1, b2]})
+        # A job cannot be moved out of its lane: past the first waiting job it stays at the front of its own.
+        self.assertFalse(self.scheduler.move(b1, -5))
+        self.assertTrue(self.scheduler.move(b2, -5))
+        self.assertEqual(self.lines(), {"files": [1, a3, a1, a2], "folding": [2, b2, b1]})
+        self.assertTrue(self.scheduler.cancel(a1))
+        self.assertEqual(self.lines(), {"files": [1, a3, a2], "folding": [2, b2, b1]})
+        # Each lane counts its own places, the running job of each being place 1.
+        places = {(entry.lane, entry.job.job_id): entry.position for entry in self.scheduler.snapshot()}
+        self.assertEqual(places[("files", a3)], 2)
+        self.assertEqual(places[("folding", b2)], 2)
+        self.assertEqual(places[("folding", 2)], 1)
+        gate.set()
+        self.wait_idle()
+        # Each lane ran its own jobs in the order it was left in.
+        self.assertEqual([name for name in self.ran if name.startswith("a")], ["a3", "a2"])
+        self.assertEqual([name for name in self.ran if name.startswith("b")], ["b2", "b1"])
+
+    def test_the_snapshot_lists_lane_after_lane_in_the_order_the_lanes_were_made(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        self.hold("a", "folding", gate)   # the folding lane is made first by a job, after the default lane
+        self.hold("b", "files", gate)
+        self.lane_job("c", "folding")
+        self.assertEqual([(entry.lane, entry.job.description) for entry in self.scheduler.snapshot()],
+                         [("files", "b description"), ("folding", "a description"), ("folding", "c description")])
+        self.assertEqual([(job.lane, running) for job, running in self.scheduler.listing()],
+                         [("files", True), ("folding", True), ("folding", False)])
+        gate.set()
+        self.wait_idle()
+
+    def test_a_lane_has_the_title_it_was_registered_with_or_the_job_gave(self):
+        self.scheduler.register_lane("folding", "Folding")
+        self.assertEqual(dict(self.scheduler.lanes())["folding"], "Folding")
+        self.lane_job("x", "analysis", lane_title="Analysis")
+        self.wait_idle()
+        self.assertEqual(dict(self.scheduler.lanes())["analysis"], "Analysis")
+        self.lane_job("y", "plain")
+        self.wait_idle()
+        self.assertEqual(dict(self.scheduler.lanes())["plain"], "plain", "a lane nobody titled is shown by its name")
+        self.assertEqual(str(dict(self.scheduler.lanes())["files"]), "Files")
+
+    def test_a_job_can_go_to_the_front_of_its_line_but_not_before_the_running_job(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        running = self.hold("run", "folding", gate)
+        waiting = [self.lane_job(name, "folding") for name in ("w1", "w2")]
+        urgent = self.lane_job("urgent", "folding", front=True)
+        self.assertEqual(self.lines()["folding"], [running, urgent, *waiting])
+        gate.set()
+        self.wait_idle()
+
+    def test_every_path_a_job_reserves_is_held_until_it_ends_and_a_second_job_may_not_take_one(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        extra = [self.path("one.pdb"), self.path("one.residues.json")]
+        entered = threading.Event()
+
+        def worker(payload):
+            entered.set()
+            gate.wait(BLOCKED_JOB_SECONDS)
+            return {}
+
+        job_id = self.scheduler.enqueue("test", "multi", None, worker, self.path("main.pdb"),
+                                        lane="folding", extra_paths=extra)
+        self.assertTrue(entered.wait(STARTUP_TIMEOUT))
+        for path in (self.path("main.pdb"), *extra):
+            self.assertTrue(self.scheduler.is_output_path_reserved(path), path)
+            self.assertEqual(self.scheduler.reservation_holder(path), job_id)
+            with self.assertRaises(FileExistsError):
+                # Taken in another lane too, whichever of the job's paths it is.
+                self.scheduler.enqueue("test", "clash", None, worker, self.path("other.out"),
+                                       lane="files", extra_paths=[path])
+        self.assertEqual(self.scheduler.queue_depth, 1, "a refused job is not queued")
+        self.assertIsNone(self.scheduler.reservation_holder(self.path("free.pdb")))
+        gate.set()
+        self.wait_idle()
+        for path in (self.path("main.pdb"), *extra):
+            self.assertFalse(self.scheduler.is_output_path_reserved(path))
+
+    def test_the_paths_of_a_waiting_job_are_released_when_it_is_removed(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        self.hold("run", "folding", gate)
+        waiting = self.scheduler.enqueue("test", "multi", None, self.worker, self.path("w.pdb"), lane="folding",
+                                         extra_paths=[self.path("w.residues.json")])
+        self.assertTrue(self.scheduler.cancel(waiting))
+        self.assertFalse(self.scheduler.is_output_path_reserved(self.path("w.pdb")))
+        self.assertFalse(self.scheduler.is_output_path_reserved(self.path("w.residues.json")))
+        gate.set()
+        self.wait_idle()
+
+    def test_the_cleanup_function_is_called_once_however_the_job_ends(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        cleaned = []
+
+        def job(name, worker=None, **options):
+            return self.lane_job(name, "folding", worker, cleanup=lambda: cleaned.append(name), **options)
+
+        def breaks(payload):
+            raise RuntimeError("expected")
+
+        def stops(payload):
+            raise JobCancelled()
+
+        self.hold("run", "folding", gate)
+        removed = job("removed")
+        self.scheduler.cancel(removed)
+        job("done")
+        job("failed", breaks)
+        job("stopped", stops)
+        with mock.patch("builtins.print"):
+            gate.set()
+            self.wait_idle()
+        self.assertEqual(sorted(cleaned), ["done", "failed", "removed", "stopped"])
+
+    def test_the_cleanup_function_of_a_job_discarded_by_closing_is_called(self):
+        gate = threading.Event()
+        cleaned = []
+        self.hold("run", "folding", gate)
+        self.lane_job("waiting", "folding", cleanup=lambda: cleaned.append("waiting"))
+        self.scheduler.shutdown(wait=0.2)
+        gate.set()
+        self.assertEqual(cleaned, ["waiting"])
+
+    def test_a_cleanup_that_fails_does_not_stop_the_lane(self):
+        def broken():
+            raise OSError("cannot delete")
+
+        with mock.patch("builtins.print") as said:
+            self.lane_job("a", "folding", cleanup=broken)
+            self.lane_job("b", "folding")
+            self.wait_idle()
+        self.assertIn("cannot delete", str(said.call_args_list))
+        self.assertEqual(self.ran, ["a", "b"])
+
+    def test_on_finished_is_told_how_the_job_ended_on_the_gui_thread(self):
+        told, threads = [], []
+
+        def finished(job, outcome, error):
+            told.append((job.job_id, outcome, type(error).__name__ if error is not None else None))
+            threads.append(threading.get_ident())
+
+        def breaks(payload):
+            raise ValueError("expected")
+
+        def stops(payload):
+            raise JobCancelled()
+
+        gate = threading.Event()
+        self.hold("run", "folding", gate)
+        dropped = self.lane_job("dropped", "folding", on_finished=finished)
+        self.scheduler.cancel(dropped)
+        ok = self.lane_job("ok", "folding", on_finished=finished)
+        bad = self.lane_job("bad", "folding", breaks, on_finished=finished)
+        halted = self.lane_job("halted", "folding", stops, on_finished=finished)
+        with mock.patch("builtins.print"):
+            gate.set()
+            self.wait_idle()
+        self.assertEqual(sorted(told), sorted([(dropped, "cancelled", None), (ok, "succeeded", None),
+                                              (bad, "failed", "ValueError"), (halted, "cancelled", None)]))
+        self.assertEqual(set(threads), {threading.get_ident()})
+
+    def test_a_follow_up_that_fails_does_not_stop_the_reports(self):
+        def broken(job, outcome, error):
+            raise RuntimeError("follow-up failed")
+
+        with mock.patch("builtins.print") as said:
+            self.lane_job("a", "folding", on_finished=broken)
+            self.lane_job("b", "folding")
+            self.wait_idle()
+        self.assertIn("follow-up failed", str(said.call_args_list))
+        self.assertIn(("succeeded", 2), self.reports)
+
+    def test_a_failed_job_is_kept_with_its_reason_and_log_until_it_is_dismissed(self):
+        log = self.path("run.log")
+
+        def breaks(payload, job):
+            job.set_log_path(log)
+            raise RuntimeError(Message("Folding failed: {why}", why="out of memory"))
+
+        with mock.patch("builtins.print"):
+            job_id = self.lane_job("bad", "folding", breaks)
+            self.wait_idle()
+        (failure,) = self.scheduler.failures()
+        self.assertEqual((failure.job_id, failure.lane, failure.log_path), (job_id, "folding", log))
+        self.assertEqual(display_text(failure.error), "Folding failed: out of memory")
+        self.assertEqual(self.scheduler.log_path_of(job_id), log, "the log is found by the job's number")
+        self.assertTrue(self.scheduler.dismiss_failure(job_id))
+        self.assertFalse(self.scheduler.dismiss_failure(job_id))
+        self.assertEqual(self.scheduler.failures(), [])
+        self.assertIsNone(self.scheduler.log_path_of(job_id))
+
+    def test_only_the_last_few_failures_are_kept_and_a_log_named_at_enqueue_is_kept_too(self):
+        from Background_Job_Scheduler import KEPT_FAILURES
+
+        def breaks(payload):
+            raise RuntimeError("expected")
+
+        with mock.patch("builtins.print"):
+            for index in range(KEPT_FAILURES + 2):
+                self.lane_job(f"bad{index}", "folding", breaks, log_path=self.path(f"bad{index}.log"))
+            self.wait_idle()
+        kept = self.scheduler.failures()
+        self.assertEqual([failure.job_id for failure in kept], list(range(3, KEPT_FAILURES + 3)))
+        self.assertEqual(kept[0].log_path, self.path("bad2.log"))
+
+    def test_a_job_that_succeeds_or_is_stopped_leaves_no_failure_behind(self):
+        def stops(payload):
+            raise JobCancelled()
+
+        self.lane_job("ok", "folding")
+        self.lane_job("halted", "folding", stops)
+        self.wait_idle()
+        self.assertEqual(self.scheduler.failures(), [])
+
+    def test_progress_and_a_log_a_worker_reports_reach_the_snapshot_and_tell_the_card(self):
+        told, gate, entered = [], threading.Event(), threading.Event()
+        self.addCleanup(gate.set)
+        self.scheduler.changed.connect(lambda: told.append(1))
+
+        def worker(payload, job):
+            job.progress("Folding 2 of 3: node_b")
+            job.set_log_path(self.path("fold.log"))
+            entered.set()
+            gate.wait(BLOCKED_JOB_SECONDS)
+            return {}
+
+        job_id = self.lane_job("fold", "folding", worker)
+        self.assertTrue(entered.wait(STARTUP_TIMEOUT))
+        self.assertTrue(wait_for(lambda: bool(told)))
+        (entry,) = self.scheduler.snapshot()
+        self.assertEqual((entry.progress, entry.log_path), ("Folding 2 of 3: node_b", self.path("fold.log")))
+        self.assertEqual(self.scheduler.log_path_of(job_id), self.path("fold.log"))
+        gate.set()
+        self.wait_idle()
+
+    def test_a_job_that_wraps_a_process_registers_the_function_that_stops_it(self):
+        # The scheduler knows nothing of the process: the worker hands it the stop function.
+        stopped, process_running, entered = threading.Event(), threading.Event(), threading.Event()
+        calls = []
+
+        def worker(payload, job):
+            process_running.set()
+            job.on_cancel(lambda: (calls.append("stop the process"), stopped.set()))
+            entered.set()
+            stopped.wait(BLOCKED_JOB_SECONDS)
+            job.raise_if_cancelled()
+            return {}
+
+        job_id = self.lane_job("wrapper", "folding", worker)
+        self.assertTrue(entered.wait(STARTUP_TIMEOUT))
+        self.assertTrue(self.scheduler.cancel(job_id))
+        self.wait_idle()
+        self.assertEqual(calls, ["stop the process"])
+        self.assertIn(("stopped", job_id), self.reports)
+
+    def test_closing_stops_the_running_job_of_every_lane_and_discards_every_line(self):
+        reached = {"files": threading.Event(), "folding": threading.Event()}
+        told = []
+
+        def make(lane):
+            def worker(payload, job):
+                reached[lane].set()
+                for _ in range(2000):
+                    if job.requested:
+                        told.append(lane)
+                        return {}
+                    time.sleep(0.005)
+                return {}
+            return worker
+
+        self.lane_job("a", "files", make("files"))
+        self.lane_job("b", "folding", make("folding"))
+        waiting = self.lane_job("c", "folding")
+        for event in reached.values():
+            self.assertTrue(event.wait(STARTUP_TIMEOUT))
+        self.scheduler.shutdown()
+        self.assertEqual(sorted(told), ["files", "folding"])
+        self.assertFalse(self.scheduler.is_output_path_reserved(self.path("c.out")))
+        self.assertEqual(self.scheduler.queue_depth, 0)
+        self.assertNotIn(("started", waiting), self.reports)
+
+    def test_a_lane_that_is_stuck_does_not_make_closing_wait_longer_than_the_bound_for_all_of_them(self):
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+        self.hold("stuck-files", "files", gate)
+        self.hold("stuck-folding", "folding", gate)
+        started = time.monotonic()
+        self.scheduler.shutdown(wait=0.4)
+        self.assertLess(time.monotonic() - started, 1.5, "one bound for every lane, not one for each")
+        gate.set()
+
+
+class SchedulerNamesNoCommandTests(unittest.TestCase):
+    """The scheduler and what it shares with a job know no command: a plugin uses them as they are."""
+
+    SRC = Path(__file__).resolve().parents[1] / "src"
+    FILES = ("Background_Job_Scheduler.py", "utilities/Job_Cancellation.py")
+
+    @staticmethod
+    def command_words():
+        """The names of the commands that queue jobs: the command modules that use the scheduler."""
+        commands = Path(__file__).resolve().parents[1] / "src" / "commands"
+        return sorted(path.stem for path in commands.glob("*.py")
+                      if path.stem != "__init__" and "scheduler.enqueue(" in path.read_text(encoding="utf-8"))
+
+    def mentions(self, relative):
+        """Every comment and string of the file, and every name in it but the print function, that is a command's name."""
+        import io
+        import re
+        import tokenize
+
+        source = (self.SRC / relative).read_text(encoding="utf-8")
+        words = self.command_words()
+        pattern = re.compile(r"\b(" + "|".join(words) + r")\b", re.IGNORECASE)
+        found = []
+        tokens = list(tokenize.generate_tokens(io.StringIO(source).readline))
+        for index, token in enumerate(tokens):
+            if token.type in (tokenize.COMMENT, tokenize.STRING):
+                found += [(token.start[0], match.group(0)) for match in pattern.finditer(token.string)]
+            elif token.type == tokenize.NAME and token.string in words:
+                called = index + 1 < len(tokens) and tokens[index + 1].string == "("
+                if not (token.string == "print" and called):
+                    found.append((token.start[0], token.string))
+        return found
+
+    def test_the_commands_that_queue_jobs_are_found(self):
+        self.assertEqual(self.command_words()[:3], ["label", "logo", "print"])
+
+    def test_no_file_of_the_scheduler_names_a_command(self):
+        for relative in self.FILES:
+            with self.subTest(file=relative):
+                self.assertEqual(self.mentions(relative), [])
 
 
 class CloseWiringTests(unittest.TestCase):

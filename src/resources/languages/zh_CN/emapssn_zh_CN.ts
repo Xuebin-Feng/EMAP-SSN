@@ -4120,35 +4120,40 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
-        <location filename="../../../Background_Job_Scheduler.py" line="+211"/>
+        <location filename="../../../Background_Job_Scheduler.py" line="+192"/>
+        <source>Files</source>
+        <translation type="unfinished">文件</translation>
+    </message>
+    <message>
+        <location line="+226"/>
         <source>The background job scheduler is shutting down.</source>
         <translation type="unfinished">后台任务调度器正在关闭。</translation>
     </message>
     <message>
         <location line="+2"/>
         <location filename="../../../commands/label.py" line="+1278"/>
-        <location line="+454"/>
+        <location line="+457"/>
         <location filename="../../../commands/logo.py" line="+242"/>
-        <location line="+70"/>
-        <location filename="../../../commands/print.py" line="+1321"/>
+        <location line="+75"/>
+        <location filename="../../../commands/print.py" line="+1329"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
     <message>
-        <location line="+2"/>
-        <location filename="../../../commands/label.py" line="+140"/>
-        <location filename="../../../commands/logo.py" line="+640"/>
+        <location line="+3"/>
+        <location filename="../../../commands/label.py" line="+141"/>
+        <location filename="../../../commands/logo.py" line="+642"/>
         <location filename="../../../commands/print.py" line="+219"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+35"/>
         <source>Queued background job #{job}: {command} (position {position}) -&gt; {file}</source>
         <translation type="unfinished">已排队后台任务 #{job}：{command}（第 {position} 位）→ {file}</translation>
     </message>
     <message>
-        <location line="+99"/>
+        <location line="+151"/>
         <source>Running background job #{job}: {description}</source>
         <translation type="unfinished">正在运行后台任务 #{job}：{description}</translation>
     </message>
@@ -4163,7 +4168,7 @@ Command-line usage:
         <translation type="unfinished">后台任务 #{job} 已完成，用时 {seconds} 秒：{detail}</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+26"/>
         <source>Background job #{job} was stopped before it finished; no file was written: {description}</source>
         <translation type="unfinished">后台任务 #{job} 在完成前已停止，未写入任何文件：{description}</translation>
     </message>
@@ -4173,7 +4178,7 @@ Command-line usage:
         <translation type="unfinished">后台任务 #{job} 在开始前已取消：{description}</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
         <source>Background job #{job} failed after {seconds}s ({command}): {error}</source>
         <translation type="unfinished">后台任务 #{job} 运行 {seconds} 秒后失败（{command}）：{error}</translation>
     </message>
@@ -5070,7 +5075,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/label.py" line="-1302"/>
+        <location filename="../../../commands/label.py" line="-1306"/>
         <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
         <translation type="unfinished">{argument} 阈值“{value}”超出了支持的范围 0 到 100%。</translation>
     </message>
@@ -5154,7 +5159,7 @@ Command-line usage:
         <translation type="unfinished">错误：导出 XLSX 需要 &apos;openpyxl&apos;。请运行：{command}</translation>
     </message>
     <message>
-        <location line="+410"/>
+        <location line="+414"/>
         <source>Exported to {path}</source>
         <translation type="unfinished">已导出到 {path}</translation>
     </message>
@@ -5215,7 +5220,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/logo.py" line="-587"/>
+        <location filename="../../../commands/logo.py" line="-594"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -5235,7 +5240,7 @@ Command-line usage:
         <translation type="unfinished">序列标识图重新加权只能提供一个一致性阈值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+192"/>
+        <location line="+199"/>
         <source>Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个已比对节点的 {gap_mode} {mode} 序列标识图保存到 {file}</numerusform>
