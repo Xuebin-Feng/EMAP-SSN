@@ -2963,7 +2963,7 @@ Command-line usage:
 <context>
     <name>Console</name>
     <message>
-        <location filename="../../../desktop/Console_View.py" line="+223"/>
+        <location filename="../../../desktop/Console_View.py" line="+183"/>
         <location line="+59"/>
         <location line="+313"/>
         <location line="+42"/>
@@ -9451,7 +9451,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Splash</name>
     <message>
-        <location filename="../../../desktop/Splash.py" line="+61"/>
+        <location filename="../../../desktop/Splash.py" line="+70"/>
         <source>Configuration</source>
         <translation type="unfinished">配置</translation>
     </message>
@@ -9466,13 +9466,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">查看器</translation>
     </message>
     <message>
-        <location line="+214"/>
-        <location line="+108"/>
+        <location line="+360"/>
+        <location line="+201"/>
         <source>Copy</source>
         <translation type="unfinished">复制</translation>
     </message>
     <message>
-        <location line="-107"/>
+        <location line="-200"/>
         <source>Open log</source>
         <translation type="unfinished">打开日志</translation>
     </message>
@@ -9482,22 +9482,37 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="+80"/>
+        <location line="+68"/>
+        <source>Hide details</source>
+        <translation type="unfinished">隐藏详情</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show details</source>
+        <translation type="unfinished">显示详情</translation>
+    </message>
+    <message>
+        <location line="+64"/>
+        <source>Ready</source>
+        <translation type="unfinished">就绪</translation>
+    </message>
+    <message>
+        <location line="+18"/>
         <source>{window} stopped before its window opened.</source>
         <translation type="unfinished">{window} 在窗口打开之前就停止了。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+5"/>
         <source>(It printed nothing.)</source>
         <translation type="unfinished">（没有任何输出。）</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+42"/>
         <source>Copied</source>
         <translation type="unfinished">已复制</translation>
     </message>
     <message>
-        <location line="+57"/>
+        <location line="+56"/>
         <source>Protein Sequence Similarity Networks</source>
         <translation type="unfinished">蛋白质序列相似性网络</translation>
     </message>
@@ -9512,18 +9527,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">版本 {version}</translation>
     </message>
     <message>
-        <location line="+42"/>
         <source>The last lines it printed:</source>
-        <translation type="unfinished">它最后输出的内容：</translation>
+        <translation type="obsolete">它最后输出的内容：</translation>
     </message>
     <message>
-        <location filename="../../../desktop/Desktop_Launcher.py" line="+81"/>
+        <location filename="../../../desktop/Desktop_Launcher.py" line="+82"/>
         <location filename="../../../utilities/Startup_Status.py" line="+36"/>
         <source>Starting…</source>
         <translation type="unfinished">正在启动…</translation>
     </message>
     <message>
-        <location line="+290"/>
+        <location line="+294"/>
         <source>The window could not be started.</source>
         <translation type="unfinished">无法启动窗口。</translation>
     </message>

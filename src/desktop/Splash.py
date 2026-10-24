@@ -15,8 +15,15 @@ the splash reads the file as it grows, translates each text in the saved languag
 "Splash" context) and shows it. A window that starts fills the bar as it passes its milestones;
 a bar with no milestone yet sweeps. The splash closes when the window writes the ready file.
 
-If the window ends before it is ready, the splash turns into an error view: what the window last
-printed, with Copy, Open log and Close.
+Show details expands the splash downward into a section that shows what the start prints, live: the
+dependency check's lines, then what the window itself prints (the monitor keeps it in application.log,
+which the splash follows), in the splash's own light style, warnings and errors in its colours, the
+newest line in view. Copy and Open log are there. A splash that is collapsed when the window is ready
+closes, as it always has. One that is expanded stays: the user is watching, so it says Ready and offers
+Close, and closes when that is pressed.
+
+If the window ends before it is ready, the splash opens that section by itself and says why, with
+Close: the error view.
 
 It imports only PySide6's QtCore, QtGui and QtWidgets and the standard library, so it is on
 screen long before the heavy imports (NumPy, torch, VisPy) of the windows it waits for, and it
@@ -40,14 +47,16 @@ SRC_DIR = Path(__file__).resolve().parents[1]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from PySide6.QtCore import QCoreApplication, QLocale, QPointF, QRectF, Qt, QTimer, QTranslator, QUrl, Signal
+from PySide6.QtCore import QCoreApplication, QLocale, QPointF, QRectF, QSize, Qt, QTimer, QTranslator, QUrl, Signal
 from PySide6.QtGui import (
-    QColor, QCursor, QDesktopServices, QFont, QFontDatabase, QFontMetricsF, QGuiApplication, QImage, QPainter,
-    QPainterPath, QPen, QPixmap, QRadialGradient,
+    QColor, QCursor, QDesktopServices, QFont, QFontDatabase, QFontMetricsF, QGuiApplication, QIcon, QImage, QPainter,
+    QPainterPath, QPen, QPixmap, QRadialGradient, QTextCharFormat, QTextCursor,
 )
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QPushButton, QWidget
 
 from utilities import Startup_Status as Status
+from utilities.Console_Capture import Splitter
+from utilities.Line_Kinds import ERROR, WARNING, Classifier
 
 LOGOS = SRC_DIR / "bin" / "logos"
 FONTS = SRC_DIR / "resources" / "fonts" / "desktop"
@@ -71,11 +80,19 @@ LOGO_FILES = {"config": "splash_logo_viewer_512.png", "tools": "splash_logo_tool
 SCHEME = {
     "surface": "#ffffff", "panel": "#f4f4f5", "border": "#e4e4e7", "text": "#09090b", "text_soft": "#3f3f46",
     "muted": "#52525b", "subtle": "#71717a", "track": "#e4e4e7", "accent": "#5b5bd6", "field_border": "#dcdce0",
-    "danger": "#dc2626", "hover": "#f4f4f5",
+    "danger": "#dc2626", "warning": "#b45309", "hover": "#f4f4f5", "accent_soft": "#e9ecfc",
 }
 
 WIDTH, HEIGHT = 640, 360
-ERROR_HEIGHT = 420
+# The section Show details opens, below the splash: the output's view and a row of buttons.
+DETAILS_HEIGHT = 264
+DETAILS_MARGIN = 32
+DETAILS_GAP = 12
+BUTTON_HEIGHT = 34
+# How many lines the section keeps; the start prints a few dozen, a failing one a traceback.
+MAX_DETAIL_LINES = 5000
+# How much of the log one tick reads, so a burst of output never stalls the splash.
+TAIL_READ_LIMIT = 256 * 1024
 RADIUS = 14.0
 # The bar: the text column's width, 3 px high.
 TEXT_X, TEXT_WIDTH = 40.0, 300.0
@@ -224,6 +241,55 @@ def tail_lines(path, count=14, limit=64 * 1024):
     return [line for line in lines if line.strip()][-count:]
 
 
+class LogTail:
+    """A log file another process appends to, as the lines it gains: poll() gives the new ones.
+
+    The window's output reaches the splash this way: the monitor (desktop/Desktop_Launcher_Monitor.py)
+    runs the window with its output in application.log, which the window's capture
+    (utilities/Console_Capture.py) writes as it prints, so the file is the one channel that is there
+    for every window and every kind of output, and the splash needs nothing of the window but the folder
+    it was given. Lines come as (text, partial) pairs, as utilities.Console_Capture.Splitter gives them: a
+    progress bar that rewrites its line is one partial line that changes, finished by its newline.
+    """
+
+    def __init__(self, path=None):
+        self.path = None
+        self._offset = 0
+        self._splitter = Splitter()
+        if path is not None:
+            self.follow(path)
+
+    def follow(self, path):
+        self.path = Path(path)
+        self._offset = 0
+        self._splitter = Splitter()
+
+    def poll(self):
+        if self.path is None:
+            return []
+        try:
+            with open(self.path, "rb") as handle:
+                handle.seek(self._offset)
+                data = handle.read(TAIL_READ_LIMIT)
+        except OSError:
+            return []
+        if not data:
+            return []
+        self._offset += len(data)
+        return self._splitter.feed(data)
+
+    def finish(self):
+        """Everything the file has now, including a last line with no newline."""
+        lines = []
+        while True:
+            more = self.poll()
+            if not more:
+                break
+            lines.extend(more)
+        lines.extend(self._splitter.finish())
+        return lines
+
+
 # ---------------------------------------------------------------------------------------------
 # The window
 # ---------------------------------------------------------------------------------------------
@@ -245,6 +311,90 @@ def screen_center(point=None):
     """The centre of the available area of the screen under ``point`` (the mouse pointer by default)."""
     screen = QGuiApplication.screenAt(QCursor.pos() if point is None else point) or QGuiApplication.primaryScreen()
     return screen.availableGeometry().center()
+
+
+def _chevron(up, color, size=12):
+    """A small chevron, pointing up or down, as an icon in ``color``."""
+    ratio = 2
+    pixmap = QPixmap(size * ratio, size * ratio)
+    pixmap.setDevicePixelRatio(ratio)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    painter.setPen(QPen(QColor(color), 1.6, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin))
+    near, far = (8.0, 4.0) if up else (4.0, 8.0)
+    painter.drawPolyline([QPointF(2.5, near), QPointF(6.0, far), QPointF(9.5, near)])
+    painter.end()
+    return QIcon(pixmap)
+
+
+class DetailsView(QPlainTextEdit):
+    """The section's text: the start's output, a line to a block, each in the colour of what it says.
+
+    Plain lines are in the splash's soft text colour, warnings and errors in its warning and danger
+    colours (utilities/Line_Kinds.py decides which a line is, and an indented line under a problem has
+    its colour). The newest line stays in view while the view is at its end; scrolled up, it stays
+    where the reader put it, and following resumes at the end again. A partial line, a progress bar's
+    latest state, is replaced by the next until a newline finishes it.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setReadOnly(True)
+        self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.setMaximumBlockCount(MAX_DETAIL_LINES)
+        font = _font(11, family="Noto Sans Mono")
+        font.setStyleHint(QFont.StyleHint.Monospace)
+        self.setFont(font)
+        self.setStyleSheet(
+            f"QPlainTextEdit {{ background: {SCHEME['panel']}; color: {SCHEME['text_soft']};"
+            f" border: 1px solid {SCHEME['border']}; border-radius: 8px; padding: 6px;"
+            f" selection-background-color: {SCHEME['accent_soft']}; selection-color: {SCHEME['text']}; }}"
+        )
+        self.formats = {}
+        for kind, name in (("info", "text_soft"), (WARNING, "warning"), (ERROR, "danger")):
+            line_format = QTextCharFormat()
+            line_format.setForeground(QColor(SCHEME[name]))
+            self.formats[kind] = line_format
+        self._classifier = Classifier()
+        self._empty = True
+        self._partial = False
+
+    def is_empty(self):
+        return self._empty
+
+    def kind_of(self, line_number):
+        """The kind ("info", "warning" or "error") a line was shown as, by the colour it has (tests)."""
+        block = self.document().findBlockByNumber(line_number)
+        colour = block.begin().fragment().charFormat().foreground().color().name()
+        for kind, line_format in self.formats.items():
+            if line_format.foreground().color().name() == colour:
+                return kind
+        return None
+
+    def add_lines(self, items):
+        """Append (text, partial) pairs, keeping the newest line in view if the view was at its end."""
+        items = list(items)
+        if not items:
+            return
+        bar = self.verticalScrollBar()
+        following = bar.value() >= bar.maximum() - 3
+        cursor = QTextCursor(self.document())
+        cursor.beginEditBlock()
+        for text, partial in items:
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            if self._partial:
+                cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)
+                cursor.removeSelectedText()
+            elif not self._empty:
+                cursor.insertBlock()
+            kind = self._classifier.kind(text, remember=not partial)
+            cursor.insertText(text, self.formats[kind])
+            self._empty = False
+            self._partial = partial
+        cursor.endEditBlock()
+        if following:
+            bar.setValue(bar.maximum())
 
 
 class SplashWindow(QWidget):
@@ -271,18 +421,22 @@ class SplashWindow(QWidget):
         self._started = self._news_time
         self.error = False
         self.error_title = ""
+        self.ready = False            # the window is up and the section is open: the user closes the splash
+        self.details_open = False     # the section Show details opens
+        self._shifted = 0             # how far the window moved up to keep the open section on the screen
         self.log_path = None
         self.feed = StatusFeed(status_file)
-        self.log_view = self._make_log_view()
+        self.tail = LogTail()
+        self.log_view = self.details = DetailsView(self)
+        self.details_button = self._make_link(self._details_text(), self.toggle_details)
         self.copy_button = self._make_button(QCoreApplication.translate("Splash", "Copy"), self.copy_error)
         self.log_button = self._make_button(QCoreApplication.translate("Splash", "Open log"), self.open_log)
         self.close_button = self._make_button(QCoreApplication.translate("Splash", "Close"), self.close)
-        for widget in (self.log_view, self.copy_button, self.log_button, self.close_button):
-            widget.hide()
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._tick)
         self.timer.start(TICK_MS)
         self.move_to(screen_center())
+        self._apply_layout()
 
     # --- placing
     def move_to(self, center):
@@ -316,28 +470,130 @@ class SplashWindow(QWidget):
                             **(message.get("values") if isinstance(message.get("values"), dict) else {}))
 
     def _tick(self):
-        if not self.error:
+        if not self.error and not self.ready:
             self.apply(self.feed.poll())
             if self.target_fraction is not None:
                 idle = time.monotonic() - self._news_time
                 creep = min(CREEP_LIMIT, max(0.0, idle - CREEP_SECONDS) * 0.02)
                 goal = min(0.97, self.target_fraction + creep)
                 self.shown_fraction += (goal - self.shown_fraction) * 0.18
+        if not self.error:  # an error has had its last read (sync_log)
+            self.details.add_lines(self.tail.poll())
         self.update()
 
-    # --- the error view
-    def _make_log_view(self):
-        view = QPlainTextEdit(self)
-        view.setReadOnly(True)
-        view.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        font = _font(11, family="Noto Sans Mono")
-        font.setStyleHint(QFont.StyleHint.Monospace)
-        view.setFont(font)
-        view.setStyleSheet(
-            f"QPlainTextEdit {{ background: {SCHEME['panel']}; color: {SCHEME['text_soft']};"
-            f" border: 1px solid {SCHEME['border']}; border-radius: 8px; padding: 6px; }}"
-        )
-        return view
+    # --- what the start prints
+    def add_output(self, text, partial=False):
+        """Add one line of the start's output to the section (the dependency check's lines come this way)."""
+        self.details.add_lines([(text, partial)])
+
+    def follow_log(self, path):
+        """Follow the window's output: the file it is kept in (application.log), as it grows."""
+        self.tail.follow(path)
+        self.log_path = str(path)
+        self._apply_layout()
+
+    def sync_log(self):
+        """Read what the log holds now, down to a last line with no newline."""
+        self.details.add_lines(self.tail.finish())
+
+    # --- the section
+    @staticmethod
+    def _details_text(opened=False):
+        return (QCoreApplication.translate("Splash", "Hide details") if opened
+                else QCoreApplication.translate("Splash", "Show details"))
+
+    def toggle_details(self):
+        self.set_details_open(not self.details_open)
+
+    def set_details_open(self, opened):
+        """Open or close the section. It stays open once the splash is an error view or says Ready."""
+        if (self.error or self.ready) and not opened:
+            return
+        self.details_open = bool(opened)
+        self._apply_layout()
+        if opened:
+            self.details.verticalScrollBar().setValue(self.details.verticalScrollBar().maximum())
+
+    def _section_height(self):
+        """The window's height with the section open: the whole of it, unless the screen has less room."""
+        screen = QGuiApplication.screenAt(self.geometry().center()) or QGuiApplication.primaryScreen()
+        room = screen.availableGeometry().height() - 16
+        return max(HEIGHT + 120, min(HEIGHT + DETAILS_HEIGHT, room))
+
+    def _apply_layout(self):
+        """Size the window and place the widgets for what it shows: collapsed, the section open, Ready or an error."""
+        opened = self.details_open
+        height = self._section_height() if opened else HEIGHT
+        self.setFixedSize(WIDTH, height)
+        self._keep_on_screen(opened)
+        locked = self.error or self.ready
+        link = self.details_button
+        link.setText(self._details_text(opened))
+        link.setIcon(_chevron(opened, SCHEME["accent"]))
+        link.adjustSize()
+        link.setGeometry(int(TEXT_X) - 8, 328, link.width(), 26)
+        link.setVisible(not locked)
+        buttons_y = height - 16 - BUTTON_HEIGHT
+        top = HEIGHT + DETAILS_GAP
+        self.details.setGeometry(DETAILS_MARGIN, top, WIDTH - 2 * DETAILS_MARGIN, buttons_y - 10 - top)
+        right = WIDTH - DETAILS_MARGIN
+        for button in (self.close_button, self.log_button, self.copy_button):
+            width = max(button.sizeHint().width(), 84)
+            button.setGeometry(right - width, buttons_y, width, BUTTON_HEIGHT)
+            right -= width + 10
+        self.log_button.setEnabled(self.log_path is not None)
+        self.details.setVisible(opened)
+        self.copy_button.setVisible(opened)
+        self.log_button.setVisible(opened)
+        self.close_button.setVisible(opened and locked)
+        self.update()
+
+    def _keep_on_screen(self, opened):
+        """Grow downward; if that would leave the screen, move up by as much (and back down when it closes)."""
+        if opened:
+            screen = QGuiApplication.screenAt(self.geometry().center()) or QGuiApplication.primaryScreen()
+            overflow = self.y() + self.height() - screen.availableGeometry().bottom()
+            if overflow > 0:
+                self.move(self.x(), self.y() - overflow)
+                self._shifted += overflow
+        elif self._shifted:
+            self.move(self.x(), self.y() + self._shifted)
+            self._shifted = 0
+
+    # --- the end of the start
+    def show_ready(self):
+        """The window is up and the section is open: the user is watching, so say so and wait for Close."""
+        self.ready = True
+        self.status = QCoreApplication.translate("Splash", "Ready")
+        self.target_fraction = 1.0
+        self.shown_fraction = 1.0
+        self.sync_log()
+        self._apply_layout()
+        self.close_button.setFocus()
+        self.update()
+
+    def show_error(self, lines=None, log_path=None, reason=None):
+        """Turn into the error view: the section opens by itself, says why it stopped, and offers Copy, Open log and Close.
+
+        ``lines``, if given, are put in the section when it has nothing yet (the start failed before
+        the log was followed).
+        """
+        self.error = True
+        self.details_open = True
+        if log_path is not None:
+            self.log_path = str(log_path)
+        self.error_title = reason or QCoreApplication.translate("Splash", "{window} stopped before its window opened.").format(
+            window=f"{PRODUCT} {tr(SUBTITLES[self.kind])}")
+        if lines and self.details.is_empty():
+            self.details.add_lines((line, False) for line in lines)
+        if self.details.is_empty():
+            self.details.add_lines([(QCoreApplication.translate("Splash", "(It printed nothing.)"), False)])
+        self._apply_layout()
+        self.details.verticalScrollBar().setValue(self.details.verticalScrollBar().maximum())
+        self.close_button.setFocus()
+        self.activateWindow()
+        self.raise_()
+        self.update()
 
     def _make_button(self, text, slot):
         button = QPushButton(text, self)
@@ -352,44 +608,38 @@ class SplashWindow(QWidget):
         button.clicked.connect(slot)
         return button
 
-    def show_error(self, lines, log_path=None, reason=None):
-        """Turn into the error view: why it stopped, the last lines the window printed, Copy, Open log and Close."""
-        self.error = True
-        self.log_path = None if log_path is None else str(log_path)
-        self.error_title = reason or QCoreApplication.translate("Splash", "{window} stopped before its window opened.").format(
-            window=f"{PRODUCT} {tr(SUBTITLES[self.kind])}")
-        self.setFixedSize(WIDTH, ERROR_HEIGHT)
-        self.log_view.setPlainText("\n".join(lines) if lines else QCoreApplication.translate("Splash", "(It printed nothing.)"))
-        self.log_view.setGeometry(32, 118, WIDTH - 64, 226)
-        right = WIDTH - 32
-        for button in (self.close_button, self.log_button, self.copy_button):
-            hint = button.sizeHint()
-            width = max(hint.width(), 84)
-            button.setGeometry(right - width, ERROR_HEIGHT - 58, width, 34)
-            right -= width + 10
-        self.log_button.setEnabled(self.log_path is not None)
-        for widget in (self.log_view, self.copy_button, self.log_button, self.close_button):
-            widget.show()
-        self.close_button.setFocus()
-        self.move_to(screen_center(self.geometry().center()))
-        self.activateWindow()
-        self.raise_()
-        self.update()
+    def _make_link(self, text, slot):
+        """The Show details / Hide details button: text in the accent, no frame, as the Viewer's links are."""
+        button = QPushButton(text, self)
+        button.setFont(_font(12, True))
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setIconSize(QSize(12, 12))
+        button.setStyleSheet(
+            f"QPushButton {{ background: transparent; color: {SCHEME['accent']}; border: none; border-radius: 6px;"
+            f" padding: 3px 8px 3px 6px; text-align: left; }}"
+            f"QPushButton:hover {{ background: {SCHEME['accent_soft']}; }}"
+            f"QPushButton:focus {{ background: {SCHEME['accent_soft']}; }}"
+        )
+        button.clicked.connect(slot)
+        return button
 
     def error_text(self):
-        return self.error_title + "\n\n" + self.log_view.toPlainText()
+        return self.error_title + "\n\n" + self.details.toPlainText()
 
     def copy_error(self):
-        QGuiApplication.clipboard().setText(self.error_text())
+        """Copy the section's text (with the reason first, in an error view); Copied shows for a moment."""
+        QGuiApplication.clipboard().setText(self.error_text() if self.error else self.details.toPlainText())
         self.copy_button.setText(QCoreApplication.translate("Splash", "Copied"))
         QTimer.singleShot(1500, lambda: self.copy_button.setText(QCoreApplication.translate("Splash", "Copy")))
 
     def open_log(self):
-        if self.log_path:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(self.log_path))
+        if not self.log_path:
+            return
+        if not QDesktopServices.openUrl(QUrl.fromLocalFile(self.log_path)):  # nothing opens .log files: show the folder
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(Path(self.log_path).parent)))
 
     def keyPressEvent(self, event):
-        if self.error and event.key() == Qt.Key.Key_Escape:
+        if (self.error or self.ready) and event.key() == Qt.Key.Key_Escape:
             self.close()
         else:
             super().keyPressEvent(event)
@@ -412,10 +662,7 @@ class SplashWindow(QWidget):
         shape.addRoundedRect(outer, RADIUS, RADIUS)
         painter.setClipPath(shape)
         painter.fillRect(self.rect(), c["surface"])
-        if self.error:
-            self._paint_error(painter)
-        else:
-            self._paint_start(painter)
+        self._paint_start(painter)
         painter.setClipping(False)
         painter.setPen(QPen(c["border"], 1.0))
         painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -431,7 +678,7 @@ class SplashWindow(QWidget):
         glow.setColorAt(0.0, halo)
         halo.setAlphaF(0.0)
         glow.setColorAt(1.0, halo)
-        painter.fillRect(self.rect(), glow)
+        painter.fillRect(QRectF(0, 0, WIDTH, HEIGHT), glow)
         if not self.logo.isNull():
             painter.drawPixmap(QRectF(WIDTH - 330, 36, 300, 300), self.logo, QRectF(self.logo.rect()))
         x, width = TEXT_X, TEXT_WIDTH
@@ -451,8 +698,14 @@ class SplashWindow(QWidget):
             QCoreApplication.translate("Splash", "© 2026 Xuebin Feng, University of Toronto. Apache License 2.0.") + "  "
             + QCoreApplication.translate("Splash", "Version {version}").format(version=VERSION),
         )
+        if self.error:
+            # Why it stopped, in the place of the status line and the bar.
+            painter.setPen(c["danger"])
+            painter.setFont(_font(13, True))
+            painter.drawText(QRectF(x, 262, width + 10, 54), left | vcenter | Qt.TextFlag.TextWordWrap, self.error_title)
+            return
         painter.setPen(c["text"])
-        font = _font(12)
+        font = _font(12, self.ready)
         painter.setFont(font)
         status = QFontMetricsF(font).elidedText(self.status, Qt.TextElideMode.ElideMiddle, width + 10)
         painter.drawText(QRectF(x, 286, width + 10, 22), left | vcenter, status)
@@ -477,21 +730,6 @@ class SplashWindow(QWidget):
             painter.drawRoundedRect(
                 QRectF(bar.left(), bar.top(), max(3.0, bar.width() * min(1.0, self.shown_fraction)), bar.height()),
                 1.5, 1.5)
-
-    def _paint_error(self, painter):
-        c = self.colors
-        left, vcenter = Qt.AlignmentFlag.AlignLeft, Qt.AlignmentFlag.AlignVCenter
-        painter.setPen(c["text"])
-        painter.setFont(_font(26, True))
-        painter.drawText(QRectF(32, 24, WIDTH - 64, 38), left | vcenter, f"{PRODUCT} {tr(SUBTITLES[self.kind])}")
-        painter.setPen(c["danger"])
-        painter.setFont(_font(14, True))
-        font = _font(14, True)
-        title = QFontMetricsF(font).elidedText(self.error_title, Qt.TextElideMode.ElideMiddle, WIDTH - 64)
-        painter.drawText(QRectF(32, 66, WIDTH - 64, 24), left | vcenter, title)
-        painter.setPen(c["muted"])
-        painter.setFont(_font(12))
-        painter.drawText(QRectF(32, 92, WIDTH - 64, 20), left | vcenter, QCoreApplication.translate("Splash", "The last lines it printed:"))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -522,6 +760,9 @@ def main(argv=None):
     parser.add_argument("--hidden", action="store_true", help="draw nowhere (tests)")
     parser.add_argument("--shot", default=None, help="render once to this PNG and exit")
     parser.add_argument("--error-log", default=None, help="show the error view with the end of this file")
+    parser.add_argument("--details", action="store_true", help="start with the section open")
+    parser.add_argument("--tail", default=None, metavar="FILE", help="follow this log file in the section")
+    parser.add_argument("--ready", action="store_true", help="show the Ready state (with --details)")
     args = parser.parse_args(argv)
     application = QApplication(sys.argv[:1])
     language = splash_language(args.language if args.language else None)
@@ -534,6 +775,10 @@ def main(argv=None):
         window.set_status(args.status, args.fraction, **dict(item.split("=", 1) for item in args.value if "=" in item))
         if args.fraction is not None:
             window.shown_fraction = args.fraction  # a shot has no time to ease in
+    if args.tail:
+        window.follow_log(args.tail)
+    if args.details:
+        window.set_details_open(True)
     if args.error_log:
         window.show_error(tail_lines(args.error_log), args.error_log)
     if args.hidden or args.shot:
@@ -542,12 +787,21 @@ def main(argv=None):
     application.processEvents()
     print(json.dumps({"first_paint_ms": round((time.time() - T_START) * 1000, 1), "language": language}), flush=True)
     if args.shot:
+        window._tick()  # one read of the log, as the timer would
+        if args.ready and args.details:
+            window.show_ready()
         render(window).save(args.shot)
         return 0
     if args.ready_file:
         ready = Path(args.ready_file)
         poll = QTimer()
-        poll.timeout.connect(lambda: window.close() if ready.exists() and not window.error else None)
+
+        def when_ready():
+            # Collapsed, the splash is done; with the section open the user is watching: say Ready and wait for Close.
+            if ready.exists() and not window.error and not window.ready:
+                window.show_ready() if window.details_open else window.close()
+
+        poll.timeout.connect(when_ready)
         poll.start(30)
     window.closed.connect(application.quit)
     return application.exec()

@@ -6761,6 +6761,18 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Hide details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show details</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Ready</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{window} stopped before its window opened.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -6782,10 +6794,6 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message>
         <source>Version {version}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>The last lines it printed:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

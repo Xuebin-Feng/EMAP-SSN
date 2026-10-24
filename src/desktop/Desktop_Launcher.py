@@ -19,7 +19,8 @@ is the EMAP-SSN Configuration window, as in EMAPSSN_Desktop_Launcher.bat, and "t
    (EMAPSSN_Desktop_Launcher.bat), which does that, as before;
 5. starts desktop/Desktop_Launcher_Monitor.py detached, which runs the window with a hidden console and
    keeps its output in application.log, and follows what the window reports (utilities/Startup_Status.py);
-6. closes the splash when the window is ready (gui.ready), or, if the window ends first, turns it into
+6. closes the splash when the window is ready (gui.ready), unless the user has opened its details: then it
+   says Ready and stays until Close is pressed. If the window ends first, it opens them and turns into
    an error view that shows the log's last lines.
 
 "session" is a Viewer that Config starts: no check and no lock (Config checked, and many Viewers may be
@@ -57,7 +58,7 @@ from PySide6.QtWidgets import QApplication
 
 from desktop import Desktop_Launcher_Monitor as Monitor
 from desktop import Splash as SplashModule
-from desktop.Splash import SplashWindow, StatusFeed, tail_lines
+from desktop.Splash import SplashWindow, StatusFeed
 from utilities import Startup_Status as Status
 
 # The launcher's kinds, as the batch file names them ("viewer" is Config), and what each is called elsewhere.
@@ -323,6 +324,7 @@ class Launch(QObject):
                 fraction = min(SplashModule.FRACTION_CHECKED - 0.04,
                                SplashModule.FRACTION_CHECKING + 0.03 * len(self.check_lines))
                 self.splash.show_text(text, fraction)
+                self.splash.add_output(text)  # and the section Show details opens
 
     @_guarded
     def _check_failed(self, error):
@@ -361,6 +363,9 @@ class Launch(QObject):
         self.feed = StatusFeed(self.state_dir / "startup.status")
         self.splash.feed = self.feed
         self.splash.timer.start()
+        # What the window prints is in application.log, which the monitor makes and the window's capture writes
+        # as it prints: the splash follows that file into its section.
+        self.splash.follow_log(self.state_dir / "application.log")
         try:
             self.monitor = Monitor.launch_detached_monitor(
                 self.kind, self.state_dir, failure_report="dialog", app_args=self.app_args,
@@ -405,7 +410,12 @@ class Launch(QObject):
             (self.state_dir / "terminal.dismissed").write_text("dismissed\n", encoding="utf-8")
         except OSError:
             pass
-        self.splash.close()
+        self._poll.stop()
+        if self.splash.details_open:
+            self.mark("ready_kept_open")
+            self.splash.show_ready()  # the user is watching: it stays until Close is pressed
+        else:
+            self.splash.close()
 
     def window_ended(self, code, monitor_failed=False):
         self.mark("window_ended_before_ready")
@@ -416,10 +426,11 @@ class Launch(QObject):
         self.show_failure(code)
 
     def show_failure(self, code, reason=None):
-        """The error view: why the window did not open, and the last lines it printed."""
+        """The error view: the section opens by itself, with why the window did not open and what it printed."""
         self.marks["failure_code"] = code
         log = None if self.state_dir is None else self.state_dir / "application.log"
-        self.splash.show_error(tail_lines(log) if log else [], log, reason=reason)
+        self.splash.sync_log()  # what it printed last
+        self.splash.show_error(None, log, reason=reason)
         self._poll.stop()
 
     def _splash_closed(self):

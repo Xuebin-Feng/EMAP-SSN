@@ -45,7 +45,7 @@ class StudioColoursTests(unittest.TestCase):
         pairs = {
             "surface": "surface", "panel": "surface_muted", "border": "border", "text": "text", "text_soft": "text_soft",
             "muted": "text_muted", "subtle": "text_subtle", "track": "border", "accent": "accent",
-            "field_border": "field_border", "danger": "danger",
+            "field_border": "field_border", "danger": "danger", "warning": "warning", "accent_soft": "accent_soft",
         }
         for ours, theirs in pairs.items():
             with self.subTest(colour=ours):
@@ -332,7 +332,8 @@ class ErrorViewTests(WindowCase):
         window = self.splash("tools")
         window.show_error(["Traceback (most recent call last):", "ValueError: boom"], "C:/logs/application.log")
         self.assertTrue(window.error)
-        self.assertEqual(window.height(), Splash.ERROR_HEIGHT)
+        self.assertEqual(window.height(), window._section_height())  # the section opened by itself
+        self.assertGreater(window.height(), Splash.HEIGHT)
         self.assertEqual(window.log_view.toPlainText(), "Traceback (most recent call last):\nValueError: boom")
         for widget in (window.log_view, window.copy_button, window.log_button, window.close_button):
             self.assertTrue(widget.isVisibleTo(window))
@@ -404,6 +405,341 @@ class ErrorViewTests(WindowCase):
             self.assertNotEqual(window.status, "late news")
 
 
+class LightnessTests(unittest.TestCase):
+    """The splash is on screen long before the windows' heavy imports: the section must not bring them in."""
+
+    def imported_after(self, statement):
+        program = textwrap.dedent(
+            """
+            import sys
+            sys.path.insert(0, sys.argv[1])
+            %s
+            print(sorted(name for name in sys.modules if name.split(".")[0] in
+                         ("numpy", "torch", "vispy", "scipy", "pandas", "h5py", "PySide6WebEngine")
+                         or name.startswith(("desktop.Desktop_App", "desktop.Console_View", "desktop.Studio_Theme"))))
+            """ % statement
+        )
+        done = subprocess.run([sys.executable, "-c", program, str(SRC)], capture_output=True, text=True, timeout=120,
+                              env={key: value for key, value in os.environ.items() if key not in {"PYTHONPATH"}},
+                              creationflags=0x08000000 if sys.platform == "win32" else 0)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return eval(done.stdout.strip().splitlines()[-1])
+
+    def test_the_splash_imports_nothing_heavy_and_not_the_consoles_window(self):
+        self.assertEqual(self.imported_after("import desktop.Splash"), [])
+
+    def test_the_line_classifier_the_section_colours_by_is_the_standard_library_only(self):
+        self.assertEqual(self.imported_after("import utilities.Line_Kinds, sys; assert 'PySide6' not in sys.modules"), [])
+
+    def test_the_consoles_window_and_the_splash_classify_alike(self):
+        from desktop import Console_View
+        from utilities import Line_Kinds
+
+        self.assertIs(Console_View.classify, Line_Kinds.classify)
+        self.assertIs(Console_View.Classifier, Line_Kinds.Classifier)
+        self.assertIs(Splash.Classifier, Line_Kinds.Classifier)
+
+
+class FakeScreen:
+    """A screen with room for ``height`` pixels below its top, for the section that must stay on it."""
+
+    def __init__(self, top, height):
+        from PySide6.QtCore import QRect
+
+        self._rect = QRect(0, top, 1920, height)
+
+    def availableGeometry(self):
+        return self._rect
+
+
+class SectionTests(WindowCase):
+    """Show details: the splash grows downward into a section with the start's output."""
+
+    def test_it_starts_collapsed_with_only_the_details_button_added(self):
+        window = self.splash()
+        self.assertEqual((window.width(), window.height()), (Splash.WIDTH, Splash.HEIGHT))
+        self.assertFalse(window.details_open)
+        self.assertEqual(window.details_button.text(), "Show details")
+        self.assertTrue(window.details_button.isVisibleTo(window))
+        for widget in (window.details, window.copy_button, window.log_button, window.close_button):
+            self.assertFalse(widget.isVisibleTo(window))
+        # The button is inside the window, below the bar, clear of the status line and the bar.
+        geometry = window.details_button.geometry()
+        self.assertTrue(window.rect().contains(geometry))
+        self.assertGreater(geometry.top(), Splash.BAR_Y + Splash.BAR_HEIGHT)
+
+    def test_the_button_expands_the_window_downward_and_collapses_it_again(self):
+        window = self.splash()
+        top, left = window.y(), window.x()
+        roomy = mock.patch.object(Splash.QGuiApplication, "screenAt", return_value=FakeScreen(0, 3000))  # not the 800x600 one
+        roomy.start()
+        self.addCleanup(roomy.stop)
+        window.details_button.click()
+        self.assertTrue(window.details_open)
+        self.assertEqual(window.height(), Splash.HEIGHT + Splash.DETAILS_HEIGHT)
+        self.assertEqual((window.x(), window.y()), (left, top))  # it grew downward: the top did not move
+        self.assertEqual(window.details_button.text(), "Hide details")
+        for widget in (window.details, window.copy_button, window.log_button):
+            self.assertTrue(widget.isVisibleTo(window))
+            self.assertTrue(window.rect().contains(widget.geometry()))
+        self.assertFalse(window.close_button.isVisibleTo(window))  # nothing to close yet: it is still starting
+        self.assertGreaterEqual(window.details.geometry().top(), Splash.HEIGHT)  # below the splash proper
+        window.details_button.click()
+        self.assertFalse(window.details_open)
+        self.assertEqual(window.height(), Splash.HEIGHT)
+        self.assertEqual((window.x(), window.y()), (left, top))
+        self.assertFalse(window.details.isVisibleTo(window))
+        self.assertEqual(window.details_button.text(), "Show details")
+
+    def test_the_section_is_as_tall_as_the_screen_allows_and_the_window_moves_up_if_it_must(self):
+        window = self.splash()
+        window.move(100, 200)
+        # Room for 500 px from the screen's top at 0, so the open window (taller) must come up.
+        screen = FakeScreen(0, 560)
+        with mock.patch.object(Splash.QGuiApplication, "screenAt", return_value=screen):
+            window.set_details_open(True)
+            self.assertLessEqual(window.y() + window.height(), screen.availableGeometry().bottom() + 1)
+            self.assertLess(window.y(), 200)
+            self.assertGreaterEqual(window.height(), Splash.HEIGHT + 120)
+            self.assertEqual(window.height(), screen.availableGeometry().height() - 16)  # as tall as the screen allows
+            window.set_details_open(False)
+        self.assertEqual((window.x(), window.y(), window.height()), (100, 200, Splash.HEIGHT))
+
+    def test_lines_the_dependency_check_prints_appear_in_the_section(self):
+        window = self.splash()
+        window.add_output("Managed Python: C:\\Users\\x\\python.exe")
+        window.add_output("Dependency environment is ready (NVIDIA CUDA 12.6).")
+        self.assertEqual(window.details.toPlainText(),
+                         "Managed Python: C:\\Users\\x\\python.exe\nDependency environment is ready (NVIDIA CUDA 12.6).")
+
+    def test_what_the_window_prints_is_followed_from_its_log_as_it_grows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "application.log"
+            window = self.splash()
+            window.follow_log(log)
+            window._tick()
+            self.assertEqual(window.details.toPlainText(), "")  # no file yet: nothing, and no error
+            log.write_bytes(b"Starting EMAPSSN_Config...\nloading torch\n")
+            window._tick()
+            self.assertEqual(window.details.toPlainText(), "Starting EMAPSSN_Config...\nloading torch")
+            with open(log, "ab") as handle:
+                handle.write(b"half a li")
+            window._tick()
+            self.assertEqual(window.details.toPlainText(), "Starting EMAPSSN_Config...\nloading torch")  # not yet a line
+            with open(log, "ab") as handle:
+                handle.write(b"ne\n\xce\xb1 and more\n")
+            window._tick()
+            self.assertEqual(window.details.toPlainText().splitlines()[-2:], ["half a line", "\u03b1 and more"])
+
+    def test_a_progress_line_is_one_line_that_changes_until_its_newline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "application.log"
+            window = self.splash()
+            window.follow_log(log)
+            log.write_bytes(b"start\nDownloading 10%\rDownloading 50%\r")
+            window._tick()
+            self.assertEqual(window.details.toPlainText().splitlines(), ["start", "Downloading 50%"])
+            with open(log, "ab") as handle:
+                handle.write(b"Downloading 90%\r")
+            window._tick()
+            self.assertEqual(window.details.toPlainText().splitlines(), ["start", "Downloading 90%"])
+            with open(log, "ab") as handle:
+                handle.write(b"Downloading 100%\nnext\n")
+            window._tick()
+            self.assertEqual(window.details.toPlainText().splitlines(), ["start", "Downloading 100%", "next"])
+
+    def test_the_last_line_with_no_newline_is_read_when_the_log_is_synced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "application.log"
+            window = self.splash()
+            window.follow_log(log)
+            log.write_bytes(b"one\nthe last words, with no newline")
+            window._tick()
+            self.assertEqual(window.details.toPlainText(), "one")
+            window.sync_log()
+            self.assertEqual(window.details.toPlainText(), "one\nthe last words, with no newline")
+
+    def test_warnings_and_errors_are_in_the_splashs_colours_and_a_tracebacks_frames_with_their_error(self):
+        window = self.splash()
+        for line in ("plain output", "UserWarning: this is deprecated", "Traceback (most recent call last):",
+                     '  File "x.py", line 3, in <module>', "    window = Config()", "ValueError: boom", "plain again"):
+            window.add_output(line)
+        kinds = [window.details.kind_of(index) for index in range(7)]
+        self.assertEqual(kinds, ["info", "warning", "error", "error", "error", "error", "info"])
+        self.assertEqual(window.details.formats["error"].foreground().color().name(), Splash.SCHEME["danger"])
+        self.assertEqual(window.details.formats["warning"].foreground().color().name(), Splash.SCHEME["warning"])
+        self.assertEqual(window.details.formats["info"].foreground().color().name(), Splash.SCHEME["text_soft"])
+
+    def test_the_newest_line_stays_in_view_until_the_reader_scrolls_up_and_again_at_the_end(self):
+        window = self.splash()
+        window.set_details_open(True)
+        bar = window.details.verticalScrollBar()
+        window.details.add_lines([(f"line {number}", False) for number in range(300)])
+        self.assertGreater(bar.maximum(), 0)
+        self.assertEqual(bar.value(), bar.maximum())
+        bar.setValue(0)
+        window.details.add_lines([(f"more {number}", False) for number in range(50)])
+        self.assertEqual(bar.value(), 0)  # the reader's place is kept
+        bar.setValue(bar.maximum())
+        window.details.add_lines([("the newest", False)])
+        self.assertEqual(bar.value(), bar.maximum())
+
+    def test_it_keeps_the_last_lines_only_so_a_flood_cannot_grow_without_end(self):
+        window = self.splash()
+        window.details.add_lines([(f"line {number}", False) for number in range(Splash.MAX_DETAIL_LINES + 500)])
+        self.assertLessEqual(window.details.blockCount(), Splash.MAX_DETAIL_LINES)
+        self.assertTrue(window.details.toPlainText().endswith(f"line {Splash.MAX_DETAIL_LINES + 499}"))
+
+    def test_copy_puts_the_whole_section_on_the_clipboard_and_open_log_opens_what_is_followed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "application.log"
+            log.write_bytes(b"alpha\nbeta\n")
+            window = self.splash()
+            window.add_output("from the check")
+            window.follow_log(log)
+            window._tick()
+            window.set_details_open(True)
+            window.copy_button.click()
+            self.assertEqual(QGuiApplication.clipboard().text(), "from the check\nalpha\nbeta")
+            self.assertEqual(window.copy_button.text(), "Copied")
+            with mock.patch.object(Splash.QDesktopServices, "openUrl", return_value=True) as open_url:
+                window.log_button.click()
+            self.assertEqual(Path(open_url.call_args.args[0].toLocalFile()), log)
+            with mock.patch.object(Splash.QDesktopServices, "openUrl", return_value=False) as open_url:
+                window.log_button.click()  # nothing opens .log files here: its folder opens instead
+            self.assertEqual(Path(open_url.call_args.args[0].toLocalFile()), Path(directory))
+            self.assertEqual(open_url.call_count, 2)
+
+    def test_open_log_is_off_until_there_is_a_log_to_open(self):
+        window = self.splash()
+        window.set_details_open(True)
+        self.assertFalse(window.log_button.isEnabled())
+        window.follow_log("C:/x/application.log")
+        self.assertTrue(window.log_button.isEnabled())
+
+    def test_the_collapsed_splash_looks_as_it_did_apart_from_the_button(self):
+        window = self.splash()
+        window.set_status(Startup_Status.LOADING_PYTORCH, 0.45)
+        window.shown_fraction = 0.45
+        with_button = window.grab().toImage()
+        window.details_button.hide()
+        without = window.grab().toImage()
+        ratio = window.devicePixelRatioF()
+        box = window.details_button.geometry()
+        differing = [(x, y) for y in range(with_button.height()) for x in range(with_button.width())
+                     if with_button.pixel(x, y) != without.pixel(x, y)]
+        self.assertTrue(differing)  # the button is there
+        for x, y in differing:
+            self.assertTrue(box.contains(int(x / ratio), int(y / ratio)), (x, y))
+
+
+class ReadyTests(WindowCase):
+    """Ready: a splash that is expanded when the window is ready is being watched, and waits for Close."""
+
+    def test_it_says_ready_fills_the_bar_and_offers_close_with_the_section_still_open(self):
+        window = self.splash()
+        window.set_details_open(True)
+        window.set_status(Startup_Status.LOADING_PYTORCH, 0.45)
+        window.show_ready()
+        self.assertTrue(window.ready)
+        self.assertEqual(window.status, "Ready")
+        self.assertEqual(window.target_fraction, 1.0)
+        self.assertEqual(window.shown_fraction, 1.0)
+        self.assertTrue(window.isVisible())  # it does not close itself
+        self.assertTrue(window.details_open)
+        self.assertTrue(window.close_button.isVisibleTo(window))
+        self.assertFalse(window.details_button.isVisibleTo(window))  # the section stays open
+        self.assertFalse(window.error)
+
+    def test_close_and_escape_close_it_and_tell_whoever_waits(self):
+        for how in ("button", "escape"):
+            with self.subTest(how=how):
+                window = self.splash()
+                closed = []
+                window.closed.connect(lambda: closed.append(True))
+                window.set_details_open(True)
+                window.show_ready()
+                self.assertEqual(closed, [])
+                if how == "button":
+                    window.close_button.click()
+                else:
+                    QTest.keyClick(window, Qt.Key.Key_Escape)
+                self.assertEqual(closed, [True])
+                self.assertFalse(window.isVisible())
+
+    def test_the_section_cannot_be_closed_once_ready_so_close_stays_in_reach(self):
+        window = self.splash()
+        window.set_details_open(True)
+        window.show_ready()
+        window.set_details_open(False)
+        self.assertTrue(window.details_open)
+        self.assertTrue(window.close_button.isVisibleTo(window))
+
+    def test_the_output_goes_on_arriving_and_the_status_no_longer_changes_after_ready(self):
+        with tempfile.TemporaryDirectory() as directory:
+            status, log = Path(directory) / "startup.status", Path(directory) / "application.log"
+            window = self.splash(status_file=status)
+            window.follow_log(log)
+            window.set_details_open(True)
+            window.show_ready()
+            with open(status, "ab") as handle:
+                handle.write(b'{"text": "late news"}\n')
+            log.write_bytes(b"printed after ready\n")
+            window._tick()
+            self.assertEqual(window.status, "Ready")
+            self.assertIn("printed after ready", window.details.toPlainText())
+
+    def test_ready_in_chinese_is_translated(self):
+        translator = Splash.install_catalog("zh_CN")
+        self.assertIsNotNone(translator)
+        self.addCleanup(QCoreApplication.removeTranslator, translator)
+        window = self.splash(language="zh_CN")
+        self.assertEqual(window.details_button.text(), "显示详情")
+        window.set_details_open(True)
+        self.assertEqual(window.details_button.text(), "隐藏详情")
+        window.show_ready()
+        self.assertEqual(window.status, "就绪")
+
+
+class ErrorOpensTheSectionTests(WindowCase):
+    def test_the_section_opens_by_itself_with_what_was_printed_and_the_reason_in_the_danger_colour(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "application.log"
+            log.write_bytes(b"Starting\nTraceback (most recent call last):\nValueError: boom\n")
+            window = self.splash()
+            window.add_output("Dependency environment is ready (fake).")
+            window.follow_log(log)
+            window.sync_log()
+            self.assertFalse(window.details_open)
+            window.show_error(None, log, reason="The window stopped.")
+            self.assertTrue(window.details_open)
+            self.assertEqual(window.height(), window._section_height())
+            self.assertEqual(window.details.toPlainText().splitlines(),
+                             ["Dependency environment is ready (fake).", "Starting",
+                              "Traceback (most recent call last):", "ValueError: boom"])
+            self.assertEqual(window.details.kind_of(3), "error")
+            self.assertTrue(window.close_button.isVisibleTo(window))
+            self.assertFalse(window.details_button.isVisibleTo(window))
+            self.assertEqual(window.error_title, "The window stopped.")
+            window.copy_button.click()
+            self.assertTrue(QGuiApplication.clipboard().text().startswith("The window stopped.\n\nDependency"))
+
+    def test_the_section_cannot_be_closed_in_an_error_view(self):
+        window = self.splash()
+        window.show_error(["x"], "log")
+        window.set_details_open(False)
+        self.assertTrue(window.details_open)
+
+    def test_lines_given_to_the_error_view_are_added_only_when_the_section_has_none(self):
+        window = self.splash()
+        window.add_output("already there")
+        window.show_error(["given"], "log")
+        self.assertEqual(window.details.toPlainText(), "already there")
+        empty = self.splash()
+        empty.show_error(["given"], "log")
+        self.assertEqual(empty.details.toPlainText(), "given")
+
+
 class ProcessHandOffTests(unittest.TestCase):
     """The splash as a process of its own: it follows a status file and ends when the window writes its ready file."""
 
@@ -435,6 +771,22 @@ class ProcessHandOffTests(unittest.TestCase):
                     process.kill()
                 process.communicate()
 
+    def test_with_the_section_open_it_stays_after_the_ready_file_appears_saying_ready(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ready, log = Path(directory) / "gui.ready", Path(directory) / "application.log"
+            log.write_text("the window prints\n", encoding="utf-8")
+            process = self.run_splash("--kind", "config", "--details", "--tail", str(log), "--ready-file", str(ready),
+                                      directory=directory)
+            try:
+                process.stdout.readline()
+                time.sleep(0.4)
+                ready.write_text("ready\n", encoding="utf-8")
+                time.sleep(0.8)
+                self.assertIsNone(process.poll(), "the splash closed itself while the user was watching")
+            finally:
+                process.kill()
+                process.communicate()
+
     def test_the_error_view_stays_after_a_ready_file_appears(self):
         with tempfile.TemporaryDirectory() as directory:
             log, ready = Path(directory) / "application.log", Path(directory) / "gui.ready"
@@ -449,6 +801,18 @@ class ProcessHandOffTests(unittest.TestCase):
             finally:
                 process.kill()
                 process.communicate()
+
+    def test_a_shot_of_the_section_open_and_of_ready_renders(self):
+        with tempfile.TemporaryDirectory() as directory:
+            log = Path(directory) / "application.log"
+            log.write_text("Starting EMAPSSN_Config...\nUserWarning: a warning\n", encoding="utf-8")
+            for name, extra in (("open", ("--details",)), ("ready", ("--details", "--ready"))):
+                target = Path(directory) / f"{name}.png"
+                process = self.run_splash("--kind", "tools", "--tail", str(log), *extra, "--shot", str(target),
+                                          directory=directory)
+                out, err = process.communicate(timeout=60)
+                self.assertEqual(process.returncode, 0, err)
+                self.assertGreater(target.stat().st_size, 5000, name)
 
     def test_a_shot_renders_each_window_in_each_language(self):
         with tempfile.TemporaryDirectory() as directory:

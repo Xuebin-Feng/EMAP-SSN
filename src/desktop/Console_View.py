@@ -37,7 +37,6 @@ show_console opens this process's Console (or brings it forward): the Viewer's
 from __future__ import annotations
 
 import atexit
-import re
 import shutil
 import tempfile
 import time
@@ -91,22 +90,11 @@ from desktop.Studio_Theme import (
     theme_tokens,
 )
 from utilities import Console_Capture
-
-ERROR = "error"
-WARNING = "warning"
-INFO = "info"
-
-# What makes a line an error or a warning: Python's own words (a traceback, an exception's name, a
-# warning class), Qt's tagged messages (utilities.Console_Capture.install_qt_message_handler), the
-# program's "Error:" and "Warning:" messages, and a few phrases libraries use.
-ERROR_PATTERN = re.compile(
-    r"(Traceback \(most recent call last\)|^\s*File \".*\", line \d+|\w*(?:Error|Exception)\b[:(]"
-    r"|\[Qt (?:critical|fatal)\]|\bfatal\b|CUDA error|out of memory)",
-    re.IGNORECASE,
+from utilities.Line_Kinds import (  # noqa: F401  (re-exported: the window's callers and tests name them here)
+    ERROR, ERROR_PATTERN, INFO, WARNING, WARNING_PATTERN, Classifier, classify,
 )
-WARNING_PATTERN = re.compile(
-    r"(Warning\b|\[Qt warning\]|\bwarn(?:ing)?:|Failed to|could not|deprecated)", re.IGNORECASE
-)
+
+# What makes a line an error or a warning is utilities/Line_Kinds.py (the start-up splash colours by it too).
 # The colour behind the search's matches: a pale amber on the light page, a dark one on the dark.
 MATCH_LIGHT = "#fde68a"
 MATCH_DARK = "#854d0e"
@@ -115,34 +103,6 @@ MAX_MATCHES = 5000
 # The window collects what arrives and draws it this often (ms), so a burst of 100,000 lines
 # is a few repaints.
 FLUSH_MS = 50
-
-
-def classify(text: str) -> str:
-    """ERROR, WARNING or INFO for one line, from what it says."""
-    if ERROR_PATTERN.search(text):
-        return ERROR
-    if WARNING_PATTERN.search(text):
-        return WARNING
-    return INFO
-
-
-class Classifier:
-    """classify for lines in order: an indented line after an error or warning has its kind.
-
-    A traceback's frames and source lines, and the source line of a Python
-    warning, are indented under the line that names the problem.
-    """
-
-    def __init__(self):
-        self._previous = INFO
-
-    def kind(self, text: str, *, remember: bool = True) -> str:
-        found = classify(text)
-        if found == INFO and text[:1] in (" ", "\t") and text.strip() and self._previous != INFO:
-            found = self._previous
-        if remember:
-            self._previous = found
-        return found
 
 
 def dark_tokens(color=None):

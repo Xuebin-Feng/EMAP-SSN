@@ -664,11 +664,26 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
 
    `emapssn` opens the configuration GUI first. Select the input files and layout settings there, then click **Save & Run** to save the settings and launch the visualization window. On the first application launch, the managed launcher creates `.venv`, installs the pinned dependencies, and validates the selected compute backend; later launches reuse that environment while it remains compatible.
 
-### The Console and the start-up screen
+### The start-up screen, the Console and the logs
 
-On Windows no console window opens when you start a window from a shortcut: a start-up screen shows the progress (the dependency check, then loading PyTorch and building the window) and closes when the window is ready. If something goes wrong it shows the last lines of the output, with buttons to copy them and to open the log.
+On Windows no console window opens when you start a window from a shortcut: a start-up screen shows the progress
+(the dependency check, then loading PyTorch and building the window) and closes when the window is ready.
+**Show details** at its foot expands it downward into a section that shows what the start prints, live: the
+dependency check's lines, then what the window itself prints, warnings and errors in colour, the newest line
+in view, with **Copy** and **Open log**. If that section is open when the window is ready, the start-up screen
+stays: it says **Ready** and closes when you press **Close**. If it is closed, it closes by itself, as before.
+If the window fails to start, the section opens by itself with what it printed and why, and **Close**.
 
-Everything a window prints, its warnings and errors included, is kept. The **Console** button, beside the language selector of the Configuration and Tools windows and at the foot of the Viewer's sidebar, opens a window that shows it with the time of each line, searches and filters it, and opens its log file; the Viewer's `console` command opens the same window. The logs are in `temp/logs` of the project folder (one file per run, 8 MB at most, the ten latest of each window kept). To see the output in a terminal as before, start a window with `--console` (`EMAP-SSN.exe viewer --console`) or run `src\bin\EMAPSSN.bat` or `src\bin\EMAPSSN_Tools.bat` from a terminal. The Linux and macOS launchers still start the windows in a terminal, and the Console shows the same output there.
+Everything the Configuration, Tools, VR Config and Viewer windows print, their warnings and errors included, is
+kept in `temp/logs` of the project folder (one file per run, `config-`, `tools-`, `viewer-` or `vr-config-`
+followed by the time and process number; 8 MB at most, the ten latest of each window kept). The Configuration
+and Tools windows have no Console after they open: read their output there. The Viewer, which runs for hours
+and prints the output of its commands, has the **Console** window: the button at the foot of its sidebar, the
+Console link in the header of its Session card, or the `console` command open it, and it shows the output with
+the time of each line, searches and filters it, and opens its log file. To see the output in a terminal as before,
+start a window with `--console` (`EMAP-SSN.exe viewer --console`) or run `src\bin\EMAPSSN.bat` or
+`src\bin\EMAPSSN_Tools.bat` from a terminal. The Linux and macOS launchers still start the windows in a
+terminal, and the Viewer's Console shows the same output there.
 
 ### Headless layout-cache generation
 

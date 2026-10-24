@@ -355,9 +355,13 @@ class WindowStartTests(LaunchCase):
             self.app.processEvents()
             time.sleep(0.01)
         self.assertTrue(launch.splash.error)
+        self.assertTrue(launch.splash.details_open, "the section did not open by itself")
         text = launch.splash.log_view.toPlainText()
+        self.assertIn("Managed Python: fake", text)  # the dependency check's lines are in it too, first
+        self.assertLess(text.index("Managed Python: fake"), text.index("fake window starts"))
         self.assertIn("fake window starts", text)
         self.assertIn("ValueError: the window broke", text)
+        self.assertEqual(launch.splash.details.kind_of(text.splitlines().index("ValueError: the window broke")), "error")
         self.assertEqual(launch.splash.log_path, str(launch.state_dir / "application.log"))
         self.assertTrue(launch.splash.log_button.isEnabled())
         self.assertEqual(self.codes, [], "the launch ended before the error was read")
@@ -384,6 +388,89 @@ class WindowStartTests(LaunchCase):
         self.assertTrue(launch.splash.error)
         self.assertIn("did not open a window within", launch.splash.error_title)
         self.assertEqual(launch.marks["failure_code"], Desktop_Launcher.Monitor.STARTUP_TIMEOUT)
+        launch.splash.close_button.click()
+
+
+class SectionTests(LaunchCase):
+    """The splash's details: the start's output, and a splash that is open at ready staying until Close."""
+
+    def run_until(self, launch, condition, seconds=60, open_section=True):
+        launch.begin()
+        if open_section:
+            launch.splash.set_details_open(True)
+        deadline = time.monotonic() + seconds
+        while not condition() and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.assertTrue(condition(), "the condition was not met")
+
+    def test_the_section_holds_the_check_lines_then_what_the_window_printed_as_it_started(self):
+        launch = self.launch("viewer", environment={"FAKE_WINDOW_STAY": "5"})
+        self.run_until(launch, lambda: "gui_ready" in launch.marks)
+        text = launch.splash.details.toPlainText()
+        self.assertEqual(text.splitlines()[:3], ["Managed Python: fake", "Detected: a fake GPU",
+                                                 "Dependency environment is ready (fake)."])
+        self.assertIn("fake window starts", text)
+        self.assertLess(text.index("Dependency environment is ready (fake)."), text.index("fake window starts"))
+        self.assertEqual(launch.splash.log_path, str(launch.state_dir / "application.log"))
+        launch.splash.close_button.click()
+
+    def test_open_at_ready_the_splash_says_ready_and_stays_until_close_is_pressed(self):
+        launch = self.launch("viewer", environment={"FAKE_WINDOW_STAY": "8"})
+        self.run_until(launch, lambda: "gui_ready" in launch.marks)
+        for _ in range(60):  # a second: nothing closes it
+            self.app.processEvents()
+            time.sleep(0.02)
+        splash = launch.splash
+        self.assertEqual(self.codes, [], "the launch ended on its own")
+        self.assertTrue(splash.isVisible())
+        self.assertTrue(splash.ready)
+        self.assertEqual(splash.status, "Ready")
+        self.assertIn("ready_kept_open", launch.marks)
+        self.assertNotIn("finished", launch.marks)
+        # The monitor was told the launcher is done, as it is when the splash closes at once.
+        self.assertTrue((launch.state_dir / "terminal.dismissed").is_file())
+        self.assertTrue(splash.close_button.isVisibleTo(splash))
+        splash.close_button.click()
+        self.assertEqual(self.codes, [0])
+        self.assertIn("finished", launch.marks)
+
+    def test_collapsed_at_ready_it_closes_as_it_always_has(self):
+        launch = self.launch("viewer", environment={"FAKE_WINDOW_STAY": "0.1"})
+        self.assertEqual(self.run_launch(launch), 0)
+        self.assertNotIn("ready_kept_open", launch.marks)
+        self.assertFalse(launch.splash.ready)
+
+    def test_opened_and_closed_again_before_ready_it_still_closes_at_ready(self):
+        launch = self.launch("viewer", environment={"FAKE_WINDOW_STAY": "0.1", "FAKE_WINDOW_DELAY": "1.5"})
+        launch.begin()
+        launch.splash.set_details_open(True)
+        launch.splash.set_details_open(False)
+        deadline = time.monotonic() + 60
+        while not self.codes and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.assertEqual(self.codes, [0])
+        self.assertNotIn("ready_kept_open", launch.marks)
+
+    def test_the_error_view_reads_what_the_window_printed_last_though_no_tick_has_yet(self):
+        launch = self.launch("viewer")
+        launch.state_dir = launch.root / "temp" / "viewer_last_words"
+        launch.state_dir.mkdir(parents=True)
+        launch.open_splash()
+        log = launch.state_dir / "application.log"
+        launch.splash.follow_log(log)
+        log.write_bytes(b"Traceback (most recent call last):\nValueError: right at the very end")  # no final newline
+        launch.show_failure(1)
+        text = launch.splash.details.toPlainText()
+        self.assertTrue(text.endswith("ValueError: right at the very end"), text)
+        self.assertTrue(launch.splash.error)
+
+    def test_a_session_launch_follows_the_viewers_output_too(self):
+        launch = self.launch("session", app_args=["--settings", "x.json"], environment={"FAKE_WINDOW_STAY": "5"})
+        self.run_until(launch, lambda: "gui_ready" in launch.marks)
+        self.assertIn("fake window starts", launch.splash.details.toPlainText())
+        self.assertNotIn("Managed Python", launch.splash.details.toPlainText())  # a session runs no check
         launch.splash.close_button.click()
 
 
