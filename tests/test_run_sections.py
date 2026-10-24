@@ -110,7 +110,7 @@ class FoldViewSectionsTests(unittest.TestCase):
     parallel, so the page tests are spread over several.
     """
 
-    PAGE_SECTIONS = {"fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_webgl"}
+    PAGE_SECTIONS = {"fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_webgl"}
 
     @classmethod
     def setUpClass(cls):
