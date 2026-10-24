@@ -24,8 +24,11 @@ def argument(name, description, *choices):
 REQUIRABLE_INPUTS = ('alignment', 'embedding')
 
 
-def entry(summary, *arguments, requires=()):
-    return {'summary': summary, 'arguments': list(arguments), 'requires': list(requires)}
+def entry(summary, *arguments, requires=(), writes_files=False, opens_interface=False):
+    """One command's catalog entry. writes_files: it can write files of its own (exports, saves, images,
+    reports). opens_interface: it can open a dialog, page or window of its own, which needs a visible Viewer."""
+    return {'summary': summary, 'arguments': list(arguments), 'requires': list(requires),
+            'writes_files': writes_files, 'opens_interface': opens_interface}
 
 
 EXPRESSION = ('Boolean node selection: quoted headers, #LABEL#, @file@, $sele$, '
@@ -41,9 +44,9 @@ MIN_SIZE = argument('min_size', 'Optional integer, at least 1, default 10. Small
 COMMAND_METADATA = {
     'agent': entry('Open or configure the Agent interface; MCP blocks nested model requests.',
         argument('action', 'Omit to open the interface; off deactivates the model. Registration only does not open it.', choice('off', 'deactivate'), choice('--register-only')),
-        argument('model_or_message', 'An existing model card name enclosed in <...> activates that model. Natural-language messages are supported manually but blocked through MCP.')),
+        argument('model_or_message', 'An existing model card name enclosed in <...> activates that model. Natural-language messages are supported manually but blocked through MCP.'), opens_interface=True),
     'alignment': entry('Load another alignment and report coverage; restore the previous alignment on loader failure.',
-        argument('filename', 'Optional FASTA/HDF5 MSA filename or path; omission opens a file dialog requiring a visible Viewer. Partial and zero node overlap are accepted.')),
+        argument('filename', 'Optional FASTA/HDF5 MSA filename or path; omission opens a file dialog requiring a visible Viewer. Partial and zero node overlap are accepted.'), opens_interface=True),
     'cluster': entry('Identify topology clusters and number retained clusters by size.',
         argument('action', 'Use list for current cluster statistics; otherwise perform clustering, which also removes the generated subcluster_N_M groups of the previous clustering (custom groups with lookalike names such as subcluster_0_2 are kept; undo restores them). Arguments beyond MODE, PARAMETER and MIN_SIZE are refused, as are extras after list.', choice('list')),
         CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE),
@@ -58,14 +61,14 @@ COMMAND_METADATA = {
             choice('triangle_up', 'triangle'), choice('triangle_down'), choice('star'), choice('cross_lines'),
             *[choice(s) for s in ('o', '+', '++', 's', '-', '|', '->', '>', '^', 'v', '*')])),
     'embedding': entry('Load another embedding file and report coverage, model and width; restore the previous embedding on loader failure. The switch lasts for the session and is not an undo step.',
-        argument('filename', 'Optional HDF5 embedding filename or path (.h5, which may be omitted), as given, relative to the working directory or inside the Embedding Directory; omission opens a file dialog requiring a visible Viewer. The file must be a complete embedding database as the pipeline writes it; partial and zero node coverage are accepted.')),
+        argument('filename', 'Optional HDF5 embedding filename or path (.h5, which may be omitted), as given, relative to the working directory or inside the Embedding Directory; omission opens a file dialog requiring a visible Viewer. The file must be a complete embedding database as the pipeline writes it; partial and zero node coverage are accepted.'), opens_interface=True),
     'esmfold': entry('Open the structure viewer or submit selected sequences for ESM3 folding. With an alignment loaded, a folded node it holds also gets per-residue data (Information Content, Residue Agreement) saved beside its PDB as <pdb name>.residues.json; the result says what was saved and why not.',
         argument('options', 'Omit with no selection and no clicked node to open the structure viewer. Folding defaults to local ESM3 and exactly one selected node, or with nothing selected the node last clicked, which the command says it folds; multi permits multiple nodes, large uses Biohub. large and multi may be combined in either order; duplicates are invalid. Each fold is a job of the background scheduler, in its own folding line beside the line of the file jobs (label, logo, print): it is never refused because another fold is running, it waits behind the folds already queued, and one worker runs at a time so that only one model is in memory. A node that another fold is to write, or is writing, is left out and the outcome names the job that holds it; when none is left the command is refused. The worker runs without any window, with its output in a log file the outcome names. large needs your Biohub API token, saved in the Biohub API settings file or given as ESM_API_KEY: without one the Viewer asks for it in a dialog before queueing (the request shows awaiting_user_input meanwhile, a Viewer that shows no windows fails the command at once, and cancelling queues nothing), and if Biohub rejects the saved token while folding it asks for a replacement once and folds the structures not yet folded with it. The token is never accepted as a command argument.',
             choice('large'), choice('multi'), choice('--register-only')),
-        argument('stop', 'Optional word stop, given alone: ends the fold that is running, with every process it started, and takes the folds that wait out of the line; nothing else. Structures already saved are kept, a half-written one is deleted, and each fold\'s job is reported cancelled. With none running or waiting it succeeds and says so. A request holding only stop commands runs at once, even while the esmfold request it ends still waits for its worker. Closing a Viewer that shows no windows ends its worker too.', choice('stop'))),
+        argument('stop', 'Optional word stop, given alone: ends the fold that is running, with every process it started, and takes the folds that wait out of the line; nothing else. Structures already saved are kept, a half-written one is deleted, and each fold\'s job is reported cancelled. With none running or waiting it succeeds and says so. A request holding only stop commands runs at once, even while the esmfold request it ends still waits for its worker. Closing a Viewer that shows no windows ends its worker too.', choice('stop')), writes_files=True, opens_interface=True),
     'export': entry('Export in-memory sequences as FASTA subsets beneath Analysis Results.',
         argument('target', 'Default clusters, excluding noise; groups exports all custom groups. Requires corresponding memberships and in-memory sequences. Do not mix these modes with explicit labels. Group labels name the files and clustering parameters the cluster folder; one that is not a plain filename (only a hand-edited layout cache can carry one) is refused before anything is written.', choice('clusters'), choice('groups', 'group')),
-        argument('labels', 'One or more #LABEL# tokens for existing clusters, groups, or noise; repeated labels are deduplicated. Legacy group: prefixes are rejected.')),
+        argument('labels', 'One or more #LABEL# tokens for existing clusters, groups, or noise; repeated labels are deduplicated. Legacy group: prefixes are rejected.'), writes_files=True, opens_interface=True),
     'group': entry('Assign overlapping custom group labels or manage existing groups.',
         argument('action', 'Omit to assign names; list prints statistics, remove deletes named groups (all of which must exist, or nothing is removed), reset clears all groups.', choice('list'), choice('remove', 'delete'), choice('reset')),
         argument('expression', EXPRESSION + ' Pair each expression with a group name; a single name targets selected nodes. Only visible nodes are labelled: hidden matches are skipped, as in color, and an expression matching only hidden nodes labels none.'),
@@ -82,7 +85,7 @@ COMMAND_METADATA = {
         argument('keys', 'Each key takes a finite number written as a fraction (0.4) or a percentage (40 or 40%): a trailing % always means percent, and a bare value above 1 is a percentage. gmax defaults to 40%, cmin to 98%, identity reweighting is off by default. The ambiguity codes X, B, Z and J are never reported as conserved but still count as occupied positions. gmin is fixed at 97% and cannot be supplied.', choice('gmax', 'global_max', 'g_max'), choice('cmin', 'cluster_min', 'c_min'), choice('id')),
         argument('numbers', 'Alternatively supply gmax, cmin, then optional identity positionally. Do not put positional numbers after keyword arguments.'),
         argument('filename', 'Optional final XLSX basename; extension added. Numeric or reserved names must include .xlsx. Explicit filenames overwrite; automatic timestamp names avoid collisions.'),
-        requires=('alignment',)),
+        requires=('alignment',), writes_files=True, opens_interface=True),
     'logo': entry('Queue a sequence-logo image for a selected subset; requires a nonempty MSA and background scheduler.',
         argument('positions', 'Required bracketed displayed positions/ranges, e.g. [1,5-8,10.1] or [(-3)-(-1)]: reference numbering with an active reference, otherwise occupancy numbering as in query. Fractional insertions must be explicit. Spaces after commas are accepted; ranges run from lower to higher.'),
         argument('expression', EXPRESSION + ' Defaults to selected nodes, or all nodes if nothing is selected. An expression that matches no node succeeds with a note and queues nothing; nodes that match but are not in the alignment make the command fail.'),
@@ -92,19 +95,19 @@ COMMAND_METADATA = {
         argument('preset', 'Optional standalone color preset, case-insensitive; default chemistry.', *[choice(s) for s in ('chemistry','classic','grays','base_pairing','colorblind_safe','weblogo_protein','skylign_protein','dmslogo_charge','dmslogo_funcgroup','hydrophobicity','charge','NajafabadiEtAl2017')]),
         argument('color_scheme', 'Alternatively color_scheme=NAME, colors=NAME, color=NAME or scheme=NAME passes a scheme to the renderer.'),
         argument('identity', 'Optional numeric redundancy threshold: 0.9, 90 or 90%; omitted means reweighting off.'),
-        requires=('alignment',)),
+        requires=('alignment',), writes_files=True, opens_interface=True),
     'meta': entry('Open the metadata spreadsheet, import/export metadata, or manage columns and the metadata HUD.',
         argument('action', 'Omit to open the spreadsheet. upload accepts files; download writes metadata; delete removes columns; show enables the HUD. A filename without upload also imports it.',
             choice('upload', 'import'), choice('download', 'retrieve', 'export'), choice('delete', 'remove', 'clear'), choice('show', 'display'), choice('--register-only')),
         argument('filenames', 'Upload one or more CSV/XLS/XLSX paths or names from the metadata directory; in a text column the words NA, N/A, None, null and NaN are kept as written and only an empty cell is blank, while in a number column they are missing. Download accepts an optional plain filename, not a path, written to the metadata directory: .csv or .xlsx in any case, .csv when the extension is omitted; an explicit name overwrites, automatic names avoid overwrite.'),
         argument('properties', 'delete requires one or more existing column names, case-insensitive; deleting all with all is unsupported. show takes one property name, bare or in braces as spectrum writes it ({Length}); a name in braces is never read as clear or off; an unknown name fails, listing the available properties.'),
-        argument('display_action', 'Only after show/display: clear the metadata HUD. Undo and redo then leave it closed until the next show or spectrum opens it.', choice('clear', 'off'))),
+        argument('display_action', 'Only after show/display: clear the metadata HUD. Undo and redo then leave it closed until the next show or spectrum opens it.', choice('clear', 'off')), writes_files=True, opens_interface=True),
     'offset': entry('Inspect or change reference-position numbering without changing alignment columns.',
         argument('integer', 'Omit to inspect. A supplied integer offset requires a loaded alignment with active reference; default launch offset is configured separately.')),
     'print': entry('Queue a rendered network snapshot as PNG or SVG; requires the background scheduler. The picture is taken when the command runs (the view, every tile of full, or the nodes and edges of the SVG); trimming and encoding the PNG, or writing the SVG, run in the queue label and logo use, so later viewer changes do not alter the file, and the job reports the saved file.',
         argument('filename', 'Optional plain filename under Saved Images: one word, not a path; .png or .svg is added. Defaults to a timestamped PNG. A name ending in .svg (any case) selects SVG as svg does, so it cannot combine with transparent or full; a name ending in .png with svg is refused. A bare .png or .svg is not a name and is refused. A second word that is not a modifier is refused, so a mistyped modifier is never saved as part of the name. An explicit name replaces an existing file of that name, and the report says so; timestamped names never replace a file.'),
         argument('modifiers', 'transparent and full can combine for PNG; svg cannot combine with either. full stitches the network. PNG margins are trimmed to a 20-pixel border; an SVG is framed the same way, 20 of the PNG\'s pixels around the network as drawn. PNG captures leave out the hover colour and the clicked-node halo; selection borders stay. svg draws what a PNG of the view shows: marker shapes as on screen, and node outlines (selection borders too) and edges as wide as this screen draws them (a thin outline about 1.7 device pixels, edges whole device pixels), so on a high-DPI display they come out thinner beside the nodes.', choice('transparent'), choice('full'), choice('svg')),
-        argument('zoom', 'Optional zoom N, only with full or svg, anywhere among the modifiers: draws at the scale of the view zoom N would set (N scene units across the current canvas) without moving the view; N must be a positive width the view can draw; the 0.5 and whole-network limits of the zoom command do not apply. Node sizes stay in screen pixels, so a smaller N gives a larger full PNG. A full PNG whose longest side is under 1000 px is saved with a warning; one of more than 1000 megapixels, with or without zoom N, is refused before any tile is drawn, naming the smallest N that fits (MAX_FULL_IMAGE_MEGAPIXELS in src/commands/print.py).')),
+        argument('zoom', 'Optional zoom N, only with full or svg, anywhere among the modifiers: draws at the scale of the view zoom N would set (N scene units across the current canvas) without moving the view; N must be a positive width the view can draw; the 0.5 and whole-network limits of the zoom command do not apply. Node sizes stay in screen pixels, so a smaller N gives a larger full PNG. A full PNG whose longest side is under 1000 px is saved with a warning; one of more than 1000 megapixels, with or without zoom N, is refused before any tile is drawn, naming the smallest N that fits (MAX_FULL_IMAGE_MEGAPIXELS in src/commands/print.py).'), writes_files=True, opens_interface=True),
     'query': entry('Print alignment-position distributions or search positions by residue-frequency logic; requires a nonempty MSA.',
         argument('expression', EXPRESSION + ' Defaults to selected nodes, otherwise all nodes. An expression that matches no node succeeds with a note; nodes that match but are not in the alignment make the query fail.'),
         argument('positions_or_logic', 'Required brackets: positions/ranges (E or END denotes the last displayed position), or comparisons such as [(RHK)>50%]. Combined comparisons need outer parentheses, e.g. [((RHK)>50%)&((DE)>20%)]. GAP or _ denotes gaps. Frequencies divide by all mapped subset sequences, including gaps. Each position prints its gap percentage and each residue of at least 1% (X and other symbols count as residues), then one line, "other (<1% each)", summing the residues under 1%.'),
@@ -119,14 +122,14 @@ COMMAND_METADATA = {
             choice('hide','hides','hidden','hiddens'), choice('network','networks'), choice('order','orders','layer','layers'))),
     'run': entry('Open a script-selection dialog and execute a text command batch or Python-generated commands, stopping at the first command that fails.',
         argument('script', 'Chosen through a visible Viewer dialog, not a path argument. TXT lines become commands; Python stdout supplies commands. Nested run lines are ignored. A Python script runs in its own folder. The first command that fails or is cancelled ends the run and the later commands are not run; a script of more than 1000 commands is refused before any runs. MCP tracks child commands and Python workers; typed in the Viewer, a Python script runs in the background, one at a time.'),
-        argument('stop', 'Optional word stop: ends the Python scripts the Viewer is running, with every process they started, and runs none of their commands; with none running it succeeds and says so. No dialog opens. A request holding only stop commands runs at once, even while the script request it ends still waits. Closing the Viewer stops them too.', choice('stop'))),
+        argument('stop', 'Optional word stop: ends the Python scripts the Viewer is running, with every process they started, and runs none of their commands; with none running it succeeds and says so. No dialog opens. A request holding only stop commands runs at once, even while the script request it ends still waits. Closing the Viewer stops them too.', choice('stop')), writes_files=True, opens_interface=True),
     'save': entry('Save current network state as an HDF5 layout cache; requires a valid active cache manifest and provenance binding.',
-        argument('filename', 'Optional .h5 basename in the active cache folder; omitted names use version_XX.h5. Stores positions, styling, visibility, render order, memberships and metadata.')),
+        argument('filename', 'Optional .h5 basename in the active cache folder; omitted names use version_XX.h5. Stores positions, styling, visibility, render order, memberships and metadata.'), writes_files=True),
     'select': entry('Modify the visible-node selection or save selected headers/sequences.',
         argument('mode', 'Default change. Modes may precede or follow the expression; invert takes no expression. Two modes that differ (add subtract) are refused, naming both; the same mode twice is accepted. save must come first and requires a filename.',
             choice('change'), choice('add','plus','include'), choice('subtract','minus','remove'), choice('filter','keep','intersect'), choice('invert'), choice('save')),
         argument('expression', EXPRESSION),
-        argument('filename', 'Required for save: a plain filename of one word in the header list directory, not a path; a second word is refused. .txt saves headers; .fasta, .fa, .faa and .fas (any case) save sequences; other names get .txt. At least one selected node is needed.')),
+        argument('filename', 'Required for save: a plain filename of one word in the header list directory, not a path; a second word is refused. .txt saves headers; .fasta, .fa, .faa and .fas (any case) save sequences; other names get .txt. At least one selected node is needed.'), writes_files=True),
     'spectrum': entry('Color visible nodes by a numerical metadata property.',
         argument('property', 'Required bare {PROPERTY_NAME} selector for a numerical metadata column; arguments may occur in any order.'),
         argument('expression', EXPRESSION + ' Defaults to all visible nodes.'),
@@ -154,6 +157,11 @@ def policy(default, first_argument=None):
     user presses Run in the Agent page, or 'refuse'."""
     return {'default': default, 'first_argument': dict(first_argument or {})}
 
+
+# How a command that has no AGENT_POLICY entry, such as a plugin dropped into src/commands, is handled in an
+# Agent reply: it waits for approval, so a command added without a policy never runs unreviewed. 'refuse' is
+# kept for what an agent must never run (it may not reconfigure itself).
+UNLISTED_POLICY = policy('approve')
 
 # Commands that change only the view or the session's in-memory state run.
 # Ones that write or import files, launch processes or dialogs, or spend
@@ -203,10 +211,20 @@ def agent_policy(command):
     words = command.split()
     rule = AGENT_POLICY.get(words[0].lower() if words else '')
     if rule is None:
-        return 'approve'
+        return UNLISTED_POLICY['default']
     return rule['first_argument'].get(words[1].lower() if len(words) > 1 else '', rule['default'])
 
 
 def get_command_metadata(name):
     """Return independent response data so callers cannot mutate the catalog."""
     return deepcopy(COMMAND_METADATA[name])
+
+
+def default_command_metadata(summary):
+    """The entry of a command module that has none above: nothing is declared, so be cautious.
+
+    It says it may write files and open an interface, takes no arguments it could name, requires nothing it
+    could know of, and in an Agent reply waits for approval, as agent_policy treats a name the table lacks.
+    """
+    return {'summary': summary, 'arguments': [], 'requires': [], 'writes_files': True, 'opens_interface': True,
+            'agent_policy': deepcopy(UNLISTED_POLICY)}

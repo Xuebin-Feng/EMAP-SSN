@@ -7,13 +7,16 @@ commands in Agent replies.
 """
 import ast
 from pathlib import Path
+import shutil
 import sys
+import tempfile
 import unittest
 from unittest import mock
 
 COMMANDS_DIR = Path(__file__).resolve().parents[1] / 'src' / 'commands'
 sys.path.insert(0, str(COMMANDS_DIR.parent))
-from desktop.Command_Metadata import AGENT_POLICY, COMMAND_METADATA, agent_policy, get_command_metadata  # noqa: E402
+from desktop.Command_Metadata import (  # noqa: E402
+    AGENT_POLICY, COMMAND_METADATA, UNLISTED_POLICY, agent_policy, default_command_metadata, entry, get_command_metadata)
 from desktop.Viewer_Inspection import command_catalog, _command_syntax  # noqa: E402
 
 
@@ -172,6 +175,197 @@ class RequiredInputTests(unittest.TestCase):
             self.assertFalse(calls_function('mention', 'require_embedding'))
             self.assertTrue(tests_for_missing_alignment_rows('rows'))
             self.assertFalse(tests_for_missing_alignment_rows('bare'))
+
+
+PLUGINS = {
+    # A docstring says what it is; nothing else is declared.
+    'zdoc': ('''"""Scratch command with a docstring.
+
+Second paragraph, never used.
+"""
+def run(viewer, args):
+    return None
+'''),
+    # No docstring: the help's Description line, then its Usage line.
+    'zhelp': ('''def print_help():
+    print("Usage: zhelp <thing> [more]\\n  or: zhelp reset\\nDescription: Does a scratch thing.")
+
+
+def run(viewer, args):
+    print_help()
+'''),
+    'zusage': ('''def print_help():
+    print("Usage: zusage <thing>")
+
+
+def run(viewer, args):
+    print_help()
+'''),
+    # Nothing at all but the entry point.
+    'zbare': "def run(viewer, args):\n    return None\n",
+    # A planned command whose plan is heavy: it computes on the command queue's worker thread.
+    'zheavy': ('''from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class Plan:
+    heavy = True
+
+
+@dataclass(frozen=True)
+class QuickPlan:
+    heavy = False
+
+
+def plan(viewer, args):
+    return Plan()
+
+
+def run(viewer, args):
+    return None
+'''),
+    # Only light plans: nothing goes on after the command returns.
+    'zlight': ('''class Plan:
+    heavy = False
+
+
+def plan(viewer, args):
+    return Plan()
+
+
+def run(viewer, args):
+    return None
+'''),
+    # A file job for the background scheduler, a tracked script, and a worker process.
+    'zfile': "def run(viewer, args):\n    viewer.background_job_scheduler.enqueue(command_name='zfile')\n",
+    'zscript': "def run(viewer, args):\n    from Viewer_Worker_Tracking import ScriptTracker\n    ScriptTracker(None, 'x.py')\n",
+    'zworker': "import subprocess\n\n\ndef run(viewer, args):\n    subprocess.Popen(['x'])\n",
+    'ztyped': "def run(viewer, args):\n    from Viewer_Worker_Tracking import TypedScriptRun\n    TypedScriptRun(viewer, 'x.py', None)\n",
+    'ztracked': "def run(viewer, args):\n    from Viewer_Worker_Tracking import track_worker\n    track_worker(None)\n",
+    # Mentions the names without calling them: not background work.
+    'zmention': ("def run(viewer, args):\n    \"\"\"Unlike enqueue, Popen and ScriptTracker, runs now; heavy = True is prose.\"\"\"\n"
+                 "    starters = [enqueue, Popen, ScriptTracker]\n    heavy_plan = heavy\n    return starters, heavy_plan\n"),
+    # Not a command: no run().
+    'zhelper': "def helper():\n    return 1\n",
+    '_private': "def run(viewer, args):\n    return None\n",
+}
+
+
+class PluginWithoutMetadataTests(unittest.TestCase):
+    """A command module dropped into src/commands needs no entry in COMMAND_METADATA to be catalogued."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.folder.cleanup)
+        cls.commands = Path(cls.folder.name) / 'commands'
+        shutil.copytree(COMMANDS_DIR, cls.commands, ignore=shutil.ignore_patterns('__pycache__'))
+        for name, source in PLUGINS.items():
+            (cls.commands / (name + '.py')).write_text(source, encoding='utf-8')
+        cls.catalog = command_catalog(commands_dir=cls.commands)
+        cls.entries = {entry['command']: entry for entry in cls.catalog['commands']}
+        cls.shipped = {entry['command']: entry for entry in command_catalog()['commands']}
+
+    def test_every_command_is_still_listed_and_no_other_entry_changes(self):
+        self.assertEqual(len(self.shipped), 26)
+        for name, expected in self.shipped.items():
+            with self.subTest(command=name):
+                self.assertEqual(self.entries[name], expected)
+                self.assertEqual(list(self.entries[name]), list(expected))
+        for name in self.shipped:
+            detailed = command_catalog(name, commands_dir=self.commands)['commands']
+            self.assertEqual(detailed, command_catalog(name)['commands'])
+
+    def test_only_modules_with_a_run_entry_point_become_commands(self):
+        added = set(self.entries) - set(self.shipped)
+        self.assertEqual(added, {'zdoc', 'zhelp', 'zusage', 'zbare', 'zheavy', 'zlight', 'zfile', 'zscript', 'zworker',
+                                 'ztyped', 'ztracked', 'zmention'})
+        self.assertEqual(self.catalog['note'], command_catalog()['note'])
+
+    def test_the_summary_comes_from_the_docstring_then_the_help_then_a_plain_sentence(self):
+        self.assertEqual(self.entries['zdoc']['summary'], 'Scratch command with a docstring.')
+        self.assertEqual(self.entries['zhelp']['summary'], 'Does a scratch thing.')
+        self.assertEqual(self.entries['zusage']['summary'], 'zusage <thing>')
+        self.assertEqual(self.entries['zbare']['summary'], 'The zbare command; its module declares no description.')
+
+    def test_nothing_is_claimed_beyond_what_the_module_shows(self):
+        for name in sorted(set(self.entries) - set(self.shipped)):
+            with self.subTest(command=name):
+                found = self.entries[name]
+                self.assertIs(found['metadata_declared'], False)
+                self.assertEqual((found['arguments'], found['requires']), ([], []))
+                # Cautious about what it might do, since nothing says.
+                self.assertTrue(found['writes_files'] and found['opens_interface'])
+                self.assertEqual(found['agent_policy'], {'default': 'approve', 'first_argument': {}})
+                self.assertTrue(found['summary'])
+                self.assertIsNone(found['help'])
+                self.assertEqual(list(found)[:10], ['command', 'summary', 'arguments', 'requires', 'agent_policy',
+                                                    'writes_files', 'opens_interface', 'background_work', 'syntax', 'help'])
+        for name in self.shipped:
+            self.assertNotIn('metadata_declared', self.entries[name])
+
+    def test_syntax_and_help_are_read_from_the_module_as_for_any_command(self):
+        self.assertEqual(self.entries['zhelp']['syntax'], ['zhelp <thing> [more]', 'zhelp reset'])
+        self.assertEqual(self.entries['zbare']['syntax'], [])
+        detailed = command_catalog('zhelp', commands_dir=self.commands)['commands'][0]
+        self.assertIn('Description: Does a scratch thing.', detailed['help'])
+        self.assertIs(detailed['metadata_declared'], False)
+
+    def test_background_work_is_read_from_what_the_module_starts(self):
+        expected = {'zheavy': True, 'zfile': True, 'zscript': True, 'zworker': True, 'ztyped': True, 'ztracked': True,
+                    'zlight': False, 'zbare': False, 'zdoc': False, 'zhelp': False, 'zmention': False}
+        for name, background in expected.items():
+            with self.subTest(command=name):
+                self.assertIs(self.entries[name]['background_work'], background)
+
+    def test_the_shipped_commands_that_queue_or_compute_in_the_background_say_so(self):
+        for name in ('print', 'cluster', 'subcluster', 'label', 'logo', 'esmfold', 'run'):
+            with self.subTest(command=name):
+                self.assertIs(self.shipped[name]['background_work'], True)
+        for name in ('select', 'zoom', 'jobs', 'color', 'save', 'export', 'meta', 'alignment', 'embedding', 'agent'):
+            with self.subTest(command=name):
+                self.assertIs(self.shipped[name]['background_work'], False)
+
+    def test_a_plugin_can_declare_its_own_entry_and_flags_without_touching_the_catalog_code(self):
+        declared = {'zbare': entry('Scratch command that only reads.', writes_files=False, opens_interface=False)}
+        declared['zbare']['agent_policy'] = {'default': 'run', 'first_argument': {}}
+        with mock.patch.dict(COMMAND_METADATA, declared):
+            found = {e['command']: e for e in command_catalog(commands_dir=self.commands)['commands']}['zbare']
+        self.assertEqual((found['summary'], found['writes_files'], found['opens_interface']),
+                         ('Scratch command that only reads.', False, False))
+        self.assertEqual(found['agent_policy']['default'], 'run')
+        self.assertNotIn('metadata_declared', found)
+
+    def test_the_default_policy_is_the_one_agent_replies_already_apply_to_unknown_commands(self):
+        self.assertEqual(UNLISTED_POLICY, {'default': 'approve', 'first_argument': {}})
+        for name in ('zbare', 'zunknown'):
+            self.assertEqual(agent_policy(name), 'approve')
+            self.assertEqual(agent_policy(name + ' anything'), 'approve')
+        self.assertEqual(self.entries['zbare']['agent_policy']['default'], agent_policy('zbare'))
+        # No entry ever runs unreviewed or is refused for lack of a policy; and the shared constant is never handed out.
+        self.assertNotIn(UNLISTED_POLICY['default'], ('run', 'refuse'))
+        self.entries['zbare']['agent_policy']['default'] = 'run'
+        self.assertEqual(default_command_metadata('x')['agent_policy'], {'default': 'approve', 'first_argument': {}})
+        self.assertEqual(UNLISTED_POLICY['default'], 'approve')
+
+    def test_the_flags_of_the_shipped_commands_are_declared_in_their_entries(self):
+        self.assertEqual({n for n, m in COMMAND_METADATA.items() if m['writes_files']},
+                         {'esmfold', 'export', 'label', 'logo', 'meta', 'print', 'run', 'save', 'select'})
+        self.assertEqual({n for n, m in COMMAND_METADATA.items() if m['opens_interface']},
+                         {'agent', 'alignment', 'embedding', 'esmfold', 'export', 'label', 'logo', 'meta', 'print', 'run'})
+        self.assertEqual(entry('x')['writes_files'], False)
+        self.assertEqual(entry('x')['opens_interface'], False)
+        for name, metadata in COMMAND_METADATA.items():
+            self.assertEqual(self.shipped[name]['writes_files'], metadata['writes_files'])
+            self.assertEqual(self.shipped[name]['opens_interface'], metadata['opens_interface'])
+
+    def test_the_catalog_still_reaches_agents_through_the_portal_and_without_a_viewer(self):
+        from desktop.Viewer_Inspection import ViewerInspectionService
+        service = ViewerInspectionService(mock.Mock())
+        general = service.command_action('get_command_catalog', {})
+        self.assertEqual({e['command'] for e in general['commands']}, set(self.shipped))
+        detailed = service.command_action('get_command_catalog', {'command': 'print'})
+        self.assertIs(detailed['commands'][0]['background_work'], True)
 
 
 class AgentPolicyTests(unittest.TestCase):

@@ -701,12 +701,59 @@ def _string_literals(function, *, whole_fstrings):
     return texts
 
 
-def command_catalog(command=None):
-    """Read help text from command source without executing handlers."""
+# Calls through which a command module hands work on that ends after its command has returned: a file job for
+# the background scheduler (enqueue), a worker or script tracked to its end (track_worker, ScriptTracker,
+# TypedScriptRun), or a process of its own (Popen).
+_BACKGROUND_STARTERS = frozenset({'enqueue', 'track_worker', 'ScriptTracker', 'TypedScriptRun', 'Popen'})
+
+
+def _starts_background_work(tree):
+    """Whether a command module starts work that goes on after its command has returned, read from its source.
+
+    A command split into the steps the command queue runs (plan, start, compute, apply) says so with a plan
+    class whose `heavy` is true: that step computes on the queue's worker thread. The others start a file job,
+    a worker or a script through one of the _BACKGROUND_STARTERS.
+    """
+    import ast
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call):
+            function = node.func
+            if (function.attr if isinstance(function, ast.Attribute) else getattr(function, 'id', None)) in _BACKGROUND_STARTERS:
+                return True
+        elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+            targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+            if (any(isinstance(target, ast.Name) and target.id == 'heavy' for target in targets)
+                    and isinstance(node.value, ast.Constant) and node.value.value is True):
+                return True
+    return False
+
+
+def _module_summary(name, tree, help_text):
+    """A command module's own description: its docstring's first line, else the help's Description or Usage line."""
+    import ast
+    import re
+    docstring = ast.get_docstring(tree)
+    if docstring and docstring.strip():
+        return docstring.strip().splitlines()[0].strip()
+    for pattern in (r'^\s*Description\s*:\s*(.+)$', r'^\s*Usage\s*:\s*(.+)$'):
+        found = re.search(pattern, help_text, re.MULTILINE)
+        if found and found.group(1).strip():
+            return found.group(1).strip()
+    return f"The {name} command; its module declares no description."
+
+
+def command_catalog(command=None, commands_dir=None):
+    """Read help text from command source without executing handlers.
+
+    Each command module in src/commands (or commands_dir) is one entry. Its descriptive metadata comes from
+    desktop.Command_Metadata; a module that has none there, such as a plugin dropped into the folder, gets
+    cautious defaults built from the module itself (default_command_metadata) and is marked
+    metadata_declared=False. background_work is read from every module's source, never from a table.
+    """
     import ast
     from pathlib import Path
-    from desktop.Command_Metadata import get_command_metadata
-    root = Path(__file__).resolve().parents[1] / 'commands'
+    from desktop.Command_Metadata import COMMAND_METADATA, default_command_metadata, get_command_metadata
+    root = Path(commands_dir) if commands_dir is not None else Path(__file__).resolve().parents[1] / 'commands'
     entries = []
     for path in sorted(root.glob('*.py')):
         if path.stem.startswith('_') or (command is not None and path.stem != command):
@@ -721,12 +768,16 @@ def command_catalog(command=None):
                     if 'Usage:' in text or 'Usage\n' in text:
                         help_text.append(text)
         help_text = '\n'.join(dict.fromkeys(help_text))
-        entries.append({'command': path.stem, **get_command_metadata(path.stem),
-            'writes_files': path.stem in {'export','save','print','select','meta','label','logo','run','esmfold'},
-            'opens_interface': path.stem in {'agent','alignment','embedding','run','meta','esmfold','export','print','label','logo'},
-            'background_work': path.stem in {'label','logo','esmfold','run'},
+        declared = path.stem in COMMAND_METADATA
+        metadata = (get_command_metadata(path.stem) if declared
+                    else default_command_metadata(_module_summary(path.stem, tree, help_text)))
+        entries.append({'command': path.stem, 'summary': metadata['summary'], 'arguments': metadata['arguments'],
+            'requires': metadata['requires'], 'agent_policy': metadata['agent_policy'],
+            'writes_files': metadata['writes_files'], 'opens_interface': metadata['opens_interface'],
+            'background_work': _starts_background_work(tree),
             'syntax': _command_syntax(help_text, path.stem),
-            'help': help_text if command else None})
+            'help': help_text if command else None,
+            **({} if declared else {'metadata_declared': False})})
     if command is not None and not entries:
         raise ValueError('Unknown command')
     return {'commands': entries, 'note': 'Only existing Viewer commands; effects depend on arguments. Model-generated agent calls are blocked. Read detailed help without executing commands: emapssn_viewer_data(action="get_command_catalog", arguments={"command":"reset"}).'}

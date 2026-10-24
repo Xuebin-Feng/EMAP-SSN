@@ -936,6 +936,16 @@ General `get_command_catalog` entries include `summary`, `arguments` (each with
 `requires` lists the optional inputs a command cannot run without: `alignment`
 (`logo`, `query`, `label`) or `embedding`; compare it with the snapshot summary's
 `alignment` and `embedding` blocks before submitting.
+Each entry also says what the command may do: `writes_files`, `opens_interface` (a dialog, page or
+window of its own, which needs a visible Viewer) and `background_work`. The first two are declared in the
+command's metadata entry; `background_work` is read from the command's source for every command: true when
+it computes on the command queue's worker thread, queues a file job, or starts a tracked worker or script
+(print, cluster, subcluster, label, logo, esmfold and run today). A command module dropped into
+`src/commands` without a metadata entry is still listed: its `summary` is the first line of its module
+docstring, else the Description or Usage line of its help; `arguments` and `requires` are empty; `writes_files`
+and `opens_interface` are true because nothing says otherwise; `agent_policy` waits for approval, like any
+command the policy table lacks; and `metadata_declared` is false. Its `syntax` and `help` come from its source
+as for any command.
 Finite choices contain `value` and `aliases`; an empty choices list denotes an
 open-ended argument such as a filename, expression or number. Descriptions explain
 defaults and prerequisites. This is documentation, not another command parser.
