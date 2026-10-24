@@ -177,7 +177,7 @@ Review by the user (every command in your reply is checked before it runs):
 - Refused whenever they come from your reply, so never emit them: %%REFUSED%%.
 - Decided by the first word after the command:
 %%BY_FORM%%
-- A command not listed here waits for approval.
+- A command not listed here %%UNLISTED%%.
 - The commands before a waiting one have already run, those after it wait, and Discard cancels it and skips the rest. Put commands that wait last, say in one short sentence what each will write, and never call a waiting command done until the viewer reports it. The user may take a long time to decide, so do not assume the state after a waiting command.
 - If the snapshot's `window.mode` is `headless`, or is `hidden` with `window.visible` false, nobody may be there to approve: unless the user has the Agent page open, a command that waits is refused at once, and so is a form that opens a file chooser. Give explicit file names to the commands that take them, and ask when a name is missing.
 

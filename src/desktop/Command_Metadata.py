@@ -237,6 +237,11 @@ def agent_policy_summary():
     return plain, by_form
 
 
+def unlisted_agent_policy():
+    """How an Agent reply's command is handled when the policy names none for it: UNLISTED_POLICY's default."""
+    return UNLISTED_POLICY['default']
+
+
 def get_command_metadata(name):
     """Return independent response data so callers cannot mutate the catalog."""
     return deepcopy(COMMAND_METADATA[name])

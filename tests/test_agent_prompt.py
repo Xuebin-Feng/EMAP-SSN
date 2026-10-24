@@ -143,6 +143,20 @@ class ReviewTests(unittest.TestCase):
                 self.assertEqual(default, rule['default'])
                 self.assertEqual(forms, {word: kind for word, kind in rule['first_argument'].items() if kind != rule['default']})
 
+    def unlisted_class(self):
+        """The class the prompt gives a command the policy does not name."""
+        line = next(line for line in review_section(prompt()).splitlines() if line.startswith('- A command not listed here '))
+        phrase = line[len('- A command not listed here '):].rstrip('.')
+        return CLASS_OF_PHRASE[phrase]
+
+    def test_a_command_the_policy_does_not_name_is_handled_as_the_prompt_says(self):
+        # What a plugin's command gets before it has a policy, as the catalog's UNLISTED_POLICY says.
+        self.assertEqual(self.unlisted_class(), agent_policy('a_plugin_command_without_a_policy'))
+        for kind in ('run', 'approve', 'refuse'):
+            with self.subTest(kind=kind), mock.patch.dict(Command_Metadata.UNLISTED_POLICY, {'default': kind}):
+                self.assertEqual(self.unlisted_class(), kind)
+                self.assertEqual(agent_policy('a_plugin_command_without_a_policy now'), kind)
+
     def test_the_jobs_listing_runs_and_jobs_cancel_waits_for_the_user(self):
         # Cancelling discards the user's own commands and jobs; listing them changes nothing.
         for command in ('jobs cancel', 'jobs cancel 14', 'jobs cancel #14 15', 'jobs cancel all', 'JOBS CANCEL'):

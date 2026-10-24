@@ -8,13 +8,14 @@ written from desktop.Command_Metadata.AGENT_POLICY when the prompt is loaded, so
 the instructions cannot disagree with the policy the Viewer applies, and a
 command added to a plugin needs no change here.
 """
-from desktop.Command_Metadata import agent_policy_summary
+from desktop.Command_Metadata import agent_policy_summary, unlisted_agent_policy
 
 RUN_AT_ONCE = '%%RUN_AT_ONCE%%'
 WAIT_FOR_USER = '%%WAIT_FOR_USER%%'
 REFUSED = '%%REFUSED%%'
 BY_FORM = '%%BY_FORM%%'
-PLACEHOLDERS = (RUN_AT_ONCE, WAIT_FOR_USER, REFUSED, BY_FORM)
+UNLISTED = '%%UNLISTED%%'
+PLACEHOLDERS = (RUN_AT_ONCE, WAIT_FOR_USER, REFUSED, BY_FORM, UNLISTED)
 
 _PHRASES = {'run': 'runs at once', 'approve': 'waits for the user to press Run', 'refuse': 'is refused'}
 
@@ -56,6 +57,7 @@ def render_system_prompt(template):
         WAIT_FOR_USER: _spans(plain['approve']),
         REFUSED: _spans(plain['refuse']),
         BY_FORM: by_form_lines(by_form) or '  - none',
+        UNLISTED: _PHRASES[unlisted_agent_policy()],
     }
     for token, value in values.items():
         if template.count(token) != 1:
