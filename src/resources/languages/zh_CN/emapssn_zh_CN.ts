@@ -4,7 +4,7 @@
 <context>
     <name>AgentPage</name>
     <message>
-        <location filename="../../agent/attachments.js" line="+47"/>
+        <location filename="../../agent/attachments.js" line="+75"/>
         <source>Processing…</source>
         <translation type="unfinished">处理中…</translation>
     </message>
@@ -64,7 +64,7 @@
         <translation type="unfinished">查看器截图超时。请重试。</translation>
     </message>
     <message>
-        <location line="+90"/>
+        <location line="+91"/>
         <source>Could not confirm submission. Press Send to retry the same message. Your draft is retained.</source>
         <translation type="unfinished">无法确认是否已提交。点击“发送”可重试同一条消息。草稿已保留。</translation>
     </message>
@@ -81,7 +81,7 @@
         <translation type="obsolete">🌙 深色模式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent.html" line="+1018"/>
+        <location filename="../../../web_ui/agent.html" line="+1019"/>
         <source>Connecting...</source>
         <translation type="unfinished">正在连接…</translation>
     </message>
@@ -92,12 +92,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+837"/>
+        <location line="+861"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-836"/>
+        <location line="-860"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -152,7 +152,7 @@
         <translation type="obsolete">⚙ 模型卡</translation>
     </message>
     <message>
-        <location line="+10"/>
+        <location line="+11"/>
         <source>Close panel</source>
         <translation type="unfinished">关闭面板</translation>
     </message>
@@ -244,24 +244,31 @@
         <translation type="obsolete">✓ 已保存！</translation>
     </message>
     <message>
-        <location line="-1226"/>
-        <location line="+993"/>
+        <location line="-1228"/>
+        <location line="+994"/>
         <source>EMAP-SSN Agent (Beta)</source>
         <translation type="unfinished">EMAP-SSN 智能体（测试版）</translation>
     </message>
     <message>
         <location line="+2"/>
-        <location line="+147"/>
+        <location line="+148"/>
         <source>Dark Mode</source>
         <translation type="unfinished">深色模式</translation>
     </message>
     <message>
-        <location line="-129"/>
+        <location line="-130"/>
         <source>Models</source>
         <translation type="unfinished">模型</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+12"/>
+        <location line="+0"/>
+        <location line="+0"/>
+        <source>Stop</source>
+        <translation type="unfinished">停止</translation>
+    </message>
+    <message>
+        <location line="+9"/>
         <source>Model Cards</source>
         <translation type="unfinished">模型卡</translation>
     </message>
@@ -386,7 +393,7 @@
         <translation type="unfinished">要清空对话吗？所有对话记录（包括已保存的图片）都将丢失，待发送的附件也会被移除。此操作无法撤销。</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location line="+6"/>
         <source>Chat history and context memory cleared.</source>
         <translation type="unfinished">已清空对话记录和上下文记忆。</translation>
     </message>
@@ -442,12 +449,18 @@
         <translation type="unfinished">智能体未启用。请选择一个模型，然后点击开关启用。</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+7"/>
+        <location line="+100"/>
         <source>LLM</source>
         <translation type="unfinished">LLM</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="-35"/>
+        <source>Stopped. Commands that had already run were not undone.</source>
+        <translation type="unfinished">已停止。已经运行的命令不会被撤销。</translation>
+    </message>
+    <message>
+        <location line="+46"/>
         <source>Agent deactivated.</source>
         <translation type="unfinished">智能体已停用。</translation>
     </message>
@@ -4522,7 +4535,7 @@ Command-line usage:
         <location filename="../../../commands/query.py" line="+583"/>
         <location filename="../../../commands/reset.py" line="+114"/>
         <location filename="../../../commands/select.py" line="-195"/>
-        <location filename="../../../web_ui/agent_backend.py" line="+310"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+314"/>
         <location filename="../../../web_ui/meta_backend.py" line="+57"/>
         <source>Error: {error}</source>
         <translation type="unfinished">错误：{error}</translation>
@@ -7046,17 +7059,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">LLM 智能体已停用。已卸载：{model}（{backend}）</translation>
     </message>
     <message>
-        <location line="+105"/>
+        <location line="+191"/>
         <source>Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.</source>
         <translation type="unfinished">模型请求失败（HTTP {code}）：{response}。带图片的消息需要支持视觉的模型或服务商。</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+40"/>
         <source>No response received from LLM.</source>
         <translation type="unfinished">未收到 LLM 的回复。</translation>
     </message>
     <message>
-        <location line="+195"/>
+        <location line="+204"/>
         <source>Invalid submission ID.</source>
         <translation type="unfinished">无效的提交 ID。</translation>
     </message>
@@ -7086,12 +7099,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">无法读取提示文件：{error}</translation>
     </message>
     <message>
-        <location line="+62"/>
+        <location line="+63"/>
         <source>The agent wants to run {command}, which needs your approval. Open the Agent page to run or discard it.</source>
         <translation type="unfinished">智能体想要运行 {command}，该命令需要您的批准。请打开智能体页面来运行或放弃它。</translation>
     </message>
     <message>
-        <location line="+209"/>
+        <location line="+210"/>
         <source>Reload the Agent page to switch models.</source>
         <translation type="unfinished">请重新加载智能体页面以切换模型。</translation>
     </message>
@@ -12530,7 +12543,7 @@ Fedora / RHEL：
         <translation type="obsolete">🤖 智能体</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/agent_backend.py" line="+86"/>
+        <location filename="../../../web_ui/agent_backend.py" line="+108"/>
         <source>Agent</source>
         <translation type="unfinished">智能体</translation>
     </message>

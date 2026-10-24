@@ -112,6 +112,10 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Stop</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Model Cards</source>
         <translation type="unfinished"></translation>
     </message>
@@ -309,6 +313,10 @@
     </message>
     <message>
         <source>LLM</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Stopped. Commands that had already run were not undone.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

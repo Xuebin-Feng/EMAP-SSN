@@ -948,10 +948,11 @@
         /* Where the composer is too narrow for its label beside a usable input,
            Capture Viewer shows only its camera; its title and aria-label name it. */
         @container (max-width: 520px) {
-            #capture-viewer-btn { padding: 0 11px; }
-            #capture-viewer-btn .btn-label { display: none; }
+            #capture-viewer-btn, #chat-stop-btn { padding: 0 11px; }
+            #capture-viewer-btn .btn-label, #chat-stop-btn .btn-label { display: none; }
         }
-        #capture-viewer-btn, #chat-send-btn { height: auto; align-self: stretch; flex-shrink: 0; }
+        #capture-viewer-btn, #chat-send-btn, #chat-stop-btn { height: auto; align-self: stretch; flex-shrink: 0; }
+        #chat-stop-btn[hidden] { display: none; }
         #chat-composer.drag-over { outline: 2px dashed var(--accent); outline-offset: -3px; }
         #attachment-tray, .message-attachments { display: flex; flex-wrap: wrap; gap: 8px; }
         #attachment-tray:not(:empty) { margin-bottom: 10px; max-height: 220px; overflow-y: auto; }
@@ -1044,6 +1045,7 @@
                 <textarea id="chat-input-field" placeholder="Ask the agent a question or give a command..." disabled></textarea>
                 <button class="btn" id="capture-viewer-btn" aria-label="Capture Viewer" title="Capture Viewer"><svg class="icon" aria-hidden="true"><use href="#i-camera"/></svg><span class="btn-label" data-i18n>Capture Viewer</span></button>
                 <button class="btn btn-primary" id="chat-send-btn" disabled><svg class="icon" aria-hidden="true"><use href="#i-send"/></svg><span data-i18n>Send</span></button>
+                <button class="btn" id="chat-stop-btn" aria-label="Stop" title="Stop" hidden><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg><span class="btn-label" data-i18n>Stop</span></button>
               </div>
               <div id="attachment-notice" role="status" aria-live="polite"></div>
             </div>
@@ -1602,6 +1604,7 @@
                 clearAttachmentDraft();
                 enableInput(agentActive);
                 sendAction({ action: "clear_history" });
+                setTurnActive(false);
                 document.getElementById("chat-log").innerHTML = "";
                 appendSystemMsg(t("Chat history and context memory cleared."));
             });
@@ -1778,6 +1781,14 @@
                             : t("Agent is inactive. Select a model and press the toggle button to activate."));
                     }
                     reconcileSubmission(event.data.llm_history || []);
+                    // A turn already running (one started from the terminal, say) can be stopped from this page.
+                    if (event.data.agent_busy) {
+                        composerEnabled = false;
+                        setTurnActive(true);
+                        setAgentThinking(event.data.llm_model_name || t("LLM"));
+                    } else {
+                        setTurnActive(false);
+                    }
                     if (event.data.agent_command_request) {
                         const request = event.data.agent_command_request;
                         showCommandRequest(request.request_id, request.status, request.commands);
@@ -1812,20 +1823,34 @@
                     break;
                 case "backend_state":
                     if (pendingSubmission) finishSubmission({submission_id: pendingSubmission.submission_id}, true);
+                    if (!event.llm_loaded) setTurnActive(false);
                     updateLLMState(event, false);
                     if (event.error) appendErrorMsg(event.error);
                     break;
                 case "agent_thinking":
+                    // A turn started from the terminal locks the composer too.
+                    composerEnabled = false;
+                    setTurnActive(true);
                     setAgentThinking(event.model_name, event.analyzing);
                     break;
                 case "agent_response":
                     if (!finishSubmission(event)) break;
+                    setTurnActive(false);
                     appendAgentMsg(event.explanation, event.commands, event.tokens, event.terminal_output, event.reasoning);
                     enableInput(true);
                     break;
                 case "agent_error":
                     if (!finishSubmission(event, true)) break;
+                    setTurnActive(false);
                     appendErrorMsg(event.error);
+                    enableInput(true);
+                    break;
+                case "agent_stopped":
+                    // The turn is dropped as one that failed is: its message goes back to the draft.
+                    if (!finishSubmission(event, true)) break;
+                    setTurnActive(false);
+                    document.getElementById("thinking-bubble")?.remove();
+                    appendSystemMsg(t("Stopped. Commands that had already run were not undone."));
                     enableInput(true);
                     break;
                 case "model_cards_saved":

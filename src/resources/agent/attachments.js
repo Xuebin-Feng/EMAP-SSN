@@ -14,6 +14,9 @@
 let pendingAttachments = [];
 let pendingSubmission = null;
 let composerEnabled = false;
+// A turn is running, so Stop shows; Stop was pressed and the Viewer has not answered yet.
+let turnActive = false;
+let stopRequested = false;
 const captureRequests = new Map();
 const MAX_ATTACHMENTS = 10;
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024;
@@ -29,6 +32,31 @@ function refreshComposer() {
     document.getElementById('chat-send-btn').disabled = !composerEnabled || processing || (locked && !pendingSubmission.transportFailed);
     document.getElementById('capture-viewer-btn').disabled = locked || pendingAttachments.length >= MAX_ATTACHMENTS;
     document.querySelectorAll('#attachment-tray button').forEach(button => { button.disabled = locked; });
+    const stop = document.getElementById('chat-stop-btn');
+    stop.hidden = !turnActive;
+    stop.disabled = stopRequested;
+}
+
+function setTurnActive(active) {
+    turnActive = active;
+    if (!active) stopRequested = false;
+    refreshComposer();
+}
+
+// Ask the Viewer to stop the running turn: its model request ends, the commands it left
+// waiting for approval are discarded, and agent_stopped comes back. Commands that
+// already ran stay. The turn this page started is named, so a late click stops no other.
+function stopTurn() {
+    if (!turnActive || stopRequested) return;
+    stopRequested = true;
+    refreshComposer();
+    sendAction({action: 'cancel_turn', submission_id: pendingSubmission ? pendingSubmission.submission_id : undefined})
+        .then(response => {
+            if (!response) {  // The request did not get through: Stop may be pressed again.
+                stopRequested = false;
+                refreshComposer();
+            }
+        });
 }
 
 function renderAttachments() {
@@ -156,6 +184,7 @@ function clearAttachmentDraft() {
 function setupAttachments() {
     const composer = document.getElementById('chat-composer');
     document.getElementById('capture-viewer-btn').onclick = captureViewerAttachment;
+    document.getElementById('chat-stop-btn').onclick = stopTurn;
     composer.addEventListener('dragover', event => {
         event.preventDefault();
         composer.classList.add('drag-over');

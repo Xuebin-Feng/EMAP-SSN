@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 import unittest
@@ -16,9 +17,10 @@ import urllib.error
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
+from PySide6 import QtCore
 from web_ui import agent_backend as agent
 from web_ui.agent_prompt import PLACEHOLDERS
-from tests.agent_fixtures import FakeProvider, completion
+from tests.agent_fixtures import FakeProvider, Stalled, completion, self_signed_tls
 from tests.viewer_fixtures import PortalFixture
 
 
@@ -1083,3 +1085,304 @@ class ApprovalNoticeTests(PortalFixture, unittest.TestCase):
         agent._announce_approval(self.viewer, self.portal, 'another request', command['command_id'])
         self.assertEqual(self.announcements(), [])
         self.portal.discard_pending(request['request_id'])
+
+
+class RequestAbortTests(unittest.TestCase):
+    """A stopped turn's model request ends at once: the worker's blocking read is shut down, not waited out."""
+
+    @staticmethod
+    def call_in_thread(provider, handle, **options):
+        outcome = {}
+
+        def work():
+            try:
+                outcome['result'] = agent.call_api(provider.url, 'm', 'system', 'question', handle=handle, **options)
+            except BaseException as error:
+                outcome['error'] = error
+            outcome['ended'] = time.monotonic()
+
+        thread = threading.Thread(target=work, daemon=True)
+        thread.start()
+        return thread, outcome
+
+    def assert_ends_when_aborted(self, provider, handle, thread, outcome):
+        self.assertTrue(provider.arrived.wait(5), 'the request never arrived')
+        started = time.monotonic()
+        handle.abort()
+        thread.join(5)
+        self.assertFalse(thread.is_alive(), 'the worker is still blocked in its read')
+        self.assertIsInstance(outcome.get('error'), agent.RequestAborted, outcome)
+        # The timeout is 300 s: this is the abort, not the wait running out.
+        self.assertLess(outcome['ended'] - started, 2)
+
+    def test_a_request_waiting_for_the_reply_ends_when_aborted(self):
+        def respond(payload):
+            provider.hold()
+            return 200, completion()
+        with FakeProvider(respond) as provider:
+            handle = agent.RequestHandle()
+            thread, outcome = self.call_in_thread(provider, handle)
+            self.assert_ends_when_aborted(provider, handle, thread, outcome)
+
+    def test_a_reply_that_stalls_in_its_body_ends_when_aborted(self):
+        with FakeProvider(lambda payload: (200, Stalled())) as provider:
+            handle = agent.RequestHandle()
+            thread, outcome = self.call_in_thread(provider, handle)
+            self.assert_ends_when_aborted(provider, handle, thread, outcome)
+
+    def over_tls(self):
+        """A temporary folder's certificate: (server context, client context), or the test is skipped."""
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        contexts = self_signed_tls(folder.name)
+        if contexts is None:
+            self.skipTest('the cryptography package is not installed')
+        server, client = contexts
+        # http.client asks ssl for the default context when it is given none: here, the one that trusts the test certificate.
+        patcher = mock.patch('ssl._create_default_https_context', return_value=client)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return server
+
+    def test_a_request_over_tls_ends_when_aborted(self):
+        server = self.over_tls()
+        stalls = {'before the headers': lambda payload: (provider.hold(), (200, completion()))[1],
+                  'in the body': lambda payload: (200, Stalled())}
+        for label, respond in stalls.items():
+            with self.subTest(label), FakeProvider(respond, tls=server) as provider:
+                handle = agent.RequestHandle()
+                thread, outcome = self.call_in_thread(provider, handle)
+                self.assert_ends_when_aborted(provider, handle, thread, outcome)
+
+    def test_a_request_over_tls_that_is_not_aborted_works_through_the_handle(self):
+        server = self.over_tls()
+        with FakeProvider(tls=server) as provider:
+            result = agent.call_api(provider.url, 'm', 's', 'q', handle=agent.RequestHandle())
+        self.assertEqual((result['content'], provider.url[:8]), ('ok', 'https://'))
+
+    def test_a_request_aborted_before_it_starts_sends_nothing(self):
+        with FakeProvider() as provider:
+            handle = agent.RequestHandle()
+            handle.abort()
+            with self.assertRaises(agent.RequestAborted):
+                agent.call_api(provider.url, 'm', 's', 'q', handle=handle)
+        self.assertEqual(provider.requests, [])
+
+    def test_a_connection_made_after_the_abort_is_shut_down_at_once(self):
+        import socket
+        ours, theirs = socket.socketpair()
+        self.addCleanup(ours.close)
+        self.addCleanup(theirs.close)
+        handle = agent.RequestHandle()
+        handle.abort()
+        with self.assertRaises(agent.RequestAborted):
+            handle.attach(ours)
+        theirs.settimeout(2)
+        self.assertEqual(theirs.recv(1), b'')
+
+    def test_a_request_that_is_not_aborted_works_through_the_handle(self):
+        refusing = SamplingParameterTests.refuse('temperature')
+        with FakeProvider(refusing) as provider:
+            handle = agent.RequestHandle()
+            report = {}
+            with redirect_stdout(io.StringIO()):
+                result = agent.call_api(provider.url, 'm', 's', 'q', temperature=0.0, handle=handle, report=report)
+            # The retry without sampling parameters goes through the same handle.
+            self.assertEqual((result['content'], len(provider.requests), report), ('fine', 2, {'sampling_rejected': True}))
+            handle.abort()  # Too late to matter, and no error.
+            self.assertTrue(handle.aborted)
+
+    def test_an_error_from_the_provider_is_still_the_providers_error(self):
+        with FakeProvider(lambda payload: (500, 'overloaded')) as provider:
+            with redirect_stdout(io.StringIO()), self.assertRaises(ValueError) as caught:
+                agent.call_api(provider.url, 'm', 's', 'q', handle=agent.RequestHandle())
+        self.assertIn('HTTP 500', str(caught.exception))
+
+    def test_a_server_that_is_not_there_is_still_an_ordinary_error(self):
+        with FakeProvider() as provider:
+            url = provider.url
+        with self.assertRaises(OSError):  # urllib's URLError: not mistaken for an abort.
+            agent.call_api(url, 'm', 's', 'q', handle=agent.RequestHandle())
+
+
+class StopTurnTests(unittest.TestCase):
+    """The page's Stop button: the turn is dropped, its request ended, its approvals discarded, and the page told."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtCore.QCoreApplication.instance() or QtCore.QCoreApplication([])
+
+    @staticmethod
+    def running_viewer(submission_id='s1', **attributes):
+        turn = {'submission_id': submission_id, 'attachments': []}
+        viewer = SimpleNamespace(events=[], llm_loaded=True, llm_backend='server', llm_model_name='m',
+                                 _agent_busy=True, _agent_turn=turn, _agent_generation=3,
+                                 _agent_request_id='r1', _agent_handle=agent.RequestHandle(),
+                                 command_portal=mock.Mock(), **attributes)
+        viewer.broadcast_event = viewer.events.append
+        return viewer
+
+    def test_stopping_drops_the_turn_ends_its_request_and_discards_its_approvals(self):
+        viewer = self.running_viewer()
+        handle = viewer._agent_handle
+        agent.handle_cancel_turn(viewer, {'action': 'cancel_turn', 'submission_id': 's1'})
+        self.assertEqual(viewer.events, [{'type': 'agent_stopped', 'submission_id': 's1'}])
+        self.assertEqual((viewer._agent_busy, viewer._agent_generation, viewer._agent_request_id, viewer._agent_handle),
+                         (False, 4, None, None))
+        self.assertTrue(handle.aborted)
+        viewer.command_portal.discard_pending.assert_called_once_with('r1')
+        # A page that reconnects and asks again about the submission is told it was stopped, and is not accepted.
+        self.assertEqual(viewer._agent_submissions['s1'], viewer.events[0])
+        self.assertIs(agent.run_web_agent_query(viewer, 'hello', submission_id='s1'), False)
+        self.assertEqual(viewer.events[-1], {'type': 'agent_stopped', 'submission_id': 's1'})
+
+    def test_a_turn_started_elsewhere_is_stopped_without_a_submission_id(self):
+        viewer = self.running_viewer(submission_id=None)
+        agent.handle_cancel_turn(viewer, {})
+        self.assertEqual(viewer.events, [{'type': 'agent_stopped'}])
+        self.assertFalse(viewer._agent_busy)
+
+    def test_a_late_click_stops_nothing(self):
+        # No turn is running.
+        viewer = self.running_viewer()
+        viewer._agent_busy = False
+        agent.handle_cancel_turn(viewer, {'submission_id': 's1'})
+        self.assertEqual((viewer.events, viewer._agent_generation, viewer._agent_handle.aborted), ([], 3, False))
+        # The turn running is another one than the page's.
+        viewer = self.running_viewer(submission_id='s2')
+        agent.handle_cancel_turn(viewer, {'submission_id': 's1'})
+        self.assertEqual((viewer.events, viewer._agent_busy, viewer._agent_handle.aborted), ([], True, False))
+        viewer.command_portal.discard_pending.assert_not_called()
+
+    def test_every_way_of_dropping_a_turn_ends_its_request(self):
+        for label, drop in (
+            ('stop', lambda viewer: agent.handle_cancel_turn(viewer, {})),
+            ('switched off', lambda viewer: agent.deactivate_agent(viewer, quiet=True)),
+            ('history cleared', lambda viewer: agent.handle_clear_history(viewer, {})),
+            ('another model', lambda viewer: agent.activate_agent_from_card(viewer, {'name': 'New', 'url': 'http://new/v1', 'model': 'x'}, quiet=True)),
+        ):
+            with self.subTest(label), mock.patch.object(agent, 'save_agent_history'):
+                viewer = self.running_viewer()
+                handle = viewer._agent_handle
+                drop(viewer)
+                self.assertTrue(handle.aborted)
+
+    def test_the_worker_blocked_on_a_slow_model_ends_when_the_turn_is_stopped(self):
+        def respond(payload):
+            provider.hold()
+            return 200, completion('too late')
+        with FakeProvider(respond) as provider:
+            viewer = self.running_viewer()
+            worker = agent.AgentWorker('server', provider.url, 'm', 'system', 'question', [], None, None)
+            viewer._agent_handle = worker.handle
+            emitted = []
+            worker.finished.connect(lambda *values: emitted.append(values))
+            worker.start()  # A real QThread, as in the Viewer.
+            self.assertTrue(provider.arrived.wait(5))
+            started = time.monotonic()
+            agent.handle_cancel_turn(viewer, {})
+            deadline = time.monotonic() + 5
+            while not emitted and time.monotonic() < deadline:
+                self.app.processEvents()
+                time.sleep(0.005)
+            self.assertTrue(worker.wait(5000), 'the worker thread is still blocked in its read')
+            self.assertLess(time.monotonic() - started, 2)
+        [(text, _, _, error)] = emitted
+        self.assertEqual(text, '')
+        self.assertIsInstance(error, agent.RequestAborted)
+        # The error reaches the turn after it was dropped: nothing more is said, sent or saved.
+        events = len(viewer.events)
+        with mock.patch.object(agent, 'save_and_broadcast_agent_response') as saved, \
+                mock.patch.object(agent, 'start_refinement_worker') as explained:
+            agent.on_web_worker_finished(viewer, 'question', *emitted[0], generation=3, turn=None, worker=worker)
+        self.assertEqual((len(viewer.events), saved.called, explained.called), (events, False, False))
+        viewer.command_portal.submit.assert_not_called()
+
+    def test_a_turn_the_viewer_started_can_be_stopped_while_the_model_thinks(self):
+        # Through run_web_agent_query, which is what tells the Viewer which request to end.
+        def respond(payload):
+            provider.hold()
+            return 200, completion('too late')
+        with FakeProvider(respond) as provider:
+            viewer = SimpleNamespace(events=[], llm_loaded=True, llm_backend='server', llm_url=provider.url, llm_model_name='m')
+            viewer.broadcast_event = viewer.events.append
+            with mock.patch.object(agent, 'get_viewer_session_context', return_value=''), \
+                    mock.patch.object(agent, 'load_agent_history', return_value=[]):
+                self.assertTrue(agent.run_web_agent_query(viewer, 'hello', submission_id='s1'))
+            worker = viewer._web_agent_worker
+            self.assertTrue(provider.arrived.wait(5))
+            agent.handle_cancel_turn(viewer, {'submission_id': 's1'})
+            self.assertTrue(worker.wait(5000), 'the worker thread is still waiting for the model')
+        self.assertTrue(worker.handle.aborted)
+        self.assertEqual([event['type'] for event in viewer.events], ['agent_thinking', 'agent_accepted', 'agent_stopped'])
+
+    def test_stopping_during_the_explain_call_drops_its_answer(self):
+        viewer = self.running_viewer()
+        viewer.llm_history = []
+        with mock.patch.object(agent, 'RefinementWorker') as worker_class, \
+                mock.patch.object(agent, 'save_and_broadcast_agent_response') as saved:
+            agent.start_refinement_worker(viewer, 'question', 'text', 'save x.h5', '{}', '{}', '', turn=viewer._agent_turn)
+            worker = worker_class.return_value
+            self.assertIs(viewer._agent_handle, worker.handle)
+            finished = worker.finished.connect.call_args.args[0]
+            agent.handle_cancel_turn(viewer, {})
+            worker.handle.abort.assert_called_once_with()
+            finished('an answer nobody asked for any more', '', '{}', '')
+        saved.assert_not_called()
+        self.assertEqual([event['type'] for event in viewer.events], ['agent_thinking', 'agent_stopped'])
+
+
+class StopWithPortalTests(PortalFixture, unittest.TestCase):
+    """What stopping does to a turn whose commands wait for approval in the real portal."""
+
+    def setUp(self):
+        super().setUp()
+        self.viewer.shows_windows = lambda: True
+        self.viewer.open_agent_ui = mock.Mock(return_value=True)
+        self.viewer.llm_loaded, self.viewer.llm_backend = True, 'server'
+        self.viewer._agent_busy, self.viewer._agent_turn, self.viewer._agent_generation = True, {'submission_id': 's1', 'attachments': []}, 0
+        patcher = mock.patch.object(agent.Command_Engine, 'print_help')
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = mock.patch.object(agent, 'start_refinement_worker')
+        self.explain = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def reply_with_a_waiting_command(self):
+        agent.on_web_worker_finished(self.viewer, 'save it', 'command: select "one"\ncommand: save x.h5\ncommand: select "two"',
+                                     '', '{}', '', generation=0, turn=self.viewer._agent_turn)
+        request_id = self.viewer._agent_request_id
+        deadline = time.monotonic() + 5
+        while self.portal.get(request_id)['status'] != 'awaiting_user_input' and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.005)
+        return request_id
+
+    def settle(self, seconds=0.4):
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.005)
+
+    def test_stopping_discards_the_waiting_command_frees_the_queue_and_never_asks_the_model_again(self):
+        request_id = self.reply_with_a_waiting_command()
+        agent.handle_cancel_turn(self.viewer, {'submission_id': 's1'})
+        self.settle()
+        result = self.portal.get(request_id)
+        self.assertEqual([(c['command'], c['status']) for c in result['commands']],
+                         [('select "one"', 'succeeded'), ('save x.h5', 'cancelled'), ('select "two"', 'skipped')])
+        self.assertEqual(self.portal.queue, [])
+        self.explain.assert_not_called()
+        self.assertEqual([e['type'] for e in self.viewer.events if e['type'].startswith('agent_')],
+                         ['agent_command_request', 'agent_stopped'])
+
+    def test_the_second_model_call_does_start_when_the_user_discards_instead(self):
+        # The positive control of the test above: the same flow, ended by the user's Discard.
+        request_id = self.reply_with_a_waiting_command()
+        command = self.portal.get(request_id)['commands'][1]
+        self.portal.decide(request_id, command['command_id'], False)
+        deadline = time.monotonic() + 5
+        while not self.explain.called and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.005)
+        self.explain.assert_called_once()

@@ -746,6 +746,115 @@ class ModelCardPageTests(unittest.TestCase):
         self.assertEqual(self.request_cards(), [{'request': 'r1', 'status': 'succeeded',
                                                  'commands': [['select "a"', 'succeeded', 'succeeded', 0]]}])
 
+    def start_turn(self, text='hello'):
+        """The page with a model loaded and a message of its own sent, accepted and being thought about."""
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[]}})")
+        self.js(f"document.getElementById('chat-input-field').value = {json.dumps(text)}; sendAgentQuery()")
+        self.wait_for('pendingSubmission !== null')
+        self.js("handleServerEvent({type:'agent_accepted', submission_id: pendingSubmission.submission_id, query: pendingSubmission.query, attachments: []});"
+                "handleServerEvent({type:'agent_thinking', model_name:'m', submission_id: pendingSubmission.submission_id})")
+
+    STOP = "document.getElementById('chat-stop-btn')"
+
+    def stop_button(self):
+        return json.loads(self.js(f"""JSON.stringify({{
+            shown: {self.STOP}.getClientRects().length > 0, hidden: {self.STOP}.hidden, disabled: {self.STOP}.disabled,
+            label: {self.STOP}.getAttribute('aria-label'), title: {self.STOP}.title, text: {self.STOP}.textContent.trim(),
+            icon: {self.STOP}.querySelector('use').getAttribute('href'), role: {self.STOP}.tagName,
+            send: document.getElementById('chat-send-btn').disabled, input: document.getElementById('chat-input-field').disabled}})"""))
+
+    def test_stop_shows_during_a_turn_and_asks_the_viewer_to_stop_it(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[]}})")
+        idle = self.stop_button()
+        self.assertEqual((idle['shown'], idle['hidden']), (False, True))
+        self.assertEqual((idle['send'], idle['input']), (False, False))
+
+        self.start_turn()
+        running = self.stop_button()
+        self.assertEqual((running['shown'], running['disabled'], running['send'], running['input']), (True, False, True, True))
+        # A button with a name and a title whatever its width, an icon from the page's sprite, and a label.
+        self.assertEqual((running['label'], running['title'], running['text'], running['icon'], running['role']),
+                         ('Stop', 'Stop', 'Stop', '#i-x', 'BUTTON'))
+        submission = self.js('pendingSubmission.submission_id')
+
+        self.js(f"{self.STOP}.click(); {self.STOP}.click(); stopTurn(); stopTurn()")
+        stops = [a for a in self.state()['actions'] if a['action'] == 'cancel_turn']
+        # Once, whatever the clicks, naming the turn this page started; and the button waits for the Viewer's answer.
+        self.assertEqual(stops, [{'action': 'cancel_turn', 'submission_id': submission}])
+        self.assertTrue(self.stop_button()['disabled'])
+
+        self.js(f"handleServerEvent({{type:'agent_stopped', submission_id:{json.dumps(submission)}}})")
+        stopped = self.stop_button()
+        self.assertEqual((stopped['shown'], stopped['disabled'], stopped['send'], stopped['input']), (False, False, False, False))
+        self.assertTrue(self.js("document.getElementById('thinking-bubble') === null"))
+        self.assertEqual(self.system_messages()[-1], 'Stopped. Commands that had already run were not undone.')
+        # The message goes back to the draft, as for a turn that failed.
+        self.assertEqual(self.js("document.getElementById('chat-input-field').value"), 'hello')
+        self.assertEqual(self.js("document.querySelectorAll('#chat-log .msg-user').length"), 0)
+        self.assertTrue(self.js('pendingSubmission === null'))
+
+    def test_a_turn_started_from_the_terminal_locks_the_composer_and_can_be_stopped(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[]}})")
+        self.js("handleServerEvent({type:'agent_thinking', model_name:'m'})")
+        running = self.stop_button()
+        self.assertEqual((running['shown'], running['send'], running['input']), (True, True, True))
+        self.js(f"{self.STOP}.click()")
+        self.assertEqual([a for a in self.state()['actions'] if a['action'] == 'cancel_turn'], [{'action': 'cancel_turn'}])
+        self.js("handleServerEvent({type:'agent_stopped'})")
+        stopped = self.stop_button()
+        self.assertEqual((stopped['shown'], stopped['send'], stopped['input']), (False, False, False))
+        self.assertTrue(self.js("document.getElementById('thinking-bubble') === null"))
+
+    def test_stop_goes_when_the_turn_ends_any_other_way(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        for ending in ("{type:'agent_response', explanation:'Done'}", "{type:'agent_error', error:'The server refused.'}",
+                       "{type:'backend_state', llm_loaded:false}"):
+            with self.subTest(ending=ending):
+                self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[]}});"
+                        "handleServerEvent({type:'agent_thinking', model_name:'m'})")
+                self.assertTrue(self.stop_button()['shown'])
+                self.js(f'handleServerEvent({ending})')
+                self.assertFalse(self.stop_button()['shown'])
+
+    def test_a_page_opened_during_a_turn_shows_stop(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[], agent_busy:true}})")
+        running = self.stop_button()
+        self.assertEqual((running['shown'], running['send'], running['input']), (True, True, True))
+        self.assertTrue(self.js("document.getElementById('thinking-bubble') !== null"))
+        # A reconnect that finds the Viewer idle takes it away.
+        self.js("handleServerEvent({type:'init', data:{llm_loaded:true, llm_model_name:'m', llm_history:[], agent_busy:false}})")
+        self.assertFalse(self.stop_button()['shown'])
+
+    def test_stop_can_be_pressed_again_when_its_request_did_not_get_through(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.start_turn()
+        self.js("window.fetch = () => Promise.resolve({ok: false, status: 500})")
+        self.js(f"{self.STOP}.click()")
+        self.wait_for(f"!{self.STOP}.disabled")
+        self.assertEqual(self.state()['errors'], ['Error: Request failed (HTTP 500).'])
+        self.assertTrue(self.stop_button()['shown'])
+
+    def test_stop_fits_the_composer_at_any_width(self):
+        self.open_page(json.dumps(self.CARD).encode())
+        self.start_turn()
+        for width in (1000, 390):
+            self.view.resize(width, 800)
+            self.wait_for(f'window.innerWidth === {width}')
+            geometry = json.loads(self.js(f"""JSON.stringify((() => {{
+                const stop = {self.STOP}, label = stop.querySelector('.btn-label');
+                return {{right: stop.getBoundingClientRect().right, window: innerWidth, labelShown: label.getClientRects().length > 0,
+                         input: document.getElementById('chat-input-field').getBoundingClientRect().width,
+                         height: stop.getBoundingClientRect().height, send: document.getElementById('chat-send-btn').getBoundingClientRect().height}};
+            }})())"""))
+            self.assertLessEqual(geometry['right'], geometry['window'])
+            self.assertEqual(geometry['labelShown'], width == 1000)
+            self.assertGreater(geometry['input'], 120)
+            self.assertAlmostEqual(geometry['height'], geometry['send'], delta=1)
+        self.view.resize(1000, 800)
+
     def test_a_command_waiting_for_approval_is_run_or_discarded(self):
         self.open_page(json.dumps({'cards': [{'id': 'mine', 'name': 'My API'}]}).encode())
         waiting = {'command_id': 'c1', 'command': 'save <img src=x onerror=alert(1)>.h5',

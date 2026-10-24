@@ -24,7 +24,11 @@ referenced via that stub by Web_Server.py.
 
 import os
 import sys
+import ctypes
 import json
+import http.client
+import socket
+import threading
 import urllib.request
 import urllib.error
 import gc
@@ -406,9 +410,90 @@ def _redact(text, api_key):
     return text
 
 
-def _post_chat(url, payload, headers):
+class RequestAborted(Exception):
+    """The turn was stopped while its model request was in flight (RequestHandle.abort)."""
+
+
+class RequestHandle:
+    """Lets the Viewer's thread end a model request a worker thread is blocked in.
+
+    urllib gives a caller nothing to close while it waits for the reply, and a
+    reply from a slow model is minutes of waiting. So call_api opens its
+    connections through handlers that report each connection's socket here, and
+    abort() shuts that socket down: the worker's blocking read ends at once, and
+    call_api raises RequestAborted. A request still connecting is ended when its
+    connection is made. Shutting the socket down is all abort() does; the worker
+    closes it.
+    """
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._sockets = []
+        self.aborted = False
+
+    def attach(self, sock):
+        """Called by a connection once it has its socket; raises when the request was aborted before."""
+        with self._lock:
+            self._sockets.append(sock)
+            if self.aborted:
+                self._shutdown(sock)
+                raise RequestAborted()
+
+    def abort(self):
+        with self._lock:
+            self.aborted = True
+            for sock in self._sockets:
+                self._shutdown(sock)
+
+    @staticmethod
+    def _shutdown(sock):
+        """End the socket under a recv() that another thread is blocked in."""
+        try:
+            if sys.platform == "win32":
+                # Winsock's shutdown() leaves such a recv() blocked, and so does Python's close()
+                # while a file made by makefile() (as http.client reads with) still holds the socket.
+                # Only closing the handle ends it: detach() hands it over, so it is closed here once.
+                closesocket = ctypes.WinDLL("ws2_32").closesocket
+                closesocket.argtypes = [ctypes.c_size_t]
+                closesocket(sock.detach())
+            else:
+                sock.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass  # Already closed, or never open.
+
+    def opener(self):
+        """A urllib opener whose connections report their sockets to this handle."""
+        handle = self
+
+        def tracked(base):
+            class Tracked(base):
+                def connect(self):
+                    super().connect()
+                    # urllib closes connection.sock once the headers are read, but the
+                    # response still reads the body from the socket's file: keep the socket.
+                    handle.attach(self.sock)
+            return Tracked
+
+        class HTTPHandler(urllib.request.HTTPHandler):
+            def http_open(self, request):
+                return self.do_open(tracked(http.client.HTTPConnection), request)
+
+        class HTTPSHandler(urllib.request.HTTPSHandler):
+            def https_open(self, request):
+                return self.do_open(tracked(http.client.HTTPSConnection), request, context=self._context)
+
+        return urllib.request.build_opener(HTTPHandler, HTTPSHandler)
+
+
+def _post_chat(url, payload, headers, handle=None):
     request = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    with urllib.request.urlopen(request, timeout=AGENT_REPLY_TIMEOUT_SECONDS) as response:
+    if handle is None:
+        opened = urllib.request.urlopen(request, timeout=AGENT_REPLY_TIMEOUT_SECONDS)
+    else:
+        if handle.aborted:
+            raise RequestAborted()
+        opened = handle.opener().open(request, timeout=AGENT_REPLY_TIMEOUT_SECONDS)
+    with opened as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -443,8 +528,11 @@ def _parse_chat_response(res_data):
     return {"content": content, "reasoning": reasoning, "tokens": tokens}
 
 
-def call_api(url, model, system_prompt, user_query, history=None, temperature=None, api_key=None, options=None, report=None):
+def call_api(url, model, system_prompt, user_query, history=None, temperature=None, api_key=None, options=None, report=None, handle=None):
     """Sends an OpenAI-compatible chat completion request.
+
+    With a RequestHandle, another thread may end the request while this one
+    waits for the reply: call_api then raises RequestAborted.
 
     A temperature of None is not sent. When the server answers HTTP 400 with a
     body that names temperature, top_p or top_k, and the request held one, it
@@ -472,8 +560,10 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=No
 
     for attempt in (1, 2):
         try:
-            return _parse_chat_response(_post_chat(url, payload, headers))
+            return _parse_chat_response(_post_chat(url, payload, headers, handle))
         except urllib.error.HTTPError as e:
+            if handle is not None and handle.aborted:
+                raise RequestAborted() from e
             try:
                 body = _redact(e.read().decode("utf-8", errors="replace"), api_key)
                 print(f"\n[Agent Error Detail]\nHTTP Status Code: {e.code}\nServer Response: {body}\n")
@@ -490,6 +580,11 @@ def call_api(url, model, system_prompt, user_query, history=None, temperature=No
                 "Model request failed (HTTP {code}): {response}. Image messages require a vision-capable model/provider.",
                 code=e.code, response=(body or _redact(str(e.reason), api_key))[:2000],
             )) from e
+        except (OSError, http.client.HTTPException) as e:
+            # A shut-down socket surfaces as whichever of these the read was in.
+            if handle is not None and handle.aborted:
+                raise RequestAborted() from e
+            raise
     return None
 
 # ─── Worker threads ───────────────────────────────────────────────────────────
@@ -510,15 +605,16 @@ class AgentWorker(QtCore.QThread):
         self.temperature   = temperature
         self.api_key       = api_key
         self.options       = options
-        # What call_api learned (see _apply_call_notes) and the card the request used.
+        # What call_api learned (see _apply_call_notes), the card the request used, and what ends the request.
         self.report        = {}
         self.card_ref      = card_ref
+        self.handle        = RequestHandle()
 
     def run(self):
         try:
             res_dict = None
             if self.backend == "server":
-                res_dict = call_api(self.url, self.model_name, self.system_prompt, self.query, self.history, self.temperature, self.api_key, self.options, report=self.report)
+                res_dict = call_api(self.url, self.model_name, self.system_prompt, self.query, self.history, self.temperature, self.api_key, self.options, report=self.report, handle=self.handle)
             if not res_dict or not res_dict.get("content"):
                 self.finished.emit("", "", "", Message("No response received from LLM."))
             else:
@@ -545,6 +641,7 @@ class RefinementWorker(QtCore.QThread):
         self.options         = options
         self.report          = {}
         self.card_ref        = card_ref
+        self.handle          = RequestHandle()
 
     def run(self):
         try:
@@ -560,7 +657,7 @@ class RefinementWorker(QtCore.QThread):
             )
             res_dict = None
             if self.backend == "server":
-                res_dict = call_api(self.url, self.model_name, "You are a helpful biological assistant.", message_content(refinement_prompt, self.attachments), history=self.history, temperature=self.temperature, api_key=self.api_key, options=self.options, report=self.report)
+                res_dict = call_api(self.url, self.model_name, "You are a helpful biological assistant.", message_content(refinement_prompt, self.attachments), history=self.history, temperature=self.temperature, api_key=self.api_key, options=self.options, report=self.report, handle=self.handle)
             if not res_dict or not res_dict.get("content"):
                 self.finished.emit("", "", "", "No response from refinement.")
             else:
@@ -630,7 +727,15 @@ def get_viewer_session_context(viewer):
 
 
 def _invalidate_agent_turn(viewer):
-    """Drop the running turn; return it, or None when no turn was running."""
+    """Drop the running turn; return it, or None when no turn was running.
+
+    Its model request is ended too (RequestHandle), so the worker does not wait
+    for a reply nobody will read, and the credit it would spend is not spent.
+    """
+    handle = getattr(viewer, '_agent_handle', None)
+    viewer._agent_handle = None
+    if handle is not None:
+        handle.abort()
     # A command the abandoned turn left waiting for approval would otherwise
     # hold the Viewer's command queue.
     request_id = getattr(viewer, '_agent_request_id', None)
@@ -691,7 +796,7 @@ def save_agent_history(viewer):
 def _agent_event(viewer, event, turn=None):
     if turn and turn.get('submission_id'):
         event = {**event, 'submission_id': turn['submission_id']}
-        if event['type'] in {'agent_accepted', 'agent_response', 'agent_error'}:
+        if event['type'] in {'agent_accepted', 'agent_response', 'agent_error', 'agent_stopped'}:
             submissions = getattr(viewer, '_agent_submissions', {})
             submissions[turn['submission_id']] = event
             viewer._agent_submissions = dict(list(submissions.items())[-32:])
@@ -719,7 +824,7 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None, *, 
     previous = getattr(viewer, '_agent_submissions', {}).get(submission_id)
     if previous:
         viewer.broadcast_event(previous)
-        return previous.get('type') != 'agent_error'
+        return previous.get('type') not in ('agent_error', 'agent_stopped')
     turn = {'submission_id': submission_id, 'attachments': []}
     if getattr(viewer, '_agent_busy', False):
         return _reject_turn(viewer, Message('This Viewer already has an active agent turn.'), turn, on_rejected)
@@ -768,6 +873,7 @@ def run_web_agent_query(viewer, query, attachments=None, submission_id=None, *, 
 
     worker = viewer._web_agent_worker = AgentWorker(backend, url, model_name, system_prompt, message_content(query, turn['attachments']), history, temperature, api_key, options, card_ref=getattr(viewer, "llm_card_ref", None))
     _retain_worker(viewer, worker)
+    viewer._agent_handle = worker.handle
     worker.finished.connect(lambda res, reasoning, tokens, err: on_web_worker_finished(viewer, query, res, reasoning, tokens, err, generation, turn, worker))
     _agent_event(viewer, {'type': 'agent_accepted', 'query': query, 'attachments': turn['attachments']}, turn)
     viewer._web_agent_worker.start()
@@ -949,6 +1055,7 @@ def start_refinement_worker(viewer, query, original_explanation, commands, termi
 
     generation = getattr(viewer, "_agent_generation", 0)
     _retain_worker(viewer, worker)
+    viewer._agent_handle = worker.handle
 
     def on_refinement_finished(refined_explanation, refinement_reasoning, refinement_tokens_json, err):
         _apply_call_notes(viewer, worker.report, worker.card_ref)
@@ -1066,6 +1173,23 @@ def handle_decide_agent_command(viewer, data):
     except ValueError as e:
         viewer.broadcast_event({"type": "agent_command_error", "error": display_text(e)})
 
+def handle_cancel_turn(viewer, data):
+    """Stop the running turn: the Agent page's Stop button.
+
+    The turn is invalidated, its model request ended, the commands it left waiting
+    for approval discarded, and the page told. Commands that already ran are not
+    undone, and a command that is running goes on. The page names the turn it
+    thinks is running (data["submission_id"], when it sent the message itself), so
+    a click that came late does not stop the next turn.
+    """
+    running = getattr(viewer, '_agent_turn', None) if getattr(viewer, '_agent_busy', False) else None
+    expected = data.get('submission_id')
+    if running is None or (expected is not None and expected != running.get('submission_id')):
+        return
+    _invalidate_agent_turn(viewer)
+    _agent_event(viewer, {'type': 'agent_stopped'}, running)
+
+
 def handle_clear_history(viewer, data):
     _invalidate_agent_turn(viewer)
     viewer.llm_history = []
@@ -1075,6 +1199,8 @@ def _extend_initial_web_state(viewer, state):
     viewer.llm_history = load_agent_history(viewer)
     state["llm_history"] = viewer.llm_history
     state['agent_request_id'] = getattr(viewer, '_agent_request_id', None)
+    # A page opened during a turn, one started from the terminal say, can still stop it.
+    state['agent_busy'] = bool(getattr(viewer, '_agent_busy', False))
     from Viewer_Command_Portal import get_portal
     if state['agent_request_id']:
         try:
@@ -1100,6 +1226,9 @@ def register_backend(registry, viewer):
     )
     registry.register_action(
         "agent", "clear_history", lambda data: handle_clear_history(viewer, data)
+    )
+    registry.register_action(
+        "agent", "cancel_turn", lambda data: handle_cancel_turn(viewer, data)
     )
     def capture(data):
         from Viewer_Visual_State import capture_view
