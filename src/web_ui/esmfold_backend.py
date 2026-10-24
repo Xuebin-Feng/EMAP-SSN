@@ -15,6 +15,7 @@
 
 import os
 import json
+import re
 import EMAPSSN_Config as cfg
 from desktop.Desktop_App import translate
 from utilities.Localization import Message
@@ -116,6 +117,20 @@ def _short_text(value, limit):
     return value[:limit] if isinstance(value, str) else None
 
 
+def _run_id(value):
+    """The id of a run the Viewer started, as the worker echoes it (--run-id), or None for anything else."""
+    return value if isinstance(value, str) and re.fullmatch(r"[A-Za-z0-9_-]{1,32}", value) else None
+
+
+def _tell_command(viewer, name, *arguments):
+    """Tell the esmfold command what the worker reported (the command keeps the run's job), whatever it does with it."""
+    try:
+        from commands import esmfold
+        getattr(esmfold, name)(viewer, *arguments)
+    except Exception as error:  # The page is told all the same.
+        print(f"Warning: The esmfold command could not take the worker's report: {error}")
+
+
 def handle_esmfold_job(viewer, data):
     """Broadcasts how a folding run is going (the worker posts it) for the Fold View page to show.
 
@@ -139,7 +154,11 @@ def handle_esmfold_job(viewer, data):
         message["names"] = [_short_text(name, 200) or "" for name in names[:50]]
     if isinstance(data.get("failed"), bool):
         message["failed"] = data["failed"]
+    run = _run_id(data.get("run"))
+    if run:
+        message["run"] = run
     viewer.broadcast_event(message)
+    _tell_command(viewer, "note_job_event", message)
 
 
 def handle_load_session(viewer, data):
@@ -171,6 +190,7 @@ def handle_structure_folded(viewer, data):
     node_id = data.get("node_id")
     pdb_filename = data.get("pdb_filename")
     if node_id and pdb_filename:
+        _tell_command(viewer, "note_structure_folded", _run_id(data.get("run")), node_id)
         pdb_url = f"/structures/{pdb_filename}"
         viewer.broadcast_event({
             "type": "esmfold_pdb",

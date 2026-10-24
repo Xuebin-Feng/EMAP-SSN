@@ -832,14 +832,18 @@ output at 16 MiB. Truncated output explicitly reports `available_from` and
 exit loses this in-memory history. Disconnecting does not cancel work.
 
 Agent batches are sequential and stop after failure/cancellation; completed effects
-are not rolled back. Label/logo jobs and ESMFold workers are tracked to their final
-result; a fold's artifacts are its PDB files and, beside each one folded with an
-alignment loaded, its per-residue data file (`<pdb name>.residues.json`). A worker
-terminal remaining open is not proof that computation is running.
-`esmfold stop` ends the folding workers the Viewer started, hidden or in a console
-window, and reports their jobs cancelled; `run stop` ends the Python scripts the same
-way. A request that holds only stop commands runs at once, even while the request it
-ends is waiting for its job, which would otherwise keep it queued behind that request.
+are not rolled back. Label/logo/print jobs and ESMFold folds are jobs of the Viewer's
+background job scheduler and are tracked to their final result. The file jobs share one
+line and the folds a line of their own, so a fold never waits for a label and the
+other way round; a fold requested while another runs is queued, not refused, and its
+request stays running until its turn comes and the fold ends. A fold runs without any
+window, its output in a log file the outcome names. A fold's artifacts are its PDB
+files and, beside each one folded with an alignment loaded, its per-residue data file
+(`<pdb name>.residues.json`). `esmfold stop` ends the running fold with every process it
+started, takes the waiting folds out of the line and reports their jobs cancelled; `run
+stop` ends the Python scripts the same way. A request that holds only stop commands
+runs at once, even while the request it ends is waiting for its job, which would
+otherwise keep it queued behind that request.
 `run` retains file selection and Python-script support; generated commands are
 tracked children (maximum 1000 single-line commands). Manual interaction remains
 available while background work runs, so subsequent commands use current live state.

@@ -13,8 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import collections
+import json
 import os
+import subprocess
 import sys
+import tempfile
+import threading
 import uuid
 import Command_Engine
 import EMAPSSN_Config as cfg
@@ -23,12 +28,8 @@ from PySide6.QtWidgets import QApplication, QMessageBox
 from desktop.Desktop_App import translate
 from utilities import Residue_Data
 from utilities.Localization import JoinedMessage, Message
-from utilities.Terminal_Launcher import (
-    HoldMode,
-    TerminalUnavailableError,
-    launch_in_terminal,
-    launch_without_window,
-)
+from utilities.Terminal_Launcher import launch_without_window
+from Viewer_Worker_Tracking import worker_directory
 from web_ui.Browser_Page import is_headless
 
 def print_help():
@@ -48,15 +49,19 @@ def print_help():
       esmfold multi large
           Folds all selected nodes sequentially through the configured Biohub ESM3 API model.
       esmfold stop
-          Ends every folding worker this Viewer started, with the processes each started: a
-          worker in a console window and a hidden one alike. Structures already saved are
-          kept, a half-written one is deleted, and each worker's job is reported cancelled.
-          With none running it succeeds and says so.
+          Ends the fold that is running, with every process it started, and takes the folds
+          that wait out of the line. Structures already saved are kept, a half-written one
+          is deleted, and each fold's job is reported cancelled. With none running or
+          waiting it succeeds and says so.
       esmfold help
           Displays this help message.
 
-    Only one folding worker runs at a time: while one is running, esmfold refuses to
-    start another. Wait for it to finish, run esmfold stop, or close its console window.
+    Each esmfold is a job of the background scheduler's folding lane: it never refuses, it
+    waits its turn behind the folds already queued, and one worker runs at a time so that
+    only one model is in memory. The Viewer's Session card lists the folds (Background jobs,
+    Folding), where a waiting fold can be moved or removed and the running one stopped; jobs
+    lists and cancels them too. A node that another fold is to write, or is writing, is left
+    out of the new one, and the outcome says which job holds it.
 
     Per-residue data: while an alignment is loaded, each structure folded for a node the
     alignment holds gets a file beside its PDB, <pdb name>.residues.json, with two values
@@ -66,9 +71,9 @@ def print_help():
     protein's residue). The command's result says what was saved, and why not for a node
     when no alignment is loaded, the alignment lacks the node, or holds another sequence.
 
-    A headless Viewer (no screen) opens no console window and no browser page: the
-    worker runs hidden with its output in a log file, which the outcome names, and the
-    outcome gives the structure viewer's address. Closing the Viewer ends the worker.
+    The worker runs without any window, with its output in a log file that the outcome
+    names. A headless Viewer (no screen) also opens no browser page, and the outcome gives
+    the structure viewer's address. Closing the Viewer ends the worker.
     """)
 
 # A command's outcome names the selected nodes it skipped when there are this few.
@@ -219,46 +224,243 @@ def _worker_records(viewer, indices, nodes):
     return records, notes
 
 
-def _stop_workers(viewer):
-    """`esmfold stop`: end every folding worker this Viewer started, and what each started.
+# The lane the folds go in, and the folds this Viewer started, by the id its worker echoes on every event.
+FOLDING_LANE = "folding"
+MAX_RUNS_KEPT = 20
+RUNS = collections.OrderedDict()
 
-    A worker with no window and one in a console window are both ended, however
-    the Viewer shows its windows now. Structures already saved stay, a half-written
-    one is deleted, and each worker's job is reported cancelled. With none running,
-    it is a valid no-op that says so.
+
+class FoldRun:
+    """One queued run of the folding worker: what to fold, fixed when the command was given, and what it needs.
+
+    The nodes and their sequences (and the per-residue data computed from the
+    alignment as it was then) are in ``records``, the worker's private input
+    file; the scheduler job launches the worker with them and waits for it to
+    end. The run keeps what its events and its end tell (the structures folded,
+    the reasons some failed) and the job's handle, so that the worker's progress
+    shows on the Session card.
+    """
+
+    def __init__(self, records, nodes, *, mode, device, structures_dir, action_url, portal):
+        self.run_id = uuid.uuid4().hex[:12]
+        self.records = records
+        self.nodes = list(nodes)
+        self.mode = mode
+        self.device = device
+        self.structures_dir = structures_dir
+        self.action_url = action_url
+        self.skip_existing = False
+        self.job_id = None
+        self.input_path = None
+        directory = worker_directory()
+        self.log_path = str(directory / f"esmfold-{self.run_id}.log")
+        # Only a command from the portal (MCP, the Agent page) follows its worker through a status file.
+        self.status_path = str(directory / f"esmfold-{self.run_id}.json") if portal else None
+        self.handle = None
+        self.tracker = None
+        self.process = None
+        self.worker = None
+        self.folded = set()
+        self.failures = []
+        self.reason = None
+        self._lock = threading.Lock()
+
+    # --- the worker's input ---
+
+    def write_input(self):
+        """Save the records to a private file, which the worker reads and deletes (--delete-input)."""
+        with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w", encoding="utf-8") as handle:
+            json.dump(self.records, handle, indent=2)
+            self.input_path = handle.name
+
+    def discard_input(self):
+        """Delete the input file if the worker did not: it never ran, or ended before it read it."""
+        if self.input_path:
+            _discard_worker_input(self.input_path)
+
+    def command(self):
+        """The worker's command line."""
+        src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        script = os.path.abspath(os.path.join(src_dir, "resources", "esmfold", "esmfold_worker.py"))
+        if self.mode == "large":
+            command = [sys.executable, script, self.input_path, self.structures_dir, "--delete-input",
+                       "--mode", "large", "--action-url", self.action_url]
+        else:
+            command = [sys.executable, script, self.input_path, self.structures_dir, self.device,
+                       "--delete-input", "--action-url", self.action_url]
+        if self.status_path:
+            command += ["--portal-status", self.status_path]
+        # No window, so nothing the worker could ask a person for: it never reads input.
+        command += ["--noninteractive", "--run-id", self.run_id]
+        if self.skip_existing:
+            command += ["--skip-existing"]
+        return command
+
+    # --- the process and its tracker, which meet from two threads ---
+
+    def attach(self, process, worker):
+        """The scheduler's thread launched the worker."""
+        with self._lock:
+            self.process, self.worker = process, worker
+            tracker = self.tracker
+        self._link(tracker)
+
+    def set_tracker(self, tracker):
+        """The GUI thread made the tracker that reports this run to its portal request."""
+        with self._lock:
+            self.tracker = tracker
+        self._link(tracker)
+
+    def _link(self, tracker):
+        with self._lock:
+            process, worker = self.process, self.worker
+        if tracker is None or worker is None:
+            return
+        worker.tracker = tracker
+        tracker.worker = worker
+        tracker.attach_hidden(process, self.log_path)
+
+    # --- what the worker reports ---
+
+    def note_event(self, message):
+        """Take an esmfold_job event of this run: it is what the card shows after the job's time."""
+        event = message.get("event")
+        if event == "started":
+            self.say(Message("Getting the model ready…"))
+        elif event == "progress":
+            self.say(Message("Folding {index} of {total}: {name}",
+                             index=message.get("index", 0), total=message.get("total", 0),
+                             name=message.get("name", "")))
+        elif event == "structure_failed":
+            self.failures.append((message.get("name", ""), message.get("reason", "")))
+        elif event == "failed":
+            self.reason = message.get("reason") or self.reason
+
+    def say(self, text):
+        handle = self.handle
+        if handle is not None:
+            handle.progress(text)
+
+    def failure(self, code):
+        """The error of a run whose worker ended with ``code``."""
+        if self.failures:
+            name, reason = self.failures[0]
+            others = len(self.failures) - 1
+            error = Message("Folding {name} failed: {reason}", name=name, reason=reason)
+            if others:
+                error = JoinedMessage([error, Message("%n more structure(s) failed too.", n=others)])
+            return error
+        if self.reason:
+            return Message("The folding worker failed: {reason}", reason=self.reason)
+        return Message("The folding worker stopped (exit code {code}); its output is in {log}.",
+                       code=code, log=self.log_path)
+
+    # --- the job's ends ---
+
+    def started(self, job):
+        """The scheduler began the job (GUI thread): a portal request follows the worker through its status file."""
+        from Viewer_Worker_Tracking import WorkerTracker
+        if job.command_context is not None and self.status_path:
+            self.set_tracker(WorkerTracker(job.command_context, job_id=str(job.job_id),
+                                           path=self.status_path, add_job=False))
+
+    def finished(self, job, outcome, error):
+        """The job ended (GUI thread)."""
+        tracker = self.tracker
+        if tracker is not None:
+            try:
+                tracker.timer.stop()
+            except RuntimeError:
+                pass  # The tracker's Qt object is deleted already.
+        self.handle = None
+
+
+def _remember(run):
+    RUNS[run.run_id] = run
+    while len(RUNS) > MAX_RUNS_KEPT:
+        RUNS.popitem(last=False)
+
+
+def note_job_event(viewer, message):
+    """An esmfold_job event reached the Viewer: pass it to the run it is of, if this Viewer started that run."""
+    run = RUNS.get(message.get("run"))
+    if run is not None:
+        run.note_event(message)
+
+
+def note_structure_folded(viewer, run_id, node_id):
+    """A structure was saved by run ``run_id`` (None for a worker that gave no id)."""
+    run = RUNS.get(run_id)
+    if run is not None:
+        run.folded.add(node_id)
+
+
+def fold_job(run, job):
+    """The scheduler's worker for a fold: launch the folding worker with no window, and wait for it to end.
+
+    Told to stop (by `esmfold stop`, the Session card or the Viewer closing), the job
+    ends the worker and everything it started through the function it registered with
+    its handle; the structures the worker had saved stay and a half-written one is deleted.
+    """
+    from Viewer_Worker_Tracking import StartedWorker, track_hidden_worker, track_worker
+    job.raise_if_cancelled()
+    run.handle = job
+    job.set_log_path(run.log_path)
+    job.progress(Message("Starting the folding worker…"))
+    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        process = launch_without_window(run.command(), cwd=project_root, log_path=run.log_path)
+    except OSError as error:
+        raise RuntimeError(Message("Could not launch the folding worker without a window:\n{error}", error=error)) from error
+    worker = track_worker(process, input_path=run.input_path, output_dir=run.structures_dir, tracker=None)
+    track_hidden_worker(process)
+    run.attach(process, worker)
+    job.on_cancel(lambda: worker.stop(Message("ESMFold worker stopped")))
+    while True:
+        try:
+            code = process.wait(timeout=0.2)
+            break
+        except subprocess.TimeoutExpired:
+            continue
+    job.raise_if_cancelled()
+    if code == 0:
+        return {"message": Message("Folded %n structure(s).", n=len(run.nodes))}
+    raise RuntimeError(run.failure(code))
+
+
+def _folding_jobs(scheduler):
+    """The entries of the scheduler's folding lane that esmfold queued, running one first."""
+    return [entry for entry in scheduler.snapshot()
+            if entry.lane == FOLDING_LANE and entry.job.command_name == "esmfold"]
+
+
+def _stop_workers(viewer):
+    """`esmfold stop`: end the running fold and everything it started, and take the queued folds out of the line.
+
+    The running fold stops as the Session card's Stop does: the worker and the
+    processes it started end, the structures already saved are kept, a half-written
+    one is deleted, and the job is reported cancelled. A fold that waits is removed
+    and never starts. With none running or waiting, it is a valid no-op that says so.
     """
     from Viewer_Worker_Tracking import stop_workers
-    count = stop_workers("ESMFold worker stopped")
-    if count:
-        msg = Message("Stopped %n ESMFold worker(s); structures already saved are kept.", n=count)
-    else:
-        msg = Message("No ESMFold worker is running.")
+    scheduler = getattr(viewer, "background_job_scheduler", None)
+    entries = _folding_jobs(scheduler) if scheduler is not None else []
+    # One step for all of them, so that the next fold in the line cannot start as the running one ends.
+    cancelled = set(scheduler.cancel_many([entry.job.job_id for entry in entries])) if entries else set()
+    running = sum(1 for entry in entries if entry.running and entry.job.job_id in cancelled)
+    waiting = sum(1 for entry in entries if not entry.running and entry.job.job_id in cancelled)
+    # A worker started in some other way, such as by a version that ran before the scheduler did.
+    running += stop_workers("ESMFold worker stopped")
+    parts = []
+    if running:
+        parts.append(Message("Stopped %n ESMFold worker(s); structures already saved are kept.", n=running))
+    if waiting:
+        parts.append(Message("Removed %n queued fold(s).", n=waiting))
+    msg = JoinedMessage(parts) if len(parts) > 1 else parts[0] if parts else Message("No ESMFold worker is running.")
     if hasattr(viewer, 'console_text'):
         Command_Engine.show_status(viewer, msg)
     print(msg)
     Command_Engine.command_succeeded(viewer, msg)
-
-
-def _worker_running(viewer):
-    """Whether the folding worker this Viewer started is still running.
-
-    A run for the MCP or the agent page has a WorkerTracker, which polls the
-    worker until it reports a final result or exits, so it answers: a terminal
-    left open after a failure is not a running worker. A typed run has none, so
-    the terminal process that hosts the worker answers instead, which lasts as
-    long as the worker does. (Some Linux terminals hand their window to another
-    process and exit at once; only a tracker can tell for those.)
-    """
-    worker = getattr(viewer, "esmfold_worker", None)
-    if worker is None:
-        return False
-    process, tracker = worker
-    if tracker is not None:
-        try:
-            return bool(tracker.timer.isActive())
-        except RuntimeError:
-            pass  # The tracker's Qt object is already deleted.
-    return process is not None and process.poll() is None
 
 
 def _parse_options(viewer, args):
@@ -276,6 +478,30 @@ def _parse_options(viewer, args):
         "large": "large" in normalized,
         "multi": "multi" in normalized,
     }
+
+
+def _model_suffix(is_large):
+    """The suffix a large run's PDB names carry: the ESM3 model the Biohub settings choose (None for a local run)."""
+    if not is_large:
+        return None
+    from resources import Biohub_API
+    try:
+        settings = Biohub_API.read_api_settings()
+    except Biohub_API.BiohubSettingsError:
+        settings = None
+    return (settings or {}).get("ESM3_MODEL", Biohub_API.DEFAULT_ESM3_MODEL)
+
+
+def _credentials_available():
+    """Whether Biohub API credentials are saved, or given in the environment, for a run through Biohub."""
+    from resources import Biohub_API
+    try:
+        if Biohub_API.read_api_settings() is not None:
+            return True
+    except Biohub_API.BiohubSettingsError:
+        return False
+    token = os.environ.get("ESM_API_KEY")
+    return isinstance(token, str) and bool(token.strip())
 
 
 def run(viewer, args):
@@ -359,19 +585,14 @@ def run(viewer, args):
             Command_Engine.show_status(viewer, failure)
         return
 
-    # 4b. One worker at a time: a second would load a second large model into
-    # GPU memory, so it is refused before any hardware or sequence work.
-    if _worker_running(viewer):
-        if headless:
-            refusal = "An esmfold worker is still running. Wait for it to finish before folding again."
-        else:
-            refusal = Message(
-                "An esmfold worker is still running. Wait for it to finish, or close its "
-                "console window, before folding again."
-            )
-        print(f"Error: {refusal}")
-        Command_Engine.command_failed(viewer, f'Error: {refusal}')
-        _set_console_text(viewer, Message("Error: {error}", error=refusal))
+    # 4b. The fold is a job of the background scheduler's folding lane: it waits its turn behind
+    # the folds already queued, where one worker at a time keeps two models out of GPU memory.
+    scheduler = getattr(viewer, "background_job_scheduler", None)
+    if scheduler is None:
+        failure = Message("The background job scheduler is unavailable.")
+        print(f"Error: {failure}")
+        Command_Engine.command_failed(viewer, f"Error: {failure}")
+        _set_console_text(viewer, Message("Error: {error}", error=failure))
         return
     if clicked_note is not None:
         print(clicked_note)
@@ -414,13 +635,13 @@ def run(viewer, args):
     for idx in selected_indices:
         full_header = viewer.full_headers[idx]
         rec_id = full_header.split()[0]
-        
+
         sequence = None
         if full_header in viewer.sequences_map:
             sequence = viewer.sequences_map[full_header]
         elif rec_id in viewer.sequences_map:
             sequence = viewer.sequences_map[rec_id]
-            
+
         if sequence:
             nodes_to_fold.append((rec_id, sequence))
             fold_indices.append(idx)
@@ -439,7 +660,7 @@ def run(viewer, args):
     # 8. Set up Directory & Web Registration
     structures_dir = esmfold_backend.get_structures_directory()
     os.makedirs(structures_dir, exist_ok=True)
-    
+
     # Register web button and route mapping
     esmfold_backend.register(viewer)
 
@@ -456,141 +677,122 @@ def run(viewer, args):
         _set_console_text(viewer, Message("Error: Viewer web server unavailable."))
         return
 
-    # 9. Save nodes to fold to a temporary JSON file and spawn background worker process.
-    # A node's record also carries its per-residue data from the loaded alignment, if any.
-    import json
-    import tempfile
-    records, residue_notes = _worker_records(viewer, fold_indices, nodes_to_fold)
-    with tempfile.NamedTemporaryFile(suffix=".json", delete=False, mode="w", encoding="utf-8") as tmp:
-        json.dump(records, tmp, indent=2)
-        tmp_path = tmp.name
+    # 8b. A run through Biohub needs the credentials, which no worker without a window can ask for.
+    if is_large and not _credentials_available():
+        refusal = Message(
+            "Biohub API credentials are not saved. Create the Biohub API settings file or set ESM_API_KEY "
+            "before folding with esmfold large."
+        )
+        print(f"Error: {refusal}")
+        Command_Engine.command_failed(viewer, f'Error: {refusal}')
+        _set_console_text(viewer, Message("Error: {error}", error=refusal))
+        return
 
-    python_exe = sys.executable
-    src_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    project_root = os.path.dirname(src_dir)
-    worker_script = os.path.join(src_dir, "resources", "esmfold", "esmfold_worker.py")
-
+    # 8c. A node another fold waits to write, or is writing, is left out of this one: two folds never
+    # write the same file. The node says which job holds it.
+    from resources.esmfold import esmfold_worker as worker_files
     abs_structures_dir = os.path.abspath(structures_dir)
-    abs_worker_script = os.path.abspath(worker_script)
+    suffix = _model_suffix(is_large)
+    taken = []
+    kept_nodes, kept_indices = [], []
+    for index, (rec_id, sequence) in zip(fold_indices, nodes_to_fold):
+        pdb_path = os.path.join(abs_structures_dir, worker_files.prediction_filename(rec_id, suffix))
+        holder = scheduler.reservation_holder(pdb_path)
+        if holder is None:
+            kept_nodes.append((rec_id, sequence))
+            kept_indices.append(index)
+        else:
+            taken.append(f"{rec_id} (#{holder})")
+    if not kept_nodes:
+        refusal = Message("Every selected node is already queued or being folded: {nodes}.", nodes=", ".join(taken))
+        print(f"Error: {refusal}")
+        Command_Engine.command_failed(viewer, f'Error: {refusal}')
+        _set_console_text(viewer, Message("Error: {error}", error=refusal))
+        return
+    nodes_to_fold, fold_indices = kept_nodes, kept_indices
 
-    if is_large:
-        launching = "Biohub ESM3 structure prediction worker"
-        cmd = [
-            python_exe,
-            abs_worker_script,
-            tmp_path,
-            abs_structures_dir,
-            "--delete-input",
-            "--mode",
-            "large",
-            "--action-url",
-            action_url,
-        ]
-        terminal_title = "SSN ESMFold Large"
-    else:
-        launching = "local ESM3 3D structure prediction background worker"
-        cmd = [
-            python_exe,
-            abs_worker_script,
-            tmp_path,
-            abs_structures_dir,
-            device_str,
-            "--delete-input",
-            "--action-url",
-            action_url,
-        ]
-        terminal_title = "SSN ESMFold"
+    # 9. The records are fixed now, with the per-residue data of the alignment as it is now: they go to a
+    # private file the worker reads when its turn comes.
     from Viewer_Command_Portal import CURRENT
     context = CURRENT.get()
-    tracker = None
-    log_path = None
+    records, residue_notes = _worker_records(viewer, fold_indices, nodes_to_fold)
+    run = FoldRun(
+        records, nodes_to_fold, mode="large" if is_large else "local", device=device_str,
+        structures_dir=abs_structures_dir, action_url=action_url, portal=context is not None,
+    )
+    run.write_input()
+    paths = []
+    for rec_id, _sequence in nodes_to_fold:
+        pdb_filename = worker_files.prediction_filename(rec_id, suffix)
+        paths += [os.path.join(abs_structures_dir, pdb_filename),
+                  os.path.join(abs_structures_dir, worker_files.residue_data_filename(pdb_filename))]
+    words = " ".join(["esmfold"] + (["large"] if is_large else []) + (["multi"] if is_multi else []))
+    count = len(nodes_to_fold)
+    description = f"{words} -> {nodes_to_fold[0][0]}" if count == 1 else f"{words} -> {count} structures"
+    _remember(run)
     try:
-        if context is not None:
-            from Viewer_Worker_Tracking import WorkerTracker
-            tracker = WorkerTracker(context)
-            cmd += ['--portal-status', str(tracker.path)]
-        if headless or (context is not None and _environment_is_headless()):
-            cmd += ['--noninteractive']
-        if headless:
-            # No screen: the worker gets no console window, and its output goes to a log.
-            from Viewer_Worker_Tracking import worker_directory
-            log_path = (
-                os.path.splitext(str(tracker.path))[0] + '.log' if tracker is not None
-                else str(worker_directory() / f'esmfold-{uuid.uuid4().hex}.log')
-            )
-            print(f"Launching {launching} without a window; its output goes to {log_path}")
-            process = launch_without_window(cmd, cwd=project_root, log_path=log_path)
-        else:
-            print(f"Launching {launching} in a separate console...")
-            process = launch_in_terminal(
-                cmd,
-                cwd=project_root,
-                hold=HoldMode.NEVER,
-                title=terminal_title,
-            )
-    except (OSError, TerminalUnavailableError) as error:
-        if tracker is not None:
-            tracker.fail(str(error))
-        _discard_worker_input(tmp_path)
-        if headless:
-            text = f"Could not launch the ESMFold worker without a window:\n{error}"
-            print(f"Error: {text}")
-            Command_Engine.command_failed(viewer, f'Error: {text}')
-            return
-        message = Message("Could not launch the ESMFold worker in a terminal:\n{error}", error=error)
+        job_id = scheduler.enqueue(
+            command_name="esmfold",
+            description=description,
+            payload=run,
+            worker=fold_job,
+            output_path=paths[0],
+            allow_overwrite=True,
+            lane=FOLDING_LANE,
+            lane_title=Message("Folding"),
+            extra_paths=paths[1:],
+            cleanup=run.discard_input,
+            on_started=run.started,
+            on_finished=run.finished,
+            log_path=run.log_path,
+        )
+    except (FileExistsError, RuntimeError) as error:
+        RUNS.pop(run.run_id, None)
+        run.discard_input()
+        message = Message("Could not queue the fold: {error}", error=error)
         print(f"Error: {message}")
         Command_Engine.command_failed(viewer, f'Error: {message}')
-        parent = getattr(viewer, 'main_window', None)
-        if context is None:
-            QMessageBox.critical(parent, translate("Viewer", "ESMFold Launch Error"), message.display())
-        if hasattr(viewer, 'console_text'):
-            failure = Message("Error: Could not launch the ESMFold terminal.")
-            Command_Engine.show_status(viewer, failure)
+        _set_console_text(viewer, Message("Error: {error}", error=message))
         return
-    except Exception as error:
-        # No worker was started, so nothing else will delete the file.
-        if tracker is not None:
-            tracker.fail(str(error))
-        _discard_worker_input(tmp_path)
-        raise
-    # A second esmfold is refused while this worker runs (step 4b), and `esmfold stop` ends it.
-    viewer.esmfold_worker = (process, tracker)
-    from Viewer_Worker_Tracking import track_worker
-    track_worker(process, input_path=tmp_path, output_dir=abs_structures_dir, tracker=tracker)
+    run.job_id = job_id
 
-    # 10. Open Mol* web browser tab immediately. A headless Viewer has no browser to open it in, and
-    # nobody to close a worker's window: it ends the hidden worker when it quits or its job fails.
+    # 10. Open Mol* web browser tab immediately. A headless Viewer has no browser to open it in.
     if headless:
-        from Viewer_Worker_Tracking import track_hidden_worker
-        track_hidden_worker(process)
-        if tracker is not None:
-            tracker.attach_hidden(process, log_path)
         page_opened = False
     else:
         page_opened = esmfold_backend.open_esmfold_ui(viewer, show_existing_dialog=False)
+    position = next((entry.position for entry in scheduler.snapshot() if entry.job.job_id == job_id), 1)
     mode_label = "Biohub ESM3" if is_large else "local ESM3"
     if is_large:
-        spawning = Message("Spawning separate console to fold %n structure(s) with Biohub ESM3...", n=len(nodes_to_fold))
+        queued = Message("Queued %n structure(s) for folding with Biohub ESM3 as job #{job}.", n=len(nodes_to_fold), job=job_id)
     else:
-        spawning = Message("Spawning separate console to fold %n structure(s) with local ESM3...", n=len(nodes_to_fold))
-    outcome = f"Started {mode_label} folding for {len(nodes_to_fold)} structure(s); waiting for the worker."
+        queued = Message("Queued %n structure(s) for folding with local ESM3 as job #{job}.", n=len(nodes_to_fold), job=job_id)
+    outcome = f"Queued {mode_label} folding for {len(nodes_to_fold)} structure(s) as job #{job_id}."
+    if position > 1:
+        waiting = Message("It is number {position} in the folding line.", position=position)
+        queued = JoinedMessage([queued, waiting])
+        outcome += f" {waiting}"
     if skipped_ids:
         skipped = Message("Skipped %n selected node(s) without a sequence.", n=len(skipped_ids))
-        spawning = JoinedMessage([spawning, skipped])
+        queued = JoinedMessage([queued, skipped])
         outcome += f" {skipped}"
         if len(skipped_ids) <= MAX_LISTED_SKIPPED:
             outcome += f" ({', '.join(skipped_ids)})"
+    if taken:
+        held = Message("Left out %n selected node(s) another fold holds: {nodes}.", n=len(taken), nodes=", ".join(taken))
+        queued = JoinedMessage([queued, held])
+        outcome += f" {held}"
     if clicked_note is not None:
-        spawning = JoinedMessage([clicked_note, spawning])
+        queued = JoinedMessage([clicked_note, queued])
         outcome += f" {clicked_note}"
     for note, names in residue_notes:
         print(note)
-        spawning = JoinedMessage([spawning, note])
+        queued = JoinedMessage([queued, note])
         outcome += f" {note}"
         if names and len(names) <= MAX_LISTED_SKIPPED:
             outcome += f" ({', '.join(names)})"
+    outcome += f" The worker runs without a window; its output is in {run.log_path}."
     if headless:
-        outcome += f" The worker has no window; its output is in {log_path}."
         address = None if _structure_viewer_connected(viewer) else _structure_viewer_address(viewer)
         if address is not None:
             outcome += f" A Viewer with no window opens no browser page; the structure viewer is served at {address}."
@@ -598,5 +800,5 @@ def run(viewer, args):
         return
     if not page_opened and not _structure_viewer_connected(viewer):
         outcome += " The structure viewer page was not opened; use the Fold View button if it does not appear."
-    _set_console_text(viewer, spawning)
+    _set_console_text(viewer, queued)
     Command_Engine.command_succeeded(viewer, outcome)

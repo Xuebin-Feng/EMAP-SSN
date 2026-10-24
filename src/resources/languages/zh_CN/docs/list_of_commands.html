@@ -913,7 +913,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-esmfold" data-source-sha256="54072a65e4e3ddcf8924870cc54bb4bbbbba995aaf9446d2355a34773d82e723">
+            <section class="command-card" id="cmd-esmfold" data-source-sha256="6596f420bfec82ad795372aea53942462465544f38c3f8bbdbdc01cfd609420c">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">esmfold</span>
@@ -930,17 +930,17 @@
                 <div class="subheading">核心参数</div>
                 <ul>
                     <li><strong>不带参数：</strong>用本地的 ESM3 1.4B 预测一个选中的节点，并生成主链坐标 PDB 文件。没有选中节点时，会折叠最后点击的节点并说明这一点（“未选择任何节点，因此将折叠最后点击的节点的结构：&lt;node&gt;。”）；如果也没有点击过任何节点，则注册“结构视图”按钮并打开 Mol*，但不启动预测。如果选中了多个节点，除非给出 <code>multi</code>，否则命令会失败。</li>
-                    <li><strong>multi：</strong>在后台控制台中依次处理当前选中的所有节点。除非与 <code>large</code> 组合，否则使用仅主链的本地模式。</li>
+                    <li><strong>multi：</strong>在一个后台任务中依次处理当前选中的所有节点。除非与 <code>large</code> 组合，否则使用仅主链的本地模式。</li>
                     <li><strong>large：</strong>使用 <code>src/resources/Biohub_API.json</code> 中的模型远程预测一个选中的节点，当前为 ESM3 Large 98B。与本地仅主链的输出不同，当前 Biohub 的输出包含侧链重原子。可与 <code>multi</code> 以任意顺序组合，进行依次执行的远程批量预测。</li>
-                    <li><strong>stop：</strong>结束本查看器启动的所有折叠工作进程以及它们各自启动的进程，无论其无窗口运行还是在控制台窗口中运行，且不影响其他任何进程。工作进程已保存的结构会保留，写到一半的结构会被删除，该工作进程在命令请求中的任务会报告为已取消。没有工作进程在运行时，命令也会成功并说明这一点。只包含停止命令的请求会立即运行，即使它所结束的 esmfold 请求仍在等待其工作进程。</li>
+                    <li><strong>stop：</strong>结束正在运行的折叠及其启动的所有进程，并把等待中的折叠移出队列，不影响其他任何内容。已保存的结构会保留，写到一半的结构会被删除，每个折叠的任务都会报告为已取消。没有折叠在运行或等待时，命令也会成功并说明这一点。只包含停止命令的请求会立即运行，即使它所结束的 esmfold 请求仍在等待其工作进程。</li>
                     <li><strong>help：</strong>打印命令行帮助和用法说明。</li>
                 </ul>
 
                 <div class="subheading">硬件与系统集成</div>
                 <ul>
                     <li><strong>本地加速：</strong>本地推理会自动在已安装的运行时所支持的 CUDA/ROCm、Intel XPU、Apple Metal（MPS）和 CPU 设备中进行选择。</li>
-                    <li><strong>Biohub 模式：</strong>远程推理绕过本地硬件选择，把本地和远程的 PDB 文件分开存放，并在首次使用时于工作进程的终端中提示输入隐藏的共享 API 令牌。</li>
-                    <li><strong>工作进程：</strong>作为独立的后台控制台窗口启动，以免桌面查看器卡死。没有窗口的查看器（无界面的，或窗口未显示的隐藏查看器）则改为无窗口运行该工作进程，输出写入日志文件，也不打开 Mol* 页面：命令的结果会给出日志的位置和 Mol* 页面的服务地址。同一时间只运行一个工作进程：已有一个在运行时，<code>esmfold</code> 会拒绝启动另一个，因为那会把第二个模型加载到 GPU 内存中。请等待该工作进程结束，运行 <code>esmfold stop</code>，或关闭它的控制台窗口（没有窗口的查看器会在查看器关闭时结束其工作进程）。在没有选中或点击任何节点时打开 Mol* 不会被拒绝。</li>
+                    <li><strong>Biohub 模式：</strong>远程推理绕过本地硬件选择，把本地和远程的 PDB 文件分开存放。它需要事先保存好 Biohub API 设置（或设置 <code>ESM_API_KEY</code> 环境变量）；没有这些时 <code>esmfold large</code> 会被拒绝，因为无窗口的工作进程没有地方可以询问令牌。</li>
+                    <li><strong>工作进程：</strong>每次折叠都是查看器后台任务调度器中的一个任务，排在自己的<em>折叠</em>队列里，与文件任务（<code>label</code>、<code>logo</code>、<code>print</code>）的队列并列。工作进程在后台无窗口运行，桌面查看器保持流畅，输出写入日志文件，命令的结果会给出该文件的位置。同一时间只运行一个工作进程，因此不会把第二个模型加载到 GPU 内存中；在另一个折叠运行时再给出折叠命令不会被拒绝，而是排队等候，结果会给出它在队列中的位置。别的折叠将要写入或正在写入的节点会从新的折叠中省略，结果会指出占用它的任务；一个节点也不剩时，命令会被拒绝。查看器会话卡片的<em>后台任务</em>一节列出这些折叠：可以移动或移除等待中的折叠，也可以停止正在运行的折叠，<code>jobs</code> 和 <code>esmfold stop</code> 同样可以。没有窗口的查看器（无界面的，或窗口未显示的隐藏查看器）不打开 Mol* 页面：命令的结果会给出 Mol* 页面的服务地址。关闭查看器会结束正在运行的工作进程。在没有选中或点击任何节点时打开 Mol* 不会排队。</li>
                     <li><strong>Mol* 界面：</strong>托管一个 Web 服务器，在丰富的交互式三维查看器中加载预测出的结构。</li>
                     <li><strong>逐残基数据：</strong>已加载比对时，为比对中包含的节点折叠出的每个结构，会在其 PDB 文件旁生成 <code>&lt;pdb name&gt;.residues.json</code> 文件，其中为每个残基给出两个值，均由整个已加载的比对计算（包括已隐藏的节点）：信息含量，即 <code>logo</code> 命令默认绘制的列高度，以 log2(20) = 4.32 比特为 100%；以及残基一致率，即该列中带有标准氨基酸的比对序列里，与本蛋白质该位置氨基酸相同者所占的比例（本蛋白质自身也计入）。该文件还会写明所用比对、已加载行的标识以及每个残基对应的比对列。比对中没有的节点，或比对中以另一条序列收录的节点，不生成该文件；未加载比对时所有节点都不生成。命令的结果会说明具体原因。结构查看器页面会读取这些文件。</li>
                 </ul>

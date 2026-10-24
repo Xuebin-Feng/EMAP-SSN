@@ -2832,7 +2832,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Background job #{job} was stopped before it finished; no file was written: {description}</source>
+        <source>Background job #{job} was stopped before it finished: {description}</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3291,8 +3291,59 @@ Command-line usage:
         <source>No per-residue alignment data is saved: no alignment is loaded.</source>
         <translation type="unfinished"></translation>
     </message>
+    <message>
+        <source>Getting the model ready…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folding {index} of {total}: {name}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folding {name} failed: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n more structure(s) failed too.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>The folding worker failed: {reason}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The folding worker stopped (exit code {code}); its output is in {log}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Starting the folding worker…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not launch the folding worker without a window:
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>ESMFold worker stopped</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Folded %n structure(s).</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
     <message numerus="yes">
         <source>Stopped %n ESMFold worker(s); structures already saved are kept.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Removed %n queued fold(s).</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
@@ -3330,7 +3381,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>An esmfold worker is still running. Wait for it to finish, or close its console window, before folding again.</source>
+        <source>The background job scheduler is unavailable.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3351,28 +3402,45 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Could not launch the ESMFold worker in a terminal:
-{error}</source>
+        <source>Biohub API credentials are not saved. Create the Biohub API settings file or set ESM_API_KEY before folding with esmfold large.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Could not launch the ESMFold terminal.</source>
+        <source>Every selected node is already queued or being folded: {nodes}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Folding</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Could not queue the fold: {error}</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <source>Spawning separate console to fold %n structure(s) with Biohub ESM3...</source>
+        <source>Queued %n structure(s) for folding with Biohub ESM3 as job #{job}.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <source>Spawning separate console to fold %n structure(s) with local ESM3...</source>
+        <source>Queued %n structure(s) for folding with local ESM3 as job #{job}.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
+    </message>
+    <message>
+        <source>It is number {position} in the folding line.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
         <source>Skipped %n selected node(s) without a sequence.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Left out %n selected node(s) another fold holds: {nodes}.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
@@ -3713,10 +3781,6 @@ Command-line usage:
     </message>
     <message>
         <source>No clusters or groups defined.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>The background job scheduler is unavailable.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -8310,10 +8374,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>ESMFold Web Server Error</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>ESMFold Launch Error</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

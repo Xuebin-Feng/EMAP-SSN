@@ -20,11 +20,20 @@ def worker_directory():
 
 
 class WorkerTracker(QtCore.QObject):
-    def __init__(self, context):
+    """Reports a worker process's status file, and its output, to the command's portal record.
+
+    By default the tracker is the job: it adds its own job to the record, named
+    after the status file it makes. A job that exists already, such as one the
+    background scheduler runs, gives its own ``job_id`` and the ``path`` of
+    the status file its worker was told to write, and ``add_job=False``: the
+    tracker then reports into that job's entry.
+    """
+
+    def __init__(self, context, *, job_id=None, path=None, add_job=True):
         super().__init__(context.portal)
         self.context = context
-        self.job_id = 'worker-' + uuid.uuid4().hex
-        self.path = worker_directory() / (self.job_id + '.json')
+        self.job_id = str(job_id) if job_id is not None else 'worker-' + uuid.uuid4().hex
+        self.path = Path(path) if path is not None else worker_directory() / (self.job_id + '.json')
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self.created = time.monotonic()
         self.identity = None
@@ -34,7 +43,8 @@ class WorkerTracker(QtCore.QObject):
         # The StartedWorker that runs this job, once track_worker has it.
         self.worker = None
         self.log_offsets = {'stdout': 0, 'stderr': 0}
-        context.add_job(self.job_id)
+        if add_job:
+            context.add_job(self.job_id)
         self.timer = QtCore.QTimer(self)
         self.timer.timeout.connect(self.poll)
         self.timer.start(250)

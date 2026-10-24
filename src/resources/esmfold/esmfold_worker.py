@@ -125,8 +125,11 @@ def build_sidecar(structure, header, sequence, chain, first, properties):
     }
 
 
-def notify_server(node_id, pdb_filename, action_url=None):
-    """Tell the Viewer at ``action_url`` about a new structure; no URL, no request."""
+def notify_server(node_id, pdb_filename, action_url=None, run=None):
+    """Tell the Viewer at ``action_url`` about a new structure; no URL, no request.
+
+    ``run`` is the id the Viewer gave this run (--run-id), so that it can tell which of its runs the structure is of.
+    """
     if not action_url:
         return
     payload = {
@@ -134,6 +137,8 @@ def notify_server(node_id, pdb_filename, action_url=None):
         "node_id": node_id,
         "pdb_filename": pdb_filename,
     }
+    if run:
+        payload["run"] = run
     data = json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         action_url,
@@ -264,6 +269,11 @@ def parse_arguments(argv=None):
     )
     parser.add_argument("--portal-status", default=None)
     parser.add_argument("--noninteractive", action="store_true")
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="the id the Viewer gave this run: every event the worker posts carries it",
+    )
     parser.add_argument(
         "--delete-input",
         action="store_true",
@@ -635,6 +645,8 @@ def main(argv=None):
     os.makedirs(arguments.structures_dir, exist_ok=True)
 
     def job_event(event, **fields):
+        if arguments.run_id:
+            fields["run"] = arguments.run_id
         notify_job(event, arguments.action_url, **fields)
 
     # Where the worker's output of this run is kept, when it is kept (the Viewer's terminal shows it otherwise).
@@ -665,7 +677,10 @@ def main(argv=None):
         folded = []
 
         def notifier(node_id, pdb_filename):
-            notify_server(node_id, pdb_filename, arguments.action_url)
+            if arguments.run_id:
+                notify_server(node_id, pdb_filename, arguments.action_url, run=arguments.run_id)
+            else:
+                notify_server(node_id, pdb_filename, arguments.action_url)
             folded.append(node_id)
             _portal_state['artifacts'].append(os.path.abspath(os.path.join(arguments.structures_dir, pdb_filename)))
             portal_event('running', f'Folded {node_id}', succeeded=len(folded), total=len(nodes_to_fold))

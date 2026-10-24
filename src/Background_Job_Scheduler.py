@@ -82,9 +82,10 @@ class BackgroundJob:
 
     ``reserved_paths`` are every output the job reserves, ``output_path`` first;
     ``cleanup()`` is called once when the job leaves the scheduler, however it
-    ends; ``on_finished(job, outcome, error)`` is called on the GUI thread once
-    the job's end is reported, outcome being "succeeded", "failed" or "cancelled"
-    and error the error of a failed job; ``log_path`` is a log the job writes.
+    ends; ``on_started(job)`` is called on the GUI thread when the job begins to
+    run, and ``on_finished(job, outcome, error)`` once its end is reported,
+    outcome being "succeeded", "failed" or "cancelled" and error the error of a
+    failed job; ``log_path`` is a log the job writes.
     """
     job_id: int
     command_name: str
@@ -96,6 +97,7 @@ class BackgroundJob:
     lane: str = DEFAULT_LANE
     reserved_paths: tuple = ()
     cleanup: Callable[[], None] | None = None
+    on_started: Callable[..., None] | None = None
     on_finished: Callable[..., None] | None = None
     log_path: str | None = None
 
@@ -318,26 +320,43 @@ class BackgroundJobScheduler(QtCore.QObject):
         would have, and is reported as completed. A job already told to stop
         is not told again.
         """
-        removed = handle = None
+        return bool(self.cancel_many([job_id]))
+
+    def cancel_many(self, job_ids):
+        """Cancel several jobs as one step; return the numbers of those that there was something to cancel.
+
+        The waiting ones are taken out of their lines before any running one is
+        told to stop, in a single step: a lane's next job could otherwise start
+        in between, when the running job ended at once, and run although it was
+        among those to cancel.
+        """
+        removed = []
+        handles = []
+        cancelled = []
         with self._lock:
-            lane, index = self._find(job_id)
-            if lane is None:
-                return False
-            if index is not None:
-                removed = lane.queued.pop(index)
-                self._release(removed)
-            elif not lane.stopping:
-                lane.stopping = True
-                handle = lane.handle
-            else:
-                return False
-        if removed is not None:
-            self.job_cancelled.emit(removed, False)
-            self._clean_up(removed)
-        if handle is not None:
+            for job_id in job_ids:
+                lane, index = self._find(job_id)
+                if lane is None:
+                    continue
+                if index is not None:
+                    job = lane.queued.pop(index)
+                    self._release(job)
+                    removed.append(job)
+                elif not lane.stopping:
+                    lane.stopping = True
+                    if lane.handle is not None:
+                        handles.append(lane.handle)
+                else:
+                    continue
+                cancelled.append(job_id)
+        for job in removed:
+            self.job_cancelled.emit(job, False)
+            self._clean_up(job)
+        for handle in handles:
             handle.request()
-        self.changed.emit()
-        return True
+        if cancelled:
+            self.changed.emit()
+        return cancelled
 
     def move(self, job_id, offset):
         """Move a waiting job ``offset`` places along its lane's line (negative is earlier); return whether it moved.
@@ -392,6 +411,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         lane_title=None,
         extra_paths=(),
         cleanup=None,
+        on_started=None,
         on_finished=None,
         log_path=None,
         front=False,
@@ -403,9 +423,10 @@ class BackgroundJobScheduler(QtCore.QObject):
         ``output_path`` must not exist, unless allow_overwrite. ``lane`` names
         the line the job goes in, made if it is new, with ``lane_title`` as its
         title for the card. ``cleanup`` is called once when the job leaves
-        the scheduler, however it ends; ``on_finished(job, outcome, error)`` on
-        the GUI thread when its end is reported; ``log_path`` names a log the job
-        writes. A worker with a second parameter named ``job`` is given the job's JobHandle.
+        the scheduler, however it ends; ``on_started(job)`` on the GUI thread when
+        it begins to run and ``on_finished(job, outcome, error)`` when its end is
+        reported; ``log_path`` names a log the job writes. A worker with a second
+        parameter named ``job`` is given the job's JobHandle.
         """
         from Viewer_Command_Portal import CURRENT
         command_context = CURRENT.get()
@@ -438,6 +459,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                 lane=target.name,
                 reserved_paths=paths,
                 cleanup=cleanup,
+                on_started=on_started,
                 on_finished=on_finished,
                 log_path=None if log_path is None else os.fspath(log_path),
             )
@@ -602,6 +624,15 @@ class BackgroundJobScheduler(QtCore.QObject):
         except Exception as problem:  # What a command does with the news must not stop the reports.
             print(f"Warning: Background job #{job.job_id}'s follow-up failed: {problem}")
 
+    def _started(self, job):
+        """Tell the job's own on_started, on the GUI thread, that it runs."""
+        if job.on_started is None:
+            return
+        try:
+            job.on_started(job)
+        except Exception as problem:
+            print(f"Warning: Background job #{job.job_id}'s start-up failed: {problem}")
+
     @QtCore.Slot(object)
     def _report_started(self, job):
         if job.command_context is not None:
@@ -611,6 +642,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         )
         print(message)
         self._set_viewer_status(message)
+        self._started(job)
 
     @QtCore.Slot(object, object, float)
     def _report_succeeded(self, job, result, elapsed):
@@ -641,7 +673,7 @@ class BackgroundJobScheduler(QtCore.QObject):
     @QtCore.Slot(object, bool)
     def _report_cancelled(self, job, started):
         if started:
-            message = Message("Background job #{job} was stopped before it finished; no file was written: {description}",
+            message = Message("Background job #{job} was stopped before it finished: {description}",
                               job=job.job_id, description=job.description)
         else:
             message = Message("Background job #{job} was cancelled before it started: {description}",

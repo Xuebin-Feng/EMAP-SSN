@@ -4120,12 +4120,12 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
-        <location filename="../../../Background_Job_Scheduler.py" line="+192"/>
+        <location filename="../../../Background_Job_Scheduler.py" line="+194"/>
         <source>Files</source>
         <translation type="unfinished">文件</translation>
     </message>
     <message>
-        <location line="+226"/>
+        <location line="+245"/>
         <source>The background job scheduler is shutting down.</source>
         <translation type="unfinished">后台任务调度器正在关闭。</translation>
     </message>
@@ -4148,17 +4148,17 @@ Command-line usage:
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+36"/>
         <source>Queued background job #{job}: {command} (position {position}) -&gt; {file}</source>
         <translation type="unfinished">已排队后台任务 #{job}：{command}（第 {position} 位）→ {file}</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+160"/>
         <source>Running background job #{job}: {description}</source>
         <translation type="unfinished">正在运行后台任务 #{job}：{description}</translation>
     </message>
     <message>
-        <location line="+8"/>
+        <location line="+9"/>
         <source>Saved {path}</source>
         <translation type="unfinished">已保存 {path}</translation>
     </message>
@@ -4169,8 +4169,12 @@ Command-line usage:
     </message>
     <message>
         <location line="+26"/>
+        <source>Background job #{job} was stopped before it finished: {description}</source>
+        <translation type="unfinished">后台任务 #{job} 在完成前已停止：{description}</translation>
+    </message>
+    <message>
         <source>Background job #{job} was stopped before it finished; no file was written: {description}</source>
-        <translation type="unfinished">后台任务 #{job} 在完成前已停止，未写入任何文件：{description}</translation>
+        <translation type="obsolete">后台任务 #{job} 在完成前已停止，未写入任何文件：{description}</translation>
     </message>
     <message>
         <location line="+3"/>
@@ -4421,8 +4425,11 @@ Command-line usage:
         <location line="+8"/>
         <location filename="../../../commands/agent.py" line="+74"/>
         <location line="+127"/>
-        <location filename="../../../commands/esmfold.py" line="+94"/>
-        <location line="+280"/>
+        <location filename="../../../commands/esmfold.py" line="+99"/>
+        <location line="+496"/>
+        <location line="+93"/>
+        <location line="+22"/>
+        <location line="+45"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
         <location filename="../../../commands/logo.py" line="-221"/>
@@ -4449,10 +4456,10 @@ Command-line usage:
         <location filename="../../../commands/cluster.py" line="+346"/>
         <location filename="../../../commands/color.py" line="+95"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
-        <location filename="../../../commands/esmfold.py" line="-76"/>
+        <location filename="../../../commands/esmfold.py" line="-231"/>
         <location filename="../../../commands/export.py" line="+108"/>
         <location filename="../../../commands/group.py" line="+138"/>
-        <location filename="../../../commands/jobs.py" line="+195"/>
+        <location filename="../../../commands/jobs.py" line="+194"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
@@ -4664,7 +4671,7 @@ Command-line usage:
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/esmfold.py" line="-150"/>
+        <location filename="../../../commands/esmfold.py" line="-371"/>
         <source>No per-residue alignment data for %n structure(s): not in the alignment.</source>
         <translation type="unfinished">
             <numerusform>%n 个结构没有逐残基比对数据：不在比对中。</numerusform>
@@ -4696,20 +4703,83 @@ Command-line usage:
         <source>No per-residue alignment data is saved: no alignment is loaded.</source>
         <translation type="unfinished">未保存逐残基比对数据：未加载比对。</translation>
     </message>
+    <message>
+        <location line="+108"/>
+        <source>Getting the model ready…</source>
+        <translation type="unfinished">正在准备模型…</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Folding {index} of {total}: {name}</source>
+        <translation type="unfinished">正在折叠第 {index} 个，共 {total} 个：{name}</translation>
+    </message>
+    <message>
+        <location line="+18"/>
+        <source>Folding {name} failed: {reason}</source>
+        <translation type="unfinished">折叠 {name} 失败：{reason}</translation>
+    </message>
     <message numerus="yes">
-        <location line="+17"/>
+        <location line="+2"/>
+        <source>%n more structure(s) failed too.</source>
+        <translation type="unfinished">
+            <numerusform>另有 %n 个结构也失败了。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>The folding worker failed: {reason}</source>
+        <translation type="unfinished">折叠工作进程失败：{reason}</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>The folding worker stopped (exit code {code}); its output is in {log}.</source>
+        <translation type="unfinished">折叠工作进程已停止（退出码 {code}）；其输出在 {log} 中。</translation>
+    </message>
+    <message>
+        <location line="+54"/>
+        <source>Starting the folding worker…</source>
+        <translation type="unfinished">正在启动折叠工作进程…</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Could not launch the folding worker without a window:
+{error}</source>
+        <translation type="unfinished">无法以无窗口方式启动折叠工作进程：
+{error}</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>ESMFold worker stopped</source>
+        <translation type="unfinished">ESMFold 工作进程已停止</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+9"/>
+        <source>Folded %n structure(s).</source>
+        <translation type="unfinished">
+            <numerusform>已折叠 %n 个结构。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+29"/>
         <source>Stopped %n ESMFold worker(s); structures already saved are kept.</source>
         <translation type="unfinished">
             <numerusform>已停止 %n 个 ESMFold 工作进程；已保存的结构予以保留。</numerusform>
         </translation>
     </message>
-    <message>
+    <message numerus="yes">
         <location line="+2"/>
+        <source>Removed %n queued fold(s).</source>
+        <translation type="unfinished">
+            <numerusform>已移除 %n 个排队中的折叠。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>No ESMFold worker is running.</source>
         <translation type="unfinished">没有正在运行的 ESMFold 工作进程。</translation>
     </message>
     <message>
-        <location line="+34"/>
+        <location line="+12"/>
         <source>Unknown esmfold keyword: {keyword}</source>
         <translation type="unfinished">未知的 esmfold 关键字：{keyword}</translation>
     </message>
@@ -4719,7 +4789,7 @@ Command-line usage:
         <translation type="unfinished">重复的 esmfold 关键字：{keyword}</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+46"/>
         <source>Help cannot be combined with other keywords.</source>
         <translation type="unfinished">help 不能与其他关键字同时使用。</translation>
     </message>
@@ -4744,12 +4814,57 @@ Command-line usage:
         <translation type="unfinished">错误：选择了多个节点。请使用 &apos;esmfold multi&apos;。</translation>
     </message>
     <message>
-        <location line="+10"/>
-        <source>An esmfold worker is still running. Wait for it to finish, or close its console window, before folding again.</source>
-        <translation type="unfinished">一个 esmfold 工作进程仍在运行。请等它结束或关闭它的控制台窗口，然后再折叠新的结构。</translation>
+        <location line="+98"/>
+        <source>Biohub API credentials are not saved. Create the Biohub API settings file or set ESM_API_KEY before folding with esmfold large.</source>
+        <translation type="unfinished">尚未保存 Biohub API 凭据。请先创建 Biohub API 设置文件，或设置 ESM_API_KEY，再使用 esmfold large 进行折叠。</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+25"/>
+        <source>Every selected node is already queued or being folded: {nodes}.</source>
+        <translation type="unfinished">所选节点都已在排队或正在折叠：{nodes}。</translation>
+    </message>
+    <message>
+        <location line="+35"/>
+        <source>Folding</source>
+        <translation type="unfinished">折叠</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Could not queue the fold: {error}</source>
+        <translation type="unfinished">无法将折叠加入队列：{error}</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+15"/>
+        <source>Queued %n structure(s) for folding with Biohub ESM3 as job #{job}.</source>
+        <translation type="unfinished">
+            <numerusform>已将 %n 个结构加入 Biohub ESM3 折叠队列，任务 #{job}。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>Queued %n structure(s) for folding with local ESM3 as job #{job}.</source>
+        <translation type="unfinished">
+            <numerusform>已将 %n 个结构加入本地 ESM3 折叠队列，任务 #{job}。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>It is number {position} in the folding line.</source>
+        <translation type="unfinished">它在折叠队列中排第 {position} 位。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+10"/>
+        <source>Left out %n selected node(s) another fold holds: {nodes}.</source>
+        <translation type="unfinished">
+            <numerusform>已省略 %n 个所选节点，它们被另一个折叠占用：{nodes}。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>An esmfold worker is still running. Wait for it to finish, or close its console window, before folding again.</source>
+        <translation type="obsolete">一个 esmfold 工作进程仍在运行。请等它结束或关闭它的控制台窗口，然后再折叠新的结构。</translation>
+    </message>
+    <message>
+        <location line="-173"/>
         <source>Error: PyTorch/Hardware_Utils missing</source>
         <translation type="unfinished">错误：缺少 PyTorch/Hardware_Utils</translation>
     </message>
@@ -4771,33 +4886,29 @@ Command-line usage:
         <translation type="unfinished">错误：查看器的 Web 服务器不可用。</translation>
     </message>
     <message>
-        <location line="+84"/>
         <source>Could not launch the ESMFold worker in a terminal:
 {error}</source>
-        <translation type="unfinished">无法在终端中启动 ESMFold 工作进程：
+        <translation type="obsolete">无法在终端中启动 ESMFold 工作进程：
 {error}</translation>
     </message>
     <message>
-        <location line="+7"/>
         <source>Error: Could not launch the ESMFold terminal.</source>
-        <translation type="unfinished">错误：无法启动 ESMFold 终端。</translation>
+        <translation type="obsolete">错误：无法启动 ESMFold 终端。</translation>
     </message>
     <message numerus="yes">
-        <location line="+26"/>
         <source>Spawning separate console to fold %n structure(s) with Biohub ESM3...</source>
-        <translation type="unfinished">
+        <translation type="obsolete">
             <numerusform>正在打开单独的控制台，用 Biohub ESM3 折叠 %n 个结构…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+2"/>
         <source>Spawning separate console to fold %n structure(s) with local ESM3...</source>
-        <translation type="unfinished">
+        <translation type="obsolete">
             <numerusform>正在打开单独的控制台，用本地 ESM3 折叠 %n 个结构…</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="+3"/>
+        <location line="+99"/>
         <source>Skipped %n selected node(s) without a sequence.</source>
         <translation type="unfinished">
             <numerusform>已跳过 %n 个没有序列的选中节点。</numerusform>
@@ -5204,13 +5315,14 @@ Command-line usage:
         <translation type="unfinished">未定义任何簇或分组。</translation>
     </message>
     <message>
-        <location line="+5"/>
+        <location filename="../../../commands/esmfold.py" line="-184"/>
+        <location filename="../../../commands/label.py" line="+5"/>
         <location filename="../../../commands/print.py" line="+138"/>
         <source>The background job scheduler is unavailable.</source>
         <translation type="unfinished">后台任务调度器不可用。</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location filename="../../../commands/label.py" line="+40"/>
         <source>Output file cannot be replaced (it may be open in another program or read-only): {path}</source>
         <translation type="unfinished">无法替换输出文件（它可能已在其他程序中打开，或为只读）：{path}</translation>
     </message>
@@ -6971,7 +7083,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已在 {url} 打开{page}</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_backend.py" line="+90"/>
+        <location filename="../../../web_ui/esmfold_backend.py" line="+91"/>
         <source>ESMFold Mol* UI</source>
         <translation type="unfinished">ESMFold Mol* 界面</translation>
     </message>
@@ -8448,7 +8560,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">#{job} {command} 在 {seconds} 秒后失败。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/jobs.py" line="-73"/>
+        <location filename="../../../commands/jobs.py" line="-68"/>
         <source>%n job(s) waiting or running; the list is in the terminal.</source>
         <translation type="unfinished">
             <numerusform>有 %n 个任务在等待或运行；列表已输出到终端。</numerusform>
@@ -8465,7 +8577,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已用 jobs cancel 取消。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+15"/>
         <source>Error: &apos;{word}&apos; is not a job number. Use jobs cancel N, or jobs cancel all.</source>
         <translation type="unfinished">错误：“{word}”不是任务编号。请使用 jobs cancel N 或 jobs cancel all。</translation>
     </message>
@@ -8479,7 +8591,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">错误：任务 #{job} 正在写入文件，无法取消；未取消任何任务。</translation>
     </message>
     <message>
-        <location line="+11"/>
+        <location line="+7"/>
         <source>Nothing to cancel: no command waits or runs.</source>
         <translation type="unfinished">没有可取消的内容：没有等待或运行中的命令。</translation>
     </message>
@@ -12183,14 +12295,13 @@ Fedora / RHEL：
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="-123"/>
+        <location filename="../../../commands/esmfold.py" line="+84"/>
         <source>ESMFold Web Server Error</source>
         <translation type="unfinished">ESMFold Web 服务器错误</translation>
     </message>
     <message>
-        <location line="+90"/>
         <source>ESMFold Launch Error</source>
-        <translation type="unfinished">ESMFold 启动错误</translation>
+        <translation type="obsolete">ESMFold 启动错误</translation>
     </message>
     <message>
         <location filename="../../../commands/meta.py" line="+30"/>

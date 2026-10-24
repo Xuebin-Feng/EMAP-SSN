@@ -533,6 +533,31 @@ class LineRemovalTests(LineTestCase):
         self.wait_idle()
         self.assertFalse(self.scheduler.cancel(1), "a job that finished")
 
+    def test_cancelling_several_jobs_takes_out_the_waiting_ones_before_the_running_one_stops(self):
+        # The running job ends the moment it is told to; the job behind it must not start in between.
+        started = threading.Event()
+
+        def worker(payload):
+            started.set()
+            while True:
+                time.sleep(0.005)
+                raise_if_cancelled()
+
+        running = self.enqueue("a", worker)
+        first, second = self.enqueue("b"), self.enqueue("c")
+        self.assertTrue(started.wait(STARTUP_TIMEOUT))
+
+        cancelled = self.scheduler.cancel_many([running, first, second, 404])
+
+        self.assertEqual(sorted(cancelled), sorted([running, first, second]), "404 is no job")
+        self.assertTrue(wait_for(lambda: ("stopped", running) in self.reports))
+        self.wait_idle()
+        self.assertEqual(self.ran, [], "neither waiting job started")
+        self.assertEqual(
+            sorted(job for kind, job in self.reports if kind == "removed"), sorted([first, second]))
+        self.assertEqual(self.scheduler.snapshot(), [])
+        self.assertEqual(self.scheduler.cancel_many([running, first]), [], "nothing is left to cancel")
+
     def test_a_running_job_is_told_to_stop_and_ends_at_its_next_check_point_without_its_file(self):
         reached, stopping_seen = threading.Event(), threading.Event()
         partial = self.path(".partial-file")
@@ -1173,7 +1198,7 @@ class SchedulerNamesNoCommandTests(unittest.TestCase):
         return found
 
     def test_the_commands_that_queue_jobs_are_found(self):
-        self.assertEqual(self.command_words()[:3], ["label", "logo", "print"])
+        self.assertEqual(self.command_words()[:4], ["esmfold", "label", "logo", "print"])
 
     def test_the_check_finds_a_command_named_in_code_and_leaves_prose_alone(self):
         flagged = "\n".join([
@@ -1183,7 +1208,7 @@ class SchedulerNamesNoCommandTests(unittest.TestCase):
             "if name == 'esmfold':",
             "    pass",
         ])
-        self.assertEqual([word for _line, word in self.mentions_in(flagged)], ["logo", "print"])
+        self.assertEqual([word for _line, word in self.mentions_in(flagged)], ["logo", "print", "esmfold"])
         prose = "\n".join([
             '"""The print of a label."""',
             "# print label logo",

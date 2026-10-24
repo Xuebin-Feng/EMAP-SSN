@@ -79,9 +79,13 @@ def _file_jobs(viewer):
     return [(job, 'running' if running else 'waiting') for job, running in (listing() if listing is not None else [])]
 
 
-def _cancel_file_job(viewer, job_id):
-    cancel = getattr(getattr(viewer, 'background_job_scheduler', None), 'cancel', None)
-    return cancel is not None and cancel(job_id)
+def _cancel_file_jobs(viewer, jobs):
+    """Cancel these file jobs in one step (the waiting ones first); return their entries that were cancelled."""
+    cancel_many = getattr(getattr(viewer, 'background_job_scheduler', None), 'cancel_many', None)
+    if cancel_many is None or not jobs:
+        return []
+    cancelled = set(cancel_many([job.job_id for job in jobs]))
+    return [job for job in jobs if job.job_id in cancelled]
 
 
 def _external_counts():
@@ -151,9 +155,8 @@ def cancel_jobs(viewer, words):
     elif len(words) == 1 and words[0].lower() == 'all':
         cancelled = queue.cancel_all(reason) if queue is not None else []
         names = [job.label() for job in cancelled]
-        for job, _state in _file_jobs(viewer):
-            if _cancel_file_job(viewer, job.job_id):
-                names.append(f"#{job.job_id} {job.description}")
+        files = _cancel_file_jobs(viewer, [job for job, _state in _file_jobs(viewer)])
+        names.extend(f"#{job.job_id} {job.description}" for job in files)
     else:
         # Every number must name a job that can be cancelled, or nothing is cancelled.
         targets = []
@@ -173,13 +176,9 @@ def cancel_jobs(viewer, words):
                 _refuse(viewer, Message("Error: No job #{job} waits or runs; nothing was cancelled.", job=number))
                 return
             targets.append(('file', entry))
-        names = []
-        for kind, job in targets:
-            if kind == 'command':
-                if queue.cancel(job, reason):
-                    names.append(job.label())
-            elif _cancel_file_job(viewer, job.job_id):
-                names.append(f"#{job.job_id} {job.description}")
+        names = [job.label() for kind, job in targets if kind == 'command' and queue.cancel(job, reason)]
+        files = _cancel_file_jobs(viewer, [job for kind, job in targets if kind == 'file'])
+        names.extend(f"#{job.job_id} {job.description}" for job in files)
     if not names:
         msg = Message("Nothing to cancel: no command waits or runs.")
     else:
