@@ -4120,7 +4120,7 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
-        <location filename="../../../Background_Job_Scheduler.py" line="+194"/>
+        <location filename="../../../Background_Job_Scheduler.py" line="+196"/>
         <source>Files</source>
         <translation type="unfinished">文件</translation>
     </message>
@@ -4148,12 +4148,12 @@ Command-line usage:
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
     <message>
-        <location line="+36"/>
+        <location line="+40"/>
         <source>Queued background job #{job}: {command} (position {position}) -&gt; {file}</source>
         <translation type="unfinished">已排队后台任务 #{job}：{command}（第 {position} 位）→ {file}</translation>
     </message>
     <message>
-        <location line="+160"/>
+        <location line="+184"/>
         <source>Running background job #{job}: {description}</source>
         <translation type="unfinished">正在运行后台任务 #{job}：{description}</translation>
     </message>
@@ -4163,12 +4163,17 @@ Command-line usage:
         <translation type="unfinished">已保存 {path}</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+6"/>
+        <source>Background job #{job} was told to stop but had no step left to stop at, and completed in {seconds}s: {detail}</source>
+        <translation type="unfinished">后台任务 #{job} 已被要求停止，但已没有可以停止的步骤，并在 {seconds} 秒内完成：{detail}</translation>
+    </message>
+    <message>
+        <location line="+5"/>
         <source>Background job #{job} completed in {seconds}s: {detail}</source>
         <translation type="unfinished">后台任务 #{job} 已完成，用时 {seconds} 秒：{detail}</translation>
     </message>
     <message>
-        <location line="+26"/>
+        <location line="+28"/>
         <source>Background job #{job} was stopped before it finished: {description}</source>
         <translation type="unfinished">后台任务 #{job} 在完成前已停止：{description}</translation>
     </message>
@@ -4459,7 +4464,7 @@ Command-line usage:
         <location filename="../../../commands/esmfold.py" line="-231"/>
         <location filename="../../../commands/export.py" line="+108"/>
         <location filename="../../../commands/group.py" line="+138"/>
-        <location filename="../../../commands/jobs.py" line="+194"/>
+        <location filename="../../../commands/jobs.py" line="+217"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
@@ -6788,7 +6793,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+215"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+233"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -8560,7 +8565,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">#{job} {command} 在 {seconds} 秒后失败。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/jobs.py" line="-68"/>
+        <location filename="../../../commands/jobs.py" line="-78"/>
         <source>%n job(s) waiting or running; the list is in the terminal.</source>
         <translation type="unfinished">
             <numerusform>有 %n 个任务在等待或运行；列表已输出到终端。</numerusform>
@@ -8591,19 +8596,31 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">错误：任务 #{job} 正在写入文件，无法取消；未取消任何任务。</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+17"/>
         <source>Nothing to cancel: no command waits or runs.</source>
         <translation type="unfinished">没有可取消的内容：没有等待或运行中的命令。</translation>
     </message>
     <message numerus="yes">
-        <location line="+2"/>
+        <location line="-8"/>
         <source>Cancelled %n job(s): {jobs}.</source>
         <translation type="unfinished">
             <numerusform>已取消 %n 个任务：{jobs}。</numerusform>
         </translation>
     </message>
+    <message numerus="yes">
+        <location line="+3"/>
+        <source>Told %n running job(s) to stop: {jobs}. Each ends at its next step; until then jobs lists it as stopping.</source>
+        <translation type="unfinished">
+            <numerusform>已要求 %n 个运行中的任务停止：{jobs}。每个任务会在下一步结束；在此之前 jobs 会将其列为正在停止。</numerusform>
+        </translation>
+    </message>
     <message>
-        <location line="+19"/>
+        <location line="+3"/>
+        <source>Already stopping: {jobs}.</source>
+        <translation type="unfinished">已在停止：{jobs}。</translation>
+    </message>
+    <message>
+        <location line="+23"/>
         <source>Error: Unrecognized jobs argument &apos;{argument}&apos;.</source>
         <translation type="unfinished">错误：无法识别的 jobs 参数“{argument}”。</translation>
     </message>

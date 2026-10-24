@@ -158,8 +158,20 @@ class ExecutionContext:
             if path not in self.record['artifacts']:
                 self.record['artifacts'].append(path)
 
-    def add_job(self, job_id, **extra):
-        job = dict(job_id=str(job_id), status='queued', **extra)
+    def add_job(self, job_id, *, kind=None, lane=None, lane_title=None, description=None, progress=None,
+                cancellable=False, stopping=False, stop_requested=False, **extra):
+        """Add a job to the request's record.
+
+        ``kind`` names what the job is, ``lane`` and ``lane_title`` the line it waits in
+        (None for a job that has none), ``description`` says what it does and ``progress``
+        how far it is. ``cancellable`` is whether a stop request would do anything now,
+        ``stopping`` whether the job was told to stop and has not ended, and ``stop_requested``
+        whether it was told to stop and finished anyway. The times the job started and
+        finished are set by job_event.
+        """
+        job = dict(job_id=str(job_id), status='queued', kind=kind, lane=lane, lane_title=lane_title,
+                   description=description, progress=progress, cancellable=cancellable, stopping=stopping,
+                   stop_requested=stop_requested, started_at=None, finished_at=None, **extra)
         self.record['jobs'].append(job)
         return job
 
@@ -167,6 +179,12 @@ class ExecutionContext:
         for job in self.record['jobs']:
             if job['job_id'] == str(job_id):
                 job['status'] = status
+                if status == 'running' and job.get('started_at') is None:
+                    job['started_at'] = now()
+                if status in {'succeeded', 'failed', 'cancelled'}:
+                    job['finished_at'] = now()
+                    job['stopping'] = False
+                    job['cancellable'] = False
                 if message:
                     job['message'] = str(message)[:1024]
                     self.portal.append_output(self.request_id, 'stderr' if status == 'failed' else 'stdout', str(message) + '\n')

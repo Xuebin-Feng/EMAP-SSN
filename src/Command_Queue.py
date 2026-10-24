@@ -335,7 +335,7 @@ class CommandQueue(QtCore.QObject):
         self.jobs.append(job)
         self._last_given, self._last_given_epoch = job, job.dispatch_epoch
         if context is not None:
-            context.add_job(str(job.job_id), command=line)
+            context.add_job(str(job.job_id), command=line, kind='command', description=line, cancellable=True)
         self._update_places()
         if ahead is not None:
             message = Message("#{job} {command}: waiting for #{ahead} {ahead_command}.",

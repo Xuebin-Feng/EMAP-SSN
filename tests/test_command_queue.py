@@ -523,10 +523,19 @@ class FileJobTests(QueueTestCase):
         self.viewer.type("jobs cancel 3")
         self.assertIn("Cancelled 1 job: #3 logo -> second.svg.", self.output.getvalue())
         self.assertFalse(self.scheduler.is_output_path_reserved(str(self.path("second.svg"))))
-        # The one being written is cancelled too; it stops at its next check point, not before.
+        # The one being written is told to stop, and is not called cancelled before it has: it stops at its
+        # next check point, not before.
+        self.output.truncate(0)
+        self.output.seek(0)
         self.viewer.type("jobs cancel 2")
-        self.assertIn("Cancelled 1 job: #2 logo -> first.svg.", self.output.getvalue())
+        self.assertIn("Told 1 running job to stop: #2 logo -> first.svg.", self.output.getvalue())
+        self.assertNotIn("Cancelled", self.output.getvalue())
         self.assertNotIn("cannot be cancelled", self.output.getvalue())
+        self.output.truncate(0)
+        self.output.seek(0)
+        self.viewer.type("jobs cancel 2")
+        self.assertIn("Already stopping: #2 logo -> first.svg.", self.output.getvalue())
+        self.assertNotIn("Told", self.output.getvalue())
         self.assertTrue(self.path(".first.partial.svg").exists())
         self.output.truncate(0)
         self.output.seek(0)
@@ -548,9 +557,9 @@ class FileJobTests(QueueTestCase):
         self.enqueue("second")  # job 3
         self.viewer.type("jobs cancel all")
         text = self.output.getvalue()
-        self.assertIn("Cancelled 3 jobs:", text)
-        self.assertIn("#2 logo -> first.svg", text)
-        self.assertIn("#3 logo -> second.svg", text)
+        # The waiting ones are cancelled; the one being written is told to stop, which is not the same.
+        self.assertIn("Cancelled 2 jobs: #1 cluster jaccard 0.5 3, #3 logo -> second.svg.", text)
+        self.assertIn("Told 1 running job to stop: #2 logo -> first.svg.", text)
         self.release.set()
         self.assertTrue(self.wait_for(lambda: len(self.cancelled) == 2))
         self.assertEqual(sorted(self.cancelled), [(2, True), (3, False)])

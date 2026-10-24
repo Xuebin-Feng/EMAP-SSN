@@ -417,5 +417,26 @@ class EncodersThroughItTests(unittest.TestCase):
             self.assertGreaterEqual(sink.count, 3)
 
 
+class EveryQueuingCommandCanBeStoppedTests(unittest.TestCase):
+    """A command that queues jobs gives each a way to be stopped, or "stop" would only ever say "stopping".
+
+    A job whose worker has no check point finishes whatever it was told, and is reported as completed. This
+    holds every command module that queues jobs to name at least one check point, found without naming a command.
+    """
+
+    COMMANDS = Path(__file__).resolve().parents[1] / "src" / "commands"
+    CHECK_POINTS = ("raise_if_cancelled", "cancel_requested", "CancellableFile", "on_cancel")
+
+    def test_each_command_module_that_queues_a_job_has_a_check_point(self):
+        queuing = [path for path in sorted(self.COMMANDS.glob("*.py"))
+                   if "scheduler.enqueue(" in path.read_text(encoding="utf-8")]
+        self.assertGreaterEqual(len(queuing), 4, "the modules that queue jobs were found")
+        for path in queuing:
+            with self.subTest(module=path.name):
+                source = path.read_text(encoding="utf-8")
+                self.assertTrue(any(point in source for point in self.CHECK_POINTS),
+                                f"{path.name} queues jobs but names no way to stop one")
+
+
 if __name__ == "__main__":
     unittest.main()

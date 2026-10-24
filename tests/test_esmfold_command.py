@@ -1658,6 +1658,37 @@ class FoldQueueProcessTests(ProcessCase):
         self.assertFalse(self.scheduler.is_output_path_reserved(str(self.root / "structures" / "two.pdb")))
         self.assertFalse((self.root / "structures" / "two.pdb").exists())
 
+    def test_jobs_cancel_reaches_a_fold_by_the_number_it_shares_with_every_job(self):
+        from commands import jobs as jobs_command
+        processes = self.hold_the_lane()
+        second, _, _ = self.run_in_portal(STAND_IN_FOLDING, selected=(1,), name="second")
+        self.wait_for(lambda: bool(self.jobs(second)), "The fold was never queued")
+        entry = self.jobs(second)[0]
+        # The scheduler's own number, as jobs lists it: not a worker-<hex> that nothing could name.
+        self.assertEqual(entry["job_id"], "2")
+        self.assertEqual((entry["kind"], entry["lane"], entry["lane_title"]), ("esmfold", "folding", "Folding"))
+
+        def jobs(*words):
+            output = io.StringIO()
+            with redirect_stdout(output), bind(None):
+                jobs_command.run(self.make_viewer(), list(words))
+            return output.getvalue()
+
+        listing = jobs()
+        self.assertIn("#1     running", listing)
+        self.assertIn("#2     waiting", listing)
+        self.assertIn("(folding)", listing)
+
+        # The waiting fold is cancelled, the running one only told to stop: it is not "cancelled" while its
+        # worker still ends.
+        said = jobs("cancel", "1", "2")
+        self.assertIn("Cancelled 1 job: #2 ", said)
+        self.assertIn("Told 1 running job to stop: #1 ", said)
+        self.assertEqual(self.finish(second)["status"], "cancelled")
+        self.wait_for(lambda: self.scheduler.snapshot() == [], "The line never emptied")
+        _, alive = psutil.wait_procs(processes, timeout=10)
+        self.assertEqual(alive, [])
+
     def test_esmfold_stop_ends_the_running_fold_and_removes_the_waiting_ones(self):
         processes = self.hold_the_lane()
         self.run_typed(STAND_IN_FOLDING, selected=(1,))

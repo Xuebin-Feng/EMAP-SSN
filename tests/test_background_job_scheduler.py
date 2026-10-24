@@ -1325,6 +1325,66 @@ class LinePortalTests(LineTestCase):
         self.assertEqual(record["outcome"], "cancelled")
         self.assertEqual(entry["position"], 1)
 
+    def test_the_record_says_what_the_job_is_its_lane_its_progress_and_when_it_started_and_ended(self):
+        reached, go_on = threading.Event(), threading.Event()
+
+        def worker(payload, job):
+            job.progress(Message("Half way"))
+            reached.set()
+            go_on.wait(BLOCKED_JOB_SECONDS)
+            return {"message": "done"}
+
+        self.addCleanup(go_on.set)
+        job_id, entry = self.portal_job("a", worker)
+        self.assertTrue(reached.wait(STARTUP_TIMEOUT))
+        self.settle()
+        self.assertEqual(
+            {key: entry[key] for key in ("kind", "lane", "lane_title", "description", "status", "progress",
+                                         "cancellable", "stopping", "position", "waiting_for", "finished_at")},
+            {"kind": "logo", "lane": "files", "lane_title": "Files", "description": "logo -> a.svg",
+             "status": "running", "progress": "Half way", "cancellable": True, "stopping": False,
+             "position": 1, "waiting_for": None, "finished_at": None})
+        self.assertTrue(entry["started_at"], "the time it began")
+        go_on.set()
+        self.wait_idle()
+        self.assertEqual(entry["status"], "succeeded")
+        self.assertTrue(entry["finished_at"] >= entry["started_at"])
+        self.assertEqual((entry["cancellable"], entry["stopping"]), (False, False))
+
+    def test_a_job_with_no_check_point_told_to_stop_is_stopping_until_it_ends_and_then_completed_not_cancelled(self):
+        reached, go_on = threading.Event(), threading.Event()
+        record = ViewerCommandPortal.new_command("logo")
+
+        def worker(payload):
+            reached.set()
+            go_on.wait(BLOCKED_JOB_SECONDS)        # a worker that never asks whether it was told to stop
+            return {"message": "written"}
+
+        self.addCleanup(go_on.set)
+        with bind(self.portal_context(record)):
+            job_id = self.enqueue("stubborn", worker)
+        entry = record["jobs"][0]
+        self.assertTrue(reached.wait(STARTUP_TIMEOUT))
+
+        self.assertEqual(self.scheduler.cancel_many([job_id]), [job_id])
+        self.settle()
+
+        # Not cancelled: the job still runs, and the record says it is being told to stop.
+        self.assertEqual((entry["status"], entry["stopping"], entry["cancellable"]), ("running", True, False))
+        self.assertEqual(self.scheduler.cancel_many([job_id]), [], "told once")
+        self.assertEqual([(listed.job.job_id, listed.stopping) for listed in self.scheduler.snapshot()],
+                         [(job_id, True)])
+        self.assertNotIn(("stopped", job_id), self.reports)
+
+        go_on.set()
+        self.wait_idle()
+        self.settle()
+        # It could not stop, so it completed; the record's final status and message say so.
+        self.assertEqual(self.reports, [("started", job_id), ("succeeded", job_id)])
+        self.assertEqual((entry["status"], entry["stopping"], entry["stop_requested"]), ("succeeded", False, True))
+        self.assertIn("told to stop but had no step left to stop at", entry["message"])
+        self.assertIn("written", entry["message"])
+
 
 if __name__ == "__main__":
     unittest.main()

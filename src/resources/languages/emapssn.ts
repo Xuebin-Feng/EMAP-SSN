@@ -2828,6 +2828,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Background job #{job} was told to stop but had no step left to stop at, and completed in {seconds}s: {detail}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Background job #{job} completed in {seconds}s: {detail}</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3669,15 +3673,25 @@ Command-line usage:
         <source>Error: No job #{job} waits or runs; nothing was cancelled.</source>
         <translation type="unfinished"></translation>
     </message>
-    <message>
-        <source>Nothing to cancel: no command waits or runs.</source>
-        <translation type="unfinished"></translation>
-    </message>
     <message numerus="yes">
         <source>Cancelled %n job(s): {jobs}.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
+    </message>
+    <message numerus="yes">
+        <source>Told %n running job(s) to stop: {jobs}. Each ends at its next step; until then jobs lists it as stopping.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Already stopping: {jobs}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Nothing to cancel: no command waits or runs.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Error: Unrecognized jobs argument &apos;{argument}&apos;.</source>

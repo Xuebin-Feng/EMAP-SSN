@@ -34,22 +34,23 @@ def print_help():
                           written, and the folding workers and Python scripts
                           that run, then the last few commands that finished.
       cancel            - Cancels the newest command that waits or runs.
-      cancel N [N ...]  - Cancels those jobs, by number (14 or #14). A file that
-                          is being written is stopped and its unfinished file
-                          deleted; one not started is dropped. A number that
-                          names no waiting job cancels nothing.
+      cancel N [N ...]  - Cancels those jobs, by number (14 or #14). A job that
+                          is running is told to stop, and a job not started is
+                          dropped. A number that names no job cancels nothing.
       cancel all        - Cancels every command that waits or runs, and every
-                          file, written or not.
+                          file job, running or not.
 
     Notes:
       A cancelled command that is computing stops at its next step (MCL) or
       runs to its end in the background (Leiden, Jaccard); its result is
       thrown away, and the commands after it go on at once.
-      A file being written stops at its next step, which
-      takes a moment, longer where one step is a large picture or report; what
-      it had written is deleted, and a file of that name from before stays as
-      it was. The Viewer's Session card lists the files too, where a waiting
-      one can also be moved.
+      A running job stops at its next step, which takes a moment, longer where
+      one step is a large picture or report. Until it has, it is not cancelled:
+      jobs lists it as stopping, and it is reported cancelled when it ends,
+      with what it had written deleted (a file of that name from before stays as
+      it was). A job with no step left to stop at completes instead, and is
+      reported as completed. The Viewer's Session card lists the jobs too,
+      where a waiting one can also be moved.
       Undo typed by hand (or Ctrl+Z) while commands wait cancels the newest
       of them. esmfold stop and run stop end folding workers and Python scripts.
 
@@ -79,13 +80,25 @@ def _file_jobs(viewer):
     return [(job, 'running' if running else 'waiting') for job, running in (listing() if listing is not None else [])]
 
 
-def _cancel_file_jobs(viewer, jobs):
-    """Cancel these file jobs in one step (the waiting ones first); return their entries that were cancelled."""
+def _cancel_file_jobs(viewer, entries):
+    """Cancel these file jobs, (job, state) pairs, in one step; return (removed, told to stop, already stopping).
+
+    A waiting job is gone at once. A running one is only told to stop: it ends
+    at its next check point, so it is not reported cancelled here, and the job
+    that has been told already is named as such.
+    """
     cancel_many = getattr(getattr(viewer, 'background_job_scheduler', None), 'cancel_many', None)
-    if cancel_many is None or not jobs:
-        return []
-    cancelled = set(cancel_many([job.job_id for job in jobs]))
-    return [job for job in jobs if job.job_id in cancelled]
+    if cancel_many is None or not entries:
+        return [], [], []
+    cancelled = set(cancel_many([job.job_id for job, _state in entries]))
+    removed = [job for job, state in entries if job.job_id in cancelled and state == 'waiting']
+    stopping = [job for job, state in entries if job.job_id in cancelled and state != 'waiting']
+    already = [job for job, state in entries if job.job_id not in cancelled and state == 'stopping']
+    return removed, stopping, already
+
+
+def _named(job):
+    return f"#{job.job_id} {job.description}"
 
 
 def _external_counts():
@@ -149,14 +162,14 @@ def _refuse(viewer, msg):
 def cancel_jobs(viewer, words):
     queue = _queue(viewer)
     reason = Message("Cancelled with jobs cancel.")
+    files = [], [], []
     if not words:
         cancelled = queue.cancel_newest(1, reason) if queue is not None else []
         names = [job.label() for job in cancelled]
     elif len(words) == 1 and words[0].lower() == 'all':
         cancelled = queue.cancel_all(reason) if queue is not None else []
         names = [job.label() for job in cancelled]
-        files = _cancel_file_jobs(viewer, [job for job, _state in _file_jobs(viewer)])
-        names.extend(f"#{job.job_id} {job.description}" for job in files)
+        files = _cancel_file_jobs(viewer, _file_jobs(viewer))
     else:
         # Every number must name a job that can be cancelled, or nothing is cancelled.
         targets = []
@@ -171,18 +184,28 @@ def cancel_jobs(viewer, words):
             if job is not None:
                 targets.append(('command', job))
                 continue
-            entry = next((file_job for file_job, _state in _file_jobs(viewer) if file_job.job_id == number), None)
+            entry = next((pair for pair in _file_jobs(viewer) if pair[0].job_id == number), None)
             if entry is None:
                 _refuse(viewer, Message("Error: No job #{job} waits or runs; nothing was cancelled.", job=number))
                 return
             targets.append(('file', entry))
         names = [job.label() for kind, job in targets if kind == 'command' and queue.cancel(job, reason)]
-        files = _cancel_file_jobs(viewer, [job for kind, job in targets if kind == 'file'])
-        names.extend(f"#{job.job_id} {job.description}" for job in files)
-    if not names:
+        files = _cancel_file_jobs(viewer, [pair for kind, pair in targets if kind == 'file'])
+    removed, stopping, already = files
+    names.extend(_named(job) for job in removed)
+    parts = []
+    if names:
+        parts.append(Message("Cancelled %n job(s): {jobs}.", n=len(names), jobs=", ".join(names)))
+    if stopping:
+        # Not "cancelled": the job ends at its next step, and jobs lists it as stopping until it has.
+        parts.append(Message("Told %n running job(s) to stop: {jobs}. Each ends at its next step; until then jobs lists it as stopping.",
+                             n=len(stopping), jobs=", ".join(_named(job) for job in stopping)))
+    if already:
+        parts.append(Message("Already stopping: {jobs}.", jobs=", ".join(_named(job) for job in already)))
+    if not parts:
         msg = Message("Nothing to cancel: no command waits or runs.")
     else:
-        msg = Message("Cancelled %n job(s): {jobs}.", n=len(names), jobs=", ".join(names))
+        msg = JoinedMessage(parts) if len(parts) > 1 else parts[0]
     Command_Engine.print_help(viewer, msg)
     Command_Engine.command_succeeded(viewer, msg)
 

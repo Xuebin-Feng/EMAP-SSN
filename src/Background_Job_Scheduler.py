@@ -182,13 +182,15 @@ class BackgroundJobScheduler(QtCore.QObject):
         self._failures = []
         # The log a job that failed named while it ran, until its failure is reported.
         self._logs = {}
+        # The jobs that were told to stop and finished anyway, until their end is reported.
+        self._not_stopped = set()
 
         queued = QtCore.Qt.ConnectionType.QueuedConnection
         self.job_started.connect(self._report_started, queued)
         self.job_succeeded.connect(self._report_succeeded, queued)
         self.job_failed.connect(self._report_failed, queued)
         self.job_cancelled.connect(self._report_cancelled, queued)
-        self.changed.connect(self._update_places, queued)
+        self.changed.connect(self._update_records, queued)
 
         with self._lock:
             default = self._lane(DEFAULT_LANE, Message("Files"))
@@ -471,10 +473,14 @@ class BackgroundJobScheduler(QtCore.QObject):
             else:
                 target.queued.append(job)
             if command_context is not None:
-                command_context.add_job(job_id, output_path=output_path)
+                command_context.add_job(
+                    job_id, output_path=output_path, kind=job.command_name, lane=target.name,
+                    lane_title=None if target.title is None else str(target.title),
+                    description=job.description, cancellable=True,
+                )
             self._start(target)
             target.wake.notify()
-        self._update_places()
+        self._update_records()
         self.changed.emit()
 
         message = Message(
@@ -561,6 +567,8 @@ class BackgroundJobScheduler(QtCore.QObject):
                 elapsed = time.perf_counter() - started_at
                 with self._lock:
                     accepting = self._accepting
+                    if handle.requested:
+                        self._not_stopped.add(job.job_id)
                 if accepting:
                     self.job_succeeded.emit(job, result, elapsed)
             except JobCancelled:
@@ -601,19 +609,41 @@ class BackgroundJobScheduler(QtCore.QObject):
         viewer.set_background_job_status(message)
 
     @QtCore.Slot()
-    def _update_places(self):
-        """Each unfinished job's place in its lane's line, in its portal record: position and the job ahead of it."""
+    def _update_records(self):
+        """Bring each unfinished job's portal record up to date: its place, progress and whether it is stopping.
+
+        The place is its position in its lane's line and the job ahead of it. A
+        running job also gives its progress, and whether a stop request would
+        do anything (not once it was told to stop). The portal is told of a
+        record only when something in it changed.
+        """
         with self._lock:
-            lines = [list(self._line(lane)) for lane in self._lanes.values()]
-        for line in lines:
+            lines = []
+            for lane in self._lanes.values():
+                line = list(self._line(lane))
+                state = {}
+                if lane.active is not None:
+                    handle = lane.handle
+                    progress = handle.progress_text if handle is not None else None
+                    state = {"progress": None if progress is None else str(progress), "stopping": lane.stopping}
+                lines.append((line, lane.active, state))
+        for line, active, state in lines:
             for position, job in enumerate(line, 1):
                 context = job.command_context
                 if context is None:
                     continue
+                fresh = {"position": position, "waiting_for": str(line[position - 2].job_id) if position > 1 else None}
+                if job is active:
+                    fresh.update(state, cancellable=not state["stopping"])
+                changed = False
                 for entry in context.record['jobs']:
                     if entry['job_id'] == str(job.job_id):
-                        entry['position'] = position
-                        entry['waiting_for'] = str(line[position - 2].job_id) if position > 1 else None
+                        for key, value in fresh.items():
+                            if key not in entry or entry[key] != value:
+                                entry[key] = value
+                                changed = True
+                if changed:
+                    context.portal.changed.emit(context.request_id)
 
     def _finished(self, job, outcome, error=None):
         """Tell the job's own on_finished, on the GUI thread, how it ended."""
@@ -647,14 +677,26 @@ class BackgroundJobScheduler(QtCore.QObject):
     @QtCore.Slot(object, object, float)
     def _report_succeeded(self, job, result, elapsed):
         detail = result.get("message") or Message("Saved {path}", path=job.output_path)
-        message = Message(
-            "Background job #{job} completed in {seconds}s: {detail}",
-            job=job.job_id,
-            seconds=f"{elapsed:.1f}",
-            detail=detail,
-        )
+        with self._lock:
+            not_stopped = job.job_id in self._not_stopped
+            self._not_stopped.discard(job.job_id)
+        # A stop request is honoured at the worker's check points: past its last one, the job completes.
+        if not_stopped:
+            message = Message(
+                "Background job #{job} was told to stop but had no step left to stop at, and completed in {seconds}s: {detail}",
+                job=job.job_id, seconds=f"{elapsed:.1f}", detail=detail,
+            )
+        else:
+            message = Message(
+                "Background job #{job} completed in {seconds}s: {detail}",
+                job=job.job_id, seconds=f"{elapsed:.1f}", detail=detail,
+            )
         print(f"\n{message}")
         self._set_viewer_status(message)
+        if not_stopped and job.command_context is not None:
+            for entry in job.command_context.record['jobs']:
+                if entry['job_id'] == str(job.job_id):
+                    entry['stop_requested'] = True
 
         reveal_directory = result.get("reveal_directory")
         # A job asks for its folder to be shown; where no user is at the Viewer, none is.
