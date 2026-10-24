@@ -229,8 +229,10 @@ class ControlsCard(QWidget):
     work what changed needs. The controls section, headed controls_title, is
     text, the Viewer's list of actions (controls_rows): key caps in the left
     half of the section, what they do in the right half. The link to the list
-    of commands is in the row of the first heading, beside the ×. Without a
-    session the card has the controls only, headed controls_title (or title).
+    of commands is in the row of the first heading, beside the ×, and so is
+    the link that opens the Console, before it, when ``console`` (a function
+    that opens it) is given. Without a session the card has the controls only,
+    headed controls_title (or title).
 
     The card is a child of the canvas, not a window of its own, so it leaves
     the network, the sliders and the sidebar working under the mouse and the
@@ -273,7 +275,7 @@ class ControlsCard(QWidget):
     SHADOW = 8
 
     def __init__(self, title, text, anchor=None, parent=None, *, session=None, controls_title=None,
-                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None):
+                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None, console=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsCard")
         self.anchor = anchor
@@ -282,6 +284,8 @@ class ControlsCard(QWidget):
         self.command = command
         self.command_line_open = command_line_open
         self.jobs = jobs
+        self.console = console
+        self.console_button = None
         self.jobs_section = None
         self._remeasure = QtCore.QTimer(self)
         self._remeasure.setSingleShot(True)
@@ -319,6 +323,9 @@ class ControlsCard(QWidget):
         self.session_heading.setObjectName("controlsHeading")
         header.addWidget(self.session_heading)
         header.addStretch(1)
+        if console is not None:
+            self.console_button = self._console_link()
+            header.addWidget(self.console_button)
         self.commands_button = self._commands_link()
         header.addWidget(self.commands_button)
         self.close_button = QPushButton()
@@ -540,6 +547,18 @@ class ControlsCard(QWidget):
         self.show_command_list_availability()
         return link
 
+    def _console_link(self):
+        """The link that opens the Console, for the header's row, before the list of commands."""
+        link = QPushButton(QtCore.QCoreApplication.translate("ViewerControls", "Console"))
+        link.setObjectName("controlsLink")
+        link.setIcon(studio_icon("square-terminal", TOKENS["accent_text"]))
+        link.setIconSize(QSize(16, 16))
+        link.setCursor(Qt.CursorShape.PointingHandCursor)
+        link.setToolTip(QtCore.QCoreApplication.translate(
+            "ViewerControls", "Show everything this Viewer has printed: progress, warnings and errors"))
+        link.clicked.connect(self.open_console)
+        return link
+
     def _share_columns(self):
         """Make the controls' two columns equal, each as wide as the wider of what they must hold.
 
@@ -692,6 +711,11 @@ class ControlsCard(QWidget):
             if found else
             QtCore.QCoreApplication.translate(
                 "ViewerControls", "The list of commands is not installed: docs/list_of_commands.html is missing."))
+
+    def open_console(self):
+        """Open the Console (the owner's ``console`` function). The card stays open and the keyboard with the canvas."""
+        if self.console is not None:
+            self.console()
 
     def open_command_list(self):
         """Open the list of commands, in the Viewer's language where it is translated, in the web browser.
@@ -850,8 +874,8 @@ class ControlsButton(QPushButton):
 
     title is the button's tooltip and the card's accessible name, which the
     card does not show; text the Viewer's list of actions, headed
-    controls_title next to the session. session, area, command and
-    command_line_open are the card's (ControlsCard). The card is a child of host, the
+    controls_title next to the session. session, area, command,
+    command_line_open, jobs, confirm_stop and console are the card's (ControlsCard). The card is a child of host, the
     canvas, which is the button's parent by default. A click while the card
     is open closes it; so does its ×, and nothing else does.
     """
@@ -859,7 +883,7 @@ class ControlsButton(QPushButton):
     SIZE = 28   # as tall as a field
 
     def __init__(self, title, text, parent=None, *, host=None, session=None, controls_title=None,
-                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None):
+                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None, console=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsButton")
         self.title = title
@@ -872,6 +896,7 @@ class ControlsButton(QPushButton):
         self.command_line_open = command_line_open
         self.jobs = jobs
         self.confirm_stop = confirm_stop
+        self.console = console
         self.card = None
         self.setIcon(studio_icon("info", TOKENS["text_muted"]))
         self.setIconSize(QSize(16, 16))
@@ -914,7 +939,7 @@ class ControlsButton(QPushButton):
                                  session=self.session, controls_title=self.controls_title,
                                  area=self.area, command=self.command,
                                  command_line_open=self.command_line_open,
-                                 jobs=self.jobs, confirm_stop=self.confirm_stop)
+                                 jobs=self.jobs, confirm_stop=self.confirm_stop, console=self.console)
         return self.card.open()
 
     def refresh_card(self):

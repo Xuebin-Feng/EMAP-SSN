@@ -6770,7 +6770,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1419"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1421"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -12921,7 +12921,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-166"/>
+        <location line="-168"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -12936,7 +12936,7 @@ Fedora / RHEL：
         <translation type="unfinished">会话与操作</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+55"/>
         <source>Zoom: {zoom}%</source>
         <translation type="unfinished">缩放：{zoom}%</translation>
     </message>
@@ -13115,17 +13115,17 @@ Fedora / RHEL：
         <translation type="unfinished">无</translation>
     </message>
     <message>
-        <location line="+149"/>
+        <location line="+156"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="-13"/>
+        <location line="-16"/>
         <source>Session</source>
         <translation type="unfinished">会话</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+136"/>
         <source>Nodes:</source>
         <translation type="unfinished">节点：</translation>
     </message>
@@ -13144,7 +13144,17 @@ Fedora / RHEL：
         <translation type="unfinished">命令列表</translation>
     </message>
     <message>
-        <location line="+55"/>
+        <location line="+12"/>
+        <source>Console</source>
+        <translation type="unfinished">控制台</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>Show everything this Viewer has printed: progress, warnings and errors</source>
+        <translation type="unfinished">显示此查看器打印的全部内容：进度、警告和错误</translation>
+    </message>
+    <message>
+        <location line="+50"/>
         <source>{total} ({visible} visible)</source>
         <translation type="unfinished">{total}（可见 {visible}）</translation>
     </message>

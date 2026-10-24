@@ -643,6 +643,16 @@ class ViewerEntryPointTests(WindowCase):
         self.assertFalse(button.icon().isNull())
         self.assertTrue(button.toolTip())
 
+    def test_the_session_card_is_given_the_same_action_for_its_console_link(self):
+        import ast
+
+        tree = ast.parse((SRC / "EMAPSSN_Viewer.py").read_text(encoding="utf-8"))
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and getattr(node.func, "id", None) == "ControlsButton"]
+        self.assertEqual(len(calls), 1)
+        console = [keyword.value for keyword in calls[0].keywords if keyword.arg == "console"]
+        self.assertEqual([ast.unparse(value) for value in console], ["self._console_button_clicked"])
+
     def test_opening_it_says_what_happened(self):
         viewer = self.viewer
         with mock.patch.object(Console_Capture, "_capture", self.recorder):

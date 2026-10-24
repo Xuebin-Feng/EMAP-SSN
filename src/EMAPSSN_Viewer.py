@@ -1235,6 +1235,8 @@ class MainViewer:
             command_line_open=lambda: getattr(self, 'console_mode', False),
             # The background jobs the card lists, and its buttons that arrange them.
             jobs=ViewerJobs(self),
+            # The card's Console link: the sidebar button's action.
+            console=self._console_button_clicked,
         )
         overlay_layout.addWidget(self.controls_button)
         overlay_layout.addSpacing(SLIDER_INFO_GAP - overlay_layout.spacing())

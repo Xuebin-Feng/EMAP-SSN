@@ -9073,6 +9073,14 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Console</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show everything this Viewer has printed: progress, warnings and errors</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>{total} ({visible} visible)</source>
         <translation type="unfinished"></translation>
     </message>

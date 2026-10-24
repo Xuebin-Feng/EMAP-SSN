@@ -526,6 +526,74 @@ class ControlsCardTests(unittest.TestCase):
         last = card.descriptions[-1]
         self.assertGreater(last.mapTo(card.body, QPoint(0, 0)).y() + last.height(), card.body.height() - 20)
 
+    def card_with_console(self, console):
+        """A card whose owner gave it the function that opens the Console, as the Viewer does."""
+        button = ControlsButton(
+            "Session and controls", shipped_actions(), self.host, host=self.host, session=self.read_session,
+            controls_title="Mouse and keyboard controls",
+            area=lambda: self.host.rect().adjusted(8, 8, -8, -8),
+            command=self.command, command_line_open=lambda: False, console=console)
+        button.move(60, 700)
+        button.show()
+        card = button.toggle_card()
+        flush(self.app)
+        self.assertTrue(card.isVisible())
+        return button, card
+
+    def test_the_console_link_is_in_the_header_row_before_the_list_of_commands_link(self):
+        button, card = self.card_with_console(lambda: None)
+        console, commands, cross, heading = (card.console_button, card.commands_button, card.close_button,
+                                             card.session_heading)
+
+        def where(widget):
+            return widget.mapTo(card, QPoint(0, 0))
+
+        for widget in (console, commands, cross):
+            self.assertAlmostEqual(where(widget).y() + widget.height() / 2,
+                                   where(heading).y() + heading.height() / 2, delta=3)
+        # The heading, the Console link, the list of commands' link and the cross, in that order, none over another.
+        self.assertLess(where(heading).x() + heading.width(), where(console).x())
+        self.assertLessEqual(where(console).x() + console.width(), where(commands).x())
+        self.assertLessEqual(where(commands).x() + commands.width(), where(cross).x())
+        # In the header, above the scrolling sections, and the whole row inside the card.
+        self.assertLessEqual(where(console).y() + console.height(), where(card.scroll).y())
+        self.assertFalse(card.body.isAncestorOf(console))
+        self.assertLessEqual(where(cross).x() + cross.width(), card.card_rect().right())
+        # The link looks like its neighbour and says what it opens.
+        self.assertEqual((console.text(), console.objectName()), ("Console", "controlsLink"))
+        self.assertFalse(console.icon().isNull())
+        self.assertEqual(console.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        self.assertTrue(console.toolTip().startswith("Show everything this Viewer has printed"))
+        self.assertTrue(console.isEnabled())
+        self.assertEqual(console.focusPolicy(), Qt.FocusPolicy.NoFocus)
+
+    def test_the_console_link_does_not_make_the_card_wider(self):
+        _button, with_console = self.card_with_console(lambda: None)
+        without_console = self.open_card()
+        self.assertIsNone(without_console.console_button)
+        self.assertEqual(with_console.natural_size().width(), without_console.natural_size().width())
+
+    def test_a_click_on_the_console_link_opens_the_console_and_leaves_the_card_and_the_keyboard_alone(self):
+        opened = []
+        button, card = self.card_with_console(lambda: opened.append("console"))
+        self.host.activateWindow()
+        self.host.setFocus()
+        flush(self.app)
+        focus = QApplication.focusWidget()
+        QTest.mouseClick(card.console_button, Qt.MouseButton.LeftButton)
+        self.assertEqual(opened, ["console"])
+        self.assertTrue(button.card_is_open())
+        self.assertIs(QApplication.focusWidget(), focus)
+        QTest.mouseClick(card.console_button, Qt.MouseButton.LeftButton)
+        self.assertEqual(opened, ["console", "console"])
+
+    def test_a_card_given_no_console_function_has_no_console_link(self):
+        card = self.open_card()
+        self.assertIsNone(card.console_button)
+        self.assertEqual([link.text() for link in card.findChildren(QPushButton) if link.objectName() == "controlsLink"],
+                         ["List of commands"])
+        card.open_console()  # nothing to open, and nothing breaks
+
     def assert_halves(self, card):
         return assert_two_halves(self, card)
 
@@ -1259,9 +1327,29 @@ class ControlsCardLanguageTests(unittest.TestCase):
                 ("ViewerControls", "None"), ("ViewerControls", "List of commands"),
                 ("ViewerControls", "{total} ({visible} visible)"), ("ViewerControls", "{total} ({shown} shown)"),
                 ("ViewerControls", "Open the list of commands in your web browser"),
-                ("ViewerControls", "The list of commands is not installed: docs/list_of_commands.html is missing.")):
+                ("ViewerControls", "The list of commands is not installed: docs/list_of_commands.html is missing."),
+                ("ViewerControls", "Console"),
+                ("ViewerControls", "Show everything this Viewer has printed: progress, warnings and errors")):
             with self.subTest(source=source):
                 self.assertTrue(drafted.get((context, source)), (context, source))
+
+    def test_the_console_link_is_in_chinese_too(self):
+        translator = QTranslator()
+        self.assertTrue(translator.load(str(ZH_CATALOG.with_suffix(".qm"))))
+        self.assertTrue(self.app.installTranslator(translator))
+        self.addCleanup(self.app.removeTranslator, translator)
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        host.resize(700, 500)
+        info = {"node_count": 1, "visible_node_count": 1, "edge_count": 0, "shown_edge_count": 0,
+                "inputs": {"node_fasta": os.path.abspath("set.fasta"), "msa": None}}
+        button = ControlsButton("会话与操作", shipped_actions(), host, host=host, session=lambda: info,
+                                console=lambda: None)
+        host.show()
+        card = button.toggle_card()
+        flush(self.app)
+        self.assertEqual(card.console_button.text(), "控制台")
+        self.assertEqual(card.console_button.toolTip(), "显示此查看器打印的全部内容：进度、警告和错误")
 
 
 class ZoomBoxTests(unittest.TestCase):
