@@ -1168,7 +1168,9 @@ class RequestAbortTests(unittest.TestCase):
         with FakeProvider() as provider:
             handle = agent.RequestHandle()
             handle.abort()
-            with self.assertRaises(agent.RequestAborted):
+            # Not even a connection is made.
+            with mock.patch('socket.create_connection', side_effect=AssertionError('a connection was made')), \
+                    self.assertRaises(agent.RequestAborted):
                 agent.call_api(provider.url, 'm', 's', 'q', handle=handle)
         self.assertEqual(provider.requests, [])
 
