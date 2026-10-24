@@ -536,6 +536,9 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- A finished `print`, `label` or `logo` job no longer opens its folder in the file manager
+  after the Viewer that ran it has closed. It opens the folder only from a Viewer that is
+  still open and shows windows.
 - An MCP command sent while the Viewer was busy for more than 5 s timed out with "Could not
   inspect the Viewer", although it had been queued. A client that sent it again under a new
   id ran it twice. The client now waits a second longer than the Viewer, so it gets the
