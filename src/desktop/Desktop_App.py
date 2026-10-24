@@ -2119,10 +2119,13 @@ class LanguageFollower(QtCore.QObject):
         return shown
 
 
-def language_selector_row(selector, theme_switch=None, leading=None):
+def language_selector_row(selector, theme_switch=None, leading=None, console=True):
     """A row that ends in the Language dropdown, after a globe, and then theme_switch if given.
 
     leading, if given, starts the row and takes all the room the rest leaves.
+    Before the globe it shows the Console button (desktop.Console_View), which
+    opens the window showing what the program has printed; console=False leaves
+    it out. Config, Tools and VR Config share this row, so they share the button.
     """
     row = QHBoxLayout()
     row.setContentsMargins(0, 0, 0, 0)
@@ -2130,6 +2133,10 @@ def language_selector_row(selector, theme_switch=None, leading=None):
         row.addStretch()
     else:
         row.addWidget(leading, 1)
+    if console:
+        from desktop.Console_View import console_button
+
+        row.addWidget(console_button())
     globe = IconLabel("globe")
     globe.setObjectName("languageGlobe")
     globe.setBuddy(selector)

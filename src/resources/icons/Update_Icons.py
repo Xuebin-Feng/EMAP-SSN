@@ -58,6 +58,9 @@ ICONS = (
     "crosshair", "layers", "maximize", "palette", "rotate-ccw", "ruler", "tag",
     # The tools' chart windows' toolbar (tools/tool_helpers/Tool_Charts.py; save is above)
     "arrow-left", "arrow-right", "house", "move", "sliders-horizontal", "square-pen", "zoom-in",
+    # The Console button and the Viewer's sidebar button (desktop/Console_View.py; the window's own
+    # buttons use copy, download, trash-2, file-text, folder-open and the chevrons, above)
+    "square-terminal",
 )
 
 ALLOWED_ELEMENTS = {"svg", "path", "circle", "rect", "line", "polyline", "polygon", "ellipse"}

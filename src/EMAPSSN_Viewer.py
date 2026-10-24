@@ -1083,6 +1083,7 @@ class MainViewer:
         if getattr(self, 'sidebar_buttons_to_persist', None):
             for cmd_name in self.sidebar_buttons_to_persist:
                 self.process_command(f"{cmd_name} --register-only", record_history=False, silent=True)
+        self._add_console_button()
         
         # Ensure the side panel is hidden at startup
         self.set_sidebar_visible(False)
@@ -3463,6 +3464,35 @@ class MainViewer:
             Message("Agent UI"),
             "agent",
             show_existing_dialog=show_existing_dialog,
+        )
+
+    def open_console_window(self):
+        """Open the Console window, which shows what this Viewer's process has printed.
+
+        Returns "opened", "no_window" when the Viewer shows no windows (headless, or hidden and not
+        shown), or "not_kept" when it was started with --console, so nothing is kept to show.
+        The console command reports each; the sidebar button explains the last.
+        """
+        if not self.shows_windows():
+            return "no_window"
+        from desktop.Console_View import console_available, show_console
+        if not console_available():
+            return "not_kept"
+        return "opened" if show_console(self.main_window) is not None else "not_kept"
+
+    def _console_button_clicked(self):
+        if self.open_console_window() == "not_kept":
+            from desktop.Console_View import not_available_text
+            QtWidgets.QMessageBox.information(self.main_window, translate("Viewer", "Console"), not_available_text())
+
+    def _add_console_button(self):
+        """The Console button, last in the sidebar: the terminal icon and the Console window."""
+        self.add_sidebar_button(
+            "consoleBtn",
+            translate("Viewer", "Console"),
+            self._console_button_clicked,
+            translate("Viewer", "Show everything this Viewer has printed: progress, warnings and errors"),
+            icon="square-terminal",
         )
 
     def _open_web_ui(

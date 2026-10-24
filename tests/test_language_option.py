@@ -420,7 +420,7 @@ class ConfigWindowCase(LanguageTestCase):
         select = self.namespace["select_combo_value"]
         window.resize(1234, 777)
         window.move(40, 60)
-        window.main_split.setSizes([700, 500])
+        window.main_split.setSizes([680, 520])  # the side pane's row (with the Console button) needs 503 px in the pseudo-language
         window.left_split.setSizes([500, 220])
         select(window.profile_selectors["visual_effects"], "(default)")
         select(window.profile_selectors["simulation_physics"], "(new)")

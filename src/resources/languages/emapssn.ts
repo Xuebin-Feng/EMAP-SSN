@@ -1818,6 +1818,116 @@ Command-line usage:
     </message>
 </context>
 <context>
+    <name>Console</name>
+    <message>
+        <source>Console</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Search the output…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Previous match (Shift+F3)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Next match (F3)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>All output</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Warnings and errors</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Errors only</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Follow output</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Copy the selection, or all the output shown</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Save the output shown to a file…</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Clear the view (the log file keeps everything)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Open the log file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show the log folder</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{shown} lines shown · {written} written since start-up</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>older lines are in the log file</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Log: {path}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No log file ({error})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{count} or more matches</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>No matches</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>%n match(es)</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
+        <source>Save the output</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Text files (*.txt);;All files (*)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The output could not be saved:
+{error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>This program&apos;s output is not kept here: it was started so that the output goes to the terminal it was started from (--console), where it can be read.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>{window} – Console</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show everything this program has printed: progress, warnings and errors. The log file keeps it for later.</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
+<context>
     <name>EsmfoldPage</name>
     <message>
         <source>Structure color</source>
@@ -3358,6 +3468,26 @@ Command-line usage:
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Error: console takes no arguments, not &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Opened the Console.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Console needs a window, and this Viewer shows none; its log file has the output.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Console is not available: this Viewer&apos;s output goes to the terminal it was started from.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The Console is not available: this Viewer has no window of that kind.</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Embedding selection cancelled.</source>
@@ -8628,6 +8758,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Hidden Nodes: {count}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Console</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show everything this Viewer has printed: progress, warnings and errors</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

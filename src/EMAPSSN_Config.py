@@ -1380,7 +1380,9 @@ if __name__ == "__main__":
             if os.path.exists(icon_path):
                 self.setWindowIcon(QIcon(icon_path))
                 
-            self.resize(1000, 650)
+            # 1000 px, and the room of the Console button in the language row (its icon and gap), so the
+            # form keeps the width it had before the button.
+            self.resize(1044, 650)
             
             self.central_widget = QWidget()
             self.setCentralWidget(self.central_widget)

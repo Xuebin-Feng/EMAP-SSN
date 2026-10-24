@@ -92,12 +92,12 @@
     </message>
     <message>
         <location line="+2"/>
-        <location line="+968"/>
+        <location line="+972"/>
         <source>Deactivated</source>
         <translation type="unfinished">已停用</translation>
     </message>
     <message>
-        <location line="-967"/>
+        <location line="-971"/>
         <source>Toggle agent on/off</source>
         <translation type="unfinished">开启或关闭智能体</translation>
     </message>
@@ -438,7 +438,7 @@
         <translation type="unfinished">丢弃</translation>
     </message>
     <message>
-        <location line="+31"/>
+        <location line="+34"/>
         <location line="+4"/>
         <source>Viewer commands</source>
         <translation type="unfinished">查看器命令</translation>
@@ -479,7 +479,7 @@
         <translation type="unfinished">{host} 自己的服务条款和隐私政策适用于它所收到的内容。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+2"/>
         <source>You are not asked again for this card unless its address changes.</source>
         <translation type="unfinished">除非此卡片的地址发生变化，否则不会再次询问。</translation>
     </message>
@@ -606,7 +606,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2576"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2583"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -619,12 +619,12 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2471"/>
+        <location line="-2478"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="+183"/>
+        <location filename="../../../EMAPSSN_Config.py" line="+185"/>
         <source>Input File Directory:</source>
         <translation type="unfinished">输入文件目录：</translation>
     </message>
@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3943"/>
+        <location line="+3945"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3942"/>
+        <location line="-3944"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4541"/>
+        <location line="+4543"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4533"/>
+        <location line="-4535"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -796,7 +796,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
     </message>
     <message>
-        <location line="+408"/>
+        <location line="+410"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -941,14 +941,14 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1177"/>
+        <location line="-1179"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1218"/>
+        <location line="+1220"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1614,7 +1614,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2409"/>
+        <location line="-2411"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
@@ -1625,12 +1625,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+2632"/>
+        <location line="+2634"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3172"/>
+        <location line="-3174"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1777,7 +1777,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2535"/>
+        <location line="+2537"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1889,7 +1889,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-3293"/>
+        <location line="-3295"/>
         <source>Current color: {value}</source>
         <translation type="unfinished">当前颜色：{value}</translation>
     </message>
@@ -1982,7 +1982,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+1267"/>
+        <location line="+1269"/>
         <source>Resolves to {folder}.</source>
         <translation type="unfinished">解析为 {folder}。</translation>
     </message>
@@ -2955,9 +2955,152 @@ Command-line usage:
 {error}</translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+23"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
+    </message>
+</context>
+<context>
+    <name>Console</name>
+    <message>
+        <location filename="../../../desktop/Console_View.py" line="+223"/>
+        <location line="+59"/>
+        <location line="+313"/>
+        <location line="+42"/>
+        <location line="+3"/>
+        <location line="+32"/>
+        <source>Console</source>
+        <translation type="unfinished">控制台</translation>
+    </message>
+    <message>
+        <location line="-429"/>
+        <location line="+3"/>
+        <source>Search the output…</source>
+        <translation type="unfinished">搜索输出内容…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Previous match (Shift+F3)</source>
+        <translation type="unfinished">上一个匹配项 (Shift+F3)</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Next match (F3)</source>
+        <translation type="unfinished">下一个匹配项 (F3)</translation>
+    </message>
+    <message>
+        <location line="+6"/>
+        <source>All output</source>
+        <translation type="unfinished">全部输出</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Warnings and errors</source>
+        <translation type="unfinished">警告和错误</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Errors only</source>
+        <translation type="unfinished">仅错误</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Follow output</source>
+        <translation type="unfinished">跟随输出</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Copy the selection, or all the output shown</source>
+        <translation type="unfinished">复制所选内容，或复制显示的全部输出</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Save the output shown to a file…</source>
+        <translation type="unfinished">将显示的输出保存到文件…</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Clear the view (the log file keeps everything)</source>
+        <translation type="unfinished">清空视图（日志文件会保留全部内容）</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Open the log file</source>
+        <translation type="unfinished">打开日志文件</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show the log folder</source>
+        <translation type="unfinished">显示日志文件夹</translation>
+    </message>
+    <message>
+        <location line="+184"/>
+        <source>{shown} lines shown · {written} written since start-up</source>
+        <translation type="unfinished">显示 {shown} 行 · 启动以来共输出 {written} 行</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>older lines are in the log file</source>
+        <translation type="unfinished">更早的行在日志文件中</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>Log: {path}</source>
+        <translation type="unfinished">日志：{path}</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>No log file ({error})</source>
+        <translation type="unfinished">没有日志文件（{error}）</translation>
+    </message>
+    <message>
+        <location line="+78"/>
+        <source>{count} or more matches</source>
+        <translation type="unfinished">{count} 个以上匹配项</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>No matches</source>
+        <translation type="unfinished">没有匹配项</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+2"/>
+        <source>%n match(es)</source>
+        <translation type="unfinished">
+            <numerusform>%n 个匹配项</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+45"/>
+        <source>Save the output</source>
+        <translation type="unfinished">保存输出</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Text files (*.txt);;All files (*)</source>
+        <translation type="unfinished">文本文件 (*.txt);;所有文件 (*)</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>The output could not be saved:
+{error}</source>
+        <translation type="unfinished">无法保存输出：
+{error}</translation>
+    </message>
+    <message>
+        <location line="+28"/>
+        <source>This program&apos;s output is not kept here: it was started so that the output goes to the terminal it was started from (--console), where it can be read.</source>
+        <translation type="unfinished">本程序的输出不在此处保留：它的启动方式让输出进入启动它的终端（--console），可以在那里查看。</translation>
+    </message>
+    <message>
+        <location line="+19"/>
+        <source>{window} – Console</source>
+        <translation type="unfinished">{window} – 控制台</translation>
+    </message>
+    <message>
+        <location line="+23"/>
+        <source>Show everything this program has printed: progress, warnings and errors. The log file keeps it for later.</source>
+        <translation type="unfinished">显示本程序打印的全部内容：进度、警告和错误。日志文件会保留这些内容，以便日后查看。</translation>
     </message>
 </context>
 <context>
@@ -4606,6 +4749,7 @@ Command-line usage:
         <location filename="../../../commands/alignment.py" line="+49"/>
         <location filename="../../../commands/cluster.py" line="+346"/>
         <location filename="../../../commands/color.py" line="+95"/>
+        <location filename="../../../commands/console.py" line="+50"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
         <location filename="../../../commands/esmfold.py" line="-234"/>
         <location filename="../../../commands/export.py" line="+108"/>
@@ -5319,6 +5463,7 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../commands/cluster.py" line="-448"/>
+        <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/hide.py" line="+37"/>
         <location filename="../../../commands/jobs.py" line="+11"/>
         <location filename="../../../commands/meta.py" line="+10"/>
@@ -6494,7 +6639,7 @@ Command-line usage:
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4869"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4872"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6536,7 +6681,7 @@ Command-line usage:
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1443"/>
+        <location line="+1445"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -6596,7 +6741,7 @@ Command-line usage:
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1403"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1407"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -6674,7 +6819,7 @@ Command-line usage:
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+54"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
@@ -7139,7 +7284,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">模型请求失败（HTTP {code}）：{response}。带图片的消息需要支持视觉的模型或服务商。</translation>
     </message>
     <message>
-        <location line="+132"/>
+        <location line="+133"/>
         <source>No response received from LLM.</source>
         <translation type="unfinished">未收到 LLM 的回复。</translation>
     </message>
@@ -8442,7 +8587,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+23"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-534"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-563"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
@@ -8870,6 +9015,31 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
             <numerusform>%n 个任务</numerusform>
         </translation>
     </message>
+    <message>
+        <location filename="../../../commands/console.py" line="-1"/>
+        <source>Error: console takes no arguments, not &apos;{argument}&apos;.</source>
+        <translation type="unfinished">错误：console 不带参数，不能是“{argument}”。</translation>
+    </message>
+    <message>
+        <location line="+9"/>
+        <source>Opened the Console.</source>
+        <translation type="unfinished">已打开控制台。</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>The Console needs a window, and this Viewer shows none; its log file has the output.</source>
+        <translation type="unfinished">控制台需要窗口，而此查看器没有显示窗口；输出在它的日志文件中。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The Console is not available: this Viewer&apos;s output goes to the terminal it was started from.</source>
+        <translation type="unfinished">控制台不可用：此查看器的输出进入启动它的终端。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The Console is not available: this Viewer has no window of that kind.</source>
+        <translation type="unfinished">控制台不可用：此查看器没有这种窗口。</translation>
+    </message>
 </context>
 <context>
     <name>MetadataPage</name>
@@ -9248,7 +9418,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ThemeColorSwitch</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+115"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+122"/>
         <source>Purple</source>
         <translation type="unfinished">紫色</translation>
     </message>
@@ -9371,7 +9541,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>ToggleSwitch</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="-783"/>
+        <location filename="../../../desktop/Desktop_App.py" line="-790"/>
         <source>ON</source>
         <translation type="unfinished">开</translation>
     </message>
@@ -9389,7 +9559,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Tools.py" line="+132"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+134"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>
@@ -12511,7 +12681,7 @@ Fedora / RHEL：
         <translation type="unfinished">缺少文档</translation>
     </message>
     <message>
-        <location line="+1990"/>
+        <location line="+1991"/>
         <source>{window} Startup Error</source>
         <translation type="unfinished">{window}启动错误</translation>
     </message>
@@ -12621,11 +12791,22 @@ Fedora / RHEL：
         <translation type="unfinished">缩放：{zoom}%</translation>
     </message>
     <message>
+        <location line="+2219"/>
+        <location line="+6"/>
+        <source>Console</source>
+        <translation type="unfinished">控制台</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Show everything this Viewer has printed: progress, warnings and errors</source>
+        <translation type="unfinished">显示此查看器打印的全部内容：进度、警告和错误</translation>
+    </message>
+    <message>
         <source>Zoom: {zoom}</source>
         <translation type="obsolete">缩放：{zoom}</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-2226"/>
         <source>A bigger zoom is closer: 100% is a view {width} layout units wide. Type a percentage, or use the arrows or the mouse wheel over the box.</source>
         <translation type="unfinished">缩放越大，视图越近：100% 对应宽 {width} 个布局单位的视图。可输入百分比，也可在此框上使用箭头或鼠标滚轮。</translation>
     </message>

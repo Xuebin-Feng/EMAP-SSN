@@ -24,6 +24,7 @@ modules = [
     "test_command_embedding",
     "test_command_feedback",
     "test_command_queue",
+    "test_console_command",
     "test_export_command",
     "test_group_command",
     "test_hide_command",
@@ -58,6 +59,7 @@ seconds = 35
 modules = [
     "test_browser_page_opening",
     "test_console_overlay_wrapping",
+    "test_console_view",
     "test_display_scaling",
     "test_embedding_manager",
     "test_low_resource_mode",

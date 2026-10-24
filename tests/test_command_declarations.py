@@ -43,7 +43,7 @@ def old_queue_kind(command_name, args, source="typed"):
     first = args[0].lower() if args else ""
     if first in OLD_HELP_WORDS or first == "--register-only":
         return INSTANT
-    if command_name in ("jobs", "zoom", "run"):
+    if command_name in ("jobs", "zoom", "run", "console"):  # console came later and declares what these did
         return INSTANT
     if command_name == "esmfold" and first == "stop":
         return INSTANT
@@ -223,7 +223,7 @@ class DeclaredCasesTests(unittest.TestCase):
                      if any(hasattr(declarations.command_module(name), attribute)
                             for attribute in ("QUEUE", "queue_kind", "STARTS_MODEL_REQUEST", "starts_model_request",
                                               "ACTS_ON_JOBS", "acts_on_jobs"))}
-        self.assertEqual(declaring, {"jobs", "zoom", "run", "esmfold", "undo", "redo", "meta", "agent"})
+        self.assertEqual(declaring, {"jobs", "zoom", "run", "esmfold", "undo", "redo", "meta", "agent", "console"})
 
 
 # --- Throwaway plugins -----------------------------------------------------------------
