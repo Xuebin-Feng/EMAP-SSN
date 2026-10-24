@@ -564,6 +564,29 @@ class SessionFolderTests(unittest.TestCase):
         self.assertIn("in use", out)
 
 
+class LogFolderTests(unittest.TestCase):
+    """The runner's own logs are kept for the newest ten runs."""
+
+    def test_a_new_run_keeps_the_newest_ten_run_folders_and_touches_nothing_else(self):
+        with tempfile.TemporaryDirectory() as base, mock.patch.object(run_sections, "LOG_BASE", Path(base)):
+            names = [f"20260101-0000{number:02d}-{number}" for number in range(12)]
+            for number, name in enumerate(names):
+                folder = Path(base, name)
+                folder.mkdir()
+                (folder / "commands.log").write_text("log", encoding="utf-8")
+                os.utime(folder, (1_000_000 + number, 1_000_000 + number))  # in order of age
+            Path(base, "durations.json").write_text("{}", encoding="utf-8")
+            Path(base, "notes").mkdir()
+            Path(base, "20260101-000000").mkdir()  # not a run folder: no process ID
+            new = run_sections.new_log_dir()
+            self.assertTrue(new.is_dir())
+            self.assertRegex(new.name, r"\d{8}-\d{6}-\d+")
+            runs = sorted(entry.name for entry in Path(base).iterdir() if run_sections.RUN_FOLDER.fullmatch(entry.name))
+            self.assertEqual(runs, sorted([*names[3:], new.name]), "the new one and the nine newest before it")
+            self.assertEqual(sorted(entry.name for entry in Path(base).iterdir() if entry.name not in runs),
+                             ["20260101-000000", "durations.json", "notes"])
+
+
 class RealTreeTestCase(unittest.TestCase):
     """Stopping a real tree: a process whose child started a process of its own."""
 
