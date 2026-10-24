@@ -149,11 +149,17 @@ Available CLI commands:
 
 24. `esmfold [large] [multi] | esmfold stop`
     - With no keyword and no selected or clicked node, registers the Fold View sidebar button and opens the browser Mol* structure viewer. With exactly one selected node, the default mode runs local ESM3 1.4B structure prediction; with nothing selected but a node actively clicked, it folds that node and says so ("Nothing is selected, so the last clicked node is folded: NODE."); if several nodes are selected, the command fails unless `multi` is supplied.
-    - `large` routes structure prediction through the Biohub API using the ESM3 model configured in `src/resources/Biohub_API.json`; a selected or actively clicked node is required. `multi` processes all selected nodes sequentially and may appear before or after `large`.
+    - `large` routes structure prediction through the Biohub API; a selected or actively clicked node is required. `multi` processes all selected nodes sequentially and may appear before or after `large`.
     - Sequences are resolved from the configured source FASTA and structures are stored beneath the configured Cache File directory, using `Cache_Files/Predicted_Structures/` by default; `large` does not use local compute hardware.
     - Each fold is a job of the background scheduler's folding line, beside the line of `label`, `logo` and `print`: it waits behind the folds already queued instead of being refused, one worker runs at a time, and it runs without any window. A node another fold is to write or is writing is left out, and the outcome names the job that holds it. `large` needs the user's Biohub API token: with none saved the Viewer asks for it in a dialog, which the user must answer (never ask for the token or put it in a command), and a Viewer that shows no windows fails the command.
     - While an alignment is loaded, each structure folded for a node the alignment holds also gets `<pdb name>.residues.json` beside its PDB: per-residue Information Content and Residue Agreement from the whole loaded alignment. The result says what was saved, and why not.
     - `esmfold stop` ends the fold that is running, with every process it started, and takes the folds that wait out of the line; nothing else. Structures already saved are kept, a half-written one is deleted, and each fold's job is reported cancelled; with none running or waiting it reports that and succeeds.
+
+25. `jobs | jobs cancel [N ...] | jobs cancel all`
+    - Commands run in the order given; a slow one (`cluster`, `subcluster`) computes in the background, and the commands after it wait. `label`, `logo` and `print` write their files, and `esmfold` folds, as background jobs that run beside the commands: files share one line (`files`) and folds have one of their own (`folding`), each job waiting behind those queued before it. A fold requested while another runs is queued, not refused.
+    - `jobs` lists the commands that wait or run and the background jobs, numbered, with each one's state (`waiting`, `running` or `stopping`) and line, then the last few finished. It is read-only and runs at once.
+    - `cancel` cancels the newest waiting or running command; `cancel N [N ...]` (`14` or `#14`) cancels those jobs, every number naming a job that waits or runs or nothing is cancelled; `cancel all` cancels every command and background job. A waiting job is removed at once. A running background job is only told to stop: `jobs` lists it as `stopping`, and it is reported cancelled only once it has stopped (a fold keeps the structures it had saved); one with no step left to stop at completes instead.
+    - `jobs cancel` is reviewed (see "Review by the user"). When the user asks whether something has finished, emit `jobs` and report from its output: that `cluster`, `label`, `logo`, `print` or `esmfold` was accepted is not that it has completed.
 
 Command selection and state semantics:
 - `select` changes the transient mouse selection; `group` stores reusable, nonexclusive membership labels; `cluster` calculates mutually exclusive topology communities; `subcluster` stores topology-derived memberships as generated custom groups. Do not substitute one concept for another merely because each can identify a subset.
@@ -221,7 +227,7 @@ Shared expression language:
 - Boolean subset expressions and the literal `query`/`logo` position brackets serve different purposes. Never place a normal subset expression inside the literal position/frequency brackets.
 - Interpret expression syntax before context validation. Preserve valid token forms such as `#LABEL#`, bare spectrum selectors such as `{Length}`, and header-list delimiters. Do not rewrite them into undocumented colon-prefixed aliases.
 
-Amino-acid names map to these one-letter codes: Alanine A, Arginine R, Asparagine N, Aspartate/Aspartic Acid D, Cysteine C, Glutamate/Glutamic Acid E, Glutamine Q, Glycine G, Histidine H, Isoleucine I, Leucine L, Lysine K, Methionine M, Phenylalanine F, Proline P, Serine S, Threonine T, Tryptophan W, Tyrosine Y, Valine V, and Gap _.
+Amino-acid names map to their standard one-letter codes, and a gap is `_`.
 
 Translation rules:
 1. Use only identifiers and values supplied by the user, listed in the appended `ACTIVE VIEWER SNAPSHOT`, or explicitly established in the current conversation. Never treat metavariables, defaults, descriptive text, or prior unrelated requests as dataset facts.
