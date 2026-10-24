@@ -37,6 +37,28 @@ still change before version 1.0.0.
 
 ### Added
 
+- **A start-up splash, and no console window on Windows.**
+  - **Starting:** the Desktop shortcuts start Config, Tools and the Viewer through a small
+    `EMAP-SSN.exe`, which `install.bat` builds with the compiler that comes with Windows.
+    About 0.3 s after the click, a splash shows the program's name and version and what it is
+    doing ("Checking dependencies…", "Loading PyTorch…") with a progress bar, then closes when
+    the window is ready. No console window opens, and Config starts the Viewer without one
+    too. The taskbar names them EMAP-SSN.
+  - **Show details:** expands the splash into a section that shows everything printed
+    during the start, with warnings and errors coloured, Copy and Open log. Opened, the
+    splash stays at the end and says "Ready" until it is closed. If the program stops before
+    its window opens, the section opens by itself with the reason.
+  - **Fallbacks:** if the launcher can't be built, the shortcuts work as before. Running
+    `EMAPSSN.bat` directly, or with `--console`, still shows the console. A failed install
+    or repair opens the console as it always did.
+  - **Output is kept:** everything Config, Tools, VR Config and the Viewer print, including
+    Qt and Numba warnings and crash reports, goes to `temp/logs/<app>-<time>-<pid>.log`
+    (8 MB each, the ten newest kept per program, with API keys removed).
+  - **The Viewer's Console:** a `console` command, a sidebar button and a link in the
+    Session card open a Console window with the Viewer's output, with search, an
+    errors-only filter, Copy, Save and Open log. Command help that used to be "printed to
+    the terminal" now points to the Console.
+  - Linux and macOS start as before.
 - **Background jobs in the Viewer's Session card.** Below the input files, the card lists the
   jobs that write files (`print`, `label`, `logo`) and the structure folds (`esmfold`), in two
   lines, Files and Folding, that run side by side. Each line runs one job at a time, in order.
