@@ -572,6 +572,14 @@ still change before version 1.0.0.
 
 ### Fixed
 
+- **The VR viewer's `jobs` sees its background jobs, and closing it leaves no half-written
+  file.** While a `logo` or `label` job ran, `jobs` said nothing was running and `jobs cancel`
+  had nothing to cancel. Now `jobs` lists the jobs that wait or run, and `jobs cancel` takes
+  a number, `all`, or nothing for the newest job. A running job stops at its next step, and
+  what it had written is deleted. Leaving the viewer stops a running job the same way, waits
+  up to 2.5 s, and deletes the file it had begun. `console` in the VR viewer now says its
+  output is in the terminal, instead of saying the Console isn't available, and `help jobs`
+  and `help console` describe the VR viewer, not the desktop's Session card.
 - **Test runs no longer leave folders in the temp directory, or open windows on the desktop.**
   - **Temp folders:** each test section works in its own session folder, with its own temp
     folder inside it. `tests/run_sections.py` removes that folder when the section ends, even
