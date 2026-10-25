@@ -15,7 +15,8 @@ window, as in EMAPSSN_Desktop_Launcher.bat and .sh, and "tools" is Tools. It
 1. brings the window forward and ends if one is already open for this checkout (no splash);
 2. ends quietly if another launch of the same window is under way (a launcher lock), so a double-click
    starts one window;
-3. shows the splash (desktop/Splash.py), within about a third of a second of the click;
+3. shows the splash (desktop/Splash.py), within about a third of a second of the click, in the theme colour
+   the window has saved (the kind's theme_setting; purple when there is none);
 4. checks the environment and shows the lines it prints, live, on the splash: on Windows
    Install_Dependencies.py --check-only, on Linux and macOS the kind's portable launcher with --check-only
    (src/bin/EMAPSSN.sh, EMAPSSN_Tools.sh), which also checks the system libraries Qt needs and finds uv. If the
@@ -146,6 +147,10 @@ class LaunchKind:
     check (None: Install_Dependencies.py is run directly, as on Windows), and ``desktop_file_name`` the
     name of the kind's .desktop entry, which the splash takes as its own so that it and the window are one
     entry in the taskbar (None: the process keeps Qt's default).
+
+    ``theme_setting`` is the app_settings.json setting that holds the window's theme colour (None: no setting,
+    so the default colour). The splash takes its accents in that colour, as the window draws itself in it, so a
+    kind that is a window with a colour of its own declares it here; the splash names no window.
     """
 
     name: str
@@ -159,6 +164,7 @@ class LaunchKind:
     shell_file: Path = SHELL_FILE
     posix_check: Path | None = None
     desktop_file_name: str | None = None
+    theme_setting: str | None = None
 
 
 LAUNCH_KINDS: dict = {}
@@ -171,13 +177,16 @@ def register_kind(kind):
 
 
 # The launcher's kinds, as the batch file names them ("viewer" is Config). A session is a Viewer that Config
-# starts: Config checked, and many Viewers may be open. The .desktop names are the windows' own
-# (desktop.Desktop_App.VIEWER_DESKTOP_FILE_NAME, TOOLS_DESKTOP_FILE_NAME; tests/test_desktop_launcher.py compares them).
+# starts: Config checked, and many Viewers may be open. The .desktop names and the theme colour settings are the
+# windows' own (desktop.Desktop_App.VIEWER_DESKTOP_FILE_NAME, TOOLS_DESKTOP_FILE_NAME, CONFIG_THEME_SETTING,
+# TOOLS_THEME_SETTING; tests/test_desktop_launcher.py compares them). The Viewer has no colour setting: it takes
+# Config's when it starts, so its splash does too.
 register_kind(LaunchKind("viewer", "config", "SSN_Config", posix_check=Path("src") / "bin" / "EMAPSSN.sh",
-                         desktop_file_name="emapssn"))
+                         desktop_file_name="emapssn", theme_setting="CONFIG_THEME_COLOR"))
 register_kind(LaunchKind("tools", "tools", "SSN_Tools", posix_check=Path("src") / "bin" / "EMAPSSN_Tools.sh",
-                         desktop_file_name="emapssn_tools"))
-register_kind(LaunchKind("session", "viewer", check=False, desktop_file_name="emapssn"))
+                         desktop_file_name="emapssn_tools", theme_setting="TOOLS_THEME_COLOR"))
+register_kind(LaunchKind("session", "viewer", check=False, desktop_file_name="emapssn",
+                         theme_setting="CONFIG_THEME_COLOR"))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -406,7 +415,8 @@ class Launch(QObject):
         SplashModule.load_fonts(language)
         self._translator = SplashModule.install_catalog(language)
         self._extra_translators = SplashModule.install_extra_catalogs(language, self.info.catalogs)
-        self.splash = SplashWindow(self.info.splash_kind, language)
+        self.splash = SplashWindow(self.info.splash_kind, language,
+                                   theme_color=SplashModule.saved_theme_color(self.info.theme_setting))
         self.splash.closed.connect(self._splash_closed)
         self.splash.set_status(CHECKED_TEXT if not self.check else Status.CHECKING_ENVIRONMENT,
                                SplashModule.FRACTION_CHECKING)

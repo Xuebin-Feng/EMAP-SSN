@@ -57,22 +57,12 @@ from desktop.Studio_Theme import (  # noqa: E402
     web_page_properties,
 )
 from utilities.App_Settings import read_app_settings  # noqa: E402
-from tests.theme_fixture import apply_theme_for_class  # noqa: E402
+from tests.theme_fixture import apply_theme_for_class, contrast  # noqa: E402
 
 
 def flush(app):
     for _ in range(4):
         app.processEvents()
-
-
-def contrast(first, second):
-    """The WCAG contrast ratio of two #rrggbb colours."""
-    def luminance(color):
-        channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
-        linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
-        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
-    light, dark = sorted((luminance(first), luminance(second)), reverse=True)
-    return (light + 0.05) / (dark + 0.05)
 
 
 def oklab_lightness(color):
@@ -171,6 +161,37 @@ class ThemeColorShadeTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "no theme colour named 'mauve'"):
             set_theme_color("mauve")
         self.assertEqual(theme_color(), "green")
+
+    def test_the_colour_maths_is_one_qt_free_module_studio_theme_and_the_splash_share(self):
+        from desktop import Studio_Theme, Theme_Colors
+
+        names = ("THEME_COLORS", "DEFAULT_THEME_COLOR", "ACCENT_CHROMA", "NEUTRAL_SHADES", "ACCENT_SHADES",
+                 "BLACK_ACCENTS", "oklch_hex", "shade_set")
+        studio = ast.parse(Path(Studio_Theme.__file__).read_text(encoding="utf-8"))
+        defined = {node.name for node in studio.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
+        defined |= {target.id for node in studio.body if isinstance(node, ast.Assign)
+                    for target in node.targets if isinstance(target, ast.Name)}
+        for name in names:
+            with self.subTest(name=name):
+                self.assertIs(getattr(Studio_Theme, name), getattr(Theme_Colors, name))
+                self.assertNotIn(name, defined)  # one copy: Studio_Theme imports it
+        # The module needs nothing but the standard library: the splash imports it before Qt has more than its core.
+        tree = ast.parse(Path(Theme_Colors.__file__).read_text(encoding="utf-8"))
+        imported = {alias.name for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+        imported |= {node.module for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+        self.assertEqual(imported, {"__future__", "math"})
+
+    def test_the_windows_tokens_and_the_pages_are_drawn_from_the_shared_sets(self):
+        from desktop import Theme_Colors
+
+        for color in THEME_COLORS:
+            with self.subTest(color=color):
+                light = Theme_Colors.shade_set("light", color)
+                self.assertEqual({name: theme_tokens(color)[name] for name in light}, light)
+                self.assertEqual(page_tokens(color, dark=True), Theme_Colors.shade_set("dark_page", color))
+                self.assertEqual(page_tokens(color), {**light, **Theme_Colors.shade_set("light_page", color)})
+        with self.assertRaisesRegex(ValueError, "no theme colour named 'mauve'"):
+            Theme_Colors.shade_set("light", "mauve")
 
     def test_every_colour_has_its_stylesheet_arrows(self):
         for color in THEME_COLORS:

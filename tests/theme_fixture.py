@@ -30,6 +30,16 @@ from desktop.Studio_Theme import (  # noqa: E402
 )
 
 
+def contrast(first, second):
+    """The WCAG contrast ratio of two #rrggbb colours."""
+    def luminance(color):
+        channels = [int(color[index:index + 2], 16) / 255 for index in (1, 3, 5)]
+        linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in channels]
+        return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2]
+    light, dark = sorted((luminance(first), luminance(second)), reverse=True)
+    return (light + 0.05) / (dark + 0.05)
+
+
 def apply_theme_for_class(test_class, app):
     """Apply the window theme, in the default colour, to ``app`` until ``test_class`` finishes."""
     style, palette, sheet = app.style().name(), QPalette(app.palette()), app.styleSheet()

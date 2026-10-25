@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The start-up splash (desktop.Splash) and the status the windows report to it (utilities.Startup_Status): the light colours are the Studio theme's, the language follows the saved setting as the windows do, a status file is read line by line as it grows, texts are translated and filled in, the bar fills as the start passes its milestones and never goes back, the window has no taskbar button and opens on the screen under the pointer, and the error view shows the last lines with Copy, Open log and Close. A step of the start that goes wrong without stopping it opens the section by itself with its lines in the warning colour, wrapped to the section's width. A program beside this one adds a window (its name and art) and its own translation catalogs. The splash process hands over to the window it waits for: it closes when the ready file appears, and an error view stays."""
+"""The start-up splash (desktop.Splash) and the status the windows report to it (utilities.Startup_Status): the light colours are the Studio theme's, its accents (the kicker, bar, link, focus, soft fill and the art's glow) are in the theme colour the window it is for has saved, purple where that is missing, unreadable or unknown, the language follows the saved setting as the windows do, a status file is read line by line as it grows, texts are translated and filled in, the bar fills as the start passes its milestones and never goes back, the window has no taskbar button and opens on the screen under the pointer, and the error view shows the last lines with Copy, Open log and Close. A step of the start that goes wrong without stopping it opens the section by itself with its lines in the warning colour, wrapped to the section's width. A program beside this one adds a window (its name and art) and its own translation catalogs. The splash process hands over to the window it waits for: it closes when the ready file appears, and an error view stays."""
 
 from __future__ import annotations
 
@@ -23,14 +23,16 @@ SRC = PROJECT_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtCore import QCoreApplication, QPoint, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QGuiApplication, QPixmap  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QPoint, QSize, Qt  # noqa: E402
+from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPixmap  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from desktop import Desktop_App, Splash  # noqa: E402
 from desktop.Splash import SplashWindow, StatusFeed, tail_lines  # noqa: E402
-from desktop.Studio_Theme import TOKENS  # noqa: E402
+from desktop.Studio_Theme import TOKENS, theme_tokens  # noqa: E402
+from desktop.Theme_Colors import BLACK_ACCENTS, DEFAULT_THEME_COLOR, THEME_COLORS  # noqa: E402
+from tests.theme_fixture import contrast  # noqa: E402
 from utilities import Startup_Status  # noqa: E402
 
 
@@ -50,6 +52,160 @@ class StudioColoursTests(unittest.TestCase):
         for ours, theirs in pairs.items():
             with self.subTest(colour=ours):
                 self.assertEqual(Splash.SCHEME[ours], TOKENS[theirs])
+
+
+class ThemeColourSchemeTests(unittest.TestCase):
+    """The splash's accents are the family's shades, the windows' own; the greys and the status colours do not move."""
+
+    ACCENT_ROLES = {"accent", "accent_soft"}
+
+    def test_every_family_takes_the_accent_shades_the_windows_take(self):
+        for color in THEME_COLORS:
+            with self.subTest(color=color):
+                scheme, tokens = Splash.scheme_for(color), theme_tokens(color)
+                self.assertEqual(scheme["accent"], tokens["accent"])
+                self.assertEqual(scheme["accent_soft"], tokens["accent_soft"])
+
+    def test_black_takes_the_windows_black_accents_not_a_hue(self):
+        scheme = Splash.scheme_for("black")
+        self.assertEqual(scheme["accent"], BLACK_ACCENTS["light"]["accent"])
+        self.assertEqual(scheme["accent_soft"], BLACK_ACCENTS["light"]["accent_soft"])
+        self.assertEqual(scheme["accent"], theme_tokens("black")["accent"])
+        for color in THEME_COLORS:
+            if color != "black":
+                self.assertNotEqual(Splash.scheme_for(color)["accent"], scheme["accent"])
+
+    def test_only_the_accent_roles_change_with_the_family(self):
+        purple = Splash.scheme_for("purple")
+        self.assertEqual(purple, Splash.SCHEME)  # the default scheme is purple's
+        self.assertEqual(Splash.scheme_for(), purple)
+        for color in THEME_COLORS:
+            scheme = Splash.scheme_for(color)
+            changed = {role for role in scheme if scheme[role] != purple[role]}
+            with self.subTest(color=color):
+                self.assertEqual(scheme.keys(), purple.keys())
+                self.assertEqual(changed, set() if color == "purple" else self.ACCENT_ROLES)
+
+    def test_the_greys_the_text_and_the_status_colours_are_the_windows_in_every_family(self):
+        for color in THEME_COLORS:
+            scheme, tokens = Splash.scheme_for(color), theme_tokens(color)
+            for role, token in Splash.SCHEME_TOKENS.items():
+                if role not in self.ACCENT_ROLES:
+                    with self.subTest(color=color, role=role):
+                        self.assertEqual(scheme[role], tokens[token])
+        for role, color in (("danger", "#dc2626"), ("warning", "#b45309"), ("text", "#09090b"), ("surface", "#ffffff")):
+            self.assertEqual({Splash.scheme_for(name)[role] for name in THEME_COLORS}, {color})
+
+    def test_the_kicker_and_the_link_stay_readable_in_every_family(self):
+        for color in THEME_COLORS:
+            scheme = Splash.scheme_for(color)
+            with self.subTest(color=color):
+                # The windows' own rule (tests/test_theme_colors.py): the accent on white, 4.5:1.
+                self.assertGreaterEqual(contrast(scheme["accent"], scheme["surface"]), 4.5)
+                # The link under the mouse or focused sits on the soft fill: still four to one in the palest families.
+                self.assertGreaterEqual(contrast(scheme["accent"], scheme["accent_soft"]), 4.0)
+
+    def test_a_name_that_is_not_a_family_is_refused(self):
+        with self.assertRaises(ValueError):
+            Splash.scheme_for("mauve")
+
+    def test_a_scheme_is_cheap_enough_for_the_first_paint(self):
+        # Every family's scheme, twenty times over: a few milliseconds (the splash makes two at start-up). The bound only
+        # catches the scheme growing into work that belongs after the first paint.
+        started = time.perf_counter()
+        for _ in range(20):
+            for color in THEME_COLORS:
+                Splash.scheme_for(color)
+        self.assertLess(time.perf_counter() - started, 1.0)
+
+
+class SavedThemeColourTests(unittest.TestCase):
+    """Which family the splash takes: what the window's own setting says, else purple, and never a dialog."""
+
+    def saved(self, content, setting="CONFIG_THEME_COLOR"):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app_settings.json"
+            if isinstance(content, bytes):
+                path.write_bytes(content)
+            elif content is not None:
+                path.write_text(content if isinstance(content, str) else json.dumps(content), encoding="utf-8")
+            return Splash.saved_theme_color(setting, {"SSN_APP_SETTINGS_PATH": str(path)})
+
+    def test_each_setting_gives_the_colour_saved_under_its_own_name(self):
+        content = {"CONFIG_THEME_COLOR": "teal", "TOOLS_THEME_COLOR": "orange", "PLUG_THEME_COLOR": "pink",
+                   "LANGUAGE": "zh_CN"}
+        self.assertEqual(self.saved(content, "CONFIG_THEME_COLOR"), "teal")
+        self.assertEqual(self.saved(content, "TOOLS_THEME_COLOR"), "orange")
+        self.assertEqual(self.saved(content, "PLUG_THEME_COLOR"), "pink")
+        self.assertEqual(self.saved(content, "LANGUAGE"), DEFAULT_THEME_COLOR)  # a setting that is not a colour
+        self.assertEqual(self.saved(content, "OTHER_THEME_COLOR"), DEFAULT_THEME_COLOR)  # one nobody saved
+
+    def test_every_family_comes_back_as_saved(self):
+        for color in THEME_COLORS:
+            with self.subTest(color=color):
+                self.assertEqual(self.saved({"TOOLS_THEME_COLOR": color}, "TOOLS_THEME_COLOR"), color)
+
+    def test_no_setting_name_is_the_default_whatever_is_saved(self):
+        self.assertEqual(Splash.saved_theme_color(None), DEFAULT_THEME_COLOR)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app_settings.json"
+            path.write_text(json.dumps({"CONFIG_THEME_COLOR": "red"}), encoding="utf-8")
+            self.assertEqual(Splash.saved_theme_color(None, {"SSN_APP_SETTINGS_PATH": str(path)}), DEFAULT_THEME_COLOR)
+
+    def test_a_missing_unreadable_or_unknown_colour_is_purple(self):
+        cases = {
+            "no file": None,
+            "not JSON": "{ not json",
+            "empty file": "",
+            "not an object": json.dumps(["CONFIG_THEME_COLOR", "teal"]),
+            "a string": json.dumps("teal"),
+            "not UTF-8": b"\xff\xfe\x00{",
+            "no setting": {},
+            "another window's setting only": {"TOOLS_THEME_COLOR": "teal"},
+            "unknown name": {"CONFIG_THEME_COLOR": "mauve"},
+            "wrong case": {"CONFIG_THEME_COLOR": "Teal"},
+            "empty name": {"CONFIG_THEME_COLOR": ""},
+            "a number": {"CONFIG_THEME_COLOR": 5},
+            "null": {"CONFIG_THEME_COLOR": None},
+            "a list": {"CONFIG_THEME_COLOR": ["teal"]},
+            "an object": {"CONFIG_THEME_COLOR": {"teal": 1}},
+        }
+        for name, content in cases.items():
+            with self.subTest(case=name):
+                self.assertEqual(self.saved(content), DEFAULT_THEME_COLOR)
+
+    def test_a_settings_path_that_is_a_folder_is_purple_too(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(Splash.saved_theme_color("CONFIG_THEME_COLOR", {"SSN_APP_SETTINGS_PATH": directory}),
+                             DEFAULT_THEME_COLOR)
+
+    def test_it_never_raises_or_writes_the_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app_settings.json"
+            path.write_text("{ not json", encoding="utf-8")
+            before = (path.read_bytes(), path.stat().st_mtime_ns)
+            Splash.saved_theme_color("CONFIG_THEME_COLOR", {"SSN_APP_SETTINGS_PATH": str(path)})
+            self.assertEqual((path.read_bytes(), path.stat().st_mtime_ns), before)
+
+    def test_it_gives_what_the_windows_take_from_the_same_settings(self):
+        values = ["teal", "black", "purple", "mauve", "Teal", "", 5, None, "pink"]
+        for value in values:
+            settings = {"CONFIG_THEME_COLOR": value}
+            with self.subTest(value=value), mock.patch.object(Desktop_App, "_warn_once"):
+                self.assertEqual(self.saved(settings), Desktop_App.configured_theme_color("CONFIG_THEME_COLOR", settings))
+        with mock.patch.object(Desktop_App, "_warn_once"):
+            self.assertEqual(Desktop_App.configured_theme_color("CONFIG_THEME_COLOR", {}), self.saved({}))
+
+    def test_the_language_reader_is_unchanged_by_sharing_the_file_reader(self):
+        self.assertEqual(Splash.saved_setting("X", {"SSN_APP_SETTINGS_PATH": "no/such/file.json"}), None)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "app_settings.json"
+            environment = {"SSN_APP_SETTINGS_PATH": str(path)}
+            path.write_text(json.dumps({"LANGUAGE": "zh_CN", "N": 3}), encoding="utf-8")
+            self.assertEqual(Splash.saved_setting("N", environment), 3)
+            self.assertEqual(Splash.saved_language_setting(environment), "zh_CN")
+            path.write_text(json.dumps({"LANGUAGE": 7}), encoding="utf-8")
+            self.assertEqual(Splash.saved_language_setting(environment), "system")
 
 
 class IdentityTests(unittest.TestCase):
@@ -198,6 +354,113 @@ class WindowCase(unittest.TestCase):
         window.show()
         flush(self.app, 2)
         return window
+
+
+class ThemeColourWindowTests(WindowCase):
+    """Every part of the splash that is in the accent is in the window's family, and nothing else moves."""
+
+    def picture(self, window):
+        image = window.grab().toImage()
+        ratio = window.devicePixelRatioF()
+        return lambda x, y: QColor(image.pixel(int(x * ratio), int(y * ratio)))
+
+    def chevron_colours(self, window):
+        """The colours of the Show/Hide details chevron's fully covered pixels."""
+        icon = window.details_button.icon().pixmap(QSize(12, 12)).toImage()
+        colours = (QColor.fromRgba(icon.pixel(x, y)) for x in range(icon.width()) for y in range(icon.height()))
+        return {colour.name() for colour in colours if colour.alpha() == 255}
+
+    def test_without_a_colour_the_splash_is_purple(self):
+        window = self.splash()
+        self.assertEqual(window.theme_color, DEFAULT_THEME_COLOR)
+        self.assertEqual(window.scheme, Splash.SCHEME)
+
+    def test_a_name_that_is_not_a_family_is_refused(self):
+        with self.assertRaises(ValueError):
+            SplashWindow("config", theme_color="mauve")
+
+    def test_the_bar_is_drawn_in_the_families_accent(self):
+        for color in THEME_COLORS:
+            window = self.splash(theme_color=color)
+            window.set_fraction(0.5)
+            window.shown_fraction = 0.5
+            pixel = self.picture(window)
+            with self.subTest(color=color):
+                self.assertEqual(pixel(Splash.TEXT_X + 20, Splash.BAR_Y + Splash.BAR_HEIGHT / 2).name(),
+                                 theme_tokens(color)["accent"])
+                self.assertEqual(pixel(Splash.TEXT_X + Splash.TEXT_WIDTH - 20, Splash.BAR_Y + 1).name(),
+                                 Splash.SCHEME["track"])  # the track is a grey in every family
+
+    def test_the_kicker_is_drawn_in_the_families_accent(self):
+        for color in THEME_COLORS:
+            window = self.splash(theme_color=color)
+            image = window.grab().toImage()
+            ratio = window.devicePixelRatioF()
+            accent = theme_tokens(color)["accent"]
+            kicker = {QColor(image.pixel(int(x * ratio), int(y * ratio))).name()
+                      for x in range(int(Splash.TEXT_X), int(Splash.TEXT_X + 300)) for y in range(36, 58)}
+            with self.subTest(color=color):
+                self.assertIn(accent, kicker)  # the strokes of its letters, fully covered
+                # And it reads on what is drawn behind it (the surface, with a trace of the glow): the windows' 4.5:1.
+                self.assertGreaterEqual(contrast(accent, self.picture(window)(330, 47).name()), 4.5)
+
+    def test_the_glow_behind_the_art_is_a_tint_of_the_families_accent(self):
+        for color in THEME_COLORS:
+            window = self.splash(theme_color=color)
+            window.logo = QPixmap()  # the glow alone
+            image = QImage(Splash.WIDTH, Splash.HEIGHT, QImage.Format.Format_ARGB32_Premultiplied)
+            image.fill(QColor(Splash.SCHEME["surface"]))
+            painter = QPainter(image)
+            window._paint_art(painter)
+            painter.end()
+            centre = QColor(image.pixel(Splash.WIDTH - 180, Splash.HEIGHT // 2))
+            accent, surface = QColor(theme_tokens(color)["accent"]), QColor(Splash.SCHEME["surface"])
+            with self.subTest(color=color):
+                for channel in ("red", "green", "blue"):
+                    expected = getattr(surface, channel)() * 0.86 + getattr(accent, channel)() * 0.14
+                    self.assertAlmostEqual(getattr(centre, channel)(), expected, delta=2.5)
+
+    def test_the_link_the_button_focus_and_the_sections_selection_take_the_family(self):
+        for color in THEME_COLORS:
+            window = self.splash(theme_color=color)
+            scheme = Splash.scheme_for(color)
+            with self.subTest(color=color):
+                link = window.details_button.styleSheet()
+                self.assertIn(f"color: {scheme['accent']};", link)
+                self.assertEqual(link.count(f"background: {scheme['accent_soft']};"), 2)  # hover and focus
+                for button in (window.copy_button, window.log_button, window.close_button):
+                    self.assertIn(f"border: 2px solid {scheme['accent']};", button.styleSheet())
+                    if color != "purple":
+                        self.assertNotIn(Splash.SCHEME["accent"], button.styleSheet())  # no purple left behind
+                self.assertIn(f"selection-background-color: {scheme['accent_soft']};", window.details.styleSheet())
+                self.assertEqual(self.chevron_colours(window), {scheme["accent"]})  # the chevron is in the accent
+
+    def test_the_open_section_is_in_the_family_too(self):
+        window = self.splash(theme_color="teal")
+        window.set_details_open(True)
+        flush(self.app, 2)
+        self.assertEqual(self.chevron_colours(window), {theme_tokens("teal")["accent"]})  # the up chevron, redrawn
+        self.assertIn(f"border: 2px solid {theme_tokens('teal')['accent']};", window.close_button.styleSheet())
+
+    def test_what_is_not_an_accent_does_not_follow_the_family(self):
+        reference = self.picture(self.splash())
+        for color in ("teal", "black"):
+            window = self.splash(theme_color=color)
+            pixel = self.picture(window)
+            with self.subTest(color=color):
+                for point in ((20, 200), (20, 20), (Splash.TEXT_X + Splash.TEXT_WIDTH - 20, Splash.BAR_Y + 1)):
+                    self.assertEqual(pixel(*point).name(), reference(*point).name())  # surface and track
+                self.assertEqual(window.colors["danger"].name(), Splash.SCHEME["danger"])
+                self.assertEqual(window.colors["warning"].name(), Splash.SCHEME["warning"])
+                self.assertEqual(window.colors["text"].name(), Splash.SCHEME["text"])
+
+    def test_the_warning_and_error_lines_keep_their_colours_in_every_family(self):
+        for color in THEME_COLORS:
+            window = self.splash(theme_color=color)
+            with self.subTest(color=color):
+                self.assertEqual(window.details.formats["warning"].foreground().color().name(), Splash.SCHEME["warning"])
+                self.assertEqual(window.details.formats["error"].foreground().color().name(), Splash.SCHEME["danger"])
+                self.assertEqual(window.details.formats["info"].foreground().color().name(), Splash.SCHEME["text_soft"])
 
 
 class StatusTests(WindowCase):
@@ -450,7 +713,8 @@ class LightnessTests(unittest.TestCase):
             %s
             print(sorted(name for name in sys.modules if name.split(".")[0] in
                          ("numpy", "torch", "vispy", "scipy", "pandas", "h5py", "PySide6WebEngine")
-                         or name.startswith(("desktop.Desktop_App", "desktop.Console_View", "desktop.Studio_Theme"))))
+                         or name.startswith(("desktop.Desktop_App", "desktop.Console_View", "desktop.Studio_Theme",
+                                             "PySide6.QtSvg"))))
             """ % statement
         )
         done = subprocess.run([sys.executable, "-c", program, str(SRC)], capture_output=True, text=True, timeout=120,
@@ -461,6 +725,14 @@ class LightnessTests(unittest.TestCase):
 
     def test_the_splash_imports_nothing_heavy_and_not_the_consoles_window(self):
         self.assertEqual(self.imported_after("import desktop.Splash"), [])
+
+    def test_the_colours_come_from_the_qt_free_module_the_studio_theme_shares_not_from_the_theme_itself(self):
+        # The first-paint guard of the theme colour: Studio_Theme (QtSvg, the icon engine) would cost the splash its start,
+        # so it takes the colour maths from desktop/Theme_Colors.py, which imports no Qt at all.
+        self.assertEqual(self.imported_after("import desktop.Theme_Colors, sys; assert 'PySide6' not in sys.modules"), [])
+        self.assertEqual(self.imported_after(
+            "import desktop.Splash, sys; assert 'desktop.Theme_Colors' in sys.modules; "
+            "assert 'desktop.Studio_Theme' not in sys.modules and 'PySide6.QtSvg' not in sys.modules"), [])
 
     def test_the_line_classifier_the_section_colours_by_is_the_standard_library_only(self):
         self.assertEqual(self.imported_after("import utilities.Line_Kinds, sys; assert 'PySide6' not in sys.modules"), [])
@@ -1093,9 +1365,11 @@ class PluginKindTests(WindowCase):
 class ProcessHandOffTests(unittest.TestCase):
     """The splash as a process of its own: it follows a status file and ends when the window writes its ready file."""
 
-    def run_splash(self, *options, directory):
+    def run_splash(self, *options, directory, settings=None):
         environment = {key: value for key, value in os.environ.items() if key not in {"PYTHONPATH", "PYTHONHOME"}}
         environment["QT_QPA_PLATFORM"] = "offscreen"
+        if settings is not None:
+            environment["SSN_APP_SETTINGS_PATH"] = str(settings)
         return subprocess.Popen(
             [sys.executable, str(SRC / "desktop" / "Splash.py"), "--hidden", *options],
             stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, env=environment,
@@ -1174,6 +1448,34 @@ class ProcessHandOffTests(unittest.TestCase):
                     out, err = process.communicate(timeout=60)
                     self.assertEqual(process.returncode, 0, err)
                     self.assertGreater(target.stat().st_size, 5000, (kind, language))
+
+    def test_a_shot_takes_the_colour_saved_under_the_setting_it_is_told(self):
+        with tempfile.TemporaryDirectory() as directory:
+            settings = Path(directory) / "app_settings.json"
+            settings.write_text(json.dumps({"CONFIG_THEME_COLOR": "teal", "TOOLS_THEME_COLOR": "black"}), encoding="utf-8")
+
+            def bar(kind, *options, saved=settings):
+                target = Path(directory) / f"shot_{len(list(Path(directory).glob('*.png')))}.png"
+                process = self.run_splash("--kind", kind, "--language", "en", "--status", "Loading PyTorch…",
+                                          "--fraction", "0.5", *options, "--shot", str(target), directory=directory,
+                                          settings=saved)
+                out, err = process.communicate(timeout=60)
+                self.assertEqual(process.returncode, 0, err)
+                image = QImage(str(target))
+                return image.pixelColor(int(Splash.TEXT_X) + 20, int(Splash.BAR_Y) + 1).name()
+
+            self.assertEqual(bar("config", "--theme-setting", "CONFIG_THEME_COLOR"), theme_tokens("teal")["accent"])
+            self.assertEqual(bar("tools", "--theme-setting", "TOOLS_THEME_COLOR"), theme_tokens("black")["accent"])
+            # No setting named, one nobody saved, a colour the program does not have, a file that cannot be read: purple.
+            purple = theme_tokens("purple")["accent"]
+            self.assertEqual(bar("config"), purple)
+            self.assertEqual(bar("config", "--theme-setting", "OTHER_THEME_COLOR"), purple)
+            settings.write_text(json.dumps({"CONFIG_THEME_COLOR": "mauve"}), encoding="utf-8")
+            self.assertEqual(bar("config", "--theme-setting", "CONFIG_THEME_COLOR"), purple)
+            settings.write_text("{ not json", encoding="utf-8")
+            self.assertEqual(bar("config", "--theme-setting", "CONFIG_THEME_COLOR"), purple)
+            self.assertEqual(bar("config", "--theme-setting", "CONFIG_THEME_COLOR", saved=Path(directory) / "missing.json"),
+                             purple)
 
 
 if __name__ == "__main__":

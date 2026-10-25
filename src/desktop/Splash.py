@@ -6,8 +6,11 @@
 
 Layout: the kicker, "EMAP-SSN" and the window's name at the left, the copyright and version
 under them, the network art at the right, and below the text a status line with a progress
-bar. The colours are the Studio theme's light shades (desktop/Studio_Theme.py) in the default
-purple, whatever theme colour the windows use: the splash is the program's, not a window's.
+bar. The colours are the Studio theme's light shades (desktop/Theme_Colors.py, the colour maths that
+desktop/Studio_Theme.py draws the windows' tokens from), and its accents, the kicker, the bar, the link, the
+focus and outline of the buttons, the soft fill and the glow behind the art, are in the theme colour of the
+window the splash is for: the one that window has saved (app_settings.json), as the launcher names it, or
+purple where there is none, or it cannot be read, or it is not a colour the program has.
 
 The status line follows the start. The launcher (desktop/Desktop_Launcher.py) and the window
 it starts report what they are doing as JSON lines in a status file (utilities/Startup_Status.py);
@@ -30,9 +33,10 @@ open, stays at Ready until Close is pressed, as it does for anyone who opened th
 A program that sits beside this one adds its own window with register_kind (its name under the
 product's name, its art), and its own texts with install_extra_catalogs; this file names none.
 
-It imports only PySide6's QtCore, QtGui and QtWidgets and the standard library, so it is on
-screen long before the heavy imports (NumPy, torch, VisPy) of the windows it waits for, and it
-runs in a process of its own: the windows load torch before Qt on purpose. It has no taskbar
+It imports only PySide6's QtCore, QtGui and QtWidgets, the standard library and the Qt-free colour maths
+(Theme_Colors), so it is on screen long before the heavy imports (NumPy, torch, VisPy) of the windows it waits
+for (Studio_Theme itself would add QtSvg and about 25 ms), and it runs in a process of its own: the windows
+load torch before Qt on purpose. It has no taskbar
 button (a Qt splash-screen window is a tool window on Windows) and opens on the screen under
 the mouse pointer.
 """
@@ -60,6 +64,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QPushButton, QWidget
 
+from desktop.Theme_Colors import DEFAULT_THEME_COLOR, THEME_COLORS, shade_set
 from utilities import Startup_Status as Status
 from utilities.Console_Capture import Splitter
 from utilities.Line_Kinds import ERROR, WARNING, Classifier
@@ -90,13 +95,27 @@ def register_kind(kind, subtitle, logo):
     SUBTITLES[kind] = subtitle
     LOGO_FILES[kind] = str(logo)
 
-# Studio_Theme's NEUTRAL_SHADES["light"] and its default purple accent. tests/test_splash.py
-# compares them with the theme's own, so the splash cannot drift from it.
-SCHEME = {
-    "surface": "#ffffff", "panel": "#f4f4f5", "border": "#e4e4e7", "text": "#09090b", "text_soft": "#3f3f46",
-    "muted": "#52525b", "subtle": "#71717a", "track": "#e4e4e7", "accent": "#5b5bd6", "field_border": "#dcdce0",
-    "danger": "#dc2626", "warning": "#b45309", "hover": "#f4f4f5", "accent_soft": "#e9ecfc",
+# The splash's colours by role, and the token of the Studio theme's light set (the windows' own) each one is: the greys,
+# the text and the warning and danger colours are the same in every theme colour, and "accent" and "accent_soft" are
+# the family's shades (desktop/Theme_Colors.py), so the splash has the colours Config or Tools draw in the same family.
+SCHEME_TOKENS = {
+    "surface": "surface", "panel": "surface_muted", "border": "border", "text": "text", "text_soft": "text_soft",
+    "muted": "text_muted", "subtle": "text_subtle", "track": "border", "accent": "accent", "field_border": "field_border",
+    "danger": "danger", "warning": "warning", "hover": "surface_muted", "accent_soft": "accent_soft",
 }
+
+
+def scheme_for(color=DEFAULT_THEME_COLOR):
+    """The splash's colours (SCHEME_TOKENS' roles, as #rrggbb) for the theme colour family ``color``.
+
+    An unknown name is a ValueError: saved_theme_color is what turns whatever the settings hold into a family.
+    """
+    shades = shade_set("light", color)
+    return {role: shades[token] for role, token in SCHEME_TOKENS.items()}
+
+
+# The default (purple) scheme: what a part drawn without a window of its own takes, and what the tests compare.
+SCHEME = scheme_for()
 
 # The Show details link sits under the bar, and the splash ends a margin below it (the same margin is left under the
 # buttons of the open section), about as far from the edge as the text is from the left one.
@@ -144,13 +163,31 @@ def app_settings_path(environment=None):
     return Path(named) if named else SRC_DIR.parent / "app_settings.json"
 
 
+def saved_setting(name, environment=None):
+    """What app_settings.json holds under ``name``, or None (no such setting, no file, or one that cannot be read)."""
+    try:
+        return json.loads(app_settings_path(environment).read_text(encoding="utf-8")).get(name)
+    except (OSError, ValueError, AttributeError):
+        return None
+
+
 def saved_language_setting(environment=None):
     """The LANGUAGE setting of app_settings.json: "system", "en" or a code ("system" when unset or unreadable)."""
-    try:
-        value = json.loads(app_settings_path(environment).read_text(encoding="utf-8")).get("LANGUAGE")
-    except (OSError, ValueError, AttributeError):
-        return "system"
+    value = saved_setting("LANGUAGE", environment)
     return value if isinstance(value, str) and value else "system"
+
+
+def saved_theme_color(setting, environment=None):
+    """The theme colour family the window keeps under ``setting`` in app_settings.json (what
+    desktop.Desktop_App.configured_theme_color gives that window), as a THEME_COLORS name.
+
+    The splash never stops for a colour: no ``setting`` (None), no such setting, a file that cannot be read, and a
+    value that is not one of the program's colours all give the default, purple, silently.
+    """
+    if setting is None:
+        return DEFAULT_THEME_COLOR
+    value = saved_setting(setting, environment)
+    return value if isinstance(value, str) and value in THEME_COLORS else DEFAULT_THEME_COLOR
 
 
 def catalog_path(code, languages_dir=LANGUAGES):
@@ -397,8 +434,9 @@ class DetailsView(QPlainTextEdit):
     latest state, is replaced by the next until a newline finishes it.
     """
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, scheme=None):
         super().__init__(parent)
+        scheme = SCHEME if scheme is None else scheme
         self.setReadOnly(True)
         self.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.setMaximumBlockCount(MAX_DETAIL_LINES)
@@ -406,14 +444,14 @@ class DetailsView(QPlainTextEdit):
         font.setStyleHint(QFont.StyleHint.Monospace)
         self.setFont(font)
         self.setStyleSheet(
-            f"QPlainTextEdit {{ background: {SCHEME['panel']}; color: {SCHEME['text_soft']};"
-            f" border: 1px solid {SCHEME['border']}; border-radius: 8px; padding: 6px;"
-            f" selection-background-color: {SCHEME['accent_soft']}; selection-color: {SCHEME['text']}; }}"
+            f"QPlainTextEdit {{ background: {scheme['panel']}; color: {scheme['text_soft']};"
+            f" border: 1px solid {scheme['border']}; border-radius: 8px; padding: 6px;"
+            f" selection-background-color: {scheme['accent_soft']}; selection-color: {scheme['text']}; }}"
         )
         self.formats = {}
         for kind, name in (("info", "text_soft"), (WARNING, "warning"), (ERROR, "danger")):
             line_format = QTextCharFormat()
-            line_format.setForeground(QColor(SCHEME[name]))
+            line_format.setForeground(QColor(scheme[name]))
             self.formats[kind] = line_format
         self._classifier = Classifier()
         self._empty = True
@@ -462,11 +500,12 @@ class DetailsView(QPlainTextEdit):
 
 
 class SplashWindow(QWidget):
-    """The splash. ``kind`` is "config", "tools" or "viewer"; ``language`` a code or None."""
+    """The splash. ``kind`` is "config", "tools" or "viewer" (or a registered one); ``language`` a code or None;
+    ``theme_color`` the name of the theme colour family its accents take (None: the default, purple)."""
 
     closed = Signal()
 
-    def __init__(self, kind="config", language=None, status_file=None):
+    def __init__(self, kind="config", language=None, status_file=None, theme_color=None):
         super().__init__(None, Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint
                          | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.NoDropShadowWindowHint)
         if kind not in SUBTITLES:
@@ -476,7 +515,9 @@ class SplashWindow(QWidget):
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)  # the rounded corners
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setFixedSize(WIDTH, HEIGHT)
-        self.colors = {name: QColor(value) for name, value in SCHEME.items()}
+        self.theme_color = DEFAULT_THEME_COLOR if theme_color is None else theme_color
+        self.scheme = scheme_for(self.theme_color)
+        self.colors = {name: QColor(value) for name, value in self.scheme.items()}
         self.logo = QPixmap(str(LOGOS / LOGO_FILES[kind]))  # a 512 px copy: the shipped art decodes to 75 MB
         self.status = tr(Status.STARTING)
         self.target_fraction = None   # None: the sweeping bar; a number: the share done at the last news
@@ -491,7 +532,7 @@ class SplashWindow(QWidget):
         self.log_path = None
         self.feed = StatusFeed(status_file)
         self.tail = LogTail()
-        self.log_view = self.details = DetailsView(self)
+        self.log_view = self.details = DetailsView(self, self.scheme)
         self.details_button = self._make_link(self._details_text(), self.toggle_details)
         self.copy_button = self._make_button(QCoreApplication.translate("Splash", "Copy"), self.copy_error)
         self.log_button = self._make_button(QCoreApplication.translate("Splash", "Open log"), self.open_log)
@@ -608,7 +649,7 @@ class SplashWindow(QWidget):
         locked = self.error or self.ready
         link = self.details_button
         link.setText(self._details_text(opened))
-        link.setIcon(_chevron(opened, SCHEME["accent"]))
+        link.setIcon(_chevron(opened, self.scheme["accent"]))
         link.adjustSize()
         link.setGeometry(int(TEXT_X) - 8, LINK_Y, link.width(), LINK_HEIGHT)
         link.setVisible(not locked)
@@ -678,11 +719,12 @@ class SplashWindow(QWidget):
         button = QPushButton(text, self)
         button.setFont(_font(12))
         button.setCursor(Qt.CursorShape.PointingHandCursor)
+        scheme = self.scheme
         button.setStyleSheet(
-            f"QPushButton {{ background: {SCHEME['surface']}; color: {SCHEME['text']}; border: 1px solid {SCHEME['field_border']};"
+            f"QPushButton {{ background: {scheme['surface']}; color: {scheme['text']}; border: 1px solid {scheme['field_border']};"
             f" border-radius: 8px; padding: 6px 16px; }}"
-            f"QPushButton:hover {{ background: {SCHEME['hover']}; }}"
-            f"QPushButton:focus {{ border: 2px solid {SCHEME['accent']}; padding: 5px 15px; }}"
+            f"QPushButton:hover {{ background: {scheme['hover']}; }}"
+            f"QPushButton:focus {{ border: 2px solid {scheme['accent']}; padding: 5px 15px; }}"
         )
         button.clicked.connect(slot)
         return button
@@ -699,11 +741,12 @@ class SplashWindow(QWidget):
         # splash is not a window one types in, and a click focuses the link as it always has.
         button.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         button.setIconSize(QSize(12, 12))
+        scheme = self.scheme
         button.setStyleSheet(
-            f"QPushButton {{ background: transparent; color: {SCHEME['accent']}; border: none; border-radius: 6px;"
+            f"QPushButton {{ background: transparent; color: {scheme['accent']}; border: none; border-radius: 6px;"
             f" padding: 3px 8px 3px 6px; text-align: left; }}"
-            f"QPushButton:hover {{ background: {SCHEME['accent_soft']}; }}"
-            f"QPushButton:focus {{ background: {SCHEME['accent_soft']}; }}"
+            f"QPushButton:hover {{ background: {scheme['accent_soft']}; }}"
+            f"QPushButton:focus {{ background: {scheme['accent_soft']}; }}"
         )
         button.clicked.connect(slot)
         return button
@@ -845,6 +888,9 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--kind", default="config", choices=KINDS)
     parser.add_argument("--language", default=None, help="a language code; the saved setting by default; en for English")
+    parser.add_argument("--theme-setting", default=None, metavar="NAME",
+                        help="the app_settings.json setting that holds the window's theme colour (the launcher names it "
+                             "for the kind it starts); purple when not given or not set")
     parser.add_argument("--status", default=None, help="a status text (English; it is translated), as a window reports it")
     parser.add_argument("--value", action="append", default=[], metavar="NAME=TEXT", help="a value for the status's {NAME}")
     parser.add_argument("--fraction", type=float, default=None)
@@ -863,7 +909,7 @@ def main(argv=None):
         language = None
     load_fonts(language)
     translator = install_catalog(language)  # noqa: F841 (kept alive)
-    window = SplashWindow(args.kind, language, args.status_file)
+    window = SplashWindow(args.kind, language, args.status_file, saved_theme_color(args.theme_setting))
     if args.status:
         window.set_status(args.status, args.fraction, **dict(item.split("=", 1) for item in args.value if "=" in item))
         if args.fraction is not None:

@@ -30,6 +30,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from desktop import Desktop_App, Desktop_Launcher, Splash  # noqa: E402
 from desktop.Desktop_Launcher import Launch, LaunchKind, LaunchStep  # noqa: E402
+from desktop.Studio_Theme import theme_tokens  # noqa: E402
 from utilities.Terminal_Launcher import TerminalUnavailableError  # noqa: E402
 
 COPIED = (
@@ -203,6 +204,15 @@ class PureHelperTests(unittest.TestCase):
                               (PROJECT_ROOT / Desktop_Launcher.SHELL_FILE).read_text(encoding="utf-8"))
         self.assertEqual(Desktop_Launcher.SHELL_FILE, Path("src") / "bin" / "EMAPSSN_Desktop_Launcher.sh")
         self.assertTrue((PROJECT_ROOT / Desktop_Launcher.SHELL_FILE).is_file())
+
+    def test_the_theme_colour_settings_are_the_windows_own(self):
+        kinds = Desktop_Launcher.LAUNCH_KINDS
+        self.assertEqual(kinds["viewer"].theme_setting, Desktop_App.CONFIG_THEME_SETTING)
+        self.assertEqual(kinds["tools"].theme_setting, Desktop_App.TOOLS_THEME_SETTING)
+        # A Viewer has no setting of its own: it takes Config's when it starts, so its splash does too.
+        self.assertEqual(kinds["session"].theme_setting, Desktop_App.CONFIG_THEME_SETTING)
+        self.assertEqual(len({kinds["viewer"].theme_setting, kinds["tools"].theme_setting}), 2)
+        self.assertIsNone(LaunchKind("plug", "config").theme_setting)  # a kind that declares none has no colour of its own
 
     def test_the_desktop_names_are_the_windows_own_and_the_desktop_entries(self):
         kinds = Desktop_Launcher.LAUNCH_KINDS
@@ -589,6 +599,86 @@ class LaunchCase(unittest.TestCase):
     def state_dirs(self):
         return sorted((self.root / "temp").glob("viewer_*")) + sorted((self.root / "temp").glob("tools_*")) \
             + sorted((self.root / "temp").glob("session_*"))
+
+
+class SplashColourTests(LaunchCase):
+    """The splash opens in the theme colour its kind's window has saved, purple where there is none."""
+
+    def settings(self, content):
+        path = self.root / "app_settings.json"
+        path.write_text(content if isinstance(content, str) else json.dumps(content), encoding="utf-8")
+
+    def splash_for(self, kind):
+        launch = self.launch(kind)
+        launch.open_splash()
+        return launch.splash
+
+    def test_each_kind_starts_its_splash_in_the_colour_its_window_saved(self):
+        self.settings({"CONFIG_THEME_COLOR": "teal", "TOOLS_THEME_COLOR": "orange", "PLUG_THEME_COLOR": "pink"})
+        for kind, color in (("viewer", "teal"), ("tools", "orange"), ("session", "teal")):
+            with self.subTest(kind=kind):
+                splash = self.splash_for(kind)
+                self.assertEqual(splash.theme_color, color)
+                self.assertEqual(splash.scheme["accent"], theme_tokens(color)["accent"])
+                self.assertEqual(splash.colors["accent"].name(), theme_tokens(color)["accent"])
+
+    def test_a_session_is_in_configs_colour_not_toolss(self):
+        self.settings({"TOOLS_THEME_COLOR": "black", "CONFIG_THEME_COLOR": "green"})
+        self.assertEqual(self.splash_for("session").theme_color, "green")
+        self.assertEqual(self.splash_for("tools").theme_color, "black")
+        self.assertEqual(self.splash_for("viewer").theme_color, "green")
+
+    def test_black_is_the_windows_black(self):
+        self.settings({"CONFIG_THEME_COLOR": "black"})
+        self.assertEqual(self.splash_for("viewer").scheme["accent"], theme_tokens("black")["accent"])
+
+    def test_a_missing_unreadable_or_unknown_colour_is_purple_with_no_dialog(self):
+        cases = {
+            "no file": None,
+            "not JSON": "{ not json",
+            "no setting": {"LANGUAGE": "en"},
+            "a window of another program's setting only": {"PLUG_THEME_COLOR": "teal"},
+            "unknown colour": {"CONFIG_THEME_COLOR": "mauve", "TOOLS_THEME_COLOR": "mauve"},
+            "not a name": {"CONFIG_THEME_COLOR": 3, "TOOLS_THEME_COLOR": ["teal"]},
+        }
+        for name, content in cases.items():
+            path = self.root / "app_settings.json"
+            if path.exists():
+                path.unlink()
+            if content is not None:
+                self.settings(content)
+            for kind in ("viewer", "tools", "session"):
+                with self.subTest(case=name, kind=kind), mock.patch("PySide6.QtWidgets.QMessageBox.exec") as dialog, \
+                        mock.patch("PySide6.QtWidgets.QMessageBox.warning") as warning:
+                    splash = self.splash_for(kind)
+                    self.assertEqual(splash.theme_color, "purple")
+                    self.assertEqual(splash.scheme, Splash.SCHEME)
+                    self.assertFalse(splash.error)
+                    dialog.assert_not_called()
+                    warning.assert_not_called()
+
+    def test_a_kind_that_declares_no_setting_is_purple_whatever_is_saved(self):
+        self.settings({"CONFIG_THEME_COLOR": "red", "TOOLS_THEME_COLOR": "red"})
+        kind = Desktop_Launcher.register_kind(LaunchKind("plug", "config"))
+        self.addCleanup(Desktop_Launcher.LAUNCH_KINDS.pop, "plug", None)
+        self.assertIsNone(kind.theme_setting)
+        self.assertEqual(self.splash_for("plug").theme_color, "purple")
+
+    def test_a_kind_declares_its_own_setting_and_the_launcher_names_no_window(self):
+        self.settings({"CONFIG_THEME_COLOR": "red", "PLUG_THEME_COLOR": "blue"})
+        Desktop_Launcher.register_kind(LaunchKind("plug", "config", theme_setting="PLUG_THEME_COLOR"))
+        self.addCleanup(Desktop_Launcher.LAUNCH_KINDS.pop, "plug", None)
+        splash = self.splash_for("plug")
+        self.assertEqual(splash.theme_color, "blue")
+        self.assertEqual(splash.scheme["accent"], theme_tokens("blue")["accent"])
+        self.assertEqual(splash.kind, "config")  # the art and the name are Config's: only the colour is the plug's
+
+    def test_the_colour_is_read_as_the_splash_starts_and_a_later_change_does_not_move_it(self):
+        self.settings({"CONFIG_THEME_COLOR": "teal"})
+        splash = self.splash_for("viewer")
+        self.settings({"CONFIG_THEME_COLOR": "red"})
+        splash._tick()
+        self.assertEqual(splash.theme_color, "teal")
 
 
 class WindowStartTests(LaunchCase):
