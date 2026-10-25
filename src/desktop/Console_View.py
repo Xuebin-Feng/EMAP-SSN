@@ -7,7 +7,8 @@
 Config, Tools, VR Config and the Viewer no longer show a terminal on Windows,
 so everything they print is kept (utilities.Console_Capture). The Viewer, which
 runs for hours and prints the output of its commands, shows it here: live, in
-the order it arrived, with the time of each line. It shows the last
+the order it arrived, with the time of each line in a gutter beside the text.
+It shows the last
 Console_Capture.RING_LINES lines; the log file the footer names holds all of
 them. Config and Tools show what they print on the start-up splash (desktop/Splash.py,
 Show details) and keep it in temp/logs.
@@ -24,6 +25,9 @@ Show details) and keep it in temp/logs.
   lighter or darker until it shows on the page. A line with colours of its own
   keeps them, and the colouring by what a line says applies only to lines
   without.
+* The time of each line is drawn in a gutter, as line numbers are, and is no part of
+  the text: selecting, Copy, Save and the search see the output alone. The
+  Times switch hides the gutter, and the choice is kept (app_settings.json).
 * The search field highlights every match and counts them; Enter and the
   arrows, or F3 and Shift+F3, go from one to the next. The filter shows all
   output, only warnings and errors, or only errors. Follow output keeps the
@@ -49,12 +53,13 @@ import time
 from pathlib import Path
 
 import shiboken6
-from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QRect, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QColor,
     QFont,
     QGuiApplication,
     QKeySequence,
+    QPainter,
     QShortcut,
     QTextCharFormat,
     QTextCursor,
@@ -96,6 +101,7 @@ from desktop.Studio_Theme import (
     theme_tokens,
 )
 from utilities import Console_Capture, Desktop_Open
+from utilities.App_Settings import AppSettingsError, read_app_settings, save_app_setting
 from utilities.Line_Kinds import (  # noqa: F401  (re-exported: the window's callers and tests name them here)
     ERROR, ERROR_PATTERN, INFO, WARNING, WARNING_PATTERN, Classifier, classify,
 )
@@ -107,6 +113,9 @@ MATCH_LIGHT = "#fde68a"
 MATCH_DARK = "#854d0e"
 # How many matches the search counts and highlights.
 MAX_MATCHES = 5000
+# Whether the gutter of times shows: kept in app_settings.json, as the other windows keep their theme
+# colour and language. Shown unless the user turned it off.
+SHOW_TIMES_SETTING = "CONSOLE_SHOW_TIMES"
 # The window collects what arrives and draws it this often (ms), so a burst of 100,000 lines
 # is a few repaints.
 FLUSH_MS = 50
@@ -152,6 +161,26 @@ def _dark_stylesheet(tokens):
     return sheet
 
 
+def saved_show_times(settings=None):
+    """Whether the user left the times shown (the default): the saved choice, or True for none or an unreadable file."""
+    if settings is None:
+        try:
+            settings = read_app_settings()
+        except AppSettingsError:
+            return True
+    value = settings.get(SHOW_TIMES_SETTING)
+    return value if isinstance(value, bool) else True
+
+
+def save_show_times(on):
+    """Keep the choice for the next Console; False when it could not be kept (the file holds more than this and cannot be read)."""
+    try:
+        save_app_setting(SHOW_TIMES_SETTING, bool(on))
+    except (AppSettingsError, OSError):
+        return False
+    return True
+
+
 class _ElidedLabel(QLabel):
     """A label that shows as much of its text as fits, cut in the middle, with the whole in its tooltip."""
 
@@ -177,6 +206,116 @@ class _ElidedLabel(QLabel):
 
     def minimumSizeHint(self):
         return QSize(40, super().minimumSizeHint().height())
+
+
+def seconds_of_day(when):
+    """The second of the (local) day ``when`` falls in: what a line keeps as its time."""
+    stamp = time.localtime(when)
+    return stamp.tm_hour * 3600 + stamp.tm_min * 60 + stamp.tm_sec
+
+
+def clock_text(seconds):
+    """HH:MM:SS for a second of the day, or "" for a block that has none."""
+    if seconds < 0:
+        return ""
+    return f"{seconds // 3600:02d}:{seconds // 60 % 60:02d}:{seconds % 60:02d}"
+
+
+class _TimeGutter(QWidget):
+    """The strip beside the text where each line's time is drawn, as line numbers are in a code editor."""
+
+    def __init__(self, editor):
+        super().__init__(editor)
+        self._editor = editor
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+
+    def paintEvent(self, event):
+        self._editor.paint_times(self, event)
+
+    def wheelEvent(self, event):
+        QApplication.sendEvent(self._editor.viewport(), event)  # the strip scrolls the text it sits beside
+
+
+class ConsoleText(QPlainTextEdit):
+    """The text area, with a gutter on its left that draws the time of each line.
+
+    A line's time is the user state of its block (the second of the day), so it moves with the block when
+    lines are trimmed from the top, and it is no part of the document: selecting, Copy, Save and the
+    search see the lines alone. ``set_times_visible`` shows or hides the gutter.
+    """
+
+    GAP = 14  # between the times and the text, in pixels
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._gutter = _TimeGutter(self)
+        self._times = True
+        self._time_color = QColor("#71717a")
+        self.updateRequest.connect(self._scroll_gutter)
+        self._fit_gutter()
+
+    # --- what the window and the tests ask
+    def times_visible(self):
+        return self._times
+
+    def gutter_width(self):
+        """The room the gutter takes: the width of "00:00:00" in this font and a gap, or 0 while it is hidden."""
+        return self.fontMetrics().horizontalAdvance("00:00:00") + self.GAP if self._times else 0
+
+    def time_of_block(self, number):
+        """The time drawn for block ``number`` ("" for none)."""
+        return clock_text(self.document().findBlockByNumber(number).userState())
+
+    def set_times_visible(self, on):
+        self._times = bool(on)
+        self._fit_gutter()
+
+    def set_time_color(self, color):
+        self._time_color = QColor(color)
+        self._gutter.update()
+
+    # --- the gutter's place and size
+    def _fit_gutter(self):
+        self.setViewportMargins(self.gutter_width(), 0, 0, 0)
+        self._place_gutter()
+
+    def _place_gutter(self):
+        view = self.viewport().geometry()
+        width = self.gutter_width()
+        self._gutter.setGeometry(QRect(view.left() - width, view.top(), width, view.height()))
+        self._gutter.setVisible(width > 0)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_gutter()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() == QEvent.Type.FontChange and hasattr(self, "_gutter"):
+            self._fit_gutter()  # another font is another width
+
+    def _scroll_gutter(self, rect, dy):
+        if dy:
+            self._gutter.scroll(0, dy)
+        else:
+            self._gutter.update(0, rect.y(), self._gutter.width(), rect.height())
+
+    def paint_times(self, gutter, event):
+        painter = QPainter(gutter)
+        painter.setFont(self.font())
+        painter.setPen(self._time_color)
+        height = self.fontMetrics().height()
+        block = self.firstVisibleBlock()
+        top = round(self.blockBoundingGeometry(block).translated(self.contentOffset()).top())
+        while block.isValid() and top <= event.rect().bottom():
+            bottom = top + round(self.blockBoundingRect(block).height())
+            if block.isVisible() and bottom >= event.rect().top():
+                text = clock_text(block.userState())
+                if text:
+                    painter.drawText(QRect(0, top, gutter.width() - self.GAP, height), Qt.AlignmentFlag.AlignLeft, text)
+            block = block.next()
+            top = bottom
+        painter.end()
 
 
 class ConsoleWindow(QWidget):
@@ -228,7 +367,9 @@ class ConsoleWindow(QWidget):
             self.filter_box.addItem(label, key)
         self.follow_switch = ToggleSwitch(QCoreApplication.translate("Console", "Follow output"), QCoreApplication.translate("Console", "Follow output"))
         self.follow_switch.setChecked(True)
-        self.copy_button = self._button("copy", QCoreApplication.translate("Console", "Copy the selection, or all the output shown"))
+        self.times_switch = ToggleSwitch(QCoreApplication.translate("Console", "Times"), QCoreApplication.translate("Console", "Times"))
+        self.times_switch.setToolTip(QCoreApplication.translate("Console", "Show the time of each line, beside the text"))
+        self.copy_button =self._button("copy", QCoreApplication.translate("Console", "Copy the selection, or all the output shown"))
         self.save_button = self._button("download", QCoreApplication.translate("Console", "Save the output shown to a file…"))
         self.clear_button = self._button("trash-2", QCoreApplication.translate("Console", "Clear the view (the log file keeps everything)"))
         self.log_button = self._button("file-text", QCoreApplication.translate("Console", "Open the log file"))
@@ -238,16 +379,18 @@ class ConsoleWindow(QWidget):
             widget.setFixedWidth(36)
         bar.addWidget(self.search, 1)
         for widget in (self.previous_button, self.next_button, self.match_label, self.filter_box,
-                       self.follow_switch, self.copy_button, self.save_button, self.clear_button,
+                       self.follow_switch, self.times_switch, self.copy_button, self.save_button, self.clear_button,
                        self.log_button, self.folder_button):
             bar.addWidget(widget)
         root.addLayout(bar)
 
-        self.text = QPlainTextEdit()
+        self.text = ConsoleText()
         self.text.setReadOnly(True)
         self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
         self.text.setMaximumBlockCount(int(capture.lines.maxlen or Console_Capture.RING_LINES))
         self.text.setFont(qt_monospace_font(self.text.font()))
+        self.times_switch.setChecked(saved_show_times())
+        self.text.set_times_visible(self.times_switch.isChecked())
         self.text.setObjectName("consoleText")
         self.text.setAccessibleName(QCoreApplication.translate("Console", "Console"))
         root.addWidget(self.text, 1)
@@ -272,6 +415,7 @@ class ConsoleWindow(QWidget):
         self.next_button.clicked.connect(lambda: self.find(True))
         self.filter_box.currentIndexChanged.connect(self._filter_changed)
         self.follow_switch.toggled.connect(self._set_following)
+        self.times_switch.toggled.connect(self._set_times)
         self.copy_button.clicked.connect(self.copy_text)
         self.save_button.clicked.connect(self.save_text)
         self.clear_button.clicked.connect(self.clear_view)
@@ -326,10 +470,8 @@ class ConsoleWindow(QWidget):
         )
         self._surface = tokens["surface"]
         self._base_colors = {INFO: tokens["text_soft"], WARNING: tokens["warning"], ERROR: tokens["danger"]}
-        self.formats = {
-            **{kind: self._format(color) for kind, color in self._base_colors.items()},
-            "time": self._format(tokens["text_subtle"]),
-        }
+        self.formats = {kind: self._format(color) for kind, color in self._base_colors.items()}
+        self.text.set_time_color(tokens["text_subtle"])
         self._run_formats = {}
         self._highlight_color = QColor(MATCH_DARK if self.dark else MATCH_LIGHT)
 
@@ -400,16 +542,15 @@ class ConsoleWindow(QWidget):
             kind = self._classifier.kind(visible, remember=not line.partial)
             if not self._wanted(kind):
                 continue
-            stamp = time.strftime("%H:%M:%S", time.localtime(line.time)) + "  "
             if line.seq == self._last_seq:  # the next state of a progress line replaces it
                 cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)
                 cursor.removeSelectedText()
             elif not self._empty:
                 cursor.insertBlock()
-            cursor.insertText(stamp, self.formats["time"])
             coloured = any(style.has_color for _, style in runs)
             for run, style in runs:
                 cursor.insertText(run, self._run_format(style, INFO if coloured else kind))
+            cursor.block().setUserState(seconds_of_day(line.time))  # drawn in the gutter, not part of the text
             self._empty = False
             self._last_seq = line.seq
         cursor.endEditBlock()
@@ -502,6 +643,11 @@ class ConsoleWindow(QWidget):
             scroll = self.text.verticalScrollBar()
             scroll.setValue(scroll.maximum())
             self._setting_scroll = False
+
+    def _set_times(self, on):
+        """The Times switch: show or hide the gutter, and keep the choice for the next Console."""
+        self.text.set_times_visible(on)
+        save_show_times(on)
 
     def _range_changed(self, _minimum, maximum):
         """The text grew, or the window changed shape: while following, stay at the end."""
@@ -597,7 +743,7 @@ class ConsoleWindow(QWidget):
 
     # --- Copy, Save and the log file
     def shown_text(self):
-        """The text of every line shown, with its time."""
+        """The text of every line shown, without the times in the gutter."""
         return self.text.toPlainText()
 
     def copy_text(self):

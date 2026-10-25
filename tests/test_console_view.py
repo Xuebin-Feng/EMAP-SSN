@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import re
@@ -178,6 +179,13 @@ class WindowCase(unittest.TestCase):
 
     def setUp(self):
         self.recorder = Recorder("viewer", None)
+        # The window keeps its choice of showing the times in app_settings.json: not the user's own.
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.settings_path = Path(directory.name) / "app_settings.json"
+        patch = mock.patch.dict(os.environ, {"SSN_APP_SETTINGS_PATH": str(self.settings_path)})
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def window(self, **options):
         window = ConsoleWindow(self.recorder, **options)
@@ -205,7 +213,8 @@ class WindowTests(WindowCase):
         self.recorder.add("stderr", "second")
         self.recorder.lines[-1].time = started + 7
         window = self.window()
-        self.assertEqual(self.lines(window), ["11:47:44  first", "11:47:51  second"])
+        self.assertEqual(self.lines(window), ["first", "second"])  # the times are in the gutter, not the text
+        self.assertEqual([window.text.time_of_block(number) for number in range(2)], ["11:47:44", "11:47:51"])
 
     def test_new_lines_arrive_while_it_is_shown(self):
         window = self.window()
@@ -220,60 +229,67 @@ class WindowTests(WindowCase):
         self.recorder.add("stdout", "while hidden")
         flush(self.app)
         self.assertEqual(window._pending, [])  # not queued, so nothing piles up
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window)], ["before"])
+        self.assertEqual(self.lines(window), ["before"])
         window.show()
         self.drain(window)
         self.assertEqual(len(self.recorder._listeners), 1)
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window)], ["before", "while hidden"])
+        self.assertEqual(self.lines(window), ["before", "while hidden"])
 
     def test_errors_and_warnings_have_the_themes_danger_and_warning_colours(self):
         for stream, text in (("stdout", "plain"), ("stderr", "Warning: careful"), ("stderr", "Error: broken")):
             self.recorder.add(stream, text)
         window = self.window()
-        document = window.text.document()
+        self.assertEqual([fragments(window, number)[0][1] for number in range(3)],
+                         [TOKENS["text_soft"], TOKENS["warning"], TOKENS["danger"]])
 
-        def text_colour(number):
-            """The colour of a block's text, the second fragment after the time."""
-            iterator = document.findBlockByNumber(number).begin()
-            iterator += 1
-            return iterator.fragment().charFormat().foreground().color().name()
-
-        self.assertEqual(text_colour(0), TOKENS["text_soft"])
-        self.assertEqual(text_colour(1), TOKENS["warning"])
-        self.assertEqual(text_colour(2), TOKENS["danger"])
-
-    def test_the_time_is_in_the_subtle_text_colour(self):
+    def test_the_time_is_drawn_in_the_subtle_text_colour(self):
         self.recorder.add("stdout", "x")
         window = self.window()
-        first = window.text.document().findBlockByNumber(0).begin()
-        self.assertEqual(first.fragment().charFormat().foreground().color().name(), TOKENS["text_subtle"])
+        self.assertEqual(window.text._time_color.name(), TOKENS["text_subtle"])
+        dark = self.window(dark=True)
+        self.assertEqual(dark.text._time_color.name(), dark_tokens()["text_subtle"])
 
     def test_a_progress_line_changes_in_place_and_the_finished_line_replaces_it(self):
         window = self.window()
         self.recorder.add("stdout", "start")
         self.recorder.add("stdout", "10%", partial=True)
         self.drain(window)
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window)], ["start", "10%"])
+        self.assertEqual(self.lines(window), ["start", "10%"])
         time.sleep(0.06)
         self.recorder.add("stdout", "60%", partial=True)
         self.drain(window)
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window)], ["start", "60%"])
+        self.assertEqual(self.lines(window), ["start", "60%"])
         self.recorder.add("stdout", "100% done")
         self.drain(window)
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window)], ["start", "100% done"])
+        self.assertEqual(self.lines(window), ["start", "100% done"])
+
+    def test_a_progress_line_keeps_the_time_of_its_latest_state(self):
+        window = self.window()
+        first = time.mktime((2026, 10, 24, 9, 0, 0, 0, 0, -1))
+        self.recorder.add("stdout", "start")
+        self.recorder.lines[-1].time = first
+        self.recorder.add("stdout", "10%", partial=True)
+        self.recorder.lines[-1].time = first + 5
+        self.drain(window)
+        self.assertEqual([window.text.time_of_block(number) for number in range(2)], ["09:00:00", "09:00:05"])
+        time.sleep(0.06)
+        self.recorder.add("stdout", "100% done")
+        self.recorder.lines[-1].time = first + 61
+        self.drain(window)
+        self.assertEqual([window.text.time_of_block(number) for number in range(2)], ["09:00:00", "09:01:01"])
 
     def test_the_filter_shows_warnings_and_errors_or_errors_only(self):
         for text in ("plain one", "Warning: careful", "Error: broken", "plain two"):
             self.recorder.add("stdout", text)
         window = self.window()
         window.filter_box.setCurrentIndex(window.filter_box.findData(WARNING))
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window)], ["Warning: careful", "Error: broken"])
+        self.assertEqual(self.lines(window), ["Warning: careful", "Error: broken"])
         window.filter_box.setCurrentIndex(window.filter_box.findData(ERROR))
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window)], ["Error: broken"])
+        self.assertEqual(self.lines(window), ["Error: broken"])
         self.recorder.add("stdout", "Warning: later")
         self.recorder.add("stdout", "Error: later too")
         self.drain(window)
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window)], ["Error: broken", "Error: later too"])
+        self.assertEqual(self.lines(window), ["Error: broken", "Error: later too"])
         window.filter_box.setCurrentIndex(window.filter_box.findData("all"))
         self.assertEqual(len(self.lines(window)), 6)
 
@@ -291,10 +307,10 @@ class WindowTests(WindowCase):
         self.assertEqual(self.lines(window), [])
         self.recorder.add("stdout", "new")
         self.drain(window)
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window) if line], ["new"])
+        self.assertEqual([line for line in self.lines(window) if line], ["new"])
         window.filter_box.setCurrentIndex(window.filter_box.findData(WARNING))
         window.filter_box.setCurrentIndex(window.filter_box.findData("all"))
-        self.assertEqual([line.split("  ", 1)[1] for line in self.lines(window) if line], ["new"])  # not "old" again
+        self.assertEqual([line for line in self.lines(window) if line], ["new"])  # not "old" again
         self.assertEqual([line.text for line in self.recorder.snapshot()], ["old", "new"])
 
     def test_the_footer_counts_lines_and_names_the_log(self):
@@ -346,17 +362,14 @@ def fragments(window, number):
         found.append((fragment.text(), fmt.foreground().color().name(), background,
                       fmt.fontWeight() >= 700, fmt.fontUnderline(), fmt.fontItalic()))
         iterator += 1
-    if found and re.fullmatch(r"\d\d:\d\d:\d\d  ", found[0][0]):  # the time, while it is in the text
-        found = found[1:]
     return found
 
 
 def output_lines(window):
-    """The window's lines without their time (while it is in the text), blank lines included."""
-    text = window.text.toPlainText()
-    if not text and window.text.document().blockCount() == 1 and window._empty:
+    """The window's lines, blank lines included (a line of ``splitlines`` is lost when it is the last and empty)."""
+    if window._empty:
         return []
-    return [re.sub(r"^\d\d:\d\d:\d\d  ", "", line) for line in text.split("\n")]
+    return window.text.toPlainText().split("\n")
 
 
 class ColourTests(WindowCase):
@@ -503,7 +516,7 @@ class ColourTests(WindowCase):
     def test_copy_and_save_hold_the_text_and_no_colour_codes(self):
         self.recorder.add("stdout", f"{ESC}[31mred{ESC}[0m plain {ESC}[38;2;1;2;3m\u25cf{ESC}[0m")
         window = self.window()
-        self.assertEqual(window.copy_text().split("  ", 1)[-1], "red plain \u25cf")
+        self.assertEqual(window.copy_text(), "red plain \u25cf")
         with tempfile.TemporaryDirectory() as directory:
             target = str(Path(directory) / "out.txt")
             with mock.patch.object(Console_View.QFileDialog, "getSaveFileName", return_value=(target, "")):
@@ -535,6 +548,168 @@ class ColourTests(WindowCase):
         window = self.window()
         self.assertEqual(output_lines(window), ["", "red now"])
         self.assertEqual(fragments(window, 1)[0][1], TC.readable_color(TC.PALETTE_LIGHT[1], self.surface(window)))
+
+
+class TimesTests(WindowCase):
+    """The time of each line is drawn in a gutter beside the text, never in it, and the Times switch shows or hides it."""
+
+    STARTED = time.mktime((2026, 10, 24, 11, 47, 44, 0, 0, -1))
+
+    def fill(self, texts=("first", "Error: second", "third")):
+        for number, text in enumerate(texts):
+            self.recorder.add("stdout", text)
+            self.recorder.lines[-1].time = self.STARTED + 7 * number
+
+    def ink(self, widget):
+        """Whether anything is drawn on a widget: a pixel that differs from its corner's."""
+        image = widget.grab().toImage()
+        background = image.pixel(0, 0)
+        return any(image.pixel(x, y) != background for x in range(image.width()) for y in range(image.height()))
+
+    def test_no_time_is_in_the_text_whatever_is_selected_copied_saved_or_searched(self):
+        self.fill()
+        window = self.window()
+        window.text.selectAll()
+        for text in (window.text.toPlainText(), window.shown_text(), window.copy_text()):
+            self.assertEqual(text, "first\nError: second\nthird")
+            self.assertNotRegex(text, r"\d\d:\d\d")
+        self.assertEqual(QGuiApplication.clipboard().text(), "first\nError: second\nthird")
+        with tempfile.TemporaryDirectory() as directory:
+            target = str(Path(directory) / "out.txt")
+            with mock.patch.object(Console_View.QFileDialog, "getSaveFileName", return_value=(target, "")):
+                window.save_text()
+            self.assertEqual(Path(target).read_text(encoding="utf-8"), "first\nError: second\nthird\n")
+        for needle in ("11:47", "11:47:44", "47:51", "00:00"):
+            window.search.setText(needle)
+            self.assertEqual(window.match_label.text(), "No matches", needle)
+
+    def test_each_line_keeps_its_own_time_for_the_gutter(self):
+        self.fill()
+        window = self.window()
+        self.assertEqual([window.text.time_of_block(number) for number in range(3)], ["11:47:44", "11:47:51", "11:47:58"])
+        self.assertEqual(window.text.time_of_block(99), "")
+        self.assertEqual(Console_View.clock_text(-1), "")
+        self.assertEqual(Console_View.clock_text(86399), "23:59:59")
+        self.assertEqual(Console_View.clock_text(0), "00:00:00")
+
+    def test_a_time_stays_with_its_line_when_older_lines_are_trimmed_and_when_the_filter_hides_some(self):
+        self.fill(("a", "b", "c", "d", "Error: e"))
+        window = self.window()
+        window.text.setMaximumBlockCount(3)
+        window._render_all()
+        self.assertEqual(output_lines(window), ["c", "d", "Error: e"])
+        self.assertEqual([window.text.time_of_block(number) for number in range(3)], ["11:47:58", "11:48:05", "11:48:12"])
+        window.filter_box.setCurrentIndex(window.filter_box.findData(ERROR))
+        self.assertEqual(output_lines(window), ["Error: e"])
+        self.assertEqual(window.text.time_of_block(0), "11:48:12")
+
+    def test_new_lines_get_their_time_as_they_arrive(self):
+        self.fill()
+        window = self.window()
+        self.recorder.add("stdout", "late")
+        self.recorder.lines[-1].time = self.STARTED + 3600
+        self.drain(window)
+        self.assertEqual(window.text.time_of_block(3), "12:47:44")
+        self.assertEqual(output_lines(window)[-1], "late")
+
+    def test_the_times_show_by_default_in_a_gutter_left_of_the_text_and_the_switch_hides_them(self):
+        self.fill()
+        window = self.window()
+        gutter, text = window.text._gutter, window.text
+        self.assertTrue(window.times_switch.isChecked())
+        self.assertTrue(text.times_visible())
+        self.assertTrue(gutter.isVisible())
+        self.assertEqual(text.gutter_width(), text.fontMetrics().horizontalAdvance("00:00:00") + text.GAP)
+        self.assertEqual(text.viewportMargins().left(), text.gutter_width())
+        self.assertLessEqual(gutter.geometry().right() + 1, text.viewport().geometry().left())  # beside the text, not over it
+        self.assertEqual(gutter.geometry().top(), text.viewport().geometry().top())
+        self.assertEqual(gutter.geometry().height(), text.viewport().geometry().height())
+        self.assertTrue(self.ink(gutter))
+        window.times_switch.click()
+        self.assertFalse(window.times_switch.isChecked())
+        self.assertFalse(text.times_visible())
+        self.assertFalse(gutter.isVisible())
+        self.assertEqual(text.gutter_width(), 0)
+        self.assertEqual(text.viewportMargins().left(), 0)
+        window.times_switch.click()
+        self.assertTrue(gutter.isVisible())
+        self.assertEqual(text.viewportMargins().left(), text.gutter_width())
+        self.assertGreater(text.gutter_width(), 0)
+        self.assertEqual(output_lines(window), ["first", "Error: second", "third"])  # the text never changed
+
+    def test_the_gutter_is_empty_for_a_window_with_nothing_in_it(self):
+        window = self.window()
+        self.assertFalse(self.ink(window.text._gutter))
+
+    def test_the_switch_is_a_labelled_header_control_with_a_tooltip(self):
+        window = self.window()
+        self.assertEqual(window.times_switch.text(), "Times")
+        self.assertIn("time", window.times_switch.toolTip().lower())
+        self.assertTrue(window.times_switch.isCheckable())
+
+    def test_the_choice_is_kept_for_the_next_console_beside_the_other_settings(self):
+        self.settings_path.write_text('{"LANGUAGE": "en", "CONFIG_THEME_COLOR": "teal"}', encoding="utf-8")
+        window = self.window()
+        self.assertTrue(window.times_switch.isChecked())  # shown unless turned off
+        window.times_switch.click()
+        saved = json.loads(self.settings_path.read_text(encoding="utf-8"))
+        self.assertEqual(saved, {"LANGUAGE": "en", "CONFIG_THEME_COLOR": "teal", "CONSOLE_SHOW_TIMES": False})
+        again = self.window()
+        self.assertFalse(again.times_switch.isChecked())
+        self.assertFalse(again.text.times_visible())
+        self.assertFalse(again.text._gutter.isVisible())
+        self.assertEqual(again.text.viewportMargins().left(), 0)
+        again.times_switch.click()
+        self.assertEqual(json.loads(self.settings_path.read_text(encoding="utf-8"))["CONSOLE_SHOW_TIMES"], True)
+        self.assertTrue(self.window().times_switch.isChecked())
+
+    def test_a_missing_odd_or_unreadable_setting_leaves_the_times_shown_and_the_file_alone(self):
+        for content in (None, "{}", '{"CONSOLE_SHOW_TIMES": "no"}', '{"CONSOLE_SHOW_TIMES": null}', "not json at all"):
+            with self.subTest(content=content):
+                if content is None:
+                    self.settings_path.unlink(missing_ok=True)
+                else:
+                    self.settings_path.write_text(content, encoding="utf-8")
+                window = self.window()
+                self.assertTrue(window.times_switch.isChecked())
+                self.assertTrue(window.text._gutter.isVisible())
+        # A file that cannot be read is left alone, as the other settings writers do: the choice lasts for the window.
+        window = self.window()
+        window.times_switch.click()
+        self.assertFalse(window.text.times_visible())
+        self.assertEqual(self.settings_path.read_text(encoding="utf-8"), "not json at all")
+
+    def test_the_gutter_follows_the_font_and_the_theme(self):
+        self.fill()
+        window = self.window()
+        before = window.text.gutter_width()
+        bigger = window.text.font()
+        bigger.setPointSize(bigger.pointSize() + 8)
+        window.text.setFont(bigger)
+        flush(self.app, 2)
+        self.assertGreater(window.text.gutter_width(), before)
+        self.assertEqual(window.text.viewportMargins().left(), window.text.gutter_width())
+        self.assertEqual(window.text._gutter.width(), window.text.gutter_width())
+        dark = self.window(dark=True)
+        self.assertEqual(dark.text._time_color.name(), dark_tokens()["text_subtle"])
+
+    def test_the_wheel_over_the_gutter_scrolls_the_text(self):
+        for number in range(300):
+            self.recorder.add("stdout", f"line {number}")
+        window = self.window()
+        window.resize(700, 300)
+        flush(self.app)
+        window.follow_switch.setChecked(False)
+        scroll = window.text.verticalScrollBar()
+        scroll.setValue(scroll.maximum())
+        from PySide6.QtCore import QPoint, QPointF
+        from PySide6.QtGui import QWheelEvent
+        gutter = window.text._gutter
+        event = QWheelEvent(QPointF(5, 20), QPointF(5, 20), QPoint(0, 0), QPoint(0, 480), Qt.MouseButton.NoButton,
+                            Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+        before = scroll.value()
+        QApplication.sendEvent(gutter, event)
+        self.assertLess(scroll.value(), before)
 
 
 class SearchTests(WindowCase):
@@ -662,12 +837,11 @@ class ButtonTests(WindowCase):
         self.assertEqual(len(everything.splitlines()), 3)
         cursor = window.text.textCursor()
         cursor.setPosition(0)
-        cursor.setPosition(window.text.document().findBlockByNumber(1).position() + 8, cursor.MoveMode.KeepAnchor)
+        cursor.setPosition(window.text.document().findBlockByNumber(1).position() + 3, cursor.MoveMode.KeepAnchor)
         window.text.setTextCursor(cursor)
         selected = window.copy_text()
-        self.assertEqual(selected.count("\n"), 1)
+        self.assertEqual(selected, "one\ntwo")
         self.assertNotIn("\u2029", selected)
-        self.assertIn("one", selected)
 
     def test_save_writes_the_shown_lines_to_the_chosen_file(self):
         for text in ("one", "Error: two"):

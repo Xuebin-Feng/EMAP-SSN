@@ -1852,6 +1852,14 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Times</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show the time of each line, beside the text</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Copy the selection, or all the output shown</source>
         <translation type="unfinished"></translation>
     </message>

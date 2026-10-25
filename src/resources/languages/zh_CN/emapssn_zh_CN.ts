@@ -2963,16 +2963,16 @@ Command-line usage:
 <context>
     <name>Console</name>
     <message>
-        <location filename="../../../desktop/Console_View.py" line="+182"/>
-        <location line="+59"/>
-        <location line="+313"/>
+        <location filename="../../../desktop/Console_View.py" line="+329"/>
+        <location line="+66"/>
+        <location line="+376"/>
         <location line="+42"/>
         <location line="+3"/>
         <source>Console</source>
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-397"/>
+        <location line="-464"/>
         <location line="+3"/>
         <source>Search the output…</source>
         <translation type="unfinished">搜索输出内容…</translation>
@@ -3009,6 +3009,16 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
+        <source>Times</source>
+        <translation type="unfinished">时间</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Show the time of each line, beside the text</source>
+        <translation type="unfinished">在文字旁显示每行的时间</translation>
+    </message>
+    <message>
+        <location line="+1"/>
         <source>Copy the selection, or all the output shown</source>
         <translation type="unfinished">复制所选内容，或复制显示的全部输出</translation>
     </message>
@@ -3033,7 +3043,7 @@ Command-line usage:
         <translation type="unfinished">显示日志文件夹</translation>
     </message>
     <message>
-        <location line="+184"/>
+        <location line="+244"/>
         <source>{shown} lines shown · {written} written since start-up</source>
         <translation type="unfinished">显示 {shown} 行 · 启动以来共输出 {written} 行</translation>
     </message>
@@ -3053,7 +3063,7 @@ Command-line usage:
         <translation type="unfinished">没有日志文件（{error}）</translation>
     </message>
     <message>
-        <location line="+78"/>
+        <location line="+83"/>
         <source>{count} or more matches</source>
         <translation type="unfinished">{count} 个以上匹配项</translation>
     </message>
@@ -4750,7 +4760,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+49"/>
-        <location filename="../../../commands/cluster.py" line="+346"/>
+        <location filename="../../../commands/cluster.py" line="+343"/>
         <location filename="../../../commands/color.py" line="+95"/>
         <location filename="../../../commands/console.py" line="+54"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
@@ -4767,8 +4777,8 @@ Command-line usage:
         <location filename="../../../commands/query.py" line="-260"/>
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
-        <location filename="../../../commands/spectrum.py" line="+181"/>
-        <location filename="../../../commands/subcluster.py" line="+192"/>
+        <location filename="../../../commands/spectrum.py" line="+178"/>
+        <location filename="../../../commands/subcluster.py" line="+189"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
@@ -6771,7 +6781,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1438"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1450"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -7057,7 +7067,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">文件名含有不支持的字符：“{file}”。</translation>
     </message>
     <message>
-        <location filename="../../../utilities/Sequence_Utils.py" line="+48"/>
+        <location filename="../../../utilities/Sequence_Utils.py" line="+49"/>
         <source>Negative position &apos;{position}&apos; must be written as &apos;({position})&apos;. Parentheses are required around negative positions.</source>
         <translation type="unfinished">负位置“{position}”必须写成 &apos;({position})&apos;。负位置必须加括号。</translation>
     </message>
@@ -7163,7 +7173,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+268"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+269"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -7183,7 +7193,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">查看器的命令队列已满；请稍后用相同的 submission_id 重试</translation>
     </message>
     <message>
-        <location line="+194"/>
+        <location line="+195"/>
         <source>That command is not waiting to be run or discarded.</source>
         <translation type="unfinished">该命令当前不处于待运行或待丢弃状态。</translation>
     </message>
@@ -8468,7 +8478,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">Leiden 的边权重必须是有限数。</translation>
     </message>
     <message>
-        <location filename="../../../Alignment_Manager.py" line="+289"/>
+        <location filename="../../../Alignment_Manager.py" line="+290"/>
         <source>Sparse HDF5 is missing required object &apos;{path}&apos;.</source>
         <translation type="unfinished">稀疏 HDF5 缺少必需对象“{path}”。</translation>
     </message>
@@ -8718,7 +8728,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">保序回归拟合曲线</translation>
     </message>
     <message>
-        <location filename="../../../Embedding_Manager.py" line="+112"/>
+        <location filename="../../../Embedding_Manager.py" line="+113"/>
         <source>The embedding file changed after the Viewer loaded it: {path}. Reopen the Viewer to use the new file.</source>
         <translation type="unfinished">查看器加载 embedding 文件后，该文件已更改：{path}。请重新打开查看器以使用新文件。</translation>
     </message>
@@ -9459,7 +9469,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Splash</name>
     <message>
-        <location filename="../../../desktop/Splash.py" line="+76"/>
+        <location filename="../../../desktop/Splash.py" line="+77"/>
         <source>Configuration</source>
         <translation type="unfinished">配置</translation>
     </message>
@@ -9474,7 +9484,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">查看器</translation>
     </message>
     <message>
-        <location line="+398"/>
+        <location line="+399"/>
         <location line="+216"/>
         <source>Copy</source>
         <translation type="unfinished">复制</translation>
