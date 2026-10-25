@@ -22,6 +22,11 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+import webbrowser
+
+# Qt and the webbrowser module read the platform when they are first imported: not while a test says win32.
+from PySide6.QtCore import QUrl
+from PySide6.QtGui import QDesktopServices
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -125,18 +130,14 @@ class WindowsTests(unittest.TestCase):
     def setUp(self):
         self.enterContext(mock.patch.object(Desktop_Open.sys, "platform", "win32"))
         self.start = self.enterContext(mock.patch.object(Desktop_Open, "_start"))
-        self.qt = self.enterContext(mock.patch("PySide6.QtGui.QDesktopServices.openUrl", return_value=True))
-        self.browser = self.enterContext(mock.patch("webbrowser.open", return_value=True))
+        self.qt = self.enterContext(mock.patch.object(QDesktopServices, "openUrl", return_value=True))
+        self.browser = self.enterContext(mock.patch.object(webbrowser, "open", return_value=True))
 
     def test_a_file_or_folder_goes_to_qt_as_a_local_file_url(self):
-        from PySide6.QtCore import QUrl
-
         self.assertTrue(Desktop_Open.open_path(Path("C:/data/folder")))
         self.qt.assert_called_once_with(QUrl.fromLocalFile(str(Path("C:/data/folder"))))
 
     def test_a_web_address_goes_to_qt_and_the_viewers_pages_to_the_webbrowser_module(self):
-        from PySide6.QtCore import QUrl
-
         self.assertTrue(Desktop_Open.open_url("https://example.org/licence"))
         self.qt.assert_called_once_with(QUrl("https://example.org/licence"))
         self.browser.assert_not_called()
