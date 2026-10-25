@@ -435,6 +435,28 @@ class ViewerQuestionTests(QtTestCase):
         # Before the window exists, a normal Viewer is a user present.
         self.assertTrue(self.viewer(headless=False).shows_windows())
 
+    def test_the_ready_line_names_the_window_to_press_enter_in_only_when_there_is_one(self):
+        # [ENTER] opens the command line drawn over the network; no Viewer reads its terminal.
+        import EMAPSSN_Viewer
+        ready = EMAPSSN_Viewer.MainViewer._ready_line
+        self.assertEqual(ready(NORMAL), "Viewer ready. Press [ENTER] in the Viewer window to type commands.")
+        for mode in (HIDDEN, HEADLESS):
+            with self.subTest(mode=mode):
+                self.assertEqual(ready(mode), "Viewer ready.")
+
+    def test_the_viewer_prints_the_ready_line_for_its_own_window_mode_when_it_is_up(self):
+        import ast
+        tree = ast.parse((SRC / "EMAPSSN_Viewer.py").read_text(encoding="utf-8"))
+        init = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef)
+                    and node.name == "__init__" and any(
+                        isinstance(call, ast.Attribute) and call.attr == "_ready_line" for call in ast.walk(node)))
+        prints = [call for call in ast.walk(init) if isinstance(call, ast.Call)
+                  and getattr(call.func, "id", "") == "print" and "_ready_line" in ast.dump(call)]
+        self.assertEqual(len(prints), 1)
+        self.assertIn("attr='window_mode'", ast.dump(prints[0]))
+        self.assertNotIn("[ENTER]", "".join(getattr(node, "value", "") for node in ast.walk(init)
+                                            if isinstance(node, ast.Constant) and isinstance(node.value, str)))
+
     def test_a_hidden_viewer_does_not_slide_its_sidebar_until_shown(self):
         import EMAPSSN_Viewer
         from PySide6.QtWidgets import QWidget

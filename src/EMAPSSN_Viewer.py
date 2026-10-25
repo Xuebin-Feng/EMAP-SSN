@@ -1110,7 +1110,19 @@ class MainViewer:
             QtCore.QTimer.singleShot(0, self._initialize_display_tracking)
         
         self._hud_timer.start()
-        print("\nViewer Ready. Press [ENTER] to type commands.")
+        print("\n" + self._ready_line(self.window_mode))
+
+    @staticmethod
+    def _ready_line(window_mode):
+        """The line a Viewer prints when it is up, for a terminal, the Console and the log.
+
+        [ENTER] opens the command line that is drawn over the network, in the Viewer's window: no Viewer
+        reads its terminal, so the key does nothing there. A Viewer with no window on screen (headless,
+        or hidden until shown) has no command line to open, so it only says that it is ready.
+        """
+        if window_mode == NORMAL:
+            return "Viewer ready. Press [ENTER] in the Viewer window to type commands."
+        return "Viewer ready."
 
     def shows_windows(self):
         """Whether the user is at this Viewer, so dialogs, message boxes, browser pages and terminals may open.
