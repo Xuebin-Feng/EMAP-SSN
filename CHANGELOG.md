@@ -58,6 +58,12 @@ still change before version 1.0.0.
     Session card open a Console window with the Viewer's output, with search, an
     errors-only filter, Copy, Save and Open log. Command help that used to be "printed to
     the terminal" now points to the Console.
+  - **VR Config too:** its shortcut starts `EMAP-SSN.exe vr`, with the same splash under
+    the VR logo, and a "Checking VR hardware…" step after the dependency check. A computer
+    that can't drive a headset is a warning, not a failure: VR Config still opens, and the
+    splash opens its details with the check's output and stays at "Ready" until it is closed,
+    in place of the console's pause. Run `install_vr.bat` again to get the new shortcut; it
+    rebuilds `EMAP-SSN.exe` when the existing one is older than its source.
   - Linux and macOS start as before.
 - **Background jobs in the Viewer's Session card.** Below the input files, the card lists the
   jobs that write files (`print`, `label`, `logo`) and the structure folds (`esmfold`), in two
