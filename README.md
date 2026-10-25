@@ -706,8 +706,8 @@ Everything the Configuration, Tools, VR Config and Viewer windows print, their w
 kept in `temp/logs` of the project folder (one file per run, `config-`, `tools-`, `viewer-` or `vr-config-`
 followed by the time and process number; 8 MB at most, the ten latest of each window kept). The Configuration
 and Tools windows have no Console after they open: read their output there. The Viewer, which runs for hours
-and prints the output of its commands, has the **Console** window: the button at the foot of its sidebar, the
-Console link in the header of its Session card, or the `console` command open it, and it shows the output with
+and prints the output of its commands, has the **Console** window: the Console button at the bottom of the Viewer,
+beside the info button, or the `console` command opens it, and it shows the output with
 the time of each line, searches and filters it, and opens its log file. To see the output in a terminal as before,
 start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe vr --console`, or on Linux
 `src/bin/EMAPSSN_Desktop_Launcher.sh viewer --console`) or run `src\bin\EMAPSSN.bat` or `src\bin\EMAPSSN_Tools.bat`
