@@ -84,6 +84,9 @@ def application_kinds():
     return sorted({*APP_SCRIPTS, *EXTRA_APPLICATIONS})
 
 
+# How long the one who started a Viewer session waits to learn that its launcher did not fail at once.
+VIEWER_START_PATIENCE_SECONDS = 8.0
+
 STATUS_FILE_NAME = "startup.status"
 STARTUP_READY = 0
 STARTUP_APPLICATION_EXITED = 20
@@ -303,6 +306,67 @@ def launch_detached_monitor(
     return subprocess.Popen(command, **popen_kwargs)
 
 
+def viewer_session_command(
+    project_root: Path | str,
+    *,
+    settings_path: Path | str | None = None,
+    executable: str | None = None,
+) -> list[str]:
+    """The command that starts a Viewer window with a splash and no terminal: the "session" launcher.
+
+    ``settings_path`` is the Viewer's settings snapshot, which the Viewer reads and deletes. Everyone who starts
+    a Viewer this way (Config, the layout generator, the MCP server) runs this command, so a Viewer is the
+    same wherever it came from.
+    """
+    command = [
+        executable or sys.executable,
+        "-u",
+        str(Path(project_root).resolve() / "src" / "desktop" / "Desktop_Launcher.py"),
+        "session",
+    ]
+    if settings_path:
+        command.extend(["--settings", os.fspath(settings_path), "--delete-settings"])
+    return command
+
+
+def viewer_session_failed(code: int | None, settings_path: Path | str | None = None) -> bool:
+    """Whether a session launcher that ended with ``code`` failed before a Viewer started.
+
+    The launcher ends with 0 when it handled the start (the window opened, or its splash showed what went
+    wrong), and with anything else when it could not even start (its exit code 3, a Qt platform that did not
+    load, a missing script). The Viewer reads its settings snapshot and deletes it as it starts, so a snapshot
+    that is still there says no Viewer started.
+    """
+    if code == 0:
+        return False
+    return not (settings_path and not os.path.exists(settings_path))
+
+
+def wait_for_viewer_session(
+    process: subprocess.Popen,
+    settings_path: Path | str | None = None,
+    *,
+    patience: float = VIEWER_START_PATIENCE_SECONDS,
+    poll_interval: float = 0.1,
+) -> int | None:
+    """Wait until a session launcher has started a Viewer or failed to; None when it started one, else its exit code.
+
+    A Viewer has started once it has taken its settings snapshot (it deletes it as it begins), or once the
+    launcher ended well. A launcher still working when ``patience`` seconds are up has its splash up and the
+    Viewer loading: that counts as started.
+    """
+    deadline = time.monotonic() + patience
+    while True:
+        code = process.poll()
+        if code is not None:
+            return code if viewer_session_failed(code, settings_path) else None
+        if settings_path and not os.path.exists(settings_path):
+            return None
+        if time.monotonic() >= deadline:
+            return None
+        time.sleep(poll_interval)
+
+
 def launch_viewer_session(
     project_root: Path | str,
     env: dict,
@@ -321,17 +385,10 @@ def launch_viewer_session(
     On Windows the launcher runs with a hidden console; on Linux and macOS it leads a session of its own
     (as the monitor does), so that closing Config does not end it. The caller waits on the returned process
     to collect it, and may start the terminal launch if it ends with a failure before it started anything
-    (EMAPSSN_Config._handoff_to_viewer).
+    (EMAPSSN_Config._handoff_to_viewer, Layout_Cache_Generator).
     """
     project_root = Path(project_root).resolve()
-    command = [
-        executable or sys.executable,
-        "-u",
-        str(project_root / "src" / "desktop" / "Desktop_Launcher.py"),
-        "session",
-    ]
-    if settings_path:
-        command.extend(["--settings", os.fspath(settings_path), "--delete-settings"])
+    command = viewer_session_command(project_root, settings_path=settings_path, executable=executable)
     options: dict[str, object] = {}
     if (platform_name or sys.platform) == "win32":
         options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)

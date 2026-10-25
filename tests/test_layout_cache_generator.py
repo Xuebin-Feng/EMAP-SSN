@@ -430,6 +430,21 @@ class LayoutCacheGenerationTests(unittest.TestCase):
         self.assertEqual(process.returncode, 1)
         self.assertIn("Could not read layout settings", process.stderr)
 
+    @staticmethod
+    def _viewer_that_starts(captured):
+        """A stand-in for the session launcher: it reads the Viewer's snapshot and deletes it, as a Viewer does as it starts."""
+        process = mock.Mock(name="session launcher")
+        process.poll.return_value = None  # the splash is still up
+
+        def launch(project_root, env, *, settings_path=None, executable=None, platform_name=None):
+            captured.update(json.loads(pathlib.Path(settings_path).read_text(encoding="utf-8")))
+            captured["_call"] = SimpleNamespace(project_root=project_root, env=dict(env), settings_path=settings_path,
+                                                executable=executable)
+            pathlib.Path(settings_path).unlink()
+            return process
+
+        return launch
+
     def test_cli_launch_viewer_and_delete_settings(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp_path = pathlib.Path(temp_dir)
@@ -439,9 +454,6 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             settings_file.write_text(json.dumps(doc), encoding="utf-8")
 
             captured = {}
-            def capture_launch(command, **kwargs):
-                captured.update(json.loads(pathlib.Path(command[4]).read_text()))
-                return 42
             fake_result = SimpleNamespace(
                 cache_path=str(temp_path / "layouts" / "folder" / "cli_test.h5"),
             )
@@ -454,27 +466,32 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 "Layout_Cache_Generator.generate_layout_cache",
                 return_value=fake_result,
             ) as mock_gen, mock.patch("desktop.Viewer_State.validate_viewer_document", side_effect=lambda doc, root: doc), mock.patch(
-                "subprocess.call",
-                side_effect=capture_launch,
-            ) as mock_call, mock.patch.dict(os.environ, stale_target):
+                "desktop.Desktop_Launcher_Monitor.launch_viewer_session",
+                side_effect=self._viewer_that_starts(captured),
+            ) as launch, mock.patch(
+                "subprocess.call"
+            ) as call, mock.patch.dict(os.environ, stale_target):
                 # main() reads an inherited SSN_VIEWER_SETTINGS_PATH and then deletes it.
                 os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
                 code = Layout_Cache_Generator.main(
                     [str(settings_file), "--launch-viewer", "--delete-settings"]
                 )
-                self.assertEqual(code, 42)
+                # The run ends once the Viewer has started: it does not wait for the Viewer, and the Viewer is
+                # the session launcher's (splash, no terminal), not a child of this run.
+                self.assertEqual(code, 0)
                 mock_gen.assert_called_once()
-                mock_call.assert_called_once()
-                called_cmd, called_kwargs = mock_call.call_args
-                self.assertIn("EMAPSSN_Viewer.py", called_cmd[0][2])
+                launch.assert_called_once()
+                call.assert_not_called()
+                call_arguments = captured.pop("_call")
+                self.assertEqual(pathlib.Path(call_arguments.project_root), Layout_Cache_Generator.PROJECT_ROOT)
+                self.assertEqual(call_arguments.executable, sys.executable)
                 for key in stale_target:
-                    self.assertNotIn(key, called_kwargs["env"])
-                snapshot = pathlib.Path(called_cmd[0][4])
-                snapshot_document = captured
-                self.assertEqual(snapshot_document["inputs"]["TARGET_CACHE_PATH"], fake_result.cache_path)
-                self.assertEqual(snapshot_document["alignment"]["MSA_FILE"], "")
-                self.assertIn("--delete-settings", called_cmd[0])
-                self.assertFalse(snapshot.exists())
+                    self.assertNotIn(key, call_arguments.env)
+                self.assertNotIn("SSN_VIEWER_SETTINGS_PATH", call_arguments.env)
+                self.assertEqual(captured["inputs"]["TARGET_CACHE_PATH"], fake_result.cache_path)
+                self.assertEqual(captured["alignment"]["MSA_FILE"], "")
+                # The snapshot is the Viewer's to delete (it did); the run leaves no copy of it.
+                self.assertFalse(pathlib.Path(call_arguments.settings_path).exists())
                 self.assertFalse(settings_file.exists())
 
     def _launch_with_config_snapshot(self, temp_path, snapshot_text, generate):
@@ -486,16 +503,14 @@ class LayoutCacheGenerationTests(unittest.TestCase):
         snapshot.write_text(snapshot_text, encoding="utf-8")
         launched = {}
 
-        def capture_launch(command, **kwargs):
-            launched.update(json.loads(pathlib.Path(command[4]).read_text(encoding="utf-8")))
-            return 42
-
         errors = io.StringIO()
         with mock.patch(
             "Layout_Cache_Generator.generate_layout_cache", side_effect=generate,
         ) as mock_gen, mock.patch(
             "desktop.Viewer_State.validate_viewer_document", side_effect=lambda doc, root: doc,
-        ), mock.patch("subprocess.call", side_effect=capture_launch) as mock_call, mock.patch.dict(
+        ), mock.patch(
+            "desktop.Desktop_Launcher_Monitor.launch_viewer_session", side_effect=self._viewer_that_starts(launched),
+        ) as mock_call, mock.patch.dict(
             os.environ, {"SSN_VIEWER_SETTINGS_PATH": str(snapshot)},
         ), redirect_stdout(io.StringIO()), redirect_stderr(errors):
             code = Layout_Cache_Generator.main(
@@ -503,6 +518,7 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             )
         self.assertFalse(snapshot.exists())
         self.assertFalse(settings_file.exists())
+        launched.pop("_call", None)
         return SimpleNamespace(code=code, generate=mock_gen, call=mock_call,
                                launched=launched, errors=errors.getvalue(), snapshot=snapshot)
 
@@ -520,7 +536,7 @@ class LayoutCacheGenerationTests(unittest.TestCase):
             run = self._launch_with_config_snapshot(
                 temp_path, json.dumps({"inputs": {}, "alignment": {"MSA_FILE": "chosen.fasta"}}), generate,
             )
-        self.assertEqual(run.code, 42)
+        self.assertEqual(run.code, 0)
         run.generate.assert_called_once()
         # The Viewer gets the Config's choices, with the published cache.
         self.assertEqual(run.launched["alignment"], {"MSA_FILE": "chosen.fasta"})
@@ -793,6 +809,117 @@ class NodeMetadataDerivationTests(unittest.TestCase):
             derive_node_metadata(
                 ["Alpha_Beta"], [("Alpha_Beta", "AA"), ("Alpha_Beta", "CCC")]
             )
+
+
+class ViewerHandOffTests(unittest.TestCase):
+    """The generator hands the Viewer to the session launcher and ends; the terminal is the fallback only on Linux and macOS."""
+
+    @staticmethod
+    def _launcher(code=None, consume=False):
+        """A session launcher stand-in: still running (code None) or ended with ``code``; it may take the snapshot."""
+        process = mock.Mock(name="session launcher")
+        process.poll.return_value = code
+
+        def launch(project_root, env, *, settings_path=None, executable=None, platform_name=None):
+            if consume:
+                pathlib.Path(settings_path).unlink()
+            return process
+
+        return mock.Mock(side_effect=launch)
+
+    def _run(self, platform_name, launcher, *, patience=0.0, call_result=0):
+        folder = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        snapshot = folder / "ssn_viewer_1.json"
+        snapshot.write_text("{}", encoding="utf-8")
+        errors, output = io.StringIO(), io.StringIO()
+        with mock.patch("desktop.Desktop_Launcher_Monitor.launch_viewer_session", launcher), mock.patch(
+            "subprocess.call", return_value=call_result
+        ) as call, redirect_stderr(errors), redirect_stdout(output):
+            code = Layout_Cache_Generator._hand_off_to_viewer(
+                {"A": "b"}, str(snapshot), platform_name=platform_name, patience=patience
+            )
+        return SimpleNamespace(code=code, call=call, snapshot=snapshot, errors=errors.getvalue(), output=output.getvalue())
+
+    def test_a_launcher_whose_viewer_took_the_snapshot_ends_the_run_at_once_on_every_platform(self):
+        for platform_name in ("win32", "linux", "darwin"):
+            with self.subTest(platform=platform_name):
+                run = self._run(platform_name, self._launcher(consume=True), patience=60.0)
+                self.assertEqual(run.code, 0)
+                run.call.assert_not_called()
+                self.assertEqual(run.errors, "")
+
+    def test_the_launcher_is_given_the_snapshot_the_environment_and_the_platform(self):
+        launcher = self._launcher(consume=True)
+        self._run("linux", launcher, patience=60.0)
+        arguments = launcher.call_args
+        self.assertEqual(pathlib.Path(arguments.args[0]), Layout_Cache_Generator.PROJECT_ROOT)
+        self.assertEqual(arguments.args[1], {"A": "b"})
+        self.assertTrue(arguments.kwargs["settings_path"].endswith("ssn_viewer_1.json"))
+        self.assertEqual(arguments.kwargs["executable"], sys.executable)
+        self.assertEqual(arguments.kwargs["platform_name"], "linux")
+
+    def test_a_launcher_still_working_when_the_wait_is_over_counts_as_started_and_keeps_the_snapshot(self):
+        run = self._run("linux", self._launcher(code=None), patience=0.0)
+        self.assertEqual(run.code, 0)
+        run.call.assert_not_called()
+        self.assertTrue(run.snapshot.exists())  # the Viewer is still to take it
+
+    def test_a_launcher_that_failed_without_a_viewer_falls_back_to_this_terminal_on_linux_and_macos(self):
+        for platform_name in ("linux", "darwin"):
+            with self.subTest(platform=platform_name):
+                run = self._run(platform_name, self._launcher(code=3), call_result=17)
+                self.assertEqual(run.code, 17)  # the Viewer's own exit code, as before
+                run.call.assert_called_once()
+                command = run.call.call_args.args[0]
+                self.assertEqual(command[:2], [sys.executable, "-u"])
+                self.assertEqual(pathlib.Path(command[2]), Layout_Cache_Generator.PROJECT_ROOT / "src" / "EMAPSSN_Viewer.py")
+                self.assertEqual(command[3:], ["--settings", str(run.snapshot), "--delete-settings"])
+                self.assertEqual(run.call.call_args.kwargs["env"], {"A": "b"})
+                self.assertIn("exit code 3", run.errors)
+                self.assertFalse(run.snapshot.exists())
+
+    def test_a_launcher_that_cannot_run_falls_back_the_same_way(self):
+        run = self._run("linux", mock.Mock(side_effect=OSError("no interpreter")), call_result=0)
+        self.assertEqual(run.code, 0)
+        run.call.assert_called_once()
+        self.assertIn("no interpreter", run.errors)
+
+    def test_a_launcher_that_failed_after_the_viewer_took_its_snapshot_is_not_answered_with_a_second_viewer(self):
+        launcher = self._launcher(code=3, consume=True)
+        for platform_name in ("win32", "linux"):
+            with self.subTest(platform=platform_name):
+                run = self._run(platform_name, launcher)
+                self.assertEqual(run.code, 0)
+                run.call.assert_not_called()
+
+    def test_on_windows_a_failed_launcher_is_an_error_the_terminal_keeps_open_and_runs_no_second_viewer(self):
+        for launcher in (self._launcher(code=3), mock.Mock(side_effect=OSError("cannot run"))):
+            with self.subTest(launcher=launcher):
+                run = self._run("win32", launcher)
+                self.assertEqual(run.code, 1)  # a nonzero end keeps the terminal (HoldMode.ON_ERROR), which says why
+                run.call.assert_not_called()
+                self.assertIn("start-up screen could not run", run.errors)
+                self.assertFalse(run.snapshot.exists())
+
+    def test_the_run_prints_where_the_cache_is_and_that_the_viewer_is_launching(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            _write_inputs(temp_path)
+            settings_file = temp_path / "settings.json"
+            settings_file.write_text(json.dumps(_settings_document(temp_path)), encoding="utf-8")
+            cache = str(temp_path / "layouts" / "folder" / "x.h5")
+            output = io.StringIO()
+            with mock.patch("Layout_Cache_Generator.generate_layout_cache", return_value=SimpleNamespace(cache_path=cache)), \
+                    mock.patch("desktop.Viewer_State.validate_viewer_document", side_effect=lambda doc, root: doc), \
+                    mock.patch("Layout_Cache_Generator._hand_off_to_viewer",
+                               side_effect=lambda env, snapshot, **options: (pathlib.Path(snapshot).unlink(), 0)[1]) as hand_off, \
+                    mock.patch.dict(os.environ, {}, clear=False), redirect_stdout(output):
+                os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
+                code = Layout_Cache_Generator.main([str(settings_file), "--launch-viewer", "--delete-settings"])
+        self.assertEqual(code, 0)
+        self.assertIn(cache, output.getvalue())
+        self.assertIn("Launching EMAP-SSN Viewer", output.getvalue())
+        hand_off.assert_called_once()
 
 
 if __name__ == "__main__":

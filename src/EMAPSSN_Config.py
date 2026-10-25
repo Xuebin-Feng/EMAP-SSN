@@ -49,7 +49,7 @@ from desktop.Desktop_App import (
     configure_linux_qt_desktop_identity,
     set_app_user_model_id,
 )
-from desktop.Desktop_Launcher_Monitor import launch_viewer_session
+from desktop.Desktop_Launcher_Monitor import launch_viewer_session, viewer_session_failed
 from Layout_Cache_Generator import LayoutGenerationSettings
 from desktop.Viewer_State import (
     INPUT_PROFILE_DEFAULTS, VISUAL_PROFILE_DEFAULTS, PHYSICS_PROFILE_DEFAULTS, DIRECTORY_PROFILE_DEFAULTS, LEGACY_DEFAULT_DIRECTORY_PATHS, PROFILE_ENUM_VALUES, PROFILE_RANGES,
@@ -521,7 +521,7 @@ def _watch_viewer_session_launcher(process, start_terminal, settings_path=None):
             code = process.wait()
         except Exception:
             return
-        if code == 0 or (settings_path and not os.path.exists(settings_path)):
+        if not viewer_session_failed(code, settings_path):
             return
         print(f"The Viewer's start-up screen could not run (exit code {code}); starting the Viewer in a terminal.")
         try:

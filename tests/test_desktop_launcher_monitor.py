@@ -766,5 +766,66 @@ class FailureDialogTests(unittest.TestCase):
         self.assertTrue(text.startswith("SSN could not open a terminal"), text)
 
 
+class ViewerSessionStartTests(unittest.TestCase):
+    """What everyone who starts a Viewer through the session launcher shares: the command, and learning that it failed."""
+
+    @staticmethod
+    def launcher(code):
+        process = mock.Mock(name="launcher")
+        process.poll.return_value = code
+        return process
+
+    def test_the_command_is_the_session_launcher_with_the_snapshot_to_delete(self):
+        command = Desktop_Launcher_Monitor.viewer_session_command(PROJECT_ROOT, settings_path="/t/s.json", executable="/py")
+        self.assertEqual(command[:2], ["/py", "-u"])
+        self.assertEqual(Path(command[2]), PROJECT_ROOT / "src" / "desktop" / "Desktop_Launcher.py")
+        self.assertEqual(command[3:], ["session", "--settings", "/t/s.json", "--delete-settings"])
+        self.assertEqual(Desktop_Launcher_Monitor.viewer_session_command(PROJECT_ROOT, executable="/py")[3:], ["session"])
+        self.assertEqual(Desktop_Launcher_Monitor.viewer_session_command(PROJECT_ROOT)[0], sys.executable)
+
+    def test_launch_viewer_session_runs_that_command(self):
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen") as popen:
+            Desktop_Launcher_Monitor.launch_viewer_session(PROJECT_ROOT, {}, settings_path="x.json", executable="/py",
+                                                           platform_name="linux")
+        self.assertEqual(popen.call_args.args[0], Desktop_Launcher_Monitor.viewer_session_command(
+            PROJECT_ROOT, settings_path="x.json", executable="/py"))
+
+    def test_a_launcher_failed_when_it_ended_badly_before_the_viewer_took_its_snapshot(self):
+        with tempfile.TemporaryDirectory() as folder:
+            present = Path(folder) / "present.json"
+            present.write_text("{}", encoding="utf-8")
+            gone = Path(folder) / "gone.json"
+            failed = Desktop_Launcher_Monitor.viewer_session_failed
+            self.assertFalse(failed(0, present))
+            self.assertFalse(failed(0, None))
+            for code in (3, 1, 2, -6, 134):
+                with self.subTest(code=code):
+                    self.assertTrue(failed(code, present))
+                    self.assertTrue(failed(code, None))  # nothing to go by
+                    self.assertFalse(failed(code, gone))  # the Viewer took its snapshot: it is running
+
+    def test_waiting_ends_when_the_viewer_takes_its_snapshot_the_launcher_ends_or_the_patience_is_over(self):
+        wait = Desktop_Launcher_Monitor.wait_for_viewer_session
+        with tempfile.TemporaryDirectory() as folder:
+            snapshot = Path(folder) / "s.json"
+            snapshot.write_text("{}", encoding="utf-8")
+            self.assertEqual(wait(self.launcher(3), snapshot, patience=60), 3)
+            self.assertIsNone(wait(self.launcher(0), snapshot, patience=60))
+            self.assertIsNone(wait(self.launcher(None), snapshot, patience=0))  # still working: counts as started
+            slow = self.launcher(None)
+            slow.poll.side_effect = [None, None, 3]  # fails on the third look, before the patience is over
+            with mock.patch.object(Desktop_Launcher_Monitor.time, "sleep"):
+                self.assertEqual(wait(slow, snapshot, patience=60), 3)
+            snapshot.unlink()
+
+            def no_waiting(_seconds):
+                self.fail("it went on waiting after the Viewer took its snapshot")
+
+            with mock.patch.object(Desktop_Launcher_Monitor.time, "sleep", no_waiting):
+                self.assertIsNone(wait(self.launcher(None), snapshot, patience=60))  # the Viewer took it, so it ends at once
+            self.assertIsNone(wait(self.launcher(3), snapshot, patience=60))  # and then the launcher ended badly: not ours
+            self.assertEqual(wait(self.launcher(3), None, patience=60), 3)
+
+
 if __name__ == "__main__":
     unittest.main()

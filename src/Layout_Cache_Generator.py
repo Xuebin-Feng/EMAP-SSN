@@ -893,7 +893,8 @@ def _argument_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--launch-viewer",
         action="store_true",
-        help="Launch EMAP-SSN Viewer in the current terminal once layout generation succeeds.",
+        help="Open EMAP-SSN Viewer, with a start-up screen and no terminal of its own, once layout generation "
+             "succeeds; this run then ends.",
     )
     parser.add_argument(
         "--delete-settings",
@@ -946,7 +947,6 @@ def main(argv: list[str] | None = None) -> int:
 
     print(result.cache_path)
     if args.launch_viewer:
-        viewer_script = os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py")
         env = os.environ.copy()
         from desktop.Viewer_State import (
             DEFAULTS,
@@ -971,23 +971,53 @@ def main(argv: list[str] | None = None) -> int:
             f"Layout cache generated successfully at {result.cache_path}. "
             "Launching EMAP-SSN Viewer..."
         )
-        try:
-            return subprocess.call(
-                [
-                    sys.executable,
-                    "-u",
-                    viewer_script,
-                    "--settings",
-                    viewer_snapshot,
-                    "--delete-settings",
-                ],
-                cwd=str(PROJECT_ROOT),
-                env=env,
-            )
-        finally:
-            Path(viewer_snapshot).unlink(missing_ok=True)
+        return _hand_off_to_viewer(env, viewer_snapshot)
 
     return 0
+
+
+def _hand_off_to_viewer(
+    env: dict, snapshot: str, *, platform_name: str | None = None, patience: float | None = None
+) -> int:
+    """Start the Viewer the way Config does, with a start-up screen and no terminal, and let this run end.
+
+    The session launcher (desktop/Desktop_Launcher.py) runs the Viewer under its own monitor, with a hidden
+    console and a session of its own, so closing the terminal this run has does not end it, and the terminal
+    closes by itself when this run ends well. The Viewer reads ``snapshot`` and deletes it as it starts.
+
+    If the launcher cannot start a Viewer (it could not run, or it failed before the Viewer took the
+    snapshot), a failure on Windows says so and ends this run with an error, which keeps the terminal open
+    for it to be read; on Linux and macOS the Viewer runs in this terminal, as it always did.
+    """
+    from desktop.Desktop_Launcher_Monitor import launch_viewer_session, wait_for_viewer_session
+
+    platform_name = platform_name or sys.platform
+    failure = None
+    try:
+        process = launch_viewer_session(
+            PROJECT_ROOT, env, settings_path=snapshot, executable=sys.executable, platform_name=platform_name
+        )
+        code = wait_for_viewer_session(process, snapshot, **({} if patience is None else {"patience": patience}))
+        if code is not None:
+            failure = f"exit code {code}"
+    except OSError as error:
+        failure = str(error)
+    if failure is None:
+        return 0
+    print(f"The Viewer's start-up screen could not run ({failure}).", file=sys.stderr, flush=True)
+    if platform_name == "win32":
+        Path(snapshot).unlink(missing_ok=True)
+        return 1
+    print("Starting the Viewer in this terminal.", flush=True)
+    try:
+        return subprocess.call(
+            [sys.executable, "-u", os.path.join(PROJECT_ROOT, "src", "EMAPSSN_Viewer.py"),
+             "--settings", snapshot, "--delete-settings"],
+            cwd=str(PROJECT_ROOT),
+            env=env,
+        )
+    finally:
+        Path(snapshot).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":

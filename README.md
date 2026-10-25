@@ -714,7 +714,8 @@ start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe 
 (on Linux `./emapssn` or `./emapssn_tools`, on macOS `src/bin/EMAPSSN.sh` or `src/bin/EMAPSSN_Tools.sh`) from a terminal; the Viewer's Console shows the same output there.
 The Viewer that the Configuration window starts opens the same way on every platform, with a start-up screen and no
 terminal; on Linux and macOS, if that start-up screen cannot run, the Viewer starts in a terminal instead, as it did
-before. The layout generator, which prints its progress, still runs in a terminal.
+before. The layout generator, which prints its progress, still runs in a terminal; when it has saved the layout it opens the
+Viewer the same way (start-up screen, no terminal of its own) and ends, so its terminal closes by itself unless something went wrong.
 
 ### Headless layout-cache generation
 
