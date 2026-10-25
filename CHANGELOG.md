@@ -48,7 +48,8 @@ still change before version 1.0.0.
     doing ("Checking dependencies…", "Loading PyTorch…") with a progress bar, then closes when
     the window is ready. It is drawn in the theme colour of the window it starts (Config's
     for a Viewer), purple when none is saved. No console window opens, and Config starts the Viewer without one
-    too. The taskbar names them EMAP-SSN.
+    too. The taskbar names them EMAP-SSN and shows each window's small icon; the large art is
+    for the Desktop shortcuts. A window pinned from the taskbar starts again through the launcher.
   - **Show details:** expands the splash into a section that shows everything printed
     during the start, with warnings and errors coloured, Copy and Open log. Opened, the
     splash stays at the end and says "Ready" until it is closed. If the program stops before
