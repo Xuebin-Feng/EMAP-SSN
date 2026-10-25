@@ -57,18 +57,26 @@ still change before version 1.0.0.
     or repair opens the console as it always did.
   - **Output is kept:** everything Config, Tools, VR Config and the Viewer print, including
     Qt and Numba warnings and crash reports, goes to `temp/logs/<app>-<time>-<pid>.log`
-    (8 MB each, the ten newest kept per program, with API keys removed). A program the
+    (8 MB each, the ten newest kept per program, with API keys removed). The logs and crash
+    reports can be read only by their owner on Linux and macOS. A program the
     windows start (a terminal, a folder, a web page) gets none of this output, so on Linux
     and macOS it doesn't slow the window's closing or stop after the window has closed.
     There, web addresses open with the user's `BROWSER` first, then `xdg-open`, `gio` or
     `open`.
   - **The Viewer's Console:** the **Console** button in the Viewer's bottom row, between ⓘ
     and the threshold box, and the `console` command open a Console window with the
-    Viewer's output, with search, an errors-only filter, Copy, Save and Open log. The
-    Viewer window can no longer be made narrower than that row needs, so its controls
-    never overlap. Command help that used to be "printed to
-    the terminal" now points to the Console. A command name the Viewer doesn't know prints
-    `Error: Unknown command: …` there, in red, and in the log, as well as on the status line.
+    Viewer's output, with search, an errors-only filter, Copy, Save and Open log.
+    - **Colours:** the colours commands print in a terminal show here too, such as
+      `cluster`'s dots and `spectrum`'s values, and warnings and errors are amber and red.
+      The log file, Copy, Save, and what MCP and Agent clients read get plain text.
+    - **Times:** each line's time is shown beside the text, never in it, so Copy, Save and
+      search see only the output. The **Times** switch hides them, and is remembered.
+    - **Layout:** the Console's header stays on one row; the window can't be made narrower
+      than it. The Viewer window can't be made narrower than its bottom row, so its
+      controls never overlap.
+    - Command help that used to be "printed to the terminal" now points to the Console. A
+      command name the Viewer doesn't know prints `Error: Unknown command: …` there and in
+      the log, as well as on the status line.
   - **VR Config too:** its shortcut starts `EMAP-SSN.exe vr`, with the same splash under
     the VR logo, and a "Checking VR hardware…" step after the dependency check. A computer
     that can't drive a headset is a warning, not a failure: VR Config still opens, and the
@@ -292,6 +300,11 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **A quieter dependency check.** Each start used to list the known, accepted differences
+  between the `esm` package's stated requirements and the installed packages ("accepted: The
+  package `esm` requires …"). It now prints one line saying the check passed with that many
+  expected deviations, and lists them only when a setup or repair runs. A difference that
+  isn't expected still stops the start, with every detail.
 - **Command files declare how they are run.** A command file can say that it runs at once
   even while other commands wait (`QUEUE = "instant"` or a `queue_kind(args, source)`
   function), that it starts a model request (`STARTS_MODEL_REQUEST`), or that it acts on
