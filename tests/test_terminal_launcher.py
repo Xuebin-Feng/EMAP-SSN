@@ -746,7 +746,7 @@ class CapturedProcessTerminalTests(unittest.TestCase):
                 self.assertTrue(streams[number]["null"], f"descriptor {number} of the terminal is not /dev/null")
                 self.assertFalse(streams[number]["pipe"])
         # Nothing but the capture's own descriptors held its pipes, so closing it did not wait for the terminal.
-        self.assertLess(report["close_seconds"], 1.0)
+        self.assertLess(report["close_seconds"], 1.0, "closing the capture waited for the terminal")
 
 
 class WindowsLaunchTests(unittest.TestCase):
