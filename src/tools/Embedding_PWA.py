@@ -42,6 +42,7 @@ import numpy as np
 import torch
 import h5py
 from utilities import Hardware_Acceleration as Hardware_Utils
+from utilities.Terminal_Colors import colours_enabled
 from utilities.Sequence_Utils import (
     IDENTITY_RESIDUES,
     identity_definition,
@@ -599,9 +600,9 @@ def run_alignment(
                 mapped_positions_lines.append(mapping_line)
             print("-" * 80)
 
-    # Output Parsing with ANSI Colors
-    GREEN = "\033[1;32m"
-    RESET = "\033[0m"
+    # Highlighted residues are green where the output shows colours (a terminal, or the Console window) and
+    # plain anywhere else (utilities/Terminal_Colors.py), as the Viewer's commands do.
+    GREEN, RESET = ("\033[1;32m", "\033[0m") if colours_enabled() else ("", "")
 
     chunk = 80
     for k in range(0, len(alignment_data), chunk):

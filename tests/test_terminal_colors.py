@@ -75,7 +75,7 @@ class WhetherToColourTests(unittest.TestCase):
 
     def test_the_commands_that_colour_their_output_ask_this_question_and_have_no_copy_of_it(self):
         users = ("commands/cluster.py", "commands/subcluster.py", "commands/spectrum.py", "Alignment_Manager.py",
-                 "Embedding_Manager.py", "utilities/Sequence_Utils.py")
+                 "Embedding_Manager.py", "utilities/Sequence_Utils.py", "tools/Embedding_PWA.py")
         for name in users:
             with self.subTest(module=name):
                 source = (SRC_DIR / name).read_text(encoding="utf-8")

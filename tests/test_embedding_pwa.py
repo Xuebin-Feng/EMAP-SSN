@@ -168,7 +168,7 @@ class HighlightMappingTests(unittest.TestCase):
 
 
 class PairwiseIdentityReportTests(unittest.TestCase):
-    def run_pairwise(self, directory, mode):
+    def run_pairwise(self, directory, mode, highlight="", stream=None):
         rng = np.random.default_rng(7)
         database_path = os.path.join(directory, "database.h5")
         headers = ["reference", "target"]
@@ -200,7 +200,7 @@ class PairwiseIdentityReportTests(unittest.TestCase):
                 "get_optimal_device",
                 return_value=torch.device("cpu"),
             ) as get_device,
-            redirect_stdout(StringIO()) as output,
+            redirect_stdout(StringIO() if stream is None else stream) as output,
         ):
             embedding_pwa.run_alignment(
                 "reference",
@@ -212,7 +212,7 @@ class PairwiseIdentityReportTests(unittest.TestCase):
                 mode,
                 -2.0,
                 0.0,
-                "",
+                highlight,
                 database.model_name,
             )
         get_device.assert_called_once_with()
@@ -261,6 +261,47 @@ class PairwiseIdentityReportTests(unittest.TestCase):
                 ]
                 self.assertEqual(sum(line.count("|") for line in marks), identities)
                 self.assertIn(match.group(0), html)
+
+
+class HighlightColourTests(unittest.TestCase):
+    """Highlighted residues are green only where the output shows colours (utilities.Terminal_Colors)."""
+
+    ESCAPE = chr(27)
+    run_pairwise = PairwiseIdentityReportTests.run_pairwise  # the same database and run, without its tests
+
+    class Terminal(StringIO):
+        def isatty(self):
+            return True
+
+    def alignment_lines(self, stream=None):
+        with tempfile.TemporaryDirectory() as directory:
+            console, _ = self.run_pairwise(directory, "global", highlight="1-3", stream=stream)
+        return [line for line in console.splitlines() if line.startswith(("Ref: ", "Tar: "))]
+
+    def test_a_pipe_or_a_file_gets_the_alignment_with_no_colour_codes(self):
+        lines = self.alignment_lines()
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            self.assertNotIn(self.ESCAPE, line)
+        self.assertTrue(lines[0].startswith("Ref: MKT"))
+        self.assertTrue(lines[1].startswith("Tar: MKS"))
+
+    def test_a_terminal_gets_the_highlighted_residues_in_green(self):
+        lines = self.alignment_lines(self.Terminal())
+        esc = self.ESCAPE
+        self.assertTrue(lines[0].startswith(f"Ref: {esc}[1;32mM{esc}[0m{esc}[1;32mK{esc}[0m{esc}[1;32mT{esc}[0m"))
+        self.assertTrue(lines[1].startswith(f"Tar: {esc}[1;32mM{esc}[0m{esc}[1;32mK{esc}[0m{esc}[1;32mS{esc}[0m"))
+        # Taken out, it is the alignment the pipe gets.
+        plain = self.alignment_lines()
+        self.assertEqual([re.sub(r"\x1b\[[0-9;]*m", "", line) for line in lines], plain)
+
+    def test_the_output_the_console_captures_is_coloured_too(self):
+        from utilities import Console_Capture
+
+        own = StringIO()
+        with mock.patch.object(Console_Capture, "_capture", mock.Mock(text_streams=(own,))):
+            lines = self.alignment_lines(own)
+        self.assertIn(self.ESCAPE + "[1;32m", lines[0])
 
 
 class AlignmentModeTests(unittest.TestCase):
