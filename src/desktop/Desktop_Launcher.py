@@ -2,21 +2,25 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The first stage of a Windows desktop launch: the splash, the dependency check, and the hand-off to the monitor.
+"""The first stage of a desktop launch: the splash, the dependency check, and the hand-off to the monitor.
 
-    python -u src\\desktop\\Desktop_Launcher.py viewer|tools [--console]
-    python -u src\\desktop\\Desktop_Launcher.py session [--settings FILE --delete-settings]
+    python -u src/desktop/Desktop_Launcher.py viewer|tools [--console] [--caller-opens-console]
+    python -u src/desktop/Desktop_Launcher.py session [--settings FILE --delete-settings]
 
-EMAP-SSN.exe (src/bin/Launcher.cs, built by install.bat) starts it with a hidden console. "viewer"
-is the EMAP-SSN Configuration window, as in EMAPSSN_Desktop_Launcher.bat, and "tools" is Tools. It
+On Windows, EMAP-SSN.exe (src/bin/Launcher.cs, built by install.bat) starts it with a hidden console. On
+Linux, src/bin/EMAPSSN_Desktop_Launcher.sh (what the .desktop entries run) starts it with no terminal, and on
+macOS the executable of the .app bundles install.sh makes does. "viewer" is the EMAP-SSN Configuration
+window, as in EMAPSSN_Desktop_Launcher.bat and .sh, and "tools" is Tools. It
 
 1. brings the window forward and ends if one is already open for this checkout (no splash);
 2. ends quietly if another launch of the same window is under way (a launcher lock), so a double-click
    starts one window;
 3. shows the splash (desktop/Splash.py), within about a third of a second of the click;
-4. checks the environment (Install_Dependencies.py --check-only) and shows the lines it prints, live, on
-   the splash. If the environment needs setup or repair it hands over to the old visible console
-   (EMAPSSN_Desktop_Launcher.bat), which does that, as before;
+4. checks the environment and shows the lines it prints, live, on the splash: on Windows
+   Install_Dependencies.py --check-only, on Linux and macOS the kind's portable launcher with --check-only
+   (src/bin/EMAPSSN.sh, EMAPSSN_Tools.sh), which also checks the system libraries Qt needs and finds uv. If the
+   environment needs setup or repair it hands over to the old visible console (EMAPSSN_Desktop_Launcher.bat,
+   or .sh --terminal-session in a terminal), which does that, as before;
 5. runs the steps its kind adds (LaunchStep), each with its own line on the splash and its output in the
    details. A step that fails is a warning, not a failure: the details open by themselves with its output in
    the warning colour, and the start goes on;
@@ -35,7 +39,20 @@ open), the same splash and monitor, and the arguments after it go to the Viewer.
 crash after the window opened in a dialog, since no terminal is open to show it.
 
 --console runs the old visible-console launch in this console, with no splash, exactly as the batch file
-does. Imports only PySide6 and the standard library, so it is up before the heavy modules load.
+(or, off Windows, the .sh in --terminal-session mode) does. --caller-opens-console is for a caller that has
+a way of its own to open a terminal (the macOS .app, which opens Terminal with a command file, so that no
+Apple Events permission is needed): when the environment needs setup the launcher ends with EXIT_FALLBACK
+instead of opening one itself. Imports only PySide6 and the standard library, so it is up before the heavy
+modules load.
+
+Linux and macOS notes. The launcher gives its process the desktop identity of the window it starts, so the
+splash and the window are one entry in the taskbar or Dock: on Linux the name of the kind's .desktop entry
+(application name, which is the X11 window class, and desktop file name, which is the Wayland app id; the
+same two calls the windows make, desktop.Desktop_App.configure_linux_qt_desktop_identity), on macOS the
+kind's logo as the application icon. On a Wayland session the launcher runs on Wayland itself (only the
+window is moved to XWayland, by the monitor), where a client cannot place its window or keep it on top: the
+splash asks for both with its window hints and takes what the compositor gives. Nothing here has been run on
+a Mac; see README.md.
 """
 
 from __future__ import annotations
@@ -62,6 +79,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from PySide6.QtCore import QCoreApplication, QLockFile, QObject, QProcess, QProcessEnvironment, QTimer, Qt, Signal
+from PySide6.QtGui import QIcon
 from PySide6.QtNetwork import QLocalSocket
 from PySide6.QtWidgets import QApplication
 
@@ -69,10 +87,13 @@ from desktop import Desktop_Launcher_Monitor as Monitor
 from desktop import Splash as SplashModule
 from desktop.Splash import SplashWindow, StatusFeed
 from utilities import Startup_Status as Status
+from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 
 BATCH_FILE = Path("src") / "bin" / "EMAPSSN_Desktop_Launcher.bat"
+SHELL_FILE = Path("src") / "bin" / "EMAPSSN_Desktop_Launcher.sh"
 INSTALLER = Path("src") / "Install_Dependencies.py"
 VENV_PYTHON = Path(".venv") / "Scripts" / "python.exe"
+POSIX_VENV_PYTHON = Path(".venv") / "bin" / "python"
 REQUIRED_PYTHON = (3, 13)
 STARTUP_TIMEOUT_SECONDS = Monitor.STARTUP_TIMEOUT_SECONDS
 POLL_MS = 30
@@ -117,6 +138,12 @@ class LaunchKind:
     ``check`` whether the dependency check runs, ``steps`` what else the start does, ``app_user_model_id`` the
     taskbar identity of the launcher's own process (None: Windows' default), and ``catalogs`` the
     (directory, name) pairs of the translation catalogs the kind adds to the splash's.
+
+    Linux and macOS: ``shell_file`` is what ``batch_file`` is there, the launch in a terminal (called with
+    the kind and ``--terminal-session``), ``posix_check`` the portable launcher whose ``--check-only`` is the
+    check (None: Install_Dependencies.py is run directly, as on Windows), and ``desktop_file_name`` the
+    name of the kind's .desktop entry, which the splash takes as its own so that it and the window are one
+    entry in the taskbar (None: the process keeps Qt's default).
     """
 
     name: str
@@ -127,6 +154,9 @@ class LaunchKind:
     steps: tuple = ()
     app_user_model_id: str | None = None
     catalogs: tuple = ()
+    shell_file: Path = SHELL_FILE
+    posix_check: Path | None = None
+    desktop_file_name: str | None = None
 
 
 LAUNCH_KINDS: dict = {}
@@ -139,10 +169,13 @@ def register_kind(kind):
 
 
 # The launcher's kinds, as the batch file names them ("viewer" is Config). A session is a Viewer that Config
-# starts: Config checked, and many Viewers may be open.
-register_kind(LaunchKind("viewer", "config", "SSN_Config"))
-register_kind(LaunchKind("tools", "tools", "SSN_Tools"))
-register_kind(LaunchKind("session", "viewer", check=False))
+# starts: Config checked, and many Viewers may be open. The .desktop names are the windows' own
+# (desktop.Desktop_App.VIEWER_DESKTOP_FILE_NAME, TOOLS_DESKTOP_FILE_NAME; tests/test_desktop_launcher.py compares them).
+register_kind(LaunchKind("viewer", "config", "SSN_Config", posix_check=Path("src") / "bin" / "EMAPSSN.sh",
+                         desktop_file_name="emapssn"))
+register_kind(LaunchKind("tools", "tools", "SSN_Tools", posix_check=Path("src") / "bin" / "EMAPSSN_Tools.sh",
+                         desktop_file_name="emapssn_tools"))
+register_kind(LaunchKind("session", "viewer", check=False, desktop_file_name="emapssn"))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -179,17 +212,21 @@ def activate_existing_instance(kind, root, timeout_ms=300):
     return True
 
 
-def venv_python(root):
-    return Path(root) / VENV_PYTHON
+def venv_python(root, platform_name=None):
+    """The managed interpreter of a checkout: .venv/Scripts/python.exe on Windows, .venv/bin/python elsewhere."""
+    return Path(root) / (VENV_PYTHON if (platform_name or sys.platform) == "win32" else POSIX_VENV_PYTHON)
 
 
-def find_uv(environment=None):
-    """The uv executable, as the batch file looks for it (on PATH, else ~/.local/bin), or None."""
+def find_uv(environment=None, platform_name=None):
+    """The uv executable, as the launcher scripts look for it (on PATH, else ~/.local/bin), or None."""
     environment = os.environ if environment is None else environment
     found = shutil.which("uv", path=environment.get("PATH"))
     if found:
         return found
-    candidate = Path(environment.get("USERPROFILE") or Path.home()) / ".local" / "bin" / "uv.exe"
+    if (platform_name or sys.platform) == "win32":
+        candidate = Path(environment.get("USERPROFILE") or Path.home()) / ".local" / "bin" / "uv.exe"
+    else:
+        candidate = Path(environment.get("HOME") or Path.home()) / ".local" / "bin" / "uv"
     return str(candidate) if candidate.is_file() else None
 
 
@@ -199,16 +236,45 @@ def check_command(root, python, uv):
             "--venv", str(Path(root) / ".venv")]
 
 
-def visible_console_command(root, kind):
-    """The old launch: the kind's batch file in a console of its own, which does any setup and shows what it does."""
-    return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", str(Path(root) / LAUNCH_KINDS[kind].batch_file), kind]
+def posix_check_command(root, script):
+    """The dependency check on Linux and macOS: the kind's portable launcher with --check-only, as the terminal launch runs it.
+
+    The script also checks the system libraries Qt needs (and prints the apt command for the ones missing),
+    finds uv, and probes the managed Python before it runs Install_Dependencies.py. It exits 10 when there is
+    no usable managed environment and 1 when a library is missing: either way the terminal launch takes over.
+    """
+    return [shutil.which("bash") or "/bin/bash", str(Path(root) / script), "--check-only"]
 
 
-def open_visible_console(root, kind, *, popen=subprocess.Popen):
-    """Start the old visible-console launch (a new console window on Windows)."""
-    flags = CREATE_NEW_CONSOLE if sys.platform == "win32" else 0
-    return popen(visible_console_command(root, kind), cwd=str(root), creationflags=flags) if flags else \
-        popen(visible_console_command(root, kind), cwd=str(root))
+def visible_console_command(root, kind, platform_name=None):
+    """The old launch: the kind's launch script in a console or terminal of its own, which does any setup and shows what it does.
+
+    Windows: the batch file under the command interpreter. Linux and macOS: the .sh in its --terminal-session
+    mode, which is what EMAPSSN_Desktop_Launcher.sh itself runs in the terminal it opens.
+    """
+    if (platform_name or sys.platform) == "win32":
+        return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", str(Path(root) / LAUNCH_KINDS[kind].batch_file), kind]
+    return [shutil.which("bash") or "/bin/bash", str(Path(root) / LAUNCH_KINDS[kind].shell_file), kind, "--terminal-session"]
+
+
+def start_in_terminal(command, *, cwd, title=None):
+    """Linux and macOS: run ``command`` in a terminal window of its own (utilities/Terminal_Launcher.py).
+
+    The terminal closes with the command; the launch script pauses by itself when something fails.
+    """
+    return launch_in_terminal(command, cwd=cwd, hold=HoldMode.NEVER, title=title)
+
+
+def open_visible_console(root, kind, *, popen=None, title=None, platform_name=None):
+    """Start the old visible launch: a new console window on Windows, a terminal on Linux and macOS.
+
+    ``popen`` starts the program: subprocess.Popen on Windows, start_in_terminal elsewhere (tests give their own).
+    """
+    platform_name = platform_name or sys.platform
+    command = visible_console_command(root, kind, platform_name)
+    if platform_name == "win32":
+        return (popen or subprocess.Popen)(command, cwd=str(root), creationflags=CREATE_NEW_CONSOLE)
+    return (popen or start_in_terminal)(command, cwd=str(root), title=title)
 
 
 def lock_path(root, kind):
@@ -273,7 +339,7 @@ class Launch(QObject):
     finished = Signal(int)
 
     def __init__(self, kind, root, *, python=None, uv=None, app_args=(), show=True, check=None, timeout=None,
-                 popen=subprocess.Popen, environment=None):
+                 popen=None, environment=None, caller_opens_console=False):
         super().__init__()
         if kind not in LAUNCH_KINDS:
             raise ValueError(f"unknown launch kind {kind!r}")
@@ -286,8 +352,9 @@ class Launch(QObject):
         self.show = show
         self.check = self.info.check if check is None else check
         self.timeout = STARTUP_TIMEOUT_SECONDS if timeout is None else timeout
-        self.popen = popen
+        self.popen = popen  # what starts the visible console (None: subprocess.Popen on Windows, a terminal elsewhere)
         self.environment = environment
+        self.caller_opens_console = caller_opens_console  # the caller opens the console: ask it with EXIT_FALLBACK
         self.marks = {}
         self.splash = None
         self.lock = None
@@ -363,13 +430,19 @@ class Launch(QObject):
         reason = self.needs_setup()
         if reason:
             return self.hand_over_to_console(reason)
-        process = self._make_process(check_command(self.root, self.python, self.uv), self.root)
+        process = self._make_process(self.check_command_line(), self.root)
         process.readyReadStandardOutput.connect(self._check_output)
         process.finished.connect(self._check_finished)
         process.errorOccurred.connect(self._check_failed)
         self.check_process = process
         process.start()
         self.mark("check_started")
+
+    def check_command_line(self):
+        """The dependency check's program and arguments: the kind's portable launcher on Linux and macOS, else Install_Dependencies.py."""
+        if sys.platform != "win32" and self.info.posix_check is not None:
+            return posix_check_command(self.root, self.info.posix_check)
+        return check_command(self.root, self.python, self.uv)
 
     def _make_process(self, command, working_dir):
         """A process for ``command`` (a program and its arguments) with no window, its output merged, not yet started."""
@@ -387,6 +460,10 @@ class Launch(QObject):
         environment = QProcessEnvironment.systemEnvironment()
         for name in Monitor._MANAGED_ENVIRONMENT_PATH_OVERRIDES:
             environment.remove(name)
+        if sys.platform != "win32":
+            # On Windows the commands say -u themselves. A launcher script starts its Python without it, and a
+            # Python that prints to a pipe buffers: its lines would reach the splash only when it ended.
+            environment.insert("PYTHONUNBUFFERED", "1")
         return environment
 
     @_guarded
@@ -483,12 +560,18 @@ class Launch(QObject):
         self.run_steps()
 
     def hand_over_to_console(self, reason):
-        """The environment cannot be used as it is: the old launch, in a visible console, repairs it and starts the window."""
+        """The environment cannot be used as it is: the old launch, in a visible console, repairs it and starts the window.
+
+        A caller that opens the console itself (--caller-opens-console) is asked to, by EXIT_FALLBACK.
+        """
         self.mark("handed_over_to_console")
         self.marks["console_reason"] = reason
+        if self.caller_opens_console:
+            return self.finish(EXIT_FALLBACK)
         try:
-            open_visible_console(self.root, self.kind, popen=self.popen)
-        except OSError as error:
+            # RuntimeError: no terminal emulator found (utilities.Terminal_Launcher.TerminalUnavailableError).
+            open_visible_console(self.root, self.kind, popen=self.popen, title=self._window_name())
+        except (OSError, RuntimeError) as error:
             self.marks["console_failed"] = str(error)
             return self.finish(EXIT_FALLBACK)
         self.finish(0)
@@ -643,10 +726,38 @@ def set_process_app_user_model_id(app_id):
         return False
 
 
+def configure_desktop_identity(application, info, *, platform_name=None):
+    """Give the launcher's process the identity the window it starts has, off Windows; returns what it set ("" for nothing).
+
+    Linux: the kind's .desktop name as the application name (the X11 window class, which the entry's
+    StartupWMClass matches) and as the desktop file name (the Wayland app id, which names the entry itself): the
+    two calls desktop.Desktop_App.configure_linux_qt_desktop_identity makes for the windows, which this module
+    does not import (it would cost a tenth of a second before the splash shows). The splash and the window then
+    belong to one entry in the taskbar, with the entry's name and icon.
+
+    macOS: the kind's splash logo as the application icon, which Qt gives the Dock, so that the Dock does not show
+    the generic Python icon while the splash is up. (The window sets its own icon the same way.) Untested on a Mac.
+    """
+    platform_name = platform_name or sys.platform
+    if platform_name.startswith("linux") and info.desktop_file_name:
+        application.setApplicationName(info.desktop_file_name)
+        application.setDesktopFileName(info.desktop_file_name)
+        return "desktop-file-name"
+    if platform_name == "darwin":
+        logo = SplashModule.LOGOS / SplashModule.LOGO_FILES[info.splash_kind]
+        if logo.is_file():
+            application.setWindowIcon(QIcon(str(logo)))
+            return "window-icon"
+    return ""
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("kind", choices=tuple(LAUNCH_KINDS))
     parser.add_argument("--console", action="store_true", help="the old visible-console launch, with no splash")
+    parser.add_argument("--caller-opens-console", action="store_true",
+                        help="when the environment needs setup, end with the code that asks the caller for the console "
+                             "instead of opening a terminal")
     parser.add_argument("--root", default=str(SRC_DIR.parent), help="the project folder (tests)")
     parser.add_argument("--python", default=None, help="the interpreter that runs the window (tests)")
     parser.add_argument("--hidden", action="store_true", help="draw the splash nowhere (tests)")
@@ -660,8 +771,10 @@ def main(argv=None):
     if LAUNCH_KINDS[args.kind].app_user_model_id:
         set_process_app_user_model_id(LAUNCH_KINDS[args.kind].app_user_model_id)
     application = QApplication(sys.argv[:1])
+    configure_desktop_identity(application, LAUNCH_KINDS[args.kind])
     hidden = args.hidden or os.environ.get(HIDDEN_VARIABLE) == "1"
-    launch = Launch(args.kind, args.root, python=args.python, app_args=args.app_args, show=not hidden)
+    launch = Launch(args.kind, args.root, python=args.python, app_args=args.app_args, show=not hidden,
+                    caller_opens_console=args.caller_opens_console)
     result = []
     launch.finished.connect(lambda code: (result.append(code), application.quit()))
     QTimer.singleShot(0, launch.begin)

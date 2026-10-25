@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from unittest import mock
 
@@ -44,7 +45,7 @@ def _run_config_script(script, *args):
 
 
 class ViewerHandoffTests(unittest.TestCase):
-    def test_handoff_uses_shared_terminal_launcher_contract(self):
+    def test_the_fallback_uses_shared_terminal_launcher_contract(self):
         process = object()
         env = {
             "SSN_TARGET_CACHE_MODE": "new",
@@ -52,7 +53,9 @@ class ViewerHandoffTests(unittest.TestCase):
         }
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
             EMAPSSN_Config, "launch_in_terminal", return_value=process
-        ) as launch:
+        ) as launch, mock.patch.object(
+            EMAPSSN_Config, "launch_viewer_session", side_effect=OSError("cannot run")
+        ):
             result = EMAPSSN_Config._handoff_to_viewer(
                 temp_dir, env, platform_name="darwin", executable="/python"
             )
@@ -92,14 +95,129 @@ class ViewerHandoffTests(unittest.TestCase):
             os.path.abspath(temp_dir), env, settings_path="C:/t/ssn_viewer_1.json", executable="C:/py/python.exe"
         )
 
-    def test_the_other_platforms_keep_the_terminal_contract(self):
+    def test_on_linux_and_macos_too_the_viewer_starts_through_the_session_launcher_with_no_terminal(self):
         for platform in ("linux", "darwin"):
+            process = mock.Mock(name="launcher")
+            env = {"SSN_TARGET_CACHE_MODE": "existing"}
             with self.subTest(platform=platform), tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-                EMAPSSN_Config, "launch_in_terminal", return_value=object()
-            ) as terminal, mock.patch.object(EMAPSSN_Config, "launch_viewer_session") as session:
-                EMAPSSN_Config._handoff_to_viewer(temp_dir, {}, platform_name=platform, executable="/python")
-            terminal.assert_called_once()
-            session.assert_not_called()
+                EMAPSSN_Config, "launch_in_terminal"
+            ) as terminal, mock.patch.object(
+                EMAPSSN_Config, "launch_viewer_session", return_value=process
+            ) as session, mock.patch.object(EMAPSSN_Config.threading, "Thread") as thread:
+                result = EMAPSSN_Config._handoff_to_viewer(
+                    temp_dir, env, settings_path="/t/ssn_viewer_1.json", platform_name=platform, executable="/python"
+                )
+            self.assertIs(result, process)
+            terminal.assert_not_called()
+            session.assert_called_once_with(
+                os.path.abspath(temp_dir), env, settings_path="/t/ssn_viewer_1.json", executable="/python",
+                platform_name=platform,
+            )
+            # Something waits on the launcher in the background (to collect it, and to fall back if it failed).
+            thread.assert_called_once()
+            self.assertTrue(thread.call_args.kwargs["daemon"])
+            thread.return_value.start.assert_called_once()
+
+    def test_windows_has_no_watcher_and_no_terminal_fallback(self):
+        process = mock.Mock(name="launcher")
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            EMAPSSN_Config, "launch_in_terminal"
+        ) as terminal, mock.patch.object(
+            EMAPSSN_Config, "launch_viewer_session", return_value=process
+        ), mock.patch.object(EMAPSSN_Config.threading, "Thread") as thread:
+            self.assertIs(EMAPSSN_Config._handoff_to_viewer(temp_dir, {}, platform_name="win32", executable="/python"), process)
+        thread.assert_not_called()
+        terminal.assert_not_called()
+        # An error there is Config's "Viewer Launch Error", as before: it is raised, not answered with a terminal.
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            EMAPSSN_Config, "launch_in_terminal"
+        ) as terminal, mock.patch.object(EMAPSSN_Config, "launch_viewer_session", side_effect=OSError("no")):
+            with self.assertRaises(OSError):
+                EMAPSSN_Config._handoff_to_viewer(temp_dir, {}, platform_name="win32", executable="/python")
+        terminal.assert_not_called()
+
+    def test_the_terminal_command_of_the_fallback_has_the_snapshot_and_deletes_it(self):
+        command = EMAPSSN_Config._viewer_terminal_command("/p", "/t/ssn_viewer_1.json", "/python")
+        self.assertEqual(command, ["/python", "-u", os.path.join("/p", "src", "EMAPSSN_Viewer.py"),
+                                   "--settings", "/t/ssn_viewer_1.json", "--delete-settings"])
+        self.assertEqual(EMAPSSN_Config._viewer_terminal_command("/p", None, "/python")[:3], command[:3])
+        self.assertEqual(len(EMAPSSN_Config._viewer_terminal_command("/p", None, "/python")), 3)
+
+    def test_the_mcp_viewer_launches_do_not_go_through_config_s_handoff(self):
+        # They have their own path (a terminal for a visible Viewer), which this change must leave as it is.
+        source_root = Path(EMAPSSN_Config.__file__).resolve().parent / "mcp_server"
+        for path in source_root.rglob("*.py"):
+            text = path.read_text(encoding="utf-8")
+            for name in ("_handoff_to_viewer", "launch_viewer_session", "Desktop_Launcher"):
+                self.assertNotIn(name, text, f"{path.name} reaches the Config's Viewer launch")
+
+
+class ViewerLauncherWatchTests(unittest.TestCase):
+    """The watcher of the session launcher: a launcher that failed before it started a Viewer is answered with the terminal."""
+
+    @staticmethod
+    def _watch(code, settings_path=None, *, wait_error=None):
+        """Run the watcher's body at once; returns (what the terminal start was called with, the output)."""
+        process = mock.Mock()
+        if wait_error is not None:
+            process.wait.side_effect = wait_error
+        else:
+            process.wait.return_value = code
+        terminal = mock.Mock(name="terminal")
+        with mock.patch.object(EMAPSSN_Config.threading, "Thread") as thread, mock.patch("builtins.print") as output:
+            EMAPSSN_Config._watch_viewer_session_launcher(process, terminal, settings_path)
+            thread.call_args.kwargs["target"]()
+        return terminal, output
+
+    def test_a_launcher_that_handled_the_start_is_left_alone(self):
+        with tempfile.TemporaryDirectory() as folder:
+            snapshot = Path(folder) / "ssn_viewer_1.json"
+            snapshot.write_text("{}", encoding="utf-8")
+            terminal, _ = self._watch(0, str(snapshot))  # even if the snapshot is still there
+        terminal.assert_not_called()
+
+    def test_a_failed_launcher_that_left_the_snapshot_is_answered_with_the_terminal(self):
+        for code in (3, 1, 2, -6, 134):  # EXIT_FALLBACK, a Python error, a bad script, aborted by a signal (-6, 134)
+            with self.subTest(code=code), tempfile.TemporaryDirectory() as folder:
+                snapshot = Path(folder) / "ssn_viewer_1.json"
+                snapshot.write_text("{}", encoding="utf-8")
+                terminal, output = self._watch(code, str(snapshot))
+                terminal.assert_called_once_with()
+                self.assertIn(str(code), output.call_args_list[0].args[0])
+
+    def test_one_whose_viewer_already_took_the_snapshot_is_not_answered_with_a_second_viewer(self):
+        with tempfile.TemporaryDirectory() as folder:
+            terminal, _ = self._watch(3, str(Path(folder) / "ssn_viewer_gone.json"))
+        terminal.assert_not_called()
+
+    def test_with_no_snapshot_to_go_by_a_failure_is_answered_with_the_terminal(self):
+        terminal, _ = self._watch(3, None)
+        terminal.assert_called_once_with()
+
+    def test_a_terminal_that_cannot_start_is_reported_and_does_not_raise_in_the_thread(self):
+        with tempfile.TemporaryDirectory() as folder:
+            snapshot = Path(folder) / "ssn_viewer_1.json"
+            snapshot.write_text("{}", encoding="utf-8")
+            process = mock.Mock()
+            process.wait.return_value = 3
+            terminal = mock.Mock(side_effect=OSError("no terminal emulator"))
+            with mock.patch.object(EMAPSSN_Config.threading, "Thread") as thread, mock.patch("builtins.print") as output:
+                EMAPSSN_Config._watch_viewer_session_launcher(process, terminal, str(snapshot))
+                thread.call_args.kwargs["target"]()
+        self.assertIn("no terminal emulator", output.call_args_list[-1].args[0])
+
+    def test_a_wait_that_fails_ends_the_watch_quietly(self):
+        terminal, _ = self._watch(None, "/t/x.json", wait_error=OSError("gone"))
+        terminal.assert_not_called()
+
+    def test_the_watcher_is_a_daemon_thread_that_waits_for_the_launcher(self):
+        process = mock.Mock()
+        process.wait.return_value = 0
+        EMAPSSN_Config._watch_viewer_session_launcher(process, mock.Mock(), None)
+        deadline = time.monotonic() + 10
+        while not process.wait.called and time.monotonic() < deadline:
+            time.sleep(0.01)
+        process.wait.assert_called_once_with()
 
     def test_the_layout_generator_handoff_keeps_its_terminal_on_every_platform(self):
         # A layout generation is a job: its output is the point, so it keeps a terminal.

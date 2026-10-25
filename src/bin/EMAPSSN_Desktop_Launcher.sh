@@ -14,14 +14,23 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 #
-# Visible desktop startup terminal for EMAP-SSN Configuration and EMAP-SSN Tools.
+# Desktop start for EMAP-SSN Configuration and EMAP-SSN Tools: what the .desktop entries run.
+#
+#   EMAPSSN_Desktop_Launcher.sh viewer|tools                      start the window with a start-up screen, no terminal
+#   EMAPSSN_Desktop_Launcher.sh viewer|tools --console            the old start, in a terminal that shows what it does
+#   EMAPSSN_Desktop_Launcher.sh viewer|tools --terminal-session   what runs inside that terminal
+#
+# The default mode runs the Python launcher (src/desktop/Desktop_Launcher.py), which shows the start-up screen,
+# checks the environment and starts the window. It opens a terminal only when it has to: the managed Python
+# is not there yet (the first start), the launcher cannot run or asks for the console (exit code 3: the
+# environment needs setup or repair), or it fails. --console (and its older name --open-terminal) always opens one.
 
 set -u
 
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || exit 1
 PROJECT_ROOT=$(cd "$SCRIPT_DIR/../.." && pwd) || exit 1
 APP_KIND="${1:-}"
-LAUNCH_MODE="${2:---open-terminal}"
+LAUNCH_MODE="${2:-}"
 TERMINAL_LAUNCHER="$SCRIPT_DIR/EMAPSSN_Terminal_Launcher.sh"
 
 if [ ! -r "$PROJECT_ROOT/install.sh" ]; then
@@ -49,7 +58,7 @@ case "$APP_KIND" in
         APP_LABEL="EMAP-SSN Tools"
         ;;
     *)
-        printf 'Usage: %s viewer|tools [--open-terminal|--terminal-session]\n' "$0" >&2
+        printf 'Usage: %s viewer|tools [--console|--terminal-session]\n' "$0" >&2
         exit 2
         ;;
 esac
@@ -68,7 +77,29 @@ open_startup_terminal() {
         -- "$0" "$APP_KIND" --terminal-session
 }
 
-if [ "$LAUNCH_MODE" = "--open-terminal" ]; then
+# The start without a terminal. Its exit code is the Windows stub's contract (src/bin/Launcher.cs): 0 means the
+# launcher handled the start (the window opened, or its start-up screen showed what went wrong), anything else
+# that nothing was shown, and the terminal start below says what is wrong or does the setup.
+start_without_terminal() {
+    local venv_python="$PROJECT_ROOT/.venv/bin/python"
+    local launcher="$PROJECT_ROOT/src/desktop/Desktop_Launcher.py"
+    local launcher_result
+
+    [ -x "$venv_python" ] && [ -f "$launcher" ] || return 1
+    cd "$PROJECT_ROOT" || return 1
+    "$venv_python" -u "$launcher" "$APP_KIND"
+    launcher_result=$?
+    if [ "$launcher_result" -ne 0 ]; then
+        printf 'The start-up screen could not start %s (exit code %s); starting it in a terminal.\n' \
+            "$APP_LABEL" "$launcher_result" >&2
+    fi
+    return "$launcher_result"
+}
+
+if [ -z "$LAUNCH_MODE" ] && start_without_terminal; then
+    exit 0
+fi
+if [ -z "$LAUNCH_MODE" ] || [ "$LAUNCH_MODE" = "--console" ] || [ "$LAUNCH_MODE" = "--open-terminal" ]; then
     if activate_existing_instance; then
         exit 0
     fi

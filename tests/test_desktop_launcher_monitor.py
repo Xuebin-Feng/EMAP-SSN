@@ -371,7 +371,8 @@ class SessionAndStatusTests(unittest.TestCase):
         env = {"SSN_TARGET_CACHE_PATH": "a/b.h5"}
         with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)) as popen:
             Desktop_Launcher_Monitor.launch_viewer_session(
-                PROJECT_ROOT, env, settings_path="C:/t/ssn_viewer_1.json", executable="C:/py/python.exe"
+                PROJECT_ROOT, env, settings_path="C:/t/ssn_viewer_1.json", executable="C:/py/python.exe",
+                platform_name="win32",
             )
         command = popen.call_args.args[0]
         self.assertEqual(command[:2], ["C:/py/python.exe", "-u"])
@@ -381,8 +382,47 @@ class SessionAndStatusTests(unittest.TestCase):
         self.assertIs(kwargs["env"], env)
         self.assertEqual(Path(kwargs["cwd"]), PROJECT_ROOT)
         self.assertEqual(kwargs["creationflags"], 0x08000000)
+        self.assertNotIn("start_new_session", kwargs)
         for stream in ("stdin", "stdout", "stderr"):
             self.assertIs(kwargs[stream], Desktop_Launcher_Monitor.subprocess.DEVNULL)
+
+    def test_on_linux_and_macos_a_viewer_session_leads_a_session_of_its_own_and_has_no_windows_flags(self):
+        # creationflags is a Windows-only argument of Popen: passing it elsewhere raises ValueError.
+        env = {"SSN_TARGET_CACHE_PATH": "a/b.h5"}
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform), mock.patch.object(
+                Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)
+            ) as popen:
+                Desktop_Launcher_Monitor.launch_viewer_session(
+                    PROJECT_ROOT, env, settings_path="/t/ssn_viewer_1.json", executable="/py/python", platform_name=platform
+                )
+            command = popen.call_args.args[0]
+            self.assertEqual(command[:2], ["/py/python", "-u"])
+            self.assertEqual(command[3:], ["session", "--settings", "/t/ssn_viewer_1.json", "--delete-settings"])
+            kwargs = popen.call_args.kwargs
+            self.assertTrue(kwargs["start_new_session"])
+            self.assertNotIn("creationflags", kwargs)
+            self.assertIs(kwargs["env"], env)
+            self.assertEqual(Path(kwargs["cwd"]), PROJECT_ROOT)
+            self.assertTrue(kwargs["close_fds"])
+            for stream in ("stdin", "stdout", "stderr"):
+                self.assertIs(kwargs[stream], Desktop_Launcher_Monitor.subprocess.DEVNULL)
+
+    def test_the_session_launcher_runs_for_real_with_the_platforms_own_flags(self):
+        # No mock: the launcher script is a stand-in that records that it ran, started the way Config starts it here.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "src" / "desktop").mkdir(parents=True)
+            (root / "src" / "desktop" / "Desktop_Launcher.py").write_text(
+                "import sys, pathlib; pathlib.Path(sys.argv[0]).with_name('ran.txt').write_text(' '.join(sys.argv[1:]))\n",
+                encoding="utf-8",
+            )
+            process = Desktop_Launcher_Monitor.launch_viewer_session(
+                root, dict(os.environ), settings_path="x.json", executable=sys.executable
+            )
+            self.assertEqual(process.wait(timeout=60), 0)
+            self.assertEqual((root / "src" / "desktop" / "ran.txt").read_text(encoding="utf-8"),
+                             "session --settings x.json --delete-settings")
 
     def test_a_viewer_session_without_settings_gets_no_settings_arguments(self):
         with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)) as popen:

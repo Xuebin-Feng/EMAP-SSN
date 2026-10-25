@@ -326,9 +326,27 @@ ssn_create_macos_app_launcher() {
 
     rm -rf "$app_dir"
     mkdir -p "$executable_dir" "$resources_dir"
+    # The window starts through the Python launcher (src/desktop/Desktop_Launcher.py): a start-up
+    # screen, the dependency check, then the window, with no Terminal window. Terminal is the
+    # fallback, as it was the only start before: no managed Python yet (the first start), the
+    # launcher asking for it (--caller-opens-console: the environment needs setup or repair), or the
+    # launcher failing before it showed anything. This executable stays alive while the launcher
+    # runs, so a second click on the bundle does not start a second launch. Finder gives it launchd's
+    # short PATH, so the Homebrew folders are added for a uv installed there (the Python launcher
+    # also looks in ~/.local/bin, where the installer's own uv goes).
     cat > "$executable_dir/launcher" <<EOF
 #!/bin/bash
 APP_ROOT=\$(cd "\$(dirname "\$0")/../.." && pwd)
+PROJECT_ROOT=\$(cd "\$APP_ROOT/.." && pwd)
+unset PYTHONHOME PYTHONPATH QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH QML_IMPORT_PATH QML2_IMPORT_PATH
+unset DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH
+export PATH="\$PATH:/opt/homebrew/bin:/usr/local/bin"
+VENV_PYTHON="\$PROJECT_ROOT/.venv/bin/python"
+LAUNCHER="\$PROJECT_ROOT/src/desktop/Desktop_Launcher.py"
+if [ -x "\$VENV_PYTHON" ] && [ -f "\$LAUNCHER" ] && cd "\$PROJECT_ROOT" &&
+        "\$VENV_PYTHON" -u "\$LAUNCHER" $app_kind --caller-opens-console; then
+    exit 0
+fi
 exec /usr/bin/open -a Terminal "\$APP_ROOT/Contents/Resources/start.command"
 EOF
     chmod +x "$executable_dir/launcher"
@@ -353,6 +371,7 @@ EOF
     <key>CFBundleName</key><string>$app_name</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
+    <key>LSUIElement</key><true/>
 </dict>
 </plist>
 EOF
@@ -381,7 +400,7 @@ ssn_install_macos() {
     # Remove generated legacy launchers; direct shell scripts remain available
     # under src/bin, while Finder users launch the generated application bundles.
     rm -f SSN_Viewer.command SSN_Tools.command SSN_Viewer SSN_Tools
-    echo "[OK] Created EMAP-SSN.app and EMAP-SSN Tools.app launchers with visible startup terminals."
+    echo "[OK] Created EMAP-SSN.app and EMAP-SSN Tools.app launchers (a start-up screen and no Terminal window; Terminal opens only when setup or repair is needed)."
 
     echo ""
     echo "To set a custom icon on macOS:"

@@ -2,12 +2,13 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The first stage of a Windows launch (desktop.Desktop_Launcher): it finds an open window and ends quietly, holds a lock so a double-click starts one launch, shows the splash and the dependency check's lines live, hands over to the visible console when the environment needs setup, starts the monitor and closes the splash when the window is ready, turns the splash into an error view when the window ends first, passes a Viewer session its arguments, and with --console runs the old launch with no splash. The names it computes match the ones the windows use. The kinds are a table that a program beside this one adds to: a kind has its own steps (a step that fails is a warning that opens the splash's details and lets the start go on), batch file, single-instance key, taskbar identity, catalogs and monitor."""
+"""The first stage of a desktop launch (desktop.Desktop_Launcher): it finds an open window and ends quietly, holds a lock so a double-click starts one launch, shows the splash and the dependency check's lines live, hands over to the visible console (the batch file on Windows, a terminal running the .sh elsewhere) when the environment needs setup, starts the monitor and closes the splash when the window is ready, turns the splash into an error view when the window ends first, passes a Viewer session its arguments, and with --console runs the old launch with no splash. On Linux and macOS the check is the kind's portable launcher with --check-only, the process takes the window's desktop identity, and a caller that opens the console itself is asked to by an exit code. The names it computes match the ones the windows use. The kinds are a table that a program beside this one adds to: a kind has its own steps (a step that fails is a warning that opens the splash's details and lets the start go on), batch file, single-instance key, taskbar identity, catalogs and monitor."""
 
 from __future__ import annotations
 
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
@@ -29,6 +30,7 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from desktop import Desktop_App, Desktop_Launcher, Splash  # noqa: E402
 from desktop.Desktop_Launcher import Launch, LaunchKind, LaunchStep  # noqa: E402
+from utilities.Terminal_Launcher import TerminalUnavailableError  # noqa: E402
 
 COPIED = (
     "src/desktop/__init__.py", "src/desktop/Desktop_Launcher_Monitor.py", "src/utilities/__init__.py",
@@ -100,6 +102,17 @@ FAKE_CHECK = textwrap.dedent(
 )
 
 
+# What EMAPSSN.sh and EMAPSSN_Tools.sh are to a Linux or macOS launch, as a script: the dependency check, which the
+# launcher runs as `bash <script> --check-only` and which runs the fake Install_Dependencies.py.
+FAKE_PORTABLE_CHECK = textwrap.dedent(
+    '''\
+    #!/bin/bash
+    cd "$(dirname "$0")/../.." || exit 1
+    exec {python} -u src/Install_Dependencies.py "$@"
+    '''
+)
+
+
 def make_tree(test):
     """A project folder of fake windows and a fake dependency check, with the real monitor and launcher modules."""
     directory = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
@@ -114,7 +127,21 @@ def make_tree(test):
     (root / "src" / "Install_Dependencies.py").write_text(FAKE_CHECK, encoding="utf-8")
     (root / "src" / "bin").mkdir()
     (root / "src" / "bin" / "EMAPSSN_Desktop_Launcher.bat").write_text("@echo off\r\n", encoding="utf-8")
+    (root / "src" / "bin" / "EMAPSSN_Desktop_Launcher.sh").write_text("#!/bin/bash\n", encoding="utf-8", newline="\n")
+    for script in ("EMAPSSN.sh", "EMAPSSN_Tools.sh"):
+        (root / "src" / "bin" / script).write_text(
+            FAKE_PORTABLE_CHECK.format(python=shlex.quote(sys.executable)), encoding="utf-8", newline="\n")
     return root
+
+
+def console_file(root, kind="tools"):
+    """The launch script the visible console runs on this platform: what the batch file is on Windows, the .sh elsewhere."""
+    return Path(root) / (Desktop_Launcher.BATCH_FILE if sys.platform == "win32" else Desktop_Launcher.SHELL_FILE)
+
+
+def console_command_parts(command):
+    """(the launch script, the kind) of a visible-console command: ``... x.bat kind`` on Windows, ``... x.sh kind --terminal-session`` elsewhere."""
+    return (command[-2], command[-1]) if sys.platform == "win32" else (command[-3], command[-2])
 
 
 class PureHelperTests(unittest.TestCase):
@@ -148,12 +175,44 @@ class PureHelperTests(unittest.TestCase):
                 self.assertEqual(kind.name, name)
                 self.assertEqual(kind.steps, ())  # the windows of this program add no steps of their own
                 self.assertEqual(kind.batch_file, Desktop_Launcher.BATCH_FILE)
+                self.assertEqual(kind.shell_file, Desktop_Launcher.SHELL_FILE)
                 self.assertIsNone(kind.app_user_model_id)
                 self.assertEqual(kind.catalogs, ())
         # The single-instance channels are the windows' own; a session may be open many times, and runs no check.
         self.assertEqual((kinds["viewer"].application_id, kinds["tools"].application_id, kinds["session"].application_id),
                          ("SSN_Config", "SSN_Tools", None))
         self.assertEqual((kinds["viewer"].check, kinds["tools"].check, kinds["session"].check), (True, True, False))
+
+    def test_the_posix_check_of_a_kind_is_the_portable_launcher_the_terminal_start_checks_with(self):
+        kinds = Desktop_Launcher.LAUNCH_KINDS
+        self.assertEqual(kinds["viewer"].posix_check, Path("src") / "bin" / "EMAPSSN.sh")
+        self.assertEqual(kinds["tools"].posix_check, Path("src") / "bin" / "EMAPSSN_Tools.sh")
+        self.assertIsNone(kinds["session"].posix_check)  # a session runs no check
+        for name in ("viewer", "tools"):
+            with self.subTest(kind=name):
+                script = PROJECT_ROOT / kinds[name].posix_check
+                self.assertTrue(script.is_file())
+                # The script has the --check-only mode the launcher runs (exit 10: no managed Python; 1: a library is
+                # missing), and the .sh's terminal session checks with the same one.
+                text = script.read_text(encoding="utf-8")
+                self.assertIn('"$LAUNCH_MODE" = "--check-only"', text)
+                self.assertIn("exit 10", text)
+                self.assertIn("ssn_require_linux_gui_dependencies", text)
+                self.assertIn('"$PORTABLE_LAUNCHER" --check-only',
+                              (PROJECT_ROOT / Desktop_Launcher.SHELL_FILE).read_text(encoding="utf-8"))
+        self.assertEqual(Desktop_Launcher.SHELL_FILE, Path("src") / "bin" / "EMAPSSN_Desktop_Launcher.sh")
+        self.assertTrue((PROJECT_ROOT / Desktop_Launcher.SHELL_FILE).is_file())
+
+    def test_the_desktop_names_are_the_windows_own_and_the_desktop_entries(self):
+        kinds = Desktop_Launcher.LAUNCH_KINDS
+        self.assertEqual(kinds["viewer"].desktop_file_name, Desktop_App.VIEWER_DESKTOP_FILE_NAME)
+        self.assertEqual(kinds["session"].desktop_file_name, Desktop_App.VIEWER_DESKTOP_FILE_NAME)  # a Viewer is the Config's entry
+        self.assertEqual(kinds["tools"].desktop_file_name, Desktop_App.TOOLS_DESKTOP_FILE_NAME)
+        # install.sh writes the .desktop entries under these names and matches their windows by the same class.
+        installer = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
+        for entry in (kinds["viewer"].desktop_file_name, kinds["tools"].desktop_file_name):
+            self.assertIn(f"StartupWMClass={entry}\n", installer)
+            self.assertIn(f"cat <<EOF > {entry}.desktop\n", installer)
 
     def test_this_module_names_no_program_beside_it(self):
         source = Path(Desktop_Launcher.__file__).read_text(encoding="utf-8")
@@ -168,14 +227,51 @@ class PureHelperTests(unittest.TestCase):
         batch = (PROJECT_ROOT / "src" / "bin" / "EMAPSSN.bat").read_text(encoding="utf-8")
         self.assertIn('src\\Install_Dependencies.py --check-only --uv-executable "!UV_EXE!" --venv .venv', batch)
 
+    def test_the_posix_check_runs_the_portable_launcher_with_check_only_under_bash(self):
+        command = Desktop_Launcher.posix_check_command("/p", Path("src") / "bin" / "EMAPSSN.sh")
+        self.assertEqual(Path(command[0]).stem, "bash")
+        self.assertEqual(command[1:], [str(Path("/p/src/bin/EMAPSSN.sh")), "--check-only"])
+
+    def test_the_check_of_a_kind_is_the_portable_launcher_off_windows_and_install_dependencies_on_windows(self):
+        launch = Launch("tools", "/p", python="/p/.venv/bin/python", uv="/u/uv", show=False)
+        with mock.patch.object(Desktop_Launcher.sys, "platform", "linux"):
+            self.assertEqual(launch.check_command_line(),
+                             Desktop_Launcher.posix_check_command("/p", Path("src") / "bin" / "EMAPSSN_Tools.sh"))
+            # A kind that names no portable launcher (another program's, a session) runs the installer itself.
+            plain = Launch("session", "/p", python="/p/.venv/bin/python", uv="/u/uv", show=False)
+            self.assertEqual(plain.check_command_line(), Desktop_Launcher.check_command("/p", "/p/.venv/bin/python", "/u/uv"))
+        with mock.patch.object(Desktop_Launcher.sys, "platform", "win32"):
+            self.assertEqual(launch.check_command_line(), Desktop_Launcher.check_command("/p", "/p/.venv/bin/python", "/u/uv"))
+
+    def test_the_managed_python_is_where_the_platform_puts_it(self):
+        self.assertEqual(Desktop_Launcher.venv_python("/p", "win32"), Path("/p/.venv/Scripts/python.exe"))
+        for platform in ("linux", "darwin"):
+            self.assertEqual(Desktop_Launcher.venv_python("/p", platform), Path("/p/.venv/bin/python"))
+        with mock.patch.object(Desktop_Launcher.sys, "platform", "linux"):
+            self.assertEqual(Launch("viewer", "/p", show=False).python, str(Path("/p/.venv/bin/python")))
+
+    def test_uv_is_found_on_the_path_or_in_the_users_local_bin_by_the_platforms_name_for_it(self):
+        for platform, name, variable in (("win32", "uv.exe", "USERPROFILE"), ("linux", "uv", "HOME"), ("darwin", "uv", "HOME")):
+            with self.subTest(platform=platform), tempfile.TemporaryDirectory() as directory:
+                home = Path(directory)
+                environment = {"PATH": str(home / "nothing"), variable: str(home)}
+                self.assertIsNone(Desktop_Launcher.find_uv(environment, platform))
+                (home / ".local" / "bin").mkdir(parents=True)
+                (home / ".local" / "bin" / "uv.exe" if platform != "win32" else home / ".local" / "bin" / "uv").write_text("x")
+                self.assertIsNone(Desktop_Launcher.find_uv(environment, platform))  # the other platform's name is not uv here
+                (home / ".local" / "bin" / name).write_text("x")
+                self.assertEqual(Desktop_Launcher.find_uv(environment, platform), str(home / ".local" / "bin" / name))
+
     def test_uv_is_found_on_the_path_or_in_the_users_local_bin(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
-            self.assertIsNone(Desktop_Launcher.find_uv({"PATH": str(home / "nothing"), "USERPROFILE": str(home)}))
+            local_name = "uv.exe" if sys.platform == "win32" else "uv"
+            home_variable = "USERPROFILE" if sys.platform == "win32" else "HOME"
+            self.assertIsNone(Desktop_Launcher.find_uv({"PATH": str(home / "nothing"), home_variable: str(home)}))
             (home / ".local" / "bin").mkdir(parents=True)
-            (home / ".local" / "bin" / "uv.exe").write_text("x")
-            self.assertEqual(Desktop_Launcher.find_uv({"PATH": str(home / "nothing"), "USERPROFILE": str(home)}),
-                             str(home / ".local" / "bin" / "uv.exe"))
+            (home / ".local" / "bin" / local_name).write_text("x")
+            self.assertEqual(Desktop_Launcher.find_uv({"PATH": str(home / "nothing"), home_variable: str(home)}),
+                             str(home / ".local" / "bin" / local_name))
             tools = home / "tools"
             tools.mkdir()
             program = tools / ("uv.exe" if sys.platform == "win32" else "uv")
@@ -184,17 +280,50 @@ class PureHelperTests(unittest.TestCase):
             self.assertEqual(Path(Desktop_Launcher.find_uv({"PATH": str(tools), "USERPROFILE": str(home)})), program)
 
     def test_the_visible_console_launch_is_the_batch_file_with_its_kind(self):
-        command = Desktop_Launcher.visible_console_command("C:/p", "tools")
+        command = Desktop_Launcher.visible_console_command("C:/p", "tools", "win32")
         self.assertEqual(command[1:3], ["/d", "/c"])
         self.assertEqual(command[3], str(Path("C:/p/src/bin/EMAPSSN_Desktop_Launcher.bat")))
         self.assertEqual(command[4], "tools")
 
-    @unittest.skipUnless(sys.platform == "win32", "a new console window is a Windows thing")
+    def test_off_windows_the_visible_launch_is_the_shell_script_in_its_terminal_session_mode(self):
+        for platform in ("linux", "darwin"):
+            for kind in ("viewer", "tools"):
+                with self.subTest(platform=platform, kind=kind):
+                    command = Desktop_Launcher.visible_console_command("/p", kind, platform)
+                    self.assertEqual(Path(command[0]).stem, "bash")
+                    self.assertEqual(command[1:], [str(Path("/p/src/bin/EMAPSSN_Desktop_Launcher.sh")), kind, "--terminal-session"])
+        # That is the mode the .sh runs inside the terminal it opens itself.
+        script = (PROJECT_ROOT / Desktop_Launcher.SHELL_FILE).read_text(encoding="utf-8")
+        self.assertIn('"$APP_KIND" --terminal-session', script)
+
     def test_the_old_launch_gets_a_console_window_of_its_own(self):
         popen = mock.Mock()
-        Desktop_Launcher.open_visible_console("C:/p", "viewer", popen=popen)
+        Desktop_Launcher.open_visible_console("C:/p", "viewer", popen=popen, title="ignored here", platform_name="win32")
         self.assertEqual(popen.call_args.kwargs["creationflags"], Desktop_Launcher.CREATE_NEW_CONSOLE)
         self.assertEqual(popen.call_args.kwargs["cwd"], "C:/p")
+        self.assertNotIn("title", popen.call_args.kwargs)
+        self.assertEqual(popen.call_args.args[0][3], str(Path("C:/p/src/bin/EMAPSSN_Desktop_Launcher.bat")))
+
+    def test_off_windows_the_old_launch_goes_to_a_terminal_in_the_project_folder_with_a_title(self):
+        for platform in ("linux", "darwin"):
+            with self.subTest(platform=platform):
+                popen = mock.Mock()
+                Desktop_Launcher.open_visible_console("/p", "viewer", popen=popen, title="EMAP-SSN Configuration",
+                                                      platform_name=platform)
+                self.assertEqual(popen.call_args.kwargs, {"cwd": "/p", "title": "EMAP-SSN Configuration"})
+                self.assertEqual(popen.call_args.args[0][-2:], ["viewer", "--terminal-session"])
+
+    def test_the_default_starter_off_windows_is_the_terminal_launcher_with_no_hold_and_no_window_flags(self):
+        with mock.patch.object(Desktop_Launcher, "launch_in_terminal", return_value="process") as terminal:
+            self.assertEqual(Desktop_Launcher.start_in_terminal(["a", "b"], cwd="/p", title="T"), "process")
+            # No popen given: this platform's starter is used, and it is that one (a terminal, never CREATE_NEW_CONSOLE).
+            Desktop_Launcher.open_visible_console("/p", "tools", title="EMAP-SSN Tools", platform_name="linux")
+        first, second = terminal.call_args_list
+        self.assertEqual(first.args[0], ["a", "b"])
+        self.assertEqual(first.kwargs, {"cwd": "/p", "hold": Desktop_Launcher.HoldMode.NEVER, "title": "T"})
+        self.assertEqual(second.args[0][-2:], ["tools", "--terminal-session"])
+        self.assertEqual(second.kwargs["title"], "EMAP-SSN Tools")
+        self.assertNotIn("creationflags", second.kwargs)
 
     def test_the_stub_exits_with_a_code_that_means_use_the_console(self):
         self.assertEqual(Desktop_Launcher.EXIT_FALLBACK, 3)
@@ -252,6 +381,98 @@ class PureHelperTests(unittest.TestCase):
         self.assertEqual(done.stdout.split(), ["True", "ca.test.one"], done.stderr)
         with mock.patch.object(Desktop_Launcher.sys, "platform", "linux"):
             self.assertFalse(Desktop_Launcher.set_process_app_user_model_id("x"))
+
+
+class _RecordingApplication:
+    """What configure_desktop_identity calls on a QApplication, in order."""
+
+    def __init__(self):
+        self.calls = []
+
+    def setApplicationName(self, name):
+        self.calls.append(("setApplicationName", name))
+
+    def setDesktopFileName(self, name):
+        self.calls.append(("setDesktopFileName", name))
+
+    def setWindowIcon(self, icon):
+        self.calls.append(("setWindowIcon", icon))
+
+
+class DesktopIdentityTests(unittest.TestCase):
+    """Linux and macOS: the splash's process is the window's entry in the taskbar or Dock."""
+
+    def test_linux_names_the_process_after_the_desktop_entry_of_the_kind_class_and_app_id(self):
+        for kind, entry in (("viewer", "emapssn"), ("session", "emapssn"), ("tools", "emapssn_tools")):
+            with self.subTest(kind=kind):
+                application = _RecordingApplication()
+                done = Desktop_Launcher.configure_desktop_identity(
+                    application, Desktop_Launcher.LAUNCH_KINDS[kind], platform_name="linux")
+                # The two calls the windows make (Desktop_App.configure_linux_qt_desktop_identity): the name is the
+                # X11 window class that StartupWMClass matches, the desktop file name the Wayland app id.
+                self.assertEqual(application.calls, [("setApplicationName", entry), ("setDesktopFileName", entry)])
+                self.assertEqual(done, "desktop-file-name")
+
+    def test_it_is_what_the_windows_do(self):
+        # The same names, set by the window itself, on a real application (restored after).
+        application = QApplication.instance() or QApplication([])
+        before = (application.applicationName(), application.desktopFileName())
+        self.addCleanup(lambda: (application.setApplicationName(before[0]), application.setDesktopFileName(before[1])))
+        for kind in ("viewer", "tools"):
+            with self.subTest(kind=kind):
+                Desktop_Launcher.configure_desktop_identity(
+                    application, Desktop_Launcher.LAUNCH_KINDS[kind], platform_name="linux")
+                launcher = (application.applicationName(), application.desktopFileName())
+                Desktop_App.configure_linux_qt_desktop_identity(
+                    application, Desktop_App.TOOLS_DESKTOP_FILE_NAME if kind == "tools" else Desktop_App.VIEWER_DESKTOP_FILE_NAME)
+                if sys.platform.startswith("linux"):
+                    self.assertEqual((application.applicationName(), application.desktopFileName()), launcher)
+
+    def test_windows_and_a_kind_with_no_entry_are_left_alone(self):
+        application = _RecordingApplication()
+        self.assertEqual(Desktop_Launcher.configure_desktop_identity(
+            application, Desktop_Launcher.LAUNCH_KINDS["viewer"], platform_name="win32"), "")
+        nameless = LaunchKind("plug", "config")
+        self.assertEqual(Desktop_Launcher.configure_desktop_identity(application, nameless, platform_name="linux"), "")
+        self.assertEqual(application.calls, [])
+
+    def test_macos_takes_the_kinds_splash_logo_as_the_application_icon(self):
+        for kind, logo in (("viewer", "splash_logo_viewer_512.png"), ("tools", "splash_logo_tool_512.png"),
+                           ("session", "splash_logo_viewer_512.png")):
+            with self.subTest(kind=kind):
+                application = _RecordingApplication()
+                with mock.patch.object(Desktop_Launcher, "QIcon", side_effect=lambda path: ("icon", path)):
+                    done = Desktop_Launcher.configure_desktop_identity(
+                        application, Desktop_Launcher.LAUNCH_KINDS[kind], platform_name="darwin")
+                self.assertEqual(done, "window-icon")
+                self.assertEqual(application.calls, [("setWindowIcon", ("icon", str(SRC / "bin" / "logos" / logo)))])
+                self.assertTrue((SRC / "bin" / "logos" / logo).is_file())
+
+    def test_macos_without_the_logo_file_sets_nothing(self):
+        application = _RecordingApplication()
+        with mock.patch.object(Splash, "LOGOS", Path("/nowhere")):
+            self.assertEqual(Desktop_Launcher.configure_desktop_identity(
+                application, Desktop_Launcher.LAUNCH_KINDS["viewer"], platform_name="darwin"), "")
+        self.assertEqual(application.calls, [])
+
+    def test_main_gives_the_application_its_identity_before_the_launch_and_forces_no_platform_on_wayland(self):
+        with tempfile.TemporaryDirectory() as root, mock.patch.dict(os.environ, {"XDG_SESSION_TYPE": "wayland"}), \
+                mock.patch.object(Desktop_Launcher, "QApplication") as application, \
+                mock.patch.object(Desktop_Launcher, "Launch") as launch, mock.patch.object(Desktop_Launcher, "QTimer"), \
+                mock.patch.object(Desktop_Launcher, "configure_desktop_identity") as identity:
+            os.environ.pop("QT_QPA_PLATFORM", None)
+            application.side_effect = lambda *arguments: (self.assertFalse(identity.called), mock.DEFAULT)[1]
+            Desktop_Launcher.main(["tools", "--root", root, "--hidden"])
+            # The windows move to XWayland (the monitor does it for them); the splash, plain widgets, runs on Wayland.
+            self.assertNotIn("QT_QPA_PLATFORM", os.environ)
+        identity.assert_called_once_with(application.return_value, Desktop_Launcher.LAUNCH_KINDS["tools"])
+        self.assertFalse(launch.call_args.kwargs["caller_opens_console"])
+
+    def test_the_caller_opens_console_option_reaches_the_launch(self):
+        with tempfile.TemporaryDirectory() as root, mock.patch.object(Desktop_Launcher, "QApplication"), \
+                mock.patch.object(Desktop_Launcher, "Launch") as launch, mock.patch.object(Desktop_Launcher, "QTimer"):
+            Desktop_Launcher.main(["viewer", "--root", root, "--hidden", "--caller-opens-console"])
+        self.assertTrue(launch.call_args.kwargs["caller_opens_console"])
 
 
 class LockTests(unittest.TestCase):
@@ -550,12 +771,45 @@ class FallbackTests(LaunchCase):
         launch = self.launch("tools", environment={"FAKE_CHECK_EXIT": "10"})
         self.assertEqual(self.run_launch(launch), 0)
         launch.popen.assert_called_once()
-        command = launch.popen.call_args.args[0]
-        self.assertEqual(command[-1], "tools")
-        self.assertTrue(command[-2].endswith("EMAPSSN_Desktop_Launcher.bat"))
+        script, kind = console_command_parts(launch.popen.call_args.args[0])
+        self.assertEqual(kind, "tools")
+        self.assertEqual(Path(script), console_file(self.root))
         self.assertEqual(launch.marks["console_reason"], "the environment needs setup or repair")
         self.assertNotIn("monitor_started", launch.marks)
         self.assertEqual(self.state_dirs(), [])
+
+    @unittest.skipIf(sys.platform == "win32", "the terminal is a Linux and macOS thing: it gets a title")
+    def test_off_windows_the_terminal_is_titled_with_the_windows_name(self):
+        launch = self.launch("tools", environment={"FAKE_CHECK_EXIT": "10"})
+        self.assertEqual(self.run_launch(launch), 0)
+        self.assertEqual(launch.popen.call_args.kwargs["title"], "EMAP-SSN Tools")
+
+    def test_a_caller_that_opens_the_console_itself_is_asked_to_by_the_exit_code_and_no_terminal_opens(self):
+        launch = self.launch("viewer", environment={"FAKE_CHECK_EXIT": "10"}, caller_opens_console=True)
+        self.assertEqual(self.run_launch(launch), Desktop_Launcher.EXIT_FALLBACK)
+        launch.popen.assert_not_called()
+        self.assertEqual(launch.marks["console_reason"], "the environment needs setup or repair")
+        self.assertNotIn("monitor_started", launch.marks)
+        self.assertEqual(self.state_dirs(), [])
+        again = Desktop_Launcher.acquire_launch_lock(self.root, "viewer")
+        self.assertIsNotNone(again, "the lock stayed held")
+        again.unlock()
+
+    def test_that_caller_is_asked_when_the_managed_python_is_missing_too(self):
+        launch = Launch("viewer", self.root, python=self.root / ".venv" / "nothing", uv="uv", show=False,
+                        popen=mock.Mock(), caller_opens_console=True)
+        codes = []
+        launch.finished.connect(codes.append)
+        self.addCleanup(lambda: launch.splash is not None and launch.splash.deleteLater())
+        launch.begin()
+        self.assertEqual(codes, [Desktop_Launcher.EXIT_FALLBACK])
+        launch.popen.assert_not_called()
+
+    def test_a_working_check_is_not_a_reason_to_ask_the_caller_for_anything(self):
+        launch = self.launch("viewer", environment={"FAKE_WINDOW_STAY": "0.1"}, caller_opens_console=True)
+        self.assertEqual(self.run_launch(launch), 0)
+        launch.popen.assert_not_called()
+        self.assertNotIn("console_reason", launch.marks)
 
     def test_a_missing_managed_python_does_too_before_any_check_runs(self):
         launch = Launch("viewer", self.root, python=self.root / ".venv" / "nothing.exe", uv="uv", show=False,
@@ -594,6 +848,13 @@ class FallbackTests(LaunchCase):
         launch = self.launch("viewer", environment={"FAKE_CHECK_EXIT": "10"})
         launch.popen.side_effect = OSError("no console")
         self.assertEqual(self.run_launch(launch), Desktop_Launcher.EXIT_FALLBACK)
+
+    def test_so_does_a_machine_with_no_terminal_emulator(self):
+        # utilities.Terminal_Launcher raises TerminalUnavailableError, a RuntimeError, when none is installed.
+        launch = self.launch("viewer", environment={"FAKE_CHECK_EXIT": "10"})
+        launch.popen.side_effect = TerminalUnavailableError("No supported terminal emulator was found.")
+        self.assertEqual(self.run_launch(launch), Desktop_Launcher.EXIT_FALLBACK)
+        self.assertIn("No supported terminal", launch.marks["console_failed"])
 
 
 def short_socket_folder(test):
@@ -741,6 +1002,7 @@ class PluginKindTests(LaunchCase):
         (self.plug / "Step.py").write_text(FAKE_STEP, encoding="utf-8")
         (self.plug / "Monitor_Plug.py").write_text(FAKE_PLUGIN_MONITOR, encoding="utf-8")
         (self.plug / "Launch_Plug.bat").write_text("@echo off\r\n", encoding="utf-8")
+        (self.plug / "Launch_Plug.sh").write_text("#!/bin/bash\n", encoding="utf-8", newline="\n")
         from desktop import Desktop_Launcher_Monitor
 
         Desktop_Launcher_Monitor.register_application("plug", self.plug / "Window.py", self.plug,
@@ -756,7 +1018,8 @@ class PluginKindTests(LaunchCase):
         steps = (self.step("first", self.FIRST), self.step("second", self.SECOND, working_dir=self.plug)) \
             if steps is None else steps
         kind = Desktop_Launcher.register_kind(LaunchKind(
-            "plug", "config", "SSN_Plug", batch_file=self.plug / "Launch_Plug.bat", steps=steps,
+            "plug", "config", "SSN_Plug", batch_file=self.plug / "Launch_Plug.bat", shell_file=self.plug / "Launch_Plug.sh",
+            steps=steps,
             app_user_model_id="ca.test.plug", **options))
         self.addCleanup(Desktop_Launcher.LAUNCH_KINDS.pop, "plug", None)
         return kind
@@ -901,13 +1164,15 @@ class PluginKindTests(LaunchCase):
         launch = self.launch("plug", environment={"FAKE_CHECK_EXIT": "10"})
         self.assertEqual(self.run_launch(launch), 0)
         launch.popen.assert_called_once()
-        command = launch.popen.call_args.args[0]
-        self.assertEqual(Path(command[-2]), self.plug / "Launch_Plug.bat")
-        self.assertEqual(command[-1], "plug")
+        script, kind = console_command_parts(launch.popen.call_args.args[0])
+        self.assertEqual(Path(script), self.plug / ("Launch_Plug.bat" if sys.platform == "win32" else "Launch_Plug.sh"))
+        self.assertEqual(kind, "plug")
         self.assertNotIn("step_1_started", launch.marks)
         self.assertNotIn("monitor_started", launch.marks)
-        self.assertEqual(Desktop_Launcher.visible_console_command("C:/p", "tools")[3],
+        self.assertEqual(Desktop_Launcher.visible_console_command("C:/p", "tools", "win32")[3],
                          str(Path("C:/p") / Desktop_Launcher.BATCH_FILE))
+        self.assertEqual(Desktop_Launcher.visible_console_command("C:/p", "tools", "linux")[1],
+                         str(Path("C:/p") / Desktop_Launcher.SHELL_FILE))
 
     def test_the_console_option_runs_the_kinds_batch_file_in_this_console(self):
         with mock.patch.object(Desktop_Launcher.subprocess, "call", return_value=5) as call, mock.patch.object(
@@ -915,7 +1180,9 @@ class PluginKindTests(LaunchCase):
         ) as application:
             self.assertEqual(Desktop_Launcher.main(["plug", "--console", "--root", str(self.root)]), 5)
         application.assert_not_called()
-        self.assertEqual(Path(call.call_args.args[0][-2]), self.plug / "Launch_Plug.bat")
+        script, kind = console_command_parts(call.call_args.args[0])
+        self.assertEqual(Path(script), self.plug / ("Launch_Plug.bat" if sys.platform == "win32" else "Launch_Plug.sh"))
+        self.assertEqual(kind, "plug")
 
     def test_a_second_launch_brings_the_open_window_forward_by_the_kinds_own_key(self):
         use_short_socket_folder(self)
@@ -997,9 +1264,9 @@ class ConsoleOptionTests(unittest.TestCase):
             code = Desktop_Launcher.main(["tools", "--console", "--root", "C:/p"])
         self.assertEqual(code, 7)
         application.assert_not_called()  # no Qt, so no splash
-        command = call.call_args.args[0]
-        self.assertEqual(command[-1], "tools")
-        self.assertTrue(command[-2].endswith("EMAPSSN_Desktop_Launcher.bat"))
+        script, kind = console_command_parts(call.call_args.args[0])
+        self.assertEqual(kind, "tools")
+        self.assertEqual(Path(script), console_file("C:/p"))
         self.assertEqual(call.call_args.kwargs["cwd"], "C:/p")
 
     def test_only_a_session_takes_arguments_for_the_window(self):

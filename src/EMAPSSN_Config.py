@@ -31,6 +31,7 @@ import math
 import os
 import re
 import tempfile
+import threading
 import time
 from types import SimpleNamespace
 import traceback
@@ -495,6 +496,42 @@ if NODE_FASTA_FILE:
         INPUT_HDF5 = os.path.join(HDF5_DIR, f"{SEQUENCE_SET}_[E1_RA]_network.h5")
 
 
+def _viewer_terminal_command(project_root, settings_path, executable):
+    """The Viewer's command line, for the terminal launch."""
+    viewer_script = os.path.join(project_root, "src", "EMAPSSN_Viewer.py")
+    argv = [executable, "-u", viewer_script]
+    if settings_path:
+        argv.extend(["--settings", os.fspath(settings_path), "--delete-settings"])
+    return argv
+
+
+def _watch_viewer_session_launcher(process, start_terminal, settings_path=None):
+    """Linux and macOS: wait for the session launcher to end, in the background, and start the terminal launch if it failed.
+
+    The launcher ends with 0 when it handled the start (the window opened, or its splash showed what went
+    wrong), and with anything else when it could not even start (its exit code 3, a Qt platform that did not
+    load, a missing script). The Viewer reads its settings snapshot and deletes it as it starts, so a snapshot
+    that is still there says no Viewer started: the terminal launch, which has the same Viewer read it, cannot
+    then be a second window. Waiting also collects the launcher's exit status, which would otherwise stay a
+    zombie until Config ended.
+    """
+
+    def watch():
+        try:
+            code = process.wait()
+        except Exception:
+            return
+        if code == 0 or (settings_path and not os.path.exists(settings_path)):
+            return
+        print(f"The Viewer's start-up screen could not run (exit code {code}); starting the Viewer in a terminal.")
+        try:
+            start_terminal()
+        except Exception as error:
+            print(f"Failed to launch EMAPSSN_Viewer.py in a terminal: {error}")
+
+    threading.Thread(target=watch, name="viewer-session-launcher-watch", daemon=True).start()
+
+
 def _handoff_to_viewer(
     project_root,
     env,
@@ -503,29 +540,40 @@ def _handoff_to_viewer(
     platform_name=None,
     executable=None,
 ):
-    """Launch the viewer: on Windows without a console, elsewhere in the platform's terminal.
+    """Launch the viewer without a terminal; on Linux and macOS a terminal is the fallback.
 
-    A Windows Viewer starts through desktop/Desktop_Launcher.py, which shows a splash and runs
-    it with a hidden console; the Viewer keeps what it prints for its Console window
-    (utilities/Console_Capture.py), so no terminal is needed. The other platforms keep the
-    terminal contract (utilities/Terminal_Launcher.py).
+    Every platform starts the Viewer through desktop/Desktop_Launcher.py ("session"), which shows a splash and
+    runs it with a hidden console; the Viewer keeps what it prints for its Console window
+    (utilities/Console_Capture.py), so no terminal is needed. On Linux and macOS, if the launcher cannot start
+    the Viewer (it cannot be run, or it ends with a failure before the Viewer read its settings), the
+    terminal contract (utilities/Terminal_Launcher.py) starts it as it always did. Windows has no such
+    fallback: an error there is Config's "Viewer Launch Error". The MCP server's Viewer launches have their own
+    path (mcp_server/viewer/Viewer_Client.py) and do not come here.
     """
     executable = executable or sys.executable
     project_root = os.path.abspath(project_root)
-    if (platform_name or sys.platform) == "win32":
+    platform_name = platform_name or sys.platform
+
+    def start_terminal():
+        return launch_in_terminal(
+            _viewer_terminal_command(project_root, settings_path, executable),
+            cwd=project_root,
+            env=env,
+            hold=HoldMode.ON_ERROR,
+            title=VIEWER_DISPLAY_NAME,
+            platform_name=platform_name,
+        )
+
+    if platform_name == "win32":
         return launch_viewer_session(project_root, env, settings_path=settings_path, executable=executable)
-    viewer_script = os.path.join(project_root, "src", "EMAPSSN_Viewer.py")
-    argv = [executable, "-u", viewer_script]
-    if settings_path:
-        argv.extend(["--settings", os.fspath(settings_path), "--delete-settings"])
-    return launch_in_terminal(
-        argv,
-        cwd=project_root,
-        env=env,
-        hold=HoldMode.ON_ERROR,
-        title=VIEWER_DISPLAY_NAME,
-        platform_name=platform_name,
-    )
+    try:
+        process = launch_viewer_session(
+            project_root, env, settings_path=settings_path, executable=executable, platform_name=platform_name
+        )
+    except OSError:
+        return start_terminal()
+    _watch_viewer_session_launcher(process, start_terminal, settings_path)
+    return process
 
 
 def _handoff_to_layout_generator(

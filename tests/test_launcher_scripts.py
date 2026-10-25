@@ -1,4 +1,5 @@
-"""Launcher scripts (install.sh/.bat and src/bin launchers): shared environment
+"""Launcher scripts (install.sh/.bat and src/bin launchers): the desktop launcher's start without a terminal and
+its terminal fallbacks, the macOS app bundles, shared environment
 sanitizing and setup-lock policy, the managed-venv interpreter probe, the
 existing-instance probe that runs before dependency validation, the desktop
 launcher structure, the POSIX dependency-setup lock, and how many readiness
@@ -326,6 +327,412 @@ class LauncherStructureTests(unittest.TestCase):
         self.assertIn("Starting EMAPSSN_Config", direct_posix)
         self.assertNotIn("terminal.dismissed", direct_windows)
         self.assertNotIn("terminal.dismissed", direct_posix)
+
+    def test_the_desktop_launcher_has_a_start_without_a_terminal_and_keeps_the_terminal_as_the_fallback(self):
+        shell_supervisor = (SRC_DIR / "bin" / "EMAPSSN_Desktop_Launcher.sh").read_text(encoding="utf-8")
+        self.assertIn("src/desktop/Desktop_Launcher.py", shell_supervisor)
+        self.assertIn("start_without_terminal", shell_supervisor)
+        self.assertIn("--console", shell_supervisor)
+        self.assertIn("--open-terminal", shell_supervisor)  # the older name of --console
+        # The check and the terminal session of the old start are still there, in the same order.
+        self.assertLess(shell_supervisor.index("start_without_terminal"), shell_supervisor.index("open_startup_terminal\n    exit"))
+        self.assertLess(shell_supervisor.index("open_startup_terminal\n    exit"), shell_supervisor.index("--check-only"))
+
+    def test_the_mac_app_runs_the_python_launcher_and_keeps_terminal_as_its_fallback(self):
+        install_sh = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
+        self.assertIn('-u "\\$LAUNCHER" $app_kind --caller-opens-console', install_sh)
+        self.assertIn("exec /usr/bin/open -a Terminal", install_sh)
+        self.assertIn("<key>LSUIElement</key><true/>", install_sh)
+        self.assertNotIn("NSAppleEventsUsageDescription", install_sh)
+
+
+# The Python launcher, the probe and the monitor are stand-ins that record how they were run. The stand-in for the
+# managed Python tells them apart by what the script under test passes it.
+_RECORDING_PYTHON = """\
+#!/bin/bash
+log=$SSN_TEST_PYTHON_LOG
+case "$1" in
+    -u)
+        case "$2" in
+            */Desktop_Launcher.py)
+                printf 'launcher|%s|cwd=%s|PYTHONHOME=%s|PYTHONPATH=%s|QT_QPA_PLATFORM=%s|PATH=%s\\n' \\
+                    "$*" "$PWD" "${PYTHONHOME-unset}" "${PYTHONPATH-unset}" "${QT_QPA_PLATFORM-unset}" "$PATH" >>"$log"
+                exit "${SSN_TEST_LAUNCHER_EXIT:-0}" ;;
+            */Desktop_Launcher_Monitor.py)
+                printf 'monitor|%s\\n' "$*" >>"$log"
+                exit "${SSN_TEST_MONITOR_EXIT:-0}" ;;
+        esac ;;
+    */Single_Instance_Probe.py)
+        printf 'probe|%s\\n' "$*" >>"$log"
+        exit "${SSN_TEST_PROBE_EXIT:-1}" ;;
+esac
+printf 'other|%s\\n' "$*" >>"$log"
+exit 0
+"""
+
+# A terminal emulator that only records the command it was given (one argument per NUL-ended item).
+_RECORDING_TERMINAL = """\
+#!/bin/bash
+printf '%s\\0' "$@" >"$SSN_TEST_TERMINAL_LOG"
+"""
+
+
+def _lf_bytes(path):
+    """A file's bytes with LF line endings, as a Linux checkout has them (a Windows one may hold CRLF)."""
+    return Path(path).read_bytes().replace(b"\r\n", b"\n")
+
+
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class DesktopLauncherScriptTests(unittest.TestCase):
+    """EMAPSSN_Desktop_Launcher.sh with its own logic, over a scratch project whose Python launcher is a stand-in.
+
+    The default mode starts the Python launcher with no terminal; a terminal opens (the fake emulator records the
+    command it gets) only when the managed Python or the launcher script is missing, with --console, and when the
+    launcher ends with anything but 0, which includes its exit code 3, "open the console".
+    """
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        base = Path(temporary.name)
+        self.root = base / "my project"  # a space: every path in the script is quoted
+        (self.root / "src" / "bin").mkdir(parents=True)
+        (self.root / "src" / "desktop").mkdir()
+        for relative in ("src/bin/EMAPSSN_Desktop_Launcher.sh", "src/bin/EMAPSSN_Terminal_Launcher.sh", "install.sh"):
+            (self.root / relative).write_bytes(_lf_bytes(PROJECT_ROOT / relative))
+        for relative in ("src/desktop/Desktop_Launcher.py", "src/desktop/Single_Instance_Probe.py"):
+            (self.root / relative).write_text("# stand-in\n", encoding="utf-8")
+        self.python = self.root / ".venv" / "bin" / "python"
+        self.python.parent.mkdir(parents=True)
+        self.python.write_text(_RECORDING_PYTHON, encoding="utf-8", newline="\n")
+        self.python.chmod(0o755)
+        self.fake_bin = base / "fake-bin"
+        self.fake_bin.mkdir()
+        # The script must not reach a real terminal emulator or, on a Mac, Terminal through osascript: it believes
+        # it is on Linux, and the first emulator it finds is the recording one.
+        (self.fake_bin / "uname").write_text("#!/bin/bash\nprintf Linux\n", encoding="utf-8", newline="\n")
+        (self.fake_bin / "xdg-terminal-exec").write_text(_RECORDING_TERMINAL, encoding="utf-8", newline="\n")
+        for name in ("uname", "xdg-terminal-exec"):
+            (self.fake_bin / name).chmod(0o755)
+        self.python_log = base / "python.log"
+        self.terminal_log = base / "terminal.argv"
+
+    def run_script(self, *arguments, launcher_exit=0, probe_exit=1, environment=None, expect_terminal=True):
+        """Run the script; returns (result, the Python calls, the terminal's argument list or None).
+
+        The fake emulator is started in the background, so a run that expects one waits for it to record its
+        command; a run that does not gives it a moment to show up wrongly.
+        """
+        env = os.environ.copy()
+        env.pop("QT_QPA_PLATFORM", None)
+        env.update({
+            "PATH": f"{self.fake_bin}{os.pathsep}{env.get('PATH', '')}",
+            "SSN_TEST_PYTHON_LOG": str(self.python_log),
+            "SSN_TEST_TERMINAL_LOG": str(self.terminal_log),
+            "SSN_TEST_LAUNCHER_EXIT": str(launcher_exit),
+            "SSN_TEST_PROBE_EXIT": str(probe_exit),
+        })
+        env.update(environment or {})
+        result = subprocess.run(
+            ["/bin/bash", str(self.root / "src" / "bin" / "EMAPSSN_Desktop_Launcher.sh"), *arguments],
+            check=False, capture_output=True, text=True, env=env, cwd=tempfile.gettempdir(), stdin=subprocess.DEVNULL,
+            timeout=60,
+        )
+        calls = self.python_log.read_text(encoding="utf-8").splitlines() if self.python_log.exists() else []
+        deadline = time.monotonic() + (3 if expect_terminal else 0.3)
+        while not self.terminal_log.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        terminal = None
+        if self.terminal_log.exists():
+            time.sleep(0.05)
+            terminal = [item.decode("utf-8") for item in self.terminal_log.read_bytes().split(b"\0") if item]
+        return result, calls, terminal
+
+    def kinds_of(self, calls):
+        return [call.split("|", 1)[0] for call in calls]
+
+    def assert_terminal_session(self, terminal, kind, title):
+        """The terminal runs the .sh again in its --terminal-session mode, in the project folder, with the window's title."""
+        script = str(self.root / "src" / "bin" / "EMAPSSN_Desktop_Launcher.sh")
+        self.assertEqual(terminal[0], "--")
+        self.assertEqual(terminal[1:3], ["bash", "-c"])
+        self.assertEqual(terminal[-5:], [str(self.root), title, script, kind, "--terminal-session"])
+
+    # --- the start without a terminal
+    def test_a_launcher_that_handled_the_start_leaves_no_terminal_and_no_other_work(self):
+        for kind in ("viewer", "tools"):
+            with self.subTest(kind=kind):
+                self.python_log.unlink(missing_ok=True)
+                result, calls, terminal = self.run_script(kind, expect_terminal=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stderr, "")
+                self.assertEqual(self.kinds_of(calls), ["launcher"])  # not even the existing-instance probe
+                launcher = str(self.root / "src" / "desktop" / "Desktop_Launcher.py")
+                self.assertEqual(calls[0].split("|")[1], f"-u {launcher} {kind}", calls[0])
+                self.assertIsNone(terminal)
+
+    def test_the_launcher_runs_in_the_project_folder_with_a_clean_managed_environment(self):
+        result, calls, _ = self.run_script(
+            "viewer", environment={"PYTHONHOME": "/x", "PYTHONPATH": "/y", "XDG_SESSION_TYPE": "wayland"},
+            expect_terminal=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        fields = dict(part.split("=", 1) for part in calls[0].split("|")[2:])
+        self.assertEqual(os.path.realpath(fields["cwd"]), os.path.realpath(self.root))
+        self.assertEqual((fields["PYTHONHOME"], fields["PYTHONPATH"]), ("unset", "unset"))
+        # The splash is plain widgets and runs on Wayland itself: nothing here moves it to XWayland (the monitor
+        # does that for the window it starts).
+        self.assertEqual(fields["QT_QPA_PLATFORM"], "unset")
+
+    def test_a_platform_the_user_chose_reaches_the_launcher(self):
+        result, calls, _ = self.run_script("tools", environment={"QT_QPA_PLATFORM": "xcb"}, expect_terminal=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("QT_QPA_PLATFORM=xcb", calls[0])
+
+    # --- the fallbacks: a terminal
+    def test_the_launchers_console_code_and_any_other_failure_open_the_terminal(self):
+        for code in (3, 1, 2, 134, 139):  # EXIT_FALLBACK, a Python error, a bad option, an abort, a crash
+            with self.subTest(code=code):
+                self.python_log.unlink(missing_ok=True)
+                self.terminal_log.unlink(missing_ok=True)
+                result, calls, terminal = self.run_script("tools", launcher_exit=code)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.kinds_of(calls), ["launcher", "probe"])  # then the old start: probe, terminal
+                self.assertIn(f"exit code {code}", result.stderr)
+                self.assertIsNotNone(terminal, "no terminal was opened")
+                self.assert_terminal_session(terminal, "tools", "EMAP-SSN Tools")
+
+    def test_a_window_that_is_open_after_the_launcher_failed_is_not_answered_with_a_terminal(self):
+        result, calls, terminal = self.run_script("viewer", launcher_exit=3, probe_exit=0, expect_terminal=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.kinds_of(calls), ["launcher", "probe"])
+        self.assertIsNone(terminal)
+
+    def test_with_no_managed_python_yet_the_terminal_does_the_setup_and_the_launcher_is_not_tried(self):
+        self.python.unlink()
+        result, calls, terminal = self.run_script("viewer")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls, [])
+        self.assertIsNotNone(terminal)
+        self.assert_terminal_session(terminal, "viewer", "EMAP-SSN Configuration")
+
+    def test_a_python_that_is_not_executable_is_no_managed_python(self):
+        self.python.chmod(0o644)
+        result, calls, terminal = self.run_script("viewer")
+        self.assertEqual(calls, [])
+        self.assertIsNotNone(terminal)
+
+    def test_a_missing_launcher_script_goes_to_the_terminal_too(self):
+        (self.root / "src" / "desktop" / "Desktop_Launcher.py").unlink()
+        result, calls, terminal = self.run_script("viewer")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.kinds_of(calls), ["probe"])
+        self.assertIsNotNone(terminal)
+
+    def test_console_opens_the_terminal_and_never_tries_the_launcher(self):
+        for option in ("--console", "--open-terminal"):  # the second is the older name
+            with self.subTest(option=option):
+                self.python_log.unlink(missing_ok=True)
+                self.terminal_log.unlink(missing_ok=True)
+                result, calls, terminal = self.run_script("viewer", option)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.kinds_of(calls), ["probe"])
+                self.assertIsNotNone(terminal)
+                self.assert_terminal_session(terminal, "viewer", "EMAP-SSN Configuration")
+
+    def test_console_still_brings_an_open_window_forward_instead(self):
+        result, calls, terminal = self.run_script("viewer", "--console", probe_exit=0, expect_terminal=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.kinds_of(calls), ["probe"])
+        self.assertIsNone(terminal)
+
+    def test_a_machine_with_no_terminal_emulator_reports_it_and_fails(self):
+        (self.fake_bin / "xdg-terminal-exec").unlink()
+        # Only the standard tools are on the path: no emulator of any kind.
+        tools = Path(tempfile.mkdtemp(prefix="ssn-tools-"))
+        self.addCleanup(shutil.rmtree, tools, True)
+        (tools / "dirname").symlink_to(shutil.which("dirname"))
+        (tools / "uname").write_text("#!/bin/bash\nprintf Linux\n", encoding="utf-8", newline="\n")
+        (tools / "uname").chmod(0o755)
+        result, calls, terminal = self.run_script(
+            "viewer", "--console", environment={"PATH": str(tools)}, expect_terminal=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("No supported terminal emulator was found", result.stderr)
+        self.assertIsNone(terminal)
+
+    # --- usage, and the session the terminal runs
+    def test_an_unknown_kind_or_mode_is_a_usage_error_naming_the_options(self):
+        result, calls, terminal = self.run_script("elsewhere")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("viewer|tools [--console|--terminal-session]", result.stderr)
+        result, calls, terminal = self.run_script("viewer", "--nonsense")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Unknown desktop launcher mode: --nonsense", result.stderr)
+        self.assertEqual(calls, [])
+        self.assertIsNone(terminal)
+
+    def test_the_terminal_session_checks_then_runs_the_monitor_as_it_always_did(self):
+        # What the terminal runs: the kind's portable launcher checks (stand-in), then the monitor starts the window.
+        portable = self.root / "src" / "bin" / "EMAPSSN.sh"
+        portable.write_text(
+            '#!/bin/bash\nprintf "check|%s\\n" "$*" >>"$SSN_TEST_PYTHON_LOG"\nexit 0\n', encoding="utf-8", newline="\n")
+        portable.chmod(0o755)
+        result, calls, terminal = self.run_script("viewer", "--terminal-session", expect_terminal=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.kinds_of(calls), ["probe", "check", "probe", "monitor"])
+        self.assertIn("--launch-and-wait viewer", calls[-1])
+        self.assertIn("EMAP-SSN Configuration is ready.", result.stdout)
+        self.assertIsNone(terminal)
+
+    def test_the_terminal_session_that_needs_a_setup_runs_it_in_the_terminal(self):
+        portable = self.root / "src" / "bin" / "EMAPSSN.sh"
+        portable.write_text(
+            '#!/bin/bash\nprintf "portable|%s\\n" "$*" >>"$SSN_TEST_PYTHON_LOG"\n'
+            '[ "$1" = "--check-only" ] && exit "${SSN_TEST_CHECK_EXIT:-0}"\nexit 0\n',
+            encoding="utf-8", newline="\n")
+        portable.chmod(0o755)
+        result, calls, _ = self.run_script(
+            "viewer", "--terminal-session", environment={"SSN_TEST_CHECK_EXIT": "10"}, expect_terminal=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual([call for call in calls if call.startswith("portable")],
+                         ["portable|--check-only", "portable|--setup-only"])
+        self.assertIn("Setup or repair is required.", result.stdout)
+
+
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class MacosAppBundleTests(unittest.TestCase):
+    """The .app bundles install.sh writes: what they contain, and how the executable behaves over a scratch project.
+
+    Nothing here has run on a Mac. The executable is a bash script, and the tests run it under bash with the
+    managed Python and /usr/bin/open replaced by stand-ins that record how they were called.
+    """
+
+    KINDS = (("EMAP-SSN", "viewer", "ca.utoronto.emapssn"), ("EMAP-SSN Tools", "tools", "ca.utoronto.emapssn.tools"))
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name)
+        self.root = self.base / "my project"  # the .apps live in the project root
+        self.root.mkdir()
+        (self.root / "install.sh").write_bytes(_lf_bytes(PROJECT_ROOT / "install.sh"))
+        self.log = self.base / "calls.log"
+
+    def build(self, name, kind, bundle_id):
+        done = subprocess.run(
+            ["/bin/bash", "-c", f'. "{self.root}/install.sh" && ssn_create_macos_app_launcher "{self.root}" "{name}" "{kind}" "{bundle_id}"'],
+            check=False, capture_output=True, text=True,
+        )
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return self.root / f"{name}.app"
+
+    def stand_ins(self, app, *, python=True, launcher=True):
+        """A managed Python and Desktop_Launcher.py that record their calls, and an `open` the executable runs instead of /usr/bin/open."""
+        executable = app / "Contents" / "MacOS" / "launcher"
+        text = executable.read_text(encoding="utf-8")
+        fake_open = self.base / "open"
+        fake_open.write_text('#!/bin/bash\nprintf \'open|%s\\n\' "$*" >>"$SSN_TEST_LOG"\n', encoding="utf-8", newline="\n")
+        fake_open.chmod(0o755)
+        self.assertIn("/usr/bin/open", text)
+        executable.write_text(text.replace("/usr/bin/open", str(fake_open)), encoding="utf-8", newline="\n")
+        if python:
+            interpreter = self.root / ".venv" / "bin" / "python"
+            interpreter.parent.mkdir(parents=True, exist_ok=True)
+            interpreter.write_text(
+                '#!/bin/bash\nprintf \'python|%s|cwd=%s|PYTHONHOME=%s|PYTHONPATH=%s|DYLD_LIBRARY_PATH=%s|PATH=%s\\n\' '
+                '"$*" "$PWD" "${PYTHONHOME-unset}" "${PYTHONPATH-unset}" "${DYLD_LIBRARY_PATH-unset}" "$PATH" >>"$SSN_TEST_LOG"\n'
+                'exit "${SSN_TEST_LAUNCHER_EXIT:-0}"\n',
+                encoding="utf-8", newline="\n")
+            interpreter.chmod(0o755)
+        if launcher:
+            (self.root / "src" / "desktop").mkdir(parents=True, exist_ok=True)
+            (self.root / "src" / "desktop" / "Desktop_Launcher.py").write_text("# stand-in\n", encoding="utf-8")
+        return executable
+
+    def run_executable(self, executable, *, launcher_exit=0, environment=None):
+        env = os.environ.copy()
+        env.update({"SSN_TEST_LOG": str(self.log), "SSN_TEST_LAUNCHER_EXIT": str(launcher_exit)})
+        env.update(environment or {})
+        done = subprocess.run(["/bin/bash", str(executable)], check=False, capture_output=True, text=True, env=env,
+                              cwd=tempfile.gettempdir(), stdin=subprocess.DEVNULL, timeout=60)
+        calls = self.log.read_text(encoding="utf-8").splitlines() if self.log.exists() else []
+        return done, calls
+
+    def test_the_bundles_are_written_for_each_window_with_the_dock_hidden_and_no_apple_events(self):
+        for name, kind, bundle_id in self.KINDS:
+            with self.subTest(app=name):
+                app = self.build(name, kind, bundle_id)
+                plist = (app / "Contents" / "Info.plist").read_text(encoding="utf-8")
+                self.assertIn("<key>CFBundleExecutable</key><string>launcher</string>", plist)
+                self.assertIn(f"<key>CFBundleIdentifier</key><string>{bundle_id}</string>", plist)
+                self.assertIn("<key>LSUIElement</key><true/>", plist)  # the bundle itself has no Dock icon
+                self.assertNotIn("NSAppleEventsUsageDescription", plist)
+                self.assertIn("<key>LSMinimumSystemVersion</key><string>14.0</string>", plist)
+                executable = app / "Contents" / "MacOS" / "launcher"
+                self.assertTrue(os.access(executable, os.X_OK))
+                self.assertTrue(os.access(app / "Contents" / "Resources" / "start.command", os.X_OK))
+                text = executable.read_text(encoding="utf-8")
+                self.assertTrue(text.startswith("#!/bin/bash\n"))
+                self.assertIn(f'-u "$LAUNCHER" {kind} --caller-opens-console', text)
+                self.assertIn('exec /usr/bin/open -a Terminal "$APP_ROOT/Contents/Resources/start.command"', text)
+                self.assertNotIn("osascript", text)
+                for script in (executable, app / "Contents" / "Resources" / "start.command"):
+                    self.assertEqual(subprocess.run(["/bin/bash", "-n", str(script)], capture_output=True).returncode, 0)
+                # The command file is what it was: the .sh's terminal session, for this window.
+                self.assertIn(f'"$PROJECT_ROOT/src/bin/EMAPSSN_Desktop_Launcher.sh" "{kind}" --terminal-session',
+                              (app / "Contents" / "Resources" / "start.command").read_text(encoding="utf-8"))
+
+    def test_a_launcher_that_handled_the_start_leaves_terminal_alone(self):
+        for name, kind, bundle_id in self.KINDS:
+            with self.subTest(app=name):
+                self.log.unlink(missing_ok=True)
+                app = self.build(name, kind, bundle_id)
+                executable = self.stand_ins(app)
+                done, calls = self.run_executable(
+                    executable, environment={"PYTHONHOME": "/x", "PYTHONPATH": "/y", "DYLD_LIBRARY_PATH": "/z"})
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual([call.split("|")[0] for call in calls], ["python"])
+                launcher = self.root / "src" / "desktop" / "Desktop_Launcher.py"
+                fields = calls[0].split("|")
+                self.assertEqual(fields[1], f"-u {launcher} {kind} --caller-opens-console")
+                values = dict(part.split("=", 1) for part in fields[2:])
+                self.assertEqual(os.path.realpath(values["cwd"]), os.path.realpath(self.root))
+                for name_ in ("PYTHONHOME", "PYTHONPATH", "DYLD_LIBRARY_PATH"):
+                    self.assertEqual(values[name_], "unset")
+                # Finder's short PATH gets the Homebrew folders added after it, for a uv installed there.
+                self.assertTrue(values["PATH"].endswith(":/opt/homebrew/bin:/usr/local/bin"), values["PATH"])
+
+    def test_a_launcher_that_asks_for_the_console_or_fails_has_terminal_open_the_command_file(self):
+        for code in (3, 1, 2, 134, 139):
+            with self.subTest(code=code):
+                self.log.unlink(missing_ok=True)
+                app = self.build("EMAP-SSN", "viewer", "ca.utoronto.emapssn")
+                executable = self.stand_ins(app)
+                done, calls = self.run_executable(executable, launcher_exit=code)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual([call.split("|")[0] for call in calls], ["python", "open"])
+                self.assertEqual(calls[1], f"open|-a Terminal {app}/Contents/Resources/start.command")
+
+    def test_with_no_managed_python_or_no_launcher_script_terminal_opens_at_once(self):
+        for python, launcher in ((False, True), (True, False)):
+            with self.subTest(python=python, launcher=launcher):
+                self.log.unlink(missing_ok=True)
+                shutil.rmtree(self.root / ".venv", ignore_errors=True)
+                shutil.rmtree(self.root / "src", ignore_errors=True)
+                app = self.build("EMAP-SSN Tools", "tools", "ca.utoronto.emapssn.tools")
+                executable = self.stand_ins(app, python=python, launcher=launcher)
+                done, calls = self.run_executable(executable)
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertEqual(calls, [f"open|-a Terminal {app}/Contents/Resources/start.command"])
+
+    def test_the_command_file_runs_the_terminal_session_of_the_shell_launcher(self):
+        app = self.build("EMAP-SSN Tools", "tools", "ca.utoronto.emapssn.tools")
+        script = self.root / "src" / "bin" / "EMAPSSN_Desktop_Launcher.sh"
+        script.parent.mkdir(parents=True)
+        script.write_text('#!/bin/bash\nprintf "%s\\n" "$*" >"$SSN_TEST_LOG"\n', encoding="utf-8", newline="\n")
+        script.chmod(0o755)
+        done, calls = self.run_executable(app / "Contents" / "Resources" / "start.command")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(calls, ["tools --terminal-session"])
 
 
 # Stand-ins for the scripts a launcher runs; each call is recorded in a log.

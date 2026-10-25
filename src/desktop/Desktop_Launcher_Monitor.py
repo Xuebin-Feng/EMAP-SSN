@@ -7,8 +7,8 @@
 It runs the window with a hidden console, keeps what it prints in application.log (the window
 captures its own output for the Console window as well, utilities/Console_Capture.py), writes
 application.exit when the window ends, and reports a crash after the window opened: in a terminal
-that shows the log (the batch files' launch and the POSIX launchers), or, with --failure-report
-dialog, in a message box (the Windows launcher, desktop/Desktop_Launcher.py, which has no terminal).
+that shows the log (the launch scripts' terminal start, batch and .sh), or, with --failure-report
+dialog, in a message box (the Python launcher, desktop/Desktop_Launcher.py, which has no terminal, on every platform).
 The launcher that started it follows the window's progress in startup.status (utilities/Startup_Status.py)
 and its readiness in gui.ready.
 
@@ -309,13 +309,19 @@ def launch_viewer_session(
     *,
     settings_path: Path | str | None = None,
     executable: str | None = None,
+    platform_name: str | None = None,
 ) -> subprocess.Popen:
-    """Start a Viewer window for Config on Windows, with no console of its own, and a splash while it loads.
+    """Start a Viewer window for Config with no terminal or console of its own, and a splash while it loads.
 
     The Python launcher (desktop/Desktop_Launcher.py, "session") shows the splash, runs the window under
     the monitor with a hidden console and keeps its output in a log: the window keeps its own output for
     its Console window (utilities/Console_Capture.py), so nothing needs a terminal. ``env`` is the
     window's environment (its cache and settings snapshot).
+
+    On Windows the launcher runs with a hidden console; on Linux and macOS it leads a session of its own
+    (as the monitor does), so that closing Config does not end it. The caller waits on the returned process
+    to collect it, and may start the terminal launch if it ends with a failure before it started anything
+    (EMAPSSN_Config._handoff_to_viewer).
     """
     project_root = Path(project_root).resolve()
     command = [
@@ -326,6 +332,11 @@ def launch_viewer_session(
     ]
     if settings_path:
         command.extend(["--settings", os.fspath(settings_path), "--delete-settings"])
+    options: dict[str, object] = {}
+    if (platform_name or sys.platform) == "win32":
+        options["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    else:
+        options["start_new_session"] = True
     return subprocess.Popen(
         command,
         cwd=str(project_root),
@@ -334,7 +345,7 @@ def launch_viewer_session(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         close_fds=True,
-        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+        **options,
     )
 
 

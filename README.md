@@ -629,7 +629,7 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
      ./install.sh
      ```
 
-     The shared installer detects macOS, configures permissions for scripts in `src/bin/`, and generates Finder-native `EMAP-SSN.app` and `EMAP-SSN Tools.app` launchers in the project root.
+     The shared installer detects macOS, configures permissions for scripts in `src/bin/`, and generates Finder-native `EMAP-SSN.app` and `EMAP-SSN Tools.app` launchers in the project root. They start the window with a start-up screen and no Terminal window (see [The start-up screen, the Console and the logs](#the-start-up-screen-the-console-and-the-logs)); run `./install.sh` again after updating from a version that opened Terminal, so the apps are rewritten.
 
      > [!IMPORTANT]
      > Only Apple Silicon Macs are supported. Intel-based Macs are not supported by the pinned PyTorch runtime.
@@ -654,7 +654,7 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
      >                  libXfixes libxkbfile
      > ```
 
-     This will configure execution permissions and generate launchers (`emapssn` and `emapssn_tools`) as well as system `.desktop` application entries.
+     This will configure execution permissions and generate launchers (`emapssn` and `emapssn_tools`) as well as system `.desktop` application entries, which start the window with a start-up screen and no terminal.
 
 3. **Launch the application:**
 
@@ -666,7 +666,8 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
 
 ### The start-up screen, the Console and the logs
 
-On Windows no console window opens when you start a window from a shortcut: a start-up screen shows the progress
+On Windows, Linux and macOS no console window or terminal opens when you start a window from a shortcut, a desktop
+entry or an app icon: a start-up screen shows the progress
 (the dependency check, then loading PyTorch and building the window) and closes when the window is ready.
 **Show details** at its foot expands it downward into a section that shows what the start prints, live: the
 dependency check's lines, then what the window itself prints, warnings and errors in colour, the newest line
@@ -679,6 +680,28 @@ own after the dependency check: **Checking VR hardware…**. A machine that cann
 refusal, because the window is useful without one: the section opens by itself with what the check printed in the
 warning colour, the start goes on, and the start-up screen stays at **Ready** until you press **Close**.
 
+**Linux.** The desktop entries `install.sh` makes (`emapssn.desktop`, `emapssn_tools.desktop`) run
+`src/bin/EMAPSSN_Desktop_Launcher.sh`, which starts the same start-up screen with no terminal. Entries made by an earlier
+version run the same script, so `install.sh` need not be run again. A terminal opens only when it has to: on the first
+start, when the managed Python is not there yet; when the environment needs setup or repair, which is where the
+installer prints what it does; when a system library is missing (the terminal shows the exact `sudo apt install` command);
+and when the start-up screen itself cannot run. To always start in a terminal, run
+`src/bin/EMAPSSN_Desktop_Launcher.sh viewer --console` (or `tools --console`); `./emapssn` and `./emapssn_tools` also
+run in the terminal you start them from. The start-up screen and the window share the desktop entry's name and icon in the
+taskbar: the start-up screen takes the entry's name as its window class and its Wayland application ID, as the
+windows do. On a Wayland session the start-up screen is a native Wayland window (the windows themselves still run through
+XWayland, see Linux Troubleshooting), and Wayland lets a program neither place its window nor keep it above others: it asks
+for the centre of the screen and for the top, and the compositor decides, so the start-up screen may open off-centre or
+behind another window.
+
+**macOS (written, but not tested on a Mac).** After you run `./install.sh` again, `EMAP-SSN.app` and
+`EMAP-SSN Tools.app` start the same start-up screen with no Terminal window, and open Terminal, as before, only when the
+environment needs setup or repair, the managed Python is missing, or the start-up screen could not run. What to expect and
+what is not checked: the bundle has no Dock icon of its own (`LSUIElement`), and the start-up screen's process may show
+one, with the logo, while it is up; the app does not see the variables your shell profile sets, which a Terminal start did,
+so run `./emapssn` or `./emapssn_tools` in a terminal if you need them; and if the project folder is in Documents,
+Desktop or Downloads, macOS may ask once to let the app read it, since the permission that Terminal held now belongs to the app.
+
 Everything the Configuration, Tools, VR Config and Viewer windows print, their warnings and errors included, is
 kept in `temp/logs` of the project folder (one file per run, `config-`, `tools-`, `viewer-` or `vr-config-`
 followed by the time and process number; 8 MB at most, the ten latest of each window kept). The Configuration
@@ -686,9 +709,12 @@ and Tools windows have no Console after they open: read their output there. The 
 and prints the output of its commands, has the **Console** window: the button at the foot of its sidebar, the
 Console link in the header of its Session card, or the `console` command open it, and it shows the output with
 the time of each line, searches and filters it, and opens its log file. To see the output in a terminal as before,
-start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe vr --console`) or run
-`src\bin\EMAPSSN.bat` or `src\bin\EMAPSSN_Tools.bat` from a terminal. The Linux and macOS launchers still start the windows in a
-terminal, and the Viewer's Console shows the same output there.
+start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe vr --console`, or on Linux
+`src/bin/EMAPSSN_Desktop_Launcher.sh viewer --console`) or run `src\bin\EMAPSSN.bat` or `src\bin\EMAPSSN_Tools.bat`
+(on Linux and macOS `./emapssn` or `./emapssn_tools`) from a terminal; the Viewer's Console shows the same output there.
+The Viewer that the Configuration window starts opens the same way on every platform, with a start-up screen and no
+terminal; on Linux and macOS, if that start-up screen cannot run, the Viewer starts in a terminal instead, as it did
+before. The layout generator, which prints its progress, still runs in a terminal.
 
 ### Headless layout-cache generation
 
@@ -788,7 +814,7 @@ Sans SC while Simplified Chinese shows.
   The Viewer selects `QT_QPA_PLATFORM=xcb` when Wayland is detected or explicitly requested, while preserving offscreen/headless platforms. On affected Linux drivers, Qt's native Wayland plugin supplies an OpenGL ES context while VisPy compiles desktop GLSL shaders, producing repeated `Error drawing visual` messages. XWayland/XCB supplies the compatible desktop OpenGL context; the installer includes its required Ubuntu/Debian libraries.
 
 * **The application closes immediately when launched from a desktop icon.**
-  The Ubuntu/Debian launchers now check the Qt/XCB libraries before startup and print the exact `sudo apt install` command for anything missing. If any later startup step fails, a desktop-launched terminal remains open until you press Enter so the original error stays visible.
+  The Ubuntu/Debian launchers now check the Qt/XCB libraries before startup and print the exact `sudo apt install` command for anything missing. If any later startup step fails, or the start-up screen cannot run, the launcher opens a terminal that remains open until you press Enter so the original error stays visible.
 
 * **EMAP-SSN Tools exits immediately, or crashes inside Chromium.**
   If the documentation panel fails after the libraries above are installed — common inside containers or on hardened kernels where the Chromium sandbox cannot start — disable the sandbox:
