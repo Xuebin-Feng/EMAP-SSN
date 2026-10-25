@@ -275,6 +275,26 @@ class SplashDetailsTests(unittest.TestCase):
         self.assertEqual(view.toPlainText(), "red text ●\nplain")
         self.assertIs(app, QApplication.instance())
 
+    def test_the_qt_portal_warning_is_shown_in_the_warning_colour_not_the_error_one(self):
+        os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+        from PySide6.QtWidgets import QApplication
+
+        from desktop.Splash import DetailsView
+
+        app = QApplication.instance() or QApplication([])
+        view = DetailsView()
+        self.addCleanup(view.deleteLater)
+        view.add_lines([
+            ('[Qt warning] qt.qpa.services: Failed to register with host portal QDBusError('
+             '"org.freedesktop.portal.Error.Failed", "Could not register app ID: Connection already '
+             'associated with an application ID")', False),
+            ("[Qt warning] GPUInfo not initialized on GpuInfoUpdate", False),
+            ("[Qt critical] qt.qpa.xcb: could not connect to display", False),
+            ("Plain progress", False),
+        ])
+        self.assertEqual([view.kind_of(number) for number in range(4)], ["warning", "warning", "error", "info"])
+        self.assertIs(app, QApplication.instance())
+
 
 class ReadableColoursTests(unittest.TestCase):
     PAGES = {"light": "#ffffff", "dark": "#18181b"}
