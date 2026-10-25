@@ -362,10 +362,13 @@ class ErrorViewTests(WindowCase):
 
     def test_open_log_opens_the_file_and_is_off_without_one(self):
         window = self.splash()
-        window.show_error(["x"], "C:/logs/application.log")
+        log_path = os.path.join(tempfile.gettempdir(), "logs", "application.log")  # a native path: "C:/..." is not one on POSIX
+        window.show_error(["x"], log_path)
         with mock.patch.object(Splash.QDesktopServices, "openUrl") as open_url:
             window.log_button.click()
-        self.assertEqual(open_url.call_args.args[0].toLocalFile().replace("\\", "/"), "C:/logs/application.log")
+        opened = open_url.call_args.args[0]
+        self.assertTrue(opened.isLocalFile())
+        self.assertEqual(os.path.normcase(os.path.normpath(opened.toLocalFile())), os.path.normcase(os.path.normpath(log_path)))
         without = self.splash()
         without.show_error(["x"], None)
         self.assertFalse(without.log_button.isEnabled())

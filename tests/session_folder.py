@@ -144,16 +144,21 @@ def stop_holders(path, wait=5.0):
         import psutil
     except ImportError:
         return []
+    # The folder may be named through a symlink (macOS: /var is /private/var, and TMPDIR says /var),
+    # while the system reports a working folder resolved, so both sides are compared resolved; a
+    # command line carries the name as its starter wrote it, so it is searched for either form.
     needle = os.path.normcase(os.path.abspath(path))
+    real_needle = os.path.normcase(os.path.realpath(path))
     found = []
     for process in psutil.process_iter():
         try:
             if process.pid == os.getpid():
                 continue
-            inside = needle in os.path.normcase(" ".join(process.cmdline()))
+            command_line = os.path.normcase(" ".join(process.cmdline()))
+            inside = needle in command_line or real_needle in command_line
             if not inside:
                 try:
-                    inside = os.path.normcase(process.cwd()).startswith(needle)
+                    inside = os.path.normcase(os.path.realpath(process.cwd())).startswith(real_needle)
                 except (psutil.Error, OSError):
                     pass
             if inside:

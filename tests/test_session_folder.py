@@ -247,6 +247,26 @@ class StopHoldersTests(FolderTestCase):
         holder.wait(timeout=30)  # a redirector ends once its interpreter has
         self.assertIsNone(elsewhere.poll())
 
+    @unittest.skipIf(os.name == "nt", "a symlinked temp folder, as on macOS where /var is /private/var")
+    def test_a_folder_named_through_a_symlink_is_matched_by_the_resolved_path_a_process_reports(self):
+        real = os.path.join(self.base, "real")
+        os.mkdir(real)
+        link = os.path.join(self.base, "link")
+        os.symlink(real, link)
+        path = os.path.join(link, "emapssn-test-sessions-x")
+        os.makedirs(os.path.join(path, "temp"))
+        resolved = os.path.realpath(path)
+        self.assertNotEqual(resolved, os.path.abspath(path))
+        by_working_folder = self.sleeper(cwd=path)  # the system reports it as .../real/...
+        self.assertEqual(os.path.realpath(psutil.Process(by_working_folder.pid).cwd()), resolved)
+        by_command_line = self.sleeper(resolved)  # its starter wrote the resolved name
+        bystander = self.sleeper(cwd=self.base)
+        stopped = session_folder.stop_holders(path)
+        self.assertEqual(len(stopped), 2, stopped)
+        by_working_folder.wait(timeout=30)
+        by_command_line.wait(timeout=30)
+        self.assertIsNone(bystander.poll(), "a process that does not hold it is left alone")
+
     def test_nothing_holding_the_folder_means_nothing_is_stopped(self):
         self.assertEqual(session_folder.stop_holders(self.session()), [])
 

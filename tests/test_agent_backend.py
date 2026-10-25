@@ -1635,7 +1635,12 @@ class DataUseNoticeTests(unittest.TestCase):
 
 class SnapshotPathsTests(unittest.TestCase):
     """The snapshot the model gets names files, not the folders of the user's computer; MCP's summary is unchanged."""
-    DIRECTORY = 'C:\\Users\\Someone\\Private Lab\\Project'
+    # A folder in the form of the platform the test runs on: a Windows path is not a path on Linux or
+    # macOS, where os.path.basename (Cache_Metadata's cache_filename) does not split it at a backslash.
+    DIRECTORY = 'C:\\Users\\Someone\\Private Lab\\Project' if os.name == 'nt' else '/Users/Someone/Private Lab/Project'
+
+    def inside(self, *parts):
+        return os.path.join(self.DIRECTORY, *parts)
 
     def viewer(self):
         from desktop.Viewer_Inspection import ViewerInspectionService
@@ -1644,9 +1649,9 @@ class SnapshotPathsTests(unittest.TestCase):
             metadata={'score': {'type': 'numeric', 'values': [1.0, 2.0]}}, cluster_labels=[1, 1], group_labels=[set(), set()],
             current_slider_threshold=0.5)
         config = SimpleNamespace(
-            NODE_FASTA_FILE=self.DIRECTORY + '\\Input_Files\\set.fasta', INPUT_HDF5='/home/someone/lab/network.h5',
-            MSA_FILE='alignment.fasta', EMBED_FILE=self.DIRECTORY + '\\Embeddings\\set.h5',
-            TARGET_CACHE_PATH=self.DIRECTORY + '\\Cache_Files\\version_00.h5', SIMILARITY_THRESHOLD=0.1)
+            NODE_FASTA_FILE=self.inside('Input_Files', 'set.fasta'), INPUT_HDF5='/home/someone/lab/network.h5',
+            MSA_FILE='alignment.fasta', EMBED_FILE=self.inside('Embeddings', 'set.h5'),
+            TARGET_CACHE_PATH=self.inside('Cache_Files', 'version_00.h5'), SIMILARITY_THRESHOLD=0.1)
         viewer.viewer_inspection = ViewerInspectionService(viewer, config)
         return viewer
 
@@ -1663,9 +1668,9 @@ class SnapshotPathsTests(unittest.TestCase):
         service = viewer.viewer_inspection
         snapshot = service.capture_snapshot()
         inputs = service.snapshots.execute('get_summary', snapshot)['inputs']
-        self.assertEqual(inputs['node_fasta'], self.DIRECTORY + '\\Input_Files\\set.fasta')
+        self.assertEqual(inputs['node_fasta'], self.inside('Input_Files', 'set.fasta'))
         self.assertEqual(inputs['network_hdf5'], '/home/someone/lab/network.h5')
-        self.assertEqual(service.get_summary()['inputs']['layout_cache'], self.DIRECTORY + '\\Cache_Files\\version_00.h5')
+        self.assertEqual(service.get_summary()['inputs']['layout_cache'], self.inside('Cache_Files', 'version_00.h5'))
 
     def test_the_embedding_file_and_the_generation_parameters_lose_their_folders_too(self):
         summary = {

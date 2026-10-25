@@ -596,13 +596,30 @@ class FallbackTests(LaunchCase):
         self.assertEqual(self.run_launch(launch), Desktop_Launcher.EXIT_FALLBACK)
 
 
+def short_socket_folder(test):
+    """POSIX: Qt's temp folder for a test that listens on a real local socket, one whose path is short.
+
+    A local socket is a Unix socket file named ``<temp folder>/<name>``, and a Unix socket path may hold
+    103 characters on macOS (107 on Linux). The test run's own temp folder (tests/session_folder.py) gives
+    112 to 120 and more there, so the test would fail to listen on the platform the windows run on.
+    Qt reads TMPDIR whenever it makes the path, for the server and for a launcher's connection alike.
+    """
+    folder = tempfile.mkdtemp(prefix="ssn-", dir="/tmp")
+    test.addCleanup(shutil.rmtree, folder, True)
+    return folder
+
+
 class QuietEndTests(LaunchCase):
     def test_an_open_window_of_this_checkout_is_brought_forward_and_nothing_else_starts(self):
+        if os.name != "nt":  # Windows' local sockets are named pipes, with no such limit
+            self.enterContext(mock.patch.dict(os.environ, {"TMPDIR": short_socket_folder(self)}))
         name = Desktop_Launcher.single_instance_server_name("SSN_Config", self.root)
         activated = []
         server = QLocalServer()
         QLocalServer.removeServer(name)
-        self.assertTrue(server.listen(name))
+        self.assertTrue(server.listen(name), server.errorString())
+        if os.name != "nt":
+            self.assertLess(len(server.fullServerName()), 100)
         self.addCleanup(server.close)
         server.newConnection.connect(lambda: activated.append(server.nextPendingConnection().readAll()))
         launch = self.launch("viewer")
