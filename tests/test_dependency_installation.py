@@ -596,7 +596,7 @@ class DependencyInstallerTests(unittest.TestCase):
                 side_effect=self._pinned_versions(),
             ), mock.patch.object(
                 Install_Dependencies, "validate_package_consistency", return_value=True
-            ), mock.patch.object(
+            ) as consistency, mock.patch.object(
                 Install_Dependencies, "validate_esm_stack", return_value=True
             ), mock.patch.object(Install_Dependencies, "write_state"):
                 code = Install_Dependencies.install(
@@ -606,6 +606,8 @@ class DependencyInstallerTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(validate.call_args.args[1].backend, "cuda126")
         install_backend.assert_not_called()
+        # A setup or repair lists the deviations it accepted; the check before each launch does not.
+        consistency.assert_called_once_with("uv", Path(sys.executable), list_accepted=True)
 
     def test_cpu_only_node_preserves_installed_accelerator_package(self):
         cuda_report = self._cuda_report()
@@ -990,6 +992,41 @@ class PackageConsistencyTests(unittest.TestCase):
     def test_sanctioned_version_and_missing_deviations_pass(self):
         self.assertTrue(self._check(*self._expected()))
 
+    def _accepted_report(self, **options):
+        report = "\n".join(("Checked 155 packages in 1ms", f"Found {len(self._expected())} incompatibilities",
+                            *self._expected()))
+        completed = mock.Mock(returncode=1, stdout=report, stderr="")
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
+                redirect_stdout(stdout), redirect_stderr(stderr):
+            passed = Install_Dependencies.validate_package_consistency("uv", Path("python"), **options)
+        return passed, stdout.getvalue(), stderr.getvalue()
+
+    def test_a_readiness_check_counts_the_accepted_deviations_without_listing_them(self):
+        # Every launch runs it, and a clean install always has these: the list was noise in Show details.
+        passed, out, err = self._accepted_report()
+        self.assertTrue(passed)
+        self.assertEqual(out, f"Installed package consistency: passed with {len(self._expected())} expected esm deviation(s)\n")
+        self.assertEqual(err, "")
+
+    def test_a_setup_lists_each_accepted_deviation_once(self):
+        passed, out, _ = self._accepted_report(list_accepted=True)
+        self.assertTrue(passed)
+        listed = [line for line in out.splitlines() if line.startswith("  accepted: ")]
+        self.assertEqual(listed, [f"  accepted: {line}" for line in self._expected()])
+
+    def test_a_failed_check_names_what_is_wrong_whether_or_not_the_list_was_asked_for(self):
+        lines = (*self._expected(), "The package `esm` requires `biotite>=1.0.0`, but it's not installed")
+        report = "\n".join((f"Found {len(lines)} incompatibilities", *lines))
+        completed = mock.Mock(returncode=1, stdout=report, stderr="")
+        for options in ({}, {"list_accepted": True}):
+            stdout, stderr = io.StringIO(), io.StringIO()
+            with self.subTest(options=options), mock.patch.object(Install_Dependencies, "_run", return_value=completed), \
+                    redirect_stdout(stdout), redirect_stderr(stderr):
+                self.assertFalse(Install_Dependencies.validate_package_consistency("uv", Path("python"), **options))
+            self.assertIn("biotite>=1.0.0", stderr.getvalue())
+            self.assertNotIn("accepted:", stdout.getvalue())
+
     def test_unsanctioned_missing_dependency_fails(self):
         lines = (
             self.TORCH_LINE,
@@ -1168,6 +1205,7 @@ class DependencyReadinessTests(unittest.TestCase):
                     len([line for line in lines if line.startswith("Installed package consistency")]), 1, lines
                 )
                 self.assertIn("ESM/Transformers import validation: passed", lines)
+                self.assertEqual([line for line in lines if "accepted:" in line], [], lines)  # not on every launch
 
     def test_changed_state_requires_setup(self):
         with tempfile.TemporaryDirectory() as temp_dir:

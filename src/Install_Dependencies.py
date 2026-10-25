@@ -918,7 +918,16 @@ def _is_sanctioned_incompatibility(
     return False
 
 
-def validate_package_consistency(uv_executable: str, python: Path) -> bool:
+def validate_package_consistency(
+    uv_executable: str, python: Path, *, list_accepted: bool = False
+) -> bool:
+    """Run `uv pip check`; True when it reports nothing but the deviations this installer creates.
+
+    The readiness check before every launch says only that N expected esm
+    deviations were accepted, as a clean install always has them. ``list_accepted``
+    (an install or repair) also lists each one; anything that is not expected
+    is always listed, with the reason the check failed.
+    """
     completed = _run(
         [uv_executable, "pip", "check", "--python", str(python)], capture=True
     )
@@ -974,8 +983,9 @@ def validate_package_consistency(uv_executable: str, python: Path) -> bool:
         "Installed package consistency: passed with "
         f"{len(accepted)} expected esm deviation(s)"
     )
-    for line in accepted:
-        print(f"  accepted: {line}")
+    if list_accepted:
+        for line in accepted:
+            print(f"  accepted: {line}")
     return True
 
 
@@ -1182,7 +1192,7 @@ def install(
         if _run(esm_command).returncode != 0:
             print("ESM installation failed.", file=sys.stderr)
             return 1
-    if not validate_package_consistency(uv_executable, python):
+    if not validate_package_consistency(uv_executable, python, list_accepted=True):
         return 1
     if not _validate_esm_stack_and_record(venv, python):
         return 1
