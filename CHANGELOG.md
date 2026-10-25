@@ -46,7 +46,8 @@ still change before version 1.0.0.
     `EMAP-SSN.exe`, which `install.bat` builds with the compiler that comes with Windows.
     About 0.3 s after the click, a splash shows the program's name and version and what it is
     doing ("Checking dependencies…", "Loading PyTorch…") with a progress bar, then closes when
-    the window is ready. No console window opens, and Config starts the Viewer without one
+    the window is ready. It is drawn in the theme colour of the window it starts (Config's
+    for a Viewer), purple when none is saved. No console window opens, and Config starts the Viewer without one
     too. The taskbar names them EMAP-SSN.
   - **Show details:** expands the splash into a section that shows everything printed
     during the start, with warnings and errors coloured, Copy and Open log. Opened, the
