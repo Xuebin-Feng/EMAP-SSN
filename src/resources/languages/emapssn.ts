@@ -3880,6 +3880,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Error: help takes at most one command name, not &apos;{argument}&apos;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Error: Unrecognized hide argument &apos;{argument}&apos;. &apos;{keyword}&apos; takes no other arguments.</source>
         <translation type="unfinished"></translation>
     </message>

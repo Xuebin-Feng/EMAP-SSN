@@ -1679,9 +1679,24 @@ def execute_command(viewer, cmd_str, record_history=True, silent=False):
     finally:
         viewer._command_dispatch_active = False
 
+def load_command_module(viewer, command_name):
+    """The module of command ``command_name`` (commands.<name>), freshly loaded as a dispatch loads it.
+
+    Raises ModuleNotFoundError for a name that is no command module. The module is imported and, as a plugin
+    being edited needs, reloaded, except while a command waiting in the Viewer's queue still has to run it:
+    that one is not reloaded under it. The dispatch loads the module it runs this way, and so does a command
+    that shows another command's help.
+    """
+    import importlib
+    module = importlib.import_module(f"commands.{command_name}")
+    queue = getattr(viewer, 'command_queue', None)
+    if getattr(module, "__spec__", None) is not None and not (
+            queue is not None and queue.uses_module(command_name)):
+        importlib.reload(module)
+    return module
+
 def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
     import os
-    import importlib
     cmd_str = cmd_str.strip()
     if not cmd_str:
         command_failed(viewer, "Empty command")
@@ -1720,14 +1735,12 @@ def _dispatch_user_command(viewer, cmd_str, record_history=True, silent=False):
     # --- 6. DYNAMIC EXTERNAL COMMANDS ---
     queue = getattr(viewer, 'command_queue', None)
     try:
-        module = importlib.import_module(f"commands.{command_name}")
-        # A module a queued command still has to run is not reloaded under it.
-        if getattr(module, "__spec__", None) is not None and not (
-                queue is not None and queue.uses_module(command_name)):
-            importlib.reload(module)
+        module = load_command_module(viewer, command_name)
 
         if not hasattr(module, 'run'):
             command_failed(viewer, f"No run entry point in {command_name}")
+            # Like an unknown command, this reaches the Console and the log, not only the status line.
+            print(f"Error: No run entry point in {command_name}")
             if not silent and hasattr(viewer, 'console_text'):
                 show_status(viewer, Message("Error: No 'run' in {command}", command=command_name))
             if not silent and hasattr(viewer, 'update_console_background'):
@@ -1779,11 +1792,16 @@ def run_command_module(viewer, module, command_name, args, silent=False):
 
 
 def _report_module_not_found(viewer, command_name, error, silent):
-    command_failed(viewer, f"Unknown command: {command_name}" if error.name == f"commands.{command_name}" else f"Command dependency unavailable: {error.name}")
+    unknown = error.name == f"commands.{command_name}"
+    failure = f"Unknown command: {command_name}" if unknown else f"Command dependency unavailable: {error.name}"
+    command_failed(viewer, failure)
     if not silent and hasattr(viewer, 'console_text'):
         show_status(viewer, Message("Unknown command: {command}", command=command_name))
     if not silent and hasattr(viewer, 'update_console_background'):
         viewer.update_console_background()
+    # The failure line goes to the Console and the log, where "Error:" makes it red. Like the print in
+    # _report_command_error it does not depend on silent, which only keeps the status line quiet.
+    print(f"Error: {failure}. Type help for the list of commands." if unknown else f"Error: {failure}")
 
 
 def _report_command_error(viewer, e, silent):

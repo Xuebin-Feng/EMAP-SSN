@@ -85,6 +85,7 @@ CANVAS_MARKED = frozenset({
     "commands/esmfold.py",
     "commands/export.py",
     "commands/group.py",
+    "commands/help.py",
     "commands/hide.py",
     "commands/jobs.py",
     "commands/label.py",

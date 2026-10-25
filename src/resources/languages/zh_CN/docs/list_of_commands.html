@@ -69,7 +69,7 @@
         </div>
     </header>
 
-    <aside id="sidebar" data-source-sha256="c615f13ffa3e460ba757ce70077adf5b052283857b7040be1bc48706b6948ab6">
+    <aside id="sidebar" data-source-sha256="d0b147b839263cd01d49819b868e2afffdd81b1ba1a1a9ca9549c86199b4cfa2">
         <div class="sidebar-header">
             <div class="sidebar-title">EMAP-SSN 命令参考</div>
             <div class="sidebar-subtitle">交互式手册与设置指南</div>
@@ -99,6 +99,7 @@
                 <li class="menu-item" data-target="cmd-undoredo"><a href="#cmd-undoredo"><span>undo &amp; redo</span></a></li>
                 <li class="menu-item" data-target="cmd-run"><a href="#cmd-run"><span>run</span></a></li>
                 <li class="menu-item" data-target="cmd-console"><a href="#cmd-console"><span>console</span></a></li>
+                <li class="menu-item" data-target="cmd-help"><a href="#cmd-help"><span>help</span></a></li>
             </ul>
 
             <div class="menu-category">比对</div>
@@ -143,14 +144,14 @@
 
     <main>
         <div class="content-wrapper">
-            <header class="page-header" id="docs-intro" data-source-sha256="9c45a0b9cfb91c8eab8e6b724d2a26d83769c6707ebd20590b0b1dbeafa49c5b">
+            <header class="page-header" id="docs-intro" data-source-sha256="7fcc25ec7547e4ed9de3d3dcd4d9992bd12d71e098d61e3eca012e3c9bf01340">
                 <h1>EMAP-SSN 查看器</h1>
                 <div class="subtitle">命令行界面（CLI）手册与参考指南</div>
                 <p>
                     本参考文档介绍所有可用的可视化、物理和社区聚类（community clustering）命令。可通过侧边栏动态搜索或筛选命令。核心命令作用于内存中的可视化状态，而外部脚本运行高级生物信息学算法，并把输出结果导出到磁盘。
                 </p>
                 <p>
-                    <code>COMMAND help</code>、<code>COMMAND -h</code> 或 <code>COMMAND --help</code> 会在控制台窗口中打印命令自带的帮助；<code>export</code> 和 <code>label</code> 还接受 <code>-?</code>。<code>label help</code> 不需要比对（alignment）或参考序列（reference sequence）。
+                    <code>COMMAND help</code>、<code>COMMAND -h</code> 或 <code>COMMAND --help</code> 会在控制台窗口中打印命令自带的帮助；<code>export</code> 和 <code>label</code> 还接受 <code>-?</code>。<code>label help</code> 不需要比对（alignment）或参考序列（reference sequence）。<code>help COMMAND</code> 会打印同样的帮助，单独输入 <code>help</code> 则列出每个命令及其一行摘要。
                 </p>
             </header>
 
@@ -437,6 +438,35 @@
                 <div class="subheading">示例</div>
                 <ul class="example-list">
                     <li class="example-item"><span>console</span><button class="copy-btn" onclick="copyText('console', this)">复制</button></li>
+                </ul>
+            </section>
+
+            <section class="command-card" id="cmd-help" data-source-sha256="a83b37942cd3049972120418f620d225676dfc19f98ded73ebb05a5328a34038">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">help</span>
+                        <span class="command-card-desc-title">&ndash; 列出命令或显示其帮助</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">help [command]</div>
+                    <button class="copy-btn" onclick="copyText('help', this)">复制</button>
+                </div>
+                <p><strong>功能：</strong>不带命令时，列出每个命令及其一行摘要。带命令时，打印该命令自带的帮助，与 <code>COMMAND help</code> 的输出完全相同，且不会运行该命令。与所有命令一样，输出显示在控制台窗口中。</p>
+                <div class="subheading">帮助详情</div>
+                <ul>
+                    <li><strong>列表：</strong>摘要与 MCP 服务器的命令目录（<code>get_command_catalog</code>）给出的相同，因此列表与目录一致；以插件方式添加的命令无需其他改动即会列出。</li>
+                    <li><strong>单个命令：</strong><code>help zoom</code> 打印的内容与 <code>zoom help</code> 相同。命令名不区分大小写。<code>help help</code>、<code>help -h</code> 和 <code>help --help</code> 打印本命令自带的帮助。</li>
+                    <li><strong>未知名称：</strong>不是命令的词会失败，控制台以红色指出：<code>Error: Unknown command: NAME. Type help for the list of commands.</code> 多于一个词会被拒绝。两种情况下都不会发生其他任何事。</li>
+                    <li><strong>立即运行：</strong>它不改变任何内容，因此会立即运行，即使其他命令正在等待。</li>
+                    <li><strong>智能体：</strong>智能体的回复不能运行它：智能体的说明中已经描述了每个命令。</li>
+                </ul>
+                <div class="subheading">示例</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>help</span><button class="copy-btn" onclick="copyText('help', this)">复制</button></li>
+                    <li class="example-item"><span>help zoom</span><button class="copy-btn" onclick="copyText('help zoom', this)">复制</button></li>
+                    <li class="example-item"><span>help help</span><button class="copy-btn" onclick="copyText('help help', this)">复制</button></li>
                 </ul>
             </section>
 
@@ -1263,7 +1293,7 @@
                 let visibleChildren = false;
 
                 if (targetId === 'sec-core') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console, #cmd-help'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query'))

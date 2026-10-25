@@ -9073,6 +9073,10 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <source>The Console is not available: this Viewer has no window of that kind.</source>
         <translation type="unfinished">控制台不可用：此查看器没有这种窗口。</translation>
     </message>
+    <message>
+        <source>Error: help takes at most one command name, not &apos;{argument}&apos;.</source>
+        <translation type="unfinished">错误：help 最多接受一个命令名，不能是“{argument}”。</translation>
+    </message>
 </context>
 <context>
     <name>MetadataPage</name>

@@ -215,6 +215,7 @@ class OrderTests(QueueTestCase):
         self.assertEqual(len(self.viewer.queue.pending()), 1)
         self.assertIn("MCL inflation must be between 1.1 and 10.0; got 0.5.", self.output.getvalue())
         self.assertEqual(self.viewer.console_text.text, "Unknown command: colr")
+        self.assertIn("Error: Unknown command: colr. Type help for the list of commands.", self.output.getvalue())
 
     def test_a_cluster_list_given_while_a_cluster_computes_lists_the_new_clusters(self):
         self.viewer.type(CLUSTER)

@@ -27,6 +27,7 @@ modules = [
     "test_console_command",
     "test_export_command",
     "test_group_command",
+    "test_help_command",
     "test_hide_command",
     "test_incomplete_alignment",
     "test_job_cancellation",

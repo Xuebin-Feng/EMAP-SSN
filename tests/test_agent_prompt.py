@@ -22,9 +22,10 @@ COMMANDS = sorted(path.stem for path in (ROOT / 'src' / 'commands').glob('*.py')
 # command listed here has an item, so an exemption cannot outlive its reason.
 NOT_YET_DESCRIBED = set()
 
-# The most words the prompt may have. It has 7,688 with every command described, so there is no room
-# left: raise this only for text the model needs, since a small local model's context is 4,000 tokens
-# or so, which this prompt already exceeds.
+# The most words the prompt may have. It has 7,694 with every command described (help is named among the
+# refused commands, one word, and has no item), so there is almost no room left: raise this only for text
+# the model needs, since a small local model's context is 4,000 tokens or so, which this prompt already
+# exceeds.
 MAX_WORDS = 7700
 
 CLASS_OF_PHRASE = {'runs at once': 'run', 'waits for the user to press Run': 'approve', 'is refused': 'refuse'}

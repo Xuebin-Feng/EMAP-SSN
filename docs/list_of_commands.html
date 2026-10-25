@@ -98,6 +98,7 @@
                 <li class="menu-item" data-target="cmd-undoredo"><a href="#cmd-undoredo"><span>undo &amp; redo</span></a></li>
                 <li class="menu-item" data-target="cmd-run"><a href="#cmd-run"><span>run</span></a></li>
                 <li class="menu-item" data-target="cmd-console"><a href="#cmd-console"><span>console</span></a></li>
+                <li class="menu-item" data-target="cmd-help"><a href="#cmd-help"><span>help</span></a></li>
             </ul>
 
             <div class="menu-category">Alignment</div>
@@ -149,7 +150,7 @@
                     This reference documents all available visual, physical, and community-clustering commands. Use the sidebar to search or filter commands dynamically. Core commands operate on the visual state in memory, while external scripts execute advanced bioinformatics algorithms and export outputs to the disk.
                 </p>
                 <p>
-                    <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the Console; <code>export</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference.
+                    <code>COMMAND help</code>, <code>COMMAND -h</code> or <code>COMMAND --help</code> prints a command's own help in the Console; <code>export</code> and <code>label</code> also accept <code>-?</code>. <code>label help</code> needs no alignment or reference. <code>help COMMAND</code> prints the same help, and <code>help</code> alone lists every command with a one-line summary.
                 </p>
             </header>
 
@@ -436,6 +437,35 @@
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
                     <li class="example-item"><span>console</span><button class="copy-btn" onclick="copyText('console', this)">Copy</button></li>
+                </ul>
+            </section>
+
+            <section class="command-card" id="cmd-help">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">help</span>
+                        <span class="command-card-desc-title">&ndash; List the Commands or Show Their Help</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">help [command]</div>
+                    <button class="copy-btn" onclick="copyText('help', this)">Copy</button>
+                </div>
+                <p><strong>Function:</strong> Without a command, lists every command with a one-line summary. With a command, prints that command's own help exactly as <code>COMMAND help</code> does, without running the command. The output goes to the Console, as every command's does.</p>
+                <div class="subheading">Help Details</div>
+                <ul>
+                    <li><strong>The List:</strong> The summaries are the ones the MCP server's command catalog (<code>get_command_catalog</code>) gives, so the list and the catalog agree, and a command added as a plugin is listed with no other change.</li>
+                    <li><strong>One Command:</strong> <code>help zoom</code> prints what <code>zoom help</code> prints. The name is not case-sensitive. <code>help help</code>, <code>help -h</code> and <code>help --help</code> print this command's own help.</li>
+                    <li><strong>Unknown Names:</strong> A word that is no command fails, and the Console says so in red: <code>Error: Unknown command: NAME. Type help for the list of commands.</code> More than one word is refused. Nothing else happens in either case.</li>
+                    <li><strong>Runs At Once:</strong> It changes nothing, so it runs at once, even while other commands wait.</li>
+                    <li><strong>The Agent:</strong> An Agent reply may not run it: the Agent's instructions already describe every command.</li>
+                </ul>
+                <div class="subheading">Examples</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>help</span><button class="copy-btn" onclick="copyText('help', this)">Copy</button></li>
+                    <li class="example-item"><span>help zoom</span><button class="copy-btn" onclick="copyText('help zoom', this)">Copy</button></li>
+                    <li class="example-item"><span>help help</span><button class="copy-btn" onclick="copyText('help help', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1264,7 +1294,7 @@
                 let visibleChildren = false;
 
                 if (targetId === 'sec-core') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console, #cmd-help'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query'))

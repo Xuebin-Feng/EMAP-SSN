@@ -74,6 +74,8 @@ COMMAND_METADATA = {
         argument('action', 'Omit to assign names; list prints statistics, remove deletes named groups (all of which must exist, or nothing is removed), reset clears all groups.', choice('list'), choice('remove', 'delete'), choice('reset')),
         argument('expression', EXPRESSION + ' Pair each expression with a group name; a single name targets selected nodes. Only visible nodes are labelled: hidden matches are skipped, as in color, and an expression matching only hidden nodes labels none.'),
         argument('names', 'Names use letters, digits, underscores, hyphens or periods, without spaces. Reserved command names, canonical cluster_N names of clusters that currently exist, and every subcluster_N_M name in the generated form (positive IDs without leading zeros) cannot be assigned. remove accepts multiple names.')),
+    'help': entry("List the commands, or print one command's help as <command> help does, without running it. Run help help for this command's own help. It runs at once and changes nothing.",
+        argument('command', 'Optional command name, in any letter case: omit it to list the commands. A name that is no command fails and nothing else happens; a second word is refused.')),
     'hide': entry('Hide selected or matching visible nodes and their connected edges.',
         argument('action', 'single hides nodes with no active edges at the current threshold; reset unhides all nodes. Without arguments, hide selected nodes. single, free and reset take no other arguments: a word after one is refused.', choice('single', 'free'), choice('reset')),
         argument('expression', EXPRESSION + ' Exactly one expression word: more are refused, so a quoted header with a space, as in "node 1", is refused rather than matching nothing.')),
@@ -177,6 +179,9 @@ AGENT_POLICY = {
     'esmfold': policy('approve'),
     'export': policy('approve'),
     'group': policy('run'),
+    # Harmless, but the Agent's prompt already holds every command's usage, so the output would only fill its
+    # context (a small model's is about 4,000 tokens): the prompt has no item for it and names it as refused.
+    'help': policy('refuse'),
     'hide': policy('run'),
     # Cancelling throws away the user's own commands.
     'jobs': policy('run', {'cancel': 'approve'}),

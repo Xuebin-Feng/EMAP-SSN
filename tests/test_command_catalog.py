@@ -81,7 +81,7 @@ reset hide
         with mock.patch('Command_Engine.execute_command', side_effect=AssertionError('executed')):
             general = command_catalog()
             detailed = command_catalog('reset')['commands'][0]
-        self.assertEqual(len(general['commands']), 27)
+        self.assertEqual(len(general['commands']), 28)
         self.assertTrue(all(c['help'] is None and isinstance(c['syntax'], list)
                             for c in general['commands']))
         self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['syntax'])
@@ -267,7 +267,7 @@ class PluginWithoutMetadataTests(unittest.TestCase):
         cls.shipped = {entry['command']: entry for entry in command_catalog()['commands']}
 
     def test_every_command_is_still_listed_and_no_other_entry_changes(self):
-        self.assertEqual(len(self.shipped), 27)
+        self.assertEqual(len(self.shipped), 28)
         for name, expected in self.shipped.items():
             with self.subTest(command=name):
                 self.assertEqual(self.entries[name], expected)
