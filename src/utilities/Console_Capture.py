@@ -60,6 +60,11 @@ PARTIAL_NOTIFY_SECONDS = 0.05
 # that stalls (a console in selection mode) loses the newest chunks instead of
 # stalling the process.
 FORWARD_QUEUE_CHUNKS = 512
+# A non-blocking original stream that is full ("try again") is waited for, with pauses that grow from
+# the first to the longest, until it has taken nothing for this long: then its reader counts as gone.
+EAGAIN_PATIENCE_SECONDS = 10.0
+EAGAIN_FIRST_PAUSE_SECONDS = 0.001
+EAGAIN_LONGEST_PAUSE_SECONDS = 0.01
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR_VARIABLE = "SSN_LOG_DIR"
@@ -387,11 +392,36 @@ def _forward_writer(descriptor: int):
     return io.FileIO(descriptor, "wb", closefd=False)
 
 
-def _write_all(writer, data: bytes):
+def _write_all(writer, data: bytes, *, patience=None, pause=time.sleep):
+    """Write every byte of ``data``; ``patience`` seconds without any progress is an error.
+
+    A stream the process inherited in non-blocking mode (a pipe whose reader is slow, with
+    O_NONBLOCK set by whoever made it) takes what fits and then says "try again": ``FileIO.write``
+    gives None, or raises BlockingIOError. That is a full pipe, not a gone reader, so the writer
+    waits a moment and tries again; only a reader that takes nothing for ``patience`` seconds
+    (default EAGAIN_PATIENCE_SECONDS) ends the forwarding, as a failed write does.
+    """
+    patience = EAGAIN_PATIENCE_SECONDS if patience is None else patience
+    blocked_since = None
+    delay = EAGAIN_FIRST_PAUSE_SECONDS
     while data:
-        written = writer.write(data)
+        try:
+            written = writer.write(data)
+        except BlockingIOError as error:
+            # (characters_written is only set when some bytes went before it filled up: progress)
+            written = getattr(error, "characters_written", 0) or None
+        if written is None:
+            now = time.monotonic()
+            if blocked_since is None:
+                blocked_since = now
+            elif now - blocked_since >= patience:
+                raise OSError("the stream is full and nobody reads it")
+            pause(delay)
+            delay = min(delay * 2, EAGAIN_LONGEST_PAUSE_SECONDS)
+            continue
         if not written:
             raise OSError("the stream stopped taking output")
+        blocked_since, delay = None, EAGAIN_FIRST_PAUSE_SECONDS
         data = data[written:]
 
 
@@ -601,6 +631,33 @@ def install(app: str, log_dir=None, forward: bool | None = None) -> "Capture":
 def current() -> "Capture | None":
     """The capture this process installed, or None."""
     return _capture
+
+
+def hard_exit(code: int) -> None:
+    """End the process at once, with ``os._exit``, after what it printed has been passed on.
+
+    With a capture, descriptors 1 and 2 are pipes that daemon threads empty into the log and the
+    original streams. ``os._exit`` ends those threads wherever they are, so a line printed just
+    before it is lost: the MCP client never sees the Viewer's "hidden window unavailable" line, and
+    the headless fallback it triggers never starts. ``close`` puts the descriptors back, which ends
+    the pipes, and waits (two seconds at most) until the threads have passed everything on. Without
+    a capture the streams are just flushed. Nothing here can keep the process from ending.
+    """
+    try:
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.flush()
+            except Exception:
+                pass
+        if _capture is not None:
+            _capture.close()
+        for stream in (sys.stdout, sys.stderr):  # close() gave back the process's own streams
+            try:
+                stream.flush()
+            except Exception:
+                pass
+    finally:
+        os._exit(code)
 
 
 def wanted(argv=None, environment=None) -> bool:

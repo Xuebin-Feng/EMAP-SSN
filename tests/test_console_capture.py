@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import ast
+import io
 import json
 import os
 from pathlib import Path
@@ -432,6 +433,230 @@ class EntryPointTests(unittest.TestCase):
                               env=child_environment(), timeout=120)
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(done.stdout.strip(), "False")
+
+
+class _FullStream:
+    """A raw writer that is full for its first ``refusals`` calls, as a non-blocking pipe is: it says "try
+    again" with None (what FileIO.write gives) or a BlockingIOError, then takes ``chunk`` bytes at a time."""
+
+    def __init__(self, refusals, *, raises=False, chunk=7):
+        self.refusals, self.raises, self.chunk = refusals, raises, chunk
+        self.received = bytearray()
+        self.calls = 0
+
+    def write(self, data):
+        self.calls += 1
+        if self.refusals > 0:
+            self.refusals -= 1
+            if self.raises:
+                raise BlockingIOError(11, "Resource temporarily unavailable")
+            return None
+        taken = bytes(data[: self.chunk])
+        self.received += taken
+        return len(taken)
+
+
+class NonBlockingStreamTests(unittest.TestCase):
+    """A stream the process inherited in non-blocking mode that is full is waited for, not given up on.
+
+    Forwarding used to stop for good at the first "try again" (EAGAIN), so one burst of output into a
+    slow reader silenced the original stream until the process ended.
+    """
+
+    def test_a_full_stream_is_retried_until_it_takes_everything(self):
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                writer = _FullStream(refusals=5, raises=raises)
+                pauses = []
+                Console_Capture._write_all(writer, b"0123456789" * 3, pause=pauses.append)
+                self.assertEqual(bytes(writer.received), b"0123456789" * 3)
+                self.assertEqual(len(pauses), 5)
+                self.assertEqual(pauses, sorted(pauses))  # the waits grow
+                self.assertLessEqual(max(pauses), Console_Capture.EAGAIN_LONGEST_PAUSE_SECONDS)
+
+    def test_each_refusal_counts_from_the_last_byte_taken(self):
+        """Refusals between bytes taken never add up to a reader that is gone."""
+        class Alternating(_FullStream):
+            def write(self, data):
+                self.turn = getattr(self, "turn", 0) + 1
+                return None if self.turn % 2 else super().write(data)
+
+        writer = Alternating(refusals=0)
+        with mock.patch.object(Console_Capture, "EAGAIN_PATIENCE_SECONDS", 0.0):
+            Console_Capture._write_all(writer, b"x" * 70, pause=lambda seconds: None)
+        self.assertEqual(bytes(writer.received), b"x" * 70)
+
+    def test_a_reader_that_takes_nothing_for_the_patience_ends_the_forwarding(self):
+        writer = _FullStream(refusals=10 ** 9)
+        started = time.monotonic()
+        with self.assertRaisesRegex(OSError, "nobody reads"):
+            Console_Capture._write_all(writer, b"data", patience=0.2)
+        self.assertGreaterEqual(time.monotonic() - started, 0.2)
+        self.assertLess(time.monotonic() - started, 5)
+
+    def test_a_failed_write_still_ends_the_forwarding_at_once(self):
+        class Closed:
+            def write(self, data):
+                raise BrokenPipeError(32, "Broken pipe")
+
+        class Stuck:
+            def write(self, data):
+                return 0
+
+        with self.assertRaises(BrokenPipeError):
+            Console_Capture._write_all(Closed(), b"data", pause=lambda seconds: self.fail("waited"))
+        with self.assertRaisesRegex(OSError, "stopped taking output"):
+            Console_Capture._write_all(Stuck(), b"data", pause=lambda seconds: self.fail("waited"))
+
+    def test_a_slow_reader_of_a_non_blocking_pipe_gets_every_byte(self):
+        read_end, write_end = os.pipe()
+        self.addCleanup(os.close, read_end)
+        os.set_blocking(write_end, False)
+        writer = io.FileIO(write_end, "wb", closefd=False)
+        self.addCleanup(os.close, write_end)
+        data = b"".join(b"%06d " % number + b"y" * 90 + b"\n" for number in range(4000))  # past a pipe's capacity
+        received = bytearray()
+
+        def read_slowly():
+            time.sleep(0.3)  # the pipe is full and the writer has been told "try again" by now
+            while len(received) < len(data):
+                received.extend(os.read(read_end, 4096))
+                time.sleep(0.001)
+
+        reader = threading.Thread(target=read_slowly, daemon=True)
+        reader.start()
+        Console_Capture._write_all(writer, data)
+        reader.join(30)
+        self.assertEqual(bytes(received), data)
+
+    @unittest.skipIf(sys.platform == "win32", "Windows hands a non-blocking pipe 4 KB at a time: too slow to finish in the time close allows")
+    def test_a_capture_keeps_forwarding_into_a_non_blocking_stdout(self):
+        # 30 writes of 100 lines each: the forward queue holds chunks (512 of them) and drops the newest when
+        # a reader stalls, as it should, so the burst must not be many tiny writes for this to be about EAGAIN.
+        program = (
+            "import sys; sys.path.insert(0, sys.argv[1]); from utilities import Console_Capture as C; "
+            "c = C.install('probe', sys.argv[2], True); "
+            "[sys.stdout.write(''.join('line %05d ' % i + 'x' * 90 + '\\n' for i in range(n, n + 100))) "
+            "for n in range(0, 3000, 100)]; "
+            "print('END', flush=True)"
+        )
+        read_end, write_end = os.pipe()
+        os.set_blocking(write_end, False)  # one pipe end, shared by every copy of it: the child's stdout is non-blocking too
+        with tempfile.TemporaryDirectory() as directory:
+            process = subprocess.Popen(
+                [sys.executable, "-c", program, str(SRC_DIR), directory], stdin=subprocess.DEVNULL,
+                stdout=write_end, stderr=subprocess.DEVNULL, env=child_environment(),
+                creationflags=CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+            os.close(write_end)
+            received = bytearray()
+            try:
+                time.sleep(1.0)  # the reader is slow: the pipe fills, and the forwarder is told "try again"
+                deadline = time.monotonic() + 60
+                while time.monotonic() < deadline:
+                    chunk = os.read(read_end, 65536)
+                    if not chunk:
+                        break
+                    received.extend(chunk)
+                process.wait(timeout=30)
+            finally:
+                os.close(read_end)
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+        lines = received.decode("utf-8").splitlines()
+        self.assertEqual(process.returncode, 0)
+        self.assertEqual(lines[-1], "END")
+        self.assertEqual(sum(line.startswith("line ") for line in lines), 3000)
+
+
+class HardExitTests(unittest.TestCase):
+    """``hard_exit`` ends the process with os._exit only after what it printed has left the pipes.
+
+    A hidden Viewer that cannot get an OpenGL context prints a marker line and exits at once; the MCP
+    client reads that line to start the headless fallback. With the capture on, descriptors 1 and 2 are
+    pipes that threads of the process empty, and a bare os._exit ended those threads first: an audit
+    lost the line in 59 of 60 runs on Linux and 58 of 60 on Windows.
+    """
+
+    PROGRAM = (
+        "import sys; sys.path.insert(0, sys.argv[1]); from utilities import Console_Capture as C; "
+        "{install}"
+        "print('MARKER out ' + sys.argv[3], flush=True); "
+        "print('MARKER err ' + sys.argv[3], file=sys.stderr, flush=True); "
+        "{leave}"
+    )
+    EXIT_CODE = 75
+    RUNS = 5  # the unfixed exit loses the line nearly every time; a few runs make a pass certain
+
+    def run_child(self, directory, number, *, capture, leave="C.hard_exit(75)"):
+        program = self.PROGRAM.format(
+            install="C.install('probe', sys.argv[2]); " if capture else "", leave=leave
+        )
+        return subprocess.run(
+            [sys.executable, "-c", program, str(SRC_DIR), os.path.join(directory, "logs"), str(number)],
+            capture_output=True, stdin=subprocess.DEVNULL, env=child_environment(), timeout=120,
+            creationflags=CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+
+    def test_the_last_lines_before_a_hard_exit_reach_the_parent_and_the_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for number in range(self.RUNS):
+                with self.subTest(run=number):
+                    done = self.run_child(directory, number, capture=True)
+                    self.assertEqual(done.returncode, self.EXIT_CODE, done.stderr)
+                    self.assertIn(f"MARKER out {number}".encode(), done.stdout)
+                    self.assertIn(f"MARKER err {number}".encode(), done.stderr)
+            logged = "".join(path.read_text(encoding="utf-8") for path in (Path(directory) / "logs").glob("probe-*.log"))
+            for number in range(self.RUNS):
+                self.assertIn(f"MARKER out {number}", logged)
+                self.assertIn(f"MARKER err {number}", logged)
+
+    def test_without_a_capture_it_flushes_the_buffered_streams_and_exits(self):
+        program = (
+            "import sys; sys.path.insert(0, sys.argv[1]); from utilities import Console_Capture as C; "
+            "sys.stdout.write('buffered line'); sys.stderr.write('buffered error'); C.hard_exit(3)"
+        )
+        done = subprocess.run(
+            [sys.executable, "-c", program, str(SRC_DIR)], capture_output=True, stdin=subprocess.DEVNULL,
+            env=child_environment(), timeout=120, creationflags=CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        self.assertEqual(done.returncode, 3)
+        self.assertEqual(done.stdout, b"buffered line")
+        self.assertEqual(done.stderr, b"buffered error")
+
+    def test_the_exit_comes_even_when_closing_the_capture_fails(self):
+        program = (
+            "import sys; sys.path.insert(0, sys.argv[1]); from utilities import Console_Capture as C; "
+            "C.install('probe', sys.argv[2]); "
+            "C._capture.close = lambda: 1 / 0; "
+            "C.hard_exit(4)"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            done = subprocess.run(
+                [sys.executable, "-c", program, str(SRC_DIR), directory], capture_output=True,
+                stdin=subprocess.DEVNULL, env=child_environment(), timeout=120,
+                creationflags=CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+            )
+        self.assertEqual(done.returncode, 4)
+
+    def test_it_is_the_only_hard_exit_in_the_program_and_the_hidden_viewers_fallback_uses_it(self):
+        found = set()
+        roots = [SRC_DIR]
+        if (PROJECT_ROOT / "opt_vr" / "src").is_dir():
+            roots.append(PROJECT_ROOT / "opt_vr" / "src")
+        for root in roots:
+            for path in root.rglob("*.py"):
+                for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+                    if isinstance(node, ast.Attribute) and node.attr == "_exit" and getattr(node.value, "id", "") == "os":
+                        found.add(path.relative_to(PROJECT_ROOT).as_posix())
+        self.assertEqual(found, {"src/utilities/Console_Capture.py"})
+        viewer = ast.parse((SRC_DIR / "EMAPSSN_Viewer.py").read_text(encoding="utf-8"))
+        function = next(node for node in ast.walk(viewer)
+                        if isinstance(node, ast.FunctionDef) and node.name == "_hidden_window_unavailable")
+        calls = {getattr(call.func, "id", getattr(call.func, "attr", "")) for call in ast.walk(function)
+                 if isinstance(call, ast.Call)}
+        self.assertIn("hard_exit", calls)
 
 
 class ProbeRun:

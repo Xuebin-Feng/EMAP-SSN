@@ -1126,11 +1126,12 @@ class MainViewer:
         The MCP client launches the Viewer headless again when it sees the marker line and
         the exit code. Nothing is published or written yet, so the process just stops.
         """
+        from utilities.Console_Capture import hard_exit
         from utilities.Viewer_Display import HIDDEN_UNAVAILABLE_EXIT_CODE, HIDDEN_UNAVAILABLE_MARKER
         print(f"{HIDDEN_UNAVAILABLE_MARKER}: {error}", flush=True)
-        sys.stdout.flush()
-        sys.stderr.flush()
-        os._exit(HIDDEN_UNAVAILABLE_EXIT_CODE)
+        # Not os._exit: with the capture on, the marker is still in a pipe that a thread of this
+        # process has to pass on, and the MCP client needs it to start the headless fallback.
+        hard_exit(HIDDEN_UNAVAILABLE_EXIT_CODE)
 
     def _check_native_opengl(self):
         """Make an OpenGL context on the native platform, as a hidden Viewer's canvas will need."""
