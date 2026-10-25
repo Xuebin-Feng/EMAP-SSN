@@ -34,10 +34,14 @@ still change before version 1.0.0.
   `PACMAP_NEIGHBORS`, so v0.4.0 refuses them, and Viewer settings documents exported now
   for the same reason. Profiles, documents and caches saved by v0.4.0 keep working here
   and mean UMAP, as before.
+- To get the start-up splash and a start with no console or Terminal window, run the
+  installer once more: `install.bat` on Windows (and `opt_vr\install_vr.bat` for VR
+  Config), or `./install.sh` on macOS. The old shortcuts and `.app` bundles keep working,
+  but still open a console or Terminal. Linux menu entries need nothing.
 
 ### Added
 
-- **A start-up splash, and no console window on Windows.**
+- **A start-up splash, and no console or terminal window.**
   - **Starting:** the Desktop shortcuts start Config, Tools and the Viewer through a small
     `EMAP-SSN.exe`, which `install.bat` builds with the compiler that comes with Windows.
     About 0.3 s after the click, a splash shows the program's name and version and what it is
@@ -68,7 +72,13 @@ still change before version 1.0.0.
     splash opens its details with the check's output and stays at "Ready" until it is closed,
     in place of the console's pause. Run `install_vr.bat` again to get the new shortcut; it
     rebuilds `EMAP-SSN.exe` when the existing one is older than its source.
-  - Linux and macOS start as before.
+  - **Linux and macOS too:** the menu entries on Linux and the `.app` bundles on macOS
+    start Config and Tools with the same splash and no terminal, and Config starts the
+    Viewer without one. A terminal opens only when the environment needs setup or repair,
+    when the start fails before the splash shows, or with `--console`
+    (`src/bin/EMAPSSN_Desktop_Launcher.sh tools --console`). On Wayland the desktop decides
+    where the splash appears and whether it stays on top. The macOS start is written but
+    not yet tested on a Mac. VR Config remains Windows-only.
 - **Background jobs in the Viewer's Session card.** Below the input files, the card lists the
   jobs that write files (`print`, `label`, `logo`) and the structure folds (`esmfold`), in two
   lines, Files and Folding, that run side by side. Each line runs one job at a time, in order.
