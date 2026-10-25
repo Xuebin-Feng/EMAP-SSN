@@ -804,6 +804,59 @@ class WarningTests(WindowCase):
         self.assertEqual([window.details.kind_of(index) for index in range(3)], ["error", "warning", "warning"])
 
 
+class ButtonLookTests(WindowCase):
+    """The Show details link, and the buttons of the section, look the same on every splash and on every platform.
+
+    The Viewer's splash (a session, started from Config) reached the user with its link drawn as a tinted button, the
+    Configuration and Tools splashes with a plain link: the session's splash process is started with Config's
+    environment, which on a Wayland desktop makes it an X11 window, and an X11 window is activated when it opens,
+    which gave the link the keyboard focus, and the focus background of its style sheet.
+    """
+
+    def properties(self, button):
+        return {
+            "text": button.text(), "font": button.font().toString(), "style": button.styleSheet(),
+            "geometry": button.geometry().getRect(), "icon": (button.iconSize().width(), button.iconSize().height()), "cursor": button.cursor().shape(),
+            "focus_policy": button.focusPolicy(),
+        }
+
+    def shown(self, kind):
+        """A splash a platform has activated, as an X11 window is: the offscreen platform activates what it shows."""
+        window = SplashWindow(kind)
+        self.addCleanup(window.deleteLater)
+        window.show()
+        flush(self.app, 3)
+        self.assertTrue(window.isActiveWindow(), "the offscreen platform no longer activates a shown window")
+        return window
+
+    def test_every_kind_builds_the_link_and_the_buttons_the_same_way(self):
+        windows = {kind: self.splash(kind) for kind in Splash.KINDS}
+        first = windows[Splash.KINDS[0]]
+        for kind, window in windows.items():
+            for name in ("details_button", "copy_button", "log_button", "close_button"):
+                with self.subTest(kind=kind, button=name):
+                    self.assertEqual(self.properties(getattr(window, name)), self.properties(getattr(first, name)))
+
+    def test_the_link_is_drawn_the_same_whether_or_not_the_platform_activates_the_splash(self):
+        for kind in Splash.KINDS:
+            with self.subTest(kind=kind):
+                quiet = self.splash(kind)
+                activated = self.shown(kind)
+                self.assertFalse(activated.details_button.hasFocus())
+                self.assertIsNone(QApplication.focusWidget())
+                self.assertEqual(activated.details_button.grab().toImage(), quiet.details_button.grab().toImage())
+
+    def test_a_click_still_focuses_the_link_and_the_error_view_focuses_close(self):
+        window = self.shown("viewer")
+        self.assertEqual(window.details_button.focusPolicy(), Qt.FocusPolicy.ClickFocus)
+        QTest.mouseClick(window.details_button, Qt.MouseButton.LeftButton)
+        flush(self.app, 2)
+        self.assertTrue(window.details_open)
+        window.show_error(["it stopped"], None)
+        flush(self.app, 2)
+        self.assertTrue(window.close_button.hasFocus())  # the error view asks for the focus itself
+
+
 class PluginKindTests(WindowCase):
     """A program beside this one adds a window with register_kind and its own catalogs with install_extra_catalogs."""
 

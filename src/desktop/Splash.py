@@ -674,6 +674,12 @@ class SplashWindow(QWidget):
         button = QPushButton(text, self)
         button.setFont(_font(12, True))
         button.setCursor(Qt.CursorShape.PointingHandCursor)
+        # Click focus only. The splash opens without activating, but a platform that activates it anyway (an X11
+        # window: the Viewer's splash is one on a Wayland desktop, started from Config's environment) hands the
+        # focus to the first button that takes it, and this is the only one showing: it would be drawn with the
+        # focus background below, a different button from the one the other splashes show. Nothing is lost: the
+        # splash is not a window one types in, and a click focuses the link as it always has.
+        button.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         button.setIconSize(QSize(12, 12))
         button.setStyleSheet(
             f"QPushButton {{ background: transparent; color: {SCHEME['accent']}; border: none; border-radius: 6px;"
