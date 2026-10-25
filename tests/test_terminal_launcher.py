@@ -230,7 +230,7 @@ class TerminalPolicyTests(unittest.TestCase):
                     )
                 popen.assert_called_once()
                 kwargs = popen.call_args.kwargs
-                self.assertEqual({name: kwargs[name] for name in expected}, expected)
+                self.assertEqual({name: kwargs.get(name, "not given") for name in expected}, expected)
 
     def test_windows_still_gives_the_new_console_its_own_streams(self):
         with mock.patch.object(launcher.subprocess, "Popen") as popen:
