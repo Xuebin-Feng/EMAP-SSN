@@ -62,9 +62,11 @@ still change before version 1.0.0.
     and macOS it doesn't slow the window's closing or stop after the window has closed.
     There, web addresses open with the user's `BROWSER` first, then `xdg-open`, `gio` or
     `open`.
-  - **The Viewer's Console:** a `console` command, a sidebar button and a link in the
-    Session card open a Console window with the Viewer's output, with search, an
-    errors-only filter, Copy, Save and Open log. Command help that used to be "printed to
+  - **The Viewer's Console:** the **Console** button in the Viewer's bottom row, between ⓘ
+    and the threshold box, and the `console` command open a Console window with the
+    Viewer's output, with search, an errors-only filter, Copy, Save and Open log. The
+    Viewer window can no longer be made narrower than that row needs, so its controls
+    never overlap. Command help that used to be "printed to
     the terminal" now points to the Console. A command name the Viewer doesn't know prints
     `Error: Unknown command: …` there, in red, and in the log, as well as on the status line.
   - **VR Config too:** its shortcut starts `EMAP-SSN.exe vr`, with the same splash under
