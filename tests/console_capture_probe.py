@@ -104,6 +104,7 @@ if "ansi" in options:
     expected += ["ansi marker", "ansi split", "ansi stderr"]
     print(f"{esc}[31mSRC ansi marker{esc}[0m {esc}[38;2;1;2;3mdot{esc}[0m")
     print(f"{esc}[1mSRC ansi stderr{esc}[0m", file=sys.stderr)
+    time.sleep(0.4)  # the other stream's line is out before this one is cut: a terminal shows both in one place
     os.write(1, f"SRC ansi split {esc}[3".encode())
     time.sleep(0.2)
     os.write(1, f"1mcoloured{esc}[0m\n".encode())
