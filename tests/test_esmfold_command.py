@@ -901,7 +901,7 @@ class ReportingTests(CommandCase):
 class WindowStateTests(unittest.TestCase):
     """No fold ever has a window of its own; the page opens only where a user is at the Viewer.
 
-    The page opens through the Viewer's real opener, so a page that would open reaches the webbrowser
+    The page opens through the Viewer's real opener, so a page that would open reaches the opener
     mock; only the scheduler, the worker's launcher and the dialogs are stubbed.
     """
 
@@ -935,7 +935,7 @@ class WindowStateTests(unittest.TestCase):
             hidden = enter(mock.patch.object(
                 esmfold_command, "launch_without_window",
                 side_effect=AssertionError("The job launches the worker, not the command.")))
-            browser = enter(mock.patch.object(Browser_Page.webbrowser, "open", return_value=True))
+            browser = enter(mock.patch.object(Browser_Page.Desktop_Open, "open_url", return_value=True))
             critical = enter(mock.patch.object(esmfold_command.QMessageBox, "critical"))
             information = enter(mock.patch.object(Browser_Page.QMessageBox, "information"))
             succeeded = enter(mock.patch.object(engine, "command_succeeded"))
@@ -971,7 +971,7 @@ class WindowStateTests(unittest.TestCase):
                     run.information.assert_not_called()
                     self.assertIn(f"served at {ADDRESS}/esmfold.html", self.outcome(run))
                 else:
-                    run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new=2)
+                    run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new_tab=True)
                     self.assertNotIn("served at", self.outcome(run))
                 self.assertIn("The worker runs without a window; its output is in", self.outcome(run))
 
@@ -987,7 +987,7 @@ class WindowStateTests(unittest.TestCase):
                         f"{ADDRESS}/esmfold.html. No folding job was requested.",
                     )
                 else:
-                    run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new=2)
+                    run.browser.assert_called_once_with(f"{ADDRESS}/esmfold.html", new_tab=True)
                     self.assertEqual(self.outcome(run), "Opened the structure viewer; no folding job was requested.")
 
     def test_a_connected_structure_viewer_needs_no_address(self):
@@ -1481,7 +1481,7 @@ class ProcessCase(PortalFixture, unittest.TestCase):
         enter(mock.patch.object(esmfold_command.esmfold_backend, "register"))
         enter(mock.patch.object(esmfold_command, "_credentials_state", return_value=("saved", None)))
         enter(mock.patch.object(esmfold_command, "_model_suffix", return_value=None))
-        self.browser = enter(mock.patch.object(Browser_Page.webbrowser, "open"))
+        self.browser = enter(mock.patch.object(Browser_Page.Desktop_Open, "open_url"))
         self.critical = enter(mock.patch.object(esmfold_command.QMessageBox, "critical"))
         real_launch = esmfold_command.launch_without_window
         real_write = esmfold_command.FoldRun.write_input

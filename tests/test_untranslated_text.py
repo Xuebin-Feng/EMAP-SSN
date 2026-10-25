@@ -613,7 +613,7 @@ class ViewerRunTimeTextTests(WindowTestCase):
                 mock.patch.object(Web_Server, "is_running", return_value=True):
             for open_page in (MainViewer.open_agent_ui, MainViewer.open_metadata_ui, esmfold_backend.open_esmfold_ui):
                 viewer = viewer_with()
-                with mock.patch.object(Browser_Page.webbrowser, "open", return_value=True):
+                with mock.patch.object(Browser_Page.Desktop_Open, "open_url", return_value=True):
                     self.assertTrue(open_page(viewer))
                     show(viewer)  # Opened.
                     self.assertFalse(open_page(viewer))
@@ -626,7 +626,7 @@ class ViewerRunTimeTextTests(WindowTestCase):
             show(viewer)  # The web server is unavailable.
             for outcome in ({"return_value": False}, {"side_effect": OSError(5)}):
                 viewer = viewer_with()
-                with mock.patch.object(Browser_Page.webbrowser, "open", **outcome):
+                with mock.patch.object(Browser_Page.Desktop_Open, "open_url", **outcome):
                     self.assertFalse(viewer.open_agent_ui())
                 show(viewer)  # Could not open it.
         with mock.patch.object(Web_Server, "is_running", return_value=False), \

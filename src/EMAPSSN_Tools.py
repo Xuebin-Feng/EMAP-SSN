@@ -68,7 +68,7 @@ def _configure_qtwebengine_rendering(
 # Chromium reads this before the QtWebEngine renderer process starts.
 _configure_qtwebengine_rendering()
 
-from utilities import Startup_Status
+from utilities import Desktop_Open, Startup_Status
 Startup_Status.report(Startup_Status.LOADING_PYTORCH, 0.45)
 from utilities import Hardware_Acceleration as Hardware_Utils
 from Embedding_Alignment_Engine import (
@@ -610,9 +610,6 @@ def confirm_model_usage_terms(parent, model_name, terms):
     if is_model_license_accepted(model_name, terms):
         return True
 
-    from PySide6.QtCore import QUrl
-    from PySide6.QtGui import QDesktopServices
-
     while True:
         dialog = QMessageBox(parent)
         dialog.setIcon(QMessageBox.Icon.Warning)
@@ -638,7 +635,7 @@ def confirm_model_usage_terms(parent, model_name, terms):
         dialog.exec()
         clicked = dialog.clickedButton()
         if clicked is view_button:
-            QDesktopServices.openUrl(QUrl(terms["license_url"]))
+            Desktop_Open.open_url(terms["license_url"])
             continue
         if clicked is not accept_button:
             return False
@@ -3147,9 +3144,7 @@ class ToolsGUI(QMainWindow):
                     folder = os.path.join(_PROJECT_ROOT, folder)
                 folder = os.path.abspath(folder)
                 os.makedirs(folder, exist_ok=True)
-                from PySide6.QtCore import QUrl
-                from PySide6.QtGui import QDesktopServices
-                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+                Desktop_Open.open_path(folder)
 
             open_button.clicked.connect(open_selected_folder)
             le.textChanged.connect(
@@ -3682,12 +3677,10 @@ class ToolsGUI(QMainWindow):
                 btn.setFixedWidth(30)
                 def open_folder(checked, dk=dir_key, df=folder):
                     import os
-                    from PySide6.QtGui import QDesktopServices
-                    from PySide6.QtCore import QUrl
                     path = _dropdown_folder(self, dk) if dk else df
                     abs_path = os.path.abspath(path)
                     os.makedirs(abs_path, exist_ok=True)
-                    QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
+                    Desktop_Open.open_path(abs_path)
                 btn.clicked.connect(open_folder)
                 
                 h_lay.addWidget(combo)
@@ -4800,10 +4793,7 @@ class ToolsGUI(QMainWindow):
             )
 
     def open_benchmark_folder(self):
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
-
-        QDesktopServices.openUrl(QUrl.fromLocalFile(BENCHMARK_DIR))
+        Desktop_Open.open_path(BENCHMARK_DIR)
 
     def switch_language(self, language, **options):
         """Redraw this window in language (None for English), keeping all it shows.

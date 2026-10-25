@@ -43,10 +43,9 @@ import time
 from pathlib import Path
 
 import shiboken6
-from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt, QTimer, QUrl
+from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QColor,
-    QDesktopServices,
     QGuiApplication,
     QKeySequence,
     QShortcut,
@@ -89,7 +88,7 @@ from desktop.Studio_Theme import (
     theme_color,
     theme_tokens,
 )
-from utilities import Console_Capture
+from utilities import Console_Capture, Desktop_Open
 from utilities.Line_Kinds import (  # noqa: F401  (re-exported: the window's callers and tests name them here)
     ERROR, ERROR_PATTERN, INFO, WARNING, WARNING_PATTERN, Classifier, classify,
 )
@@ -558,7 +557,7 @@ class ConsoleWindow(QWidget):
 
     def open_log(self):
         path = getattr(self.capture, "log_path", None)
-        if path and not QDesktopServices.openUrl(QUrl.fromLocalFile(path)):
+        if path and not Desktop_Open.open_path(path):
             open_in_file_manager(str(Path(path).parent))
 
     def show_log_folder(self):

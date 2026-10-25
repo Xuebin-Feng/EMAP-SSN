@@ -233,7 +233,7 @@ class OpenLogTests(unittest.TestCase):
         Path(self.run.log_path).write_text("worker output", encoding="utf-8")
         esmfold.RUNS[self.run.run_id] = self.run
         self.addCleanup(esmfold.RUNS.clear)
-        patcher = mock.patch("desktop.Viewer_Jobs.QDesktopServices.openUrl", return_value=True)
+        patcher = mock.patch("desktop.Viewer_Jobs.Desktop_Open.open_path", return_value=True)
         self.open_url = patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -245,7 +245,7 @@ class OpenLogTests(unittest.TestCase):
         esmfold_backend.handle_open_log(viewer, {
             "run": self.run.run_id, "path": str(self.root / "elsewhere.txt"), "log": r"C:\Windows\win.ini"})
         self.open_url.assert_called_once()
-        opened = self.open_url.call_args.args[0].toLocalFile()
+        opened = self.open_url.call_args.args[0]
         self.assertEqual(os.path.normcase(opened), os.path.normcase(os.path.abspath(self.run.log_path)))
         self.assertEqual(viewer.events, [])
 

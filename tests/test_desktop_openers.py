@@ -11,6 +11,7 @@ import tempfile
 import unittest
 import webbrowser
 from pathlib import Path
+from unittest import mock
 
 from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
@@ -21,6 +22,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from desktop import Desktop_App  # noqa: E402
+from utilities import Desktop_Open  # noqa: E402
+
+# The Linux and macOS opener starts a program only if the desktop has one: a test machine may not.
+HAS_AN_OPENER = mock.patch.object(Desktop_Open.shutil, "which", return_value="/usr/bin/xdg-open")
 
 
 class TrapsTests(unittest.TestCase):
@@ -47,10 +52,24 @@ class TrapsTests(unittest.TestCase):
         self.assertIn(QUrl.fromLocalFile(folder).toString(), calls[0])
 
     def test_the_file_manager_opener_reaches_nothing(self):
-        # The program's own opener, through Qt and then the platform shell, ends in the traps.
-        with tempfile.TemporaryDirectory() as folder, desktop_openers.expecting() as calls:
+        # The program's own opener (utilities/Desktop_Open.py) ends in a trap: Qt's on Windows, its own elsewhere.
+        with tempfile.TemporaryDirectory() as folder, desktop_openers.expecting() as calls, HAS_AN_OPENER:
             self.assertTrue(Desktop_App.open_in_file_manager(folder))
         self.assertEqual(len(calls), 1, calls)
+
+    def test_the_shared_opener_starts_no_program_and_the_call_is_recorded(self):
+        for platform, program in (("linux", "xdg-open"), ("darwin", "open")):
+            with self.subTest(platform=platform), desktop_openers.expecting() as calls, HAS_AN_OPENER:
+                self.assertTrue(Desktop_Open._open_with_the_desktop("/some/folder", browser=False, platform_name=platform))
+            self.assertEqual(len(calls), 1, calls)
+            self.assertIn("Desktop_Open(", calls[0])
+            self.assertIn(f"{program} /some/folder", calls[0])
+
+    def test_a_call_to_the_shared_opener_is_charged_to_the_line_that_asked_for_it(self):
+        with tempfile.TemporaryDirectory() as folder, desktop_openers.expecting() as calls, HAS_AN_OPENER:
+            Desktop_App.open_in_file_manager(folder)
+        self.assertIn("Desktop_App.py", calls[0])
+        self.assertNotIn("Desktop_Open.py", calls[0])
 
     def test_an_opener_program_is_not_started(self):
         for command in (["xdg-open", "x"], ["open", "x"], ["gio", "open", "x"], ["explorer", "x"],
@@ -101,7 +120,8 @@ class FailingTests(unittest.TestCase):
                     pass
 
             def test_reaches_the_file_manager(self):
-                Desktop_App.open_in_file_manager(tempfile.gettempdir())
+                with HAS_AN_OPENER:
+                    Desktop_App.open_in_file_manager(tempfile.gettempdir())
 
             def test_expects_the_browser(self):
                 with desktop_openers.expecting():
@@ -127,7 +147,7 @@ class FailingTests(unittest.TestCase):
     def test_the_program_s_own_file_manager_opener_fails_the_test_too(self):
         result, _ = self.run_nested("test_reaches_the_file_manager")
         self.assertEqual(len(result.failures), 1)
-        self.assertIn("QDesktopServices.openUrl", result.failures[0][1])
+        self.assertIn("QDesktopServices.openUrl" if sys.platform == "win32" else "Desktop_Open(", result.failures[0][1])
         self.assertIn("Desktop_App.py", result.failures[0][1], "the program's own line")
 
     def test_swallowing_the_answer_does_not_hide_the_call(self):
@@ -165,6 +185,16 @@ class EveryProcessTests(unittest.TestCase):
             "print('trapped')\n")
         self.assertEqual((done.returncode, done.stdout.strip()), (0, "trapped"), done.stderr)
 
+    def test_a_child_that_imports_the_package_has_the_opener_trap_whenever_it_imports_it(self):
+        done = self.child(
+            "import sys\n"
+            f"sys.path.insert(0, {str(PROJECT_ROOT / 'src')!r})\n"
+            "import tests\n"
+            "from utilities import Desktop_Open\n"
+            "assert Desktop_Open._start.__module__ == 'tests.desktop_openers', Desktop_Open._start\n"
+            "print('trapped')\n")
+        self.assertEqual((done.returncode, done.stdout.strip()), (0, "trapped"), done.stderr)
+
     def test_a_call_with_no_test_running_is_reported_when_the_process_ends(self):
         done = self.child(
             "import tests, webbrowser\n"
@@ -174,9 +204,11 @@ class EveryProcessTests(unittest.TestCase):
         self.assertIn("http://127.0.0.1:1/late", done.stderr)
 
     def test_installing_twice_changes_nothing(self):
-        before = (webbrowser.open, subprocess.Popen, unittest.TestResult.stopTest, QDesktopServices.openUrl)
+        before = (webbrowser.open, subprocess.Popen, unittest.TestResult.stopTest, QDesktopServices.openUrl,
+                  Desktop_Open._start)
         desktop_openers.install()
-        self.assertEqual((webbrowser.open, subprocess.Popen, unittest.TestResult.stopTest, QDesktopServices.openUrl),
+        self.assertEqual((webbrowser.open, subprocess.Popen, unittest.TestResult.stopTest, QDesktopServices.openUrl,
+                          Desktop_Open._start),
                          before)
 
 

@@ -1054,13 +1054,13 @@ class ToolExportGuiTests(unittest.TestCase):
                 selected_folder = pathlib.Path(temp_dir, "selected", "embeddings")
                 fake_window.dir_inputs["EMBED_DIR"].setText(str(selected_folder))
                 with mock.patch(
-                    "PySide6.QtGui.QDesktopServices.openUrl", return_value=True
-                ) as open_url:
+                    "utilities.Desktop_Open.open_path", return_value=True
+                ) as open_path:
                     fake_window.directory_open_buttons["EMBED_DIR"].click()
 
                 self.assertTrue(selected_folder.is_dir())
                 self.assertEqual(
-                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    pathlib.Path(open_path.call_args.args[0]).resolve(),
                     selected_folder.resolve(),
                 )
         finally:

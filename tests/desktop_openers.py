@@ -4,8 +4,10 @@ page or a console window for real.
 The program reaches the desktop through a handful of calls, which tests/__init__.py
 replaces in every test process:
 
-* QDesktopServices.openUrl, which every "open this folder or file" button uses,
-  and through it open_in_file_manager;
+* QDesktopServices.openUrl, which the Windows opener (utilities/Desktop_Open.py) ends
+  in for every "open this folder or file" button, and through it open_in_file_manager;
+* Desktop_Open._start, the one place the Linux and macOS opener starts a program
+  (xdg-open, gio, open or the user's BROWSER);
 * webbrowser.open, open_new and open_new_tab, the Viewer's browser pages;
 * os.startfile, the Windows fallback of open_in_file_manager;
 * subprocess.Popen of an opener program (open, xdg-open, gio, explorer, ...) or with
@@ -35,6 +37,8 @@ import webbrowser
 
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _THIS_FILE = os.path.normcase(os.path.abspath(__file__))
+# Files that only pass the call on: the site a failure names is the line that asked for it.
+_PASS_THROUGH = frozenset({_THIS_FILE, os.path.normcase(os.path.join(_PROJECT_ROOT, "src", "utilities", "Desktop_Open.py"))})
 _LOCK = threading.Lock()
 _UNEXPECTED = []  # reached with no test expecting it, not yet reported
 _EXPECTING = []  # one list per open expecting() block, innermost last
@@ -59,7 +63,7 @@ def _origin():
     frame = sys._getframe(2)
     while frame is not None:
         path = os.path.normcase(os.path.abspath(frame.f_code.co_filename))
-        if not site and path != _THIS_FILE and path.startswith(os.path.normcase(_PROJECT_ROOT)):
+        if not site and path not in _PASS_THROUGH and path.startswith(os.path.normcase(_PROJECT_ROOT)):
             site = f"{os.path.relpath(frame.f_code.co_filename, _PROJECT_ROOT)}:{frame.f_lineno} in {frame.f_code.co_name}"
         if not test:
             owner = frame.f_locals.get("self")
@@ -152,31 +156,57 @@ class _GuardedPopen(_REAL_POPEN):
         super().__init__(args, *positional, **keywords)
 
 
-class _QtGuiLoader(importlib.abc.Loader):
-    """Execute PySide6.QtGui, then replace QDesktopServices.openUrl in it."""
+def _start_opener(command):
+    _record("Desktop_Open", " ".join(str(word) for word in command))
+    return True
 
-    def __init__(self, loader):
+
+_REAL_OPENER_START = None
+
+
+def _guard_opener(module):
+    global _REAL_OPENER_START
+    if module._start is not _start_opener:
+        _REAL_OPENER_START = module._start
+        module._start = _start_opener
+
+
+def real_opener_start():
+    """Desktop_Open._start as it was before the trap, for the test of what it starts."""
+    return _REAL_OPENER_START
+
+
+class _GuardedLoader(importlib.abc.Loader):
+    """Execute a module, then run its guard on it (replace QDesktopServices.openUrl, Desktop_Open._start)."""
+
+    def __init__(self, loader, guard):
         self._loader = loader
+        self._guard = guard
 
     def create_module(self, spec):
         return self._loader.create_module(spec)
 
     def exec_module(self, module):
         self._loader.exec_module(module)
-        _guard_qt(module)
+        self._guard(module)
 
     def __getattr__(self, name):
         return getattr(self._loader, name)
 
 
-class _QtGuiFinder(importlib.abc.MetaPathFinder):
+class _GuardedFinder(importlib.abc.MetaPathFinder):
+    """Guard a module when it is first imported, whenever that is: the call sites only name the module."""
+
+    def __init__(self, guards):
+        self._guards = guards  # module name -> function that replaces what opens something in it
+
     def find_spec(self, fullname, path=None, target=None):
-        if fullname != "PySide6.QtGui":
+        if fullname not in self._guards:
             return None
         spec = importlib.machinery.PathFinder.find_spec(fullname, path, target)
         if spec is None or spec.loader is None:
             return None
-        spec.loader = _QtGuiLoader(spec.loader)
+        spec.loader = _GuardedLoader(spec.loader, self._guards[fullname])
         return spec
 
 
@@ -223,10 +253,15 @@ def install():
     if hasattr(os, "startfile"):
         os.startfile = _start_file
     subprocess.Popen = _GuardedPopen
-    gui = sys.modules.get("PySide6.QtGui")
-    if gui is not None:
-        _guard_qt(gui)
-    else:
-        sys.meta_path.insert(0, _QtGuiFinder())
+    guards = {"PySide6.QtGui": _guard_qt, "utilities.Desktop_Open": _guard_opener}
+    waiting = {}
+    for name, guard in guards.items():
+        loaded = sys.modules.get(name)
+        if loaded is not None:
+            guard(loaded)
+        else:
+            waiting[name] = guard
+    if waiting:
+        sys.meta_path.insert(0, _GuardedFinder(waiting))
     _guard_results()
     atexit.register(_report_at_exit)

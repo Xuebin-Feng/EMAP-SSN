@@ -69,6 +69,7 @@ from desktop.Studio_Theme import (
     widget_class_fonts,
 )
 from utilities.App_Settings import AppSettingsError, PROJECT_ROOT, read_app_settings, save_app_setting
+from utilities import Desktop_Open
 
 from utilities.Language_Packs import (
     WEB_LANGUAGE_FAMILY,
@@ -384,27 +385,18 @@ def show_window_in_front(window):
 
 
 def open_in_file_manager(path):
-    """Reveal a path through Qt, with a platform shell fallback."""
+    """Reveal a path in the desktop's file manager (utilities/Desktop_Open.py), with os.startfile as Windows' fallback."""
     target = os.path.abspath(path)
     try:
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
-
-        if QDesktopServices.openUrl(QUrl.fromLocalFile(target)):
+        if Desktop_Open.open_path(target):
             return True
     except Exception:
         pass
+    if os.name != "nt":
+        return False  # the opener there has tried every program the desktop has for it
 
     try:
-        import subprocess
-
-        if os.name == "nt":
-            os.startfile(target)
-        else:
-            # The opener's file manager outlives this call, and would hold the pipes of the Console
-            # capture (utilities/Console_Capture.py) that a window's descriptors 1 and 2 are.
-            detached = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
-            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", target], **detached)
+        os.startfile(target)
         return True
     except Exception:
         return False

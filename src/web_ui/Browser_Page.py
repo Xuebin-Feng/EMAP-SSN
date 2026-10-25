@@ -16,12 +16,12 @@
 """Shared duplicate-safe opening for the bundled browser pages."""
 
 import time
-import webbrowser
 
 from PySide6.QtWidgets import QMessageBox
 
 from desktop.Desktop_App import translate
 from desktop.Viewer_Window import viewer_shows_windows
+from utilities import Desktop_Open
 from utilities.Localization import Message, display_text
 
 
@@ -131,7 +131,7 @@ def open_browser_page(
 
     pending[client_id] = now + PENDING_OPEN_SECONDS
     try:
-        opened = bool(webbrowser.open(url, new=2))
+        opened = Desktop_Open.open_url(url, new_tab=True)
     except Exception as error:
         pending.pop(client_id, None)
         _set_console_message(viewer, Message("Could not open {page}: {error}", page=label, error=error))

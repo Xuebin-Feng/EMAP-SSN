@@ -609,10 +609,15 @@ def short_socket_folder(test):
     return folder
 
 
+def use_short_socket_folder(test):
+    """Make Qt's temp folder short for the rest of the test, where that matters (not on Windows: named pipes)."""
+    if os.name != "nt":
+        test.enterContext(mock.patch.dict(os.environ, {"TMPDIR": short_socket_folder(test)}))
+
+
 class QuietEndTests(LaunchCase):
     def test_an_open_window_of_this_checkout_is_brought_forward_and_nothing_else_starts(self):
-        if os.name != "nt":  # Windows' local sockets are named pipes, with no such limit
-            self.enterContext(mock.patch.dict(os.environ, {"TMPDIR": short_socket_folder(self)}))
+        use_short_socket_folder(self)
         name = Desktop_Launcher.single_instance_server_name("SSN_Config", self.root)
         activated = []
         server = QLocalServer()
@@ -913,11 +918,12 @@ class PluginKindTests(LaunchCase):
         self.assertEqual(Path(call.call_args.args[0][-2]), self.plug / "Launch_Plug.bat")
 
     def test_a_second_launch_brings_the_open_window_forward_by_the_kinds_own_key(self):
+        use_short_socket_folder(self)
         name = Desktop_Launcher.single_instance_server_name("SSN_Plug", self.root)
         activated = []
         server = QLocalServer()
         QLocalServer.removeServer(name)
-        self.assertTrue(server.listen(name))
+        self.assertTrue(server.listen(name), server.errorString())
         self.addCleanup(server.close)
         server.newConnection.connect(lambda: activated.append(server.nextPendingConnection().readAll()))
         launch = self.launch("plug")

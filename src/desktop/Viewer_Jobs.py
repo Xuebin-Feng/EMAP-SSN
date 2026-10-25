@@ -23,12 +23,12 @@ from dataclasses import dataclass
 import os
 from typing import Any
 
-from PySide6.QtCore import QUrl, Qt
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import QLabel
 
 from desktop.Studio_Theme import TOKENS
 from desktop.Viewer_Window import viewer_shows_windows
+from utilities import Desktop_Open
 from utilities.Localization import Message, display_text
 
 # The badge's height, the frame-rate display's.
@@ -162,7 +162,7 @@ def open_log_file(viewer, path):
     """
     if path is None or not os.path.isfile(path) or not viewer_shows_windows(viewer):
         return False
-    return bool(QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
+    return Desktop_Open.open_path(path)
 
 
 class JobsBadge(QLabel):

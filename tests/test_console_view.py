@@ -445,13 +445,13 @@ class ButtonTests(WindowCase):
         self.addCleanup(recorder.close_log)  # before the folder goes
         window = ConsoleWindow(recorder)
         self.addCleanup(window.deleteLater)
-        with mock.patch.object(Console_View.QDesktopServices, "openUrl", return_value=True) as open_url:
+        with mock.patch.object(Console_View.Desktop_Open, "open_path", return_value=True) as open_path:
             window.log_button.click()
-        self.assertEqual(Path(open_url.call_args.args[0].toLocalFile()), Path(recorder.log_path))
+        self.assertEqual(Path(open_path.call_args.args[0]), Path(recorder.log_path))
         with mock.patch.object(Console_View, "open_in_file_manager") as reveal:
             window.folder_button.click()
         reveal.assert_called_once_with(str(Path(recorder.log_path).parent))
-        with mock.patch.object(Console_View.QDesktopServices, "openUrl", return_value=False), mock.patch.object(
+        with mock.patch.object(Console_View.Desktop_Open, "open_path", return_value=False), mock.patch.object(
             Console_View, "open_in_file_manager"
         ) as reveal:
             window.log_button.click()  # no program for .log files: the folder opens instead

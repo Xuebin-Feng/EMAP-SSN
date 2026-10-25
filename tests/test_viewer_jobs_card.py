@@ -440,27 +440,27 @@ class ViewerJobsTests(ScheduledJobsCase):
         Path(log).write_text("worker output")
         job_id, entered = self.hold("a", log_path=log)
         self.assertTrue(entered.wait(10))
-        with mock.patch("desktop.Viewer_Jobs.QDesktopServices") as services, \
+        with mock.patch("desktop.Viewer_Jobs.Desktop_Open") as services, \
                 mock.patch("desktop.Viewer_Jobs.viewer_shows_windows", return_value=True):
-            services.openUrl.return_value = True
+            services.open_path.return_value = True
             self.assertTrue(self.jobs.open_log(job_id))
-            url = services.openUrl.call_args.args[0]
-            self.assertEqual(os.path.normcase(url.toLocalFile()), os.path.normcase(log))
-            services.openUrl.reset_mock()
+            opened = services.open_path.call_args.args[0]
+            self.assertEqual(os.path.normcase(opened), os.path.normcase(log))
+            services.open_path.reset_mock()
             self.assertFalse(self.jobs.open_log(job_id + 100), "a number that names no job opens nothing")
-            services.openUrl.assert_not_called()
+            services.open_path.assert_not_called()
 
     def test_a_viewer_with_no_windows_and_a_log_that_is_gone_open_nothing(self):
         log = self.path("run.log")
         job_id, entered = self.hold("a", log_path=log)
         self.assertTrue(entered.wait(10))
-        with mock.patch("desktop.Viewer_Jobs.QDesktopServices") as services, \
+        with mock.patch("desktop.Viewer_Jobs.Desktop_Open") as services, \
                 mock.patch("desktop.Viewer_Jobs.viewer_shows_windows", return_value=True):
             self.assertFalse(self.jobs.open_log(job_id), "the file is not there")
             Path(log).write_text("x")
             with mock.patch("desktop.Viewer_Jobs.viewer_shows_windows", return_value=False):
                 self.assertFalse(self.jobs.open_log(job_id), "nobody is at the Viewer")
-            services.openUrl.assert_not_called()
+            services.open_path.assert_not_called()
 
 
 class SectionOverSchedulerTests(ScheduledJobsCase):

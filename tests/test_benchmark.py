@@ -922,15 +922,16 @@ class BenchmarkToolsCardTests(unittest.TestCase):
         self.assertIn(tools.BENCHMARK_SCRIPT, reported.call_args.args[2])
 
     def test_the_folder_button_opens_the_benchmark_folder(self):
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
         from PySide6.QtWidgets import QPushButton
+
+        from utilities import Desktop_Open
 
         _tools, window = self.open_window()
         button = self.benchmark_card(window).findChild(QPushButton, "openBenchmarkFolderButton")
-        with mock.patch.object(QDesktopServices, "openUrl") as opened:
+        with mock.patch.object(Desktop_Open, "open_path") as opened:
             button.click()
-        opened.assert_called_once_with(QUrl.fromLocalFile(str(BENCHMARK_DIR)))
+        opened.assert_called_once()
+        self.assertEqual(Path(opened.call_args.args[0]), Path(BENCHMARK_DIR))
 
     def test_the_question_before_a_run_shows_in_the_window_s_language(self):
         from tests.translation_fixtures import outside_the_catalog, pseudo_language

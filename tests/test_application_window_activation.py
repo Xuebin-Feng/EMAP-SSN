@@ -98,41 +98,30 @@ class ApplicationWindowActivationTests(unittest.TestCase):
         window.windowHandle.return_value = None
         return window
 
-    def test_file_manager_prefers_qt_desktop_services(self):
-        with mock.patch(
-            "PySide6.QtGui.QDesktopServices.openUrl", return_value=True
-        ) as open_url:
+    def test_file_manager_asks_the_shared_opener_for_the_absolute_path(self):
+        with mock.patch.object(Application_Windows.Desktop_Open, "open_path", return_value=True) as open_path:
             self.assertTrue(Application_Windows.open_in_file_manager("output"))
 
-        open_url.assert_called_once()
+        open_path.assert_called_once_with(os.path.abspath("output"))
 
-    def test_file_manager_uses_the_platform_shell_when_qt_declines(self):
-        # Each platform's fallback runs on any host: the module sees a
-        # stand-in os, because os.startfile exists only on Windows.
-        # The POSIX openers get /dev/null for every stream: the file manager they start outlives
-        # the call and must not hold the pipes of the Console capture.
+    def test_only_windows_falls_back_to_startfile_when_the_opener_declines(self):
+        # The module sees a stand-in os, because os.startfile exists only on Windows. Elsewhere the
+        # opener has tried every program the desktop has, and nothing else starts one.
         target = os.path.abspath("output")
-        devnull = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
-        for os_name, platform, expected in (
-            ("nt", "win32", ("startfile", target)),
-            ("posix", "darwin", ("Popen", ["open", target])),
-            ("posix", "linux", ("Popen", ["xdg-open", target])),
-        ):
+        for os_name, expected in (("nt", True), ("posix", False)):
             startfile = mock.Mock()
             stand_in_os = SimpleNamespace(name=os_name, path=os.path, startfile=startfile)
-            with self.subTest(platform=platform), mock.patch(
-                "PySide6.QtGui.QDesktopServices.openUrl", return_value=False
-            ), mock.patch.object(Application_Windows, "os", stand_in_os), mock.patch.object(
-                Application_Windows.sys, "platform", platform
-            ), mock.patch("subprocess.Popen") as popen:
-                self.assertTrue(Application_Windows.open_in_file_manager("output"))
-                called = startfile if expected[0] == "startfile" else popen
-                unused = popen if called is startfile else startfile
-                if called is popen:
-                    called.assert_called_once_with(expected[1], **devnull)
-                else:
-                    called.assert_called_once_with(expected[1])
-                unused.assert_not_called()
+            with self.subTest(os=os_name), mock.patch.object(
+                Application_Windows.Desktop_Open, "open_path", return_value=False
+            ), mock.patch.object(Application_Windows, "os", stand_in_os), mock.patch(
+                "subprocess.Popen"
+            ) as popen:
+                self.assertIs(Application_Windows.open_in_file_manager("output"), expected)
+            if expected:
+                startfile.assert_called_once_with(target)
+            else:
+                startfile.assert_not_called()
+            popen.assert_not_called()
 
     def test_show_schedules_repeated_foreground_requests(self):
         window = self._window()

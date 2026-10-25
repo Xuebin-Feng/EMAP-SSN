@@ -43,7 +43,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
     def test_disconnected_client_opens_one_new_tab(self):
         viewer = self.make_viewer()
         with mock.patch.object(
-            Browser_Page.webbrowser, "open", return_value=True
+            Browser_Page.Desktop_Open, "open_url", return_value=True
         ) as browser_open:
             self.assertTrue(
                 Browser_Page.open_browser_page(
@@ -52,7 +52,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
             )
 
         browser_open.assert_called_once_with(
-            "http://localhost:49123/meta.html", new=2
+            "http://localhost:49123/meta.html", new_tab=True
         )
         self.assertEqual(
             viewer.console_text.text,
@@ -63,7 +63,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
     def test_matching_connected_client_reports_without_opening(self):
         viewer = self.make_viewer({"meta"})
         with (
-            mock.patch.object(Browser_Page.webbrowser, "open") as browser_open,
+            mock.patch.object(Browser_Page.Desktop_Open, "open_url") as browser_open,
             mock.patch.object(
                 Browser_Page.QMessageBox, "information"
             ) as information,
@@ -87,7 +87,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
     def test_connected_client_can_report_without_dialog(self):
         viewer = self.make_viewer({"esmfold"})
         with (
-            mock.patch.object(Browser_Page.webbrowser, "open") as browser_open,
+            mock.patch.object(Browser_Page.Desktop_Open, "open_url") as browser_open,
             mock.patch.object(
                 Browser_Page.QMessageBox, "information"
             ) as information,
@@ -112,7 +112,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
     def test_unrelated_connected_client_does_not_suppress_opening(self):
         viewer = self.make_viewer({"agent"})
         with mock.patch.object(
-            Browser_Page.webbrowser, "open", return_value=True
+            Browser_Page.Desktop_Open, "open_url", return_value=True
         ) as browser_open:
             self.assertTrue(
                 Browser_Page.open_browser_page(
@@ -126,7 +126,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
         viewer = self.make_viewer()
         with (
             mock.patch.object(
-                Browser_Page.webbrowser, "open", return_value=True
+                Browser_Page.Desktop_Open, "open_url", return_value=True
             ) as browser_open,
             mock.patch.object(
                 Browser_Page.QMessageBox, "information"
@@ -158,7 +158,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
         viewer._web_ui_pending_opens = {"esmfold": 110.0}
         with (
             mock.patch.object(Browser_Page.time, "monotonic", return_value=100.0),
-            mock.patch.object(Browser_Page.webbrowser, "open") as browser_open,
+            mock.patch.object(Browser_Page.Desktop_Open, "open_url") as browser_open,
             mock.patch.object(
                 Browser_Page.QMessageBox, "information"
             ) as information,
@@ -186,7 +186,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
         with (
             mock.patch.object(Browser_Page.time, "monotonic", return_value=100.1),
             mock.patch.object(
-                Browser_Page.webbrowser, "open", return_value=True
+                Browser_Page.Desktop_Open, "open_url", return_value=True
             ) as browser_open,
         ):
             self.assertTrue(
@@ -204,7 +204,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
                 Browser_Page.QMessageBox, "information"
             ),
             mock.patch.object(
-                Browser_Page.webbrowser, "open", return_value=True
+                Browser_Page.Desktop_Open, "open_url", return_value=True
             ) as browser_open,
         ):
             self.assertFalse(
@@ -230,7 +230,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
     def test_failed_browser_launch_clears_pending_reservation(self):
         viewer = self.make_viewer()
         with mock.patch.object(
-            Browser_Page.webbrowser, "open", return_value=False
+            Browser_Page.Desktop_Open, "open_url", return_value=False
         ):
             self.assertFalse(
                 Browser_Page.open_browser_page(
@@ -251,7 +251,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
             raise RuntimeError("the web server is not running")
 
         viewer.get_web_url = unavailable
-        with mock.patch.object(Browser_Page.webbrowser, "open") as browser_open:
+        with mock.patch.object(Browser_Page.Desktop_Open, "open_url") as browser_open:
             self.assertFalse(
                 Browser_Page.open_browser_page(
                     viewer, "/meta.html", "Metadata UI", "meta"
@@ -268,7 +268,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
     def test_browser_error_clears_pending_reservation(self):
         viewer = self.make_viewer()
         with mock.patch.object(
-            Browser_Page.webbrowser, "open", side_effect=OSError("no browser")
+            Browser_Page.Desktop_Open, "open_url", side_effect=OSError("no browser")
         ):
             self.assertFalse(
                 Browser_Page.open_browser_page(
@@ -288,7 +288,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
             mock.patch.object(Browser_Page.time, "monotonic", return_value=100.0),
             mock.patch.object(Browser_Page.QMessageBox, "information"),
             mock.patch.object(
-                Browser_Page.webbrowser, "open", return_value=True
+                Browser_Page.Desktop_Open, "open_url", return_value=True
             ) as browser_open,
         ):
             self.assertFalse(
@@ -304,7 +304,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
                 )
             )
 
-        browser_open.assert_called_once_with("http://localhost:49123/meta.html", new=2)
+        browser_open.assert_called_once_with("http://localhost:49123/meta.html", new_tab=True)
 
     def test_viewer_without_a_console_or_web_server_still_opens(self):
         viewer = SimpleNamespace(
@@ -312,7 +312,7 @@ class BrowserPageOpeningTests(unittest.TestCase):
             _web_ui_pending_opens=None,
         )
         with mock.patch.object(
-            Browser_Page.webbrowser, "open", return_value=True
+            Browser_Page.Desktop_Open, "open_url", return_value=True
         ) as browser_open:
             self.assertTrue(
                 Browser_Page.open_browser_page(
@@ -352,7 +352,7 @@ class InstanceUrlRoutingTests(unittest.TestCase):
                 mock.patch.object(agent, "register"), \
                 mock.patch.object(meta, "register"), \
                 mock.patch.object(meta.cfg, "METADATA_DIR", temp_dir), \
-                mock.patch("webbrowser.open") as browser_open:
+                mock.patch("utilities.Desktop_Open.open_url") as browser_open:
             agent.run(viewer, [])
             meta.run(viewer, [])
             esmfold_backend.open_esmfold_ui(viewer)
@@ -369,7 +369,7 @@ class HeadlessBrowserPageTests(unittest.TestCase):
         viewer = BrowserPageOpeningTests.make_viewer()
         viewer.headless = True
         with (
-            mock.patch.object(Browser_Page.webbrowser, "open") as browser_open,
+            mock.patch.object(Browser_Page.Desktop_Open, "open_url") as browser_open,
             mock.patch.object(Browser_Page.QMessageBox, "information") as information,
         ):
             self.assertFalse(
@@ -388,7 +388,7 @@ class HeadlessBrowserPageTests(unittest.TestCase):
     def test_a_page_that_is_already_connected_is_still_reported_as_open(self):
         viewer = BrowserPageOpeningTests.make_viewer({"meta"})
         viewer.headless = True
-        with mock.patch.object(Browser_Page.webbrowser, "open") as browser_open:
+        with mock.patch.object(Browser_Page.Desktop_Open, "open_url") as browser_open:
             self.assertFalse(
                 Browser_Page.open_browser_page(
                     viewer, "/meta.html", "Metadata UI", "meta", show_existing_dialog=False
@@ -416,7 +416,7 @@ class HeadlessBrowserPageTests(unittest.TestCase):
             mock.patch.object(agent, "register"),
             mock.patch.object(meta, "register"),
             mock.patch.object(meta.cfg, "METADATA_DIR", temp_dir),
-            mock.patch("webbrowser.open") as browser_open,
+            mock.patch("utilities.Desktop_Open.open_url") as browser_open,
         ):
             agent.run(viewer, [])
             meta.run(viewer, [])
@@ -501,7 +501,7 @@ class ViewerPageOpenerTests(unittest.TestCase):
 
         viewer = BrowserPageOpeningTests.make_viewer()
         self.assertFalse(Browser_Page.page_is_open(viewer, "meta"))
-        with mock.patch.object(Browser_Page.webbrowser, "open", return_value=True):
+        with mock.patch.object(Browser_Page.Desktop_Open, "open_url", return_value=True):
             Browser_Page.open_browser_page(viewer, "/meta.html", "Metadata UI", "meta")
         self.assertTrue(Browser_Page.page_is_open(viewer, "meta"))
         self.assertFalse(Browser_Page.page_is_open(SimpleNamespace(), "meta"))
@@ -535,7 +535,7 @@ class ViewerPageOpenerTests(unittest.TestCase):
 
     def test_meta_reports_success_only_when_the_page_opened(self):
         viewer = self.make_viewer()
-        with mock.patch.object(Browser_Page.webbrowser, "open", return_value=True):
+        with mock.patch.object(Browser_Page.Desktop_Open, "open_url", return_value=True):
             succeeded, failed, _ = self.run_meta(viewer, portal=False)
         succeeded.assert_called_once_with(viewer, "Opened the metadata interface.")
         failed.assert_not_called()
@@ -544,7 +544,7 @@ class ViewerPageOpenerTests(unittest.TestCase):
         for portal, dialogs in ((False, 1), (True, 0)):
             with self.subTest(portal=portal):
                 viewer = self.make_viewer({"meta"})
-                with mock.patch.object(Browser_Page.webbrowser, "open") as browser_open:
+                with mock.patch.object(Browser_Page.Desktop_Open, "open_url") as browser_open:
                     succeeded, failed, information = self.run_meta(viewer, portal)
                 browser_open.assert_not_called()
                 succeeded.assert_not_called()
@@ -556,7 +556,7 @@ class ViewerPageOpenerTests(unittest.TestCase):
 
     def test_meta_says_when_the_page_could_not_be_opened(self):
         viewer = self.make_viewer()
-        with mock.patch.object(Browser_Page.webbrowser, "open", return_value=False):
+        with mock.patch.object(Browser_Page.Desktop_Open, "open_url", return_value=False):
             succeeded, failed, _ = self.run_meta(viewer, portal=False)
         succeeded.assert_not_called()
         failed.assert_called_once_with(viewer, "Could not open the metadata interface.")
@@ -573,7 +573,7 @@ class WindowStateBrowserPageTests(unittest.TestCase):
         for state in WINDOW_STATES:
             with self.subTest(state=state):
                 viewer = apply_window_state(BrowserPageOpeningTests.make_viewer(), state)
-                with mock.patch.object(Browser_Page.webbrowser, "open", return_value=True) as browser_open:
+                with mock.patch.object(Browser_Page.Desktop_Open, "open_url", return_value=True) as browser_open:
                     opened = Browser_Page.open_browser_page(viewer, "/meta.html", "Metadata UI", "meta")
                 self.assertEqual(Browser_Page.is_headless(viewer), state in NO_WINDOW_STATES)
                 self.assertEqual(opened, state not in NO_WINDOW_STATES)
@@ -589,7 +589,7 @@ class WindowStateBrowserPageTests(unittest.TestCase):
             with self.subTest(state=state):
                 viewer = apply_window_state(BrowserPageOpeningTests.make_viewer({"meta"}), state)
                 with (
-                    mock.patch.object(Browser_Page.webbrowser, "open") as browser_open,
+                    mock.patch.object(Browser_Page.Desktop_Open, "open_url") as browser_open,
                     mock.patch.object(Browser_Page.QMessageBox, "information") as information,
                 ):
                     self.assertFalse(Browser_Page.open_browser_page(viewer, "/meta.html", "Metadata UI", "meta"))
@@ -606,7 +606,7 @@ class WindowStateBrowserPageTests(unittest.TestCase):
                 mock.patch.object(command, "register"), \
                 mock.patch.object(meta.cfg, "METADATA_DIR", temp_dir), \
                 mock.patch.object(Browser_Page.QMessageBox, "information"), \
-                mock.patch("webbrowser.open", return_value=True) as browser_open, \
+                mock.patch("utilities.Desktop_Open.open_url", return_value=True) as browser_open, \
                 mock.patch.object(engine, "command_succeeded") as succeeded, \
                 mock.patch.object(engine, "command_failed") as failed:
             command.run(viewer, [])
@@ -626,7 +626,7 @@ class WindowStateBrowserPageTests(unittest.TestCase):
                         "http://127.0.0.1:49123/agent.html. No model request was started.",
                     )
                 else:
-                    browser_open.assert_called_once_with("http://127.0.0.1:49123/agent.html", new=2)
+                    browser_open.assert_called_once_with("http://127.0.0.1:49123/agent.html", new_tab=True)
                     self.assertEqual(call.args[1], "Opened the Agent interface; no model request was started.")
 
     def test_bare_meta_opens_the_page_or_gives_its_address(self):
@@ -643,7 +643,7 @@ class WindowStateBrowserPageTests(unittest.TestCase):
                         "http://127.0.0.1:49123/meta.html.",
                     )
                 else:
-                    browser_open.assert_called_once_with("http://127.0.0.1:49123/meta.html", new=2)
+                    browser_open.assert_called_once_with("http://127.0.0.1:49123/meta.html", new_tab=True)
                     self.assertEqual(call.args[1], "Opened the metadata interface.")
 
     def test_a_page_already_open_is_reported_the_same_in_every_state(self):
@@ -667,7 +667,7 @@ class WindowStateBrowserPageTests(unittest.TestCase):
                     with tempfile.TemporaryDirectory() as temp_dir, \
                             mock.patch.object(command, "register"), \
                             mock.patch.object(meta.cfg, "METADATA_DIR", temp_dir), \
-                            mock.patch("webbrowser.open", return_value=True), \
+                            mock.patch("utilities.Desktop_Open.open_url", return_value=True), \
                             mock.patch.object(engine, "command_succeeded") as succeeded, \
                             mock.patch.object(engine, "command_failed") as failed:
                         command.run(viewer, [])

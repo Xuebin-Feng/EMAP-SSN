@@ -37,7 +37,7 @@ import traceback
 from pathlib import Path
 from utilities.Localization import QT_TRANSLATE_NOOP, Message, display_text
 from utilities.Console_Capture import install_qt_message_handler
-from utilities import Startup_Status
+from utilities import Desktop_Open, Startup_Status
 from utilities.Terminal_Launcher import HoldMode, launch_in_terminal
 from desktop.Desktop_App import (
     APP_USER_MODEL_IDS,
@@ -729,10 +729,9 @@ if __name__ == "__main__":
         status_mark,
         wrappable,
     )
-    from PySide6.QtCore import Qt, QSize, QUrl, QThread, QTimer, Signal
+    from PySide6.QtCore import Qt, QSize, QThread, QTimer, Signal
     from PySide6.QtGui import (
         QColor,
-        QDesktopServices,
         QIcon,
     )
 
@@ -1738,7 +1737,7 @@ if __name__ == "__main__":
             def open_profile_folder(checked=False, selected_tab=tab_id):
                 folder = self._saved_config_root() / selected_tab
                 os.makedirs(folder, exist_ok=True)
-                QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+                Desktop_Open.open_path(folder)
 
             folder_button.clicked.connect(open_profile_folder)
 
@@ -3315,9 +3314,7 @@ if __name__ == "__main__":
                     path = self.inputs[dir_key].text() if dir_key in self.inputs else globals().get(dir_key, default_dir)
                     abs_path = str(self._absolute_project_path(path))
                     os.makedirs(abs_path, exist_ok=True)
-                    from PySide6.QtGui import QDesktopServices
-                    from PySide6.QtCore import QUrl
-                    QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
+                    Desktop_Open.open_path(abs_path)
                     
                 btn.clicked.connect(open_folder)
                 
@@ -3701,16 +3698,14 @@ if __name__ == "__main__":
             
             def open_cache_folder(checked):
                 import os
-                from PySide6.QtGui import QDesktopServices
-                from PySide6.QtCore import QUrl
-                
+
                 # Exclusively open the parent directory
                 dir_input = self.inputs.get("SAVED_LAYOUT_DIR")
                 path = dir_input.text() if dir_input else globals().get("SAVED_LAYOUT_DIR", os.path.join("Cache_Files", "Saved_Layouts"))
 
                 abs_path = str(self._absolute_project_path(path))
                 os.makedirs(abs_path, exist_ok=True)
-                QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
+                Desktop_Open.open_path(abs_path)
                 
             self.btn_open_cache.clicked.connect(open_cache_folder)
             
@@ -3740,13 +3735,11 @@ if __name__ == "__main__":
             
             def open_target_folder(checked):
                 import os
-                from PySide6.QtGui import QDesktopServices
-                from PySide6.QtCore import QUrl
-                
+
                 path = getattr(self, 'current_cache_folder', None)
                 if path and os.path.exists(path):
                     abs_path = os.path.abspath(path)
-                    QDesktopServices.openUrl(QUrl.fromLocalFile(abs_path))
+                    Desktop_Open.open_path(abs_path)
                     
             self.btn_open_target_folder.clicked.connect(open_target_folder)
 
@@ -4678,7 +4671,7 @@ if __name__ == "__main__":
                         return
                     folder = self._absolute_project_path(raw_path)
                     folder.mkdir(parents=True, exist_ok=True)
-                    QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+                    Desktop_Open.open_path(folder)
 
                 button.clicked.connect(open_selected_folder)
                 line_edit.textChanged.connect(

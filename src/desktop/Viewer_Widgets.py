@@ -53,10 +53,9 @@ import os
 import re
 
 from PySide6 import QtCore
-from PySide6.QtCore import QT_TRANSLATE_NOOP, QEvent, QRect, QRectF, QSize, Qt, QUrl
+from PySide6.QtCore import QT_TRANSLATE_NOOP, QEvent, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import (
     QColor,
-    QDesktopServices,
     QIcon,
     QKeySequence,
     QPainter,
@@ -84,6 +83,7 @@ from desktop.Desktop_App import button_icon_room, installed_language
 from desktop.Studio_Theme import TOKENS, icon_button, key_cap_qss, studio_icon
 from desktop.Viewer_Jobs_Card import JobsSection, section_qss
 from desktop.Viewer_State import alias_form
+from utilities import Desktop_Open
 from utilities.Help_Pages import command_list_path
 
 # What separates the actions in the Viewer's text, and the keys of one action.
@@ -727,7 +727,7 @@ class ControlsCard(QWidget):
         if page is None:
             self.show_command_list_availability()
             return False
-        QDesktopServices.openUrl(QUrl.fromLocalFile(str(page)))
+        Desktop_Open.open_path(page)
         return True
 
     # ---- size, place and paint ----

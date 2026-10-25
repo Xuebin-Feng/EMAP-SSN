@@ -715,14 +715,14 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             try:
                 self.window.inputs["SAVED_CONFIG_DIR"].setText(temp_dir)
                 with mock.patch.object(
-                    self.namespace["QDesktopServices"], "openUrl", return_value=True
-                ) as open_url:
+                    self.namespace["Desktop_Open"], "open_path", return_value=True
+                ) as open_path:
                     self.window.profile_folder_buttons["inputs_outputs"].click()
 
                 expected = pathlib.Path(temp_dir, "inputs_outputs").resolve()
                 self.assertTrue(expected.is_dir())
                 self.assertEqual(
-                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    pathlib.Path(open_path.call_args.args[0]).resolve(),
                     expected,
                 )
             finally:
@@ -738,14 +738,14 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 )
                 self.window.inputs["CACHE_FILE_DIR"].setText(temp_dir)
                 with mock.patch.object(
-                    self.namespace["QDesktopServices"], "openUrl", return_value=True
-                ) as open_url:
+                    self.namespace["Desktop_Open"], "open_path", return_value=True
+                ) as open_path:
                     self.window.profile_folder_buttons["directories"].click()
 
                 expected = pathlib.Path(temp_dir, "Saved_Config", "directories").resolve()
                 self.assertTrue(expected.is_dir())
                 self.assertEqual(
-                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    pathlib.Path(open_path.call_args.args[0]).resolve(),
                     expected,
                 )
             finally:
@@ -777,13 +777,13 @@ class CacheDropdownRefreshTests(unittest.TestCase):
             try:
                 line_edit.setText(str(selected_folder))
                 with mock.patch.object(
-                    self.namespace["QDesktopServices"], "openUrl", return_value=True
-                ) as open_url:
+                    self.namespace["Desktop_Open"], "open_path", return_value=True
+                ) as open_path:
                     self.window.directory_open_buttons["FASTA_DIR"].click()
 
                 self.assertTrue(selected_folder.is_dir())
                 self.assertEqual(
-                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    pathlib.Path(open_path.call_args.args[0]).resolve(),
                     selected_folder.resolve(),
                 )
             finally:
@@ -826,11 +826,11 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                     self.window.cb_fasta.findText("rebased.fasta"), 0
                 )
                 with mock.patch.object(
-                    self.namespace["QDesktopServices"], "openUrl", return_value=True
-                ) as open_url:
+                    self.namespace["Desktop_Open"], "open_path", return_value=True
+                ) as open_path:
                     self.window.directory_open_buttons["FASTA_DIR"].click()
                 self.assertEqual(
-                    pathlib.Path(open_url.call_args.args[0].toLocalFile()).resolve(),
+                    pathlib.Path(open_path.call_args.args[0]).resolve(),
                     sequence_dir.resolve(),
                 )
             finally:

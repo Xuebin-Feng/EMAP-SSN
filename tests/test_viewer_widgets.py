@@ -287,7 +287,7 @@ class ControlsCardTests(unittest.TestCase):
         # What the pick buttons type; no test runs a command or opens a dialog.
         self.command = mock.Mock()
         # No click in these tests may open a real browser.
-        patcher = mock.patch("desktop.Viewer_Widgets.QDesktopServices")
+        patcher = mock.patch("desktop.Viewer_Widgets.Desktop_Open")
         self.services = patcher.start()
         self.addCleanup(patcher.stop)
         # Clear of the screen's left edge, and wide enough for the card in the offscreen platform's large
@@ -1212,7 +1212,7 @@ class ControlsCardTests(unittest.TestCase):
         with mock.patch.object(Help_Pages, "DOCS_DIR", docs), \
                 mock.patch.object(Help_Pages, "TRANSLATIONS_DIR", languages), \
                 mock.patch("desktop.Viewer_Widgets.installed_language", return_value=None) as language, \
-                mock.patch("desktop.Viewer_Widgets.QDesktopServices") as services:
+                mock.patch("desktop.Viewer_Widgets.Desktop_Open") as services:
             card = self.open_card()
             self.host.activateWindow()
             self.host.setFocus()
@@ -1223,10 +1223,10 @@ class ControlsCardTests(unittest.TestCase):
             opened = []
             for code, expected in ((None, docs), ("zh_CN", translated), ("de", docs)):
                 language.return_value = code
-                services.openUrl.reset_mock()
+                services.open_path.reset_mock()
                 QTest.mouseClick(card.commands_button, Qt.MouseButton.LeftButton)
-                services.openUrl.assert_called_once()
-                opened.append(Path(services.openUrl.call_args.args[0].toLocalFile()))
+                services.open_path.assert_called_once()
+                opened.append(Path(services.open_path.call_args.args[0]))
                 self.assertEqual(opened[-1], expected / "list_of_commands.html")
             # The card stays open and the keyboard where it was.
             self.assertTrue(self.button.card_is_open())
@@ -1241,26 +1241,26 @@ class ControlsCardTests(unittest.TestCase):
             "zh_CN": project / "src" / "resources" / "languages" / "zh_CN" / "docs" / "list_of_commands.html",
         }
         with mock.patch("desktop.Viewer_Widgets.installed_language", return_value=None) as language, \
-                mock.patch("desktop.Viewer_Widgets.QDesktopServices") as services:
+                mock.patch("desktop.Viewer_Widgets.Desktop_Open") as services:
             card = self.open_card()
             self.assertTrue(card.commands_button.isEnabled())
             for code, expected in shipped.items():
                 language.return_value = code
-                services.openUrl.reset_mock()
+                services.open_path.reset_mock()
                 self.assertTrue(card.open_command_list())
-                self.assertEqual(Path(services.openUrl.call_args.args[0].toLocalFile()), expected)
+                self.assertEqual(Path(services.open_path.call_args.args[0]), expected)
                 self.assertTrue(expected.is_file())
 
     def test_without_the_command_list_the_link_is_grey_and_says_why(self):
         empty = self.root / "empty"
         empty.mkdir()
         with mock.patch.object(Help_Pages, "DOCS_DIR", empty), \
-                mock.patch("desktop.Viewer_Widgets.QDesktopServices") as services:
+                mock.patch("desktop.Viewer_Widgets.Desktop_Open") as services:
             card = self.open_card()
             self.assertFalse(card.commands_button.isEnabled())
             self.assertIn("docs/list_of_commands.html", card.commands_button.toolTip())
             self.assertFalse(card.open_command_list())
-            services.openUrl.assert_not_called()
+            services.open_path.assert_not_called()
 
 
 class ControlsCardLanguageTests(unittest.TestCase):
