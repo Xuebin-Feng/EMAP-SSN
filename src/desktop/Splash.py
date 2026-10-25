@@ -35,8 +35,8 @@ product's name, its art), and its own texts with install_extra_catalogs; this fi
 
 It imports only PySide6's QtCore, QtGui and QtWidgets, the standard library and the Qt-free colour maths
 (Theme_Colors), so it is on screen long before the heavy imports (NumPy, torch, VisPy) of the windows it waits
-for (Studio_Theme itself would add QtSvg and about 25 ms), and it runs in a process of its own: the windows
-load torch before Qt on purpose. It has no taskbar
+for (Studio_Theme itself would add QtSvg and the icon engine: about 5 ms with its bytecode cached, 25 ms
+while it is compiled), and it runs in a process of its own: the windows load torch before Qt on purpose. It has no taskbar
 button (a Qt splash-screen window is a tool window on Windows) and opens on the screen under
 the mouse pointer.
 """

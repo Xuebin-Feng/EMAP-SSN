@@ -9,8 +9,9 @@ desktop/Studio_Theme.py builds the windows' tokens, palette and stylesheet from 
 here and keeps them in its own namespace, so it stays the place the windows take them from), and the start-up
 splash (desktop/Splash.py) takes the accent shades of the window it starts from here too. The splash is on
 screen a third of a second after a click and imports no more of Qt than it draws with: Studio_Theme brings in
-QtSvg and the icon engine, which cost it a few dozen milliseconds it does not need. So the colours live in a
-module of their own, and there is one copy of them: nothing here is repeated in either importer.
+QtSvg and the icon engine, which it does not need (a few milliseconds with the bytecode cached, 25 while it is
+compiled). So the colours live in a module of their own, and there is one copy of them: nothing here is repeated
+in either importer.
 """
 
 from __future__ import annotations
