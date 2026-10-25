@@ -53,7 +53,11 @@ still change before version 1.0.0.
     or repair opens the console as it always did.
   - **Output is kept:** everything Config, Tools, VR Config and the Viewer print, including
     Qt and Numba warnings and crash reports, goes to `temp/logs/<app>-<time>-<pid>.log`
-    (8 MB each, the ten newest kept per program, with API keys removed).
+    (8 MB each, the ten newest kept per program, with API keys removed). A program the
+    windows start (a terminal, a folder, a web page) gets none of this output, so on Linux
+    and macOS it doesn't slow the window's closing or stop after the window has closed.
+    There, web addresses open with the user's `BROWSER` first, then `xdg-open`, `gio` or
+    `open`.
   - **The Viewer's Console:** a `console` command, a sidebar button and a link in the
     Session card open a Console window with the Viewer's output, with search, an
     errors-only filter, Copy, Save and Open log. Command help that used to be "printed to
@@ -79,6 +83,11 @@ still change before version 1.0.0.
   - **A failed job** stays listed with its reason and an Open log link until dismissed.
   - **Closing the Viewer** while a file is being written stops the job and deletes the
     half-written file, waiting at most 2.5 s.
+  - **The VR viewer**, which has no Session card, does the same for its `logo` and `label`
+    jobs through `jobs`: it lists them, and `jobs cancel` takes a number, `all`, or nothing
+    for the newest job. Leaving it stops a running job and deletes its half-written file.
+    Its `console` says the output is in its terminal, and `help jobs` and `help console`
+    describe the VR viewer.
 - **Folds queue instead of being refused**, and run without a console window.
   - **Queued folds:** a second `esmfold` waits its turn in the Folding line. A node already
     being folded by another job is left out, and the outcome says which job holds it.
@@ -572,14 +581,6 @@ still change before version 1.0.0.
 
 ### Fixed
 
-- **The VR viewer's `jobs` sees its background jobs, and closing it leaves no half-written
-  file.** While a `logo` or `label` job ran, `jobs` said nothing was running and `jobs cancel`
-  had nothing to cancel. Now `jobs` lists the jobs that wait or run, and `jobs cancel` takes
-  a number, `all`, or nothing for the newest job. A running job stops at its next step, and
-  what it had written is deleted. Leaving the viewer stops a running job the same way, waits
-  up to 2.5 s, and deletes the file it had begun. `console` in the VR viewer now says its
-  output is in the terminal, instead of saying the Console isn't available, and `help jobs`
-  and `help console` describe the VR viewer, not the desktop's Session card.
 - **Test runs no longer leave folders in the temp directory, or open windows on the desktop.**
   - **Temp folders:** each test section works in its own session folder, with its own temp
     folder inside it. `tests/run_sections.py` removes that folder when the section ends, even
