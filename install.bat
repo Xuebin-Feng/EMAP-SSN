@@ -41,7 +41,9 @@ if not exist "src\bin\logos\viewer_logo_large.ico" (
     )
 )
 
-:: 2. Define icon paths
+:: 2. Define icon paths: the shortcuts use the large icons, for the desktop. The taskbar buttons show the small
+::    ones, which the windows set themselves (Desktop_App.TaskbarIdentity). The shortcuts carry no AppUserModelID
+::    for that reason: a window whose ID a shortcut carries would get the shortcut's large icon in the taskbar.
 set "VIEWER_ICON=!PROJECT_ROOT!\src\bin\logos\viewer_logo_large.ico"
 set "TOOL_ICON=!PROJECT_ROOT!\src\bin\logos\tool_logo_large.ico"
 
@@ -63,8 +65,6 @@ if !ERRORLEVEL! equ 0 (
 echo Creating shortcut for EMAP-SSN...
 powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN.lnk'); if ($env:USE_LAUNCHER_EXE) { $Shortcut.TargetPath = $env:PROJECT_ROOT + '\EMAP-SSN.exe'; $Shortcut.Arguments = 'viewer' } else { $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\EMAPSSN_Desktop_Launcher.bat' + $q + ' viewer' + $q }; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:VIEWER_ICON; $Shortcut.Save();"
 if exist "EMAP-SSN.lnk" (
-    :: The taskbar groups the windows of the process with this ID under the shortcut, with its name and icon.
-    powershell -NoProfile -ExecutionPolicy Bypass -File "src\bin\Set_Shortcut_AppId.ps1" -Lnk "!PROJECT_ROOT!\EMAP-SSN.lnk" -AppId ca.utoronto.emapssn.config
     echo [OK] Created EMAP-SSN.lnk in project root.
 )
 
@@ -72,7 +72,6 @@ if exist "EMAP-SSN.lnk" (
 echo Creating shortcut for EMAP-SSN Tools...
 powershell -ExecutionPolicy Bypass -Command "$q = [char]34; $WshShell = New-Object -ComObject WScript.Shell; $Shortcut = $WshShell.CreateShortcut($env:PROJECT_ROOT + '\EMAP-SSN Tools.lnk'); if ($env:USE_LAUNCHER_EXE) { $Shortcut.TargetPath = $env:PROJECT_ROOT + '\EMAP-SSN.exe'; $Shortcut.Arguments = 'tools' } else { $Shortcut.TargetPath = $env:WINDIR + '\System32\cmd.exe'; $Shortcut.Arguments = '/d /c ' + $q + $q + $env:PROJECT_ROOT + '\src\bin\EMAPSSN_Desktop_Launcher.bat' + $q + ' tools' + $q }; $Shortcut.WorkingDirectory = $env:PROJECT_ROOT; $Shortcut.IconLocation = $env:TOOL_ICON; $Shortcut.Save();"
 if exist "EMAP-SSN Tools.lnk" (
-    powershell -NoProfile -ExecutionPolicy Bypass -File "src\bin\Set_Shortcut_AppId.ps1" -Lnk "!PROJECT_ROOT!\EMAP-SSN Tools.lnk" -AppId ca.utoronto.emapssn.tools
     echo [OK] Created EMAP-SSN Tools.lnk in project root.
 )
 

@@ -46,7 +46,9 @@ from desktop.Desktop_App import (
     CONFIG_DISPLAY_NAME,
     VIEWER_DISPLAY_NAME,
     VIEWER_DESKTOP_FILE_NAME,
+    TaskbarIdentity,
     configure_linux_qt_desktop_identity,
+    launcher_relaunch_command,
     set_app_user_model_id,
 )
 from desktop.Desktop_Launcher_Monitor import launch_viewer_session, viewer_session_failed
@@ -1439,7 +1441,10 @@ if __name__ == "__main__":
                 icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "viewer_logo.png")
             if os.path.exists(icon_path):
                 self.setWindowIcon(QIcon(icon_path))
-                
+                if icon_path.endswith(".ico"):  # the taskbar button shows this icon, not the large one of the desktop shortcut
+                    TaskbarIdentity(self, APP_USER_MODEL_IDS["config"], icon_path,
+                                    translate("Config", CONFIG_DISPLAY_NAME), launcher_relaunch_command("viewer"))
+
             self.resize(1000, 650)
             
             self.central_widget = QWidget()

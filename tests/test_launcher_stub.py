@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Windows launcher stub (src/bin/Launcher.cs, built into EMAP-SSN.exe by install.bat) and the installer that builds it and points the shortcuts at it. The stub is a GUI-subsystem program that starts the Python launcher hidden, with the managed environment's path overrides removed, and falls back to the old visible console when asked (--console), when there is no managed Python, and when the Python launcher fails; install.bat builds it (src/bin/Build_Launcher.bat, which opt_vr's installer runs too) with the .NET Framework compiler, falls back to the batch-file shortcuts when it cannot, and gives each shortcut the AppUserModelID of the process it starts. The stub also starts the VR Configuration window's launcher, which is opt_vr's own script, and falls back to opt_vr's own batch file. Skipped where the compiler is absent."""
+"""The Windows launcher stub (src/bin/Launcher.cs, built into EMAP-SSN.exe by install.bat) and the installer that builds it and points the shortcuts at it. The stub is a GUI-subsystem program that starts the Python launcher hidden, with the managed environment's path overrides removed, and falls back to the old visible console when asked (--console), when there is no managed Python, and when the Python launcher fails; install.bat builds it (src/bin/Build_Launcher.bat, which opt_vr's installer runs too) with the .NET Framework compiler, falls back to the batch-file shortcuts when it cannot, and gives the shortcuts no AppUserModelID (the windows set their own, which tests below cover with the taskbar identity of each main window). The stub also starts the VR Configuration window's launcher, which is opt_vr's own script, and falls back to opt_vr's own batch file. Skipped where the compiler is absent."""
 
 from __future__ import annotations
 
@@ -23,7 +23,6 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 LAUNCHER_SOURCE = SRC / "bin" / "Launcher.cs"
-APP_ID_SCRIPT = SRC / "bin" / "Set_Shortcut_AppId.ps1"
 BUILD_SCRIPT = SRC / "bin" / "Build_Launcher.bat"
 INSTALLER = PROJECT_ROOT / "install.bat"
 CREATE_NO_WINDOW = 0x08000000
@@ -371,18 +370,22 @@ class InstallerTextTests(unittest.TestCase):
         self.assertIn("if ($env:USE_LAUNCHER_EXE)", self.text)
         self.assertIn("System32\\cmd.exe", self.text)
 
-    def test_the_shortcuts_get_the_ids_the_processes_set(self):
+    def test_the_shortcuts_carry_no_id_because_a_window_whose_id_a_shortcut_carries_gets_its_large_icon(self):
         from desktop.Desktop_App import APP_USER_MODEL_IDS
 
-        self.assertIn(f"-AppId {APP_USER_MODEL_IDS['config']}", self.text)
-        self.assertIn(f"-AppId {APP_USER_MODEL_IDS['tools']}", self.text)
+        self.assertNotIn("-AppId", self.text)
+        self.assertNotIn("Set_Shortcut_AppId", self.text)
+        for app_id in APP_USER_MODEL_IDS.values():
+            self.assertNotIn(app_id, self.text)
         self.assertEqual(len(set(APP_USER_MODEL_IDS.values())), len(APP_USER_MODEL_IDS))
+        self.assertFalse((SRC / "bin" / "Set_Shortcut_AppId.ps1").exists())
+        # The shortcuts keep the large icons: those are for the desktop.
+        self.assertIn("viewer_logo_large.ico", self.text)
+        self.assertIn("tool_logo_large.ico", self.text)
 
     def test_the_helper_files_the_installer_runs_exist(self):
-        self.assertTrue(APP_ID_SCRIPT.is_file())
         self.assertTrue(LAUNCHER_SOURCE.is_file())
         self.assertTrue(BUILD_SCRIPT.is_file())
-        self.assertIn("Set_Shortcut_AppId.ps1", self.text)
 
     def test_line_endings_are_what_cmd_needs(self):
         self.assertIn(b"\r\n", INSTALLER.read_bytes())
@@ -400,7 +403,7 @@ class InstallerRunTests(unittest.TestCase):
         root = Path(folder.name) / "project root"
         (root / "src" / "bin" / "logos").mkdir(parents=True)
         shutil.copyfile(INSTALLER, root / "install.bat")
-        for name in ("Launcher.cs", "Set_Shortcut_AppId.ps1", "Build_Launcher.bat"):
+        for name in ("Launcher.cs", "Build_Launcher.bat"):
             shutil.copyfile(SRC / "bin" / name, root / "src" / "bin" / name)
         for icon in (SRC / "bin" / "logos").glob("*.ico"):
             shutil.copyfile(icon, root / "src" / "bin" / "logos" / icon.name)
@@ -427,9 +430,7 @@ class InstallerRunTests(unittest.TestCase):
                               env=dict(os.environ, LNK=str(root / name)), timeout=60, creationflags=CREATE_NO_WINDOW)
         return dict(line.split("=", 1) for line in done.stdout.splitlines() if "=" in line)
 
-    def test_it_builds_the_launcher_and_points_both_shortcuts_at_it_with_their_ids(self):
-        from desktop.Desktop_App import APP_USER_MODEL_IDS
-
+    def test_it_builds_the_launcher_and_points_both_shortcuts_at_it_with_no_id(self):
         root = self.tree()
         done = self.install(root)
         self.assertIn("Built EMAP-SSN.exe", done.stdout, done.stdout + done.stderr)
@@ -444,14 +445,12 @@ class InstallerRunTests(unittest.TestCase):
                 self.assertEqual(found["ARGS"], kind)
                 self.assertEqual(Path(found["CWD"]), root)
                 self.assertTrue(found["ICON"].lower().endswith(icon + ",0"), found["ICON"])
-                self.assertEqual(found["AUMID"], APP_USER_MODEL_IDS["config" if kind == "viewer" else "tools"])
+                self.assertEqual(found["AUMID"], "")  # a window whose ID it carried would get its large icon
         # Nothing but this folder was touched: the Desktop copy was declined.
         self.assertEqual(sorted(path.name for path in root.iterdir()), ["EMAP-SSN Tools.lnk", "EMAP-SSN.exe", "EMAP-SSN.lnk", "install.bat", "src"])
         self.assertIn("Built EMAP-SSN.exe, the launcher with no console window", done.stdout)
 
-    def test_without_the_compiler_the_shortcuts_run_the_batch_file_as_before_and_still_get_their_ids(self):
-        from desktop.Desktop_App import APP_USER_MODEL_IDS
-
+    def test_without_the_compiler_the_shortcuts_run_the_batch_file_as_before(self):
         root = self.tree()
         empty = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(empty.cleanup)
@@ -463,7 +462,7 @@ class InstallerRunTests(unittest.TestCase):
         self.assertTrue(found["TARGET"].lower().endswith("cmd.exe"), found["TARGET"])
         self.assertIn("EMAPSSN_Desktop_Launcher.bat", found["ARGS"])
         self.assertTrue(found["ARGS"].endswith(" viewer\""), found["ARGS"])
-        self.assertEqual(found["AUMID"], APP_USER_MODEL_IDS["config"])
+        self.assertEqual(found["AUMID"], "")
 
     def test_a_failed_build_leaves_no_stale_launcher_behind(self):
         root = self.tree()
@@ -579,7 +578,7 @@ class BuildLauncherRunTests(unittest.TestCase):
 
 
 class AppIdTests(unittest.TestCase):
-    def test_every_window_sets_the_id_its_shortcut_carries_before_its_first_window(self):
+    def test_every_window_sets_its_process_id_before_its_first_window(self):
         import ast
 
         from desktop.Desktop_App import APP_USER_MODEL_IDS
@@ -593,7 +592,7 @@ class AppIdTests(unittest.TestCase):
                          and getattr(node.func, "id", None) == "set_app_user_model_id"]
                 self.assertEqual(len(calls), 1)
                 self.assertEqual(ast.unparse(calls[0].args[0]), f"APP_USER_MODEL_IDS['{key}']")
-        self.assertEqual(sorted(APP_USER_MODEL_IDS), ["config", "tools", "viewer", "vr_config"])
+        self.assertEqual(sorted(APP_USER_MODEL_IDS), ["config", "tools", "viewer"])  # VR Config declares its own
 
     def test_setting_the_id_is_a_windows_only_call_that_reports_whether_it_took(self):
         from unittest import mock
@@ -611,6 +610,218 @@ class AppIdTests(unittest.TestCase):
             done = subprocess.run([sys.executable, "-c", program, str(SRC)], capture_output=True, text=True, timeout=60,
                                   creationflags=CREATE_NO_WINDOW)
             self.assertEqual(done.stdout.split(), ["True", "ca.test.one"], done.stderr)
+
+
+def read_window_texts(hwnd, property_ids):
+    """What Windows holds for a native window under System.AppUserModel.* (IPropertyStore::GetValue)."""
+    import ctypes
+
+    from desktop import Desktop_App
+
+    shell32, ole32 = ctypes.windll.shell32, ctypes.windll.ole32
+    shell32.SHGetPropertyStoreForWindow.argtypes = [
+        ctypes.c_void_p, ctypes.POINTER(Desktop_App._Guid), ctypes.POINTER(ctypes.c_void_p)]
+    shell32.SHGetPropertyStoreForWindow.restype = ctypes.c_long
+    ole32.PropVariantClear.argtypes = [ctypes.POINTER(Desktop_App._PropVariant)]
+    store = ctypes.c_void_p()
+    iid = Desktop_App._guid(Desktop_App._PROPERTY_STORE_IID)
+    assert shell32.SHGetPropertyStoreForWindow(hwnd, ctypes.byref(iid), ctypes.byref(store)) == 0
+    methods = ctypes.cast(ctypes.cast(store, ctypes.POINTER(ctypes.c_void_p))[0], ctypes.POINTER(ctypes.c_void_p))
+    get_value = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(Desktop_App._PropertyKey),
+                                   ctypes.POINTER(Desktop_App._PropVariant))(methods[5])
+    release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(methods[Desktop_App._PROPERTY_STORE_RELEASE])
+    found = {}
+    try:
+        for property_id in property_ids:
+            key = Desktop_App._PropertyKey(Desktop_App._guid(Desktop_App._TASKBAR_PROPERTY_FORMAT), property_id)
+            value = Desktop_App._PropVariant()
+            assert get_value(store, ctypes.byref(key), ctypes.byref(value)) >= 0  # S_FALSE (1) comes with a value too
+            found[property_id] = ctypes.wstring_at(value.pointer) if value.type == Desktop_App._VT_LPWSTR else None
+            ole32.PropVariantClear(ctypes.byref(value))
+    finally:
+        release(store)
+    return found
+
+
+class TaskbarIdentityTests(unittest.TestCase):
+    """What each main window tells the taskbar: its own ID, the small icon, its name, and how to start it again.
+
+    A window whose ID a shortcut carries gets that shortcut's icon in the taskbar, whatever icon the window sets,
+    and the desktop shortcuts carry the large icons; so the windows' IDs are not any shortcut's. No window is
+    shown here, so no taskbar button appears.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6.QtWidgets import QApplication
+
+        cls.application = QApplication.instance() or QApplication([])
+
+    def test_the_properties_go_to_windows_in_its_order_with_the_id_last(self):
+        from unittest import mock
+
+        from PySide6.QtWidgets import QWidget
+
+        from desktop import Desktop_App
+
+        widget = QWidget()
+        with mock.patch.object(Desktop_App.sys, "platform", "win32"), \
+                mock.patch.object(Desktop_App, "_set_window_texts", return_value=True) as store:
+            self.assertTrue(Desktop_App.set_window_taskbar_identity(
+                widget, "ca.test.id", "C:/logos/small.ico", "EMAP-SSN Test", '"C:/x.exe" go'))
+        hwnd, texts = store.call_args.args
+        self.assertEqual(hwnd, int(widget.winId()))
+        # The property IDs of PKEY_AppUserModel_RelaunchCommand, ...RelaunchIconResource, ...RelaunchDisplayNameResource
+        # and ...ID in propkey.h; the icon is a path to an .ico and the index in it.
+        self.assertEqual(texts, ((2, '"C:/x.exe" go'), (3, "C:/logos/small.ico,0"), (4, "EMAP-SSN Test"), (5, "ca.test.id")))
+
+    def test_elsewhere_it_does_nothing_and_says_so(self):
+        from unittest import mock
+
+        from PySide6.QtWidgets import QWidget
+
+        from desktop import Desktop_App
+
+        with mock.patch.object(Desktop_App.sys, "platform", "linux"), \
+                mock.patch.object(Desktop_App, "_set_window_texts") as store:
+            self.assertFalse(Desktop_App.set_window_taskbar_identity(QWidget(), "id", "icon.ico", "Name", "command"))
+        store.assert_not_called()
+
+    def test_a_refusal_from_windows_is_reported_and_not_raised(self):
+        from unittest import mock
+
+        from PySide6.QtWidgets import QWidget
+
+        from desktop import Desktop_App
+
+        for failure in (False, OSError("no property store"), AttributeError("no shell32")):
+            with self.subTest(failure=failure):
+                options = {"side_effect": failure} if isinstance(failure, Exception) else {"return_value": failure}
+                with mock.patch.object(Desktop_App.sys, "platform", "win32"), \
+                        mock.patch.object(Desktop_App, "_set_window_texts", **options):
+                    self.assertFalse(Desktop_App.set_window_taskbar_identity(QWidget(), "id", "icon.ico", "Name", "command"))
+
+    @unittest.skipUnless(sys.platform == "win32", "the taskbar properties are Windows'")
+    def test_windows_holds_what_was_set_on_the_window(self):
+        import ctypes
+        from types import SimpleNamespace
+
+        from desktop import Desktop_App
+
+        # A real, hidden native window: Qt's offscreen platform has no window handles, and nothing here may reach the taskbar.
+        user32 = ctypes.windll.user32
+        user32.CreateWindowExW.restype = ctypes.c_void_p
+        user32.CreateWindowExW.argtypes = [ctypes.c_uint32, ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint32] + [ctypes.c_int] * 4 \
+            + [ctypes.c_void_p] * 4
+        user32.DestroyWindow.argtypes = [ctypes.c_void_p]
+        hwnd = user32.CreateWindowExW(0, "STATIC", "EMAP-SSN identity test", 0, 0, 0, 0, 0, None, None, None, None)
+        self.assertTrue(hwnd)
+        self.addCleanup(user32.DestroyWindow, hwnd)
+        icon = str(SRC / "bin" / "logos" / "viewer_logo.ico")
+        command = Desktop_App.launcher_relaunch_command("viewer")
+        self.assertTrue(Desktop_App.set_window_taskbar_identity(
+            SimpleNamespace(winId=lambda: hwnd), "ca.test.identity", icon, "EMAP-SSN Test", command))
+        self.assertEqual(read_window_texts(hwnd, (2, 3, 4, 5)), {
+            2: command, 3: icon + ",0", 4: "EMAP-SSN Test", 5: "ca.test.identity"})
+
+    def test_the_helper_object_sets_it_when_the_window_gets_its_handle_and_again_for_another(self):
+        from unittest import mock
+
+        from PySide6.QtCore import QEvent
+        from PySide6.QtWidgets import QWidget
+
+        from desktop import Desktop_App
+
+        widget = QWidget()
+        arguments = ("ca.test.id", "icon.ico", "Name", "command")
+        with mock.patch.object(Desktop_App.sys, "platform", "win32"), \
+                mock.patch.object(Desktop_App, "set_window_taskbar_identity") as setter:
+            Desktop_App.TaskbarIdentity(widget, *arguments)
+            setter.assert_not_called()  # no handle yet, and none is made for it
+            widget.winId()
+            setter.assert_called_once_with(widget, *arguments)
+            self.application.sendEvent(widget, QEvent(QEvent.Type.WinIdChange))  # Qt made another
+            self.assertEqual(setter.call_count, 2)
+            self.application.sendEvent(widget, QEvent(QEvent.Type.Show))
+            self.assertEqual(setter.call_count, 2)
+
+    def test_the_helper_object_stays_out_of_the_way_off_windows(self):
+        from unittest import mock
+
+        from PySide6.QtWidgets import QWidget
+
+        from desktop import Desktop_App
+
+        widget = QWidget()
+        with mock.patch.object(Desktop_App.sys, "platform", "linux"), \
+                mock.patch.object(Desktop_App, "set_window_taskbar_identity") as setter:
+            Desktop_App.TaskbarIdentity(widget, "id", "icon.ico", "Name", "command")
+            widget.winId()
+        setter.assert_not_called()
+
+    def test_a_pinned_copy_starts_the_window_as_its_shortcut_does(self):
+        from unittest import mock
+
+        from desktop import Desktop_App
+
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
+            exe = Path(folder) / "EMAP SSN" / "EMAP-SSN.exe"
+            batch = Path(folder) / "EMAP SSN" / "launch.bat"
+            exe.parent.mkdir()
+            with mock.patch.object(Desktop_App, "LAUNCHER_EXE", exe), mock.patch.dict(os.environ, {"COMSPEC": "C:\\Windows\\cmd.exe"}):
+                # Built by install.bat: what the shortcut runs, with the word for the window.
+                exe.write_bytes(b"MZ")
+                self.assertEqual(Desktop_App.launcher_relaunch_command("tools"), f'"{exe}" tools')
+                self.assertEqual(Desktop_App.launcher_relaunch_command("vr", batch, ""), f'"{exe}" vr')
+                # Not built: the batch file in a console, as the shortcut then runs it (install.bat gives it the word,
+                # opt_vr's batch file takes none).
+                exe.unlink()
+                self.assertEqual(Desktop_App.launcher_relaunch_command("tools", batch),
+                                 f'"C:\\Windows\\cmd.exe" /d /c ""{batch}" tools"')
+                self.assertEqual(Desktop_App.launcher_relaunch_command("vr", batch, ""),
+                                 f'"C:\\Windows\\cmd.exe" /d /c ""{batch}""')
+
+    def test_the_words_the_windows_start_with_are_the_ones_the_launcher_knows(self):
+        import ast
+
+        source = LAUNCHER_SOURCE.read_text(encoding="utf-8")
+        for name, word in (("EMAPSSN_Config.py", "viewer"), ("EMAPSSN_Tools.py", "tools")):
+            with self.subTest(window=name):
+                calls = [node for node in ast.walk(ast.parse((SRC / name).read_text(encoding="utf-8")))
+                         if isinstance(node, ast.Call) and ast.unparse(node.func) == "launcher_relaunch_command"]
+                self.assertEqual([ast.unparse(call.args[0]) for call in calls], [repr(word)])
+                self.assertIn(f'new[] {{ "{word}",', source)
+
+    def test_config_and_tools_set_their_own_id_with_the_small_icon_and_no_window_opens_a_large_one(self):
+        import ast
+
+        for name, key, icon in (("EMAPSSN_Config.py", "config", "viewer_logo.ico"), ("EMAPSSN_Tools.py", "tools", "tool_logo.ico")):
+            with self.subTest(window=name):
+                text = (SRC / name).read_text(encoding="utf-8")
+                calls = [node for node in ast.walk(ast.parse(text))
+                         if isinstance(node, ast.Call) and ast.unparse(node.func) == "TaskbarIdentity"]
+                self.assertEqual(len(calls), 1)
+                self.assertEqual([ast.unparse(argument) for argument in calls[0].args[:3]],
+                                 ["self", f"APP_USER_MODEL_IDS['{key}']", "icon_path"])
+                self.assertIn(f'"{icon}"', text)
+        for path in SRC.rglob("*.py"):
+            with self.subTest(source=path.name):
+                self.assertNotIn("_logo_large", path.read_text(encoding="utf-8"))
+
+    def test_no_window_uses_an_id_the_earlier_installers_gave_the_shortcuts_that_are_still_on_desktops(self):
+        from desktop.Desktop_App import APP_USER_MODEL_IDS
+
+        # install.bat and install_vr.bat did this for a few days; a window with one of these gets the large icon again.
+        earlier = {"ca.utoronto.emapssn.config", "ca.utoronto.emapssn.tools", "ca.utoronto.emapssn.vrconfig"}
+        self.assertEqual(earlier & set(APP_USER_MODEL_IDS.values()), set())
+
+    def test_the_ids_differ_from_each_other_and_the_viewer_stays_a_group_apart(self):
+        from desktop.Desktop_App import APP_USER_MODEL_IDS
+
+        self.assertEqual(len(set(APP_USER_MODEL_IDS.values())), len(APP_USER_MODEL_IDS))
+        for app_id in APP_USER_MODEL_IDS.values():
+            self.assertRegex(app_id, r"^ca\.utoronto\.emapssn\.[a-z.]+$")
+            self.assertLessEqual(len(app_id), 128)  # Windows' limit
 
 
 if __name__ == "__main__":

@@ -115,10 +115,12 @@ from desktop.Desktop_App import (
     SingleInstanceController,
     TOOLS_DESKTOP_FILE_NAME,
     TOOLS_DISPLAY_NAME,
+    TaskbarIdentity,
     ToggleSwitch,
     configure_linux_qt_desktop_identity,
     fit_buttons_to_text,
     instance_handover_message,
+    launcher_relaunch_command,
     NAME_ITEM_ROLE,
     mark_name_item,
     set_app_user_model_id,
@@ -1579,7 +1581,10 @@ class ToolsGUI(QMainWindow):
             icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "bin", "logos", "tool_logo.png")
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
-            
+            if icon_path.endswith(".ico"):  # the taskbar button shows this icon, not the large one of the desktop shortcut
+                TaskbarIdentity(self, APP_USER_MODEL_IDS["tools"], icon_path,
+                                translate("Tools", TOOLS_DISPLAY_NAME), launcher_relaunch_command("tools"))
+
         self.resize(850, 650)
         
         # --- CENTRALIZED SCRIPT TIPS DICTIONARY ---
