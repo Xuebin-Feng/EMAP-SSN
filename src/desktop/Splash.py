@@ -63,6 +63,7 @@ from PySide6.QtWidgets import QApplication, QPlainTextEdit, QPushButton, QWidget
 from utilities import Startup_Status as Status
 from utilities.Console_Capture import Splitter
 from utilities.Line_Kinds import ERROR, WARNING, Classifier
+from utilities.Terminal_Colors import strip_ansi
 
 LOGOS = SRC_DIR / "bin" / "logos"
 FONTS = SRC_DIR / "resources" / "fonts" / "desktop"
@@ -426,6 +427,7 @@ class DetailsView(QPlainTextEdit):
         cursor = QTextCursor(self.document())
         cursor.beginEditBlock()
         for text, partial in items:
+            text = strip_ansi(text)  # a command's colour sequences are the Console window's, not this view's
             cursor.movePosition(QTextCursor.MoveOperation.End)
             if self._partial:
                 cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)

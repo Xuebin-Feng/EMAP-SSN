@@ -18,6 +18,12 @@ Show details) and keep it in temp/logs.
   and warnings in its warning colour. The lines that follow an error or
   warning and are indented (a traceback's frames, a warning's source line)
   take its colour too.
+* A command's colours show: the output may hold ANSI colour sequences
+  (utilities/Terminal_Colors.py), which the window reads instead of showing as
+  text. The 16 colours are the page's own shades, and any colour is moved
+  lighter or darker until it shows on the page. A line with colours of its own
+  keeps them, and the colouring by what a line says applies only to lines
+  without.
 * The search field highlights every match and counts them; Enter and the
   arrows, or F3 and Shift+F3, go from one to the next. The filter shows all
   output, only warnings and errors, or only errors. Follow output keeps the
@@ -46,6 +52,7 @@ import shiboken6
 from PySide6.QtCore import QCoreApplication, QEvent, QSize, Qt, QTimer
 from PySide6.QtGui import (
     QColor,
+    QFont,
     QGuiApplication,
     QKeySequence,
     QShortcut,
@@ -92,6 +99,7 @@ from utilities import Console_Capture, Desktop_Open
 from utilities.Line_Kinds import (  # noqa: F401  (re-exported: the window's callers and tests name them here)
     ERROR, ERROR_PATTERN, INFO, WARNING, WARNING_PATTERN, Classifier, classify,
 )
+from utilities.Terminal_Colors import DEFAULT_STYLE, ESC, palette_color, parse_ansi, readable_color, resolve_color
 
 # What makes a line an error or a warning is utilities/Line_Kinds.py (the start-up splash colours by it too).
 # The colour behind the search's matches: a pale amber on the light page, a dark one on the dark.
@@ -188,6 +196,9 @@ class ConsoleWindow(QWidget):
         self._floor_seq = 0          # Clear view hides every line up to this one
         self._last_seq = None        # the line the last block shows, which its next state replaces
         self._classifier = Classifier()
+        self._sgr = {}               # the colour each stream's last line left on, which its next line starts in
+        self._run_formats = {}       # (style, kind) -> the format of a run of coloured text
+        self._empty = True           # nothing is drawn yet
         self._live = False
         self._following = True
         self._setting_scroll = False
@@ -313,12 +324,13 @@ class ConsoleWindow(QWidget):
             f" padding: 8px 6px 8px 10px; selection-background-color: {tokens['accent_soft']};"
             f" selection-color: {tokens['text']}; }}"
         )
+        self._surface = tokens["surface"]
+        self._base_colors = {INFO: tokens["text_soft"], WARNING: tokens["warning"], ERROR: tokens["danger"]}
         self.formats = {
-            INFO: self._format(tokens["text_soft"]),
-            WARNING: self._format(tokens["warning"]),
-            ERROR: self._format(tokens["danger"]),
+            **{kind: self._format(color) for kind, color in self._base_colors.items()},
             "time": self._format(tokens["text_subtle"]),
         }
+        self._run_formats = {}
         self._highlight_color = QColor(MATCH_DARK if self.dark else MATCH_LIGHT)
 
     @staticmethod
@@ -366,6 +378,8 @@ class ConsoleWindow(QWidget):
         self._pending = []
         self.text.clear()
         self._last_seq = None
+        self._empty = True
+        self._sgr = {}
         self._classifier = Classifier()
         self._append(self.capture.snapshot())
 
@@ -382,17 +396,21 @@ class ConsoleWindow(QWidget):
         for line in lines:
             if line.seq <= self._floor_seq:
                 continue
-            kind = self._classifier.kind(line.text, remember=not line.partial)
+            runs, visible = self._read_colours(line)
+            kind = self._classifier.kind(visible, remember=not line.partial)
             if not self._wanted(kind):
                 continue
             stamp = time.strftime("%H:%M:%S", time.localtime(line.time)) + "  "
             if line.seq == self._last_seq:  # the next state of a progress line replaces it
                 cursor.movePosition(QTextCursor.MoveOperation.StartOfBlock, QTextCursor.MoveMode.KeepAnchor)
                 cursor.removeSelectedText()
-            elif document.characterCount() > 1:
+            elif not self._empty:
                 cursor.insertBlock()
             cursor.insertText(stamp, self.formats["time"])
-            cursor.insertText(line.text, self.formats[kind])
+            coloured = any(style.has_color for _, style in runs)
+            for run, style in runs:
+                cursor.insertText(run, self._run_format(style, INFO if coloured else kind))
+            self._empty = False
             self._last_seq = line.seq
         cursor.endEditBlock()
         self._setting_scroll = True
@@ -402,8 +420,61 @@ class ConsoleWindow(QWidget):
             self._highlight_matches()
         self._update_footer()
 
+    def _read_colours(self, line):
+        """(runs, visible): the line as [(text, Style), ...] with its colour sequences read, and the text that shows.
+
+        A line starts in the colour the stream's last line left on, as in a terminal, so a message of several
+        lines inside one colour is in it throughout. A progress state (partial) does not change that colour.
+        """
+        before = self._sgr.get(line.stream, DEFAULT_STYLE)
+        if ESC not in line.text and before == DEFAULT_STYLE:
+            return ([(line.text, DEFAULT_STYLE)] if line.text else []), line.text
+        runs, after = parse_ansi(line.text, before)
+        if not line.partial:
+            self._sgr[line.stream] = after
+        return runs, "".join(text for text, _ in runs)
+
+    def _run_format(self, style, base):
+        """The format of a run: ``base`` (the line's INFO, WARNING or ERROR) where the style gives no colour."""
+        if style == DEFAULT_STYLE:
+            return self.formats[base]
+        key = (style, base)
+        found = self._run_formats.get(key)
+        if found is None:
+            found = self._run_formats[key] = self._style_format(style, base)
+        return found
+
+    def _style_format(self, style, base):
+        """A colour sequence's style as a text format that shows on this page, in light and in dark."""
+        text = self._base_colors[base]
+        page = {"dark": self.dark, "background": self._surface}
+        if style.reverse:
+            # The text takes the background's colour (the page's, when there is none) and the background the text's.
+            foreground = palette_color(style.bg, dark=None) if style.bg else self._surface
+            background = resolve_color(style.fg, **page) if style.fg else text
+        elif style.bg:
+            # A background of its own comes with a text colour chosen to go with it: both in the terminal's shades.
+            foreground = palette_color(style.fg, dark=None) if style.fg else text
+            background = palette_color(style.bg, dark=None)
+        else:
+            foreground = resolve_color(style.fg, **page) if style.fg else text
+            background = None
+        if background:
+            foreground = readable_color(foreground, background)  # and the text must show on that colour
+        fmt = QTextCharFormat()
+        fmt.setForeground(QColor(foreground))
+        if background:
+            fmt.setBackground(QColor(background))
+        if style.bold:
+            fmt.setFontWeight(QFont.Weight.Bold)
+        if style.italic:
+            fmt.setFontItalic(True)
+        if style.underline:
+            fmt.setFontUnderline(True)
+        return fmt
+
     def _update_footer(self):
-        shown = self.text.blockCount() if self.text.document().characterCount() > 1 else 0
+        shown = 0 if self._empty else self.text.blockCount()
         written = self.capture.total
         text = QCoreApplication.translate("Console", "{shown} lines shown · {written} written since start-up").format(
             shown=f"{shown:,}", written=f"{written:,}"

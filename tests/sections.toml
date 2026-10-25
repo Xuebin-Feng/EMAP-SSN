@@ -343,6 +343,7 @@ modules = [
     "test_run_sections",
     "test_session_folder",
     "test_splash",
+    "test_terminal_colors",
     "test_terminal_launcher",
     "test_terminal_shell_launcher",
 ]

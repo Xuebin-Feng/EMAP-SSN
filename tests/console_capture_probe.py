@@ -2,7 +2,7 @@
 
 Not collected as a test (the name has no test_ prefix). Usage:
 
-    console_capture_probe.py <result.json> <log_dir> <auto|on|off> [crash] [qt] [qtportal] [close] [burst=N]
+    console_capture_probe.py <result.json> <log_dir> <auto|on|off> [crash] [qt] [qtportal] [ansi] [close] [burst=N]
 
 Every source writes one marker line, "SRC <name>", and the probe waits until the ring holds all of them
 before it writes its result (what the ring and the log hold, and what each stream was before and after).
@@ -91,6 +91,22 @@ if "qt" in options:
     expected += ["qt warning", "qt critical"]
     QtCore.qWarning("SRC qt warning")
     QtCore.qCritical("SRC qt critical")
+
+if "ansi" in options:
+    # A command's colours: the question it asks, then the sequences, one of them cut across two writes.
+    import contextlib
+    import io
+    from utilities.Terminal_Colors import colours_enabled
+    esc = chr(27)
+    state["colours_enabled"] = colours_enabled()
+    with contextlib.redirect_stdout(io.StringIO()):
+        state["colours_enabled_in_a_buffer"] = colours_enabled()
+    expected += ["ansi marker", "ansi split", "ansi stderr"]
+    print(f"{esc}[31mSRC ansi marker{esc}[0m {esc}[38;2;1;2;3mdot{esc}[0m")
+    print(f"{esc}[1mSRC ansi stderr{esc}[0m", file=sys.stderr)
+    os.write(1, f"SRC ansi split {esc}[3".encode())
+    time.sleep(0.2)
+    os.write(1, f"1mcoloured{esc}[0m\n".encode())
 
 if "qtportal" in options:
     # What Qt prints on GNOME once setDesktopFileName names the app, and a neighbour that is not that.

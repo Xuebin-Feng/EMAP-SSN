@@ -502,6 +502,30 @@ class PortalLimitTests(PortalFixture, unittest.TestCase):
                 break
         self.assertEqual(pages, ['ab', '\u540dc', dna, dna, 'end'])
 
+    def test_the_colours_a_command_printed_are_not_in_the_output_a_client_reads(self):
+        # The Console window shows them; an agent or an MCP client gets the text, even when a sequence is cut
+        # between two writes.
+        esc = chr(27)
+        request_id = self.portal.submit('output', 'select help')['request_id']
+        self.portal.append_output(request_id, 'stdout', f'| {esc}[38;2;1;2;3m●{esc}[0m Cluster 0\n')
+        self.portal.append_output(request_id, 'stdout', f'{esc}[3')
+        self.portal.append_output(request_id, 'stdout', '1mred{0}[0m and {0}[2Kmore\n'.format(esc))
+        self.portal.append_output(request_id, 'stderr', f'{esc}[1mError: x{esc}[0m\n')
+        page = self.portal.read_output(request_id, limit=4096)
+        self.assertEqual(page['text'], '| ● Cluster 0\nred and more\n')
+        self.assertEqual(self.portal.read_output(request_id, 'stderr', limit=4096)['text'], 'Error: x\n')
+
+    def test_a_tee_over_the_capture_stream_still_gets_colours_from_commands(self):
+        # Commands print to the portal's pass-through, which wraps the capture's stream: they colour for it.
+        from Viewer_Command_Portal import _Tee
+        from utilities import Console_Capture
+        from utilities.Terminal_Colors import colours_enabled
+
+        own = io.StringIO()
+        with mock.patch.object(Console_Capture, '_capture', mock.Mock(text_streams=(own,))):
+            self.assertTrue(colours_enabled(_Tee(own, 'stdout')))
+            self.assertFalse(colours_enabled(_Tee(io.StringIO(), 'stdout')))
+
     def test_output_limit_holds_the_longest_character(self):
         # A page must fit any UTF-8 character (up to four bytes). With limit 1
         # or 2, 'a\u540db' read from offset 1 returned '' and next_offset 1 with

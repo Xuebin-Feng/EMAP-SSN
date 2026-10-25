@@ -15,6 +15,7 @@ import sys
 import tempfile
 
 from utilities.Localization import Message
+from utilities.Terminal_Colors import colours_enabled
 
 # =====================================================================
 # 1. Lexical Rules for Alignment-Position Arguments
@@ -956,7 +957,7 @@ def print_msa_sanitization_result(
         lines.append("  Source file was not modified; sanitization is in memory only.")
 
     message = "\n".join(lines)
-    if hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+    if colours_enabled():
         print(f"\033[93m{message}\033[0m")
     else:
         print(message)

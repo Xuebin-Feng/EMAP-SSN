@@ -33,6 +33,7 @@ from desktop.Console_View import (  # noqa: E402
 from desktop.Studio_Theme import TOKENS, apply_studio_theme, set_theme_color, theme_color  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 from utilities import Console_Capture  # noqa: E402
+from utilities import Terminal_Colors as TC  # noqa: E402
 from utilities.Console_Capture import Recorder  # noqa: E402
 
 
@@ -329,6 +330,211 @@ class WindowTests(WindowCase):
     def test_the_window_keeps_at_most_the_rings_lines(self):
         window = self.window()
         self.assertEqual(window.text.maximumBlockCount(), self.recorder.lines.maxlen)
+
+
+ESC = "\x1b"
+
+
+def fragments(window, number):
+    """The runs of text of one line, as (text, foreground, background or None, bold, underline, italic)."""
+    found = []
+    iterator = window.text.document().findBlockByNumber(number).begin()
+    while not iterator.atEnd():
+        fragment = iterator.fragment()
+        fmt = fragment.charFormat()
+        background = fmt.background().color().name() if fmt.background().style() != Qt.BrushStyle.NoBrush else None
+        found.append((fragment.text(), fmt.foreground().color().name(), background,
+                      fmt.fontWeight() >= 700, fmt.fontUnderline(), fmt.fontItalic()))
+        iterator += 1
+    if found and re.fullmatch(r"\d\d:\d\d:\d\d  ", found[0][0]):  # the time, while it is in the text
+        found = found[1:]
+    return found
+
+
+def output_lines(window):
+    """The window's lines without their time (while it is in the text), blank lines included."""
+    text = window.text.toPlainText()
+    if not text and window.text.document().blockCount() == 1 and window._empty:
+        return []
+    return [re.sub(r"^\d\d:\d\d:\d\d  ", "", line) for line in text.split("\n")]
+
+
+class ColourTests(WindowCase):
+    """A command's ANSI colours show, as colour, on a page they can be read on; they are not text."""
+
+    def surface(self, window):
+        return window._tokens()["surface"]
+
+    def test_a_sequence_colours_its_run_and_is_no_part_of_the_text(self):
+        self.recorder.add("stdout", f"| {ESC}[38;2;230;57;70m\u25cf{ESC}[0m Cluster 0")
+        window = self.window()
+        self.assertEqual("".join(text for text, *_ in fragments(window, 0)), "| \u25cf Cluster 0")
+        self.assertNotIn(ESC, window.text.toPlainText())
+        self.assertNotIn("38;2", window.text.toPlainText())
+        runs = fragments(window, 0)
+        self.assertEqual([text for text, *_ in runs], ["| ", "\u25cf", " Cluster 0"])
+        expected = TC.resolve_color(("rgb", 230, 57, 70), dark=False, background=self.surface(window))
+        self.assertEqual(runs[1][1], expected)
+        self.assertEqual(runs[0][1], TOKENS["text_soft"])
+        self.assertEqual(runs[2][1], TOKENS["text_soft"])
+
+    def test_the_sixteen_colours_are_the_pages_own_shades_in_light_and_dark(self):
+        self.recorder.add("stdout", f"{ESC}[31mred{ESC}[0m {ESC}[92mbright{ESC}[0m")
+        for dark, palette in ((False, TC.PALETTE_LIGHT), (True, TC.PALETTE_DARK)):
+            with self.subTest(dark=dark):
+                window = self.window(dark=dark)
+                runs = fragments(window, 0)
+                surface = self.surface(window)
+                self.assertEqual(runs[0][1], TC.readable_color(palette[1], surface))
+                self.assertEqual(runs[2][1], TC.readable_color(palette[10], surface))
+
+    def test_every_colour_of_the_palette_and_a_vanishing_24_bit_colour_can_be_read_on_either_page(self):
+        for index in range(16):
+            self.recorder.add("stdout", f"{ESC}[38;5;{index}mpalette {index}{ESC}[0m")
+        self.recorder.add("stdout", f"{ESC}[38;2;255;255;255mwhite on the light page{ESC}[0m")
+        self.recorder.add("stdout", f"{ESC}[38;2;0;0;0mblack on the dark page{ESC}[0m")
+        for dark in (False, True):
+            window = self.window(dark=dark)
+            surface = self.surface(window)
+            for number in range(18):
+                with self.subTest(dark=dark, number=number):
+                    (_, colour, *_), = fragments(window, number)
+                    self.assertGreaterEqual(TC.contrast_ratio(colour, surface), TC.MIN_CONTRAST - 0.01)
+
+    def test_bold_underline_italic_and_a_reset_in_the_middle_of_a_line(self):
+        self.recorder.add("stdout", f"{ESC}[1;4;3mloud{ESC}[0m quiet {ESC}[1mbold{ESC}[22m normal")
+        runs = fragments(self.window(), 0)
+        self.assertEqual([(text, bold, underline, italic) for text, _, _, bold, underline, italic in runs], [
+            ("loud", True, True, True), (" quiet ", False, False, False),
+            ("bold", True, False, False), (" normal", False, False, False),
+        ])
+
+    def test_a_background_of_its_own_keeps_a_text_that_shows_on_it(self):
+        self.recorder.add("stdout", f"{ESC}[48;5;196;97m on red {ESC}[0m{ESC}[47m grey bg {ESC}[0m")
+        window = self.window()
+        (_, red_text, red_bg, *_), (_, grey_text, grey_bg, *_) = fragments(window, 0)
+        self.assertEqual(red_bg, "#ff0000")
+        self.assertEqual(grey_bg, TC.PALETTE_STANDARD[7])
+        self.assertGreaterEqual(TC.contrast_ratio(red_text, red_bg), TC.MIN_CONTRAST)
+        self.assertGreaterEqual(TC.contrast_ratio(grey_text, grey_bg), TC.MIN_CONTRAST)  # the page's text, moved to show
+
+    def test_reverse_video_swaps_the_text_and_its_background(self):
+        self.recorder.add("stdout", f"{ESC}[31;7m flagged {ESC}[0m")
+        window = self.window()
+        (_, text, background, *_), = fragments(window, 0)
+        self.assertEqual(text.lower(), self.surface(window).lower())
+        self.assertEqual(background, TC.resolve_color(("index", 1), dark=False, background=self.surface(window)))
+
+    def test_a_colour_lasts_over_the_lines_of_one_message_until_its_reset(self):
+        for text in (f"{ESC}[93mWARNING: first", "  second", f"  third{ESC}[0m", "after"):
+            self.recorder.add("stdout", text)
+        window = self.window()
+        colours = [fragments(window, number)[0][1] for number in range(4)]
+        surface = self.surface(window)
+        yellow = TC.readable_color(TC.PALETTE_LIGHT[11], surface)
+        self.assertEqual(colours, [yellow, yellow, yellow, TOKENS["text_soft"]])
+        self.assertEqual(output_lines(window), ["WARNING: first", "  second", "  third", "after"])
+
+    def test_a_colour_left_on_by_one_stream_does_not_tint_the_other(self):
+        self.recorder.add("stdout", f"{ESC}[31mred and not reset")
+        self.recorder.add("stderr", "plain on stderr")
+        self.recorder.add("stdout", "still red")
+        window = self.window()
+        red = TC.readable_color(TC.PALETTE_LIGHT[1], self.surface(window))
+        self.assertEqual([fragments(window, number)[0][1] for number in range(3)], [red, TOKENS["text_soft"], red])
+
+    def test_a_progress_state_does_not_change_the_colour_the_next_line_starts_in(self):
+        self.recorder.add("stdout", f"{ESC}[31mstate one", partial=True)
+        self.recorder.add("stdout", f"{ESC}[31mstate two", partial=True)
+        self.recorder.add("stdout", "finished plainly")  # replaces the progress line
+        self.recorder.add("stdout", "after")
+        window = self.window()
+        self.assertEqual(output_lines(window), ["finished plainly", "after"])
+        self.assertEqual([fragments(window, number)[0][1] for number in range(2)], [TOKENS["text_soft"]] * 2)
+        self.recorder.add("stdout", f"{ESC}[31mstate", partial=True)
+        self.recorder.add("stdout", f"{ESC}[31mdone, red stays on")
+        self.recorder.add("stdout", "next")
+        self.drain(window)
+        red = TC.readable_color(TC.PALETTE_LIGHT[1], self.surface(window))
+        self.assertEqual(output_lines(window), ["finished plainly", "after", "done, red stays on", "next"])
+        self.assertEqual([fragments(window, number)[0][1] for number in (2, 3)], [red, red])
+
+    def test_a_line_with_colours_of_its_own_keeps_them_and_is_not_coloured_by_what_it_says(self):
+        self.recorder.add("stderr", f"Error: {ESC}[32mall good{ESC}[0m really")
+        self.recorder.add("stderr", f"{ESC}[1mError: only bold{ESC}[0m")
+        self.recorder.add("stderr", "Error: no escape at all")
+        window = self.window()
+        coloured, bold_only, plain = (fragments(window, number) for number in range(3))
+        green = TC.readable_color(TC.PALETTE_LIGHT[2], self.surface(window))
+        self.assertEqual([(text, colour) for text, colour, *_ in coloured],
+                         [("Error: ", TOKENS["text_soft"]), ("all good", green), (" really", TOKENS["text_soft"])])
+        # Without colour of its own a line still has the colour of what it says, bold or not.
+        self.assertEqual(bold_only[0][1], TOKENS["danger"])
+        self.assertTrue(bold_only[0][3])
+        self.assertEqual(plain[0][1], TOKENS["danger"])
+
+    def test_what_a_line_says_decides_the_filter_not_its_escape_codes(self):
+        for text in (f"{ESC}[91mError: red and an error{ESC}[0m", f"{ESC}[32mgreen output{ESC}[0m",
+                     f"{ESC}[0mTraceback (most recent call last):", f'{ESC}[2m  File "a.py", line 1{ESC}[0m'):
+            self.recorder.add("stdout", text)
+        window = self.window()
+        window.filter_box.setCurrentIndex(window.filter_box.findData(ERROR))
+        self.assertEqual(output_lines(window), ["Error: red and an error", "Traceback (most recent call last):",
+                                              '  File "a.py", line 1'])
+
+    def test_a_colour_sequence_in_a_line_the_filter_hides_still_colours_what_follows(self):
+        self.recorder.add("stdout", f"{ESC}[31mhidden by the filter, leaves red on")
+        self.recorder.add("stderr", "Error: shown")
+        self.recorder.add("stdout", "Error: shown too, in red")
+        window = self.window()
+        window.filter_box.setCurrentIndex(window.filter_box.findData(ERROR))
+        red = TC.readable_color(TC.PALETTE_LIGHT[1], self.surface(window))
+        self.assertEqual([fragments(window, number)[0][1] for number in range(2)], [TOKENS["danger"], red])
+
+    def test_the_search_finds_the_text_that_shows_and_not_the_codes(self):
+        self.recorder.add("stdout", f"{ESC}[31mred text{ESC}[0m and {ESC}[38;2;1;2;3mdot{ESC}[0m")
+        window = self.window()
+        for needle, expected in (("31m", "No matches"), ("38;2", "No matches"), ("[", "No matches"),
+                                 ("red text", "1 match(es)"), ("text and dot", "1 match(es)")):
+            with self.subTest(needle=needle):
+                window.search.setText(needle)
+                self.assertEqual(window.match_label.text(), expected)
+
+    def test_copy_and_save_hold_the_text_and_no_colour_codes(self):
+        self.recorder.add("stdout", f"{ESC}[31mred{ESC}[0m plain {ESC}[38;2;1;2;3m\u25cf{ESC}[0m")
+        window = self.window()
+        self.assertEqual(window.copy_text().split("  ", 1)[-1], "red plain \u25cf")
+        with tempfile.TemporaryDirectory() as directory:
+            target = str(Path(directory) / "out.txt")
+            with mock.patch.object(Console_View.QFileDialog, "getSaveFileName", return_value=(target, "")):
+                window.save_text()
+            saved = Path(target).read_text(encoding="utf-8")
+        self.assertNotIn(ESC, saved)
+        self.assertNotIn("[31m", saved)
+        self.assertIn("red plain \u25cf", saved)
+
+    def test_a_theme_change_gives_the_runs_their_colours_again(self):
+        self.recorder.add("stdout", f"{ESC}[31mred{ESC}[0m")
+        window = self.window()
+        before = fragments(window, 0)
+        window._apply_theme()
+        window._render_all()
+        self.assertEqual(fragments(window, 0), before)
+        self.assertTrue(window._run_formats)
+
+    def test_an_empty_line_is_a_line_and_its_neighbours_stay_apart(self):
+        for text in ("", "second", "", ""):
+            self.recorder.add("stdout", text)
+        window = self.window()
+        self.assertEqual(output_lines(window), ["", "second", "", ""])
+        self.assertIn("4 lines shown", window.count_label.text())
+
+    def test_a_line_that_is_only_a_colour_sequence_is_an_empty_line_that_sets_the_colour(self):
+        for text in (f"{ESC}[31m", "red now"):
+            self.recorder.add("stdout", text)
+        window = self.window()
+        self.assertEqual(output_lines(window), ["", "red now"])
+        self.assertEqual(fragments(window, 1)[0][1], TC.readable_color(TC.PALETTE_LIGHT[1], self.surface(window)))
 
 
 class SearchTests(WindowCase):

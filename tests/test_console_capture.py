@@ -337,6 +337,45 @@ class LogFileTests(unittest.TestCase):
         self.assertEqual(recorder.log_error, "disk full")
 
 
+class ColourPlumbingTests(unittest.TestCase):
+    def test_the_log_gets_the_text_without_colours_and_the_ring_keeps_them(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = Recorder("viewer", directory)
+            recorder.add("stdout", "\x1b[1;31mred\x1b[0m and \x1b[38;2;1;2;3m\u25cf\x1b[0m")
+            recorder.add("stdout", "no colour")
+            recorder.close_log()
+            logged = Path(recorder.log_path).read_text(encoding="utf-8")
+        self.assertNotIn("\x1b", logged)
+        self.assertRegex(logged, r"\d\d:\d\d:\d\d O red and \u25cf\n")
+        self.assertEqual(recorder.snapshot()[0].text, "\x1b[1;31mred\x1b[0m and \x1b[38;2;1;2;3m\u25cf\x1b[0m")
+
+    def test_only_a_terminal_that_can_show_colours_is_passed_them(self):
+        with mock.patch.object(Console_Capture.os, "isatty", return_value=False):
+            self.assertFalse(Console_Capture._takes_colours(5))
+        with mock.patch.object(Console_Capture.os, "isatty", side_effect=OSError):
+            self.assertFalse(Console_Capture._takes_colours(5))
+        with mock.patch.object(Console_Capture.os, "isatty", return_value=True):
+            with mock.patch.object(Console_Capture.sys, "platform", "linux"):
+                self.assertTrue(Console_Capture._takes_colours(5))
+            with mock.patch.object(Console_Capture.sys, "platform", "win32"), mock.patch.object(
+                Console_Capture, "_windows_console_takes_ansi", return_value=False, create=True
+            ):
+                self.assertFalse(Console_Capture._takes_colours(5))  # a console that cannot read them gets none
+            with mock.patch.object(Console_Capture.sys, "platform", "win32"), mock.patch.object(
+                Console_Capture, "_windows_console_takes_ansi", return_value=True, create=True
+            ):
+                self.assertTrue(Console_Capture._takes_colours(5))
+
+    def test_the_capture_knows_its_own_streams_and_nothing_else(self):
+        own = io.StringIO()
+        with mock.patch.object(Console_Capture, "_capture", mock.Mock(text_streams=(own,))):
+            self.assertTrue(Console_Capture.is_capture_stream(own))
+            self.assertFalse(Console_Capture.is_capture_stream(io.StringIO()))
+        with mock.patch.object(Console_Capture, "_capture", None):
+            self.assertFalse(Console_Capture.is_capture_stream(own))
+        self.assertEqual(Recorder("viewer", None).text_streams, ())  # no capture, no streams
+
+
 class ProcessGoneTests(unittest.TestCase):
     """Console_Capture.process_is_gone: the pruning's question, on both systems (a probe that ends the process on Windows would be a bug)."""
 
@@ -927,6 +966,73 @@ class ContextTests(unittest.TestCase):
         shown = [text for text in run.ring_texts if "host portal" in text]
         self.assertEqual(len(shown), 1, shown)
         self.assertTrue(shown[0].startswith("[Qt warning] qt.qpa.services: Failed to register with host portal"), shown)
+
+    def test_colours_reach_the_ring_but_neither_the_log_nor_a_pipe(self):
+        run = ProbeRun(self, "pipes", options=("ansi",))
+        self.assertEqual(run.code, 0, run)
+        self.assertIsNotNone(run.result, "the probe died before its result")
+        self.assertEqual(run.result["missing_in_ring"], [])
+        # The question a command asks: yes under the capture, though both streams are pipes; no for a buffer.
+        self.assertTrue(run.result["colours_enabled"])
+        self.assertFalse(run.result["colours_enabled_in_a_buffer"])
+        esc = chr(27)
+
+        def ring_line(marker):
+            return next(text for text in run.ring_texts if marker in text)
+
+        # The Console window reads these.
+        self.assertEqual(ring_line("ansi marker"), f"{esc}[31mSRC ansi marker{esc}[0m {esc}[38;2;1;2;3mdot{esc}[0m")
+        self.assertEqual(ring_line("ansi stderr"), f"{esc}[1mSRC ansi stderr{esc}[0m")
+        self.assertEqual(ring_line("ansi split"), f"SRC ansi split {esc}[31mcoloured{esc}[0m")
+        log = run.logged()
+        self.assertNotIn(esc, log)
+        self.assertIn("SRC ansi marker dot", log)
+        self.assertIn("SRC ansi split coloured", log)
+        # Standard output and error are pipes here: what is passed on has no colour, even across a cut sequence.
+        out, err = run.stdout_bytes.decode("utf-8"), run.stderr_bytes.decode("utf-8")
+        self.assertNotIn(esc, out + err)
+        self.assertIn("SRC ansi marker dot", out)
+        self.assertIn("SRC ansi split coloured", out)
+        self.assertIn("SRC ansi stderr", err)
+
+    @unittest.skipUnless(os.name == "posix", "a pseudo-terminal is POSIX")
+    def test_a_terminal_is_passed_the_colours_unchanged(self):
+        import pty
+        import select
+
+        master, slave = pty.openpty()
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        result = Path(directory.name) / "result.json"
+        command = [sys.executable, "-u", str(PROBE), str(result), str(Path(directory.name) / "logs"), "auto", "ansi"]
+        process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=slave, stderr=slave,
+                                   env=child_environment())
+        os.close(slave)
+        received = b""
+        deadline = time.monotonic() + 60
+        try:
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select([master], [], [], 0.5)
+                if ready:
+                    try:
+                        chunk = os.read(master, 65536)
+                    except OSError:  # the other end closed (Linux)
+                        break
+                    if not chunk:
+                        break
+                    received += chunk
+                elif process.poll() is not None:
+                    break
+        finally:
+            os.close(master)
+            process.wait(timeout=30)
+        self.assertEqual(process.returncode, 0)
+        esc = chr(27).encode()
+        self.assertIn(esc + b"[31mSRC ansi marker" + esc + b"[0m", received)
+        self.assertIn(esc + b"[38;2;1;2;3mdot" + esc + b"[0m", received)
+        self.assertIn(b"SRC ansi split " + esc + b"[31mcoloured" + esc + b"[0m", received)
+        log = "".join(path.read_text(encoding="utf-8") for path in (Path(directory.name) / "logs").glob("probe-*.log"))
+        self.assertNotIn(chr(27), log)  # the log has none whoever is looking
 
     def test_without_the_handler_qt_still_writes_to_stderr(self):
         program = (

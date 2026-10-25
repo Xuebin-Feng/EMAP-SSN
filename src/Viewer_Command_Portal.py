@@ -22,6 +22,7 @@ from PySide6 import QtCore
 from Command_Declarations import acts_on_jobs
 from desktop.Viewer_Window import viewer_shows_windows as _viewer_shows_windows
 from utilities.Localization import Message
+from utilities.Terminal_Colors import AnsiStripper
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'skipped'}
 CURRENT = ContextVar('viewer_command_context', default=None)
@@ -301,7 +302,8 @@ class ViewerCommandPortal(QtCore.QObject):
             status='queued', submitted_at=now(), finished_at=None, commands=records)
         self.submissions[submission_id] = (signature, request_id)
         with self.output_lock:
-            self.output[request_id] = {s: {'data': b'', 'base': 0} for s in ('stdout', 'stderr')}
+            self.output[request_id] = {
+                s: {'data': b'', 'base': 0, 'colours': AnsiStripper()} for s in ('stdout', 'stderr')}
         self.queue.append(request_id)
         self.publish(request_id)
         QtCore.QTimer.singleShot(0, self.pump)
@@ -570,7 +572,9 @@ class ViewerCommandPortal(QtCore.QObject):
             if request_id not in self.output:
                 return
             slot = self.output[request_id][stream]
-            slot['data'] += text.encode('utf-8', errors='replace')
+            # What a command printed in colour (utilities/Terminal_Colors.py) is for the Console window: the
+            # client that reads this output gets the text.
+            slot['data'] += slot['colours'].feed(text.encode('utf-8', errors='replace'))
             total = sum(len(s['data']) for streams in self.output.values() for s in streams.values())
             excess = max(0, total - self.max_output_bytes)
             for streams in self.output.values():

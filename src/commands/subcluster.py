@@ -21,6 +21,7 @@ import re
 import os
 from utilities import Network_Kernels as network_clustering
 from utilities.Localization import JoinedMessage, Message
+from utilities.Terminal_Colors import colours_enabled
 import sys
 import colorsys
 import math
@@ -38,10 +39,6 @@ if sys.platform == 'win32' and not globals().get("_WINDOWS_ANSI_ENABLED", False)
     _WINDOWS_ANSI_ENABLED = True
 
 
-def _stdout_supports_color():
-    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-
-
 def get_colored_subcluster_name(sub_id, name_str, color_map=None):
     if sub_id == -1:
         # Grey for noise
@@ -51,7 +48,7 @@ def get_colored_subcluster_name(sub_id, name_str, color_map=None):
         r, g, b = int(rgba[0] * 255), int(rgba[1] * 255), int(rgba[2] * 255)
     else:
         r, g, b = 180, 180, 180
-    if not _stdout_supports_color():
+    if not colours_enabled():
         return f"● {name_str}"
     return f"\033[38;2;{r};{g};{b}m●\033[0m {name_str}"
 

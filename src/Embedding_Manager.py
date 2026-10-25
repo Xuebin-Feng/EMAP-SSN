@@ -27,13 +27,14 @@ from dataclasses import dataclass
 import numpy as np
 
 from utilities.Localization import Message
+from utilities.Terminal_Colors import colours_enabled
 
 POOLING_METHODS = ("mean", "max")
 
 
 def _print_red_warning(message):
     """Print a bright-red warning to terminals and plain text to redirected logs."""
-    if hasattr(sys.stdout, "isatty") and sys.stdout.isatty():
+    if colours_enabled():
         print(f"\033[91m{message}\033[0m")
     else:
         print(message)

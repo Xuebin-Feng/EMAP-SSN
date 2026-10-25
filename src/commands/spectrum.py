@@ -22,6 +22,7 @@ import matplotlib as mpl
 import matplotlib.cm as cm
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+from utilities.Terminal_Colors import colours_enabled
 
 
 if sys.platform == "win32" and not globals().get("_WINDOWS_ANSI_ENABLED", False):
@@ -32,13 +33,9 @@ if sys.platform == "win32" and not globals().get("_WINDOWS_ANSI_ENABLED", False)
 ANSI_RESET = "\033[0m"
 
 
-def _stdout_supports_color():
-    return hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
-
-
 def _terminal_endpoint_text(label, value, rgba):
     text = f"{label}: {value}"
-    if not _stdout_supports_color():
+    if not colours_enabled():
         return text
 
     red, green, blue = (

@@ -20,7 +20,10 @@ thread per stream
   nothing is passed on to it.
 
 The log and the ring hold the text with API keys and tokens replaced (see
-``redact``); what is passed on is left as it was, byte for byte.
+``redact``); what is passed on is left as it was, byte for byte, except for
+colour: commands colour some output with ANSI escape sequences (see
+utilities/Terminal_Colors.py), which the ring keeps for the Console window to
+draw, and which the log and a stream that is not a terminal never get.
 
 ``start`` is what an entry point calls, first in its ``__main__`` block and
 before anything prints. It does nothing but ``configure_output_streams`` for a
@@ -46,6 +49,8 @@ import re
 import sys
 import threading
 import time
+
+from utilities.Terminal_Colors import AnsiStripper, strip_ansi
 
 RING_LINES = 20000
 LOG_BYTES = 8 * 1024 * 1024
@@ -73,6 +78,7 @@ LOG_DIR_VARIABLE = "SSN_LOG_DIR"
 PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
 ERROR_INVALID_PARAMETER = 87
 STILL_ACTIVE = 259
+ENABLE_VIRTUAL_TERMINAL_PROCESSING = 0x0004
 
 _capture: "Capture | None" = None
 # Scripts whose standard output is a protocol, not text for a person: capture refuses to start in them.
@@ -275,6 +281,7 @@ class Recorder:
         self.app = app
         self.lines: collections.deque = collections.deque(maxlen=ring_lines)
         self.dropped = 0
+        self.text_streams: tuple = ()  # sys.stdout and sys.stderr, once a Capture has made them
         self.total = 0
         self._seq = itertools.count(1)
         self._lock = threading.Lock()
@@ -307,7 +314,7 @@ class Recorder:
         if self._log is None:
             return
         stamp = time.strftime("%H:%M:%S", time.localtime(when))
-        data = f"{stamp} {'E' if stream == 'stderr' else 'O'} {text}\n".encode("utf-8", "replace")
+        data = f"{stamp} {'E' if stream == 'stderr' else 'O'} {strip_ansi(text)}\n".encode("utf-8", "replace")
         try:
             if self._log_size + len(data) > self._log_bytes and self._log_size:
                 self._log.close()
@@ -438,6 +445,34 @@ def original_is_read(descriptor: int) -> bool:
     return True  # a pipe or file the launcher (MCP, the monitor, a test, a redirect) set up
 
 
+def _takes_colours(descriptor: int) -> bool:
+    """Whether the stream behind ``descriptor`` shows colour sequences: a terminal does, a file or a pipe does not."""
+    try:
+        if not os.isatty(descriptor):
+            return False
+    except OSError:
+        return False
+    return sys.platform != "win32" or _windows_console_takes_ansi(descriptor)
+
+
+def _windows_console_takes_ansi(descriptor: int) -> bool:
+    """Windows: switch the console behind ``descriptor`` to ANSI processing, if it has none yet; whether it has it."""
+    import ctypes
+    import msvcrt
+
+    try:
+        kernel32 = ctypes.windll.kernel32
+        handle = ctypes.c_void_p(msvcrt.get_osfhandle(descriptor))
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False
+        if mode.value & ENABLE_VIRTUAL_TERMINAL_PROCESSING:
+            return True
+        return bool(kernel32.SetConsoleMode(handle, mode.value | ENABLE_VIRTUAL_TERMINAL_PROCESSING))
+    except (OSError, ValueError, AttributeError):
+        return False
+
+
 def _forward_writer(descriptor: int):
     """A raw binary writer on ``descriptor`` that does not close it; a Windows console takes UTF-8 through its own writer."""
     if sys.platform == "win32" and os.isatty(descriptor):
@@ -543,6 +578,7 @@ class Capture(Recorder):
         # escaped, every write passed on at once (as -u does).
         sys.stdout = self._text_stream(1)
         sys.stderr = self._text_stream(2)
+        self.text_streams = (sys.stdout, sys.stderr)
         os.environ.setdefault("QT_FORCE_STDERR_LOGGING", "1")  # Qt stays silent on a hidden console without it
         if self.log_path is not None:
             # A native crash: Python's own dump, straight to a file, not through a pipe whose reader may be gone.
@@ -606,10 +642,16 @@ class Capture(Recorder):
         except OSError:
             self.forwarding[name] = False
             return
+        # A terminal gets the output as it came, colours and all; anything else gets it with no colours.
+        stripper = None if _takes_colours(descriptor) else AnsiStripper()
         while True:
             chunk = forward_queue.get()
             if chunk is None:
                 return
+            if stripper is not None:
+                chunk = stripper.feed(chunk)
+                if not chunk:
+                    continue
             try:
                 _write_all(writer, chunk)
             except OSError:
@@ -691,6 +733,23 @@ def install(app: str, log_dir=None, forward: bool | None = None) -> "Capture":
 def current() -> "Capture | None":
     """The capture this process installed, or None."""
     return _capture
+
+
+def is_capture_stream(stream) -> bool:
+    """Whether ``stream`` is the sys.stdout or sys.stderr this process's capture installed.
+
+    A pass-through wrapper that keeps the stream it wraps as ``.stream`` counts as it does: the Viewer's
+    command portal wraps both, to copy a command's output to the request that asked for it.
+    """
+    if _capture is None:
+        return False
+    for _ in range(4):
+        if any(stream is own for own in _capture.text_streams):
+            return True
+        stream = getattr(stream, "stream", None)
+        if stream is None:
+            return False
+    return False
 
 
 def hard_exit(code: int) -> None:
