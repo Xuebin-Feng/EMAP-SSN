@@ -66,12 +66,19 @@ still change before version 1.0.0.
     `open`.
   - **The Viewer's Console:** the **Console** button in the Viewer's bottom row, between ⓘ
     and the threshold box, and the `console` command open a Console window with the
-    Viewer's output, with search, an errors-only filter, Copy, Save and Open log.
+    Viewer's output, with search, an errors-only filter, Copy, Save and Open log. It keeps
+    the newest line in view while the last line is on screen, and never scrolls a view the
+    user has moved up.
     - **Colours:** the colours commands print in a terminal show here too, such as
       `cluster`'s dots and `spectrum`'s values, and warnings and errors are amber and red.
       The log file, Copy, Save, and what MCP and Agent clients read get plain text.
     - **Times:** each line's time is shown beside the text, never in it, so Copy, Save and
-      search see only the output. The **Times** switch hides them, and is remembered.
+      search see only the output. The **Show Times** switch hides them, and is remembered.
+    - **Page buttons:** the **Meta Data**, **Agent** and **Fold View** buttons are a second
+      row in the Console, under the search, instead of in a sidebar. The Viewer has no
+      sidebar or sidebar toggle now, so it can be made narrower. A Viewer started with
+      `--console` keeps no output, but its Console still opens for these buttons and says
+      where the output goes.
     - **Layout:** the Console's header stays on one row; the window can't be made narrower
       than it. The Viewer window can't be made narrower than its bottom row, so its
       controls never overlap.
@@ -187,7 +194,7 @@ still change before version 1.0.0.
   list of commands in the Viewer's language, or in English if that language has no
   translated copy.
 - **Show Frame Rate (FPS).** A switch in the Config's new Low Resource Mode section
-  (below) shows the Viewer's frame rate at the top right, left of the sidebar button: the
+  (below) shows the Viewer's frame rate at the top right: the
   frames shown on screen in the last second, the GPU time of a recent frame and, while
   edges are thinned, the step, for example `60 fps · GPU 4.1 ms · edges 1/16`. It reads Idle when nothing is
   being drawn. It never makes the Viewer redraw and never appears in prints or captures.
