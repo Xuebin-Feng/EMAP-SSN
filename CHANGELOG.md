@@ -305,6 +305,18 @@ still change before version 1.0.0.
   package `esm` requires …"). It now prints one line saying the check passed with that many
   expected deviations, and lists them only when a setup or repair runs. A difference that
   isn't expected still stops the start, with every detail.
+- **No terminal for a Viewer started by the Layout Generator or by MCP.**
+  - **Layout Generator:** when Save & Run needs a new layout, the generator's terminal now
+    closes once the layout is saved, and the Viewer starts with the start-up splash like any
+    other. Before, the Viewer ran inside that terminal, and closing it closed the Viewer.
+  - **MCP:** a normal-mode `start_session` shows the start-up splash, then the Viewer, with
+    no terminal or console window on any platform. Its output is in its Console and in the
+    launch's log files as before, and `close_session` still ends it. With no display, the
+    launch fails at once with the launcher's own message instead of waiting for a terminal.
+- **`install.sh` says when the menu or Desktop entries start another checkout.** When it
+  replaces menu entries that pointed at another folder, it lists them and says GNOME may
+  keep starting the old one until you log out and back in. Desktop copies that still point
+  elsewhere get a warning and how to update them.
 - **Command files declare how they are run.** A command file can say that it runs at once
   even while other commands wait (`QUEUE = "instant"` or a `queue_kind(args, source)`
   function), that it starts a model request (`STARTS_MODEL_REQUEST`), or that it acts on
