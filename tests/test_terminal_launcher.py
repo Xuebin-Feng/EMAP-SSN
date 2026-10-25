@@ -202,7 +202,41 @@ class TerminalPolicyTests(unittest.TestCase):
             ["/mock/terminal"],
             cwd=str(PROJECT_ROOT),
             env={"PATH": environment["PATH"]},
+            stdin=launcher.subprocess.DEVNULL,
+            stdout=launcher.subprocess.DEVNULL,
+            stderr=launcher.subprocess.DEVNULL,
         )
+
+    def test_a_posix_terminal_gets_dev_null_for_every_stream_the_caller_leaves_out(self):
+        # The terminal program (osascript on macOS) outlives the caller. Inheriting the caller's
+        # descriptors would give it the pipes of the Console capture (see
+        # CapturedProcessTerminalTests), so a stream nobody asked for is /dev/null.
+        devnull = launcher.subprocess.DEVNULL
+        log = object()
+        cases = (
+            ({}, {"stdin": devnull, "stdout": devnull, "stderr": devnull}),
+            ({"stdout": log}, {"stdin": devnull, "stdout": log, "stderr": devnull}),
+            ({"stdin": log, "stderr": log}, {"stdin": log, "stdout": devnull, "stderr": log}),
+        )
+        for platform_name in ("linux", "darwin"):
+            for given, expected in cases:
+                with self.subTest(platform=platform_name, given=sorted(given)), mock.patch.object(
+                    launcher, "_find_linux_terminal", return_value=XDG_TERMINAL
+                ), mock.patch.object(
+                    launcher, "_build_linux_argv", return_value=["/mock/terminal"]
+                ), mock.patch.object(launcher.subprocess, "Popen") as popen:
+                    launcher.launch_in_terminal(
+                        ["python", "worker.py"], cwd=PROJECT_ROOT, platform_name=platform_name, **given
+                    )
+                popen.assert_called_once()
+                kwargs = popen.call_args.kwargs
+                self.assertEqual({name: kwargs[name] for name in expected}, expected)
+
+    def test_windows_still_gives_the_new_console_its_own_streams(self):
+        with mock.patch.object(launcher.subprocess, "Popen") as popen:
+            launcher.launch_in_terminal(["python", "worker.py"], cwd=PROJECT_ROOT, platform_name="win32")
+        for name in ("stdin", "stdout", "stderr"):
+            self.assertNotIn(name, popen.call_args.kwargs)
 
     def test_launch_forwards_supplied_standard_streams(self):
         log = object()
@@ -624,6 +658,95 @@ class HandOffTerminalTests(unittest.TestCase):
             time.sleep(0.05)
         self.assertTrue(output.exists(), "The handed-on command did not run")
         self.assertEqual(list(runtime.iterdir()), [])
+
+
+# A stand-in terminal that records what its standard streams are (Python, because fstat and samestat
+# behave the same on Linux and macOS), then stays alive, as a terminal does, until the test lets it go.
+_STREAM_RECORDING_TERMINAL = """\
+import json, os, stat, time
+
+record, release = os.environ["FAKE_TERMINAL_RECORD"], os.environ["FAKE_TERMINAL_RELEASE"]
+null = os.stat(os.devnull)
+streams = {}
+for number in (0, 1, 2):
+    info = os.fstat(number)
+    streams[number] = {"null": os.path.samestat(info, null), "pipe": stat.S_ISFIFO(info.st_mode)}
+with open(record + ".tmp", "w", encoding="utf-8") as handle:
+    json.dump(streams, handle)
+os.replace(record + ".tmp", record)
+deadline = time.monotonic() + 60
+while not os.path.exists(release) and time.monotonic() < deadline:
+    time.sleep(0.05)
+"""
+
+# The Viewer, Config and Tools capture their output in pipes over descriptors 1 and 2 and start a
+# terminal while they run. This is what such a window does, in a process of its own.
+_CAPTURING_LAUNCHER = """\
+import json, os, sys, time
+sys.path.insert(0, sys.argv[1])
+from utilities import Console_Capture, Terminal_Launcher
+
+record = os.environ["FAKE_TERMINAL_RECORD"]
+capture = Console_Capture.install("probe", sys.argv[2], True)
+process = Terminal_Launcher.launch_in_terminal(
+    [sys.executable, "-c", "pass"], cwd=sys.argv[2], platform_name="linux"
+)
+deadline = time.monotonic() + 30
+while not os.path.exists(record) and time.monotonic() < deadline:
+    time.sleep(0.02)
+started = time.monotonic()
+capture.close()  # as at the end of the window's process, with the terminal still running
+print(json.dumps({"close_seconds": time.monotonic() - started, "recorded": os.path.exists(record)}))
+"""
+
+
+@unittest.skipIf(sys.platform == "win32", "Linux and macOS give the terminal the caller's descriptors")
+class CapturedProcessTerminalTests(unittest.TestCase):
+    """A terminal that Config or Tools starts must not inherit their output-capture pipes.
+
+    The audit's run, with a stand-in xterm and the real capture, found the terminal holding both pipes:
+    the capture's close at exit waited its full two seconds for them to end, and the terminal died of
+    SIGPIPE on its next write once the window had gone. On macOS osascript held them for as long as the
+    Viewer ran.
+    """
+
+    def test_the_terminal_gets_dev_null_and_not_the_capture_pipes(self):
+        root = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        bin_dir = root / "bin"
+        bin_dir.mkdir()
+        script = root / "terminal_recorder.py"
+        script.write_text(_STREAM_RECORDING_TERMINAL, encoding="utf-8")
+        terminal = bin_dir / "xdg-terminal-exec"
+        terminal.write_text(
+            f'#!/bin/sh\nexec {shlex.quote(sys.executable)} {shlex.quote(str(script))} "$@"\n', encoding="utf-8"
+        )
+        terminal.chmod(0o755)
+        runtime = root / "runtime"
+        runtime.mkdir(mode=0o700)
+        record, release = root / "streams.json", root / "release"
+        self.addCleanup(release.touch)  # a recorder that outlives a failed test ends at once
+        environment = {key: value for key, value in os.environ.items() if key not in ("PYTHONPATH", "PYTHONHOME")}
+        environment.update(
+            PATH=f"{bin_dir}{os.pathsep}{environment.get('PATH', '')}",
+            XDG_RUNTIME_DIR=str(runtime),
+            FAKE_TERMINAL_RECORD=str(record),
+            FAKE_TERMINAL_RELEASE=str(release),
+        )
+        done = subprocess.run(
+            [sys.executable, "-c", _CAPTURING_LAUNCHER, str(SRC_DIR), str(root)],
+            capture_output=True, text=True, stdin=subprocess.DEVNULL, env=environment, timeout=120,
+        )
+        release.touch()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        report = json.loads(done.stdout.strip().splitlines()[-1])
+        self.assertTrue(report["recorded"], "the stand-in terminal never ran")
+        streams = json.loads(record.read_text(encoding="utf-8"))
+        for number in ("0", "1", "2"):
+            with self.subTest(descriptor=number):
+                self.assertTrue(streams[number]["null"], f"descriptor {number} of the terminal is not /dev/null")
+                self.assertFalse(streams[number]["pipe"])
+        # Nothing but the capture's own descriptors held its pipes, so closing it did not wait for the terminal.
+        self.assertLess(report["close_seconds"], 1.0)
 
 
 class WindowsLaunchTests(unittest.TestCase):

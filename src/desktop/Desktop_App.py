@@ -400,10 +400,11 @@ def open_in_file_manager(path):
 
         if os.name == "nt":
             os.startfile(target)
-        elif sys.platform == "darwin":
-            subprocess.Popen(["open", target])
         else:
-            subprocess.Popen(["xdg-open", target])
+            # The opener's file manager outlives this call, and would hold the pipes of the Console
+            # capture (utilities/Console_Capture.py) that a window's descriptors 1 and 2 are.
+            detached = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
+            subprocess.Popen(["open" if sys.platform == "darwin" else "xdg-open", target], **detached)
         return True
     except Exception:
         return False

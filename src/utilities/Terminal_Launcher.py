@@ -449,8 +449,13 @@ def launch_in_terminal(
 
     ``stdin``, ``stdout`` and ``stderr`` go to ``subprocess.Popen``. On Linux
     and macOS they are the terminal program's own streams (its diagnostics),
-    while ``command`` runs on the new terminal's own console. On Windows the
-    command inherits them in place of the new console.
+    while ``command`` runs on the new terminal's own console; a stream the
+    caller does not give is /dev/null there. The terminal program (or, on
+    macOS, osascript) outlives the call, and one that inherited this
+    process's descriptors would hold the pipes of the Console capture
+    (utilities/Console_Capture.py): the capture's close would wait for it at
+    exit, and it would die of SIGPIPE on its next write after this process
+    ended. On Windows the command inherits them in place of the new console.
 
     ``env`` (default: this process's environment) is the command's
     environment. On Linux the command gets it, complete, and ``cwd`` from a
@@ -474,6 +479,8 @@ def launch_in_terminal(
     for name, stream in (("stdin", stdin), ("stdout", stdout), ("stderr", stderr)):
         if stream is not None:
             popen_kwargs[name] = stream
+        elif platform_name != "win32":
+            popen_kwargs[name] = subprocess.DEVNULL  # not the caller's pipes (see above)
 
     if platform_name == "win32":
         argv = _build_windows_argv(normalized, hold, title)

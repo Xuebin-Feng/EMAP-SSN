@@ -109,7 +109,10 @@ class ApplicationWindowActivationTests(unittest.TestCase):
     def test_file_manager_uses_the_platform_shell_when_qt_declines(self):
         # Each platform's fallback runs on any host: the module sees a
         # stand-in os, because os.startfile exists only on Windows.
+        # The POSIX openers get /dev/null for every stream: the file manager they start outlives
+        # the call and must not hold the pipes of the Console capture.
         target = os.path.abspath("output")
+        devnull = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
         for os_name, platform, expected in (
             ("nt", "win32", ("startfile", target)),
             ("posix", "darwin", ("Popen", ["open", target])),
@@ -125,7 +128,10 @@ class ApplicationWindowActivationTests(unittest.TestCase):
                 self.assertTrue(Application_Windows.open_in_file_manager("output"))
                 called = startfile if expected[0] == "startfile" else popen
                 unused = popen if called is startfile else startfile
-                called.assert_called_once_with(expected[1])
+                if called is popen:
+                    called.assert_called_once_with(expected[1], **devnull)
+                else:
+                    called.assert_called_once_with(expected[1])
                 unused.assert_not_called()
 
     def test_show_schedules_repeated_foreground_requests(self):
