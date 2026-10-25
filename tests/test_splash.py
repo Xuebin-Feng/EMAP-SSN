@@ -919,6 +919,107 @@ class ButtonLookTests(WindowCase):
         self.assertTrue(window.close_button.hasFocus())  # the error view asks for the focus itself
 
 
+class ArtClearanceTests(WindowCase):
+    """The art keeps clear of the text and the bar: at least ART_CLEARANCE logical pixels between what is drawn."""
+
+    LONG_STATUS = "Managed Python: C:\\Users\\someone\\Documents\\EMAP-SSN\\.venv\\Scripts\\python.exe " * 4
+    LONG_REASON = "EMAP-SSN Configuration stopped before its window opened, and this is a reason long enough to wrap " * 3
+
+    def test_the_art_is_a_square_of_about_270_centred_vertically_and_as_far_from_the_right_edge_as_set(self):
+        art = Splash.art_rect()
+        self.assertEqual((art.width(), art.height()), (Splash.ART_SIZE, Splash.ART_SIZE))
+        self.assertEqual(Splash.ART_SIZE, 270)
+        self.assertEqual(art.top(), Splash.HEIGHT - art.bottom())  # as much room above as below
+        self.assertEqual(Splash.WIDTH - art.right(), Splash.ART_RIGHT_MARGIN)
+        self.assertGreaterEqual(art.left(), Splash.TEXT_X + Splash.TEXT_WIDTH)  # right of the whole text column
+
+    def layer(self, window, paint, ratio):
+        """What ``paint`` draws of the splash, as a mask of the pixels that are visibly there, at a device ratio."""
+        import numpy
+
+        from PySide6.QtGui import QImage, QPainter
+
+        image = QImage(int(Splash.WIDTH * ratio), int(Splash.HEIGHT * ratio), QImage.Format.Format_ARGB32_Premultiplied)
+        image.setDevicePixelRatio(ratio)
+        image.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(image)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        paint(painter)
+        painter.end()
+        pixels = numpy.frombuffer(image.constBits(), dtype=numpy.uint8).reshape(image.height(), image.bytesPerLine())
+        alpha = pixels[:, : image.width() * 4].reshape(image.height(), image.width(), 4)[:, :, 3]
+        return alpha > 48  # the glow behind the art is fainter than that
+
+    def gap(self, window, ratio):
+        import numpy
+        from scipy import ndimage
+
+        art = self.layer(window, window._paint_art, ratio)
+        text = self.layer(window, window._paint_text, ratio)
+        self.assertTrue(art.any() and text.any())
+        distance = ndimage.distance_transform_edt(~text)  # from every pixel to the nearest text or bar pixel
+        return float(distance[art].min()) / ratio
+
+    def states(self, window):
+        yield "starting", lambda: window.set_status("Starting\u2026", 0.4)
+        yield "a long status", lambda: window.show_text(self.LONG_STATUS, 0.3)
+        yield "ready", lambda: window.show_ready()
+        yield "an error", lambda: window.show_error([self.LONG_REASON], None, reason=self.LONG_REASON)
+
+    def test_the_art_of_every_window_is_clear_of_the_text_and_the_bar_in_every_state_language_and_scale(self):
+        for language in (None, "zh_CN"):
+            translator = Splash.install_catalog(language)
+            Splash.load_fonts(language)
+            self.addCleanup(Splash.load_fonts, None)
+            if translator is not None:
+                self.addCleanup(QCoreApplication.removeTranslator, translator)
+            for kind in Splash.KINDS:
+                for index in range(4):
+                    window = self.splash(kind, language)
+                    name, change = list(self.states(window))[index]
+                    change()
+                    for ratio in (1, 2):
+                        with self.subTest(kind=kind, language=language, state=name, ratio=ratio):
+                            self.assertGreaterEqual(self.gap(window, ratio), Splash.ART_CLEARANCE)
+
+    def test_the_drawn_art_is_as_far_from_the_right_edge_as_the_text_is_from_the_left_and_centred_vertically(self):
+        import numpy
+
+        for kind in Splash.KINDS:
+            with self.subTest(kind=kind):
+                window = self.splash(kind)
+                art = self.layer(window, window._paint_art, 1)
+                rows, columns = numpy.nonzero(art)
+                self.assertLessEqual(abs((Splash.WIDTH - 1 - columns.max()) - Splash.TEXT_X), 8)
+                self.assertLessEqual(abs(rows.min() - (Splash.HEIGHT - 1 - rows.max())), 6)
+
+    def test_a_long_status_and_the_error_reason_end_short_of_the_bar(self):
+        import numpy
+
+        for index, name in ((1, "a long status"), (3, "an error")):
+            window = self.splash("config")
+            change = list(self.states(window))[index][1]
+            change()
+            text = self.layer(window, window._paint_text, 1)
+            rows = text[262:318, :] if name == "an error" else text[286:310, :]
+            columns = numpy.nonzero(rows.any(axis=0))[0]
+            with self.subTest(state=name):
+                self.assertLessEqual(columns.max(), Splash.TEXT_X + Splash.STATUS_WIDTH)
+        self.assertLess(Splash.STATUS_WIDTH, Splash.TEXT_WIDTH)
+
+    def test_the_old_art_size_would_have_failed_it(self):
+        # 300 px, 30 px from the right: the top-left cluster was 6 px from the kicker line, and a long status or the
+        # error view's reason touched the art.
+        for index in range(4):
+            window = self.splash("config")
+            name, change = list(self.states(window))[index]
+            change()
+            with self.subTest(state=name), mock.patch.object(Splash, "ART_SIZE", 300):
+                self.assertLess(self.gap(window, 1), Splash.ART_CLEARANCE)
+
+
 class PluginKindTests(WindowCase):
     """A program beside this one adds a window with register_kind and its own catalogs with install_extra_catalogs."""
 

@@ -109,8 +109,11 @@ DETAILS_HEIGHT = 266
 DETAILS_MARGIN = 32
 DETAILS_GAP = 0
 BUTTON_HEIGHT = 34
-# The art is a square at the right, centred between the top and the bottom edge.
-ART_SIZE = 300
+# The art is a square at the right, centred between the top and the bottom edge, ART_RIGHT_MARGIN from the right one.
+# Its drawn content keeps at least ART_CLEARANCE from the text and the bar (tests/test_splash.py measures it).
+ART_SIZE = 270
+ART_RIGHT_MARGIN = 30
+ART_CLEARANCE = 16
 # How many lines the section keeps; the start prints a few dozen, a failing one a traceback.
 MAX_DETAIL_LINES = 5000
 # How many columns of the section's monospace font fit in it, where a warning wraps.
@@ -120,6 +123,9 @@ TAIL_READ_LIMIT = 256 * 1024
 RADIUS = 14.0
 # The bar: the text column's width, 3 px high.
 TEXT_X, TEXT_WIDTH = 40.0, 300.0
+# The status line (elided in the middle) and the error view's reason (wrapped) are this wide, so that they end short of
+# the art, whatever the wrap or the font makes of them.
+STATUS_WIDTH = 290.0
 BAR_Y, BAR_HEIGHT = 318.0, 3.0
 # The window may be this many seconds without news before the bar creeps on its own, and how far it may creep.
 CREEP_SECONDS, CREEP_LIMIT = 1.0, 0.12
@@ -353,6 +359,11 @@ def _fitted_font(text, width, pixels, smallest, bold=True):
         pixels -= 1
         font = _font(pixels, bold)
     return font
+
+
+def art_rect():
+    """Where the art is drawn: a square ART_SIZE wide at the right, ART_RIGHT_MARGIN from the edge, centred vertically."""
+    return QRectF(WIDTH - ART_RIGHT_MARGIN - ART_SIZE, (HEIGHT - ART_SIZE) / 2, ART_SIZE, ART_SIZE)
 
 
 def screen_center(point=None):
@@ -744,6 +755,10 @@ class SplashWindow(QWidget):
         painter.end()
 
     def _paint_start(self, painter):
+        self._paint_art(painter)
+        self._paint_text(painter)
+
+    def _paint_art(self, painter):
         c = self.colors
         # A soft light of the accent behind the art, then the art.
         glow = QRadialGradient(QPointF(WIDTH - 180, HEIGHT / 2), 230)
@@ -754,8 +769,10 @@ class SplashWindow(QWidget):
         glow.setColorAt(1.0, halo)
         painter.fillRect(QRectF(0, 0, WIDTH, HEIGHT), glow)
         if not self.logo.isNull():
-            painter.drawPixmap(QRectF(WIDTH - 30 - ART_SIZE, (HEIGHT - ART_SIZE) / 2, ART_SIZE, ART_SIZE), self.logo,
-                               QRectF(self.logo.rect()))
+            painter.drawPixmap(art_rect(), self.logo, QRectF(self.logo.rect()))
+
+    def _paint_text(self, painter):
+        c = self.colors
         x, width = TEXT_X, TEXT_WIDTH
         left, vcenter = Qt.AlignmentFlag.AlignLeft, Qt.AlignmentFlag.AlignVCenter
         painter.setPen(c["accent"])
@@ -778,13 +795,13 @@ class SplashWindow(QWidget):
             # Why it stopped, in the place of the status line and the bar.
             painter.setPen(c["danger"])
             painter.setFont(_font(13, True))
-            painter.drawText(QRectF(x, 262, width + 10, 54), left | vcenter | Qt.TextFlag.TextWordWrap, self.error_title)
+            painter.drawText(QRectF(x, 262, STATUS_WIDTH, 54), left | vcenter | Qt.TextFlag.TextWordWrap, self.error_title)
             return
         painter.setPen(c["text"])
         font = _font(12, self.ready)
         painter.setFont(font)
-        status = QFontMetricsF(font).elidedText(self.status, Qt.TextElideMode.ElideMiddle, width + 10)
-        painter.drawText(QRectF(x, 286, width + 10, 22), left | vcenter, status)
+        status = QFontMetricsF(font).elidedText(self.status, Qt.TextElideMode.ElideMiddle, STATUS_WIDTH)
+        painter.drawText(QRectF(x, 286, STATUS_WIDTH, 22), left | vcenter, status)
         self._paint_bar(painter)
 
     def _paint_bar(self, painter):
