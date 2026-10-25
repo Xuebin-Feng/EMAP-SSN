@@ -412,10 +412,66 @@ ssn_install_macos() {
     echo "Setup Complete! You can now run EMAP-SSN and EMAP-SSN Tools using the .app launchers in the project root."
 }
 
+# The project folder a generated .desktop entry starts: the folder above the src/bin script its Exec= line runs
+# (the entries quote the path: Exec="<folder>/src/bin/EMAPSSN_Desktop_Launcher.sh" viewer). Prints nothing, and
+# fails, for a file that is not one of ours.
+ssn_desktop_entry_folder() {
+    local entry="$1" line command
+
+    line=$(grep -m1 '^Exec=' "$entry" 2>/dev/null) || return 1
+    command="${line#Exec=}"
+    case "$command" in
+        \"*)
+            command="${command#\"}"
+            command="${command%%\"*}"
+            ;;
+        *)
+            command="${command%% *}"
+            ;;
+    esac
+    case "$command" in
+        */src/bin/*) printf '%s\n' "${command%/src/bin/*}" ;;
+        *) return 1 ;;
+    esac
+}
+
+# Whether two folders are the same one (a folder that is gone is only the same as its own name).
+ssn_same_folder() {
+    local first second
+
+    [ "$1" = "$2" ] && return 0
+    first=$(cd "$1" 2>/dev/null && pwd -P) || return 1
+    second=$(cd "$2" 2>/dev/null && pwd -P) || return 1
+    [ "$first" = "$second" ]
+}
+
+# Prints each emapssn*.desktop entry of DIRECTORY that starts a folder other than PROJECT_ROOT, one a line:
+# the entry's path, a tab and the folder it starts (read now, since the entry may be replaced before it is reported).
+ssn_entries_for_other_folders() {
+    local directory="$1" project="$2" entry folder
+
+    for entry in "$directory"/emapssn*.desktop; do
+        [ -f "$entry" ] || continue
+        folder=$(ssn_desktop_entry_folder "$entry") || continue
+        ssn_same_folder "$folder" "$project" || printf '%s\t%s\n' "$entry" "$folder"
+    done
+}
+
+# Says which folder each entry that ssn_entries_for_other_folders printed starts.
+ssn_list_entry_folders() {
+    local entries="$1" entry folder
+
+    while IFS=$'\t' read -r entry folder; do
+        [ -n "$entry" ] || continue
+        printf '         %s starts %s\n' "$entry" "$folder"
+    done <<< "$entries"
+}
+
 ssn_install_linux() {
     local PROJECT_ROOT
     local VIEWER_ICON TOOL_ICON
     local install_dependencies install_menu install_desktop
+    local menu_elsewhere desktop_elsewhere
 
     PROJECT_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || return 1
     cd "$PROJECT_ROOT" || return 1
@@ -488,6 +544,9 @@ EOF
 
     echo "[OK] Created emapssn.desktop and emapssn_tools.desktop in project root."
 
+    # Entries of another checkout, which these replace (or, if the answer is no, leave starting that one).
+    menu_elsewhere=$(ssn_entries_for_other_folders "$HOME/.local/share/applications" "$PROJECT_ROOT")
+
     read -r -p "Would you like to install these launchers to your system application menu? (y/n): " install_menu
     if [[ "$install_menu" =~ ^[Yy]$ ]]; then
         mkdir -p ~/.local/share/applications
@@ -496,6 +555,16 @@ EOF
         cp emapssn.desktop ~/.local/share/applications/
         cp emapssn_tools.desktop ~/.local/share/applications/
         echo "[OK] Launchers successfully added to your system applications menu!"
+        if [ -n "$menu_elsewhere" ]; then
+            echo "[NOTE] The application menu started another folder until now:"
+            ssn_list_entry_folders "$menu_elsewhere"
+            echo "       and now starts $PROJECT_ROOT. GNOME Shell can keep starting the old folder for a menu entry"
+            echo "       it has launched before, until you log out and back in: if a start still opens the old copy, do that."
+        fi
+    elif [ -n "$menu_elsewhere" ]; then
+        echo "[NOTE] The application menu still starts another folder, not $PROJECT_ROOT:"
+        ssn_list_entry_folders "$menu_elsewhere"
+        echo "       Run ./install.sh again and answer y to the menu question to start this folder from the menu."
     fi
 
     if [ -d "$HOME/Desktop" ]; then
@@ -506,6 +575,15 @@ EOF
             cp emapssn_tools.desktop "$HOME/Desktop/"
             chmod +x "$HOME/Desktop/emapssn.desktop" "$HOME/Desktop/emapssn_tools.desktop"
             echo "[OK] Launchers successfully copied to your Desktop!"
+        fi
+        # Whatever is left on the Desktop that starts another folder (every copy, if the answer was no).
+        desktop_elsewhere=$(ssn_entries_for_other_folders "$HOME/Desktop" "$PROJECT_ROOT")
+        if [ -n "$desktop_elsewhere" ]; then
+            echo "[WARNING] These Desktop launchers still start another folder, not $PROJECT_ROOT:" >&2
+            ssn_list_entry_folders "$desktop_elsewhere" >&2
+            echo "          Run ./install.sh again and answer y to the Desktop question to replace emapssn.desktop and" >&2
+            echo "          emapssn_tools.desktop, or copy those two files from $PROJECT_ROOT to ~/Desktop yourself" >&2
+            echo "          (and delete the old copies)." >&2
         fi
     fi
 

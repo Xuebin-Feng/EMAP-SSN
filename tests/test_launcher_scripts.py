@@ -1042,5 +1042,156 @@ class PosixGuiPackageCheckTests(unittest.TestCase):
                     self.assertEqual(result.returncode, expected, result.stderr)
 
 
+@unittest.skipUnless(Path("/bin/bash").is_file(), "requires a POSIX bash")
+class LinuxInstallerEntryWarningTests(unittest.TestCase):
+    """install.sh's Linux part names the menu and Desktop entries of another checkout, in a scratch HOME.
+
+    GNOME kept starting a previous checkout after install.sh had replaced the menu entries, until the user logged out
+    and back in, and old copies on the Desktop kept pointing at that checkout. The installer now says so.
+    """
+
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.base = Path(temporary.name).resolve()
+        self.home = self.base / "home"
+        (self.home / ".local" / "share" / "applications").mkdir(parents=True)
+        self.root = self.base / "this checkout"  # a space in the path: the entries quote it
+        (self.root / "src" / "bin").mkdir(parents=True)
+        (self.root / "src" / "bin" / "stand-in.sh").write_text("#!/bin/bash\n", encoding="utf-8", newline="\n")
+        (self.root / "install.sh").write_bytes(_lf_bytes(INSTALLER))
+        self.other = self.base / "other checkout"
+        self.menu = self.home / ".local" / "share" / "applications"
+        self.desktop = self.home / "Desktop"
+
+    @staticmethod
+    def write_entry(path, folder, name="viewer"):
+        Path(path).write_text(
+            "[Desktop Entry]\nType=Application\nName=EMAP-SSN\n"
+            f'Exec="{folder}/src/bin/EMAPSSN_Desktop_Launcher.sh" {name}\nPath={folder}\nTerminal=false\n',
+            encoding="utf-8", newline="\n")
+
+    def install(self, answers):
+        """Run the Linux part with the Qt system-library check stubbed out, answering its questions in order."""
+        script = (f". {shlex.quote(str(self.root / 'install.sh'))}\n"
+                  "ssn_require_linux_gui_dependencies() { return 0; }\nssn_install_linux\n")
+        environment = {**os.environ, "HOME": str(self.home)}
+        return subprocess.run(["/bin/bash", "-c", script], input=answers, capture_output=True, text=True,
+                              env=environment, cwd=str(self.base), timeout=60, check=False)
+
+    def old_menu_entries(self):
+        self.other.mkdir(exist_ok=True)
+        self.write_entry(self.menu / "emapssn.desktop", self.other)
+        self.write_entry(self.menu / "emapssn_tools.desktop", self.other, "tools")
+
+    def test_the_script_is_valid_bash(self):
+        self.assertEqual(subprocess.run(["/bin/bash", "-n", str(INSTALLER)], capture_output=True).returncode, 0)
+
+    def test_a_menu_entry_of_another_checkout_is_named_and_a_logout_is_advised_when_it_is_replaced(self):
+        self.old_menu_entries()
+        done = self.install("y\n")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("[NOTE]", done.stdout)
+        self.assertIn(f"emapssn.desktop starts {self.other}", done.stdout)
+        self.assertIn(f"emapssn_tools.desktop starts {self.other}", done.stdout)
+        self.assertIn(f"now starts {self.root}", done.stdout)
+        self.assertIn("log out and back in", done.stdout)
+        self.assertIn(f'Exec="{self.root}/src/bin/EMAPSSN_Desktop_Launcher.sh" viewer',
+                      (self.menu / "emapssn.desktop").read_text(encoding="utf-8"))  # and it did replace them
+
+    def test_entries_of_this_folder_or_a_link_to_it_say_nothing(self):
+        alias = self.base / "alias"
+        alias.symlink_to(self.root, target_is_directory=True)
+        for folder in (self.root, alias):
+            with self.subTest(folder=folder):
+                self.write_entry(self.menu / "emapssn.desktop", folder)
+                self.write_entry(self.menu / "emapssn_tools.desktop", folder, "tools")
+                done = self.install("y\n")
+                self.assertEqual(done.returncode, 0, done.stderr)
+                self.assertNotIn("[NOTE]", done.stdout)
+                self.assertNotIn("log out", done.stdout)
+
+    def test_no_old_entries_say_nothing(self):
+        done = self.install("y\n")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("[NOTE]", done.stdout)
+        self.assertNotIn("[WARNING]", done.stderr)
+        self.assertTrue((self.menu / "emapssn.desktop").is_file())
+
+    def test_a_folder_that_is_gone_is_another_folder_too(self):
+        self.write_entry(self.menu / "emapssn.desktop", self.base / "deleted checkout")
+        done = self.install("y\n")
+        self.assertIn(f"emapssn.desktop starts {self.base / 'deleted checkout'}", done.stdout)
+
+    def test_declining_the_menu_says_the_entries_still_start_the_other_folder_and_leaves_them(self):
+        self.old_menu_entries()
+        before = (self.menu / "emapssn.desktop").read_bytes()
+        done = self.install("n\n")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("still starts another folder", done.stdout)
+        self.assertIn(f"emapssn.desktop starts {self.other}", done.stdout)
+        self.assertIn("answer y", done.stdout)
+        self.assertEqual((self.menu / "emapssn.desktop").read_bytes(), before)
+        self.assertNotIn("log out", done.stdout)
+
+    def test_a_desktop_copy_of_another_checkout_is_warned_about_when_it_was_not_replaced(self):
+        self.desktop.mkdir()
+        self.other.mkdir()
+        self.write_entry(self.desktop / "emapssn.desktop", self.other)
+        done = self.install("n\nn\n")  # not the menu, not the Desktop
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("[WARNING]", done.stderr)
+        self.assertIn(f"{self.desktop / 'emapssn.desktop'} starts {self.other}", done.stderr)
+        self.assertIn("answer y to the Desktop question", done.stderr)
+        self.assertIn("copy those two files", done.stderr)
+        self.assertIn(f"Exec=\"{self.other}", (self.desktop / "emapssn.desktop").read_text(encoding="utf-8"))  # untouched
+
+    def test_a_yes_replaces_the_desktop_copies_but_a_differently_named_one_is_still_warned_about(self):
+        self.desktop.mkdir()
+        self.other.mkdir()
+        self.write_entry(self.desktop / "emapssn.desktop", self.other)
+        self.write_entry(self.desktop / "emapssn-old.desktop", self.other)
+        done = self.install("n\ny\n")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn(f'Exec="{self.root}/src/bin/', (self.desktop / "emapssn.desktop").read_text(encoding="utf-8"))
+        self.assertIn(f"{self.desktop / 'emapssn-old.desktop'} starts {self.other}", done.stderr)
+        self.assertNotIn(f"{self.desktop / 'emapssn.desktop'} starts", done.stderr)
+
+    def test_desktop_files_that_start_this_folder_or_are_not_ours_are_not_warned_about(self):
+        self.desktop.mkdir()
+        self.write_entry(self.desktop / "emapssn.desktop", self.root)
+        (self.desktop / "emapssn-custom.desktop").write_text(
+            "[Desktop Entry]\nType=Application\nName=Mine\nExec=/usr/bin/true\n", encoding="utf-8")
+        (self.desktop / "other.desktop").write_text("[Desktop Entry]\nExec=/x/src/bin/y.sh\n", encoding="utf-8")
+        done = self.install("n\nn\n")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("[WARNING]", done.stderr)
+
+    def test_without_a_desktop_folder_there_is_no_desktop_question_and_no_warning(self):
+        done = self.install("n\n")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertNotIn("Desktop?", done.stdout)
+        self.assertNotIn("[WARNING]", done.stderr)
+
+    def test_the_entry_parser_reads_quoted_and_plain_exec_lines(self):
+        for text, expected in (
+            ('Exec="/a b/src/bin/EMAPSSN_Desktop_Launcher.sh" viewer', "/a b"),
+            ("Exec=/plain/src/bin/EMAPSSN.sh", "/plain"),
+            ("Exec=/usr/bin/firefox", None),
+            ("Name=No exec line", None),
+        ):
+            with self.subTest(text=text):
+                entry = self.base / "probe.desktop"
+                entry.write_text("[Desktop Entry]\n" + text + "\n", encoding="utf-8")
+                done = subprocess.run(
+                    ["/bin/bash", "-c", f". {shlex.quote(str(INSTALLER))}\nssn_desktop_entry_folder {shlex.quote(str(entry))}"],
+                    capture_output=True, text=True, check=False)
+                if expected is None:
+                    self.assertNotEqual(done.returncode, 0)
+                    self.assertEqual(done.stdout, "")
+                else:
+                    self.assertEqual((done.returncode, done.stdout.strip()), (0, expected))
+
+
 if __name__ == "__main__":
     unittest.main()

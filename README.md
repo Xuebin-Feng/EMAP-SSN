@@ -657,6 +657,8 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
 
      This will configure execution permissions and generate launchers (`emapssn` and `emapssn_tools`) as well as system `.desktop` application entries, which start the window with a start-up screen and no terminal.
 
+     If the application menu or the Desktop already has entries that start another copy of the project (an older checkout), the installer names them. Answering `y` for the menu replaces its entries, but GNOME Shell can keep starting the old copy for an entry it has launched before until you log out and back in. Copies on the Desktop are replaced only if you answer `y` to the Desktop question; otherwise the installer warns and says how to update them.
+
 3. **Launch the application:**
 
    - **Windows:** Open `EMAP-SSN.lnk` or `EMAP-SSN Tools.lnk` from the project root or from the Desktop if you selected that installer option.
