@@ -87,6 +87,55 @@ class ClassifyTests(unittest.TestCase):
                 with self.subTest(line=line):
                     self.assertEqual(classify(line), expected)
 
+    PORTAL_WARNING = (
+        '[Qt warning] qt.qpa.services: Failed to register with host portal QDBusError('
+        '"org.freedesktop.portal.Error.Failed", "Could not register app ID: Connection already '
+        'associated with an application ID")'
+    )
+
+    def test_a_qt_message_is_told_by_its_tag_not_by_the_words_in_it(self):
+        # The line GNOME starts print: "QDBusError(" reads as an exception's name, but Qt called it a warning.
+        cases = {
+            self.PORTAL_WARNING: WARNING,
+            "[Qt warning] GPUInfo not initialized on GpuInfoUpdate": WARNING,
+            "[Qt warning] qt.qpa.fonts: Error: could not load the font": WARNING,
+            "[Qt warning] qt.qpa.xcb: out of memory": WARNING,
+            "[Qt warning] CUDA error: not really": WARNING,
+            "[Qt warning] a fatal misunderstanding": WARNING,
+            self.PORTAL_WARNING.replace("[Qt warning]", "[Qt critical]"): ERROR,
+            "[Qt critical] qt.qpa.services: no portal": ERROR,
+            "[Qt fatal] This application failed to start": ERROR,
+            '[Qt info] QDBusError("x", "y")': INFO,
+            "[Qt info] Failed to open the cache, a new one is made": INFO,
+            "[Qt debug] Traceback (most recent call last)": INFO,
+            "  [Qt warning] indented, still tagged": WARNING,
+            "[qt WARNING] the tag's case does not matter": WARNING,
+        }
+        for line, expected in cases.items():
+            with self.subTest(line=line):
+                self.assertEqual(classify(line), expected)
+
+    def test_a_qt_message_without_a_known_tag_is_told_by_its_words(self):
+        for line, expected in (
+            ('[Qt message] QDBusError("x", "y")', ERROR),
+            ("[Qt message] Failed to open the cache", WARNING),
+            ("[Qt message] fine", INFO),
+            ("[Qt] CUDA error: out of memory", ERROR),
+            ("see [Qt warning] mentioned in the middle of a QDBusError(...) line", ERROR),
+        ):
+            with self.subTest(line=line):
+                self.assertEqual(classify(line), expected)
+
+    def test_a_line_under_a_tagged_qt_message_has_its_kind(self):
+        classifier = Classifier()
+        lines = [
+            (self.PORTAL_WARNING, WARNING),
+            ("    continued under the warning", WARNING),
+            ('[Qt info] QDBusError("x", "y")', INFO),
+            ("    continued under plain output", INFO),
+        ]
+        self.assertEqual([classifier.kind(text) for text, _ in lines], [kind for _, kind in lines])
+
     def test_a_line_on_stderr_is_not_an_error_for_that_reason(self):
         # classify takes no stream: libraries write progress to stderr.
         self.assertEqual(classify("100%|##########| 4/4 [00:01<00:00]"), INFO)

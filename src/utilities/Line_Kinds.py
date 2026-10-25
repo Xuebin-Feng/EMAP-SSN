@@ -13,6 +13,9 @@ progress and notices to stderr. So a line is an error or a warning because of it
 words: Python's own (a traceback, an exception's name, a warning class), Qt's
 tagged messages (utilities.Console_Capture.install_qt_message_handler), the
 program's "Error:" and "Warning:" messages, and a few phrases libraries use.
+
+A Qt message carries the severity Qt gave it in its tag, and that decides before any word does:
+"[Qt warning] ... QDBusError(...)" is a warning, not an error, though "QDBusError(" looks like one.
 """
 
 from __future__ import annotations
@@ -33,8 +36,17 @@ WARNING_PATTERN = re.compile(
 )
 
 
+# The tag utilities.Console_Capture.install_qt_message_handler puts first on a Qt message, and the
+# kind it stands for. "[Qt message]" (a type Qt has not named) is not here: its words decide.
+QT_TAG_PATTERN = re.compile(r"\s*\[Qt (debug|info|warning|critical|fatal)\]", re.IGNORECASE)
+QT_TAG_KINDS = {"debug": INFO, "info": INFO, "warning": WARNING, "critical": ERROR, "fatal": ERROR}
+
+
 def classify(text: str) -> str:
-    """ERROR, WARNING or INFO for one line, from what it says."""
+    """ERROR, WARNING or INFO for one line, from what it says (a Qt message: from its tag)."""
+    tag = QT_TAG_PATTERN.match(text)
+    if tag:
+        return QT_TAG_KINDS[tag.group(1).lower()]
     if ERROR_PATTERN.search(text):
         return ERROR
     if WARNING_PATTERN.search(text):
