@@ -15,7 +15,7 @@ thread per stream
 * writes every line to a log file, ``temp/logs/<app>-<time>-<pid>.log``, rolled
   over at LOG_BYTES, of which LOG_KEEP per app are kept;
 * passes the bytes on to the stream the process started with, but only when
-  someone reads it: an MCP client's pipe or log file (Viewer_Terminal.py), a
+  someone reads it: an MCP client's pipe or log file (its launch monitor reads it), a
   redirect, a visible terminal. A hidden console or NUL is not read, so
   nothing is passed on to it.
 

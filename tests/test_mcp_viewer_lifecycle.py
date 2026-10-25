@@ -2,11 +2,12 @@
 
 Covers Viewer settings validation, launches that hand off to wait_session by
 launch_id while the Viewer is still loading, readiness probing, exits before
-readiness, Windows console flags, POSIX terminal launches, connection isolation
-between MCP clients, and close/disconnect semantics. Several tests start real
-headless Viewers; test_visible_viewer_launch_through_headless_config opens a
-real console and Viewer window by design (on Linux it skips when no terminal
-emulator is installed).
+readiness, Windows console flags, normal launches through the session launcher
+(with no terminal, and followed through the Viewer the monitor records),
+connection isolation between MCP clients, and close/disconnect semantics.
+Several tests start real headless Viewers;
+test_visible_viewer_launch_through_the_session_launcher opens a real Viewer
+window by design (on Linux it skips when no display is reachable).
 """
 import asyncio
 import io
@@ -38,7 +39,6 @@ from desktop.Viewer_State import (
     VIEWER_SECTIONS,
 )
 from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError, MCPViewerTimeout
-from utilities.Terminal_Launcher import TerminalUnavailableError, _find_linux_terminal
 from EMAPSSN_MCP_Server import mcp
 from mcp import Client, StdioServerParameters
 
@@ -58,13 +58,12 @@ def _launch_environment(**values):
 def _stop_recorded_launches(sessions_root):
     """Stop every launch process still recorded under ``sessions_root`` (test cleanup).
 
-    A normal POSIX launch records two: the terminal command (process.json) and
-    the Viewer_Terminal.py wrapper the terminal runs (terminal-process.json). A
-    single-instance terminal such as Ptyxis runs the wrapper outside the
-    command's process tree, so stopping the command alone leaves the Viewer.
+    A normal launch records two: the session launcher (process.json) and the
+    Viewer its monitor runs (window-process.json). The monitor is detached, so
+    stopping the launcher after it has ended leaves the Viewer.
     """
     from mcp_server.viewer import Viewer_Client
-    for name in ("terminal-process.json", "process.json"):
+    for name in ("process.json", "window-process.json"):
         for identity in Path(sessions_root).glob(f"launches/*/{name}"):
             process = Viewer_Client._recorded_process(identity)
             if process is not None:
@@ -173,21 +172,20 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(fixture.document, original)
                     self.assertEqual(settings_path.read_bytes(), original_bytes)
 
-    async def test_visible_viewer_launch_through_headless_config(self):
-        if sys.platform.startswith("linux"):
-            # A minimal Linux (a bare Debian image, say) has no terminal to open; the
-            # launch then refuses with TerminalUnavailableError, which other tests cover.
-            try:
-                _find_linux_terminal()
-            except TerminalUnavailableError:
-                self.skipTest("no supported terminal emulator is installed")
+    async def test_visible_viewer_launch_through_the_session_launcher(self):
+        if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+            # A normal Viewer opens a window, which needs a display; the launcher
+            # then ends with an error, which other tests cover.
+            self.skipTest("no display is reachable")
         fixture = SettingsTests(); fixture.setUp()
         self.addCleanup(fixture.doCleanups)
         # Runs before the folder goes (cleanups run in reverse order), whatever
         # the launch returned: on 2026-10-12 a launch that never became ready
-        # left its Viewer_Terminal.py and Config running after the test failed.
+        # left its launcher and Viewer running after the test failed.
         self.addCleanup(_stop_recorded_launches, fixture.root / "sessions")
-        with mock.patch.dict(os.environ, _launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions")),
+        # The splash is built but drawn nowhere (the Viewer's window is real, by design).
+        with mock.patch.dict(os.environ, _launch_environment(SSN_VIEWER_SESSION_DIR=str(fixture.root / "sessions"),
+                                                             SSN_SPLASH_HIDDEN="1"),
                              clear=True):
             client = MCPViewerClient(fixtures.ROOT)
             info = None
@@ -198,7 +196,11 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 summary = await client.get_summary(info["session_id"])
                 self.assertEqual(summary["node_count"], 2)
                 output = await client.read_log(info["session_id"])
-                self.assertTrue(output["text"], "Visible Viewer must retain startup terminal output")
+                self.assertTrue(output["text"], "Visible Viewer must retain its startup output in the launch log")
+                launch_directory = Path(info["stdout_log"]).parent
+                self.assertFalse((launch_directory / "terminal-process.json").exists())  # no terminal was started
+                record = json.loads((launch_directory / "window-process.json").read_text(encoding="utf-8"))
+                self.assertTrue(psutil.pid_exists(record["pid"]))  # the monitor recorded the Viewer's process
                 self.assertIn(f'[{info["session_alias"]}]', summary["window_title"])
                 self.assertEqual(summary["provenance"]["status"], "complete")
                 connected = await client.connect_session(info["session_alias"].lower())
@@ -211,13 +213,14 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                     import ctypes
                     import subprocess
                     from ctypes import wintypes
-                    identity = json.loads((Path(info["stdout_log"]).parent / "terminal-process.json").read_text())
+                    # The Viewer has a console, as every Windows program started from a console one does, and
+                    # it is hidden: no console window is on screen.
                     console = subprocess.run([sys.executable, "-c",
                         "import ctypes,sys; k=ctypes.windll.kernel32; k.FreeConsole(); "
                         "attached=k.AttachConsole(int(sys.argv[1])); k.GetConsoleWindow.restype=ctypes.c_void_p; "
-                        "h=k.GetConsoleWindow(); print(bool(attached and h)); k.FreeConsole()",
-                        str(identity["pid"])], capture_output=True, text=True, timeout=5)
-                    self.assertEqual(console.stdout.strip(), "True", console.stderr)
+                        "h=k.GetConsoleWindow(); print(bool(attached), bool(h)); k.FreeConsole()",
+                        str(record["pid"])], capture_output=True, text=True, timeout=5)
+                    self.assertEqual(console.stdout.strip(), "True False", console.stderr)
                     user32 = ctypes.windll.user32
                     windows = []
                     callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -450,12 +453,12 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 await client.close_session(info["session_id"])
 
     @unittest.skipUnless(sys.platform == "win32", "Windows console creation flags")
-    async def test_windows_launch_keeps_headless_viewers_off_screen(self):
+    async def test_windows_launch_keeps_every_viewer_without_a_visible_console(self):
         # A venv's python.exe redirector started with DETACHED_PROCESS has no
         # console, so Windows opened a new, visible terminal for the interpreter it
-        # started. The broker and headless children must use a hidden console;
-        # normal mode still opens its terminal deliberately.
-        expected_child_flag = {"headless": "CREATE_NO_WINDOW", "hidden": "CREATE_NO_WINDOW", "normal": "CREATE_NEW_CONSOLE"}
+        # started. The broker and its child use a hidden console in every mode: a
+        # normal Viewer's launcher shows a splash, not a terminal.
+        expected_child_flag = {"headless": "CREATE_NO_WINDOW", "hidden": "CREATE_NO_WINDOW", "normal": "CREATE_NO_WINDOW"}
         for mode, child_flag in expected_child_flag.items():
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as temporary, \
                     mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(Path(temporary) / "sessions")}), \
@@ -476,102 +479,130 @@ class LifecycleTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(f"creationflags=subprocess.{child_flag}", broker_code)
                 self.assertNotIn("DETACHED_PROCESS", broker_code)
 
-    def _use_posix_terminal(self, script):
-        """Route normal launches through the Linux/macOS terminal path to ``script``.
+    # A normal Viewer is started by the session launcher (desktop/Desktop_Launcher.py), which these tests replace
+    # with a few lines: whatever it prints, records or ends with is what the launch has to cope with.
+    START_VIEWER = (
+        "import json, os, subprocess, sys, time\n"
+        "import psutil\n"
+        "def start_viewer(code='import time; time.sleep(60)'):\n"
+        "    child = subprocess.Popen([sys.executable, '-c', code], stdin=subprocess.DEVNULL)\n"
+        "    path = os.path.join(os.environ['SSN_SUPERVISED_LAUNCH_DIR'], 'window-process.json')\n"
+        "    open(path, 'w').write(json.dumps({'pid': child.pid, 'created': psutil.Process(child.pid).create_time()}))\n"
+        "    return child\n"
+    )
 
-        The stand-in terminal command runs ``script`` and never the Viewer, as an
-        emulator without a display or osascript refused control of Terminal does.
-        Returns the client and its session root.
+    def _use_session_launcher(self, script):
+        """Run normal launches through a stand-in for the session launcher whose whole program is ``script``.
+
+        Returns the client and its session root; whatever the launch left running is stopped before the root goes.
         """
-        from types import SimpleNamespace
         from mcp_server.viewer import Viewer_Client
 
-        terminals = []
-
-        def launch_in_terminal(command, *, cwd, env, **streams):
-            terminals.append(subprocess.Popen([sys.executable, "-c", script], cwd=cwd, env=env, **streams))
-            return terminals[-1]
-
-        def stop_terminals():
-            for terminal in terminals:
-                if terminal.poll() is None:
-                    terminal.kill()
-                terminal.wait(timeout=10)
-
         root = Path(self.enterContext(tempfile.TemporaryDirectory()))
-        self.addCleanup(stop_terminals)  # before the directory is removed
+        (root / "src" / "desktop").mkdir(parents=True)
+        (root / "src" / "desktop" / "Desktop_Launcher.py").write_text(self.START_VIEWER + script, encoding="utf-8")
+        self.addCleanup(_stop_recorded_launches, root / "sessions")  # before the directory is removed
         self.enterContext(mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(root / "sessions")}))
         self.enterContext(mock.patch.object(Viewer_Client, "validate_viewer_document",
                                             return_value={"inputs": {"TARGET_CACHE_PATH": "test"}}))
-        # A stand-in sys selects the POSIX branch on every host, leaving the real one alone.
-        self.enterContext(mock.patch.object(Viewer_Client, "sys",
-                                            SimpleNamespace(platform="linux", executable=sys.executable)))
-        self.enterContext(mock.patch("utilities.Terminal_Launcher.launch_in_terminal", launch_in_terminal))
         return MCPViewerClient(root), root
 
-    async def test_posix_terminal_that_fails_is_an_error_with_its_output(self):
-        # Until 2026-10-04 such a launch was handed off as "starting", and every
-        # wait_session said the same, although nothing was running.
-        client, root = self._use_posix_terminal(
-            "import sys,time; print('cannot open display', file=sys.stderr, flush=True); "
-            "time.sleep(0.5); sys.exit(1)"
+    async def _wait_for_file(self, path, timeout=20.0):
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + timeout
+        while not path.exists():
+            self.assertLess(loop.time(), deadline, f"{path.name} never appeared")
+            await asyncio.sleep(0.05)
+
+    async def test_a_normal_launch_runs_the_session_launcher_with_its_snapshot_and_names_its_folder(self):
+        client, root = self._use_session_launcher(
+            "folder = os.environ['SSN_SUPERVISED_LAUNCH_DIR']\n"
+            "record = {'argv': sys.argv[1:], 'folder': folder, 'launch_id': os.environ.get('SSN_VIEWER_LAUNCH_ID'),\n"
+            "          'sessions': os.environ.get('SSN_VIEWER_SESSION_DIR'), 'window': os.environ.get('SSN_VIEWER_WINDOW'),\n"
+            "          'headless': os.environ.get('SSN_VIEWER_HEADLESS'), 'stdin': sys.stdin.read(),\n"
+            "          'snapshot_there': os.path.exists(sys.argv[3])}\n"
+            "open(os.path.join(folder, 'ran.json'), 'w').write(json.dumps(record))\n"
+            "time.sleep(60)\n"
         )
-        with self.assertRaisesRegex(MCPViewerError,
-                                    r"(?s)exited with code 1 before starting the Viewer.*cannot open display"):
-            await client.launch_session(settings_document={}, mode="normal", timeout=10)
+        with mock.patch.dict(os.environ, {"SSN_VIEWER_WINDOW": "hidden", "SSN_VIEWER_HEADLESS": "1"}):
+            started = await client.launch_session(settings_document={}, mode="normal", timeout=0.3)
+        self.assertEqual(started["status"], "starting")
+        directory = root / "sessions" / "launches" / started["launch_id"]
+        await self._wait_for_file(directory / "ran.json")
+        ran = json.loads((directory / "ran.json").read_text(encoding="utf-8"))
+        # The command is Config's: the session launcher, and the snapshot it deletes.
+        self.assertEqual(ran["argv"], ["session", "--settings", str(directory / "settings.json"), "--delete-settings"])
+        self.assertTrue(ran["snapshot_there"])
+        self.assertEqual(ran["folder"], str(directory))  # the monitor writes this launch's two logs there
+        self.assertEqual(ran["launch_id"], started["launch_id"])
+        self.assertEqual(ran["sessions"], str(root / "sessions"))
+        self.assertEqual((ran["window"], ran["headless"]), (None, None))  # a normal Viewer is neither hidden nor headless
+        self.assertEqual(ran["stdin"], "")  # not this server's stdin, which carries the protocol
+        self.assertEqual(json.loads((directory / "launch.json").read_text(encoding="utf-8"))["mode"], "normal")
+        self.assertEqual((started["stdout_log"], started["stderr_log"]),
+                         (str(directory / "stdout.log"), str(directory / "stderr.log")))
+        # Until the monitor records the Viewer, the launcher is the launch: it is what close_session stops.
+        launcher = json.loads((directory / "process.json").read_text(encoding="utf-8"))
+        waited = await client.wait_for_launch(started["launch_id"], timeout=0.3)
+        self.assertEqual(waited["status"], "starting")
+        closed = await client.close_session(launch_id=started["launch_id"])
+        self.assertEqual((closed["closed"], closed["pid"]), (True, launcher["pid"]))
+        self.assertFalse(psutil.pid_exists(launcher["pid"]))
+
+    async def test_a_launcher_that_fails_is_an_error_with_its_output(self):
+        # A display it could not reach, a Qt platform that did not load. Until 2026-10-04 such a launch was handed
+        # off as "starting", and every wait_session said the same, although nothing was running.
+        client, root = self._use_session_launcher(
+            "print('cannot open display', file=sys.stderr, flush=True)\ntime.sleep(0.5)\nsys.exit(3)\n"
+        )
+        with self.assertRaisesRegex(MCPViewerError, r"(?s)exited before readiness.*cannot open display"):
+            await client.launch_session(settings_document={}, mode="normal", timeout=20)
         directory = next((root / "sessions" / "launches").iterdir())
         self.assertFalse((directory / "settings.json").exists())
 
-    async def test_posix_terminal_that_exits_cleanly_without_the_viewer_times_out(self):
-        # Emulators that hand their window to a running server exit 0 at once,
-        # so only the wrapper's identity file can show the Viewer started.
-        from mcp_server.viewer import Viewer_Client
+    async def test_a_viewer_that_ended_behind_a_splash_nobody_closed_ends_the_launch(self):
+        # The launcher stays up behind an error splash until Close is pressed: the launch follows the Viewer.
+        client, root = self._use_session_launcher("start_viewer('print(\"Reading the network\")').wait()\ntime.sleep(60)\n")
+        with self.assertRaisesRegex(MCPViewerError, "exited before readiness"):
+            await client.launch_session(settings_document={}, mode="normal", timeout=30)
+        directory = next((root / "sessions" / "launches").iterdir())
+        launcher = json.loads((directory / "process.json").read_text(encoding="utf-8"))
+        self.assertFalse(psutil.pid_exists(launcher["pid"]))  # the failed launch took the splash down
 
-        client, _root = self._use_posix_terminal("pass")
-        started = await client.launch_session(settings_document={}, mode="normal", timeout=0.3)
+    async def test_a_monitor_that_could_not_start_the_viewer_ends_the_launch(self):
+        client, root = self._use_session_launcher(
+            "open(os.path.join(os.environ['SSN_SUPERVISED_LAUNCH_DIR'], 'window-process.json'), 'w')"
+            ".write(json.dumps({'error': 'no interpreter'}))\ntime.sleep(60)\n"
+        )
+        with self.assertRaisesRegex(MCPViewerError, "exited before readiness"):
+            await client.launch_session(settings_document={}, mode="normal", timeout=30)
+
+    async def test_a_recorded_viewer_keeps_the_launch_after_its_launcher_ended_until_closed(self):
+        # The splash closes when the Viewer is ready, and the launcher ends: the Viewer, which the monitor
+        # recorded, is what is left, and close_session with the launch id must stop it.
+        client, root = self._use_session_launcher("start_viewer()\nsys.exit(0)\n")
+        started = await client.launch_session(settings_document={}, mode="normal", timeout=1.0)
         self.assertEqual(started["status"], "starting")
-        with mock.patch.object(Viewer_Client, "TERMINAL_START_GRACE", 0), \
-                self.assertRaisesRegex(MCPViewerError, "No terminal started the Viewer within 0 s"):
-            await client.wait_for_launch(started["launch_id"], timeout=10)
-
-    async def _wait_for_recorded_terminal(self, record, timeout=10.0):
-        """Wait until ``record`` names a running process; fail saying what it holds."""
-        from mcp_server.viewer import Viewer_Client
-
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + timeout
-        while loop.time() < deadline:
-            if await asyncio.to_thread(Viewer_Client._recorded_process, record) is not None:
-                return
-            await asyncio.sleep(0.05)
-        try:
-            recorded = json.loads(record.read_text(encoding="utf-8"))
-            process = psutil.Process(int(recorded["pid"]))
-            state = f"pid {process.pid} {process.status()}, created {process.create_time()!r}"
-        except (OSError, ValueError, KeyError, psutil.Error) as error:
-            recorded, state = record.read_text(encoding="utf-8") if record.exists() else None, repr(error)
-        self.fail(f"The launch record never named the running terminal command: {recorded!r}; process: {state}")
-
-    async def test_posix_terminal_still_running_keeps_the_launch_until_closed(self):
-        # macOS's osascript waits while the user is asked to allow control of
-        # Terminal; that wait is not a failure, and close_session must stop it.
-        from mcp_server.viewer import Viewer_Client
-
-        client, root = self._use_posix_terminal("import time; time.sleep(60)")
-        with mock.patch.object(Viewer_Client, "TERMINAL_START_GRACE", 0):
-            started = await client.launch_session(settings_document={}, mode="normal", timeout=0.5)
-            self.assertEqual(started["status"], "starting")
-            directory = root / "sessions" / "launches" / started["launch_id"]
-            # With no grace, wait_for_launch keeps the launch only while its
-            # record names the running terminal command. Wait for that rather
-            # than race it: once in a full Debian run it did not match in time.
-            await self._wait_for_recorded_terminal(directory / "process.json")
-            waited = await client.wait_for_launch(started["launch_id"], timeout=0.5)
-            self.assertEqual(waited["status"], "starting")
-        terminal = json.loads((directory / "process.json").read_text())
+        directory = root / "sessions" / "launches" / started["launch_id"]
+        await self._wait_for_file(directory / "window-process.json")
+        viewer = json.loads((directory / "window-process.json").read_text(encoding="utf-8"))
+        waited = await client.wait_for_launch(started["launch_id"], timeout=1.0)
+        self.assertEqual(waited["status"], "starting")
+        self.assertEqual(waited["launcher_pid"], viewer["pid"])  # the Viewer's CPU time is the progress
         closed = await client.close_session(launch_id=started["launch_id"])
-        self.assertEqual((closed["closed"], closed["pid"]), (True, terminal["pid"]))
-        self.assertFalse(psutil.pid_exists(terminal["pid"]))
+        self.assertEqual((closed["closed"], closed["pid"]), (True, viewer["pid"]))
+        deadline = asyncio.get_running_loop().time() + 10
+        while psutil.pid_exists(viewer["pid"]) and asyncio.get_running_loop().time() < deadline:
+            await asyncio.sleep(0.1)
+        self.assertFalse(psutil.pid_exists(viewer["pid"]))
+
+    async def test_normal_mode_starts_no_terminal_and_no_terminal_code_is_left_in_the_launch(self):
+        from mcp_server.viewer import Viewer_Client
+
+        source = Path(Viewer_Client.__file__).read_text(encoding="utf-8")
+        for name in ("launch_in_terminal", "Terminal_Launcher", "Viewer_Terminal", "terminal-process", "TERMINAL_START_GRACE"):
+            self.assertNotIn(name, source)
+        self.assertFalse((Path(Viewer_Client.__file__).parent / "Viewer_Terminal.py").exists())
 
     async def test_stdio_survival_connection_isolation_and_verified_close(self):
         fixture = SettingsTests(); fixture.setUp()

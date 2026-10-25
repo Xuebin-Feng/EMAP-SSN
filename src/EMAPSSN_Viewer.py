@@ -74,7 +74,7 @@ def _parse_viewer_arguments(argv=None):
 _startup_settings = None
 _startup_args = None
 if __name__ == "__main__":
-    # Before any output: an MCP client gives the Viewer a pipe (Viewer_Terminal.py) or a log file, and a
+    # Before any output: an MCP client gives the Viewer a pipe (its monitor reads it) or a log file, and a
     # Config window gives it a hidden console. A headless Viewer, or --console, only gets UTF-8 streams
     # (utilities.Console_Capture); every other keeps what it prints for the Console window, and still
     # passes it on to a pipe or file that is read.

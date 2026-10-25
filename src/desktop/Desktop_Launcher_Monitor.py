@@ -15,16 +15,25 @@ and its readiness in gui.ready.
 A program that sits beside this one, as opt_vr does, adds its own window with register_application: the
 script to run, the folder to run it in and the monitor script that is started for it (a few lines that
 register the window and call main()). This file names none of them.
+
+A client that supervises a launch (the MCP server, which starts a Viewer and reads its output, waits for
+it and ends it) names a folder of its own in SSN_SUPERVISED_LAUNCH_DIR. The monitor then also writes what
+the window prints to ``stdout.log`` and ``stderr.log`` there, each stream on its own as it is printed,
+records the window's process in ``window-process.json`` (``{"pid", "created"}``, or ``{"error"}`` when it
+could not start), and leaves a crash to the client: it shows no dialog. The window's output goes on to
+application.log as before, which the splash shows.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+import threading
 import time
 from typing import NamedTuple
 
@@ -84,6 +93,11 @@ def application_kinds():
     return sorted({*APP_SCRIPTS, *EXTRA_APPLICATIONS})
 
 
+# A client that supervises a launch gives the monitor a folder in this variable (see the module's docstring).
+SUPERVISED_DIRECTORY_VARIABLE = "SSN_SUPERVISED_LAUNCH_DIR"
+SUPERVISED_STDOUT_NAME = "stdout.log"
+SUPERVISED_STDERR_NAME = "stderr.log"
+SUPERVISED_IDENTITY_NAME = "window-process.json"
 # How long the one who started a Viewer session waits to learn that its launcher did not fail at once.
 VIEWER_START_PATIENCE_SECONDS = 8.0
 
@@ -247,6 +261,104 @@ def _cleanup_success(state_dir: Path) -> None:
         pass
     except OSError:
         pass
+
+
+def _supervised_directory(environment) -> Path | None:
+    """The folder a supervising client named for this launch (SSN_SUPERVISED_LAUNCH_DIR), or None."""
+    named = str(environment.get(SUPERVISED_DIRECTORY_VARIABLE, "")).strip()
+    return Path(named) if named else None
+
+
+def _write_window_identity(directory: Path, process=None, error: str | None = None) -> None:
+    """Record the window's process for the supervisor: pid and creation time (which tell it from a reused pid), or why none started."""
+    if error is not None:
+        payload: dict[str, object] = {"error": error}
+    else:
+        import psutil
+
+        payload = {"pid": process.pid, "created": psutil.Process(process.pid).create_time()}
+    try:
+        _atomic_write(directory / SUPERVISED_IDENTITY_NAME, json.dumps(payload))
+    except OSError:
+        pass
+
+
+def report_start_failure_to_supervisor(error, environment=None) -> None:
+    """A launcher that could not start the monitor, and so no window, tells the client supervising the launch why.
+
+    Without that record the client would see a launcher that stays up behind its error splash, and wait for ever.
+    A launch no client supervises is not touched.
+    """
+    supervised = _supervised_directory(os.environ if environment is None else environment)
+    if supervised is not None:
+        _write_window_identity(supervised, error=str(error))
+
+
+def _copy_stream(source, *targets) -> None:
+    """Copy a pipe to files as it is written: each read whole, to every target, partial lines and all."""
+    try:
+        while True:
+            chunk = source.read(8192)
+            if not chunk:
+                return
+            for target in targets:
+                target.write(chunk)
+    except (OSError, ValueError):
+        return  # a file or a pipe that went away ends the copy; the window goes on
+
+
+class _LockedFile:
+    """A binary file that two threads write whole chunks to."""
+
+    def __init__(self, handle):
+        self._handle = handle
+        self._lock = threading.Lock()
+
+    def write(self, data) -> None:
+        with self._lock:
+            self._handle.write(data)
+
+
+# How long the monitor waits for the copies to finish once the window has ended: a program the window started
+# may still hold its pipes, and the monitor must not wait for that.
+SUPERVISED_COPY_JOIN_SECONDS = 2.0
+
+
+def _run_supervised(command, working_dir, env, creationflags, log_path: Path, state_dir: Path, supervised: Path) -> int:
+    """Run the window for a supervising client: its output to application.log as usual and to the client's two logs, one per stream.
+
+    The window's two streams are pipes the monitor reads, so that stdout.log and stderr.log hold what each
+    printed; application.log, which the splash follows, holds both, as when there is no supervisor.
+    """
+    supervised.mkdir(parents=True, exist_ok=True)
+    with log_path.open("wb", buffering=0) as log_handle, \
+            (supervised / SUPERVISED_STDOUT_NAME).open("ab", buffering=0) as out, \
+            (supervised / SUPERVISED_STDERR_NAME).open("ab", buffering=0) as err:
+        log = _LockedFile(log_handle)
+        process = subprocess.Popen(
+            command,
+            cwd=str(working_dir),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            bufsize=0,
+            creationflags=creationflags,
+        )
+        _atomic_write(state_dir / "application.pid", f"{process.pid}\n")
+        try:
+            _write_window_identity(supervised, process)
+        except Exception as error:  # the window runs; the supervisor learns why it cannot be followed
+            _write_window_identity(supervised, error=str(error))
+        readers = [
+            threading.Thread(target=_copy_stream, args=(process.stdout, log, out), daemon=True),
+            threading.Thread(target=_copy_stream, args=(process.stderr, log, err), daemon=True),
+        ]
+        for reader in readers:
+            reader.start()
+        code = int(process.wait())
+        for reader in readers:
+            reader.join(SUPERVISED_COPY_JOIN_SECONDS)
+        return code
 
 
 def launch_detached_monitor(
@@ -481,27 +593,35 @@ def run_monitor(
     env = _apply_linux_qt_platform_policy(env)
     env["SSN_GUI_READY_FILE"] = str(ready_path)
     env["SSN_STARTUP_STATUS_FILE"] = str(state_dir / STATUS_FILE_NAME)
+    supervised = _supervised_directory(env)
+    env.pop(SUPERVISED_DIRECTORY_VARIABLE, None)  # the supervisor's business, not the window's
     return_code = 1
     try:
-        with log_path.open("w", encoding="utf-8", newline="\n") as log_handle:
-            creationflags = (
-                getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
-                if sys.platform == "win32"
-                else 0
-            )
-            process = subprocess.Popen(
-                [_console_python(), "-u", str(app_script), *app_args],
-                cwd=str(working_dir),
-                env=env,
-                stdout=log_handle,
-                stderr=subprocess.STDOUT,
-                creationflags=creationflags,
-            )
-            _atomic_write(state_dir / "application.pid", f"{process.pid}\n")
-            return_code = int(process.wait())
+        creationflags = (
+            getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+            if sys.platform == "win32"
+            else 0
+        )
+        command = [_console_python(), "-u", str(app_script), *app_args]
+        if supervised is None:
+            with log_path.open("w", encoding="utf-8", newline="\n") as log_handle:
+                process = subprocess.Popen(
+                    command,
+                    cwd=str(working_dir),
+                    env=env,
+                    stdout=log_handle,
+                    stderr=subprocess.STDOUT,
+                    creationflags=creationflags,
+                )
+                _atomic_write(state_dir / "application.pid", f"{process.pid}\n")
+                return_code = int(process.wait())
+        else:
+            return_code = _run_supervised(command, working_dir, env, creationflags, log_path, state_dir, supervised)
     except Exception as error:
         with log_path.open("a", encoding="utf-8", newline="\n") as log_handle:
             print(f"Desktop launcher monitor failed: {error}", file=log_handle)
+        if supervised is not None and not (supervised / SUPERVISED_IDENTITY_NAME).exists():
+            _write_window_identity(supervised, error=str(error))
 
     ready_seen = ready_path.exists()
     _atomic_write(exit_path, f"{return_code}\n")
@@ -511,7 +631,7 @@ def run_monitor(
         _cleanup_success(state_dir)
         return 0
 
-    if ready_seen and _wait_for_dismissal(dismissed_path):
+    if supervised is None and ready_seen and _wait_for_dismissal(dismissed_path):
         if failure_report == "dialog":
             _report_application_failure(log_path)
         else:

@@ -927,7 +927,7 @@ class ContextTests(unittest.TestCase):
                 self.assertIn(marker, logged)
 
     def test_pipes_read_by_the_parent_keep_getting_every_byte(self):
-        """An MCP client's Viewer_Terminal reads the Viewer's two pipes: the tee is unchanged."""
+        """An MCP client's launch monitor reads the Viewer's two pipes: the tee is unchanged."""
         run = ProbeRun(self, "pipes", options=("qt", "close"))
         self.assertAllSourcesCaptured(run)
         self.assertEqual(run.result["forwarding"], {"stdout": True, "stderr": True})
@@ -1109,30 +1109,36 @@ class ContextTests(unittest.TestCase):
         self.assertIn("SRC after close", run.stdout_bytes.decode("utf-8"))
         self.assertNotIn("SRC after close", run.logged())
 
-    def test_a_viewer_an_mcp_client_starts_keeps_its_tee_through_viewer_terminal(self):
-        """Viewer_Terminal.py's stdout.log and stderr.log hold what its parent's pipes got, as without the capture."""
+    def test_a_viewer_an_mcp_client_starts_keeps_its_tee_through_the_launch_monitor(self):
+        """The monitor's stdout.log and stderr.log hold what the Viewer's two pipes got, as without the capture."""
+        from desktop import Desktop_Launcher_Monitor
+
         program = (
             "import os, sys; sys.path.insert(0, sys.argv[1]); from utilities import Console_Capture as C; "
             "C.install('viewer', sys.argv[2]); print('python output'); os.write(1, b'native partial'); "
-            "os.write(2, b'native error'); print('Viewer Ready', flush=True)"
+            "os.write(2, b'native error'); print('Viewer Ready', flush=True); sys.exit(3)"
         )
+        start = subprocess.Popen
         with tempfile.TemporaryDirectory() as directory:
-            result = subprocess.run(
-                [sys.executable, str(SRC_DIR / "mcp_server" / "viewer" / "Viewer_Terminal.py"), directory,
-                 sys.executable, "-u", "-c", program, str(SRC_DIR), os.path.join(directory, "logs")],
-                capture_output=True, timeout=60, env=child_environment(),
-                creationflags=CREATE_NO_WINDOW if sys.platform == "win32" else 0,
-            )
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertEqual((Path(directory) / "stdout.log").read_bytes(), result.stdout)
-            self.assertEqual((Path(directory) / "stderr.log").read_bytes(), result.stderr)
-            self.assertIn(b"python output", result.stdout)
-            self.assertIn(b"native partial", result.stdout)
-            self.assertIn(b"Viewer Ready", result.stdout)
-            self.assertIn(b"native error", result.stderr)
+            launch = Path(directory) / "launch"
+            environment = dict(child_environment())
+            environment[Desktop_Launcher_Monitor.SUPERVISED_DIRECTORY_VARIABLE] = str(launch)
+            with mock.patch.dict(os.environ, environment, clear=True), mock.patch.object(
+                Desktop_Launcher_Monitor.subprocess, "Popen",
+                side_effect=lambda command, **kwargs: start(
+                    [sys.executable, "-u", "-c", program, str(SRC_DIR), os.path.join(directory, "logs")], **kwargs),
+            ):
+                code = Desktop_Launcher_Monitor.run_monitor("session", Path(directory) / "state")
+            out = (launch / "stdout.log").read_bytes()
+            err = (launch / "stderr.log").read_bytes()
+            self.assertEqual(code, 3, err)
+            self.assertIn(b"python output", out)
+            self.assertIn(b"native partial", out)
+            self.assertIn(b"Viewer Ready", out)
+            self.assertIn(b"native error", err)
+            self.assertNotIn(b"native error", out)
             logs = list((Path(directory) / "logs").glob("viewer-*.log"))
             self.assertIn("Viewer Ready", logs[0].read_text(encoding="utf-8"))
-
     def test_the_original_stream_is_not_passed_on_when_asked_not_to(self):
         run = ProbeRun(self, "pipes", forward="off")
         self.assertEqual(run.result["forwarding"], {"stdout": False, "stderr": False})

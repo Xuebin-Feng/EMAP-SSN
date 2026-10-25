@@ -649,7 +649,8 @@ class ClientLaunchTests(unittest.IsolatedAsyncioTestCase):
         call, _ = await self.launch("hidden", "linux")
         command, env = call.args[0], call.kwargs["env"]
         self.assertEqual(command[command.index("--viewer-mode") + 1], "hidden")
-        self.assertFalse(any("Viewer_Terminal" in part for part in command))
+        self.assertFalse(any("Desktop_Launcher" in part for part in command))  # no start-up screen: that is normal mode
+        self.assertNotIn("SSN_SUPERVISED_LAUNCH_DIR", env)
         self.assertEqual(env["SSN_VIEWER_WINDOW"], "hidden")
         self.assertNotIn("QT_QPA_PLATFORM", env)   # an inherited offscreen platform is dropped
         self.assertNotIn("SSN_VIEWER_HEADLESS", env)
@@ -663,20 +664,17 @@ class ClientLaunchTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((env["QT_QPA_PLATFORM"], env["SSN_VIEWER_HEADLESS"]), ("offscreen", "1"))
         self.assertNotIn("SSN_VIEWER_WINDOW", env)
         self.assertNotIn("SSN_VIEWER_WINDOW_FALLBACK", env)
-        with mock.patch("utilities.Terminal_Launcher.launch_in_terminal") as terminal:
-            terminal.return_value.poll.return_value = 1
-            terminal.return_value.pid = 1
-            with tempfile.TemporaryDirectory() as temporary, \
-                    mock.patch.dict(os.environ, {"SSN_VIEWER_SESSION_DIR": str(Path(temporary) / "s"),
-                                                 "QT_QPA_PLATFORM": "offscreen", "SSN_VIEWER_WINDOW": "stale"}), \
-                    self.settings(), mock.patch.object(Viewer_Client, "_identity", return_value=None), \
-                    mock.patch.object(Viewer_Client, "sys", SimpleNamespace(platform="linux", executable=sys.executable)):
-                with self.assertRaises(MCPViewerError):
-                    await MCPViewerClient(Path(temporary)).launch_session(settings_document={}, mode="normal")
-            env = terminal.call_args.kwargs["env"]
-            self.assertNotIn("SSN_VIEWER_WINDOW", env)
-            self.assertNotIn("QT_QPA_PLATFORM", env)
-
+        # A normal Viewer is started by Config's own session launcher, not by Config headless, and in no terminal.
+        call, _ = await self.launch("normal", "linux")
+        command, env = call.args[0], call.kwargs["env"]
+        self.assertTrue(command[2].endswith("Desktop_Launcher.py"), command)
+        self.assertEqual(command[3], "session")
+        self.assertNotIn("--viewer-mode", command)
+        self.assertNotIn("SSN_VIEWER_WINDOW", env)
+        self.assertNotIn("QT_QPA_PLATFORM", env)
+        self.assertNotIn("SSN_VIEWER_HEADLESS", env)
+        self.assertIn("SSN_SUPERVISED_LAUNCH_DIR", env)
+        self.assertTrue(call.kwargs["start_new_session"])
     @unittest.skipUnless(sys.platform == "win32", "Windows console creation flags")
     async def test_a_hidden_launch_on_windows_uses_a_hidden_console_like_headless(self):
         for mode in ("hidden", "headless"):
@@ -688,7 +686,7 @@ class ClientLaunchTests(unittest.IsolatedAsyncioTestCase):
                 broker = call.args[0][2]
                 self.assertIn("creationflags=subprocess.CREATE_NO_WINDOW|subprocess.CREATE_NEW_PROCESS_GROUP", broker)
                 self.assertNotIn("CREATE_NEW_CONSOLE", broker)
-                self.assertNotIn("Viewer_Terminal", call.args[0][3])
+                self.assertNotIn("Desktop_Launcher", call.args[0][3])
 
     async def test_an_unknown_mode_is_refused(self):
         with self.assertRaisesRegex(MCPViewerError, "normal, headless, hidden"):

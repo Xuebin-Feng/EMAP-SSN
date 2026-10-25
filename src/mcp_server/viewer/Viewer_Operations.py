@@ -193,7 +193,7 @@ async def start_viewer_session(
     get_viewer_settings_schema, edit only necessary fields in the full export,
     then call validate_viewer_settings. Do not build minimal JSON from defaults.
     Supply exactly one complete settings_document or settings_path, not a cache
-    path alone. normal opens a Viewer and terminal; headless opens neither window
+    path alone. normal opens a Viewer (start-up screen, no terminal); headless opens neither window
     (no OpenGL on Windows and macOS, so no capture_view or print); hidden opens
     neither but renders, so capture_view and print work, and show_session can put
     its window on screen later (with no display it runs headless: the result's

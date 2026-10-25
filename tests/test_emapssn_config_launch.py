@@ -143,13 +143,16 @@ class ViewerHandoffTests(unittest.TestCase):
         self.assertEqual(EMAPSSN_Config._viewer_terminal_command("/p", None, "/python")[:3], command[:3])
         self.assertEqual(len(EMAPSSN_Config._viewer_terminal_command("/p", None, "/python")), 3)
 
-    def test_the_mcp_viewer_launches_do_not_go_through_config_s_handoff(self):
-        # They have their own path (a terminal for a visible Viewer), which this change must leave as it is.
+    def test_the_mcp_viewer_launches_share_the_session_command_but_not_config_s_handoff_or_a_terminal(self):
+        # A normal MCP Viewer starts as Config's does (the session launcher, a start-up screen, no terminal) but has
+        # its own spawn: a broker on Windows, its own log files and the record of the Viewer the monitor started.
         source_root = Path(EMAPSSN_Config.__file__).resolve().parent / "mcp_server"
         for path in source_root.rglob("*.py"):
             text = path.read_text(encoding="utf-8")
-            for name in ("_handoff_to_viewer", "launch_viewer_session", "Desktop_Launcher"):
-                self.assertNotIn(name, text, f"{path.name} reaches the Config's Viewer launch")
+            for name in ("_handoff_to_viewer", "launch_viewer_session", "launch_in_terminal", "Terminal_Launcher"):
+                self.assertNotIn(name, text, f"{path.name} reaches the Config's Viewer launch or a terminal")
+        client = (source_root / "viewer" / "Viewer_Client.py").read_text(encoding="utf-8")
+        self.assertIn("viewer_session_command", client)
 
 
 class ViewerLauncherWatchTests(unittest.TestCase):

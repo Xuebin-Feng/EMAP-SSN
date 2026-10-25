@@ -122,7 +122,7 @@ cache provenance supplies score mode, normalization, edge filters, UMAP/PaCMAP s
 and box scale internally.Input FASTA/network paths remain explicit because cache
 metadata records fingerprints and basenames, not source locations.
 
-Launch modes: `normal` opens a visible Viewer and terminal. `hidden` opens no window
+Launch modes: `normal` opens a visible Viewer (start-up screen, no terminal). `hidden` opens no window
 but renders, so capture_view and print work; `emapssn_viewer_control(action="show_session")`
 puts its window on screen for the user (on top, without keyboard focus: if
 window.foreground is false, ask the user to click it) and

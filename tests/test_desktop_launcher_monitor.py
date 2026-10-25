@@ -6,10 +6,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import sys
 import tempfile
+import time
 import unittest
 from unittest import mock
 
@@ -764,6 +766,134 @@ class FailureDialogTests(unittest.TestCase):
         title, text, log = self.report()
         self.assertEqual(title, "SSN Application Failure")
         self.assertTrue(text.startswith("SSN could not open a terminal"), text)
+
+
+class SupervisedLaunchTests(unittest.TestCase):
+    """A client that supervises a launch (the MCP server) names a folder in SSN_SUPERVISED_LAUNCH_DIR and gets the window's
+    two streams as two logs, its process as a record, and no crash dialog; application.log is what it always was."""
+
+    EXIT = 3  # not 0, so the monitor keeps its log and returns at once
+    PROGRAM = "\n".join([
+        "import os, sys",
+        "print('python output', flush=True)",
+        "sys.stdout.buffer.write('unicode α-amylase 中文\\n'.encode('utf-8')); sys.stdout.buffer.flush()",
+        "os.write(1, b'native partial')",
+        "os.write(2, b'native error')",
+        "print('python error', file=sys.stderr, flush=True)",
+        "print('variable:', os.environ.get('SSN_SUPERVISED_LAUNCH_DIR'), flush=True)",
+        f"sys.exit({EXIT})",
+    ])
+
+    def setUp(self):
+        self.folder = Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.supervised = self.folder / "launch"
+        self.state = self.folder / "state"
+        self.enterContext(mock.patch.dict(os.environ, {Desktop_Launcher_Monitor.SUPERVISED_DIRECTORY_VARIABLE: str(self.supervised)}))
+
+    def run_monitor(self, program=None, **options):
+        start = Desktop_Launcher_Monitor.subprocess.Popen
+        program = program or self.PROGRAM
+
+        def start_program(command, **kwargs):
+            return start([sys.executable, "-u", "-c", program], **kwargs)
+
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", side_effect=start_program) as popen:
+            result = Desktop_Launcher_Monitor.run_monitor("session", self.state, **options)
+        return result, popen
+
+    def test_each_stream_goes_to_its_own_log_and_both_to_application_log(self):
+        result, popen = self.run_monitor()
+        self.assertEqual(result, self.EXIT)
+        out = (self.supervised / "stdout.log").read_bytes().decode("utf-8")
+        err = (self.supervised / "stderr.log").read_bytes().decode("utf-8")
+        log = (self.state / "application.log").read_bytes().decode("utf-8")
+        for text in ("python output", "unicode α-amylase 中文", "native partial"):  # partial lines too
+            self.assertIn(text, out)
+            self.assertNotIn(text, err)
+        for text in ("native error", "python error"):
+            self.assertIn(text, err)
+            self.assertNotIn(text, out)
+        for text in ("python output", "native partial", "native error", "python error", "α-amylase"):
+            self.assertIn(text, log)  # what the splash shows is both
+        self.assertIsNotNone(popen.call_args.kwargs["env"])
+
+    def test_the_window_does_not_see_the_supervisors_variable(self):
+        self.run_monitor()
+        out = (self.supervised / "stdout.log").read_text(encoding="utf-8")
+        self.assertIn("variable: None", out)
+
+    def test_the_window_s_process_is_recorded_with_its_creation_time(self):
+        self.run_monitor("import sys, time; time.sleep(0.5); sys.exit(3)")
+        record = json.loads((self.supervised / "window-process.json").read_text(encoding="utf-8"))
+        self.assertEqual(set(record), {"pid", "created"})
+        self.assertEqual(record["pid"], int((self.state / "application.pid").read_text()))
+        self.assertIsInstance(record["created"], float)
+
+    def test_the_log_of_a_launch_is_appended_to_not_replaced(self):
+        self.supervised.mkdir(parents=True)
+        (self.supervised / "stdout.log").write_bytes(b"the launcher printed this\n")
+        self.run_monitor("import sys; print('then the window'); sys.exit(3)")
+        out = (self.supervised / "stdout.log").read_text(encoding="utf-8")
+        self.assertTrue(out.startswith("the launcher printed this\n"), out)
+        self.assertIn("then the window", out)
+
+    def test_a_crash_after_the_window_opened_is_left_to_the_supervisor_with_no_dialog_or_terminal(self):
+        self.state.mkdir()
+        (self.state / "gui.ready").write_text("ready\n", encoding="utf-8")
+        (self.state / "terminal.dismissed").write_text("dismissed\n", encoding="utf-8")
+        for report in ("dialog", "terminal"):
+            with self.subTest(report=report), mock.patch.object(
+                Desktop_Launcher_Monitor, "_open_error_terminal"
+            ) as terminal, mock.patch.object(Desktop_Launcher_Monitor, "_report_application_failure") as dialog:
+                result, _ = self.run_monitor("import sys; sys.exit(9)", failure_report=report)
+            self.assertEqual(result, 9)
+            terminal.assert_not_called()
+            dialog.assert_not_called()
+
+    def test_a_window_that_cannot_start_leaves_why_for_the_supervisor(self):
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", side_effect=OSError("no interpreter")):
+            result = Desktop_Launcher_Monitor.run_monitor("session", self.state)
+        self.assertEqual(result, 1)
+        record = json.loads((self.supervised / "window-process.json").read_text(encoding="utf-8"))
+        self.assertEqual(record, {"error": "no interpreter"})
+        self.assertIn("no interpreter", (self.state / "application.log").read_text(encoding="utf-8"))
+
+    def test_a_program_the_window_started_that_holds_its_pipes_does_not_hold_the_monitor(self):
+        # The window ends, and a program it started keeps its two streams open for a while.
+        record = self.folder / "grandchild.pid"
+        program = "\n".join([
+            "import subprocess, sys",
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], stdout=sys.stdout, stderr=sys.stderr)",
+            f"open({str(record)!r}, 'w').write(str(child.pid))",
+            "sys.exit(5)",
+        ])
+        self.addCleanup(self.stop_recorded, record)
+        with mock.patch.object(Desktop_Launcher_Monitor, "SUPERVISED_COPY_JOIN_SECONDS", 0.5):
+            started = time.monotonic()
+            result, _ = self.run_monitor(program)
+            waited = time.monotonic() - started
+        self.assertEqual(result, 5)
+        self.assertLess(waited, 20)  # not the grandchild's 30 s
+
+    @staticmethod
+    def stop_recorded(record):
+        import psutil
+
+        try:
+            psutil.Process(int(record.read_text())).kill()
+        except (OSError, ValueError, psutil.Error):
+            pass
+
+    def test_without_a_supervisor_the_monitor_is_as_it_was_and_writes_no_client_files(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop(Desktop_Launcher_Monitor.SUPERVISED_DIRECTORY_VARIABLE)
+            with mock.patch.object(
+                Desktop_Launcher_Monitor.subprocess, "Popen", return_value=mock.Mock(pid=1, wait=mock.Mock(return_value=7))
+            ) as popen, mock.patch.object(Desktop_Launcher_Monitor, "_run_supervised") as supervised:
+                Desktop_Launcher_Monitor.run_monitor("session", self.state)
+        supervised.assert_not_called()
+        self.assertIs(popen.call_args.kwargs["stderr"], Desktop_Launcher_Monitor.subprocess.STDOUT)
+        self.assertFalse(self.supervised.exists())
 
 
 class ViewerSessionStartTests(unittest.TestCase):

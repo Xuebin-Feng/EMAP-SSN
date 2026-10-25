@@ -6,8 +6,8 @@
 
 On Windows, Python opens a pipe or a file in the ANSI code page (cp1252 on
 Western systems), while every reader of those streams here decodes UTF-8: the
-desktop launcher monitor's application.log and its error terminal, the MCP
-launch and job logs, and Viewer_Terminal's console copy. Text cp1252 can
+desktop launcher monitor's application.log and its error terminal, and the MCP
+launch and job logs. Text cp1252 can
 encode, such as "é", came back as U+FFFD, and printing a path such as
 "α-amylase" raised UnicodeEncodeError. In a Qt slot that closed the window,
 because the applications exit on an uncaught exception.

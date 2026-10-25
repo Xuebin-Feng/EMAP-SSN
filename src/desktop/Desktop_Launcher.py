@@ -34,9 +34,11 @@ The kinds are a table, LAUNCH_KINDS. A program that sits beside this one, as opt
 with register_kind from a launcher script of its own that calls entry(), and this file names none of
 them: EMAP-SSN.exe (src/bin/Launcher.cs) is told which script starts which kind.
 
-"session" is a Viewer that Config starts: no check and no lock (Config checked, and many Viewers may be
-open), the same splash and monitor, and the arguments after it go to the Viewer. The monitor reports a
-crash after the window opened in a dialog, since no terminal is open to show it.
+"session" is a Viewer that Config, the layout generator or the MCP server starts: no check and no lock
+(the starter checked, and many Viewers may be open), the same splash and monitor, and the arguments after
+it go to the Viewer. The monitor reports a crash after the window opened in a dialog, since no terminal is
+open to show it, unless the MCP server supervises the launch (SSN_SUPERVISED_LAUNCH_DIR, see
+desktop/Desktop_Launcher_Monitor.py), which then follows the Viewer itself and reports it.
 
 --console runs the old visible-console launch in this console, with no splash, exactly as the batch file
 (or, off Windows, the .sh in --terminal-session mode) does. --caller-opens-console is for a caller that has
@@ -591,6 +593,7 @@ class Launch(QObject):
             )
         except (OSError, ValueError) as error:
             self.started_anything = False
+            Monitor.report_start_failure_to_supervisor(error)  # a client that waits for the window learns it will not come
             self.splash.show_error([str(error)], None, reason=QCoreApplication.translate(
                 "Splash", "The window could not be started."))
             return

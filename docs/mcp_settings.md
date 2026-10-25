@@ -206,8 +206,11 @@ returned by its job as `TARGET_CACHE_PATH`; the Viewer document has no separate
 filename field. Launch validates and opens exactly that cache, without silently
 generating or selecting a different one.
 
-MCP Viewer launch runs detached headless Config, which dispatches into Viewer in
-the same process to preserve PID tracking on Windows and Unix. Existing readiness,
+MCP Viewer launch of a `headless` or `hidden` Viewer runs detached headless Config,
+which dispatches into Viewer in the same process to preserve PID tracking on
+Windows and Unix. A `normal` Viewer starts as the Configuration window's does: the
+session launcher shows the start-up screen and runs the Viewer under its monitor,
+with a hidden console on Windows and no terminal anywhere. Existing readiness,
 private logs, connection and shutdown handling remain in MCP. `normal` opens a
 visible Viewer; `headless` uses offscreen Qt; `hidden` uses the native platform
 with the Viewer's window kept off screen. None of them opens the Config window.
@@ -677,15 +680,19 @@ times out (its Qt thread busy, for example with the first paint) is probed
 again rather than treated as failed. Each launch keeps a small `launch.json`
 record beside its logs.
 
-Normal MCP launches open a visible terminal alongside the Viewer. Both output
-streams are copied to that terminal and retained in the launch logs, including
-native-library output and partial progress lines. Headless launches retain the
-same logs without opening a terminal, and so do hidden ones. On Linux and macOS the terminal program's
-own messages go to `stderr_log`, and a terminal that cannot start the Viewer is
-an error: at once when it exits with an error (no display, or on macOS no
-permission to control Terminal), or 60 s after the launch when it exits cleanly
-without starting it. A terminal still running, such as macOS's prompt for that
-permission, keeps the launch `starting`. Use `headless` or `hidden` without a desktop session.
+A normal MCP launch opens a start-up screen and then the Viewer, and no terminal
+or console window on any platform: it starts as Config's Save & Run starts a
+Viewer. The Viewer's output goes to its Console window and to `temp/logs` as for
+any Viewer, and both streams are retained, each in its own file, in the launch
+logs, including native-library output and partial progress lines. Headless and
+hidden launches retain the same logs and open no start-up screen. The launcher's
+own messages (a Qt platform that did not load) go to the same two files. The
+launch follows the Viewer itself: the launcher's monitor records its process in
+the launch folder, so a Viewer that ends before it is ready ends the launch with
+an error, even while an error start-up screen is still open, and
+`close_session` stops the Viewer and its children. A launcher that ends without
+starting a Viewer (no display) is an error at once. Use `headless` without a
+desktop session.
 `emapssn_viewer_data(action="read_log")` pages either stream using
 byte offsets (`stream`, `offset`, and `limit`); use the full session ID to read
 retained output after disconnecting or closing within the same MCP transport.

@@ -185,7 +185,8 @@ For a new session, use viewer-control `export_settings` to inherit saved prefere
 review the complete JSON, then call `validate_settings` and `start_session`.
 Use `get_settings_schema` to inspect the accepted fields. Exporting writes a settings
 file; validation and launch consume that explicit document without merging personal
-settings again. A visible Viewer uses `mode: "normal"`; `mode: "headless"` runs
+settings again. A visible Viewer uses `mode: "normal"`: it opens with the start-up screen
+and no terminal, as the Viewer that Configuration starts does; `mode: "headless"` runs
 without a desktop window but still uses Qt/VisPy.
 See [Viewer session settings](docs/mcp_settings.md#viewer-sessions), including the
 Windows host restriction on independent subprocesses.
@@ -714,8 +715,9 @@ start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe 
 (on Linux `./emapssn` or `./emapssn_tools`, on macOS `src/bin/EMAPSSN.sh` or `src/bin/EMAPSSN_Tools.sh`) from a terminal; the Viewer's Console shows the same output there.
 The Viewer that the Configuration window starts opens the same way on every platform, with a start-up screen and no
 terminal; on Linux and macOS, if that start-up screen cannot run, the Viewer starts in a terminal instead, as it did
-before. The layout generator, which prints its progress, still runs in a terminal; when it has saved the layout it opens the
-Viewer the same way (start-up screen, no terminal of its own) and ends, so its terminal closes by itself unless something went wrong.
+before. A Viewer started by the MCP server (`mode: "normal"`) opens the same way. The layout generator, which prints
+its progress, still runs in a terminal; when it has saved the layout it opens the Viewer the same way (start-up screen,
+no terminal of its own) and ends, so its terminal closes by itself unless something went wrong.
 
 ### Headless layout-cache generation
 

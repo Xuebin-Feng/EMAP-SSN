@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import shutil
@@ -667,6 +668,25 @@ class WindowStartTests(LaunchCase):
         started.assert_called_once()
         self.assertEqual(started.call_args.kwargs["failure_report"], "dialog")
         self.assertEqual(started.call_args.args[0], "viewer")
+
+    def test_a_monitor_that_cannot_start_is_an_error_view_and_a_supervising_client_is_told_why(self):
+        # The launcher stays up behind its error view until Close is pressed, so a client waiting for the window
+        # (the MCP server) would wait for ever if it were not told.
+        folder = self.root / "supervised"
+        launch = self.launch("session", environment={"SSN_SUPERVISED_LAUNCH_DIR": str(folder)})
+        with mock.patch.object(Desktop_Launcher.Monitor, "launch_detached_monitor", side_effect=OSError("no interpreter")):
+            launch.begin()
+        self.assertTrue(launch.splash.error)
+        self.assertFalse(launch.started_anything)
+        self.assertEqual(json.loads((folder / "window-process.json").read_text(encoding="utf-8")), {"error": "no interpreter"})
+
+    def test_a_monitor_that_cannot_start_touches_nothing_when_no_client_supervises(self):
+        launch = self.launch("session")
+        os.environ.pop("SSN_SUPERVISED_LAUNCH_DIR", None)
+        with mock.patch.object(Desktop_Launcher.Monitor, "launch_detached_monitor", side_effect=OSError("no interpreter")):
+            launch.begin()
+        self.assertTrue(launch.splash.error)
+        self.assertFalse((self.root / "supervised").exists())
 
     def test_a_crash_after_the_window_opened_is_told_in_a_dialog_and_asks_for_no_terminal(self):
         launch = self.launch("viewer", environment={"FAKE_WINDOW_STAY": "0.3", "FAKE_WINDOW_EXIT": "1"})

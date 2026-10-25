@@ -23,6 +23,9 @@ from utilities.Viewer_Sessions import (
     discover_viewer_sessions, remove_viewer_session, select_viewer_session,
     session_alias,
 )
+from desktop.Desktop_Launcher_Monitor import (
+    SUPERVISED_DIRECTORY_VARIABLE, SUPERVISED_IDENTITY_NAME, viewer_session_command,
+)
 from desktop.Viewer_State import read_viewer_settings, validate_viewer_document, ViewerSettingsError
 from utilities.Viewer_Display import (
     FALLBACK_ENV as WINDOW_FALLBACK_ENV, HIDDEN_UNAVAILABLE_MARKER, WINDOW_ENV,
@@ -90,48 +93,20 @@ def _recorded_process(path):
     return None
 
 
-# Viewer_Terminal.py records itself before anything else, so a normal POSIX
-# launch whose terminal command has exited and still has not run it this long
-# after the launch started never will.
-TERMINAL_START_GRACE = 60.0
+def _window_alive(directory):
+    """Whether a normal launch can still become ready.
 
-
-def _terminal_alive(directory, started_epoch, terminal=None):
-    """Whether a normal POSIX launch can still become ready.
-
-    Once the terminal wrapper records itself, the launch lives until that
-    process exits. Before then the terminal command (``terminal``, when this
-    process started it, else the process ``process.json`` records) may still
-    start the wrapper; macOS's osascript waits there while the user is asked to
-    allow control of Terminal. A command that failed, as an emulator without a
-    display or osascript refused that control does, raises MCPViewerError. One
-    that exited cleanly, as emulators handing their window to a running server
-    do, leaves TERMINAL_START_GRACE seconds from the launch's start.
+    A normal Viewer is started by the session launcher (the splash, then the monitor that runs the Viewer),
+    which has the monitor record the Viewer's process in ``window-process.json`` of the launch's folder
+    (SSN_SUPERVISED_LAUNCH_DIR). Once that file exists the launch lives as long as the Viewer does: the
+    launcher stays up behind an error splash, nobody closing it, after the Viewer has ended. Before it, the
+    launcher itself is what is starting the Viewer, and ``process.json`` records it. A launcher that
+    ended without starting one, as for a display it could not reach, ends the launch.
     """
-    if terminal is not None:
-        code = terminal.poll()
-    else:
-        code = None if _recorded_process(directory / "process.json") is not None else 0
-    # Checked after the command, so a wrapper that recorded itself as the
-    # command exited is not mistaken for one that never started.
-    identity = directory / "terminal-process.json"
+    identity = directory / SUPERVISED_IDENTITY_NAME
     if identity.exists():
         return _recorded_process(identity) is not None
-    if code is None:
-        return True
-    if code != 0:
-        raise MCPViewerError(
-            f"The terminal command exited with code {code} before starting the Viewer. "
-            "Normal mode needs a desktop session (on macOS, permission to control "
-            "Terminal); use headless mode without one."
-        )
-    if time.time() - started_epoch < TERMINAL_START_GRACE:
-        return True
-    raise MCPViewerError(
-        f"No terminal started the Viewer within {TERMINAL_START_GRACE:.0f} s of the launch. "
-        "Normal mode needs a desktop session with a working terminal emulator; "
-        "use headless mode without one."
-    )
+    return _recorded_process(directory / "process.json") is not None
 
 
 def _launch_progress(directory):
@@ -328,14 +303,19 @@ class MCPViewerClient:
         command = [sys.executable, "-u", str(script), "--headless", "launch-viewer",
                    "--settings", str(snapshot), "--delete-settings", "--viewer-mode", mode]
         if mode == "normal":
-            command = [sys.executable, "-u", str(Path(__file__).resolve().parent / "Viewer_Terminal.py"),
-                       str(directory), *command]
+            # The Viewer a person sees opens as it does from Config: the session launcher shows a splash and runs
+            # it under the monitor, with a hidden console and no terminal. Its output goes to its Console window
+            # and temp/logs, and, because this folder is named below, to this launch's stdout.log and stderr.log.
+            command = viewer_session_command(self.project_root, settings_path=snapshot, executable=sys.executable)
         env = os.environ.copy()
         for key in ("SSN_VIEWER_SETTINGS_PATH", "SSN_TARGET_CACHE_PATH", "SSN_TARGET_CACHE_MODE", "SSN_TARGET_CACHE",
-                    "SSN_VIEWER_HEADLESS", "SSN_VIEWER_EXPLICIT_SETTINGS", WINDOW_ENV, WINDOW_FALLBACK_ENV):
+                    "SSN_VIEWER_HEADLESS", "SSN_VIEWER_EXPLICIT_SETTINGS", WINDOW_ENV, WINDOW_FALLBACK_ENV,
+                    SUPERVISED_DIRECTORY_VARIABLE):
             env.pop(key, None)
         env[SESSION_DIRECTORY_ENV] = session_directory()
         env[LAUNCH_ID_ENV] = launch_id
+        if mode == "normal":
+            env[SUPERVISED_DIRECTORY_VARIABLE] = str(directory)
         if mode == "headless":
             env["QT_QPA_PLATFORM"] = "offscreen"
             env["SSN_VIEWER_HEADLESS"] = "1"
@@ -364,27 +344,18 @@ class MCPViewerClient:
             # chain while recording the independent launcher's exact identity.
             identity_path = directory / "process.json"
             if sys.platform == "win32":
-                child_options = ("stdin=None,stdout=None,stderr=None,creationflags=subprocess.CREATE_NEW_CONSOLE"
-                                 if mode == "normal" else
-                                 "stdin=subprocess.DEVNULL,creationflags=subprocess.CREATE_NO_WINDOW|subprocess.CREATE_NEW_PROCESS_GROUP")
                 broker = (
                     "import subprocess,sys,json,psutil; "
-                    f"p=subprocess.Popen(json.loads(sys.argv[1]),{child_options}); "
+                    "p=subprocess.Popen(json.loads(sys.argv[1]),stdin=subprocess.DEVNULL,"
+                    "creationflags=subprocess.CREATE_NO_WINDOW|subprocess.CREATE_NEW_PROCESS_GROUP); "
                     "open(sys.argv[2],'w').write(json.dumps({'pid':p.pid,'created':psutil.Process(p.pid).create_time()}))"
                 )
                 command = [sys.executable, "-c", broker, json.dumps(command), str(identity_path)]
+            # The launcher's own output (a Qt platform that did not load, a missing display) belongs in the launch
+            # log too. This server's stdin and stdout carry the MCP protocol, so the launch gets neither.
             with stdout_path.open("ab", buffering=0) as out, stderr_path.open("ab", buffering=0) as err:
-                if mode == "normal" and sys.platform != "win32":
-                    from utilities.Terminal_Launcher import launch_in_terminal
-                    # The terminal command's own output, such as an emulator's
-                    # "cannot open display" or osascript refused control of
-                    # Terminal, belongs in the launch log. This server's stdin and
-                    # stdout carry the MCP protocol, so the command gets neither.
-                    proc = launch_in_terminal(command, cwd=self.project_root, env=env,
-                                              stdin=subprocess.DEVNULL, stdout=err, stderr=err)
-                else:
-                    proc = subprocess.Popen(command, cwd=self.project_root, env=env, stdin=subprocess.DEVNULL,
-                                            stdout=out, stderr=err, **options)
+                proc = subprocess.Popen(command, cwd=self.project_root, env=env, stdin=subprocess.DEVNULL,
+                                        stdout=out, stderr=err, **options)
             root_process = _identity(proc.pid)
             if sys.platform == "win32":
                 code = await asyncio.to_thread(proc.wait, timeout=10)
@@ -396,19 +367,18 @@ class MCPViewerClient:
                     raise MCPViewerError("Independent Viewer launcher exited before readiness; "
                                          f"last output: {_launch_progress(directory)[0]!r}.")
             elif root_process is not None:
-                # The headless Viewer launcher, or the terminal command that starts
-                # a normal one; wait_session and close_session reach it through this.
+                # The headless Viewer, or the session launcher that starts a normal one; wait_session and
+                # close_session reach it through this.
                 identity_path.write_text(json.dumps({"pid": proc.pid, "created": root_process.create_time()}))
-            if sys.platform == "win32" or mode != "normal":
-                owner = root_process
+            owner = root_process
+            if mode == "normal":
+                def alive():
+                    return _window_alive(directory)
+            else:
                 def alive():
                     return _alive(root_process)
-            else:
-                owner = None  # root_process is the terminal emulator, not the Viewer.
-                def alive():
-                    return _terminal_alive(directory, launch["started_epoch"], terminal=proc)
-            # Only a POSIX headless or hidden Popen is the Viewer itself; on Windows it is the broker.
-            child = proc if mode != "normal" and sys.platform != "win32" else None
+            # On POSIX the Popen is the Viewer itself (headless, hidden) or its launcher (normal); on Windows it is the broker.
+            child = proc if sys.platform != "win32" else None
             result = await self._await_launch(directory, launch, alive, timeout, owner=owner, child=child)
             ready = result["status"] == "ready"
             keep_running = not ready
@@ -488,8 +458,8 @@ class MCPViewerClient:
             if time.monotonic() >= deadline:
                 break
             await asyncio.sleep(0.1)
-        if owner is None:
-            owner = await asyncio.to_thread(_recorded_process, directory / "terminal-process.json")
+        # A normal launch's Viewer, once its monitor has recorded it, is what works: its CPU time is the progress.
+        owner = await asyncio.to_thread(_recorded_process, directory / SUPERVISED_IDENTITY_NAME) or owner
         phase, age = _launch_progress(directory)
         result = {
             "status": "starting", "launch_id": launch_id, "mode": launch["mode"],
@@ -512,7 +482,9 @@ class MCPViewerClient:
     async def _terminate_launch(self, directory, launch_id, *, extra=None):
         """Stop the processes a launch recorded and any session it published."""
         stopped = []
-        for name in ("terminal-process.json", "process.json"):
+        # The launcher first: its tree holds the splash, the monitor and the Viewer, which then end together
+        # and show no error splash for a Viewer that was stopped on purpose.
+        for name in ("process.json", SUPERVISED_IDENTITY_NAME):
             process = await asyncio.to_thread(_recorded_process, directory / name)
             if process is not None:
                 await asyncio.shield(asyncio.to_thread(_terminate_tree, process))
@@ -534,14 +506,13 @@ class MCPViewerClient:
         """Keep waiting for a handed-off launch; connect when ready, never stop it."""
         directory = Path(session_directory()) / "launches" / _launch_key(launch_id)
         launch = _read_launch(directory)
-        owner = None
-        if sys.platform == "win32" or launch["mode"] != "normal":
-            owner = await asyncio.to_thread(_recorded_process, directory / "process.json")
+        owner = await asyncio.to_thread(_recorded_process, directory / "process.json")
+        if launch["mode"] == "normal":
             def alive():
-                return owner is not None and _alive(owner)
+                return _window_alive(directory)
         else:
             def alive():
-                return _terminal_alive(directory, launch["started_epoch"])
+                return owner is not None and _alive(owner)
         # An already-ready Viewer is found by its launch_id even after the launcher exits.
         try:
             return await self._await_launch(directory, launch, alive, timeout, owner=owner)
