@@ -960,12 +960,8 @@ class ConsoleWindow(QWidget):
 _window: ConsoleWindow | None = None
 
 
-def console_available() -> bool:
-    """Whether this process keeps its output (it was not started with --console, headless or under MCP)."""
-    return Console_Capture.current() is not None
-
-
 def not_available_text() -> str:
+    """What the window of a program that keeps no output (started with --console) shows in place of it."""
     return QCoreApplication.translate("Console",
         "This program's output is not kept here: it was started so that the output goes to the terminal "
         "it was started from (--console), where it can be read."

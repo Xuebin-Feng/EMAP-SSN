@@ -1423,6 +1423,13 @@ class ButtonRowTests(WindowCase):
             self.assertTrue(button.isVisibleTo(window))
             self.assertTrue(button.isEnabled())
 
+    def test_the_row_is_built_with_the_window_so_its_first_layout_has_it(self):
+        self.register()
+        window = ConsoleWindow(self.recorder, buttons=self.registry)  # not shown yet
+        self.addCleanup(window.deleteLater)
+        self.assertEqual([button.text() for button in window.button_controls()], ["Meta Data", "Agent", "Fold View"])
+        self.assertFalse(window.button_row.isHidden())
+
     def test_a_button_registered_while_the_window_is_open_appears_at_once(self):
         window = self.window(buttons=self.registry)
         self.assertTrue(window.button_row.isHidden())
@@ -1731,7 +1738,6 @@ class EntryPointTests(WindowCase):
         self.addCleanup(window.deleteLater)
         information.assert_not_called()
         self.assertIn("--console", window.text.toPlainText())
-        self.assertFalse(Console_View.console_available())
         window.close()
 
     def test_the_window_is_titled_after_the_window_it_belongs_to(self):
