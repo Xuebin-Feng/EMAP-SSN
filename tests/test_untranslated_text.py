@@ -66,7 +66,7 @@ from tests.translation_fixtures import (
 
 # Windows whose every text comes from a catalog. Marking a window's text
 # (language step 6) moves it here.
-FULLY_MARKED = frozenset({"Config", "Tools", "Viewer window"})
+FULLY_MARKED = frozenset({"Config", "Tools", "Viewer window", "Console window"})
 
 # Files under src whose every text on the Viewer's canvas comes from a
 # catalog. Marking a file's console messages moves it here.
@@ -118,7 +118,7 @@ def flush(app):
 def open_viewer_window(test_case):
     """A Viewer's main window, built as the Viewer builds it, around a stand-in canvas.
 
-    Its sidebar holds the buttons the web plugins add. No network is loaded,
+    The buttons the web plugins add are registered for its Console. No network is loaded,
     so the canvas draws nothing.
     """
     from types import SimpleNamespace
@@ -130,12 +130,10 @@ def open_viewer_window(test_case):
     viewer.canvas = SimpleNamespace(native=QWidget(), size=(1800, 1000))
     viewer._build_main_window()
     test_case.addCleanup(viewer.main_window.deleteLater)
-    # The real one also moves the slider and the HUD, which need a network.
-    viewer.set_sidebar_visible = lambda visible: None
     with contextlib.redirect_stdout(io.StringIO()):
         for plugin in (agent_backend, esmfold_backend, meta_backend):
             plugin.activate(viewer)
-    test_case.assertEqual(len(viewer.sidebar_buttons), 3)
+    test_case.assertEqual(len(viewer.console_button_registry().buttons()), 3)
     viewer.reposition_expand_btn()
     return viewer
 
@@ -248,6 +246,25 @@ class WindowTextTests(WindowTestCase):
     def test_viewer_window(self):
         viewer = open_viewer_window(self)
         self.check("Viewer window", self.show(viewer.main_window))
+
+    def test_console_window(self):
+        from desktop.Console_View import ConsoleWindow
+        from utilities.Console_Capture import Recorder
+
+        viewer = open_viewer_window(self)
+        recorder = Recorder("viewer", None)
+        recorder.add("stdout", "A line the program printed")
+        window = ConsoleWindow(recorder, buttons=viewer.console_button_registry())
+        self.check("Console window", self.show(window))
+        # The second row's buttons are there, each with its translated label and tooltip.
+        self.assertEqual(len(window.button_controls()), 3)
+
+    def test_console_window_of_a_program_that_keeps_no_output(self):
+        from desktop.Console_View import ConsoleWindow
+
+        viewer = open_viewer_window(self)
+        window = ConsoleWindow(None, buttons=viewer.console_button_registry())
+        self.check("Console window", self.show(window))
 
 
 class ConfigRunTimeTextTests(WindowTestCase):

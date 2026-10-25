@@ -1137,7 +1137,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Shows the Viewer&apos;s frame rate at its top right, left of the sidebar button.</source>
+        <source>Shows the Viewer&apos;s frame rate at its top right.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3479,10 +3479,6 @@ Command-line usage:
     </message>
     <message>
         <source>The Console needs a window, and this Viewer shows none; its log file has the output.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>The Console is not available: this Viewer&apos;s output goes to the terminal it was started from.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

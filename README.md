@@ -259,7 +259,7 @@ The chosen language covers:
 
 - the Configuration, Tools and VR Configuration windows, with their tips,
   messages and the Tools help pages;
-- the Viewer's window, sidebar and dialogs, the text on its canvas (the HUD and
+- the Viewer's window, Console and dialogs, the text on its canvas (the HUD and
   the console line), and the Agent, metadata and Fold View pages it opens in the
   browser;
 - the benchmark's text report.
@@ -711,10 +711,12 @@ followed by the time and process number; 8 MB at most, the ten latest of each wi
 and Tools windows have no Console after they open: read their output there. The Viewer, which runs for hours
 and prints the output of its commands, has the **Console** window: the Console button at the bottom of the Viewer,
 beside the info button, or the `console` command opens it, and it shows the output with
-the time of each line, searches and filters it, and opens its log file. To see the output in a terminal as before,
+the time of each line, searches and filters it, and opens its log file. A second row under its search holds a
+button for each page you open from the Viewer with its command (`meta`, `agent` and `esmfold`). To see the output in a terminal as before,
 start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe vr --console`, or on Linux
 `src/bin/EMAPSSN_Desktop_Launcher.sh viewer --console`) or run `src\bin\EMAPSSN.bat` or `src\bin\EMAPSSN_Tools.bat`
-(on Linux `./emapssn` or `./emapssn_tools`, on macOS `src/bin/EMAPSSN.sh` or `src/bin/EMAPSSN_Tools.sh`) from a terminal; the Viewer's Console shows the same output there.
+(on Linux `./emapssn` or `./emapssn_tools`, on macOS `src/bin/EMAPSSN.sh` or `src/bin/EMAPSSN_Tools.sh`) from a terminal; the Viewer's Console shows the same output there. A Viewer started with `--console` keeps no output
+to show: its Console opens for the button row alone, and says where the output is.
 The Viewer that the Configuration window starts opens the same way on every platform, with a start-up screen and no
 terminal; on Linux and macOS, if that start-up screen cannot run, the Viewer starts in a terminal instead, as it did
 before. A Viewer started by the MCP server (`mode: "normal"`) opens the same way. The layout generator, which prints

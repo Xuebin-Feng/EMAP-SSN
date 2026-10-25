@@ -32,7 +32,7 @@ class FakeViewer:
         self.buttons = []
         self.sidebar_buttons_to_persist = []
 
-    def add_sidebar_button(self, *args, **kwargs):
+    def add_console_button(self, *args, **kwargs):
         self.buttons.append((args, kwargs))
 
     def open_agent_ui(self):
@@ -206,7 +206,7 @@ class ManagerTests(unittest.TestCase):
         self.assertEqual(manager.registry.registered_plugins, set())
         self.assertIn("attempted to register", manager.diagnostics[0].message)
 
-    def test_bundled_registration_does_not_activate_sidebar_buttons(self):
+    def test_bundled_registration_does_not_activate_console_buttons(self):
         from web_ui import agent_backend, meta_backend
 
         viewer = FakeViewer()

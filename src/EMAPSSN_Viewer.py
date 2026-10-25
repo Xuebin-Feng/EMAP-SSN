@@ -274,6 +274,10 @@ def _wrap_console_text_for_display(text, max_width, measure_width):
     return "\n".join(lines)
 
 
+# Whether the Viewer has a sidebar. The buttons pages register are in the Console's second header row now
+# (add_console_button); the sidebar's code is kept for a later use, and while this is False the sidebar
+# never opens, its toggle stays hidden and the window's minimum width leaves out the room it would take.
+SIDEBAR_ENABLED = False
 # How long the sidebar takes to slide fully open or closed, in ms; 0 switches it at once.
 SIDEBAR_SLIDE_MS = 220
 # The command line's box: a light tint of the theme colour, a touch see-through over the network.
@@ -555,11 +559,13 @@ def _web_clients_connected(viewer):
 # =========================================================================
 CUSTOM_ATTRIBUTES_INIT = {
     # Add your custom attributes here:
+    # The commands whose Console buttons come back when a session loads. The name is from the days
+    # these were sidebar buttons: session files hold it.
     "sidebar_buttons_to_persist": []
 }
 
-# Cacheable attributes that undo and redo leave alone. The sidebar's list of
-# buttons to register at startup follows what the user has opened, not the
+# Cacheable attributes that undo and redo leave alone. The list of buttons
+# to register at startup follows what the user has opened, not the
 # network's history: restoring an older list would drop a button that a later
 # `save` or `meta` call added. `save` still writes it into the cache.
 UNDO_EXCLUDED_ATTRIBUTES = frozenset({"sidebar_buttons_to_persist"})
@@ -1093,10 +1099,7 @@ class MainViewer:
         # Initialize background WebServer
         self.start_web_server()
         
-        # Run persistent sidebar button registration commands
-        if getattr(self, 'sidebar_buttons_to_persist', None):
-            for cmd_name in self.sidebar_buttons_to_persist:
-                self.process_command(f"{cmd_name} --register-only", record_history=False, silent=True)
+        self._register_persisted_console_buttons()
         
         # Ensure the side panel is hidden at startup
         self.set_sidebar_visible(False)
@@ -1261,7 +1264,7 @@ class MainViewer:
         self.console_button = ConsoleButton(
             translate("Viewer", "Console"),
             translate("Viewer", "Show everything this Viewer has printed: progress, warnings and errors"),
-            opened=self._console_button_clicked,
+            opened=self.open_console_window,
         )
         overlay_layout.addWidget(self.console_button)
         overlay_layout.addSpacing(SLIDER_BUTTONS_GAP - overlay_layout.spacing())
@@ -3409,7 +3412,7 @@ class MainViewer:
         hidden or headless window, or SIDEBAR_SLIDE_MS 0 switch it at once.
         A call while it slides turns it around from where it is.
         """
-        has_buttons = bool(getattr(self, 'sidebar_buttons', {}))
+        has_buttons = SIDEBAR_ENABLED and bool(getattr(self, 'sidebar_buttons', {}))
         if hasattr(self, 'right_panel'):
             start = _sidebar_room(self)
             self._stop_sidebar_slide()
@@ -3510,24 +3513,19 @@ class MainViewer:
         )
 
     def open_console_window(self):
-        """Open the Console window, which shows what this Viewer's process has printed.
+        """Open the Console window, which shows what this Viewer's process has printed, and the buttons
+        pages and commands registered (add_console_button).
 
-        Returns "opened", "no_window" when the Viewer shows no windows (headless, or hidden and not
-        shown), or "not_kept" when it was started with --console, so nothing is kept to show.
-        The console command reports each; the Console button explains the last.
+        Returns "opened", or "no_window" when the Viewer shows no windows (headless, or hidden and not
+        shown). A Viewer started with --console keeps no output to show: its Console still opens, for the
+        buttons, and says in place of the output where the output went.
+        The console command reports the result.
         """
         if not self.shows_windows():
             return "no_window"
-        from desktop.Console_View import console_available, show_console
-        if not console_available():
-            return "not_kept"
-        return "opened" if show_console(self.main_window) is not None else "not_kept"
-
-    def _console_button_clicked(self):
-        """The Console button's click: open the Console, or say why nothing is kept to show."""
-        if self.open_console_window() == "not_kept":
-            from desktop.Console_View import not_available_text
-            QtWidgets.QMessageBox.information(self.main_window, translate("Viewer", "Console"), not_available_text())
+        from desktop.Console_View import show_console
+        show_console(self.main_window, buttons=self.console_button_registry())
+        return "opened"
 
     def _open_web_ui(
         self,
@@ -3552,7 +3550,31 @@ class MainViewer:
             raise RuntimeError(Message("This Viewer instance's web server is unavailable."))
         return f"{self.web_server_url}/{str(path).lstrip('/')}"
 
+    def add_console_button(self, name, label, callback, tooltip=None, icon=None):
+        """Register a button for the second header row of the Console window; True when it is new.
+
+        A page or a command declares its own, in its backend's activate: ``label`` and ``tooltip`` are
+        translated, ``icon`` is the name of a bundled Lucide icon, and a click calls ``callback`` with no
+        argument. A button registered while the Console is open appears in it at once, and one registered
+        before it opens is there when it does. A name that is registered already changes nothing.
+        """
+        return self.console_button_registry().add(name, label, callback, tooltip, icon)
+
+    def _register_persisted_console_buttons(self):
+        """Run the registration command of each Console button the session had (sidebar_buttons_to_persist)."""
+        for cmd_name in getattr(self, 'sidebar_buttons_to_persist', None) or []:
+            self.process_command(f"{cmd_name} --register-only", record_history=False, silent=True)
+
+    def console_button_registry(self):
+        """The ButtonRegistry of the Console's second header row, made when it is first needed."""
+        if getattr(self, 'console_buttons', None) is None:
+            from desktop.Console_View import ButtonRegistry
+            self.console_buttons = ButtonRegistry()
+        return self.console_buttons
+
     def add_sidebar_button(self, name, label, callback, tooltip=None, icon=None):
+        """Add a button to the sidebar. Kept for a later use: nothing calls it now, since pages register Console
+        buttons (add_console_button), and while SIDEBAR_ENABLED is False the sidebar never opens."""
         if not hasattr(self, 'sidebar_buttons'):
             self.sidebar_buttons = {}
         
@@ -3608,11 +3630,11 @@ class MainViewer:
     def _update_window_minimum_width(self):
         """Keep the window wide enough for the sidebar's buttons, and for the slider row beside the sidebar.
 
-        The row needs _slider_row_width and, while the sidebar has buttons, the room it takes
-        when open, so that opening it never makes the row overlap. A Viewer without the row
-        keeps the sidebar's width alone.
+        The row needs _slider_row_width and, while the sidebar can open and has buttons, the room it
+        takes when open, so that opening it never makes the row overlap: none while the sidebar is
+        off (SIDEBAR_ENABLED). A Viewer without the row keeps the sidebar's width alone.
         """
-        room = self._panel_w if getattr(self, 'sidebar_buttons', None) else 0
+        room = self._panel_w if SIDEBAR_ENABLED and getattr(self, 'sidebar_buttons', None) else 0
         self.main_window.setMinimumWidth(max(self._panel_w, self._slider_row_width() + room))
 
 

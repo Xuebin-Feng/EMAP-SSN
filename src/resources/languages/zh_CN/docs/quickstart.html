@@ -506,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="4d7de61bd2f3e90e43f9fc05b4d7b857605ecf08e49c39863f494f7503118d44">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="374ab249622451c97046b9f7091de7669d62696c0bacc30ceb752a520639ffe2">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -519,7 +519,7 @@
                     <img src="../../../../../docs/assets/emapssn_viewer_gui.png" alt="EMAP-SSN 查看器 GUI 截图" style="max-height: 520px;">
                 </div>
                 <div class="figure-caption">
-                    <strong>图 4：EMAP-SSN 查看器 GUI 界面元素。</strong>图中的标注指出了主要的交互组件：（1）左上角的<strong>命令行界面（Command Line Interface，HUD）</strong>，用于运行分析命令；（2）<strong>选择框（Selection Box）</strong>，用于框选节点集；（3）左下角的<strong>边可见性滑块（Edge Visibility Slider）</strong>，用于实时调整阈值；（4）右下角的<strong>查看器状态堆叠区（Viewer Status）</strong>，显示缩放（Zoom）和隐藏节点（Hidden Nodes）；（5）右上角的<strong>侧面板插件（Side Panel Plugin）</strong>，包括元数据（Meta Data）、智能体（Agent）和结构视图（Fold View，Mol* 3D 结构）。
+                    <strong>图 4：EMAP-SSN 查看器 GUI 界面元素。</strong>图中的标注指出了主要的交互组件：（1）左上角的<strong>命令行界面（Command Line Interface，HUD）</strong>，用于运行分析命令；（2）<strong>选择框（Selection Box）</strong>，用于框选节点集；（3）左下角的<strong>边可见性滑块（Edge Visibility Slider）</strong>，用于实时调整阈值；以及（4）右下角的<strong>查看器状态堆叠区（Viewer Status）</strong>，显示缩放（Zoom）和隐藏节点（Hidden Nodes）。信息按钮旁边的<strong>控制台（Console）</strong>按钮会打开控制台窗口，其按钮行可打开元数据（Meta Data）、智能体（Agent）和结构视图（Fold View，Mol* 3D 结构）。
                 </div>
             </div>
 
@@ -610,9 +610,9 @@
                     参阅配套文档：<a href="list_of_commands.html">EMAP-SSN 查看器命令参考</a>，了解 <code>color</code>、<code>cluster</code>、<code>logo</code>、<code>select</code>、<code>label</code>、<code>esmfold</code> 和 <code>print</code> 等命令的语法、参数和实用示例。
                 </div>
 
-                <h3>4. 侧面板插件与内嵌 Web 工具</h3>
+                <h3>4. 控制台按钮与内嵌 Web 工具</h3>
                 <p>
-                    侧面板位于查看器的右上角（图 4），可在浏览器中打开基于 Web 的分析工具，这些工具由查看器的本地 Web 服务器提供：
+                    控制台窗口（查看器左下角的<strong>控制台</strong>按钮，图 4）的搜索行下方有第二行按钮。每个按钮都会在浏览器中打开一个基于 Web 的分析工具，这些工具由查看器的本地 Web 服务器提供。某个按钮会在其命令（<code>meta</code>、<code>agent</code> 或 <code>esmfold</code>）运行时加入这一行，在有按钮之前这一行不显示：
                 </p>
                 <div class="grid-2">
                     <div class="grid-card">
@@ -806,7 +806,7 @@
             </div>
 
             <!-- SECTION 8: RELATED REFERENCES -->
-            <div id="next-steps" class="section-divider" data-source-sha256="73f11dce950d5e094e377cf9fb3d8643116ef53d79b201d5c159dd1252ea73cb">
+            <div id="next-steps" class="section-divider" data-source-sha256="6a87d4cf71441a7ce7a9b8d195d677c38356c2ed72438518b80a9c329377725e">
                 <span>8. 相关参考与文档</span>
             </div>
 
@@ -845,7 +845,7 @@
                     <div class="grid-card">
                         <h4><svg class="icon" aria-hidden="true"><use href="#i-wrench"/></svg><span>Web 插件开发</span></h4>
                         <p style="font-size: 0.9rem;">
-                            想为查看器开发自定义的侧面板插件或 Web 工具？请参阅：
+                            想为查看器开发在控制台中带有自己按钮的自定义插件或 Web 工具？请参阅：
                         </p>
                         <code style="font-size: 0.85rem;">docs/web_plugin_development.md</code>
                     </div>

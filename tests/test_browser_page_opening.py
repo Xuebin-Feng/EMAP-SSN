@@ -443,10 +443,10 @@ class ESMFoldBrowserOpeningTests(unittest.TestCase):
                 # The page's name, which the messages show translated.
                 self.assertEqual(str(viewer._open_web_ui.call_args.args[1]), "ESMFold Mol* UI")
 
-    def test_fold_view_sidebar_uses_default_modal_behavior(self):
-        viewer = SimpleNamespace(add_sidebar_button=mock.Mock())
+    def test_fold_view_button_uses_default_modal_behavior(self):
+        viewer = SimpleNamespace(add_console_button=mock.Mock())
         esmfold_backend.activate(viewer)
-        callback = viewer.add_sidebar_button.call_args.args[2]
+        callback = viewer.add_console_button.call_args.args[2]
 
         with mock.patch.object(esmfold_backend, "open_esmfold_ui") as open_ui:
             callback()

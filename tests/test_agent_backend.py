@@ -64,6 +64,25 @@ class CardActivationTests(unittest.TestCase):
         self.assertEqual((viewer.llm_url, viewer.llm_model_name), ('http://localhost:1234/v1', 'my-model'))
 
 
+class ConsoleButtonTests(unittest.TestCase):
+    """The Agent page declares its own button for the Console's button row."""
+
+    def test_activation_registers_the_button_with_its_icon_and_page(self):
+        viewer = SimpleNamespace(add_console_button=mock.Mock(), open_agent_ui=mock.Mock())
+        agent.activate(viewer)
+        viewer.add_console_button.assert_called_once()
+        arguments = viewer.add_console_button.call_args.kwargs
+        self.assertEqual((arguments["name"], arguments["label"], arguments["icon"]), ("agentBtn", "Agent", "bot"))
+        self.assertEqual(arguments["tooltip"], "Open AI Agent Chat Console in browser")
+        self.assertIs(arguments["callback"], viewer.open_agent_ui)
+
+    def test_a_viewer_with_no_console_button_registration_is_left_alone(self):
+        agent.activate(SimpleNamespace(open_agent_ui=mock.Mock()))
+
+    def test_the_backend_no_longer_reaches_for_the_sidebar(self):
+        self.assertNotIn("add_sidebar_button", (ROOT / "src" / "web_ui" / "agent_backend.py").read_text(encoding="utf-8"))
+
+
 class ModelCardTests(unittest.TestCase):
     """model_card.json holds the user's cards and API keys; no save may wipe them.
 

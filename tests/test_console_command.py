@@ -48,11 +48,6 @@ class RunTests(unittest.TestCase):
         self.assertIn("log file", failed.call_args.args[1])
         self.assertIn("shows none", printed)
 
-    def test_a_viewer_started_with_console_says_its_output_is_in_the_terminal(self):
-        succeeded, failed, _ = run_command(console_command, viewer("not_kept"), [])
-        succeeded.assert_not_called()
-        self.assertIn("terminal it was started from", failed.call_args.args[1])
-
     def test_a_viewer_without_the_window_at_all_is_refused_plainly(self):
         succeeded, failed, _ = run_command(console_command, SimpleNamespace(console_text=SimpleNamespace(text="")), [])
         succeeded.assert_not_called()

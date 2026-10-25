@@ -2,11 +2,12 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Console window (desktop.Console_View) and its entry points: lines are classified as errors, warnings or output from what they say, an indented line under a problem shares its colour, the window shows the capture's lines with their times, feeds live while shown and not while hidden, searches, filters, follows, clears, copies and saves, replaces a progress line in place, shows its footer, takes the theme's colours in light and dark and again when the theme changes; the Viewer's Console button, at the foot of its window, opens it, and says why when nothing is kept."""
+"""The Console window (desktop.Console_View) and its entry points: lines are classified as errors, warnings or output from what they say, an indented line under a problem shares its colour, the window shows the capture's lines with their times, feeds live while shown and not while hidden, searches, filters, follows the output with no control, clears, copies and saves, replaces a progress line in place, shows its footer, takes the theme's colours in light and dark and again when the theme changes; its second header row shows the buttons that pages and commands registered (the Viewer's add_console_button); the Viewer's Console button, at the foot of its window, opens it, and a Viewer started with --console gets a Console that has the buttons and says where the output is."""
 
 from __future__ import annotations
 
 import contextlib
+import inspect
 import json
 import os
 from pathlib import Path
@@ -26,17 +27,21 @@ if str(SRC) not in sys.path:
 from PySide6.QtCore import QEvent, Qt  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication, QPushButton, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget  # noqa: E402
 
 from desktop import Console_View, Desktop_App  # noqa: E402
 from desktop.Console_View import (  # noqa: E402
-    ERROR, INFO, WARNING, Classifier, ConsoleWindow, classify, dark_tokens, show_console,
+    ERROR, INFO, WARNING, ButtonRegistry, Classifier, ConsoleWindow, classify, dark_tokens, show_console,
 )
 from desktop.Studio_Theme import TOKENS, apply_studio_theme, set_theme_color, theme_color  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 from utilities import Console_Capture  # noqa: E402
 from utilities import Terminal_Colors as TC  # noqa: E402
 from utilities.Console_Capture import Recorder  # noqa: E402
+
+
+# The capture a WindowCase gives its windows, unless a test names another (None: a program that keeps no output).
+RECORDER = object()
 
 
 def flush(app, cycles=6):
@@ -188,8 +193,8 @@ class WindowCase(unittest.TestCase):
         patch.start()
         self.addCleanup(patch.stop)
 
-    def window(self, **options):
-        window = ConsoleWindow(self.recorder, **options)
+    def window(self, capture=RECORDER, **options):
+        window = ConsoleWindow(self.recorder if capture is RECORDER else capture, **options)
         self.addCleanup(window.deleteLater)
         self.addCleanup(window.close)
         window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
@@ -1275,6 +1280,436 @@ class ThemeTests(WindowCase):
             self.assertGreaterEqual((lighter + 0.05) / (darker + 0.05), 4.5, name)
 
 
+def icon_colour(button):
+    """The colour a button's icon is drawn in: the commonest of its (nearly) opaque pixels."""
+    image = button.icon().pixmap(16, 16).toImage()
+    counts = {}
+    for y in range(image.height()):
+        for x in range(image.width()):
+            colour = image.pixelColor(x, y)
+            if colour.alpha() > 200:
+                counts[colour.name()] = counts.get(colour.name(), 0) + 1
+    return max(counts, key=counts.get) if counts else None
+
+
+class ButtonRegistryTests(unittest.TestCase):
+    """What pages and commands register for the Console's second header row."""
+
+    def test_buttons_come_in_the_order_they_were_registered(self):
+        registry = ButtonRegistry()
+        self.assertEqual(registry.buttons(), [])
+        for name in ("b", "a", "c"):
+            self.assertTrue(registry.add(name, name.upper(), lambda: None))
+        self.assertEqual([spec.name for spec in registry.buttons()], ["b", "a", "c"])
+
+    def test_a_button_is_its_name_label_function_tooltip_and_icon(self):
+        registry = ButtonRegistry()
+
+        def callback():
+            return "clicked"
+
+        registry.add("metaDataBtn", "Meta Data", callback, "Open the spreadsheet", "chart-column")
+        registry.add("plain", "Plain", callback)
+        first, second = registry.buttons()
+        self.assertEqual((first.name, first.label, first.tooltip, first.icon), ("metaDataBtn", "Meta Data", "Open the spreadsheet", "chart-column"))
+        self.assertIs(first.callback, callback)
+        self.assertEqual((second.tooltip, second.icon), (None, None))
+
+    def test_a_name_that_is_registered_already_changes_nothing(self):
+        registry = ButtonRegistry()
+        heard = []
+        registry.subscribe(heard.append)
+        first = lambda: "first"  # noqa: E731
+        self.assertTrue(registry.add("x", "First", first, "tip", "bot"))
+        self.assertFalse(registry.add("x", "Second", lambda: "second", "other tip", "dna"))
+        self.assertEqual(len(registry.buttons()), 1)
+        spec = registry.buttons()[0]
+        self.assertEqual((spec.label, spec.tooltip, spec.icon), ("First", "tip", "bot"))
+        self.assertIs(spec.callback, first)
+        self.assertEqual(len(heard), 1)  # nobody heard of the second call
+
+    def test_a_listener_hears_each_new_button_while_it_is_subscribed(self):
+        registry = ButtonRegistry()
+        heard = []
+        registry.subscribe(heard.append)
+        registry.subscribe(heard.append)  # once, however often it asks
+        registry.add("a", "A", lambda: None)
+        registry.unsubscribe(heard.append)
+        registry.add("b", "B", lambda: None)
+        registry.unsubscribe(heard.append)  # not subscribed: nothing to do
+        self.assertEqual([spec.name for spec in heard], ["a"])
+
+    def test_a_listener_whose_window_is_gone_is_dropped_and_the_registration_goes_on(self):
+        registry = ButtonRegistry()
+        heard = []
+
+        def gone(_spec):
+            raise RuntimeError("Internal C++ object (ConsoleWindow) already deleted.")
+
+        registry.subscribe(gone)
+        registry.subscribe(heard.append)
+        self.assertTrue(registry.add("a", "A", lambda: None))
+        self.assertTrue(registry.add("b", "B", lambda: None))
+        self.assertEqual([spec.name for spec in heard], ["a", "b"])
+        self.assertEqual(registry._listeners, [heard.append])
+
+
+THREE_BUTTONS = (("metaDataBtn", "Meta Data", "chart-column"), ("agentBtn", "Agent", "bot"),
+                 ("fold_view_btn", "Fold View", "dna"))
+
+
+class ButtonRowTests(WindowCase):
+    """The Console's second header row: the registered buttons, under the search row and above the output."""
+
+    def setUp(self):
+        super().setUp()
+        self.registry = ButtonRegistry()
+        self.clicked = []
+
+    def tearDown(self):
+        Console_View._window = None
+
+    def register(self, buttons=THREE_BUTTONS):
+        for name, label, icon in buttons:
+            def callback(name=name):
+                self.clicked.append(name)
+            self.registry.add(name, label, callback, f"Open {label}", icon)
+
+    def row_boxes(self, window):
+        return [QRect_of(button, window) for button in window.button_controls()]
+
+    def text_top(self, window):
+        return window.text.mapTo(window, window.text.rect().topLeft()).y()
+
+    def test_the_row_is_not_shown_while_nothing_is_registered_and_leaves_no_gap(self):
+        window = self.window(buttons=self.registry)
+        self.assertEqual(window.button_controls(), [])
+        self.assertTrue(window.button_row.isHidden())
+        without_row = self.text_top(window)
+        header_bottom = max(QRect_of(control, window).bottom() for control in window.header_controls())
+        self.assertEqual(without_row - header_bottom - 1, window.layout().spacing())  # the header, one gap, the output
+        self.register()
+        self.drain(window)
+        self.assertTrue(window.button_row.isVisibleTo(window))
+        # The output moves down by the row and one gap: nothing else changes.
+        self.assertEqual(self.text_top(window) - without_row, window.button_row.height() + window.layout().spacing())
+
+    def test_the_row_sits_under_the_search_row_and_above_the_output(self):
+        self.register()
+        window = self.window(buttons=self.registry)
+        header_bottom = max(QRect_of(control, window).bottom() for control in window.header_controls())
+        boxes = self.row_boxes(window)
+        self.assertEqual(len(boxes), 3)
+        for box in boxes:
+            self.assertGreater(box.top(), header_bottom)
+            self.assertLess(box.bottom(), self.text_top(window))
+            self.assertGreaterEqual(box.left(), 12)
+        self.assertEqual(boxes[0].left(), QRect_of(window.search, window).left())  # from the same left edge
+        layout = window.layout()
+        self.assertEqual([layout.itemAt(index).widget() is window.button_row for index in range(layout.count())],
+                         [False, True, False, False])  # header, row, output, footer
+
+    def test_a_button_registered_before_the_window_opens_is_there_when_it_opens(self):
+        self.register()
+        window = self.window(buttons=self.registry)
+        buttons = window.button_controls()
+        self.assertEqual([button.text() for button in buttons], ["Meta Data", "Agent", "Fold View"])
+        self.assertEqual([button.objectName() for button in buttons], [name for name, _, _ in THREE_BUTTONS])
+        self.assertEqual([button.toolTip() for button in buttons], ["Open Meta Data", "Open Agent", "Open Fold View"])
+        self.assertEqual([button.accessibleName() for button in buttons], ["Meta Data", "Agent", "Fold View"])
+        self.assertEqual([button.accessibleDescription() for button in buttons], ["Open Meta Data", "Open Agent", "Open Fold View"])
+        for button in buttons:
+            self.assertFalse(button.icon().isNull(), button.text())
+            self.assertTrue(button.isVisibleTo(window))
+            self.assertTrue(button.isEnabled())
+
+    def test_a_button_registered_while_the_window_is_open_appears_at_once(self):
+        window = self.window(buttons=self.registry)
+        self.assertTrue(window.button_row.isHidden())
+        self.registry.add("agentBtn", "Agent", lambda: None, "Open Agent", "bot")
+        self.assertEqual([button.text() for button in window.button_controls()], ["Agent"])  # no event loop in between
+        self.assertTrue(window.button_row.isVisibleTo(window))
+        self.registry.add("metaDataBtn", "Meta Data", lambda: None, "Open Meta Data", "chart-column")
+        self.assertEqual([button.text() for button in window.button_controls()], ["Agent", "Meta Data"])
+        flush(self.app, 2)
+        boxes = self.row_boxes(window)
+        self.assertGreater(boxes[1].left(), boxes[0].right())
+
+    def test_a_button_registered_from_another_thread_appears_in_the_window(self):
+        import threading
+
+        window = self.window(buttons=self.registry)
+        worker = threading.Thread(target=lambda: self.registry.add("agentBtn", "Agent", lambda: None, None, "bot"))
+        worker.start()
+        worker.join()
+        self.assertTrue(wait_for(self.app, lambda: len(window.button_controls()) == 1))
+
+    def test_buttons_registered_while_the_window_is_hidden_are_there_when_it_is_shown_again(self):
+        self.register(THREE_BUTTONS[:1])
+        window = self.window(buttons=self.registry)
+        window.hide()
+        self.assertEqual(self.registry._listeners, [])  # a hidden window listens to nothing
+        self.registry.add("agentBtn", "Agent", lambda: None, "Open Agent", "bot")
+        self.assertEqual(len(window.button_controls()), 1)
+        window.show()
+        self.assertEqual([button.text() for button in window.button_controls()], ["Meta Data", "Agent"])
+        self.assertTrue(window.button_row.isVisibleTo(window))
+
+    def test_a_click_calls_the_function_with_no_argument(self):
+        self.register()
+        window = self.window(buttons=self.registry)
+        for button in window.button_controls():
+            button.click()
+        self.assertEqual(self.clicked, [name for name, _, _ in THREE_BUTTONS])
+
+    def test_a_name_registered_twice_gives_one_button(self):
+        self.register()
+        window = self.window(buttons=self.registry)
+        self.register()
+        self.registry.add("agentBtn", "Another label", lambda: None, None, "dna")
+        self.assertEqual([button.text() for button in window.button_controls()], ["Meta Data", "Agent", "Fold View"])
+        self.assertEqual(len(window.findChildren(QPushButton, "agentBtn")), 1)
+
+    def test_a_button_without_an_icon_or_tooltip_is_a_label_alone(self):
+        self.registry.add("plain", "Plain", lambda: None)
+        window = self.window(buttons=self.registry)
+        button, = window.button_controls()
+        self.assertEqual(button.text(), "Plain")
+        self.assertTrue(button.icon().isNull())
+        self.assertEqual(button.toolTip(), "")
+        self.assertEqual(button.accessibleName(), "Plain")
+        self.assertEqual(Desktop_App.clipped_button_text(button), 0)
+
+    def test_the_buttons_have_the_consoles_button_style_and_show_their_whole_label(self):
+        self.register()
+        window = self.window(buttons=self.registry)
+        for button in window.button_controls():
+            self.assertEqual(button.property("role"), "compact")  # the outline button the header's others are
+            self.assertEqual(button.height(), window.copy_button.height())
+            self.assertEqual(Desktop_App.clipped_button_text(button), 0, button.text())
+            self.assertEqual(button.width(), button.maximumWidth())  # as wide as its icon and label ask
+            self.assertEqual(button.iconSize(), window.copy_button.iconSize())
+        widths = [button.width() for button in window.button_controls()]
+        self.assertGreater(widths[0], widths[1])  # "Meta Data" asks for more than "Agent": each has its own
+        self.assertEqual(window.copy_button.property("role"), "icon")
+
+    def test_the_icons_take_the_windows_colours_in_light_and_dark_like_its_other_icons(self):
+        self.register()
+        light = self.window(buttons=self.registry)
+        for button in light.button_controls():
+            self.assertEqual(icon_colour(button), icon_colour(light.copy_button))
+        self.assertEqual(icon_colour(light.copy_button), TOKENS["text_subtle"].lower())
+        dark = self.window(buttons=self.registry, dark=True)
+        muted = dark_tokens()["text_muted"].lower()
+        self.assertEqual(icon_colour(dark.copy_button), muted)
+        for button in dark.button_controls():
+            self.assertEqual(icon_colour(button), muted)
+        self.assertNotEqual(muted, TOKENS["text_subtle"].lower())
+        # One registered while the dark window is open is drawn in them too.
+        self.registry.add("later", "Later", lambda: None, None, "square-terminal")
+        self.assertEqual(icon_colour(dark.button_controls()[-1]), muted)
+        # And the labels and the buttons' frames are the dark window's.
+        self.assertIn(dark_tokens()["surface"], dark.styleSheet())
+
+    def test_the_dark_window_measures_its_buttons_in_its_own_stylesheet(self):
+        self.register()
+        dark = self.window(buttons=self.registry, dark=True)
+        for button in dark.button_controls():
+            self.assertEqual(Desktop_App.clipped_button_text(button), 0, button.text())
+
+    def test_the_window_cannot_be_narrower_than_the_wider_of_the_two_rows(self):
+        header_only = self.window().minimumWidth()
+        self.register()
+        window = self.window(buttons=self.registry)
+        # Three short labels fit under the header's own minimum, which stays what it was.
+        row = sum(button.width() for button in window.button_controls()) + 6 * 2 + 24
+        self.assertLess(row, header_only)
+        self.assertEqual(window.minimumWidth(), header_only)
+        # A row wider than the header sets the minimum, and the window grows to it at once if it is narrower.
+        window.resize(header_only, 420)
+        flush(self.app, 2)
+        for number in range(6):
+            self.registry.add(f"long{number}", f"A button with quite a long label {number}", lambda: None, None, "bot")
+        flush(self.app, 4)
+        wide_row = sum(button.width() for button in window.button_controls()) + 6 * (len(window.button_controls()) - 1) + 24
+        self.assertGreater(wide_row, header_only)
+        self.assertEqual(window.minimumWidth(), wide_row)
+        self.assertGreaterEqual(window.width(), wide_row)
+        window.resize(200, 420)
+        flush(self.app, 4)
+        self.assertEqual(window.width(), wide_row)
+
+    def assert_one_row_of_buttons(self, window):
+        boxes = self.row_boxes(window)
+        previous = None
+        for button, box in zip(window.button_controls(), boxes):
+            with self.subTest(button=button.text()):
+                self.assertTrue(button.isVisibleTo(window))
+                self.assertGreaterEqual(box.left(), 12)
+                self.assertLessEqual(box.right(), window.width() - 12)
+                if previous is not None:
+                    self.assertGreater(box.left(), previous.right())
+                    self.assertEqual(box.center().y(), previous.center().y())  # one row, never wrapped
+                previous = box
+
+    def test_both_rows_stay_on_one_line_each_at_the_minimum_width_in_each_language(self):
+        from PySide6.QtCore import QCoreApplication
+
+        from desktop import Desktop_App
+
+        minimums = {}
+        for language in (None, "zh_CN", Desktop_App.PSEUDO_LANGUAGE):
+            with self.subTest(language=language), HeaderTests.in_language(self, language):
+                registry = ButtonRegistry()
+                for name, label, icon in THREE_BUTTONS:
+                    registry.add(name, QCoreApplication.translate("Viewer", label), lambda: None, None, icon)
+                window = self.window(buttons=registry)
+                minimums[language] = window.minimumWidth()
+                window.resize(window.minimumWidth(), 420)
+                flush(self.app, 4)
+                self.assertEqual(window.width(), window.minimumWidth())
+                HeaderTests.assertOneRow(self, window)
+                self.assert_one_row_of_buttons(window)
+                window.resize(1400, 420)
+                flush(self.app, 4)
+                HeaderTests.assertOneRow(self, window)
+                self.assert_one_row_of_buttons(window)
+        self.assertEqual(len(set(minimums.values())), 3, minimums)
+
+    def test_a_long_translation_of_the_buttons_widens_the_window_instead_of_wrapping(self):
+        from PySide6.QtCore import QCoreApplication
+
+        with HeaderTests.in_language(self, "pseudo"):
+            registry = ButtonRegistry()
+            for name, label, icon in THREE_BUTTONS:
+                registry.add(name, QCoreApplication.translate("Viewer", label) * 3, lambda: None, None, icon)
+            window = self.window(buttons=registry)
+            window.resize(200, 420)
+            flush(self.app, 4)
+            self.assertEqual(window.width(), window.minimumWidth())
+            self.assert_one_row_of_buttons(window)
+            for button in window.button_controls():
+                self.assertEqual(Desktop_App.clipped_button_text(button), 0)
+            header_right = max(QRect_of(control, window).right() for control in window.header_controls())
+            self.assertLessEqual(header_right, window.width() - 12)
+
+    def test_the_second_row_does_not_change_the_headers_controls(self):
+        self.register()
+        with_row = self.window(buttons=self.registry)
+        without = self.window()
+        self.assertEqual(len(with_row.header_controls()), len(without.header_controls()))
+        for control in with_row.header_controls():
+            self.assertNotIn(control, with_row.button_controls())
+        header = with_row.layout().itemAt(0).layout()
+        self.assertEqual([header.itemAt(index).widget() for index in range(header.count())], with_row.header_controls())
+
+    def test_show_console_keeps_one_window_for_one_registry_and_a_new_one_for_another(self):
+        with mock.patch.object(Console_Capture, "_capture", self.recorder):
+            first = show_console(None, buttons=self.registry)
+            again = show_console(None, buttons=self.registry)
+            nothing_given = show_console(None)  # no registry named: the window as it is
+            other = ButtonRegistry()
+            second = show_console(None, buttons=other)
+        self.addCleanup(first.deleteLater)
+        self.addCleanup(second.deleteLater)
+        self.assertIs(first, again)
+        self.assertIs(first, nothing_given)
+        self.assertIsNot(first, second)
+        self.assertIs(second.buttons, other)
+        self.assertIs(first.buttons, self.registry)
+        first.close()
+        second.close()
+
+
+class NotKeptTests(WindowCase):
+    """A program started with --console keeps no output: the Console opens all the same, for the buttons."""
+
+    def tearDown(self):
+        Console_View._window = None
+
+    def setUp(self):
+        super().setUp()
+        self.registry = ButtonRegistry()
+        self.clicked = []
+        for name, label, icon in THREE_BUTTONS:
+            self.registry.add(name, label, lambda name=name: self.clicked.append(name), f"Open {label}", icon)
+
+    def test_it_says_where_the_output_is_in_place_of_the_output(self):
+        window = self.window(capture=None, buttons=self.registry)
+        self.assertFalse(window.kept)
+        self.assertEqual(window.text.toPlainText(), Console_View.not_available_text())
+        self.assertIn("--console", window.text.toPlainText())
+        # Readable whole at the window's width: it wraps, and nothing is cut off at the side.
+        self.assertEqual(window.text.lineWrapMode(), window.text.LineWrapMode.WidgetWidth)
+        self.assertFalse(window.text.horizontalScrollBar().isVisible())
+
+    def test_the_buttons_work_and_what_only_works_on_output_is_off(self):
+        window = self.window(capture=None, buttons=self.registry)
+        self.assertEqual([button.text() for button in window.button_controls()], ["Meta Data", "Agent", "Fold View"])
+        for button in window.button_controls():
+            self.assertTrue(button.isEnabled(), button.text())
+            button.click()
+        self.assertEqual(self.clicked, [name for name, _, _ in THREE_BUTTONS])
+        for control in window.header_controls():
+            self.assertFalse(control.isEnabled(), control.accessibleName() or type(control).__name__)
+        self.assertFalse(window.text.times_visible())
+        self.assertFalse(window.text._gutter.isVisible())
+        self.assertEqual(window.count_label.text(), "")
+        self.assertEqual(window.log_label.text(), "")
+
+    def test_showing_it_changes_no_saved_setting(self):
+        # The time switch's choice is for the Consoles that have output.
+        self.settings_path.write_text('{"CONSOLE_SHOW_TIMES": true}', encoding="utf-8")
+        self.window(capture=None, buttons=self.registry)
+        self.assertEqual(self.settings_path.read_text(encoding="utf-8"), '{"CONSOLE_SHOW_TIMES": true}')
+
+    def test_it_shows_and_hides_again_and_takes_a_late_button(self):
+        window = self.window(capture=None, buttons=self.registry)
+        window.hide()
+        window.show()
+        flush(self.app, 2)
+        self.registry.add("later", "Later", lambda: None, None, "bot")
+        self.assertEqual(len(window.button_controls()), 4)
+        self.assertEqual(window.text.toPlainText(), Console_View.not_available_text())
+        # Nothing on the keyboard or in the dark does anything to the missing output.
+        window.focus_search()
+        self.assertFalse(window.find(True))
+        self.assertEqual(window.shown_text(), Console_View.not_available_text())
+
+    def test_the_dark_one_says_it_too_and_it_is_one_row_at_the_least_width(self):
+        window = self.window(capture=None, buttons=self.registry, dark=True)
+        window.resize(100, 420)
+        flush(self.app, 4)
+        self.assertEqual(window.width(), window.minimumWidth())
+        self.assertEqual(window.text.toPlainText(), Console_View.not_available_text())
+        HeaderTests.assertOneRow(self, window)
+
+    def test_show_console_opens_it_for_a_program_with_no_capture(self):
+        with mock.patch.object(Console_Capture, "_capture", None), mock.patch.object(QMessageBox, "information") as information:
+            window = show_console(None, buttons=self.registry)
+            again = show_console(None, buttons=self.registry)
+        self.addCleanup(window.deleteLater)
+        information.assert_not_called()  # a window, not a message box
+        self.assertIsNotNone(window)
+        self.assertIs(window, again)
+        self.assertFalse(window.kept)
+        self.assertEqual(len(window.button_controls()), 3)
+        window.close()
+
+    def test_a_window_with_output_and_one_without_are_not_mixed_up(self):
+        with mock.patch.object(Console_Capture, "_capture", None):
+            without = show_console(None, buttons=self.registry)
+        with mock.patch.object(Console_Capture, "_capture", self.recorder):
+            with_output = show_console(None, buttons=self.registry)
+        self.addCleanup(without.deleteLater)
+        self.addCleanup(with_output.deleteLater)
+        self.assertIsNot(without, with_output)
+        self.assertTrue(with_output.kept)
+        self.assertNotEqual(with_output.text.toPlainText(), Console_View.not_available_text())
+        with_output.close()
+        without.close()
+
+
 class EntryPointTests(WindowCase):
     def tearDown(self):
         Console_View._window = None
@@ -1288,14 +1723,16 @@ class EntryPointTests(WindowCase):
         self.assertTrue(first.isVisible() or first.testAttribute(Qt.WidgetAttribute.WA_WState_Visible))
         first.close()
 
-    def test_a_program_that_keeps_no_output_says_so_instead_of_opening_a_window(self):
+    def test_a_program_that_keeps_no_output_opens_a_window_that_says_so_in_a_message_box_no_longer(self):
         with mock.patch.object(Console_Capture, "_capture", None), mock.patch.object(
             Console_View.QMessageBox, "information"
         ) as information:
-            self.assertIsNone(show_console(None))
-        information.assert_called_once()
-        self.assertIn("--console", information.call_args.args[2])
+            window = show_console(None)
+        self.addCleanup(window.deleteLater)
+        information.assert_not_called()
+        self.assertIn("--console", window.text.toPlainText())
         self.assertFalse(Console_View.console_available())
+        window.close()
 
     def test_the_window_is_titled_after_the_window_it_belongs_to(self):
         parent = QWidget()
@@ -1394,7 +1831,7 @@ class ViewerEntryPointTests(WindowCase):
                  and getattr(node.func, "id", None) == "ConsoleButton"]
         self.assertEqual(len(calls), 1)
         opened = [keyword.value for keyword in calls[0].keywords if keyword.arg == "opened"]
-        self.assertEqual([ast.unparse(value) for value in opened], ["self._console_button_clicked"])
+        self.assertEqual([ast.unparse(value) for value in opened], ["self.open_console_window"])
 
     def test_opening_it_says_what_happened(self):
         viewer = self.viewer
@@ -1402,18 +1839,24 @@ class ViewerEntryPointTests(WindowCase):
             result = viewer.open_console_window()
             self.addCleanup(lambda: Console_View._window and Console_View._window.deleteLater())
         self.assertEqual(result, "opened")
+        # Started with --console, nothing is kept, and the Console opens all the same: for its buttons.
         with mock.patch.object(Console_Capture, "_capture", None):
-            self.assertEqual(viewer.open_console_window(), "not_kept")
+            self.assertEqual(viewer.open_console_window(), "opened")
         viewer.headless = True
         self.assertEqual(viewer.open_console_window(), "no_window")
 
-    def test_the_button_explains_when_nothing_is_kept(self):
-        with mock.patch.object(Console_Capture, "_capture", None), mock.patch.object(
-            self.module.QtWidgets.QMessageBox, "information"
-        ) as information:
-            self.viewer.console_button.click()
-        information.assert_called_once()
-        self.assertIn("--console", information.call_args.args[2])
+    def test_a_viewer_started_with_console_opens_a_console_with_the_buttons_and_no_message_box(self):
+        viewer = self.viewer
+        viewer.add_console_button("metaDataBtn", "Meta Data", lambda: None, "Open the sheet", "chart-column")
+        with mock.patch.object(Console_Capture, "_capture", None), mock.patch.object(QMessageBox, "information") as information:
+            viewer.console_button.click()
+        information.assert_not_called()
+        window = Console_View._window
+        self.assertIsNotNone(window)
+        self.addCleanup(window.deleteLater)
+        self.assertFalse(window.kept)
+        self.assertEqual(window.text.toPlainText(), Console_View.not_available_text())
+        self.assertEqual([button.text() for button in window.button_controls()], ["Meta Data"])
 
     def test_the_button_opens_the_window_when_output_is_kept(self):
         with mock.patch.object(Console_Capture, "_capture", self.recorder):
@@ -1421,16 +1864,136 @@ class ViewerEntryPointTests(WindowCase):
         self.assertIsNotNone(Console_View._window)
         self.addCleanup(Console_View._window.deleteLater)
 
+    def test_the_window_gets_the_viewers_registry_and_a_button_added_later_appears_in_it(self):
+        viewer = self.viewer
+        viewer.add_console_button("agentBtn", "Agent", lambda: None, "Open the agent", "bot")
+        with mock.patch.object(Console_Capture, "_capture", self.recorder):
+            viewer.open_console_window()
+        window = Console_View._window
+        self.addCleanup(window.deleteLater)
+        self.assertIs(window.buttons, viewer.console_buttons)
+        self.assertEqual([button.text() for button in window.button_controls()], ["Agent"])
+        viewer.add_console_button("metaDataBtn", "Meta Data", lambda: None, "Open the sheet", "chart-column")
+        self.assertEqual([button.text() for button in window.button_controls()], ["Agent", "Meta Data"])
+        self.assertFalse(viewer.add_console_button("agentBtn", "Agent", lambda: None))  # known: nothing changes
+        self.assertEqual(len(window.button_controls()), 2)
+
     def test_a_viewer_with_no_window_opens_nothing_and_says_nothing(self):
         # As the sidebar button was: a headless Viewer, or a hidden one not shown, has no window to open or to
         # explain in (the console command refuses with the reason).
         self.viewer.headless = True
+        self.viewer.add_console_button("agentBtn", "Agent", lambda: None, "Open the agent", "bot")  # registering is fine
         with mock.patch.object(Console_Capture, "_capture", self.recorder), mock.patch.object(
-            self.module.QtWidgets.QMessageBox, "information"
+            QMessageBox, "information"
         ) as information:
             self.viewer.console_button.click()
         information.assert_not_called()
         self.assertIsNone(Console_View._window)
+        self.assertEqual(len(self.viewer.console_buttons.buttons()), 1)
+
+    def activate_the_pages(self, viewer):
+        import contextlib
+        import io
+
+        from web_ui import agent_backend, esmfold_backend, meta_backend
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            for plugin in (agent_backend, esmfold_backend, meta_backend):
+                plugin.activate(viewer)
+
+    def test_the_pages_register_their_own_buttons_and_the_core_names_none(self):
+        viewer = self.viewer
+        viewer.open_metadata_ui, viewer.open_agent_ui = mock.Mock(), mock.Mock()
+        self.activate_the_pages(viewer)
+        specs = viewer.console_buttons.buttons()
+        self.assertEqual([(spec.name, spec.label, spec.icon) for spec in specs],
+                         [("agentBtn", "Agent", "bot"), ("fold_view_btn", "Fold View", "dna"),
+                          ("metaDataBtn", "Meta Data", "chart-column")])
+        for spec in specs:
+            self.assertTrue(spec.tooltip, spec.name)
+            self.assertTrue(spec.label.isascii(), spec.label)  # no emoji: the icon is the picture
+        self.assertEqual(viewer.sidebar_buttons_to_persist, ["meta"])
+        self.assertFalse(hasattr(viewer, "sidebar_buttons"))  # nothing went into the sidebar's code
+        # No command or page is named by the Console window or the Viewer's registration.
+        for name in ("meta", "agent", "esmfold", "Fold View", "Meta Data"):
+            self.assertNotIn(name, inspect.getsource(Console_View.ButtonRegistry))
+            self.assertNotIn(name, inspect.getsource(Console_View.ConsoleWindow._sync_buttons))
+            self.assertNotIn(name, inspect.getsource(self.module.MainViewer.add_console_button))
+            self.assertNotIn(name, inspect.getsource(self.module.MainViewer.console_button_registry))
+
+    def test_repeating_a_pages_command_adds_nothing_and_the_console_shows_each_button_once(self):
+        viewer = self.viewer
+        self.activate_the_pages(viewer)
+        before = [spec.name for spec in viewer.console_buttons.buttons()]
+        self.activate_the_pages(viewer)
+        self.assertEqual([spec.name for spec in viewer.console_buttons.buttons()], before)
+        self.assertEqual(viewer.sidebar_buttons_to_persist, ["meta"])
+        with mock.patch.object(Console_Capture, "_capture", self.recorder):
+            viewer.open_console_window()
+        window = Console_View._window
+        self.addCleanup(window.deleteLater)
+        self.assertEqual([button.text() for button in window.button_controls()], ["Agent", "Fold View", "Meta Data"])
+        self.activate_the_pages(viewer)
+        self.assertEqual(len(window.button_controls()), 3)
+
+    def test_each_button_opens_its_page(self):
+        from web_ui import esmfold_backend
+
+        viewer = self.viewer
+        viewer.open_metadata_ui, viewer.open_agent_ui = mock.Mock(), mock.Mock()
+        self.activate_the_pages(viewer)
+        with mock.patch.object(Console_Capture, "_capture", self.recorder):
+            viewer.open_console_window()
+        window = Console_View._window
+        self.addCleanup(window.deleteLater)
+        buttons = {button.objectName(): button for button in window.button_controls()}
+        with mock.patch.object(esmfold_backend, "open_esmfold_ui") as open_fold:
+            buttons["metaDataBtn"].click()
+            buttons["agentBtn"].click()
+            buttons["fold_view_btn"].click()
+        viewer.open_metadata_ui.assert_called_once_with()
+        viewer.open_agent_ui.assert_called_once_with()
+        open_fold.assert_called_once_with(viewer)
+
+    def test_a_persisted_button_comes_back_as_a_console_button_when_a_session_loads(self):
+        from commands import meta as meta_command
+        from tests.command_fixtures import run_command
+
+        viewer = self.viewer
+        viewer.sidebar_buttons_to_persist = ["meta"]  # what a loaded session holds: the attribute keeps its name
+        replayed = []
+
+        def process_command(command, **options):
+            name, *arguments = command.split()
+            replayed.append((command, options))
+            run_command({"meta": meta_command}[name], viewer, arguments)
+
+        viewer.process_command = process_command
+        viewer._register_persisted_console_buttons()
+        self.assertEqual(replayed, [("meta --register-only", {"record_history": False, "silent": True})])
+        self.assertEqual([(spec.name, spec.label) for spec in viewer.console_buttons.buttons()], [("metaDataBtn", "Meta Data")])
+        self.assertEqual(viewer.sidebar_buttons_to_persist, ["meta"])
+        self.assertFalse(hasattr(viewer, "sidebar_buttons"))
+
+    def test_a_session_with_nothing_persisted_registers_nothing(self):
+        viewer = self.viewer
+        viewer.process_command = mock.Mock()
+        viewer.sidebar_buttons_to_persist = []
+        viewer._register_persisted_console_buttons()
+        del viewer.sidebar_buttons_to_persist  # an older session file without the attribute
+        viewer._register_persisted_console_buttons()
+        viewer.process_command.assert_not_called()
+
+    def test_a_viewer_without_the_registration_method_is_skipped_by_the_pages(self):
+        # The VR viewer has no Console window: a page's activation finds no add_console_button and does nothing.
+        from types import SimpleNamespace
+
+        from web_ui import agent_backend, esmfold_backend, meta_backend
+
+        bare = SimpleNamespace(sidebar_buttons_to_persist=[], open_metadata_ui=lambda: None)
+        for plugin in (agent_backend, esmfold_backend, meta_backend):
+            plugin.activate(bare)
+        self.assertEqual(bare.sidebar_buttons_to_persist, [])
 
 
 if __name__ == "__main__":

@@ -43,9 +43,20 @@ Show details) and keep it in temp/logs.
 * The header is one row that never wraps: the window cannot be made narrower
   than that row needs, in the language and font it is in, and the search field
   is the one control that gives way (down to SEARCH_MINIMUM_WIDTH).
+* A second row, under the search row, holds the buttons that pages and commands
+  registered (ButtonRegistry; the Viewer's add_console_button), each with its
+  icon and its label, in the order they were registered. A button registered while
+  the window is open appears at once, and one registered before it opens is there
+  when it does. While none is registered the row is not shown, and leaves no gap.
+  It never wraps either: the window's minimum width is the wider of the two rows.
+  This module names no page or command: it shows what is registered.
 
 A progress bar that rewrites its line with carriage returns is one line that
 changes where it is. The window feeds from the capture only while it is shown.
+
+A program started with --console keeps no output (Console_Capture.current() is None):
+its window opens all the same, for the buttons, with the text that says where the
+output went in place of the output, and what only works on output is off.
 
 show_console opens this process's Console (or brings it forward): the Viewer's
 `console` command and its Console button, at the bottom of the Viewer, call it.
@@ -58,9 +69,10 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
+from typing import Callable, NamedTuple
 
 import shiboken6
-from PySide6.QtCore import QCoreApplication, QEvent, QRect, QSize, Qt, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import (
     QColor,
     QFont,
@@ -90,6 +102,7 @@ from PySide6.QtWidgets import (
 from desktop.Desktop_App import (
     SteadyPopupComboBox,
     ToggleSwitch,
+    fit_buttons_to_text,
     open_in_file_manager,
     qt_monospace_font,
 )
@@ -122,6 +135,8 @@ MATCH_DARK = "#854d0e"
 MAX_MATCHES = 5000
 # The narrowest the search field gets when the window is as narrow as the header allows.
 SEARCH_MINIMUM_WIDTH = 120
+# Between a registered button's label or icon and the button's ends: the "compact" role's 9 px and its border.
+ROW_BUTTON_PADDING = 10
 # Whether the gutter of times shows: kept in app_settings.json, as the other windows keep their theme
 # colour and language. Shown unless the user turned it off.
 SHOW_TIMES_SETTING = "CONSOLE_SHOW_TIMES"
@@ -327,12 +342,73 @@ class ConsoleText(QPlainTextEdit):
         painter.end()
 
 
-class ConsoleWindow(QWidget):
-    """The Console of one process. ``capture`` is its utilities.Console_Capture.Recorder."""
+class ButtonSpec(NamedTuple):
+    """One registered button: its name, its translated label, what a click calls, its tooltip and its icon.
 
-    def __init__(self, capture, parent=None, *, dark=False, title=None):
+    ``icon`` is the name of a bundled Lucide icon (desktop/Studio_Theme.studio_icon); ``tooltip`` and ``icon``
+    may be None.
+    """
+
+    name: str
+    label: str
+    callback: Callable[[], object]
+    tooltip: str | None = None
+    icon: str | None = None
+
+
+class ButtonRegistry:
+    """The buttons registered for the Console's second header row, in the order they were registered.
+
+    The Viewer owns one (add_console_button) and gives it to its Console window, so a page or a command
+    declares its own button and neither this module nor the Viewer names it. A window that is shown hears
+    of each button registered after it opened (subscribe); one that opens later reads them all (buttons).
+    """
+
+    def __init__(self):
+        self._specs = {}
+        self._listeners = []
+
+    def add(self, name, label, callback, tooltip=None, icon=None):
+        """Register a button; True when it is new. A name that is registered already changes nothing."""
+        if name in self._specs:
+            return False
+        spec = self._specs[name] = ButtonSpec(name, label, callback, tooltip, icon)
+        for listener in list(self._listeners):
+            try:
+                listener(spec)
+            except RuntimeError:  # the window that subscribed has been deleted
+                self.unsubscribe(listener)
+        return True
+
+    def buttons(self):
+        """Every registered button's ButtonSpec, in the order registered."""
+        return list(self._specs.values())
+
+    def subscribe(self, listener):
+        """Have ``listener(spec)`` called as each new button is registered."""
+        if listener not in self._listeners:
+            self._listeners.append(listener)
+
+    def unsubscribe(self, listener):
+        if listener in self._listeners:
+            self._listeners.remove(listener)
+
+
+class ConsoleWindow(QWidget):
+    """The Console of one process.
+
+    ``capture`` is its utilities.Console_Capture.Recorder, or None for a program that keeps no output (it was
+    started with --console): the window then says so where the output would be. ``buttons`` is the
+    ButtonRegistry whose buttons the second header row shows (the window has an empty one of its own by default).
+    """
+
+    buttons_registered = Signal()  # a button was registered, from whichever thread: the window adds it in its own
+
+    def __init__(self, capture, parent=None, *, dark=False, title=None, buttons=None):
         super().__init__(parent, Qt.WindowType.Window)
         self.capture = capture
+        self.kept = capture is not None
+        self.buttons = buttons if buttons is not None else ButtonRegistry()
         self.dark = dark
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
         self.setWindowTitle(title or QCoreApplication.translate("Console", "Console"))
@@ -353,6 +429,9 @@ class ConsoleWindow(QWidget):
         self._following = True
         self._setting_scroll = False
         self._match_cursor = None
+        self._action_buttons = {}    # the registered buttons the second row shows, by name
+        self._buttons_listener = lambda _spec: self.buttons_registered.emit()
+        self.buttons_registered.connect(self._sync_buttons)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 12, 12, 12)
@@ -397,10 +476,20 @@ class ConsoleWindow(QWidget):
             bar.setAlignment(bar.itemAt(index).widget(), Qt.AlignmentFlag.AlignVCenter)
         root.addLayout(bar)
 
+        # The second header row, the buttons that were registered: not shown (and no gap left) while there are none.
+        self.button_row = QWidget()
+        row = QHBoxLayout(self.button_row)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(6)
+        row.addStretch(1)
+        self.button_row.setVisible(False)
+        self.button_row.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+        root.addWidget(self.button_row)
+
         self.text = ConsoleText()
         self.text.setReadOnly(True)
         self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
-        self.text.setMaximumBlockCount(int(capture.lines.maxlen or Console_Capture.RING_LINES))
+        self.text.setMaximumBlockCount(int((capture.lines.maxlen if self.kept else None) or Console_Capture.RING_LINES))
         self.text.setFont(qt_monospace_font(self.text.font()))
         self.times_switch.setChecked(saved_show_times())
         self.text.set_times_visible(self.times_switch.isChecked())
@@ -441,6 +530,9 @@ class ConsoleWindow(QWidget):
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._flush)
         self._listener = self._queue_line
+        self._sync_buttons()
+        if not self.kept:
+            self._show_not_kept()
         self._apply_theme()
         self._update_footer()
 
@@ -449,18 +541,53 @@ class ConsoleWindow(QWidget):
         return [self.search, self.previous_button, self.next_button, self.filter_box, self.times_switch,
                 self.copy_button, self.save_button, self.clear_button, self.log_button, self.folder_button]
 
+    def button_controls(self):
+        """The second row's buttons, left to right: the registered ones the row shows."""
+        return [self._action_buttons[spec.name] for spec in self.buttons.buttons() if spec.name in self._action_buttons]
+
+    def _sync_buttons(self):
+        """Add the registered buttons the second row lacks, after the ones it has; the row shows while it has any."""
+        layout = self.button_row.layout()
+        for spec in self.buttons.buttons():
+            if spec.name in self._action_buttons:
+                continue
+            button = self._button(spec.icon, spec.tooltip or "", spec.label)
+            button.setObjectName(spec.name)
+            button.clicked.connect(lambda _checked=False, callback=spec.callback: callback())
+            layout.insertWidget(layout.count() - 1, button)  # before the stretch that keeps them at the start
+            fit_buttons_to_text(button, padding=ROW_BUTTON_PADDING)
+            self._action_buttons[spec.name] = button
+        self.button_row.setVisible(bool(self._action_buttons))
+
+    def _show_not_kept(self):
+        """A program started with --console keeps no output: the text area says where it went, and what works on output is off."""
+        for widget in self.header_controls():
+            widget.setEnabled(False)
+        self.text.set_times_visible(False)
+        self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)
+        self._render_all()
+
     # --- looks
     def _tokens(self):
         return dark_tokens() if self.dark else TOKENS
 
-    def _button(self, icon, tooltip):
-        button = QPushButton()
-        button.setIcon(studio_icon(icon, getattr(self, "_icon_color", None)))
-        button.setIconSize(QSize(16, 16))
-        button.setToolTip(tooltip)
-        button.setAccessibleName(tooltip)
-        button.setProperty("iconName", icon)
-        set_role(button, "icon")
+    def _icon(self, name):
+        """The icon ``name`` in this window's colours: the dark window's muted text, the light theme's own otherwise."""
+        return studio_icon(name, getattr(self, "_icon_color", None), getattr(self, "_icon_disabled", None))
+
+    def _button(self, icon, tooltip, label=None):
+        """A header button: just its icon (role icon), or its icon and ``label`` (role compact)."""
+        button = QPushButton(label) if label else QPushButton()
+        if icon:
+            button.setIcon(self._icon(icon))
+            button.setIconSize(QSize(16, 16))
+            button.setProperty("iconName", icon)
+        if tooltip:
+            button.setToolTip(tooltip)
+        button.setAccessibleName(label or tooltip)
+        if label and tooltip:
+            button.setAccessibleDescription(tooltip)
+        set_role(button, "compact" if label else "icon")
         return button
 
     def _apply_theme(self):
@@ -473,13 +600,15 @@ class ConsoleWindow(QWidget):
 
     def _restyle(self, tokens):
         if self.dark:
-            self._icon_color = tokens["text_muted"]
+            self._icon_color, self._icon_disabled = tokens["text_muted"], tokens["text_disabled"]
             self.setStyleSheet(_dark_stylesheet(tokens))
             self.setPalette(studio_palette(tokens))
             for button in self.findChildren(QPushButton):
                 name = button.property("iconName")
                 if name:
-                    button.setIcon(studio_icon(name, tokens["text_muted"], tokens["text_disabled"]))
+                    button.setIcon(self._icon(name))
+            for button in self._action_buttons.values():
+                fit_buttons_to_text(button, padding=ROW_BUTTON_PADDING)  # measured in the dark stylesheet's fonts
         self.text.setStyleSheet(
             f"QPlainTextEdit {{ background: {tokens['surface']}; color: {tokens['text_soft']};"
             f" border: 1px solid {tokens['border']}; border-radius: {tokens['radius_card']}px;"
@@ -512,8 +641,11 @@ class ConsoleWindow(QWidget):
         super().showEvent(event)
         if not self._live:
             self._live = True
-            self.capture.subscribe(self._listener)
-            self.timer.start(FLUSH_MS)
+            self.buttons.subscribe(self._buttons_listener)
+            if self.kept:
+                self.capture.subscribe(self._listener)
+                self.timer.start(FLUSH_MS)
+        self._sync_buttons()  # what was registered while the window was hidden
         self._render_all()
         self._update_log_buttons()
 
@@ -521,9 +653,11 @@ class ConsoleWindow(QWidget):
         super().hideEvent(event)
         if self._live:
             self._live = False
-            self.capture.unsubscribe(self._listener)
-            self.timer.stop()
-            self._pending = []
+            self.buttons.unsubscribe(self._buttons_listener)
+            if self.kept:
+                self.capture.unsubscribe(self._listener)
+                self.timer.stop()
+                self._pending = []
 
     def _queue_line(self, line):
         self._pending.append(line)  # the reader thread only queues; the timer draws
@@ -537,6 +671,9 @@ class ConsoleWindow(QWidget):
         self._append(batch)
 
     def _render_all(self):
+        if not self.kept:
+            self.text.setPlainText(not_available_text())
+            return
         scroll = self.text.verticalScrollBar()
         following, place = self._following, scroll.value()
         self._pending = []
@@ -643,6 +780,10 @@ class ConsoleWindow(QWidget):
         return fmt
 
     def _update_footer(self):
+        if not self.kept:
+            self.count_label.setText("")
+            self.log_label.setFullText("")
+            return
         shown = 0 if self._empty else self.text.blockCount()
         written = self.capture.total
         text = QCoreApplication.translate("Console", "{shown} lines shown · {written} written since start-up").format(
@@ -831,21 +972,21 @@ def not_available_text() -> str:
     )
 
 
-def show_console(parent=None, capture=None, *, dark=False):
-    """Open this process's Console, or bring it forward; returns the window, or None.
+def show_console(parent=None, capture=None, *, dark=False, buttons=None):
+    """Open this process's Console, or bring it forward; returns the window.
 
-    With no capture to show, a message says so (a program started with --console prints to its terminal).
+    ``buttons`` is the ButtonRegistry of the second header row (the Viewer's). With no capture to show (a
+    program started with --console prints to its terminal) the window says so where the output would be, and
+    still has the buttons.
     """
     global _window
     capture = capture or Console_Capture.current()
-    if capture is None:
-        QMessageBox.information(parent, QCoreApplication.translate("Console", "Console"), not_available_text())
-        return None
-    if _window is None or not shiboken6.isValid(_window) or _window.capture is not capture:
+    if (_window is None or not shiboken6.isValid(_window) or _window.capture is not capture
+            or (buttons is not None and _window.buttons is not buttons)):
         title = QCoreApplication.translate("Console", "Console")
         if parent is not None and parent.window() is not None and parent.window().windowTitle():
             title = QCoreApplication.translate("Console", "{window} – Console").format(window=parent.window().windowTitle())
-        _window = ConsoleWindow(capture, None, dark=dark, title=title)
+        _window = ConsoleWindow(capture, None, dark=dark, title=title, buttons=buttons)
         # Where it opens: beside the window it belongs to, on its screen.
         if parent is not None and parent.window() is not None and parent.window().isVisible():
             frame = parent.window().frameGeometry()

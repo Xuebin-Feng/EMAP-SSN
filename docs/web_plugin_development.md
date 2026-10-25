@@ -42,8 +42,8 @@ def register_backend(registry, viewer):
 
 
 def activate(viewer):
-    viewer.add_sidebar_button(
-        "exampleBtn", "Example", viewer.open_example_ui, "Open Example"
+    viewer.add_console_button(
+        "exampleBtn", "Example", viewer.open_example_ui, "Open Example", icon="sparkles"
     )
 
 
@@ -56,12 +56,25 @@ def register(viewer):
 ```
 
 `register_backend` is called automatically and must be idempotent. It should
-only connect backend capabilities; it must not open a browser, show a sidebar
+only connect backend capabilities; it must not open a browser, add a Console
 button, create output directories, start a model, or perform other activation
 work. `activate` retains command-driven UI behavior and may be called more than
-once, so the Viewer-side button identifier must remain stable. `add_sidebar_button`
-opens the sidebar only when it adds a new button; a call that finds the button
-already there leaves the sidebar open or closed as the user left it.
+once, so the Viewer-side button identifier must remain stable.
+
+`add_console_button(name, label, callback, tooltip=None, icon=None)` registers a
+button for the second header row of the Console window, which shows each
+registered button with its icon (the name of a bundled Lucide icon) and its
+label, in the order they were registered. `label` and `tooltip` are translated
+texts, and a click calls `callback` with no argument. A button registered while
+the Console is open appears in it at once, and one registered before it opens is
+there when it does; the row is not shown while nothing is registered. A call that
+finds the name already registered changes nothing. The Console window names no
+page or command: it shows what is registered. A plugin that should come back when
+a session loads adds the name of its command to `viewer.sidebar_buttons_to_persist`
+(the list keeps its name from the days the buttons were in a sidebar), and the
+Viewer runs `<command> --register-only` for each name. The Viewer's old sidebar,
+with `add_sidebar_button`, is kept in the code for a later use but never opens,
+so a plugin does not use it.
 
 ## Registration rules
 

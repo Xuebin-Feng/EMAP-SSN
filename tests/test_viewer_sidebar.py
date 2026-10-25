@@ -2,13 +2,16 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Viewer's sidebar and slider overlay, as its main window builds them.
+"""The Viewer's sidebar, kept for later and off, and its slider overlay, as its main window builds them.
 
 The sidebar is a card with round corners (desktop.Viewer_Widgets) whose
-buttons centre their labels after their icons. In a shown window it slides
-open and closed, its toggle, the slider and the HUD following it at each
-frame; a hidden or headless window switches it at once, and the toggle turns
-a slide around where it is. The info button at the threshold slider's start
+buttons centre their labels after their icons. It is off (SIDEBAR_ENABLED):
+the buttons pages register are in the Console's second header row, so the
+sidebar never opens, its toggle is always hidden and the window's minimum
+width leaves out its room. With the switch on, as the tests of the kept code
+turn it, the sidebar slides open and closed in a shown window, its toggle, the
+slider and the HUD following it at each frame; a hidden or headless window
+switches it at once, and the toggle turns a slide around where it is. The info button at the threshold slider's start
 opens the session and controls card, a child of the canvas that stays in the
 room the sidebar leaves it and follows the threshold, hidden nodes and undo
 while it is open; the Console button after it opens the Console; the
@@ -65,6 +68,13 @@ CANVAS_SIZE = (1200, 800)
 ZH_QM = SRC / "resources" / "languages" / "zh_CN" / "emapssn_zh_CN.qm"
 
 
+def sidebar_on(test):
+    """Turn the kept sidebar on for ``test``: it is off (SIDEBAR_ENABLED), and this tests what the code does when on."""
+    patch = mock.patch.object(EMAPSSN_Viewer, "SIDEBAR_ENABLED", True)
+    patch.start()
+    test.addCleanup(patch.stop)
+
+
 class VispyLikeCanvas(QWidget):
     """Stands in for the VisPy canvas: a Qt key press goes to ``on_key_press`` as a VisPy key event, as VisPy's Qt backend sends it."""
 
@@ -93,10 +103,15 @@ class VispyLikeCanvas(QWidget):
 
 
 class SidebarSlideTests(unittest.TestCase):
+    """The sidebar's code, kept for later, with the sidebar turned on."""
+
     @classmethod
     def setUpClass(cls):
         cls.app = QApplication.instance() or QApplication([])
         apply_theme_for_class(cls, cls.app)
+
+    def setUp(self):
+        sidebar_on(self)
 
     def make_viewer(self, shown=True):
         """A Viewer's main window with two sidebar buttons, the sidebar closed."""
@@ -248,6 +263,64 @@ class SidebarSlideTests(unittest.TestCase):
         self.assertIsNone(viewer._sidebar_slide_width)
         self.assertFalse(viewer.right_panel.isVisible())
         self.assertFalse(viewer.toggle_sidebar_btn.isVisible())
+
+
+class SidebarOffTests(unittest.TestCase):
+    """With the sidebar off, as it is: its code is there, and nothing of it shows."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        apply_theme_for_class(cls, cls.app)
+
+    def make_viewer(self, shown=True):
+        """A Viewer's main window with two buttons added to the sidebar's code, as it was built with them."""
+        viewer = MainViewer.__new__(MainViewer)
+        viewer.canvas = SimpleNamespace(native=QWidget(), size=CANVAS_SIZE)
+        viewer._build_main_window()
+        self.addCleanup(viewer.main_window.deleteLater)
+        self.addCleanup(viewer.main_window.close)
+        viewer._update_hud_elements = lambda: None
+        viewer.add_sidebar_button("metaDataBtn", "Meta Data", lambda: None, icon="chart-column")
+        viewer.add_sidebar_button("agentBtn", "Agent", lambda: None, icon="bot")
+        if shown:
+            viewer.main_window.resize(*CANVAS_SIZE)
+            viewer.main_window.show()
+            self.app.processEvents()
+        return viewer
+
+    def assert_closed(self, viewer):
+        self.assertFalse(viewer.right_panel.isVisible())
+        self.assertTrue(viewer.right_panel.isHidden())
+        self.assertTrue(viewer.toggle_sidebar_btn.isHidden())
+        self.assertFalse(viewer.toggle_sidebar_btn.isVisible())
+        self.assertEqual(_sidebar_room(viewer), 0)
+        self.assertIsNone(viewer._sidebar_slide_width)
+
+    def test_adding_a_sidebar_button_does_not_open_the_sidebar_or_show_its_toggle(self):
+        viewer = self.make_viewer()
+        self.assertEqual(sorted(viewer.sidebar_buttons), ["agentBtn", "metaDataBtn"])  # the code still keeps them
+        self.assert_closed(viewer)
+
+    def test_nothing_opens_it_and_its_toggle_is_never_shown(self):
+        viewer = self.make_viewer()
+        for open_it in (lambda: viewer.set_sidebar_visible(True), lambda: viewer.set_sidebar_visible(True, animate=False),
+                        viewer.toggle_sidebar, viewer.toggle_sidebar,
+                        lambda: viewer.add_sidebar_button("another", "Another", lambda: None)):
+            open_it()
+            self.app.processEvents()
+            self.assert_closed(viewer)
+        # Not in a hidden or headless window, nor with the slide switched off, either.
+        viewer.headless = True
+        viewer.set_sidebar_visible(True)
+        self.assert_closed(viewer)
+
+    def test_the_toggle_is_hidden_from_the_first_frame(self):
+        viewer = self.make_viewer(shown=False)
+        self.assertTrue(viewer.toggle_sidebar_btn.isHidden())
+        viewer.main_window.show()
+        self.app.processEvents()
+        self.assert_closed(viewer)
 
 
 class SliderOverlayTests(unittest.TestCase):
@@ -413,12 +486,16 @@ class SliderOverlayTests(unittest.TestCase):
         self.assertEqual(console.width(), console.maximumWidth())
         self.assertEqual(console.text(), "Console")
 
-    def test_the_console_button_opens_the_console_as_the_old_sidebar_button_did(self):
+    def test_the_console_button_opens_the_console_with_the_viewers_buttons(self):
+        from desktop import Console_View
+
         viewer = self.make_viewer()
-        with mock.patch.object(viewer, "open_console_window", return_value="opened") as opener,                 mock.patch.object(EMAPSSN_Viewer.QtWidgets.QMessageBox, "information") as information:
+        viewer.shows_windows = lambda: True
+        viewer.main_window = QWidget()
+        self.addCleanup(viewer.main_window.deleteLater)
+        with mock.patch.object(Console_View, "show_console") as show:
             viewer.console_button.click()
-        opener.assert_called_once_with()
-        information.assert_not_called()
+        show.assert_called_once_with(viewer.main_window, buttons=viewer.console_buttons)
 
     def test_the_slider_gives_up_the_room_the_console_button_takes(self):
         viewer = self.make_window_viewer()
@@ -491,7 +568,18 @@ class SliderOverlayTests(unittest.TestCase):
         overlay = viewer.slider_overlay
         self.assertLess(overlay.width(), overlay.layout().minimumSize().width())
 
+    def test_sidebar_buttons_that_never_open_the_sidebar_leave_the_least_width_the_rows(self):
+        # The sidebar is off: its buttons, added to its code all the same, take no room in the window.
+        with_buttons = self.make_window_viewer(self.SIDEBAR_BUTTONS)
+        without = self.make_window_viewer()
+        for viewer in (with_buttons, without):
+            self.assertEqual(viewer.main_window.minimumWidth(), viewer._slider_row_width())
+            self.assert_row_fits(viewer, viewer.main_window.minimumWidth())
+        self.assertEqual(with_buttons.main_window.minimumWidth(), without.main_window.minimumWidth())
+        self.assertEqual(with_buttons.slider.width(), SLIDER_MIN_WIDTH)
+
     def test_the_window_is_kept_wide_enough_for_the_row_and_an_open_sidebar_too(self):
+        sidebar_on(self)
         viewer = self.make_window_viewer(self.SIDEBAR_BUTTONS)
         least = viewer.main_window.minimumWidth()
         self.assertEqual(least, viewer._slider_row_width() + viewer._panel_w)
@@ -506,6 +594,7 @@ class SliderOverlayTests(unittest.TestCase):
         self.assertLess(viewer.slider_overlay.width(), viewer.slider_overlay.layout().minimumSize().width())
 
     def test_the_actual_window_cannot_be_made_narrower_than_the_row(self):
+        sidebar_on(self)
         viewer = self.make_window_viewer(self.SIDEBAR_BUTTONS)
         window = viewer.main_window
         window.resize(1, 300)
@@ -536,7 +625,7 @@ class SliderOverlayTests(unittest.TestCase):
         padded = self.make_window_viewer(self.SIDEBAR_BUTTONS)
         self.assertNotEqual(padded.console_button.text(), "Console")
         self.assertGreater(padded.console_button.width(), plain.console_button.width())
-        self.assert_row_fits(padded, padded.main_window.minimumWidth(), room=padded._panel_w)
+        self.assert_row_fits(padded, padded.main_window.minimumWidth())
 
     # ---- the info card ----
 

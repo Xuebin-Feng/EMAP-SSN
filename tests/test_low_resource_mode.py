@@ -705,8 +705,10 @@ class FpsOverlayTests(unittest.TestCase):
         self.assertEqual(viewer._command_line_right(), self.CANVAS_SIZE[0] - 20)
 
     def test_left_of_the_sidebar_toggle_open_closed_and_sliding(self):
+        # The sidebar is off (SIDEBAR_ENABLED); its kept code puts the frame rate by its toggle.
         for instant in (False, True):
-            with self.subTest(instant=instant), mock.patch.object(cfg, "LOW_RESOURCE_ANIMATIONS", instant):
+            with self.subTest(instant=instant), mock.patch.object(cfg, "LOW_RESOURCE_ANIMATIONS", instant), \
+                    mock.patch.object(EMAPSSN_Viewer, "SIDEBAR_ENABLED", True):
                 viewer = self.make_viewer()
                 self.assertFalse(viewer.fps_overlay.isHidden())
                 self.assert_by_the_toggle(viewer)
@@ -725,11 +727,15 @@ class FpsOverlayTests(unittest.TestCase):
                 viewer.fps_overlay.show_text(fps_text(123.0, 45.6, 64))
                 self.assert_by_the_toggle(viewer)
 
-    def test_where_the_toggle_would_be_when_there_is_none(self):
-        viewer = self.make_viewer(buttons=False)
-        self.assertTrue(viewer.toggle_sidebar_btn.isHidden())
-        geometry = viewer.fps_overlay.geometry()
-        self.assertEqual(geometry.x() + geometry.width(), self.CANVAS_SIZE[0] - 10)
+    def test_where_the_toggle_would_be_when_it_is_hidden(self):
+        # Always, now that the sidebar is off: whether or not its code was given buttons.
+        for buttons in (False, True):
+            with self.subTest(sidebar_buttons=buttons):
+                viewer = self.make_viewer(buttons=buttons)
+                self.assertTrue(viewer.toggle_sidebar_btn.isHidden())
+                geometry = viewer.fps_overlay.geometry()
+                self.assertEqual(geometry.x() + geometry.width(), self.CANVAS_SIZE[0] - 10)
+                self.assertLessEqual(viewer._command_line_right(), geometry.x() - FPS_GAP)
 
 
 _FPS_SCRIPT = textwrap.dedent(

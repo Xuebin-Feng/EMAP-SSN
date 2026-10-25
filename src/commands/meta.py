@@ -55,8 +55,8 @@ def print_help(meta_dir):
     ================================
     Usage:
       meta
-          Opens the HTML5 Metadata Spreadsheet in your web browser and registers 
-          the "Meta Data" sidebar shortcut button.
+          Opens the HTML5 Metadata Spreadsheet in your web browser and adds
+          the "Meta Data" button to the Console's button row.
       meta [upload|import] <filename> [filename ...]
           Uploads and merges one or more metadata files (.xlsx, .xls, .csv; the
           extension may be omitted) into the current viewer session. Each path can
@@ -129,7 +129,7 @@ def run(viewer, args):
     meta_dir = getattr(cfg, 'METADATA_DIR', os.path.join("Input_Files", "Meta_Data"))
 
     # 1. Registration callback support
-    # Register sidebar button when called alone, or with upload, or via startup flag
+    # Register the Console button when called alone, or with upload, or via startup flag
     should_register = (not args or 
                        (args and args[0].lower() not in ['help', '-h', '--help', 'show', 'display', 'download', 'retrieve', 'export', 'delete', 'remove', 'clear', 'off', 'deactivate']) or
                        (args and args[0] == '--register-only'))

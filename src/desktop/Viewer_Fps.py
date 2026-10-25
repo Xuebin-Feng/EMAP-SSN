@@ -109,7 +109,7 @@ class FrameRate:
 
 
 class FpsOverlay(QLabel):
-    """The frame-rate display: a small card on the canvas, left of the sidebar's toggle.
+    """The frame-rate display: a small card at the canvas's top right, left of the sidebar's toggle where that shows.
 
     canvas is the VisPy canvas; edge_detail() gives the step the edges were
     last drawn with (1 for every edge). attach() hooks it to the canvas's

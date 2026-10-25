@@ -262,7 +262,7 @@ def handle_clear_selection(viewer, _data):
 
 
 def register_backend(registry, viewer):
-    """Register Metadata web capabilities without changing sidebar state."""
+    """Register Metadata web capabilities without adding a Console button."""
     registry.register_action(
         "meta", "select", lambda data: handle_select_node(viewer, data)
     )
@@ -309,8 +309,8 @@ def activate(viewer):
         viewer.on_mouse_press = wrapped_on_mouse_press
         viewer._on_mouse_press_patched_meta = True
 
-    if hasattr(viewer, 'add_sidebar_button'):
-        viewer.add_sidebar_button(
+    if hasattr(viewer, 'add_console_button'):
+        viewer.add_console_button(
             name="metaDataBtn",
             label=translate("Viewer", "Meta Data"),
             callback=viewer.open_metadata_ui,

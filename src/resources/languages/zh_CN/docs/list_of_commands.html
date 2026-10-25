@@ -415,7 +415,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-console" data-source-sha256="8dd77190dfb268bb4b0f1e9d2e2e1af4ff5035bfd0c3464be7ea845a209d53bb">
+            <section class="command-card" id="cmd-console" data-source-sha256="f620b24cb83b93c3868543e4b6adefcfcd923f838a8cc3e6f9741f40592983b6">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">console</span>
@@ -427,13 +427,14 @@
                     <div class="syntax-content">console</div>
                     <button class="copy-btn" onclick="copyText('console', this)">复制</button>
                 </div>
-                <p><strong>功能：</strong>打开控制台窗口；如果它已经打开，则将其置于最前。控制台窗口会随输出到达，实时显示本查看器自启动以来打印的全部内容，并附上每一行的时间：包括各命令的输出（含命令自带的帮助），以及所有警告和错误，它们分别以琥珀色和红色标出。查看器底部、信息按钮旁边的“控制台”按钮会打开同一个窗口。</p>
+                <p><strong>功能：</strong>打开控制台窗口；如果它已经打开，则将其置于最前。控制台窗口会随输出到达，实时显示本查看器自启动以来打印的全部内容，并附上每一行的时间：包括各命令的输出（含命令自带的帮助），以及所有警告和错误，它们分别以琥珀色和红色标出。查看器底部、信息按钮旁边的“控制台”按钮会打开同一个窗口。在搜索行下方，第二行按钮会打开查看器的网页：<strong>元数据</strong>、<strong>智能体</strong>和<strong>结构视图</strong>。</p>
                 <div class="subheading">控制台详情</div>
                 <ul>
-                    <li><strong>搜索与筛选：</strong>窗口可以搜索其文本并在匹配项之间跳转，可以只显示警告和错误，也可以随新行到达自动跟随。它可以复制所选内容（或全部文本），并把当前显示的文本保存到文件。</li>
+                    <li><strong>搜索与筛选：</strong>窗口可以搜索其文本并在匹配项之间跳转，可以只显示警告和错误。只要最后一行还在视野内，它就会随新行到达自动跟随：向上滚动或跳到某个匹配项后，视图会停在原处；滚回末尾后它又会重新跟随。<strong>显示时间</strong>可显示或隐藏每一行的时间。窗口可以复制所选内容（或全部文本），并把当前显示的文本保存到文件。</li>
+                    <li><strong>按钮行：</strong>某个页面的按钮会在其命令运行时加入第二行：<code>meta</code> 添加<strong>元数据</strong>，<code>agent</code> 添加<strong>智能体</strong>，<code>esmfold</code> 添加<strong>结构视图</strong>，每个按钮都带有图标和名称，点击即在浏览器中打开对应页面。控制台已经打开时，按钮会立即出现。在没有打开过任何页面之前，这一行不显示，输出占满整个窗口。已保存的会话在加载时会恢复<strong>元数据</strong>按钮。</li>
                     <li><strong>保留的内容：</strong>窗口显示最近的 20,000 行。窗口所标明的日志文件位于项目文件夹的 <code>temp/logs</code> 中，保留本次会话的每一行；达到 8 MB 时会滚动换文件，并为每个窗口保留最新的十份日志。窗口中的按钮可打开日志及其所在文件夹。输出中的 API 密钥和令牌在窗口和日志中都会被隐藏。</li>
                     <li><strong>不同于命令覆盖层：</strong>画布上的命令覆盖层显示命令的简短消息；控制台窗口则保存命令打印的全部内容。</li>
-                    <li><strong>没有窗口时：</strong>不显示窗口的查看器（无界面运行，或已隐藏且尚未显示）没有控制台窗口：请读取其日志文件，或通过 MCP 服务器读取它的日志页。以 <code>--console</code> 启动的程序会把输出打印到启动它的终端，同样没有控制台窗口。</li>
+                    <li><strong>没有窗口时：</strong>不显示窗口的查看器（无界面运行，或已隐藏且尚未显示）没有控制台窗口：请读取其日志文件，或通过 MCP 服务器读取它的日志页。以 <code>--console</code> 启动的程序会把输出打印到启动它的终端，因此它的控制台窗口没有输出可显示：窗口只为按钮行而打开，并说明输出在哪里，同时关闭搜索、筛选、复制和保存控件。</li>
                 </ul>
                 <div class="subheading">示例</div>
                 <ul class="example-list">
@@ -970,7 +971,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-esmfold" data-source-sha256="c3b84e8dc6023031955f2d48288d2c5ecfeb2a68273f91b37473b7cf0f0caf87">
+            <section class="command-card" id="cmd-esmfold" data-source-sha256="04086f13b3c7bec1950003da1957625df946f7f3eb8316285763f3b8967e662f">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">esmfold</span>
@@ -982,11 +983,11 @@
                     <div class="syntax-content">esmfold [large] [multi]  |  esmfold stop  |  esmfold help</div>
                     <button class="copy-btn" onclick="copyText('esmfold', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>esmfold 命令用 ESM3 预测蛋白质结构，并在基于网页的 Mol* 三维结构查看器中打开。不带 <code>large</code> 修饰符时，它会在本地运行 EvolutionaryScale ESM3 1.4B 开放权重模型（<code>biohub/esm3-sm-open-v1</code>），并写出含 N、C&alpha;、C 以及按几何推断的羰基 O 原子的主链坐标 PDB 文件。加上 <code>large</code> 会把预测发送到为 Biohub 配置的 ESM3 模型——当前为 <code>esm3-large-2024-03</code>（98B）——其当前输出包含侧链重原子坐标。两种模式都不添加氢原子。该命令还会注册“结构视图”侧边栏按钮；该按钮为新添加时，侧边栏会打开，之后再运行时会保持上次留下的打开或关闭状态。</p>
+                <p><strong>概述：</strong>esmfold 命令用 ESM3 预测蛋白质结构，并在基于网页的 Mol* 三维结构查看器中打开。不带 <code>large</code> 修饰符时，它会在本地运行 EvolutionaryScale ESM3 1.4B 开放权重模型（<code>biohub/esm3-sm-open-v1</code>），并写出含 N、C&alpha;、C 以及按几何推断的羰基 O 原子的主链坐标 PDB 文件。加上 <code>large</code> 会把预测发送到为 Biohub 配置的 ESM3 模型——当前为 <code>esm3-large-2024-03</code>（98B）——其当前输出包含侧链重原子坐标。两种模式都不添加氢原子。该命令还会在控制台的按钮行中添加“结构视图”按钮；再次运行不会重复添加。</p>
 
                 <div class="subheading">核心参数</div>
                 <ul>
-                    <li><strong>不带参数：</strong>用本地的 ESM3 1.4B 预测一个选中的节点，并生成主链坐标 PDB 文件。没有选中节点时，会折叠最后点击的节点并说明这一点（“未选择任何节点，因此将折叠最后点击的节点的结构：&lt;node&gt;。”）；如果也没有点击过任何节点，则注册“结构视图”按钮并打开 Mol*，但不启动预测。如果选中了多个节点，除非给出 <code>multi</code>，否则命令会失败。</li>
+                    <li><strong>不带参数：</strong>用本地的 ESM3 1.4B 预测一个选中的节点，并生成主链坐标 PDB 文件。没有选中节点时，会折叠最后点击的节点并说明这一点（“未选择任何节点，因此将折叠最后点击的节点的结构：&lt;node&gt;。”）；如果也没有点击过任何节点，则在控制台中添加“结构视图”按钮并打开 Mol*，但不启动预测。如果选中了多个节点，除非给出 <code>multi</code>，否则命令会失败。</li>
                     <li><strong>multi：</strong>在一个后台任务中依次处理当前选中的所有节点。除非与 <code>large</code> 组合，否则使用仅主链的本地模式。</li>
                     <li><strong>large：</strong>使用 <code>src/resources/Biohub_API.json</code> 中的模型远程预测一个选中的节点，当前为 ESM3 Large 98B。与本地仅主链的输出不同，当前 Biohub 的输出包含侧链重原子。可与 <code>multi</code> 以任意顺序组合，进行依次执行的远程批量预测。</li>
                     <li><strong>stop：</strong>结束正在运行的折叠及其启动的所有进程，并把等待中的折叠移出队列，不影响其他任何内容。已保存的结构会保留，写到一半的结构会被删除，每个折叠的任务都会报告为已取消。没有折叠在运行或等待时，命令也会成功并说明这一点。只包含停止命令的请求会立即运行，即使它所结束的 esmfold 请求仍在等待其工作进程。</li>
@@ -1016,7 +1017,7 @@
 
 <div class="section-divider" id="sec-metadata" data-source-sha256="a5771f22af04af2aed168eb2e2bf305c60e3232a1bdcb969de2746099671aa36">元数据</div>
 
-            <section class="command-card" id="cmd-meta" data-source-sha256="de37a05ff4ebbe834abe69986ed5debce211a95a20e3b7bef1b24506377b581d">
+            <section class="command-card" id="cmd-meta" data-source-sha256="d4794ffcd0c70406615fa3ed19716b3fa43b65f2bd80e4e4eafc04305a756849">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">meta</span>
@@ -1032,7 +1033,7 @@
                 
                 <div class="subheading">子命令与用法</div>
                 <ul>
-                    <li><strong><code>meta</code>（不带参数）：</strong>在默认浏览器中打开查看器的 HTML5 元数据电子表格页面，并注册其侧边栏快捷方式。快捷方式为新添加时，侧边栏会打开；再次运行 <code>meta</code> 会保持其打开或关闭状态不变。</li>
+                    <li><strong><code>meta</code>（不带参数）：</strong>在默认浏览器中打开查看器的 HTML5 元数据电子表格页面，并在控制台的按钮行中添加其“元数据”按钮；再次运行 <code>meta</code> 不会重复添加。</li>
                     <li><strong><code>meta &lt;filename&gt; [filename ...]</code>、<code>meta upload ...</code> 或 <code>meta import ...</code>：</strong>按参数顺序加载并合并一个或多个 <code>.xlsx</code>、<code>.xls</code> 或 <code>.csv</code> 元数据文件。路径可以是绝对路径、相对路径，或已配置的元数据目录中的名称；省略扩展名时会依次尝试受支持的扩展名。输入表格把序列标题放在第一列，属性名称放在第一行，属性类型放在第二行。在文本列中，<code>NA</code>、<code>N/A</code>、<code>None</code>、<code>null</code> 和 <code>NaN</code> 这些词按原样保留，因为它们可能是真实的值（例如 NA 表示北美）；只有空单元格才算空白。在数值列中，它们与任何其他非数字一样被视为缺失。</li>
                     <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>：</strong>在查看器右下角激活一个 HUD 文本框，在点击节点时显示指定属性的值。属性名可以写在大括号中，就像 <code>spectrum</code> 的写法（<code>meta show {Length}</code>）；写在大括号中的名称始终被视为属性，因此 <code>meta show {off}</code> 显示的是名为 <code>off</code> 的属性。</li>
                     <li><strong><code>meta show clear</code> / <code>meta show off</code>：</strong>停用并隐藏元数据属性 HUD。撤销和重做会让它保持隐藏，直到下一次 <code>meta show</code> 或 <code>spectrum</code> 再次打开它。</li>

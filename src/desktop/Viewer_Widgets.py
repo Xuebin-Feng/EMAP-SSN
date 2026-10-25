@@ -33,7 +33,9 @@
 * The sidebar. SidebarPanel is the panel over the canvas's right edge, drawn
   as a card with round corners, SIDEBAR_INSET clear of the canvas's top,
   right and bottom edges. SidebarButton is one of its buttons: the icon at
-  the start, the label centred in the room after it.
+  the start, the label centred in the room after it. The Viewer keeps the
+  sidebar off (SIDEBAR_ENABLED in EMAPSSN_Viewer.py) for a later use: the
+  buttons pages register are in the Console window's second header row.
 * The view's zoom. ZoomBox, at the canvas's bottom right level with the
   threshold slider, is the translated "Zoom: {zoom}%" with a ZoomSpinBox in
   place of {zoom}: it shows the view's zoom, a percentage, and sets it. The
@@ -939,7 +941,7 @@ class ConsoleButton(QPushButton):
     """The Console button of the slider row, after the info button: the terminal icon and the word "Console".
 
     ``text`` and ``tooltip`` are the owner's translated texts, and ``opened`` is what a
-    click calls (the owner opens the Console, or says why it cannot). The button is
+    click calls (the owner opens the Console). The button is
     as tall as the row's boxes (SLIDER_BOX_HEIGHT, the info button's SIZE) and as
     wide as its text and icon ask, so a longer translation widens it instead of being
     cut off (Desktop_App.fit_buttons_to_text). Its tint, border and hover are the info

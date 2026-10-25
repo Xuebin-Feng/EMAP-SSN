@@ -1386,12 +1386,11 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用 UMAP 绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+8"/>
         <source>Shows the Viewer&apos;s frame rate at its top right, left of the sidebar button.</source>
-        <translation type="unfinished">在查看器右上角、侧边栏按钮左侧显示帧率。</translation>
+        <translation type="obsolete">在查看器右上角、侧边栏按钮左侧显示帧率。</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="+9"/>
         <source>It counts the frames drawn to the screen over the last second, with the graphics card&apos;s time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn.</source>
         <translation type="unfinished">它统计最近一秒内绘制到屏幕上的帧数，并显示显卡绘制最近一帧所用的时间；边被精简时还显示绘制的比例。没有绘制时显示“空闲”。</translation>
     </message>
@@ -2322,7 +2321,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">布局方法设为 UMAP 或 PaCMAP 时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+70"/>
+        <location line="+4"/>
+        <source>Shows the Viewer&apos;s frame rate at its top right.</source>
+        <translation type="unfinished">在查看器右上角显示帧率。</translation>
+    </message>
+    <message>
+        <location line="+66"/>
         <source>How the 2D coordinates are computed: SSN simulates physics, while UMAP and PaCMAP compute them directly from each node&apos;s strongest edges.</source>
         <translation type="unfinished">二维坐标的计算方式：SSN 模拟物理过程，而 UMAP 和 PaCMAP 直接根据每个节点最强的边计算坐标。</translation>
     </message>
@@ -2963,16 +2967,15 @@ Command-line usage:
 <context>
     <name>Console</name>
     <message>
-        <location filename="../../../desktop/Console_View.py" line="+336"/>
-        <location line="+70"/>
-        <location line="+392"/>
-        <location line="+42"/>
-        <location line="+3"/>
+        <location filename="../../../desktop/Console_View.py" line="+414"/>
+        <location line="+83"/>
+        <location line="+444"/>
+        <location line="+45"/>
         <source>Console</source>
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-481"/>
+        <location line="-543"/>
         <location line="+3"/>
         <source>Search the output…</source>
         <translation type="unfinished">搜索输出内容…</translation>
@@ -3046,7 +3049,7 @@ Command-line usage:
         <translation type="unfinished">显示日志文件夹</translation>
     </message>
     <message>
-        <location line="+261"/>
+        <location line="+323"/>
         <source>{shown} lines shown · {written} written since start-up</source>
         <translation type="unfinished">显示 {shown} 行 · 启动以来共输出 {written} 行</translation>
     </message>
@@ -4765,7 +4768,7 @@ Command-line usage:
         <location filename="../../../commands/alignment.py" line="+49"/>
         <location filename="../../../commands/cluster.py" line="+343"/>
         <location filename="../../../commands/color.py" line="+95"/>
-        <location filename="../../../commands/console.py" line="+54"/>
+        <location filename="../../../commands/console.py" line="+57"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
         <location filename="../../../commands/esmfold.py" line="-234"/>
         <location filename="../../../commands/export.py" line="+108"/>
@@ -6784,7 +6787,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1450"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1453"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -6862,12 +6865,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">智能体界面</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+40"/>
         <source>This Viewer instance&apos;s web server is unavailable.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用。</translation>
     </message>
     <message>
-        <location line="+94"/>
+        <location line="+118"/>
         <source>This Viewer instance&apos;s web server is unavailable: {error}</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
@@ -8630,7 +8633,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+23"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-582"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-601"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
@@ -9070,7 +9073,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">错误：console 不带参数，不能是“{argument}”。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Opened the Console.</source>
         <translation type="unfinished">已打开控制台。</translation>
     </message>
@@ -9080,9 +9083,8 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">控制台需要窗口，而此查看器没有显示窗口；输出在它的日志文件中。</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>The Console is not available: this Viewer&apos;s output goes to the terminal it was started from.</source>
-        <translation type="unfinished">控制台不可用：此查看器的输出进入启动它的终端。</translation>
+        <translation type="obsolete">控制台不可用：此查看器的输出进入启动它的终端。</translation>
     </message>
     <message>
         <location line="+2"/>
@@ -12975,12 +12977,11 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="-46"/>
-        <location line="+2268"/>
         <source>Console</source>
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-2267"/>
+        <location line="+1"/>
         <source>Show everything this Viewer has printed: progress, warnings and errors</source>
         <translation type="unfinished">显示此查看器打印的全部内容：进度、警告和错误</translation>
     </message>
@@ -13103,7 +13104,7 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+119"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+121"/>
         <source>Sequence Set:</source>
         <translation type="unfinished">序列集：</translation>
     </message>

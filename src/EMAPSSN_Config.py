@@ -2606,7 +2606,7 @@ if __name__ == "__main__":
                     ),
                 ),
                 "SHOW_FPS": Tip(
-                    translate("Config", "Shows the Viewer's frame rate at its top right, left of the sidebar button."),
+                    translate("Config", "Shows the Viewer's frame rate at its top right."),
                     details=(translate("Config", "It counts the frames drawn to the screen over the last second, with the graphics card's time for a recent frame and, while the edges are thinned, the share drawn. It reads Idle while nothing is drawn."),),
                     notes=(
                         TipNote("info", translate("Config", "It is never part of prints or captures.")),

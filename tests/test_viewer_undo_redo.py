@@ -221,6 +221,31 @@ class ViewerUndoRedoTests(unittest.TestCase):
         # It stays a cacheable attribute, so `save` still writes it.
         self.assertIn("sidebar_buttons_to_persist", viewer._cacheable_attrs)
 
+    def test_undo_and_redo_leave_the_consoles_buttons_alone(self):
+        # The buttons registered for the Console are the Viewer's registry, not the network's state: no history
+        # entry holds it, so undoing past a `meta` call does not take its button away.
+        viewer = make_viewer()
+        viewer._save_state()
+        registry = viewer.console_button_registry()
+        registry.add("metaDataBtn", "Meta Data", lambda: None, None, "chart-column")
+        viewer.custom_scores[0] = 99.0
+
+        self.assertTrue(quietly(viewer._do_undo))
+        self.assertIs(viewer.console_buttons, registry)
+        self.assertEqual([spec.name for spec in registry.buttons()], ["metaDataBtn"])
+
+        registry.add("agentBtn", "Agent", lambda: None, None, "bot")
+        self.assertTrue(quietly(viewer._do_redo))
+        self.assertIs(viewer.console_buttons, registry)
+        self.assertEqual([spec.name for spec in registry.buttons()], ["metaDataBtn", "agentBtn"])
+
+        self.assertNotIn("console_buttons", viewer._cacheable_attrs)
+        viewer._save_state()
+        for entry in viewer.position_history:
+            self.assertNotIn("console_buttons", entry)
+            self.assertNotIn("console_buttons", entry["_custom_data"])
+            self.assertTrue(all(value is not registry for value in entry.values()))
+
     def test_the_snapshot_holds_every_custom_attribute_but_the_sidebar_list(self):
         viewer = make_viewer()
         viewer.sidebar_buttons_to_persist.append("meta")

@@ -527,7 +527,7 @@
                 </div>
                 <div class="figure-caption">
                     <strong>Figure 4: EMAP-SSN Viewer GUI Interface Elements.</strong>
-                    Annotated callouts highlight the primary interaction components: (1) <strong>Command Line Interface (HUD)</strong> at top-left for running analytical commands; (2) <strong>Selection Box</strong> for box-selecting cohorts; (3) <strong>Edge Visibility Slide Bar</strong> at bottom-left for live threshold adjustment; (4) <strong>Viewer Status</strong> stack at bottom-right displaying Zoom and Hidden Nodes; and (5) <strong>Side Panel Plugins</strong> at top-right for Meta Data, AI Agent, and Fold View (Mol* 3D structure).
+                    Annotated callouts highlight the primary interaction components: (1) <strong>Command Line Interface (HUD)</strong> at top-left for running analytical commands; (2) <strong>Selection Box</strong> for box-selecting cohorts; (3) <strong>Edge Visibility Slide Bar</strong> at bottom-left for live threshold adjustment; and (4) <strong>Viewer Status</strong> stack at bottom-right displaying Zoom and Hidden Nodes. The <strong>Console</strong> button beside the info button opens the Console window, whose button row opens Meta Data, AI Agent, and Fold View (Mol* 3D structure).
                 </div>
             </div>
 
@@ -618,9 +618,9 @@
                     Refer to the companion document: <a href="list_of_commands.html">EMAP-SSN Viewer Command Reference</a> for syntax, arguments, and practical examples of commands like <code>color</code>, <code>cluster</code>, <code>logo</code>, <code>select</code>, <code>label</code>, <code>esmfold</code>, and <code>print</code>.
                 </div>
 
-                <h3>4. Side Panel Plugins &amp; Embedded Web Utilities</h3>
+                <h3>4. Console Buttons &amp; Embedded Web Utilities</h3>
                 <p>
-                    Located in the top-right corner of the Viewer (Figure 4), the side panel opens web-based analytical tools in your browser, served by the Viewer's local web server:
+                    The Console window (the <strong>Console</strong> button at the Viewer's bottom left, Figure 4) has a second row of buttons under its search row. Each opens a web-based analytical tool in your browser, served by the Viewer's local web server. A button joins the row when its command (<code>meta</code>, <code>agent</code> or <code>esmfold</code>) runs, and the row is not shown until one has:
                 </p>
                 <div class="grid-2">
                     <div class="grid-card">
@@ -853,7 +853,7 @@
                     <div class="grid-card">
                         <h4><svg class="icon" aria-hidden="true"><use href="#i-wrench"/></svg><span>Web Plugin Development</span></h4>
                         <p style="font-size: 0.9rem;">
-                            Want to build custom side-panel plugins or web utilities for the Viewer? Consult:
+                            Want to build custom plugins, with their own buttons in the Console, or web utilities for the Viewer? Consult:
                         </p>
                         <code style="font-size: 0.85rem;">docs/web_plugin_development.md</code>
                     </div>

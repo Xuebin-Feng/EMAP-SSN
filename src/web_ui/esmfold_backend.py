@@ -31,7 +31,7 @@ def get_structures_directory():
 
 
 def register_backend(registry, viewer):
-    """Register Mol* web capabilities without changing sidebar state."""
+    """Register Mol* web capabilities without adding a Console button."""
     registry.register_action(
         "esmfold",
         "save_molstar_session",
@@ -71,9 +71,9 @@ def register_backend(registry, viewer):
 
 
 def activate(viewer):
-    """Show the Fold View sidebar entry without creating output directories."""
-    if hasattr(viewer, 'add_sidebar_button'):
-        viewer.add_sidebar_button(
+    """Add the Fold View button to the Console's button row without creating output directories."""
+    if hasattr(viewer, 'add_console_button'):
+        viewer.add_console_button(
             "fold_view_btn",
             translate("Viewer", "Fold View"),
             lambda: open_esmfold_ui(viewer),

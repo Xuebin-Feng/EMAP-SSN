@@ -1457,7 +1457,7 @@ def _extend_initial_web_state(viewer, state):
 
 
 def register_backend(registry, viewer):
-    """Register Agent web capabilities without changing sidebar state."""
+    """Register Agent web capabilities without adding a Console button."""
     registry.register_action(
         "agent", "agent_query", lambda data: handle_agent_query(viewer, data)
     )
@@ -1499,9 +1499,9 @@ def register_backend(registry, viewer):
 
 
 def activate(viewer):
-    """Show the Agent sidebar entry without eagerly reading chat history."""
-    if hasattr(viewer, "add_sidebar_button"):
-        viewer.add_sidebar_button(
+    """Add the Agent button to the Console's button row without eagerly reading chat history."""
+    if hasattr(viewer, "add_console_button"):
+        viewer.add_console_button(
             name="agentBtn",
             label=translate("Viewer", "Agent"),
             callback=viewer.open_agent_ui,
