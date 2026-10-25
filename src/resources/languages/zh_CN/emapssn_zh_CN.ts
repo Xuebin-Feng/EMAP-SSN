@@ -2963,16 +2963,16 @@ Command-line usage:
 <context>
     <name>Console</name>
     <message>
-        <location filename="../../../desktop/Console_View.py" line="+329"/>
-        <location line="+66"/>
-        <location line="+376"/>
+        <location filename="../../../desktop/Console_View.py" line="+334"/>
+        <location line="+72"/>
+        <location line="+383"/>
         <location line="+42"/>
         <location line="+3"/>
         <source>Console</source>
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-464"/>
+        <location line="-474"/>
         <location line="+3"/>
         <source>Search the output…</source>
         <translation type="unfinished">搜索输出内容…</translation>
@@ -2988,7 +2988,7 @@ Command-line usage:
         <translation type="unfinished">下一个匹配项 (F3)</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>All output</source>
         <translation type="unfinished">全部输出</translation>
     </message>
@@ -3043,7 +3043,7 @@ Command-line usage:
         <translation type="unfinished">显示日志文件夹</translation>
     </message>
     <message>
-        <location line="+244"/>
+        <location line="+253"/>
         <source>{shown} lines shown · {written} written since start-up</source>
         <translation type="unfinished">显示 {shown} 行 · 启动以来共输出 {written} 行</translation>
     </message>
@@ -6656,7 +6656,7 @@ Command-line usage:
         <translation type="obsolete">缩放已对齐到视图宽度：{width}</translation>
     </message>
     <message>
-        <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+196"/>
+        <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+213"/>
         <source>SSN could not open a terminal to display the application failure. Review the retained log at {log}. Terminal error: {error}</source>
         <translation type="unfinished">SSN 无法打开终端来显示应用程序故障。请查看保留在 {log} 的日志。终端错误：{error}</translation>
     </message>
@@ -9484,13 +9484,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">查看器</translation>
     </message>
     <message>
-        <location line="+399"/>
-        <location line="+216"/>
+        <location line="+417"/>
+        <location line="+222"/>
         <source>Copy</source>
         <translation type="unfinished">复制</translation>
     </message>
     <message>
-        <location line="-215"/>
+        <location line="-221"/>
         <source>Open log</source>
         <translation type="unfinished">打开日志</translation>
     </message>
@@ -9525,12 +9525,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">（没有任何输出。）</translation>
     </message>
     <message>
-        <location line="+42"/>
+        <location line="+48"/>
         <source>Copied</source>
         <translation type="unfinished">已复制</translation>
     </message>
     <message>
-        <location line="+56"/>
+        <location line="+63"/>
         <source>Protein Sequence Similarity Networks</source>
         <translation type="unfinished">蛋白质序列相似性网络</translation>
     </message>
@@ -9549,13 +9549,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">它最后输出的内容：</translation>
     </message>
     <message>
-        <location filename="../../../desktop/Desktop_Launcher.py" line="+108"/>
+        <location filename="../../../desktop/Desktop_Launcher.py" line="+110"/>
         <location filename="../../../utilities/Startup_Status.py" line="+36"/>
         <source>Starting…</source>
         <translation type="unfinished">正在启动…</translation>
     </message>
     <message>
-        <location line="+486"/>
+        <location line="+487"/>
         <source>The window could not be started.</source>
         <translation type="unfinished">无法启动窗口。</translation>
     </message>
