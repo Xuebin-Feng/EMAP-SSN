@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -710,6 +711,114 @@ class TimesTests(WindowCase):
         before = scroll.value()
         QApplication.sendEvent(gutter, event)
         self.assertLess(scroll.value(), before)
+
+
+class HeaderTests(WindowCase):
+    """The header is one row that never wraps; the window is never narrower than that row needs."""
+
+    @contextlib.contextmanager
+    def in_language(self, language):
+        """Windows built inside are in ``language`` (None: English as written). The bundled CJK font is not
+        registered: its registering and removing would make Qt look fonts up again for every later window."""
+        if language is None:
+            yield
+            return
+        from desktop import Desktop_App
+        with mock.patch.dict(Desktop_App.LANGUAGE_FONTS, clear=True):
+            installed = Desktop_App.install_translations(self.app, language)
+        try:
+            yield
+        finally:
+            installed.remove()
+
+    def assertOneRow(self, window):
+        controls = window.header_controls()
+        self.assertEqual(len(controls), 11)  # search, previous, next, filter, follow, times, copy, save, clear, log, folder
+        root = window.rect()
+        centres, previous_right = [], None
+        for control in controls:
+            with self.subTest(control=control.accessibleName() or getattr(control, 'text', lambda: '')() or type(control).__name__):
+                self.assertTrue(control.isVisibleTo(window))
+                box = QRect_of(control, window)
+                centres.append(box.center().y())
+                self.assertGreaterEqual(box.left(), 12)                   # inside the window's margins
+                self.assertLessEqual(box.right(), root.width() - 12)
+                self.assertGreater(box.width(), 0)
+                if previous_right is not None:
+                    self.assertGreater(box.left(), previous_right)        # beside the one before it, never over or under it
+                previous_right = box.right()
+        self.assertLessEqual(max(centres) - min(centres), 1, centres)       # one row, on one centre line
+        header_bottom = max(QRect_of(control, window).bottom() for control in controls)
+        self.assertLess(header_bottom, window.text.mapTo(window, window.text.rect().topLeft()).y())
+
+    def test_every_control_sits_on_one_row_at_the_minimum_width_in_each_language(self):
+        from desktop import Desktop_App
+        minimums = {}
+        for language in (None, "zh_CN", Desktop_App.PSEUDO_LANGUAGE):
+            with self.subTest(language=language), self.in_language(language):
+                window = self.window()
+                minimums[language] = window.minimumWidth()
+                window.resize(window.minimumWidth(), 420)
+                flush(self.app, 4)
+                self.assertEqual(window.width(), window.minimumWidth())
+                self.assertOneRow(window)
+                window.resize(1400, 420)
+                flush(self.app, 4)
+                self.assertOneRow(window)
+        # Each language has the row its own words make: the minimum follows them (so the languages were applied).
+        self.assertEqual(len(set(minimums.values())), 3, minimums)
+
+    def test_the_window_cannot_be_made_narrower_than_the_row(self):
+        window = self.window()
+        minimum = window.minimumWidth()
+        window.resize(200, 420)
+        flush(self.app, 4)
+        self.assertEqual(window.width(), minimum)
+        row = sum(control.minimumSizeHint().width() for control in window.header_controls())
+        self.assertGreaterEqual(minimum, row + 6 * (len(window.header_controls()) - 1) + 24)  # the controls, the gaps, the margins
+
+    def test_the_search_field_is_the_one_that_gives_way_and_the_one_that_takes_the_room(self):
+        window = self.window()
+        window.resize(window.minimumWidth(), 420)
+        flush(self.app, 4)
+        narrow = {id(control): control.width() for control in window.header_controls()}
+        self.assertEqual(window.search.width(), Console_View.SEARCH_MINIMUM_WIDTH)
+        window.resize(window.minimumWidth() + 300, 420)
+        flush(self.app, 4)
+        for control in window.header_controls()[1:]:
+            self.assertEqual(control.width(), narrow[id(control)], control.accessibleName())
+        self.assertEqual(window.search.width(), Console_View.SEARCH_MINIMUM_WIDTH + 300)
+
+    def test_the_match_count_is_in_the_footer_and_changing_it_does_not_change_the_minimum(self):
+        for text in ("alpha beta", "beta again"):
+            self.recorder.add("stdout", text)
+        window = self.window()
+        minimum = window.minimumWidth()
+        header = [control for control in window.header_controls()]
+        self.assertNotIn(window.match_label, header)
+        self.assertGreater(window.match_label.mapTo(window, window.match_label.rect().topLeft()).y(),
+                           window.text.mapTo(window, window.text.rect().bottomLeft()).y())  # under the text, with the counts
+        for needle in ("beta", "zzz", ""):
+            window.search.setText(needle)
+            flush(self.app, 3)
+            self.assertEqual(window.minimumWidth(), minimum)
+        with mock.patch.object(Console_View, "MAX_MATCHES", 1):
+            window.search.setText("beta")
+        flush(self.app, 3)
+        self.assertIn("or more", window.match_label.text())
+        self.assertEqual(window.minimumWidth(), minimum)
+
+    def test_the_header_has_no_wrapping_layout(self):
+        window = self.window()
+        layout = window.layout().itemAt(0).layout()
+        self.assertEqual(type(layout).__name__, "QHBoxLayout")
+        self.assertEqual([layout.itemAt(index).widget() for index in range(layout.count())], window.header_controls())
+
+
+def QRect_of(widget, window):
+    """A widget's rectangle in the window's coordinates."""
+    from PySide6.QtCore import QRect
+    return QRect(widget.mapTo(window, widget.rect().topLeft()), widget.size())
 
 
 class SearchTests(WindowCase):

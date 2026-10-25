@@ -28,14 +28,17 @@ Show details) and keep it in temp/logs.
 * The time of each line is drawn in a gutter, as line numbers are, and is no part of
   the text: selecting, Copy, Save and the search see the output alone. The
   Times switch hides the gutter, and the choice is kept (app_settings.json).
-* The search field highlights every match and counts them; Enter and the
-  arrows, or F3 and Shift+F3, go from one to the next. The filter shows all
+* The search field highlights every match and counts them (the count is in the footer);
+  Enter and the arrows, or F3 and Shift+F3, go from one to the next. The filter shows all
   output, only warnings and errors, or only errors. Follow output keeps the
   newest line in view, and turns itself off when the view is scrolled up and
   on again at the bottom.
 * Copy puts the selection (or everything shown) on the clipboard, Save writes
   it to a file, Clear view empties the window (the log file keeps everything),
   and the last two buttons open the log file and show its folder.
+* The header is one row that never wraps: the window cannot be made narrower
+  than that row needs, in the language and font it is in, and the search field
+  is the one control that gives way (down to SEARCH_MINIMUM_WIDTH).
 
 A progress bar that rewrites its line with carriage returns is one line that
 changes where it is. The window feeds from the capture only while it is shown.
@@ -74,13 +77,13 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSizePolicy,
     QTextEdit,
     QVBoxLayout,
     QWidget,
 )
 
 from desktop.Desktop_App import (
-    ResponsiveFlowLayout,
     SteadyPopupComboBox,
     ToggleSwitch,
     open_in_file_manager,
@@ -113,6 +116,8 @@ MATCH_LIGHT = "#fde68a"
 MATCH_DARK = "#854d0e"
 # How many matches the search counts and highlights.
 MAX_MATCHES = 5000
+# The narrowest the search field gets when the window is as narrow as the header allows.
+SEARCH_MINIMUM_WIDTH = 120
 # Whether the gutter of times shows: kept in app_settings.json, as the other windows keep their theme
 # colour and language. Shown unless the user turned it off.
 SHOW_TIMES_SETTING = "CONSOLE_SHOW_TIMES"
@@ -329,7 +334,9 @@ class ConsoleWindow(QWidget):
         self.setWindowTitle(title or QCoreApplication.translate("Console", "Console"))
         self.setObjectName("consoleWindow")
         self.resize(960, 600)
-        self.setMinimumSize(520, 320)
+        # No minimum width of its own: the header row cannot wrap, so the layout's minimum, which is that row's
+        # width in this language and font, is what the window cannot be narrower than.
+        self.setMinimumHeight(320)
         self._pending = []
         self._filter = "all"
         self._floor_seq = 0          # Clear view hides every line up to this one
@@ -347,11 +354,12 @@ class ConsoleWindow(QWidget):
         root.setContentsMargins(12, 12, 12, 12)
         root.setSpacing(8)
 
-        bar = ResponsiveFlowLayout(spacing=6)
+        bar = QHBoxLayout()
+        bar.setSpacing(6)
         self.search = QLineEdit()
         self.search.setPlaceholderText(QCoreApplication.translate("Console", "Search the output…"))
         self.search.setClearButtonEnabled(True)
-        self.search.setMinimumWidth(180)
+        self.search.setMinimumWidth(SEARCH_MINIMUM_WIDTH)  # the one control that gives way, down to this
         self.search.setAccessibleName(QCoreApplication.translate("Console", "Search the output…"))
         self.previous_button = self._button("chevron-up", QCoreApplication.translate("Console", "Previous match (Shift+F3)"))
         self.next_button = self._button("chevron-down", QCoreApplication.translate("Console", "Next match (F3)"))
@@ -359,6 +367,7 @@ class ConsoleWindow(QWidget):
         set_role(self.match_label, "subtle")
         self.filter_box = SteadyPopupComboBox()
         self.filter_box.setSizeAdjustPolicy(SteadyPopupComboBox.SizeAdjustPolicy.AdjustToContents)
+        self.filter_box.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
         for label, key in (
             (QCoreApplication.translate("Console", "All output"), "all"),
             (QCoreApplication.translate("Console", "Warnings and errors"), WARNING),
@@ -369,7 +378,7 @@ class ConsoleWindow(QWidget):
         self.follow_switch.setChecked(True)
         self.times_switch = ToggleSwitch(QCoreApplication.translate("Console", "Times"), QCoreApplication.translate("Console", "Times"))
         self.times_switch.setToolTip(QCoreApplication.translate("Console", "Show the time of each line, beside the text"))
-        self.copy_button =self._button("copy", QCoreApplication.translate("Console", "Copy the selection, or all the output shown"))
+        self.copy_button = self._button("copy", QCoreApplication.translate("Console", "Copy the selection, or all the output shown"))
         self.save_button = self._button("download", QCoreApplication.translate("Console", "Save the output shown to a file…"))
         self.clear_button = self._button("trash-2", QCoreApplication.translate("Console", "Clear the view (the log file keeps everything)"))
         self.log_button = self._button("file-text", QCoreApplication.translate("Console", "Open the log file"))
@@ -377,11 +386,13 @@ class ConsoleWindow(QWidget):
         for widget in (self.previous_button, self.next_button, self.copy_button, self.save_button,
                        self.clear_button, self.log_button, self.folder_button):
             widget.setFixedWidth(36)
+        # One row that never wraps (the match count is in the footer: its text changes, and a row that
+        # changes its width would change the window's minimum).
         bar.addWidget(self.search, 1)
-        for widget in (self.previous_button, self.next_button, self.match_label, self.filter_box,
-                       self.follow_switch, self.times_switch, self.copy_button, self.save_button, self.clear_button,
-                       self.log_button, self.folder_button):
+        for widget in self.header_controls()[1:]:
             bar.addWidget(widget)
+        for index in range(bar.count()):
+            bar.setAlignment(bar.itemAt(index).widget(), Qt.AlignmentFlag.AlignVCenter)
         root.addLayout(bar)
 
         self.text = ConsoleText()
@@ -400,6 +411,7 @@ class ConsoleWindow(QWidget):
         set_role(self.count_label, "subtle")
         self.log_label = _ElidedLabel()
         set_role(self.log_label, "subtle")
+        footer.addWidget(self.match_label)
         footer.addWidget(self.count_label)
         footer.addSpacing(12)
         footer.addWidget(self.log_label, 1)
@@ -430,6 +442,12 @@ class ConsoleWindow(QWidget):
         self._listener = self._queue_line
         self._apply_theme()
         self._update_footer()
+
+    def header_controls(self):
+        """The header's controls, left to right: the search field, then everything that follows it."""
+        return [self.search, self.previous_button, self.next_button, self.filter_box, self.follow_switch,
+                self.times_switch, self.copy_button, self.save_button, self.clear_button, self.log_button,
+                self.folder_button]
 
     # --- looks
     def _tokens(self):
