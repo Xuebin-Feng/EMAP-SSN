@@ -69,6 +69,11 @@ EAGAIN_LONGEST_PAUSE_SECONDS = 0.01
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR_VARIABLE = "SSN_LOG_DIR"
 
+# Windows: asking whether a process still runs (process_is_gone).
+PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+ERROR_INVALID_PARAMETER = 87
+STILL_ACTIVE = 259
+
 _capture: "Capture | None" = None
 # Scripts whose standard output is a protocol, not text for a person: capture refuses to start in them.
 _PROTOCOL_SCRIPTS = frozenset({"EMAPSSN_MCP_Server.py"})
@@ -196,18 +201,69 @@ def _log_stem(app: str, when: float, pid: int) -> str:
     return f"{app}-{time.strftime('%Y%m%d-%H%M%S', time.localtime(when))}-{pid}"
 
 
+def process_is_gone(pid: int) -> bool:
+    """Whether no process has this id any more. False when that cannot be told: keeping a file is the safe answer.
+
+    (``os.kill(pid, 0)`` is no probe on Windows, where any signal but Ctrl+C and Ctrl+Break ends the process.)
+    """
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        import ctypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+        kernel32.GetExitCodeProcess.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_uint32)]
+        kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid)
+        if not handle:
+            return ctypes.get_last_error() == ERROR_INVALID_PARAMETER  # no such process (not: access denied)
+        try:
+            code = ctypes.c_uint32()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(code)):
+                return False
+            return code.value != STILL_ACTIVE
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return True
+    except OSError:
+        return False  # PermissionError: it exists, and belongs to someone else
+    return False
+
+
 def prune_logs(log_dir, app, keep=LOG_KEEP):
-    """Remove the oldest of an app's logs beyond ``keep``, with their rolled-over and crash files."""
+    """Remove the oldest of an app's logs beyond ``keep``, with their rolled-over and crash files.
+
+    An empty crash file of a log that stays goes too when its process is gone: a run that was killed
+    (a log-out, a task kill) never reached the close that removes it, and nothing crashed in it.
+    """
     try:
         names = os.listdir(log_dir)
     except OSError:
         return
-    pattern = re.compile(rf"^{re.escape(app)}-\d{{8}}-\d{{6}}-\d+\.log$")
+    pattern = re.compile(rf"^{re.escape(app)}-\d{{8}}-\d{{6}}-(\d+)\.log$")
     logs = sorted(name for name in names if pattern.match(name))
-    for name in logs[:-keep] if keep > 0 else logs:
+    older = logs[:-keep] if keep > 0 else logs
+    for name in older:
         for suffix in ("", ".1", ".crash"):
             try:
                 os.remove(os.path.join(log_dir, name + suffix))
+            except OSError:
+                pass
+    for name in logs[len(older):]:
+        crash = os.path.join(log_dir, name + ".crash")
+        try:
+            if os.path.getsize(crash) != 0:
+                continue  # a dump: that is what the file is for
+        except OSError:
+            continue  # none
+        if process_is_gone(int(pattern.match(name).group(1))):
+            try:
+                os.remove(crash)
             except OSError:
                 pass
 
@@ -492,7 +548,11 @@ class Capture(Recorder):
             # A native crash: Python's own dump, straight to a file, not through a pipe whose reader may be gone.
             self._crash_path = self.log_path + ".crash"
             try:
-                self._crash = open(self._crash_path, "ab", buffering=0)
+                # Owner only, as the log is: a dump holds paths, and a copied log folder keeps the mode.
+                descriptor = os.open(
+                    self._crash_path, os.O_WRONLY | os.O_CREAT | os.O_APPEND | getattr(os, "O_BINARY", 0), 0o600
+                )
+                self._crash = os.fdopen(descriptor, "ab", buffering=0)
                 faulthandler.enable(file=self._crash, all_threads=True)
             except OSError:
                 self._crash = None
@@ -689,12 +749,31 @@ def start(app: str, argv=None, *, headless: bool = False, log_dir=None):
         return None
 
 
+def is_portal_already_registered(category, message) -> bool:
+    """Whether a Qt message is the desktop portal's "this connection already has an application ID".
+
+    Qt registers the application with the desktop's portal once ``setDesktopFileName`` has named it
+    (qt.qpa.services: "Failed to register with host portal ... Could not register app ID: Connection
+    already associated with an application ID"). On GNOME the session has often registered the
+    process already, through the systemd scope its launcher puts it in, so the portal refuses the
+    second registration. The name is in place either way (the taskbar groups and names the window as
+    it should), so the message only alarms, on every start. Any other failure of the registration, or
+    of the services, is not matched and still shows.
+    """
+    return (
+        category == "qt.qpa.services"
+        and "host portal" in message
+        and "already associated with an application id" in message.lower()
+    )
+
+
 def install_qt_message_handler():
     """Route Qt's messages through Python's stderr, tagged "[Qt warning]" and so on, so the Console can tell them apart.
 
     Call it once PySide6 is loaded, as soon as the entry point can (before
     that, QT_FORCE_STDERR_LOGGING gives the messages without the tag). It
-    does nothing in a process that captures no output.
+    does nothing in a process that captures no output. One harmless message
+    is left out (is_portal_already_registered).
     """
     if _capture is None:
         return None
@@ -711,6 +790,8 @@ def install_qt_message_handler():
     def handler(kind, context, message):
         try:
             category = getattr(context, "category", None)
+            if is_portal_already_registered(category, str(message)):
+                return
             prefix = f"[Qt {names.get(kind, 'message')}] "
             if category and category != "default":
                 prefix += f"{category}: "

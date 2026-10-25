@@ -2,7 +2,7 @@
 
 Not collected as a test (the name has no test_ prefix). Usage:
 
-    console_capture_probe.py <result.json> <log_dir> <auto|on|off> [crash] [qt] [close] [burst=N]
+    console_capture_probe.py <result.json> <log_dir> <auto|on|off> [crash] [qt] [qtportal] [close] [burst=N]
 
 Every source writes one marker line, "SRC <name>", and the probe waits until the ring holds all of them
 before it writes its result (what the ring and the log hold, and what each stream was before and after).
@@ -91,6 +91,18 @@ if "qt" in options:
     expected += ["qt warning", "qt critical"]
     QtCore.qWarning("SRC qt warning")
     QtCore.qCritical("SRC qt critical")
+
+if "qtportal" in options:
+    # What Qt prints on GNOME once setDesktopFileName names the app, and a neighbour that is not that.
+    from PySide6 import QtCore
+    Console_Capture.install_qt_message_handler()
+    services = QtCore.QLoggingCategory("qt.qpa.services")
+    expected.append("SRC portal neighbour")
+    QtCore.qCWarning(services, "Failed to register with host portal QDBusError("
+                     "\"org.freedesktop.portal.Error.Failed\", \"Could not register app ID: "
+                     "Connection already associated with an application ID\")")
+    QtCore.qCWarning(services, "Failed to register with host portal QDBusError("
+                     "\"org.freedesktop.portal.Error.Failed\", \"App info not found for 'x'\") SRC portal neighbour")
 
 
 def in_ring():

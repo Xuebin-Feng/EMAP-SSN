@@ -265,6 +265,48 @@ class LogFileTests(unittest.TestCase):
         self.assertEqual(len([name for name in names if name.startswith("tools-")]), 39)  # another app: untouched
         self.assertIn("notes.txt", names)
 
+    def _stale_crash_files(self, dead_pids):
+        """Four logs of one app, each with the crash file a run leaves, and a log of another app with one."""
+        self.log_dir.mkdir()
+        for stem, size in (
+            ("viewer-20261024-120000-111", 0),   # dead, nothing crashed: a killed run's leftover
+            ("viewer-20261024-120001-222", 0),   # a run that is still going
+            ("viewer-20261024-120002-333", 40),  # dead, with a dump
+            ("viewer-20261024-120003-444", None),  # dead, no crash file at all
+            ("tools-20261024-120000-111", 0),    # another app's, left for its own start
+        ):
+            (self.log_dir / (stem + ".log")).write_text("x")
+            if size is not None:
+                (self.log_dir / (stem + ".log.crash")).write_bytes(b"d" * size)
+        return mock.patch.object(Console_Capture, "process_is_gone", side_effect=lambda pid: pid in dead_pids)
+
+    def test_an_empty_crash_file_of_a_process_that_is_gone_is_removed_and_nothing_else(self):
+        with self._stale_crash_files({111, 333, 444}):
+            prune_logs(self.log_dir, "viewer")
+        names = sorted(os.listdir(self.log_dir))
+        self.assertEqual(names, [
+            "tools-20261024-120000-111.log", "tools-20261024-120000-111.log.crash",
+            "viewer-20261024-120000-111.log",  # the log stays, only the empty crash file goes
+            "viewer-20261024-120001-222.log", "viewer-20261024-120001-222.log.crash",  # still running
+            "viewer-20261024-120002-333.log", "viewer-20261024-120002-333.log.crash",  # a dump is kept
+            "viewer-20261024-120003-444.log",
+        ])
+
+    def test_opening_a_log_removes_the_empty_crash_files_a_killed_run_left(self):
+        with self._stale_crash_files({111, 333, 444}):
+            recorder = Recorder("viewer", self.log_dir)
+            self.addCleanup(recorder.close_log)
+        names = os.listdir(self.log_dir)
+        self.assertNotIn("viewer-20261024-120000-111.log.crash", names)
+        self.assertIn("viewer-20261024-120001-222.log.crash", names)
+        self.assertIn("viewer-20261024-120002-333.log.crash", names)
+
+    def test_a_crash_file_that_cannot_be_checked_or_removed_does_no_harm(self):
+        with self._stale_crash_files({111}):
+            with mock.patch.object(Console_Capture.os, "remove", side_effect=PermissionError("held open")):
+                prune_logs(self.log_dir, "viewer")
+        self.assertIn("viewer-20261024-120000-111.log.crash", os.listdir(self.log_dir))
+
     def test_opening_a_log_prunes_its_apps_older_logs(self):
         self.log_dir.mkdir()
         for number in range(Console_Capture.LOG_KEEP):
@@ -293,6 +335,124 @@ class LogFileTests(unittest.TestCase):
         recorder.add("stdout", "two")
         self.assertEqual([line.text for line in recorder.snapshot()], ["one", "two"])
         self.assertEqual(recorder.log_error, "disk full")
+
+
+class ProcessGoneTests(unittest.TestCase):
+    """Console_Capture.process_is_gone: the pruning's question, on both systems (a probe that ends the process on Windows would be a bug)."""
+
+    @staticmethod
+    def _start(code):
+        return subprocess.Popen(
+            [sys.executable, "-c", code], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            creationflags=CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+
+    def test_this_process_and_a_running_one_are_not_gone_and_are_not_disturbed(self):
+        self.assertFalse(Console_Capture.process_is_gone(os.getpid()))
+        child = self._start("import time; time.sleep(60)")
+        self.addCleanup(child.wait)
+        self.addCleanup(child.kill)
+        self.assertFalse(Console_Capture.process_is_gone(child.pid))
+        self.assertFalse(Console_Capture.process_is_gone(child.pid))
+        self.assertIsNone(child.poll(), "asking must not end the process")
+
+    def test_a_process_that_has_ended_is_gone(self):
+        # Windows hands a finished process's number out again quickly: ask about a few.
+        for _attempt in range(5):
+            child = self._start("pass")
+            child.wait()
+            if Console_Capture.process_is_gone(child.pid):
+                return
+        self.fail("a process that ended was never reported gone")
+
+    def test_a_number_that_means_no_process_is_not_called_gone(self):
+        for pid in (0, -1):
+            with self.subTest(pid=pid):
+                self.assertFalse(Console_Capture.process_is_gone(pid))
+
+    @unittest.skipIf(sys.platform == "win32", "os.kill(pid, 0) is the POSIX probe")
+    def test_a_process_of_another_user_is_not_gone(self):
+        with mock.patch.object(Console_Capture.os, "kill", side_effect=PermissionError("not yours")):
+            self.assertFalse(Console_Capture.process_is_gone(4242))
+        with mock.patch.object(Console_Capture.os, "kill", side_effect=ProcessLookupError()):
+            self.assertTrue(Console_Capture.process_is_gone(4242))
+
+
+class CrashFileTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "file modes are POSIX")
+    def test_the_crash_file_is_for_its_owner_alone_as_the_log_is_whatever_the_umask(self):
+        program = (
+            "import os, sys; sys.path.insert(0, sys.argv[1]); os.umask(0); from utilities import Console_Capture as C; "
+            "c = C.install('probe', sys.argv[2], False); "
+            "open(sys.argv[3], 'w').write(' '.join(oct(os.stat(p).st_mode & 0o777) for p in (c._crash_path, c.log_path)))"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            done = subprocess.run(
+                [sys.executable, "-c", program, str(SRC_DIR), os.path.join(directory, "logs"),
+                 os.path.join(directory, "modes")],
+                capture_output=True, stdin=subprocess.DEVNULL, env=child_environment(), timeout=120,
+            )
+            self.assertEqual(done.returncode, 0, done.stderr)
+            self.assertEqual(Path(directory, "modes").read_text().split(), ["0o600", "0o600"])
+
+
+class QtPortalNoticeTests(unittest.TestCase):
+    """The one Qt message GNOME makes on every start, and what the handler does with it and with its neighbours."""
+
+    MESSAGE = (
+        'Failed to register with host portal QDBusError("org.freedesktop.portal.Error.Failed", '
+        '"Could not register app ID: Connection already associated with an application ID")'
+    )
+
+    def test_that_message_is_matched(self):
+        self.assertTrue(Console_Capture.is_portal_already_registered("qt.qpa.services", self.MESSAGE))
+        self.assertTrue(Console_Capture.is_portal_already_registered(
+            "qt.qpa.services", self.MESSAGE.replace("already associated", "Already Associated")))
+
+    def test_its_neighbours_are_not(self):
+        other_failure = self.MESSAGE.replace(
+            "Connection already associated with an application ID", "App info not found for 'emapssn_tools'")
+        for category, message in (
+            ("qt.qpa.services", other_failure),
+            ("qt.qpa.services", 'Failed to register with host portal QDBusError("org.freedesktop.DBus.Error.'
+                                'ServiceUnknown", "The name is not activatable")'),
+            ("qt.qpa.services", "Could not find a program to open the URL"),
+            ("qt.qpa.services", "Connection already associated with an application ID"),  # not the portal's
+            ("qt.qpa.xcb", self.MESSAGE),
+            ("default", self.MESSAGE),
+            ("", self.MESSAGE),
+            (None, self.MESSAGE),
+        ):
+            with self.subTest(category=category, message=message[:50]):
+                self.assertFalse(Console_Capture.is_portal_already_registered(category, message))
+
+    def _handler(self):
+        from PySide6 import QtCore
+
+        installed = []
+        with mock.patch.object(Console_Capture, "_capture", object()), mock.patch.object(
+            QtCore, "qInstallMessageHandler", side_effect=installed.append
+        ):
+            handler = Console_Capture.install_qt_message_handler()
+        self.assertEqual(installed, [handler])
+        return QtCore.QtMsgType, handler
+
+    def test_the_handler_drops_that_message_and_tags_the_rest(self):
+        from types import SimpleNamespace
+
+        kinds, handler = self._handler()
+        services = SimpleNamespace(category="qt.qpa.services")
+        written = io.StringIO()
+        with mock.patch.object(Console_Capture.sys, "stderr", written):
+            handler(kinds.QtWarningMsg, services, self.MESSAGE)
+            handler(kinds.QtWarningMsg, services, self.MESSAGE.replace("Connection already associated", "No portal"))
+            handler(kinds.QtWarningMsg, SimpleNamespace(category="default"), "GPUInfo not initialized")
+            handler(kinds.QtCriticalMsg, SimpleNamespace(category="qt.qpa.xcb"), self.MESSAGE)
+        self.assertEqual(written.getvalue().splitlines(), [
+            "[Qt warning] qt.qpa.services: " + self.MESSAGE.replace("Connection already associated", "No portal"),
+            "[Qt warning] GPUInfo not initialized",
+            "[Qt critical] qt.qpa.xcb: " + self.MESSAGE,
+        ])
 
 
 class OriginalStreamTests(unittest.TestCase):
@@ -752,6 +912,21 @@ class ContextTests(unittest.TestCase):
         self.assertIn("[Qt warning] SRC qt warning", run.ring_texts)
         self.assertIn("[Qt critical] SRC qt critical", run.ring_texts)
         self.assertIn("[Qt warning] SRC qt warning", run.logged())
+
+    def test_the_portal_notice_gnome_starts_print_is_left_out_with_its_neighbour_kept(self):
+        """Through the real Qt: a category's warnings reach the handler as Qt sends them."""
+        run = ProbeRun(self, "pipes", options=("qtportal",))
+        self.assertEqual(run.code, 0, run)
+        self.assertIsNotNone(run.result, "the probe died before its result")
+        self.assertEqual(run.result["missing_in_ring"], [])
+        stderr = run.stderr_bytes.decode("utf-8", "replace")
+        for where, text in (("the ring", "\n".join(run.ring_texts)), ("the log", run.logged()), ("stderr", stderr)):
+            with self.subTest(where=where):
+                self.assertNotIn("already associated", text)
+                self.assertIn("App info not found", text)  # another failure of the same registration shows
+        shown = [text for text in run.ring_texts if "host portal" in text]
+        self.assertEqual(len(shown), 1, shown)
+        self.assertTrue(shown[0].startswith("[Qt warning] qt.qpa.services: Failed to register with host portal"), shown)
 
     def test_without_the_handler_qt_still_writes_to_stderr(self):
         program = (
