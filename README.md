@@ -699,7 +699,7 @@ behind another window.
 environment needs setup or repair, the managed Python is missing, or the start-up screen could not run. What to expect and
 what is not checked: the bundle has no Dock icon of its own (`LSUIElement`), and the start-up screen's process may show
 one, with the logo, while it is up; the app does not see the variables your shell profile sets, which a Terminal start did,
-so run `./emapssn` or `./emapssn_tools` in a terminal if you need them; and if the project folder is in Documents,
+so run `src/bin/EMAPSSN.sh` or `src/bin/EMAPSSN_Tools.sh` in a terminal if you need them; and if the project folder is in Documents,
 Desktop or Downloads, macOS may ask once to let the app read it, since the permission that Terminal held now belongs to the app.
 
 Everything the Configuration, Tools, VR Config and Viewer windows print, their warnings and errors included, is
@@ -711,7 +711,7 @@ Console link in the header of its Session card, or the `console` command open it
 the time of each line, searches and filters it, and opens its log file. To see the output in a terminal as before,
 start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe vr --console`, or on Linux
 `src/bin/EMAPSSN_Desktop_Launcher.sh viewer --console`) or run `src\bin\EMAPSSN.bat` or `src\bin\EMAPSSN_Tools.bat`
-(on Linux and macOS `./emapssn` or `./emapssn_tools`) from a terminal; the Viewer's Console shows the same output there.
+(on Linux `./emapssn` or `./emapssn_tools`, on macOS `src/bin/EMAPSSN.sh` or `src/bin/EMAPSSN_Tools.sh`) from a terminal; the Viewer's Console shows the same output there.
 The Viewer that the Configuration window starts opens the same way on every platform, with a start-up screen and no
 terminal; on Linux and macOS, if that start-up screen cannot run, the Viewer starts in a terminal instead, as it did
 before. The layout generator, which prints its progress, still runs in a terminal.

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-import shlex
 import shutil
 import subprocess
 import sys
@@ -103,12 +102,13 @@ FAKE_CHECK = textwrap.dedent(
 
 
 # What EMAPSSN.sh and EMAPSSN_Tools.sh are to a Linux or macOS launch, as a script: the dependency check, which the
-# launcher runs as `bash <script> --check-only` and which runs the fake Install_Dependencies.py.
+# launcher runs as `bash <script> --check-only` and which runs the fake Install_Dependencies.py with the managed Python
+# (the real scripts probe it first, and exit 10 when it cannot run: SSN_TEST_PYTHON stands for a different one).
 FAKE_PORTABLE_CHECK = textwrap.dedent(
     '''\
     #!/bin/bash
     cd "$(dirname "$0")/../.." || exit 1
-    exec {python} -u src/Install_Dependencies.py "$@"
+    exec "${{SSN_TEST_PYTHON:-{python}}}" -u src/Install_Dependencies.py "$@"
     '''
 )
 
@@ -130,7 +130,7 @@ def make_tree(test):
     (root / "src" / "bin" / "EMAPSSN_Desktop_Launcher.sh").write_text("#!/bin/bash\n", encoding="utf-8", newline="\n")
     for script in ("EMAPSSN.sh", "EMAPSSN_Tools.sh"):
         (root / "src" / "bin" / script).write_text(
-            FAKE_PORTABLE_CHECK.format(python=shlex.quote(sys.executable)), encoding="utf-8", newline="\n")
+            FAKE_PORTABLE_CHECK.format(python=sys.executable), encoding="utf-8", newline="\n")
     return root
 
 
@@ -242,6 +242,22 @@ class PureHelperTests(unittest.TestCase):
             self.assertEqual(plain.check_command_line(), Desktop_Launcher.check_command("/p", "/p/.venv/bin/python", "/u/uv"))
         with mock.patch.object(Desktop_Launcher.sys, "platform", "win32"):
             self.assertEqual(launch.check_command_line(), Desktop_Launcher.check_command("/p", "/p/.venv/bin/python", "/u/uv"))
+
+    def test_off_windows_what_the_launcher_starts_prints_unbuffered_so_its_lines_reach_the_splash_live(self):
+        # The commands say -u on Windows. A launcher script starts its Python without it, and a Python that prints to
+        # a pipe holds its lines until it ends.
+        launch = Launch("viewer", "/p", python="/p/.venv/bin/python", uv="uv", show=False)
+        with mock.patch.dict(os.environ):
+            os.environ.pop("PYTHONUNBUFFERED", None)
+            with mock.patch.object(Desktop_Launcher.sys, "platform", "linux"):
+                self.assertEqual(launch._environment().value("PYTHONUNBUFFERED"), "1")
+            with mock.patch.object(Desktop_Launcher.sys, "platform", "win32"):
+                self.assertEqual(launch._environment().value("PYTHONUNBUFFERED"), "")
+        # Either way the managed-environment overrides go.
+        with mock.patch.dict(os.environ, {"PYTHONHOME": "/x", "QT_PLUGIN_PATH": "/y"}):
+            environment = launch._environment()
+        self.assertFalse(environment.contains("PYTHONHOME"))
+        self.assertFalse(environment.contains("QT_PLUGIN_PATH"))
 
     def test_the_managed_python_is_where_the_platform_puts_it(self):
         self.assertEqual(Desktop_Launcher.venv_python("/p", "win32"), Path("/p/.venv/Scripts/python.exe"))
@@ -601,6 +617,31 @@ class WindowStartTests(LaunchCase):
         self.assertFalse(launch.splash.error)
         self.assertTrue(launch.check_lines)
 
+    @unittest.skipIf(sys.platform == "win32", "Linux and macOS: the portable launcher starts its Python without -u")
+    def test_a_check_line_reaches_the_splash_while_the_check_still_runs_though_its_python_does_not_say_u(self):
+        # Install_Dependencies.py prints a line (no flush) and goes on for a while, as the real check does; the
+        # script that runs it, like EMAPSSN.sh, does not pass -u.
+        (self.root / "src" / "Install_Dependencies.py").write_text(
+            "import time\nprint('the first line', end='\\n')\ntime.sleep(4)\nprint('the last line')\n", encoding="utf-8")
+        for script in ("EMAPSSN.sh", "EMAPSSN_Tools.sh"):
+            (self.root / "src" / "bin" / script).write_text(
+                f'#!/bin/bash\ncd "$(dirname "$0")/../.." || exit 1\nexec "{sys.executable}" src/Install_Dependencies.py "$@"\n',
+                encoding="utf-8", newline="\n")
+        launch = self.launch("viewer", environment={"FAKE_WINDOW_STAY": "0.1"})
+        launch.begin()
+        deadline = time.monotonic() + 3
+        while not launch.check_lines and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.assertEqual(launch.check_lines, ["the first line"])
+        self.assertNotIn("check_finished", launch.marks, "the line came only when the check ended")
+        deadline = time.monotonic() + 60
+        while not self.codes and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.assertEqual(self.codes, [0])
+        self.assertEqual(launch.check_lines, ["the first line", "the last line"])
+
     def test_the_window_gets_the_files_it_reports_through_and_the_monitor_is_told_the_launcher_is_done(self):
         launch = self.launch("tools", environment={"FAKE_WINDOW_STAY": "4"})
         self.assertEqual(self.run_launch(launch), 0)
@@ -830,10 +871,16 @@ class FallbackTests(LaunchCase):
     def test_a_python_that_cannot_start_does_too_instead_of_waiting_for_a_check_that_never_runs(self):
         broken = self.root / "broken_python.exe"
         broken.write_bytes(b"this is not a program")
+        broken.chmod(0o644)
         launch = Launch("viewer", self.root, python=broken, uv="uv", show=False, popen=mock.Mock(name="popen"))
         codes = []
         launch.finished.connect(codes.append)
         self.addCleanup(lambda: launch.splash is not None and launch.splash.deleteLater())
+        # Off Windows the check is the portable launcher's, which runs the managed Python itself (the stand-in script
+        # runs the one it is given): it fails with a code, as the real one does when its probe of the Python fails.
+        patcher = mock.patch.dict(os.environ, {"SSN_TEST_PYTHON": str(broken)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
         launch.begin()
         deadline = time.monotonic() + 30
         while not codes and time.monotonic() < deadline:
@@ -841,7 +888,8 @@ class FallbackTests(LaunchCase):
             time.sleep(0.01)
         self.assertEqual(codes, [0])
         launch.popen.assert_called_once()
-        self.assertEqual(launch.marks["console_reason"], "the environment check could not run")
+        self.assertEqual(launch.marks["console_reason"], "the environment check could not run" if sys.platform == "win32"
+                         else "the environment needs setup or repair")
         self.assertNotIn("monitor_started", launch.marks)
 
     def test_a_console_that_cannot_open_leaves_the_stub_to_try(self):

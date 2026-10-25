@@ -512,6 +512,7 @@ class DesktopLauncherScriptTests(unittest.TestCase):
         result, calls, terminal = self.run_script("viewer")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(calls, [])
+        self.assertNotIn("exit code", result.stderr)  # the launcher was not tried, so it did not fail either
         self.assertIsNotNone(terminal)
         self.assert_terminal_session(terminal, "viewer", "EMAP-SSN Configuration")
 
@@ -519,6 +520,7 @@ class DesktopLauncherScriptTests(unittest.TestCase):
         self.python.chmod(0o644)
         result, calls, terminal = self.run_script("viewer")
         self.assertEqual(calls, [])
+        self.assertNotIn("exit code", result.stderr)
         self.assertIsNotNone(terminal)
 
     def test_a_missing_launcher_script_goes_to_the_terminal_too(self):
