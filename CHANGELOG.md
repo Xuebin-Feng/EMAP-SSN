@@ -65,7 +65,8 @@ still change before version 1.0.0.
   - **The Viewer's Console:** a `console` command, a sidebar button and a link in the
     Session card open a Console window with the Viewer's output, with search, an
     errors-only filter, Copy, Save and Open log. Command help that used to be "printed to
-    the terminal" now points to the Console.
+    the terminal" now points to the Console. A command name the Viewer doesn't know prints
+    `Error: Unknown command: …` there, in red, and in the log, as well as on the status line.
   - **VR Config too:** its shortcut starts `EMAP-SSN.exe vr`, with the same splash under
     the VR logo, and a "Checking VR hardware…" step after the dependency check. A computer
     that can't drive a headset is a warning, not a failure: VR Config still opens, and the
@@ -79,6 +80,11 @@ still change before version 1.0.0.
     (`src/bin/EMAPSSN_Desktop_Launcher.sh tools --console`). On Wayland the desktop decides
     where the splash appears and whether it stays on top. The macOS start is written but
     not yet tested on a Mac. VR Config remains Windows-only.
+- **A `help` command in the Viewer.** `help` lists every command with a one-line summary, and
+  `help X` shows X's help, the same as `X help`, without running X. The list comes from the
+  command catalog, so a new command file appears in it with no other change. The VR viewer
+  keeps its own `help`. The Agent chat's model is not offered it, since its instructions
+  already describe the commands.
 - **Background jobs in the Viewer's Session card.** Below the input files, the card lists the
   jobs that write files (`print`, `label`, `logo`) and the structure folds (`esmfold`), in two
   lines, Files and Folding, that run side by side. Each line runs one job at a time, in order.
