@@ -53,6 +53,10 @@ class StudioColoursTests(unittest.TestCase):
 
 
 class IdentityTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])  # QPixmap needs one, whichever test runs first
+
     def test_the_splash_names_the_product_and_version_the_windows_do(self):
         self.assertEqual(Splash.PRODUCT, Desktop_App.PRODUCT_NAME)
         self.assertEqual(Splash.VERSION, Desktop_App.APPLICATION_VERSION)
@@ -62,8 +66,35 @@ class IdentityTests(unittest.TestCase):
             path = Splash.LOGOS / name
             with self.subTest(kind=kind):
                 self.assertTrue(path.is_file())
-                self.assertLess(path.stat().st_size, 200 * 1024)  # a 512 px copy: the shipped art decodes to 75 MB
+                self.assertLess(path.stat().st_size, 400 * 1024)  # a 512 px copy: the shipped art decodes to 75 MB
                 self.assertEqual((QPixmap(str(path)).width(), QPixmap(str(path)).height()), (512, 512))
+
+
+    def test_the_art_is_the_large_icon_of_the_shortcuts_in_small(self):
+        import numpy
+        from PySide6.QtCore import QSize
+        from PySide6.QtGui import QImage, QImageReader
+
+        def thumbnail(image):
+            image = image.convertToFormat(QImage.Format.Format_RGBA8888_Premultiplied)
+            image = image.scaled(QSize(96, 96), Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            pixels = numpy.frombuffer(image.constBits(), dtype=numpy.uint8).reshape(96, image.bytesPerLine())[:, :96 * 4]
+            return pixels.astype(numpy.float64)
+
+        for kind, copy, large, small in (
+            ("viewer", "splash_logo_viewer_512.png", "viewer_logo_large.png", "viewer_logo.png"),
+            ("tools", "splash_logo_tool_512.png", "tool_logo_large.png", "tool_logo.png"),
+        ):
+            with self.subTest(kind=kind):
+                art = thumbnail(QImage(str(Splash.LOGOS / copy)))
+                differences = {}
+                for name in (large, small):  # the shortcuts' large picture, and the small one the splash used to be made from
+                    reader = QImageReader(str(Splash.LOGOS / name))
+                    reader.setAllocationLimit(0)
+                    reader.setScaledSize(QSize(512, 512))
+                    differences[name] = float(numpy.abs(art - thumbnail(reader.read())).mean())
+                self.assertLess(differences[large], 3.0, differences)
+                self.assertGreater(differences[small], 3 * differences[large], differences)
 
 
 class LanguageTests(unittest.TestCase):
@@ -470,6 +501,37 @@ class SectionTests(WindowCase):
         geometry = window.details_button.geometry()
         self.assertTrue(window.rect().contains(geometry))
         self.assertGreater(geometry.top(), Splash.BAR_Y + Splash.BAR_HEIGHT)
+
+    def test_the_link_and_the_buttons_keep_a_clear_margin_from_the_bottom_edge(self):
+        window = self.splash()
+        roomy = mock.patch.object(Splash.QGuiApplication, "screenAt", return_value=FakeScreen(0, 3000))
+        roomy.start()
+        self.addCleanup(roomy.stop)
+
+        def gap(widget):
+            return window.height() - (widget.geometry().bottom() + 1)
+
+        self.assertGreaterEqual(Splash.BOTTOM_MARGIN, 24)  # about the margin at the left, not the few pixels it was
+        self.assertLessEqual(Splash.BOTTOM_MARGIN, 32)
+        self.assertEqual(gap(window.details_button), Splash.BOTTOM_MARGIN)
+        window.set_details_open(True)
+        for button in (window.copy_button, window.log_button):
+            self.assertEqual(gap(button), Splash.BOTTOM_MARGIN)  # as clear of the edge as the link was
+        window.show_ready()
+        self.assertEqual(gap(window.close_button), Splash.BOTTOM_MARGIN)
+        self.assertFalse(window.details_button.isVisibleTo(window))  # Ready leaves the section and its buttons
+
+    def test_the_section_is_below_the_splash_and_leaves_room_for_its_view(self):
+        window = self.splash()
+        roomy = mock.patch.object(Splash.QGuiApplication, "screenAt", return_value=FakeScreen(0, 3000))
+        roomy.start()
+        self.addCleanup(roomy.stop)
+        window.set_details_open(True)
+        view = window.details.geometry()
+        self.assertGreaterEqual(view.top(), window.details_button.geometry().bottom())
+        self.assertGreaterEqual(view.height(), 180)  # the output has room for a dozen lines
+        self.assertLess(view.bottom(), window.copy_button.geometry().top())
+        self.assertEqual(Splash.HEIGHT, Splash.LINK_Y + Splash.LINK_HEIGHT + Splash.BOTTOM_MARGIN)
 
     def test_the_button_expands_the_window_downward_and_collapses_it_again(self):
         window = self.splash()

@@ -98,12 +98,19 @@ SCHEME = {
     "danger": "#dc2626", "warning": "#b45309", "hover": "#f4f4f5", "accent_soft": "#e9ecfc",
 }
 
-WIDTH, HEIGHT = 640, 360
+# The Show details link sits under the bar, and the splash ends a margin below it (the same margin is left under the
+# buttons of the open section), about as far from the edge as the text is from the left one.
+WIDTH = 640
+LINK_Y, LINK_HEIGHT = 328, 26
+BOTTOM_MARGIN = 30
+HEIGHT = LINK_Y + LINK_HEIGHT + BOTTOM_MARGIN
 # The section Show details opens, below the splash: the output's view and a row of buttons.
-DETAILS_HEIGHT = 264
+DETAILS_HEIGHT = 266
 DETAILS_MARGIN = 32
-DETAILS_GAP = 12
+DETAILS_GAP = 0
 BUTTON_HEIGHT = 34
+# The art is a square at the right, centred between the top and the bottom edge.
+ART_SIZE = 300
 # How many lines the section keeps; the start prints a few dozen, a failing one a traceback.
 MAX_DETAIL_LINES = 5000
 # How many columns of the section's monospace font fit in it, where a warning wraps.
@@ -592,9 +599,9 @@ class SplashWindow(QWidget):
         link.setText(self._details_text(opened))
         link.setIcon(_chevron(opened, SCHEME["accent"]))
         link.adjustSize()
-        link.setGeometry(int(TEXT_X) - 8, 328, link.width(), 26)
+        link.setGeometry(int(TEXT_X) - 8, LINK_Y, link.width(), LINK_HEIGHT)
         link.setVisible(not locked)
-        buttons_y = height - 16 - BUTTON_HEIGHT
+        buttons_y = height - BOTTOM_MARGIN - BUTTON_HEIGHT
         top = HEIGHT + DETAILS_GAP
         self.details.setGeometry(DETAILS_MARGIN, top, WIDTH - 2 * DETAILS_MARGIN, buttons_y - 10 - top)
         right = WIDTH - DETAILS_MARGIN
@@ -747,7 +754,8 @@ class SplashWindow(QWidget):
         glow.setColorAt(1.0, halo)
         painter.fillRect(QRectF(0, 0, WIDTH, HEIGHT), glow)
         if not self.logo.isNull():
-            painter.drawPixmap(QRectF(WIDTH - 330, 36, 300, 300), self.logo, QRectF(self.logo.rect()))
+            painter.drawPixmap(QRectF(WIDTH - 30 - ART_SIZE, (HEIGHT - ART_SIZE) / 2, ART_SIZE, ART_SIZE), self.logo,
+                               QRectF(self.logo.rect()))
         x, width = TEXT_X, TEXT_WIDTH
         left, vcenter = Qt.AlignmentFlag.AlignLeft, Qt.AlignmentFlag.AlignVCenter
         painter.setPen(c["accent"])
