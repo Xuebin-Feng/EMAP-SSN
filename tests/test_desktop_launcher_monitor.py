@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Desktop launcher monitor: the launch-and-wait handshake, the launch environment (managed path overrides, Linux Qt platform), terminal fallback and its dialog's language, exit codes and the application log's encoding."""
+"""Desktop launcher monitor: the launch-and-wait handshake, the launch environment (managed path overrides, Linux Qt platform), terminal fallback and its dialog's language, exit codes and the application log's encoding, and the windows another program registers (their script, folder and monitor script)."""
 
 from __future__ import annotations
 
@@ -388,6 +388,96 @@ class SessionAndStatusTests(unittest.TestCase):
         with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)) as popen:
             Desktop_Launcher_Monitor.launch_viewer_session(PROJECT_ROOT, {})
         self.assertEqual(popen.call_args.args[0][3:], ["session"])
+
+
+class RegisteredApplicationTests(unittest.TestCase):
+    """A program beside this one (opt_vr) adds a window with register_application; the monitor names none of them."""
+
+    def setUp(self):
+        self.addCleanup(Desktop_Launcher_Monitor.EXTRA_APPLICATIONS.clear)
+        self.folder = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(self.folder.cleanup)
+        self.base = Path(self.folder.name)
+        self.script = self.base / "plug" / "Window.py"
+        self.monitor = self.base / "plug" / "Monitor_Plug.py"
+
+    @staticmethod
+    def _process(returncode):
+        process = mock.Mock(pid=12345)
+        process.wait.return_value = returncode
+        return process
+
+    def register(self, **options):
+        Desktop_Launcher_Monitor.register_application("plug", self.script, self.base / "plug", **options)
+
+    def test_nothing_is_registered_until_a_program_does_it(self):
+        self.assertEqual(Desktop_Launcher_Monitor.EXTRA_APPLICATIONS, {})
+        self.assertEqual(Desktop_Launcher_Monitor.application_kinds(), ["session", "tools", "viewer"])
+        self.register(monitor=self.monitor)
+        self.assertEqual(Desktop_Launcher_Monitor.application_kinds(), ["plug", "session", "tools", "viewer"])
+        application = Desktop_Launcher_Monitor.EXTRA_APPLICATIONS["plug"]
+        self.assertEqual((application.script, application.working_dir, application.monitor),
+                         (self.script, self.base / "plug", self.monitor))
+
+    def test_the_window_runs_its_script_in_its_own_folder_with_the_files_it_reports_through(self):
+        self.register(monitor=self.monitor)
+        state = self.base / "state"
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(2)) as popen:
+            Desktop_Launcher_Monitor.run_monitor("plug", state, app_args=["--one"])
+        command = popen.call_args.args[0]
+        self.assertEqual(command[1:], ["-u", str(self.script), "--one"])
+        self.assertEqual(Path(popen.call_args.kwargs["cwd"]), self.base / "plug")  # not the project folder
+        environment = popen.call_args.kwargs["env"]
+        self.assertEqual(environment["SSN_GUI_READY_FILE"], str((state / "gui.ready").resolve()))
+        self.assertEqual(environment["SSN_STARTUP_STATUS_FILE"], str((state / "startup.status").resolve()))
+
+    def test_the_built_in_windows_still_run_in_the_project_folder(self):
+        self.register()
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(2)) as popen:
+            Desktop_Launcher_Monitor.run_monitor("tools", self.base / "state")
+        self.assertEqual(Path(popen.call_args.kwargs["cwd"]), PROJECT_ROOT)
+        self.assertEqual(Path(popen.call_args.args[0][2]), PROJECT_ROOT / "src" / "EMAPSSN_Tools.py")
+
+    def test_the_detached_monitor_of_a_registered_window_is_the_script_it_named(self):
+        self.register(monitor=self.monitor)
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)) as popen:
+            Desktop_Launcher_Monitor.launch_detached_monitor(
+                "plug", self.base / "state", platform_name="win32", failure_report="dialog")
+        command = popen.call_args.args[0]
+        self.assertEqual(Path(command[2]), self.monitor)
+        self.assertEqual(command[3:], ["--failure-report", "dialog", "plug", str((self.base / "state").resolve())])
+        # Another project folder (the tests') changes nothing for it: the program names its own monitor.
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)) as popen:
+            Desktop_Launcher_Monitor.launch_detached_monitor(
+                "plug", self.base / "state", platform_name="win32", project_root=self.base)
+        self.assertEqual(Path(popen.call_args.args[0][2]), self.monitor)
+
+    def test_without_a_monitor_script_it_is_this_one_that_is_started_as_for_every_window(self):
+        self.register()
+        with mock.patch.object(Desktop_Launcher_Monitor.subprocess, "Popen", return_value=self._process(0)) as popen:
+            Desktop_Launcher_Monitor.launch_detached_monitor("plug", self.base / "state", platform_name="win32")
+        self.assertEqual(Path(popen.call_args.args[0][2]), Path(Desktop_Launcher_Monitor.__file__).resolve())
+
+    def test_launch_and_wait_starts_the_registered_monitor_and_the_command_line_accepts_the_kind(self):
+        self.register(monitor=self.monitor)
+        with mock.patch.object(Desktop_Launcher_Monitor, "launch_detached_monitor", return_value=self._process(0)) as start, \
+                mock.patch.object(Desktop_Launcher_Monitor, "wait_for_startup_state", return_value="ready"):
+            self.assertEqual(Desktop_Launcher_Monitor.main(["--launch-and-wait", "plug", "state"]), 0)
+        start.assert_called_once_with("plug", Path("state"))
+        with mock.patch.object(Desktop_Launcher_Monitor, "run_monitor", return_value=0) as run:
+            Desktop_Launcher_Monitor.main(["plug", "state"])
+        run.assert_called_once_with("plug", Path("state"), app_args=[], failure_report="terminal")
+
+    def test_a_kind_nobody_registered_is_still_refused(self):
+        with self.assertRaises(ValueError):
+            Desktop_Launcher_Monitor.launch_detached_monitor("plug", self.base / "state")
+        with self.assertRaises(SystemExit), mock.patch.object(sys, "stderr"):
+            Desktop_Launcher_Monitor.main(["plug", "state"])
+
+    def test_the_monitor_names_no_program_beside_it(self):
+        source = Path(Desktop_Launcher_Monitor.__file__).read_text(encoding="utf-8")
+        for name in ("EMAPSSN_Config_VR", "Monitor_VR", '"vr"'):
+            self.assertNotIn(name, source)
 
 
 class ManagedEnvironmentTests(unittest.TestCase):

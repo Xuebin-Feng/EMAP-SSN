@@ -605,7 +605,7 @@ runtime tensor check; otherwise the environment falls back to CPU. See Apple's
    * **🪟 Windows**:
      Double-click `install.bat` in the project root to generate Windows Shortcuts (`.lnk` files) in the project root and optionally on your Desktop.
 
-     Where the C# compiler that ships with Windows (the .NET Framework's `csc.exe`) is present, the installer also builds `EMAP-SSN.exe`, a small launcher that opens no console window, and the shortcuts start it. If the build fails, the shortcuts run the batch files in a console window, as before.
+     Where the C# compiler that ships with Windows (the .NET Framework's `csc.exe`) is present, the installer also builds `EMAP-SSN.exe`, a small launcher that opens no console window, and the shortcuts start it. If the build fails, the shortcuts run the batch files in a console window, as before. `src\bin\Build_Launcher.bat` does the build, and the VR installer, `opt_vr\install_vr.bat`, runs it too.
 
      > [!TIP]
      > It is highly recommended to enable **Developer Mode** in your Windows Settings (Search for "Developer settings" in Windows). This allows symbolic links to be created without elevation, which is required by the Hugging Face `transformers` cache model download system to avoid duplicating file storage.
@@ -674,6 +674,11 @@ in view, with **Copy** and **Open log**. If that section is open when the window
 stays: it says **Ready** and closes when you press **Close**. If it is closed, it closes by itself, as before.
 If the window fails to start, the section opens by itself with what it printed and why, and **Close**.
 
+The VR Configuration window of opt_vr starts the same way (`EMAP-SSN VR.lnk` runs `EMAP-SSN.exe vr`), with a step of its
+own after the dependency check: **Checking VR hardware…**. A machine that cannot drive a headset gets a warning, not a
+refusal, because the window is useful without one: the section opens by itself with what the check printed in the
+warning colour, the start goes on, and the start-up screen stays at **Ready** until you press **Close**.
+
 Everything the Configuration, Tools, VR Config and Viewer windows print, their warnings and errors included, is
 kept in `temp/logs` of the project folder (one file per run, `config-`, `tools-`, `viewer-` or `vr-config-`
 followed by the time and process number; 8 MB at most, the ten latest of each window kept). The Configuration
@@ -681,8 +686,8 @@ and Tools windows have no Console after they open: read their output there. The 
 and prints the output of its commands, has the **Console** window: the button at the foot of its sidebar, the
 Console link in the header of its Session card, or the `console` command open it, and it shows the output with
 the time of each line, searches and filters it, and opens its log file. To see the output in a terminal as before,
-start a window with `--console` (`EMAP-SSN.exe viewer --console`) or run `src\bin\EMAPSSN.bat` or
-`src\bin\EMAPSSN_Tools.bat` from a terminal. The Linux and macOS launchers still start the windows in a
+start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe vr --console`) or run
+`src\bin\EMAPSSN.bat` or `src\bin\EMAPSSN_Tools.bat` from a terminal. The Linux and macOS launchers still start the windows in a
 terminal, and the Viewer's Console shows the same output there.
 
 ### Headless layout-cache generation
@@ -818,6 +823,7 @@ EMAP-SSN/
 │   │   ├── EMAPSSN.sh           # Linux/macOS platform startup script
 │   │   ├── EMAPSSN_Tools.sh      # Linux/macOS Tools startup script
 │   │   ├── Launcher.cs          # Source of EMAP-SSN.exe (the Windows launcher stub)
+│   │   ├── Build_Launcher.bat   # Builds EMAP-SSN.exe (install.bat and opt_vr's install_vr.bat run it)
 │   │   ├── EMAPSSN_Desktop_Launcher.bat
 │   │   ├── EMAPSSN_Desktop_Launcher.sh
 │   │   ├── EMAPSSN_Terminal_Launcher.sh

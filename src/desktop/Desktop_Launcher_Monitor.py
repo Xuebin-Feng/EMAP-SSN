@@ -11,6 +11,10 @@ that shows the log (the batch files' launch and the POSIX launchers), or, with -
 dialog, in a message box (the Windows launcher, desktop/Desktop_Launcher.py, which has no terminal).
 The launcher that started it follows the window's progress in startup.status (utilities/Startup_Status.py)
 and its readiness in gui.ready.
+
+A program that sits beside this one, as opt_vr does, adds its own window with register_application: the
+script to run, the folder to run it in and the monitor script that is started for it (a few lines that
+register the window and call main()). This file names none of them.
 """
 
 from __future__ import annotations
@@ -22,6 +26,7 @@ import shutil
 import subprocess
 import sys
 import time
+from typing import NamedTuple
 
 SRC_DIR = Path(__file__).resolve().parents[1]
 if str(SRC_DIR) not in sys.path:
@@ -49,6 +54,36 @@ APP_SCRIPTS = {
     "session": Path("src") / "EMAPSSN_Viewer.py",   # a Viewer window that Config starts
 }
 FAILURE_REPORTS = ("terminal", "dialog")
+
+# The windows other programs add (register_application): kind -> Application.
+EXTRA_APPLICATIONS: dict = {}
+
+
+class Application(NamedTuple):
+    """A window a program beside this one adds: its script, the folder it runs in and the monitor script for it."""
+
+    script: Path
+    working_dir: Path
+    monitor: Path | None = None
+
+
+def register_application(kind, script, working_dir, monitor=None):
+    """Teach the monitor a window of another program; the monitor script re-enters itself by ``monitor`` (default: this file).
+
+    The monitor is a process of its own that starts the window, so the program's monitor script, not the
+    launcher that started it, makes this call in that process, and the launcher's process makes it too so
+    that launch_detached_monitor finds the script to start.
+    """
+    EXTRA_APPLICATIONS[kind] = Application(
+        Path(script), Path(working_dir), None if monitor is None else Path(monitor)
+    )
+
+
+def application_kinds():
+    """Every kind the monitor can run: its own windows and the ones registered."""
+    return sorted({*APP_SCRIPTS, *EXTRA_APPLICATIONS})
+
+
 STATUS_FILE_NAME = "startup.status"
 STARTUP_READY = 0
 STARTUP_APPLICATION_EXITED = 20
@@ -225,9 +260,11 @@ def launch_detached_monitor(
 
     failure_report says how it reports a crash after the window opened ("terminal" or "dialog"), and
     app_args go to the window's script. The monitor of project_root's own copy runs, with its own
-    interpreter (python), so a launcher can start a project other than the one it sits in (tests).
+    interpreter (python), so a launcher can start a project other than the one it sits in (tests). A
+    window another program added (register_application) is watched by the monitor script it named.
     """
-    if app_kind not in APP_SCRIPTS:
+    registered = EXTRA_APPLICATIONS.get(app_kind)
+    if app_kind not in APP_SCRIPTS and registered is None:
         raise ValueError(f"Unknown desktop application kind: {app_kind}")
     if failure_report not in FAILURE_REPORTS:
         raise ValueError(f"Unknown failure report: {failure_report}")
@@ -235,6 +272,8 @@ def launch_detached_monitor(
     own_root = Path(__file__).resolve().parents[2]
     project_root = own_root if project_root is None else Path(project_root).resolve()
     monitor = Path(__file__).resolve() if project_root == own_root else project_root / "src" / "desktop" / Path(__file__).name
+    if registered is not None and registered.monitor is not None:
+        monitor = registered.monitor
     state_dir = state_dir.resolve()
     state_dir.mkdir(parents=True, exist_ok=True)
     platform_name = platform_name or sys.platform
@@ -358,7 +397,11 @@ def run_monitor(
     failure_report: str = "terminal",
 ) -> int:
     project_root = Path(__file__).resolve().parents[2]
-    app_script = project_root / APP_SCRIPTS[app_kind]
+    registered = EXTRA_APPLICATIONS.get(app_kind)
+    if registered is not None:
+        app_script, working_dir = registered.script, registered.working_dir
+    else:
+        app_script, working_dir = project_root / APP_SCRIPTS[app_kind], project_root
     state_dir = state_dir.resolve()
     ready_path = state_dir / "gui.ready"
     dismissed_path = state_dir / "terminal.dismissed"
@@ -380,7 +423,7 @@ def run_monitor(
             )
             process = subprocess.Popen(
                 [_console_python(), "-u", str(app_script), *app_args],
-                cwd=str(project_root),
+                cwd=str(working_dir),
                 env=env,
                 stdout=log_handle,
                 stderr=subprocess.STDOUT,
@@ -424,7 +467,7 @@ def main(argv: list[str] | None = None) -> int:
         default="terminal",
         help="how to report a crash after the window opened: a terminal that shows the log, or a dialog",
     )
-    parser.add_argument("app_kind", choices=sorted(APP_SCRIPTS))
+    parser.add_argument("app_kind", choices=application_kinds())
     parser.add_argument("state_dir", type=Path)
     parser.add_argument("app_args", nargs=argparse.REMAINDER, help="arguments for the window's script")
     args = parser.parse_args(argv)

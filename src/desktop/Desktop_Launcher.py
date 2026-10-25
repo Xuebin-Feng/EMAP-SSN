@@ -17,11 +17,18 @@ is the EMAP-SSN Configuration window, as in EMAPSSN_Desktop_Launcher.bat, and "t
 4. checks the environment (Install_Dependencies.py --check-only) and shows the lines it prints, live, on
    the splash. If the environment needs setup or repair it hands over to the old visible console
    (EMAPSSN_Desktop_Launcher.bat), which does that, as before;
-5. starts desktop/Desktop_Launcher_Monitor.py detached, which runs the window with a hidden console and
+5. runs the steps its kind adds (LaunchStep), each with its own line on the splash and its output in the
+   details. A step that fails is a warning, not a failure: the details open by themselves with its output in
+   the warning colour, and the start goes on;
+6. starts desktop/Desktop_Launcher_Monitor.py detached, which runs the window with a hidden console and
    keeps its output in application.log, and follows what the window reports (utilities/Startup_Status.py);
-6. closes the splash when the window is ready (gui.ready), unless the user has opened its details: then it
+7. closes the splash when the window is ready (gui.ready), unless the user has opened its details: then it
    says Ready and stays until Close is pressed. If the window ends first, it opens them and turns into
    an error view that shows the log's last lines.
+
+The kinds are a table, LAUNCH_KINDS. A program that sits beside this one, as opt_vr does, adds its own
+with register_kind from a launcher script of its own that calls entry(), and this file names none of
+them: EMAP-SSN.exe (src/bin/Launcher.cs) is told which script starts which kind.
 
 "session" is a Viewer that Config starts: no check and no lock (Config checked, and many Viewers may be
 open), the same splash and monitor, and the arguments after it go to the Viewer. The monitor reports a
@@ -34,6 +41,7 @@ does. Imports only PySide6 and the standard library, so it is up before the heav
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import functools
 import hashlib
 import json
@@ -44,6 +52,7 @@ import subprocess
 import sys
 import time
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 
 T_START = time.time()
@@ -61,10 +70,6 @@ from desktop import Splash as SplashModule
 from desktop.Splash import SplashWindow, StatusFeed
 from utilities import Startup_Status as Status
 
-# The launcher's kinds, as the batch file names them ("viewer" is Config), and what each is called elsewhere.
-APPLICATION_IDS = {"viewer": "SSN_Config", "tools": "SSN_Tools"}  # the single-instance channels
-SPLASH_KINDS = {"viewer": "config", "tools": "tools", "session": "viewer"}
-KINDS = tuple(SPLASH_KINDS)
 BATCH_FILE = Path("src") / "bin" / "EMAPSSN_Desktop_Launcher.bat"
 INSTALLER = Path("src") / "Install_Dependencies.py"
 VENV_PYTHON = Path(".venv") / "Scripts" / "python.exe"
@@ -80,6 +85,64 @@ CREATE_NO_WINDOW = 0x08000000
 
 # What the splash says while the launcher itself works.
 CHECKED_TEXT = Status.QT_TRANSLATE_NOOP("Splash", "Starting…")
+
+
+# ---------------------------------------------------------------------------------------------
+# The kinds
+# ---------------------------------------------------------------------------------------------
+
+@dataclasses.dataclass(frozen=True)
+class LaunchStep:
+    """A step a kind adds to its start, after the dependency check and before the window.
+
+    ``label`` is what the splash says while it runs (English, marked for translation under "Splash"),
+    ``command(root, python)`` the program to run and its arguments, and ``warning`` the sentence (English, marked
+    the same way) that ends the step's output in the details when it exits with anything but 0: a step is a
+    check the window can do without, so that is a warning and the start goes on.
+    """
+
+    label: str
+    command: Callable[[Path, str], list]
+    warning: str
+    working_dir: Path | None = None  # None: the project folder
+
+
+@dataclasses.dataclass(frozen=True)
+class LaunchKind:
+    """A window the launcher starts: what it is called on the splash, how a second launch finds it, how it starts.
+
+    ``splash_kind`` is the splash's name for the window (desktop/Splash.py), ``application_id`` the key of
+    its single-instance channel (None: many may be open), ``batch_file`` the visible-console launch that
+    sets the environment up and is the fallback (a path under the project folder, or absolute),
+    ``check`` whether the dependency check runs, ``steps`` what else the start does, ``app_user_model_id`` the
+    taskbar identity of the launcher's own process (None: Windows' default), and ``catalogs`` the
+    (directory, name) pairs of the translation catalogs the kind adds to the splash's.
+    """
+
+    name: str
+    splash_kind: str
+    application_id: str | None = None
+    batch_file: Path = BATCH_FILE
+    check: bool = True
+    steps: tuple = ()
+    app_user_model_id: str | None = None
+    catalogs: tuple = ()
+
+
+LAUNCH_KINDS: dict = {}
+
+
+def register_kind(kind):
+    """Add (or replace) a kind; returns it."""
+    LAUNCH_KINDS[kind.name] = kind
+    return kind
+
+
+# The launcher's kinds, as the batch file names them ("viewer" is Config). A session is a Viewer that Config
+# starts: Config checked, and many Viewers may be open.
+register_kind(LaunchKind("viewer", "config", "SSN_Config"))
+register_kind(LaunchKind("tools", "tools", "SSN_Tools"))
+register_kind(LaunchKind("session", "viewer", check=False))
 
 
 # ---------------------------------------------------------------------------------------------
@@ -101,10 +164,11 @@ def single_instance_server_name(application_id, checkout_root, home=None):
 
 def activate_existing_instance(kind, root, timeout_ms=300):
     """Ask the window of this checkout that is already open to come forward; True if there is one."""
-    if kind not in APPLICATION_IDS:
+    application_id = LAUNCH_KINDS[kind].application_id
+    if application_id is None:
         return False
     socket = QLocalSocket()
-    socket.connectToServer(single_instance_server_name(APPLICATION_IDS[kind], root))
+    socket.connectToServer(single_instance_server_name(application_id, root))
     if not socket.waitForConnected(timeout_ms):
         socket.abort()
         return False
@@ -136,8 +200,8 @@ def check_command(root, python, uv):
 
 
 def visible_console_command(root, kind):
-    """The old launch: the batch file in a console of its own, which does any setup and shows what it does."""
-    return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", str(Path(root) / BATCH_FILE), kind]
+    """The old launch: the kind's batch file in a console of its own, which does any setup and shows what it does."""
+    return [os.environ.get("COMSPEC", "cmd.exe"), "/d", "/c", str(Path(root) / LAUNCH_KINDS[kind].batch_file), kind]
 
 
 def open_visible_console(root, kind, *, popen=subprocess.Popen):
@@ -211,15 +275,16 @@ class Launch(QObject):
     def __init__(self, kind, root, *, python=None, uv=None, app_args=(), show=True, check=None, timeout=None,
                  popen=subprocess.Popen, environment=None):
         super().__init__()
-        if kind not in KINDS:
+        if kind not in LAUNCH_KINDS:
             raise ValueError(f"unknown launch kind {kind!r}")
         self.kind = kind
+        self.info = LAUNCH_KINDS[kind]
         self.root = Path(root)
         self.python = str(python or venv_python(root))
         self.uv = uv
         self.app_args = tuple(app_args)
         self.show = show
-        self.check = (kind != "session") if check is None else check
+        self.check = self.info.check if check is None else check
         self.timeout = STARTUP_TIMEOUT_SECONDS if timeout is None else timeout
         self.popen = popen
         self.environment = environment
@@ -231,6 +296,13 @@ class Launch(QObject):
         self.check_process = None
         self._check_buffer = bytearray()
         self.check_lines = []
+        self.steps = list(self.info.steps)  # what is left of the kind's extra steps
+        self.step = None                    # the one that is running: (LaunchStep, QProcess)
+        self.step_total = len(self.steps)
+        self._step_buffer = bytearray()
+        self._step_number = 0
+        self.step_lines = []
+        self.warnings = []                  # the labels of the steps that went wrong
         self._deadline = None
         self._done = False
         self.started_anything = False
@@ -247,7 +319,7 @@ class Launch(QObject):
     def begin(self):
         """Steps 1 to 3 (they end the launch quietly when there is nothing to do), then the check."""
         self.mark("begin")
-        if self.kind in APPLICATION_IDS:
+        if self.info.application_id is not None:
             if activate_existing_instance(self.kind, self.root):
                 self.mark("activated_existing")
                 return self.finish(0)
@@ -258,13 +330,14 @@ class Launch(QObject):
         self.open_splash()
         if self.check:
             return self.start_check()
-        return self.start_monitor()
+        return self.run_steps() if self.steps else self.start_monitor()
 
     def open_splash(self):
         language = SplashModule.splash_language()
         SplashModule.load_fonts(language)
         self._translator = SplashModule.install_catalog(language)
-        self.splash = SplashWindow(SPLASH_KINDS[self.kind], language)
+        self._extra_translators = SplashModule.install_extra_catalogs(language, self.info.catalogs)
+        self.splash = SplashWindow(self.info.splash_kind, language)
         self.splash.closed.connect(self._splash_closed)
         self.splash.set_status(CHECKED_TEXT if not self.check else Status.CHECKING_ENVIRONMENT,
                                SplashModule.FRACTION_CHECKING)
@@ -290,21 +363,25 @@ class Launch(QObject):
         reason = self.needs_setup()
         if reason:
             return self.hand_over_to_console(reason)
-        process = QProcess(self)
-        process.setProgram(self.python)
-        command = check_command(self.root, self.python, self.uv)
-        process.setArguments(command[1:])
-        process.setWorkingDirectory(str(self.root))
-        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
-        process.setProcessEnvironment(self._environment())
-        if hasattr(process, "setCreateProcessArgumentsModifier") and sys.platform == "win32":
-            process.setCreateProcessArgumentsModifier(_no_window)
+        process = self._make_process(check_command(self.root, self.python, self.uv), self.root)
         process.readyReadStandardOutput.connect(self._check_output)
         process.finished.connect(self._check_finished)
         process.errorOccurred.connect(self._check_failed)
         self.check_process = process
         process.start()
         self.mark("check_started")
+
+    def _make_process(self, command, working_dir):
+        """A process for ``command`` (a program and its arguments) with no window, its output merged, not yet started."""
+        process = QProcess(self)
+        process.setProgram(command[0])
+        process.setArguments([str(argument) for argument in command[1:]])
+        process.setWorkingDirectory(str(working_dir))
+        process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        process.setProcessEnvironment(self._environment())
+        if hasattr(process, "setCreateProcessArgumentsModifier") and sys.platform == "win32":
+            process.setCreateProcessArgumentsModifier(_no_window)
+        return process
 
     def _environment(self):
         environment = QProcessEnvironment.systemEnvironment()
@@ -314,17 +391,12 @@ class Launch(QObject):
 
     @_guarded
     def _check_output(self):
-        self._check_buffer.extend(bytes(self.check_process.readAllStandardOutput()))
-        while b"\n" in self._check_buffer:
-            line, _, rest = bytes(self._check_buffer).partition(b"\n")
-            self._check_buffer[:] = rest
-            text = line.decode("utf-8", "replace").strip()
-            if text:
-                self.check_lines.append(text)
-                fraction = min(SplashModule.FRACTION_CHECKED - 0.04,
-                               SplashModule.FRACTION_CHECKING + 0.03 * len(self.check_lines))
-                self.splash.show_text(text, fraction)
-                self.splash.add_output(text)  # and the section Show details opens
+        for text in _read_lines(self.check_process, self._check_buffer):
+            self.check_lines.append(text)
+            fraction = min(SplashModule.FRACTION_CHECKED - 0.04,
+                           SplashModule.FRACTION_CHECKING + 0.03 * len(self.check_lines))
+            self.splash.show_text(text, fraction)
+            self.splash.add_output(text)  # and the section Show details opens
 
     @_guarded
     def _check_failed(self, error):
@@ -341,11 +413,74 @@ class Launch(QObject):
         if code != 0 or status != QProcess.ExitStatus.NormalExit:
             return self.hand_over_to_console("the environment needs setup or repair")
         # Another launch may have opened the window while this one checked.
-        if self.kind in APPLICATION_IDS and activate_existing_instance(self.kind, self.root):
+        if self.info.application_id is not None and activate_existing_instance(self.kind, self.root):
             self.mark("activated_existing")
             return self.finish(0)
-        self.splash.set_status(CHECKED_TEXT, SplashModule.FRACTION_CHECKED)
+        self.run_steps()
+
+    # --- the kind's extra steps
+    def run_steps(self):
+        """Run the next of the kind's steps, or, when none is left, start the window."""
+        if self.steps:
+            return self.start_step(self.steps.pop(0))
+        # The bar's milestone after the check is where it always was; a kind with steps has used the stretch to the next.
+        self.splash.set_status(CHECKED_TEXT, SplashModule.FRACTION_STARTED if self.step_total
+                               else SplashModule.FRACTION_CHECKED)
         self.start_monitor()
+
+    def start_step(self, step):
+        done = self.step_total - len(self.steps) - 1  # the steps before this one
+        span = SplashModule.FRACTION_STARTED - SplashModule.FRACTION_CHECKED
+        self.splash.set_status(step.label, SplashModule.FRACTION_CHECKED + span * done / self.step_total)
+        self._step_number = done + 1
+        self.mark(f"step_{self._step_number}_started")
+        self._step_buffer = bytearray()
+        self.step_lines = []
+        try:
+            process = self._make_process(step.command(self.root, self.python), step.working_dir or self.root)
+        except Exception as error:  # a step that cannot even be put together is as good as one that failed
+            self.step = (step, None)
+            return self.step_done(step, [str(error)], failed=True)
+        process.readyReadStandardOutput.connect(self._step_output)
+        process.finished.connect(self._step_finished)
+        process.errorOccurred.connect(self._step_failed)
+        self.step = (step, process)
+        process.start()
+
+    @_guarded
+    def _step_output(self):
+        # Kept for the end: whether they are a warning is known only when the step has ended. The status line
+        # keeps the step's label, as the user would hardly read the lines of a step that takes a second.
+        if self.step is not None and self.step[1] is not None:
+            self.step_lines.extend(_read_lines(self.step[1], self._step_buffer, keep_indent=True))
+
+    @_guarded
+    def _step_failed(self, error):
+        # A step that starts and then crashes also ends in _step_finished; one that cannot start ends here.
+        if error == QProcess.ProcessError.FailedToStart and self.step is not None and not self._done:
+            step, process = self.step
+            self.step_done(step, [process.errorString()], failed=True)
+
+    @_guarded
+    def _step_finished(self, code, status):
+        if self.step is None or self._done:
+            return
+        step, process = self.step
+        self.step_lines.extend(_read_lines(process, self._step_buffer, final=True, keep_indent=True))
+        self.step_done(step, self.step_lines, failed=code != 0 or status != QProcess.ExitStatus.NormalExit)
+
+    def step_done(self, step, lines, failed):
+        """A step has ended: its lines go to the details, as a warning if it failed, and the next one starts."""
+        self.step = None
+        self.mark(f"step_{self._step_number}_ended")
+        if failed:
+            self.warnings.append(step.label)
+            self.marks["warnings"] = list(self.warnings)
+            self.splash.show_warning([*lines, QCoreApplication.translate("Splash", step.warning)])
+        else:
+            for line in lines:
+                self.splash.add_output(line)
+        self.run_steps()
 
     def hand_over_to_console(self, reason):
         """The environment cannot be used as it is: the old launch, in a visible console, repairs it and starts the window."""
@@ -402,7 +537,7 @@ class Launch(QObject):
                 window=self._window_name(), minutes=int(self.timeout // 60)))
 
     def _window_name(self):
-        return f"{SplashModule.PRODUCT} {SplashModule.tr(SplashModule.SUBTITLES[SPLASH_KINDS[self.kind]])}"
+        return f"{SplashModule.PRODUCT} {SplashModule.tr(SplashModule.SUBTITLES[self.info.splash_kind])}"
 
     def window_ready(self):
         self.mark("gui_ready")
@@ -460,6 +595,26 @@ class Launch(QObject):
         return code
 
 
+def _read_lines(process, buffer, final=False, keep_indent=False):
+    """The complete, non-empty lines a process has printed since the last call; ``buffer`` keeps a partial one.
+
+    With ``final`` (the process has ended), a last line that has no newline is a line too. Lines lose their
+    surrounding blanks, unless ``keep_indent``: then only the trailing ones go, and an indented report stays one.
+    """
+    buffer.extend(bytes(process.readAllStandardOutput()))
+    lines = []
+    while b"\n" in buffer:
+        line, _, rest = bytes(buffer).partition(b"\n")
+        buffer[:] = rest
+        lines.append(line)
+    if final and buffer:
+        lines.append(bytes(buffer))
+        buffer.clear()
+    texts = (line.decode("utf-8", "replace").rstrip() if keep_indent else line.decode("utf-8", "replace").strip()
+             for line in lines)
+    return [text for text in texts if text.strip()]
+
+
 def _no_window(arguments):
     arguments.flags |= CREATE_NO_WINDOW
 
@@ -469,9 +624,28 @@ def run_console(root, kind):
     return subprocess.call(visible_console_command(root, kind), cwd=str(root))
 
 
+def set_process_app_user_model_id(app_id):
+    """Give this process its taskbar identity before it has a window (Windows only; False where it does not take).
+
+    desktop.Desktop_App.set_app_user_model_id does the same for the windows; this module does not import
+    that one, which would cost a tenth of a second before the splash shows.
+    """
+    if sys.platform != "win32":
+        return False
+    try:
+        import ctypes
+
+        function = ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID
+        function.argtypes = [ctypes.c_wchar_p]
+        function.restype = ctypes.c_long
+        return function(app_id) == 0
+    except (AttributeError, OSError):
+        return False
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("kind", choices=KINDS)
+    parser.add_argument("kind", choices=tuple(LAUNCH_KINDS))
     parser.add_argument("--console", action="store_true", help="the old visible-console launch, with no splash")
     parser.add_argument("--root", default=str(SRC_DIR.parent), help="the project folder (tests)")
     parser.add_argument("--python", default=None, help="the interpreter that runs the window (tests)")
@@ -483,6 +657,8 @@ def main(argv=None):
         return run_console(args.root, args.kind)
     if args.kind != "session" and args.app_args:
         parser.error(f"unrecognized arguments: {' '.join(args.app_args)} (only session takes arguments for the window)")
+    if LAUNCH_KINDS[args.kind].app_user_model_id:
+        set_process_app_user_model_id(LAUNCH_KINDS[args.kind].app_user_model_id)
     application = QApplication(sys.argv[:1])
     hidden = args.hidden or os.environ.get(HIDDEN_VARIABLE) == "1"
     launch = Launch(args.kind, args.root, python=args.python, app_args=args.app_args, show=not hidden)
@@ -493,14 +669,19 @@ def main(argv=None):
     return result[0] if result else EXIT_FALLBACK
 
 
-if __name__ == "__main__":
+def entry(argv=None):
+    """What a launcher script runs: main(), and EXIT_FALLBACK, which has the stub open the visible console, when
+    nothing that anyone could see has started and it failed."""
     try:
-        code = main()
+        return main(argv)
     except SystemExit:
         raise
-    except Exception:  # nothing started yet that anyone could see: let the stub open the visible console
+    except Exception:
         import traceback
 
         traceback.print_exc()
-        code = EXIT_FALLBACK
-    raise SystemExit(code)
+        return EXIT_FALLBACK
+
+
+if __name__ == "__main__":
+    raise SystemExit(entry())

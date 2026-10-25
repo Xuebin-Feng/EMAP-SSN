@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Windows launcher stub (src/bin/Launcher.cs, built into EMAP-SSN.exe by install.bat) and the installer that builds it and points the shortcuts at it. The stub is a GUI-subsystem program that starts the Python launcher hidden, with the managed environment's path overrides removed, and falls back to the old visible console when asked (--console), when there is no managed Python, and when the Python launcher fails; install.bat builds it with the .NET Framework compiler, falls back to the batch-file shortcuts when it cannot, and gives each shortcut the AppUserModelID of the process it starts. Skipped where the compiler is absent."""
+"""The Windows launcher stub (src/bin/Launcher.cs, built into EMAP-SSN.exe by install.bat) and the installer that builds it and points the shortcuts at it. The stub is a GUI-subsystem program that starts the Python launcher hidden, with the managed environment's path overrides removed, and falls back to the old visible console when asked (--console), when there is no managed Python, and when the Python launcher fails; install.bat builds it (src/bin/Build_Launcher.bat, which opt_vr's installer runs too) with the .NET Framework compiler, falls back to the batch-file shortcuts when it cannot, and gives each shortcut the AppUserModelID of the process it starts. The stub also starts the VR Configuration window's launcher, which is opt_vr's own script, and falls back to opt_vr's own batch file. Skipped where the compiler is absent."""
 
 from __future__ import annotations
 
@@ -24,6 +24,7 @@ if str(SRC) not in sys.path:
 
 LAUNCHER_SOURCE = SRC / "bin" / "Launcher.cs"
 APP_ID_SCRIPT = SRC / "bin" / "Set_Shortcut_AppId.ps1"
+BUILD_SCRIPT = SRC / "bin" / "Build_Launcher.bat"
 INSTALLER = PROJECT_ROOT / "install.bat"
 CREATE_NO_WINDOW = 0x08000000
 
@@ -146,7 +147,7 @@ class StubTests(unittest.TestCase):
         cls.stub = cls.work / "EMAP-SSN.exe"
         build(LAUNCHER_SOURCE, cls.stub, "/target:winexe", f"/win32icon:{SRC / 'bin' / 'logos' / 'viewer_logo_large.ico'}")
 
-    def project(self, *, with_python=True, with_batch=True):
+    def project(self, *, with_python=True, with_batch=True, with_vr=False, with_vr_script=True):
         folder = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
         self.addCleanup(folder.cleanup)
         root = Path(folder.name)
@@ -161,6 +162,13 @@ class StubTests(unittest.TestCase):
         if with_batch:
             (root / "src" / "bin" / "EMAPSSN_Desktop_Launcher.bat").write_text(
                 '@echo off\r\n>>"%FAKE_BAT_LOG%" echo args=%* cwd=%CD%\r\n', encoding="utf-8")
+        if with_vr:  # opt_vr: its own launcher script and its own console launch
+            (root / "opt_vr" / "src" / "bin").mkdir(parents=True)
+            if with_vr_script:
+                (root / "opt_vr" / "src" / "bin" / "Desktop_Launcher_VR.py").write_text(
+                    "# stands in for opt_vr's launcher\n", encoding="utf-8")
+            (root / "opt_vr" / "src" / "bin" / "EMAPSSN_Desktop_Launcher_VR.bat").write_text(
+                '@echo off\r\n>>"%FAKE_BAT_LOG%" echo vr_batch args=%* cwd=%CD%\r\n', encoding="utf-8")
         return root
 
     @staticmethod
@@ -263,12 +271,70 @@ class StubTests(unittest.TestCase):
         self.run_stub(root, "tools")
         self.assertIn("args=tools", self.read(root / "bat.log"))
 
-    def test_the_source_names_the_one_batch_file_and_launcher_it_starts(self):
+    def test_the_source_names_the_launcher_and_batch_file_of_each_window_it_starts(self):
         text = LAUNCHER_SOURCE.read_text(encoding="utf-8")
-        self.assertIn('Path.Combine(root, "src", "desktop", "Desktop_Launcher.py")', text)
-        self.assertIn('Path.Combine(root, "src", "bin", "EMAPSSN_Desktop_Launcher.bat")', text)
+        for kind, script, batch in (
+            ("viewer", r"src\desktop\Desktop_Launcher.py", r"src\bin\EMAPSSN_Desktop_Launcher.bat"),
+            ("tools", r"src\desktop\Desktop_Launcher.py", r"src\bin\EMAPSSN_Desktop_Launcher.bat"),
+            ("vr", r"opt_vr\src\bin\Desktop_Launcher_VR.py", r"opt_vr\src\bin\EMAPSSN_Desktop_Launcher_VR.bat"),
+        ):
+            with self.subTest(kind=kind):
+                self.assertIn(f'new[] {{ "{kind}", @"{script}", @"{batch}" }}', text)
         self.assertTrue((SRC / "desktop" / "Desktop_Launcher.py").is_file())
         self.assertTrue((SRC / "bin" / "EMAPSSN_Desktop_Launcher.bat").is_file())
+        # opt_vr's own are where the stub looks, when the submodule is checked out beside it.
+        opt_vr = PROJECT_ROOT / "opt_vr" / "src" / "bin"
+        if (opt_vr / "Desktop_Launcher_VR.py").exists() or (opt_vr / "EMAPSSN_Desktop_Launcher_VR.bat").exists():
+            self.assertTrue((opt_vr / "Desktop_Launcher_VR.py").is_file())
+            self.assertTrue((opt_vr / "EMAPSSN_Desktop_Launcher_VR.bat").is_file())
+
+    def test_vr_starts_the_vr_launcher_that_opt_vr_brings_hidden_and_not_the_main_one(self):
+        root = self.project(with_vr=True)
+        self.assertEqual(self.run_stub(root, "vr"), 0)
+        log = self.read(root / "python.log")
+        launcher = root / "opt_vr" / "src" / "bin" / "Desktop_Launcher_VR.py"
+        self.assertIn(f"args=-u|{launcher}|vr", log)
+        self.assertNotIn("Desktop_Launcher.py", log.replace("Desktop_Launcher_VR.py", ""))
+        self.assertIn(f"cwd={root}", log)
+        self.assertIn("console_visible=False", log)
+        self.assertIn("PYTHONHOME=(unset)", log)
+        self.assertFalse((root / "bat.log").exists(), "a console launch ran too")
+
+    def test_vr_falls_back_to_the_vr_batch_file_when_asked_when_python_is_missing_and_when_its_launcher_fails(self):
+        root = self.project(with_vr=True)
+        self.assertEqual(self.run_stub(root, "vr", "--console"), 0)
+        bat = self.read(root / "bat.log")
+        self.assertIn("vr_batch args=vr", bat)
+        self.assertIn(f"cwd={root}", bat)
+        self.assertNotIn("\nargs=", "\n" + bat)  # Config's batch file did not run
+        self.assertFalse((root / "python.log").exists())
+        root = self.project(with_vr=True)
+        self.assertEqual(self.run_stub(root, "vr", exit_code=3), 0)  # the launcher's code for "use the console"
+        self.assertIn("|vr", self.read(root / "python.log"))
+        self.assertIn("vr_batch args=vr", self.read(root / "bat.log"))
+        root = self.project(with_vr=True, with_python=False)  # the first start: the console sets the environment up
+        self.assertEqual(self.run_stub(root, "vr"), 0)
+        self.assertIn("vr_batch args=vr", self.read(root / "bat.log"))
+        self.assertFalse((root / "python.log").exists())
+
+    def test_vr_without_its_launcher_script_opens_its_batch_file_and_the_other_kinds_do_not_need_opt_vr(self):
+        root = self.project(with_vr=True, with_vr_script=False)
+        self.assertEqual(self.run_stub(root, "vr"), 0)
+        self.assertIn("vr_batch args=vr", self.read(root / "bat.log"))
+        self.assertFalse((root / "python.log").exists())
+        root = self.project()  # no opt_vr at all
+        self.assertEqual(self.run_stub(root, "tools"), 0)
+        self.assertIn("|tools", self.read(root / "python.log"))
+
+    def test_the_last_window_named_wins_and_a_word_that_names_none_is_ignored(self):
+        root = self.project(with_vr=True)
+        self.assertEqual(self.run_stub(root, "tools", "vr"), 0)
+        log = self.read(root / "python.log")
+        self.assertIn("Desktop_Launcher_VR.py|vr", log)
+        self.assertNotIn("|tools", log)
+        root = self.project(with_vr=True)
+        self.assertEqual(self.run_stub(root, "vr", "nonsense"), 0)
+        self.assertIn("Desktop_Launcher_VR.py|vr", self.read(root / "python.log"))
 
 
 class InstallerTextTests(unittest.TestCase):
@@ -284,11 +350,21 @@ class InstallerTextTests(unittest.TestCase):
         if listed.returncode == 0:
             self.assertEqual(listed.stdout.split(), [])
 
-    def test_the_installer_uses_the_compiler_that_ships_with_windows_and_embeds_the_icon(self):
-        for part in ("Framework64", "Framework", "v4.0.30319", "csc.exe", "/target:winexe", "/win32icon:", "src\\bin\\Launcher.cs"):
-            self.assertIn(part, self.text)
-        self.assertNotIn("curl", self.text.lower())  # nothing is downloaded for it
-        self.assertNotIn("Invoke-WebRequest", self.text)
+    def test_the_build_script_uses_the_compiler_that_ships_with_windows_and_embeds_the_icon(self):
+        build = BUILD_SCRIPT.read_bytes().decode("utf-8")
+        for part in ("Framework64", "Framework", "v4.0.30319", "csc.exe", "/target:winexe", "/win32icon:", "Launcher.cs"):
+            self.assertIn(part, build)
+        self.assertNotIn("curl", build.lower())  # nothing is downloaded for it
+        self.assertNotIn("Invoke-WebRequest", build)
+        self.assertIn(b"\r\n", BUILD_SCRIPT.read_bytes())
+        self.assertNotIn(b"\r\r", BUILD_SCRIPT.read_bytes())
+
+    def test_the_installer_builds_through_that_script_instead_of_a_copy_of_the_build(self):
+        self.assertIn('call "src\\bin\\Build_Launcher.bat"', self.text)
+        self.assertNotIn("csc.exe", self.text)
+        self.assertNotIn("/target:winexe", self.text)
+        self.assertIn("if !ERRORLEVEL! equ 0", self.text)
+        self.assertIn('set "USE_LAUNCHER_EXE=1"', self.text)
 
     def test_it_keeps_the_old_shortcuts_when_the_build_fails_and_the_batch_file_is_still_there(self):
         self.assertIn("EMAPSSN_Desktop_Launcher.bat", self.text)
@@ -305,6 +381,7 @@ class InstallerTextTests(unittest.TestCase):
     def test_the_helper_files_the_installer_runs_exist(self):
         self.assertTrue(APP_ID_SCRIPT.is_file())
         self.assertTrue(LAUNCHER_SOURCE.is_file())
+        self.assertTrue(BUILD_SCRIPT.is_file())
         self.assertIn("Set_Shortcut_AppId.ps1", self.text)
 
     def test_line_endings_are_what_cmd_needs(self):
@@ -323,7 +400,7 @@ class InstallerRunTests(unittest.TestCase):
         root = Path(folder.name) / "project root"
         (root / "src" / "bin" / "logos").mkdir(parents=True)
         shutil.copyfile(INSTALLER, root / "install.bat")
-        for name in ("Launcher.cs", "Set_Shortcut_AppId.ps1"):
+        for name in ("Launcher.cs", "Set_Shortcut_AppId.ps1", "Build_Launcher.bat"):
             shutil.copyfile(SRC / "bin" / name, root / "src" / "bin" / name)
         for icon in (SRC / "bin" / "logos").glob("*.ico"):
             shutil.copyfile(icon, root / "src" / "bin" / "logos" / icon.name)
@@ -370,6 +447,7 @@ class InstallerRunTests(unittest.TestCase):
                 self.assertEqual(found["AUMID"], APP_USER_MODEL_IDS["config" if kind == "viewer" else "tools"])
         # Nothing but this folder was touched: the Desktop copy was declined.
         self.assertEqual(sorted(path.name for path in root.iterdir()), ["EMAP-SSN Tools.lnk", "EMAP-SSN.exe", "EMAP-SSN.lnk", "install.bat", "src"])
+        self.assertIn("Built EMAP-SSN.exe, the launcher with no console window", done.stdout)
 
     def test_without_the_compiler_the_shortcuts_run_the_batch_file_as_before_and_still_get_their_ids(self):
         from desktop.Desktop_App import APP_USER_MODEL_IDS
@@ -395,6 +473,109 @@ class InstallerRunTests(unittest.TestCase):
         self.assertIn("Could not build EMAP-SSN.exe", done.stdout)
         self.assertFalse((root / "EMAP-SSN.exe").exists(), "the shortcuts would have started an old build")
         self.assertTrue(self.shortcut(root, "EMAP-SSN Tools.lnk")["TARGET"].lower().endswith("cmd.exe"))
+
+
+@unittest.skipUnless(CSC is not None, "the .NET Framework C# compiler is not installed")
+@unittest.skipUnless(sys.platform == "win32", "Build_Launcher.bat is Windows'")
+class BuildLauncherRunTests(unittest.TestCase):
+    """src/bin/Build_Launcher.bat, which install.bat and opt_vr's install_vr.bat share, run in a scratch copy."""
+
+    def tree(self):
+        folder = tempfile.TemporaryDirectory(ignore_cleanup_errors=True)
+        self.addCleanup(folder.cleanup)
+        root = Path(folder.name) / "project root"
+        (root / "src" / "bin" / "logos").mkdir(parents=True)
+        for name in ("Launcher.cs", "Build_Launcher.bat"):
+            shutil.copyfile(SRC / "bin" / name, root / "src" / "bin" / name)
+        shutil.copyfile(SRC / "bin" / "logos" / "viewer_logo_large.ico", root / "src" / "bin" / "logos" / "viewer_logo_large.ico")
+        return root
+
+    @staticmethod
+    def build(root, *arguments, windir=None):
+        environment = dict(os.environ)
+        if windir is not None:
+            environment["WINDIR"] = windir
+        # One string, so cmd gets the quotes as they are: it strips the outer pair and runs call "<script>" <arguments>.
+        command = f'cmd.exe /d /c "call "{root / "src" / "bin" / "Build_Launcher.bat"}" {" ".join(arguments)}"'
+        return subprocess.run(command, cwd=str(root.parent), env=environment, capture_output=True, text=True,
+                              timeout=180, creationflags=CREATE_NO_WINDOW)
+
+    def test_it_builds_a_gui_launcher_from_wherever_it_is_run_and_says_so(self):
+        root = self.tree()
+        done = self.build(root)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("Built EMAP-SSN.exe", done.stdout)
+        self.assertEqual(subsystem(root / "EMAP-SSN.exe"), 2)
+        self.assertEqual(sorted(path.name for path in root.iterdir()), ["EMAP-SSN.exe", "src"])  # nothing else is made
+
+    def test_it_always_replaces_the_launcher_unless_asked_to_build_only_when_needed(self):
+        root = self.tree()
+        (root / "EMAP-SSN.exe").write_bytes(b"an old build")
+        self.assertEqual(self.build(root).returncode, 0)
+        self.assertEqual(subsystem(root / "EMAP-SSN.exe"), 2)  # a real launcher now
+
+    def test_if_needed_leaves_a_launcher_that_is_current_alone(self):
+        root = self.tree()
+        self.assertEqual(self.build(root).returncode, 0)
+        before = (root / "EMAP-SSN.exe").stat().st_mtime_ns
+        done = self.build(root, "--if-needed")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("up to date", done.stdout)
+        self.assertEqual((root / "EMAP-SSN.exe").stat().st_mtime_ns, before)
+
+    def test_if_needed_builds_when_the_launcher_is_missing(self):
+        root = self.tree()
+        done = self.build(root, "--if-needed")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("Built EMAP-SSN.exe", done.stdout)
+        self.assertEqual(subsystem(root / "EMAP-SSN.exe"), 2)
+
+    def test_if_needed_rebuilds_a_launcher_older_than_its_source_as_one_from_before_a_new_window_is(self):
+        root = self.tree()
+        self.assertEqual(self.build(root).returncode, 0)
+        old = (root / "src" / "bin" / "Launcher.cs").stat().st_mtime - 3600
+        os.utime(root / "EMAP-SSN.exe", (old, old))
+        done = self.build(root, "--if-needed")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("Built EMAP-SSN.exe", done.stdout)
+        self.assertGreater((root / "EMAP-SSN.exe").stat().st_mtime, old + 60)
+
+    def test_without_the_compiler_a_missing_launcher_is_reported_with_a_failing_status(self):
+        root = self.tree()
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as empty:
+            done = self.build(root, windir=empty)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertIn("Could not build EMAP-SSN.exe", done.stdout)
+        self.assertFalse((root / "EMAP-SSN.exe").exists())
+
+    def test_without_the_compiler_a_stale_launcher_does_not_count_but_a_current_one_does(self):
+        root = self.tree()
+        self.assertEqual(self.build(root).returncode, 0)
+        old = (root / "src" / "bin" / "Launcher.cs").stat().st_mtime - 3600
+        os.utime(root / "EMAP-SSN.exe", (old, old))
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as empty:
+            stale = self.build(root, "--if-needed", windir=empty)
+            self.assertEqual(stale.returncode, 1, stale.stdout)  # it would open the wrong window for "vr"
+            self.assertIn("Could not build EMAP-SSN.exe", stale.stdout)
+            now = (root / "src" / "bin" / "Launcher.cs").stat().st_mtime + 60
+            os.utime(root / "EMAP-SSN.exe", (now, now))
+            current = self.build(root, "--if-needed", windir=empty)
+            self.assertEqual(current.returncode, 0, current.stdout)
+            self.assertIn("up to date", current.stdout)
+
+    def test_a_failed_build_leaves_no_stale_launcher_behind(self):
+        root = self.tree()
+        (root / "src" / "bin" / "Launcher.cs").write_text("this is not C#", encoding="utf-8")
+        (root / "EMAP-SSN.exe").write_bytes(b"an old build")
+        done = self.build(root)
+        self.assertEqual(done.returncode, 1)
+        self.assertFalse((root / "EMAP-SSN.exe").exists())
+
+    def test_it_changes_nothing_about_the_callers_folder(self):
+        root = self.tree()
+        command = f'cmd.exe /d /c "cd /d "{root.parent}" && call "{root / "src" / "bin" / "Build_Launcher.bat"}" >nul && cd"'
+        done = subprocess.run(command, capture_output=True, text=True, timeout=180, creationflags=CREATE_NO_WINDOW)
+        self.assertEqual(Path(done.stdout.strip()), root.parent)
 
 
 class AppIdTests(unittest.TestCase):

@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The first stage of a Windows launch (desktop.Desktop_Launcher): it finds an open window and ends quietly, holds a lock so a double-click starts one launch, shows the splash and the dependency check's lines live, hands over to the visible console when the environment needs setup, starts the monitor and closes the splash when the window is ready, turns the splash into an error view when the window ends first, passes a Viewer session its arguments, and with --console runs the old launch with no splash. The names it computes match the ones the windows use."""
+"""The first stage of a Windows launch (desktop.Desktop_Launcher): it finds an open window and ends quietly, holds a lock so a double-click starts one launch, shows the splash and the dependency check's lines live, hands over to the visible console when the environment needs setup, starts the monitor and closes the splash when the window is ready, turns the splash into an error view when the window ends first, passes a Viewer session its arguments, and with --console runs the old launch with no splash. The names it computes match the ones the windows use. The kinds are a table that a program beside this one adds to: a kind has its own steps (a step that fails is a warning that opens the splash's details and lets the start go on), batch file, single-instance key, taskbar identity, catalogs and monitor."""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ from PySide6.QtNetwork import QLocalServer  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from desktop import Desktop_App, Desktop_Launcher, Splash  # noqa: E402
-from desktop.Desktop_Launcher import Launch  # noqa: E402
+from desktop.Desktop_Launcher import Launch, LaunchKind, LaunchStep  # noqa: E402
 
 COPIED = (
     "src/desktop/__init__.py", "src/desktop/Desktop_Launcher_Monitor.py", "src/utilities/__init__.py",
@@ -136,12 +136,29 @@ class PureHelperTests(unittest.TestCase):
         self.assertEqual(len(names), 4)
 
     def test_the_kinds_are_the_batch_files_and_the_window_it_starts_is_the_monitors(self):
-        self.assertEqual(set(Desktop_Launcher.KINDS), {"viewer", "tools", "session"})
+        kinds = Desktop_Launcher.LAUNCH_KINDS
+        self.assertEqual(set(kinds), {"viewer", "tools", "session"})
         from desktop import Desktop_Launcher_Monitor
 
-        self.assertEqual(set(Desktop_Launcher.KINDS), set(Desktop_Launcher_Monitor.APP_SCRIPTS))
-        self.assertEqual(set(Desktop_Launcher.SPLASH_KINDS.values()), set(Splash.KINDS))
-        self.assertEqual(Desktop_Launcher.SPLASH_KINDS["viewer"], "config")  # "viewer" is Config, as in the batch file
+        self.assertEqual(set(kinds), set(Desktop_Launcher_Monitor.APP_SCRIPTS))
+        self.assertEqual({kind.splash_kind for kind in kinds.values()}, set(Splash.KINDS))
+        self.assertEqual(kinds["viewer"].splash_kind, "config")  # "viewer" is Config, as in the batch file
+        for name, kind in kinds.items():
+            with self.subTest(kind=name):
+                self.assertEqual(kind.name, name)
+                self.assertEqual(kind.steps, ())  # the windows of this program add no steps of their own
+                self.assertEqual(kind.batch_file, Desktop_Launcher.BATCH_FILE)
+                self.assertIsNone(kind.app_user_model_id)
+                self.assertEqual(kind.catalogs, ())
+        # The single-instance channels are the windows' own; a session may be open many times, and runs no check.
+        self.assertEqual((kinds["viewer"].application_id, kinds["tools"].application_id, kinds["session"].application_id),
+                         ("SSN_Config", "SSN_Tools", None))
+        self.assertEqual((kinds["viewer"].check, kinds["tools"].check, kinds["session"].check), (True, True, False))
+
+    def test_this_module_names_no_program_beside_it(self):
+        source = Path(Desktop_Launcher.__file__).read_text(encoding="utf-8")
+        for name in ("EMAPSSN_Config_VR", "Detect_GPU_VR", "Launcher_VR", '"vr"'):
+            self.assertNotIn(name, source)
 
     def test_the_check_is_the_one_the_batch_file_runs(self):
         command = Desktop_Launcher.check_command("C:/p", "C:/p/.venv/Scripts/python.exe", "uv")
@@ -181,6 +198,60 @@ class PureHelperTests(unittest.TestCase):
 
     def test_the_stub_exits_with_a_code_that_means_use_the_console(self):
         self.assertEqual(Desktop_Launcher.EXIT_FALLBACK, 3)
+
+    def test_the_lines_of_a_process_are_split_on_newlines_and_a_steps_keep_their_indent(self):
+        class Process:
+            def __init__(self, data):
+                self.data = data
+
+            def readAllStandardOutput(self):
+                data, self.data = self.data, b""
+                return data
+
+        for keep, expected in ((True, ["  [ok] a", "       reason with é"]), (False, ["[ok] a", "reason with é"])):
+            with self.subTest(keep_indent=keep):
+                buffer = bytearray()
+                process = Process("  [ok] a\r\n       reason with é\n\n   \npart".encode("utf-8"))
+                self.assertEqual(Desktop_Launcher._read_lines(process, buffer, keep_indent=keep), expected)
+                self.assertEqual(bytes(buffer), b"part")  # a line with no newline yet waits for it
+                process.data = b"ial\n"
+                self.assertEqual(Desktop_Launcher._read_lines(process, buffer, keep_indent=keep), ["partial"])
+                process.data = b"the last, with no newline"
+                self.assertEqual(Desktop_Launcher._read_lines(process, buffer, keep_indent=keep), [])
+                self.assertEqual(Desktop_Launcher._read_lines(process, buffer, final=True, keep_indent=keep),
+                                 ["the last, with no newline"])
+                self.assertEqual(bytes(buffer), b"")
+
+    def test_an_unknown_kind_is_refused(self):
+        with self.assertRaises(ValueError):
+            Launch("elsewhere", "C:/p")
+        with self.assertRaises(SystemExit), mock.patch.object(sys, "stderr"):
+            Desktop_Launcher.main(["elsewhere"])
+
+    def test_a_launcher_script_gets_the_stubs_fallback_when_main_fails_and_a_usage_error_passes_through(self):
+        with mock.patch.object(Desktop_Launcher, "main", side_effect=RuntimeError("boom")), mock.patch.object(
+            Desktop_Launcher.sys, "stderr"
+        ):
+            self.assertEqual(Desktop_Launcher.entry(["viewer"]), Desktop_Launcher.EXIT_FALLBACK)
+        with mock.patch.object(Desktop_Launcher, "main", return_value=0) as main:
+            self.assertEqual(Desktop_Launcher.entry(["tools"]), 0)
+        main.assert_called_once_with(["tools"])
+        with self.assertRaises(SystemExit):
+            with mock.patch.object(sys, "stderr"):
+                Desktop_Launcher.entry(["elsewhere"])
+
+    @unittest.skipUnless(sys.platform == "win32", "taskbar identities are a Windows thing")
+    def test_the_process_takes_the_taskbar_identity_it_is_given_before_it_has_a_window(self):
+        program = (
+            "import ctypes, sys; sys.path.insert(0, sys.argv[1]); from desktop import Desktop_Launcher; "
+            "print(Desktop_Launcher.set_process_app_user_model_id('ca.test.one')); "
+            "p = ctypes.c_wchar_p(); ctypes.windll.shell32.GetCurrentProcessExplicitAppUserModelID(ctypes.byref(p)); print(p.value)"
+        )
+        done = subprocess.run([sys.executable, "-c", program, str(SRC)], capture_output=True, text=True, timeout=120,
+                              creationflags=Desktop_Launcher.CREATE_NO_WINDOW, env=dict(os.environ, QT_QPA_PLATFORM="offscreen"))
+        self.assertEqual(done.stdout.split(), ["True", "ca.test.one"], done.stderr)
+        with mock.patch.object(Desktop_Launcher.sys, "platform", "linux"):
+            self.assertFalse(Desktop_Launcher.set_process_app_user_model_id("x"))
 
 
 class LockTests(unittest.TestCase):
@@ -608,6 +679,266 @@ class SessionTests(LaunchCase):
         self.assertIn("gui_ready", first.marks)
         self.assertIn("gui_ready", second.marks)
         self.assertNotEqual(first.state_dir, second.state_dir)
+
+
+# A step of a plug-in's start: prints its name's lines and exits with FAKE_STEP_EXIT if it is the "second".
+FAKE_STEP = textwrap.dedent(
+    '''
+    import os, sys
+    name = sys.argv[1]
+    print(name + ": line one", flush=True)
+    print(name + ": cwd is " + os.path.basename(os.getcwd()), flush=True)
+    sys.exit(int(os.environ.get("FAKE_STEP_EXIT", "0")) if name == "second" else 0)
+    '''
+)
+# What opt_vr's monitor script does, as a stand-in: register the window with the monitor, call its main().
+FAKE_PLUGIN_MONITOR = textwrap.dedent(
+    '''
+    import sys
+    from pathlib import Path
+    here = Path(__file__).resolve().parent
+    sys.path.insert(0, str(here.parent / "src"))
+    from desktop import Desktop_Launcher_Monitor as monitor
+    monitor.register_application("plug", here / "Window.py", here, monitor=Path(__file__).resolve())
+    raise SystemExit(monitor.main())
+    '''
+)
+
+
+class PluginKindTests(LaunchCase):
+    """A program beside this one adds a kind: its own steps, batch file, key and monitor, with this file naming none."""
+
+    FIRST, SECOND = "Checking the first thing…", "Checking the second thing…"
+    WARNING = "The plug will still open, but may not work here."
+
+    def setUp(self):
+        super().setUp()
+        self.plug = self.root / "plug"
+        self.plug.mkdir()
+        (self.plug / "Window.py").write_text(FAKE_WINDOW, encoding="utf-8")
+        (self.plug / "Step.py").write_text(FAKE_STEP, encoding="utf-8")
+        (self.plug / "Monitor_Plug.py").write_text(FAKE_PLUGIN_MONITOR, encoding="utf-8")
+        (self.plug / "Launch_Plug.bat").write_text("@echo off\r\n", encoding="utf-8")
+        from desktop import Desktop_Launcher_Monitor
+
+        Desktop_Launcher_Monitor.register_application("plug", self.plug / "Window.py", self.plug,
+                                                      monitor=self.plug / "Monitor_Plug.py")
+        self.addCleanup(Desktop_Launcher_Monitor.EXTRA_APPLICATIONS.pop, "plug", None)
+        self.register()
+
+    def step(self, name, label, **options):
+        return LaunchStep(label, lambda root, python: [python, "-u", str(Path(root) / "plug" / "Step.py"), name],
+                          self.WARNING, **options)
+
+    def register(self, steps=None, **options):
+        steps = (self.step("first", self.FIRST), self.step("second", self.SECOND, working_dir=self.plug)) \
+            if steps is None else steps
+        kind = Desktop_Launcher.register_kind(LaunchKind(
+            "plug", "config", "SSN_Plug", batch_file=self.plug / "Launch_Plug.bat", steps=steps,
+            app_user_model_id="ca.test.plug", **options))
+        self.addCleanup(Desktop_Launcher.LAUNCH_KINDS.pop, "plug", None)
+        return kind
+
+    def run_until(self, launch, condition, seconds=60):
+        launch.begin()
+        deadline = time.monotonic() + seconds
+        while not condition() and time.monotonic() < deadline and not self.codes:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.assertTrue(condition(), "the condition was not met")
+
+    def watch_statuses(self):
+        seen = []
+        original = Launch.open_splash
+
+        def watching(launch):
+            original(launch)
+            shown = launch.splash.show_text
+            launch.splash.show_text = lambda text, fraction=None: (seen.append((text, fraction)), shown(text, fraction))
+
+        patcher = mock.patch.object(Launch, "open_splash", watching)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return seen
+
+    def test_the_kind_starts_its_own_window_through_its_own_monitor_in_its_own_state_folder(self):
+        launch = self.launch("plug", environment={"FAKE_WINDOW_STAY": "5"})
+        self.run_until(launch, lambda: "gui_ready" in launch.marks)
+        self.assertTrue(launch.state_dir.name.startswith("plug_"))
+        self.assertIn("fake window starts", launch.splash.details.toPlainText())  # the plug's window, not Config's
+        self.assertEqual(launch.splash.kind, "config")
+        self.assertEqual(Path(launch.monitor.args[2]), self.plug / "Monitor_Plug.py")
+        self.assertEqual(launch.monitor.args[3:6], ["--failure-report", "dialog", "plug"])
+
+    def test_its_steps_run_after_the_check_and_before_the_window_each_with_a_stretch_of_the_bar(self):
+        seen = self.watch_statuses()
+        launch = self.launch("plug", environment={"FAKE_WINDOW_STAY": "0.1"})
+        self.assertEqual(self.run_launch(launch), 0)
+        texts = [text for text, _ in seen]
+        self.assertEqual(texts[:3], ["Managed Python: fake", "Detected: a fake GPU", "Dependency environment is ready (fake)."])
+        order = [texts.index(text) for text in ("Dependency environment is ready (fake).", self.FIRST, self.SECOND,
+                                                "Starting…", "Loading PyTorch…")]
+        self.assertEqual(order, sorted(order))
+        fractions = dict(seen)
+        checked, started = Splash.FRACTION_CHECKED, Splash.FRACTION_STARTED
+        self.assertAlmostEqual(fractions[self.FIRST], checked)
+        self.assertAlmostEqual(fractions[self.SECOND], checked + (started - checked) / 2)
+        self.assertAlmostEqual(fractions["Starting…"], started)
+        for step in ("step_1_started", "step_1_ended", "step_2_started", "step_2_ended", "monitor_started"):
+            self.assertIn(step, launch.marks)
+        order = ["check_finished", "step_1_started", "step_1_ended", "step_2_started", "step_2_ended", "monitor_started"]
+        self.assertEqual([launch.marks[name] for name in order], sorted(launch.marks[name] for name in order))
+        self.assertLess(launch.marks["step_1_started"], launch.marks["step_1_ended"])  # a step takes some time
+        self.assertEqual(launch.warnings, [])
+        self.assertNotIn("warnings", launch.marks)
+
+    def test_a_kind_with_no_steps_goes_from_the_check_to_the_window_as_every_kind_did(self):
+        self.register(steps=())
+        seen = self.watch_statuses()
+        launch = self.launch("plug", environment={"FAKE_WINDOW_STAY": "0.1"})
+        self.assertEqual(self.run_launch(launch), 0)
+        fractions = dict(seen)
+        self.assertAlmostEqual(fractions["Starting…"], Splash.FRACTION_CHECKED)
+        self.assertNotIn("step_1_started", launch.marks)
+
+    def test_the_output_of_a_step_that_passed_is_in_the_details_in_order_in_the_plain_colour(self):
+        launch = self.launch("plug", environment={"FAKE_WINDOW_STAY": "5"})
+        launch.begin()
+        launch.splash.set_details_open(True)
+        deadline = time.monotonic() + 60
+        while "gui_ready" not in launch.marks and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        lines = launch.splash.details.toPlainText().splitlines()
+        self.assertEqual(lines[3:7], ["first: line one", "first: cwd is " + self.root.name,
+                                      "second: line one", "second: cwd is plug"])  # a step's folder: its own, or the project's
+        self.assertEqual([launch.splash.details.kind_of(index) for index in range(3, 7)], ["info"] * 4)
+        self.assertNotIn(self.WARNING, lines)
+        self.assertTrue(launch.splash.ready)  # opened by the reader: it stays
+        launch.splash.close_button.click()
+
+    def test_a_step_that_fails_is_a_warning_the_details_open_by_themselves_and_the_start_goes_on(self):
+        launch = self.launch("plug", environment={"FAKE_STEP_EXIT": "11", "FAKE_WINDOW_STAY": "8"})
+        self.run_until(launch, lambda: "gui_ready" in launch.marks)  # the window opened though the step failed
+        splash = launch.splash
+        self.assertEqual(launch.warnings, [self.SECOND])
+        self.assertEqual(launch.marks["warnings"], [self.SECOND])
+        lines = splash.details.toPlainText().splitlines()
+        first = lines.index("first: line one")
+        self.assertEqual(lines[first + 2:first + 5], ["second: line one", "second: cwd is plug", self.WARNING])
+        kinds = [splash.details.kind_of(index) for index in range(len(lines))]
+        self.assertEqual(kinds[first:first + 2], ["info", "info"])        # the step that passed
+        self.assertEqual(kinds[first + 2:first + 5], ["warning"] * 3)     # the one that did not, and what it means
+        self.assertIn("fake window starts", lines)                        # the window went on to start
+        self.assertEqual(kinds[lines.index("fake window starts")], "info")
+        # Nobody opened the details: the warning did, and at the end the splash stays at Ready until Close is pressed.
+        for _ in range(60):
+            self.app.processEvents()
+            time.sleep(0.02)
+        self.assertEqual(self.codes, [], "the launch ended on its own")
+        self.assertTrue(splash.isVisible())
+        self.assertTrue(splash.details_open)
+        self.assertTrue(splash.ready)
+        self.assertEqual(splash.status, "Ready")
+        self.assertIn("ready_kept_open", launch.marks)
+        self.assertNotIn("finished", launch.marks)
+        self.assertFalse(splash.error)
+        self.assertTrue((launch.state_dir / "terminal.dismissed").is_file())  # the monitor is told the launcher is done
+        splash.close_button.click()
+        self.assertEqual(self.codes, [0])
+
+    def test_a_reader_who_hides_the_details_after_the_warning_has_the_splash_close_at_ready_as_it_does_for_anyone(self):
+        launch = self.launch("plug", environment={"FAKE_STEP_EXIT": "11", "FAKE_WINDOW_STAY": "0.1", "FAKE_WINDOW_DELAY": "1.5"})
+        self.run_until(launch, lambda: "step_2_ended" in launch.marks)
+        self.assertTrue(launch.splash.details_open)
+        launch.splash.set_details_open(False)
+        deadline = time.monotonic() + 60
+        while not self.codes and time.monotonic() < deadline:
+            self.app.processEvents()
+            time.sleep(0.01)
+        self.assertEqual(self.codes, [0])
+        self.assertNotIn("ready_kept_open", launch.marks)
+
+    def test_a_step_that_cannot_start_or_cannot_be_put_together_is_a_warning_too(self):
+        def broken(root, python):
+            raise RuntimeError("cannot put it together")
+
+        steps = (LaunchStep(self.FIRST, lambda root, python: [str(self.root / "no-such-program.exe")], self.WARNING),
+                 LaunchStep(self.SECOND, broken, self.WARNING))
+        self.register(steps=steps)
+        launch = self.launch("plug", environment={"FAKE_WINDOW_STAY": "5"})
+        self.run_until(launch, lambda: "gui_ready" in launch.marks)
+        self.assertEqual(launch.warnings, [self.FIRST, self.SECOND])
+        text = launch.splash.details.toPlainText()
+        self.assertIn("cannot put it together", text)
+        self.assertEqual(text.count(self.WARNING), 2)
+        self.assertIn("fake window starts", text)
+        launch.splash.close_button.click()
+
+    def test_the_kinds_own_batch_file_is_the_fallback_not_configs_and_no_step_runs_before_it(self):
+        launch = self.launch("plug", environment={"FAKE_CHECK_EXIT": "10"})
+        self.assertEqual(self.run_launch(launch), 0)
+        launch.popen.assert_called_once()
+        command = launch.popen.call_args.args[0]
+        self.assertEqual(Path(command[-2]), self.plug / "Launch_Plug.bat")
+        self.assertEqual(command[-1], "plug")
+        self.assertNotIn("step_1_started", launch.marks)
+        self.assertNotIn("monitor_started", launch.marks)
+        self.assertEqual(Desktop_Launcher.visible_console_command("C:/p", "tools")[3],
+                         str(Path("C:/p") / Desktop_Launcher.BATCH_FILE))
+
+    def test_the_console_option_runs_the_kinds_batch_file_in_this_console(self):
+        with mock.patch.object(Desktop_Launcher.subprocess, "call", return_value=5) as call, mock.patch.object(
+            Desktop_Launcher, "QApplication"
+        ) as application:
+            self.assertEqual(Desktop_Launcher.main(["plug", "--console", "--root", str(self.root)]), 5)
+        application.assert_not_called()
+        self.assertEqual(Path(call.call_args.args[0][-2]), self.plug / "Launch_Plug.bat")
+
+    def test_a_second_launch_brings_the_open_window_forward_by_the_kinds_own_key(self):
+        name = Desktop_Launcher.single_instance_server_name("SSN_Plug", self.root)
+        activated = []
+        server = QLocalServer()
+        QLocalServer.removeServer(name)
+        self.assertTrue(server.listen(name))
+        self.addCleanup(server.close)
+        server.newConnection.connect(lambda: activated.append(server.nextPendingConnection().readAll()))
+        launch = self.launch("plug")
+        self.assertEqual(self.run_launch(launch, seconds=10), 0)
+        deadline = time.monotonic() + 3
+        while not activated and time.monotonic() < deadline:
+            self.app.processEvents()
+        self.assertEqual(len(activated), 1)
+        self.assertIn("activated_existing", launch.marks)
+        self.assertIsNone(launch.splash)
+        # Config's window under the same checkout is not the plug's: it is another key.
+        self.assertFalse(Desktop_Launcher.activate_existing_instance("viewer", self.root))
+        self.assertNotEqual(name, Desktop_Launcher.single_instance_server_name("SSN_Config", self.root))
+
+    def test_the_kinds_catalogs_are_installed_with_the_splashs_own(self):
+        self.register(catalogs=((str(self.plug), "emapssn_plug"),))
+        launch = self.launch("plug", environment={"FAKE_WINDOW_STAY": "0.1"})
+        with mock.patch.object(Splash, "install_extra_catalogs", wraps=Splash.install_extra_catalogs) as install:
+            self.assertEqual(self.run_launch(launch), 0)
+        install.assert_called_once()
+        self.assertEqual(install.call_args.args[1], ((str(self.plug), "emapssn_plug"),))
+
+    def test_the_command_line_accepts_the_kind_and_gives_the_process_its_taskbar_identity_before_the_window(self):
+        for kind, expected in (("plug", ["ca.test.plug"]), ("viewer", [])):
+            with self.subTest(kind=kind), mock.patch.object(Desktop_Launcher, "QApplication") as application, \
+                    mock.patch.object(Desktop_Launcher, "Launch"), mock.patch.object(Desktop_Launcher, "QTimer"), \
+                    mock.patch.object(Desktop_Launcher, "set_process_app_user_model_id") as identity:
+                application.side_effect = lambda *arguments: (self.assertEqual(identity.called, kind == "plug"), mock.DEFAULT)[1]
+                Desktop_Launcher.main([kind, "--root", str(self.root), "--hidden"])
+            self.assertEqual([call.args[0] for call in identity.call_args_list], expected)
+
+    def test_a_step_is_a_check_the_window_can_do_without_so_a_kind_may_run_steps_with_no_dependency_check(self):
+        self.register(steps=(self.step("first", self.FIRST),), check=False)
+        launch = self.launch("plug", environment={"FAKE_WINDOW_STAY": "0.1"})
+        self.assertEqual(self.run_launch(launch), 0)
+        self.assertNotIn("check_started", launch.marks)
+        self.assertIn("step_1_started", launch.marks)
+        self.assertIn("gui_ready", launch.marks)
 
 
 class BrokenLaunchTests(LaunchCase):

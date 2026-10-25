@@ -117,9 +117,10 @@ VIEWER_DESKTOP_FILE_NAME = "emapssn"
 
 
 # The AppUserModelID of each window's process, and of its shortcut (install.bat sets the same IDs on
-# the shortcuts it makes, tests/test_launcher_stub.py keeps the two in step): Windows groups a
-# process's windows in the taskbar under the shortcut that carries its ID, with the shortcut's name and
-# icon, so the taskbar says "EMAP-SSN" and not "Python", and a pinned shortcut finds its window again.
+# the shortcuts it makes, and opt_vr's install_vr.bat the VR one; tests/test_launcher_stub.py and opt_vr's
+# tests keep them in step): Windows groups a process's windows in the taskbar under the shortcut that
+# carries its ID, with the shortcut's name and icon, so the taskbar says "EMAP-SSN" and not "Python", and
+# a pinned shortcut finds its window again.
 APP_USER_MODEL_IDS = {
     "config": "ca.utoronto.emapssn.config",
     "tools": "ca.utoronto.emapssn.tools",

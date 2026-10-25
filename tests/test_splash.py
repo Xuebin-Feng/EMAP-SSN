@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The start-up splash (desktop.Splash) and the status the windows report to it (utilities.Startup_Status): the light colours are the Studio theme's, the language follows the saved setting as the windows do, a status file is read line by line as it grows, texts are translated and filled in, the bar fills as the start passes its milestones and never goes back, the window has no taskbar button and opens on the screen under the pointer, and the error view shows the last lines with Copy, Open log and Close. The splash process hands over to the window it waits for: it closes when the ready file appears, and an error view stays."""
+"""The start-up splash (desktop.Splash) and the status the windows report to it (utilities.Startup_Status): the light colours are the Studio theme's, the language follows the saved setting as the windows do, a status file is read line by line as it grows, texts are translated and filled in, the bar fills as the start passes its milestones and never goes back, the window has no taskbar button and opens on the screen under the pointer, and the error view shows the last lines with Copy, Open log and Close. A step of the start that goes wrong without stopping it opens the section by itself with its lines in the warning colour, wrapped to the section's width. A program beside this one adds a window (its name and art) and its own translation catalogs. The splash process hands over to the window it waits for: it closes when the ready file appears, and an error view stays."""
 
 from __future__ import annotations
 
@@ -738,6 +738,137 @@ class ErrorOpensTheSectionTests(WindowCase):
         empty = self.splash()
         empty.show_error(["given"], "log")
         self.assertEqual(empty.details.toPlainText(), "given")
+
+
+class WarningTests(WindowCase):
+    """A step that went wrong and did not stop the start: the section opens with its lines as a warning."""
+
+    def test_the_section_opens_by_itself_with_the_lines_in_the_warning_colour(self):
+        window = self.splash()
+        window.add_output("Dependency environment is ready (fake).")
+        self.assertFalse(window.details_open)
+        window.show_warning(["VR hardware: a plain line that says nothing of a problem", "  indented", "the last"])
+        self.assertTrue(window.details_open)
+        self.assertEqual(window.height(), window._section_height())
+        self.assertEqual(window.details.toPlainText().splitlines()[1:],
+                         ["VR hardware: a plain line that says nothing of a problem", "  indented", "the last"])
+        self.assertEqual([window.details.kind_of(index) for index in range(4)], ["info", "warning", "warning", "warning"])
+        self.assertEqual(window.details.formats["warning"].foreground().color().name(), Splash.SCHEME["warning"])
+        self.assertFalse(window.error)
+        self.assertFalse(window.ready)
+
+    def test_unlike_an_error_view_it_is_not_locked_and_has_no_close_button_yet(self):
+        window = self.splash()
+        window.show_warning(["a warning"])
+        self.assertTrue(window.details_button.isVisibleTo(window))
+        self.assertFalse(window.close_button.isVisibleTo(window))
+        window.set_details_open(False)  # the reader may hide it again
+        self.assertFalse(window.details_open)
+        self.assertEqual(window.height(), Splash.HEIGHT)
+
+    def test_it_stays_at_ready_with_close_when_the_start_ends_with_the_section_open(self):
+        window = self.splash()
+        window.show_warning(["a warning"])
+        window.show_ready()
+        self.assertTrue(window.ready)
+        self.assertTrue(window.details_open)
+        self.assertEqual(window.status, "Ready")
+        self.assertTrue(window.close_button.isVisibleTo(window))
+        self.assertEqual(window.details.kind_of(0), "warning")
+
+    def test_long_lines_wrap_to_the_sections_width_with_their_indent_and_nothing_is_cut(self):
+        window = self.splash()
+        sentence = "Intel integrated graphics cannot drive a headset and neither can anything else here at all. " * 3
+        window.show_warning(["  [no] " + sentence.strip(), "no-spaces-" + "x" * 120])  # (a hyphen is no place to break)
+        lines = window.details.toPlainText().splitlines()
+        self.assertGreater(len(lines), 3)
+        for line in lines[:-1]:
+            self.assertLessEqual(len(line), Splash.WARNING_COLUMNS, line)
+        self.assertTrue(lines[0].startswith("  [no] Intel"))
+        self.assertTrue(lines[1].startswith("    "))  # the continuation is indented under it
+        self.assertEqual(" ".join(part.strip() for part in lines[:-1]).replace("  ", " "),
+                         ("[no] " + sentence.strip()).replace("  ", " "))
+        self.assertEqual(lines[-1], "no-spaces-" + "x" * 120)  # a word is never broken
+        monospace_columns = Splash.WIDTH - 2 * Splash.DETAILS_MARGIN
+        metrics = window.details.fontMetrics()
+        self.assertLess(metrics.horizontalAdvance("x" * Splash.WARNING_COLUMNS), monospace_columns - 24)
+
+    def test_a_forced_kind_colours_lines_whatever_they_say_and_plain_lines_still_follow_their_words(self):
+        window = self.splash()
+        window.add_output("looks plain", kind=Splash.ERROR)
+        window.add_output("UserWarning: reads as a warning")
+        window.details.add_lines([("an error by decree", False)], kind=Splash.WARNING)
+        self.assertEqual([window.details.kind_of(index) for index in range(3)], ["error", "warning", "warning"])
+
+
+class PluginKindTests(WindowCase):
+    """A program beside this one adds a window with register_kind and its own catalogs with install_extra_catalogs."""
+
+    def setUp(self):
+        # Cleanups run last in, first out: the windows go first (deleteLater), a flush makes that happen, and only
+        # then does the registration go, so no window paints a kind that is no longer there.
+        self.addCleanup(Splash.SUBTITLES.pop, "plug", None)
+        self.addCleanup(Splash.LOGO_FILES.pop, "plug", None)
+        self.addCleanup(self.delete_windows)
+
+    def delete_windows(self):
+        from PySide6.QtCore import QEvent
+
+        QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+
+    def test_a_registered_window_is_named_under_the_product_and_draws_its_own_art(self):
+        with self.assertRaises(ValueError):
+            SplashWindow("plug")
+        art = Splash.LOGOS / "splash_logo_tool_512.png"
+        Splash.register_kind("plug", "Plug-in Configuration", art)
+        window = self.splash("plug")
+        self.assertEqual(Splash.SUBTITLES["plug"], "Plug-in Configuration")
+        self.assertEqual(Splash.LOGO_FILES["plug"], str(art))
+        self.assertFalse(window.logo.isNull())
+        self.assertEqual(window.logo.toImage(), QPixmap(str(art)).toImage())
+        self.assertNotIn("plug", Splash.KINDS)  # the built-in windows are what the standalone command line offers
+
+    def test_a_second_registration_replaces_the_first(self):
+        Splash.register_kind("plug", "One", Splash.LOGOS / "splash_logo_tool_512.png")
+        Splash.register_kind("plug", "Two", Splash.LOGOS / "splash_logo_viewer_512.png")
+        self.assertEqual(Splash.SUBTITLES["plug"], "Two")
+        self.assertTrue(Splash.LOGO_FILES["plug"].endswith("splash_logo_viewer_512.png"))
+
+    def test_the_name_is_translated_in_the_splash_context_and_a_long_one_shrinks_to_fit(self):
+        Splash.register_kind("plug", "Plug-in Configuration", Splash.LOGOS / "splash_logo_tool_512.png")
+        window = self.splash("plug")
+        from PySide6.QtGui import QFontMetricsF
+
+        text = Splash.tr(Splash.SUBTITLES["plug"])
+        font = Splash._fitted_font(text, Splash.TEXT_WIDTH, 30, 20)
+        self.assertLess(font.pixelSize(), 30)
+        self.assertGreater(font.pixelSize(), 20)
+        self.assertLessEqual(QFontMetricsF(font).horizontalAdvance(text), Splash.TEXT_WIDTH)
+        smaller = Splash._font(font.pixelSize() + 1, True)  # the largest size that fits
+        self.assertGreater(QFontMetricsF(smaller).horizontalAdvance(text), Splash.TEXT_WIDTH)
+        self.assertEqual(Splash._fitted_font("Configuration", Splash.TEXT_WIDTH, 30, 20).pixelSize(), 30)  # as ever
+        too_long = "A Very Long Name Of A Window Configuration Tool"
+        self.assertEqual(Splash._fitted_font(too_long, Splash.TEXT_WIDTH, 30, 20).pixelSize(), 20)  # never smaller
+        window.grab()  # it draws
+
+    def test_extra_catalogs_are_installed_after_the_main_one_and_a_missing_one_leaves_english(self):
+        with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as directory:
+            folder = Path(directory) / "zh_CN"
+            folder.mkdir()
+            import shutil
+
+            shutil.copyfile(Splash.catalog_path("zh_CN"), folder / "extra_zh_CN.qm")
+            translators = Splash.install_extra_catalogs("zh_CN", [(directory, "extra"), (directory, "absent")])
+            try:
+                self.assertEqual(len(translators), 1)
+                self.assertEqual(Splash.tr("Ready"), "就绪")  # it came from the extra catalog alone
+            finally:
+                for translator in translators:
+                    QCoreApplication.removeTranslator(translator)
+            self.assertEqual(Splash.tr("Ready"), "Ready")
+        self.assertEqual(Splash.install_extra_catalogs(None, [(".", "extra")]), [])
+        self.assertEqual(Splash.install_extra_catalogs("zh_CN", []), [])
 
 
 class ProcessHandOffTests(unittest.TestCase):

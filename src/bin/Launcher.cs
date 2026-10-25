@@ -5,7 +5,8 @@
 // EMAP-SSN.exe: what the desktop shortcuts start.
 //
 // A program with no console of its own (the Windows GUI subsystem), a few kilobytes, built by install.bat with
-// the C# compiler that ships with Windows (csc.exe, no download). It starts the Python launcher hidden:
+// the C# compiler that ships with Windows (csc.exe, no download; src\bin\Build_Launcher.bat does it). It starts
+// the Python launcher of the window it was asked for, hidden:
 //
 //     .venv\Scripts\python.exe -u src\desktop\Desktop_Launcher.py <viewer|tools>
 //
@@ -15,7 +16,10 @@
 // It falls back to the old visible console (src\bin\EMAPSSN_Desktop_Launcher.bat), which also sets up or repairs
 // the environment, when there is no managed Python yet (the first start), when the Python launcher fails before
 // it shows anything, and when asked: EMAP-SSN.exe viewer --console. "viewer" is the EMAP-SSN Configuration
-// window, as in the batch file, and "tools" is EMAP-SSN Tools.
+// window, as in the batch file, "tools" is EMAP-SSN Tools, and "vr" is the VR Configuration window of opt_vr:
+// the one thing here that knows opt_vr's folder. Its launcher script and its console launch are opt_vr's own
+// (opt_vr\src\bin), and everything else the VR start does (its steps, its monitor, its single-instance key)
+// is declared there; see the Kinds table below.
 //
 // Build (install.bat does this): csc /nologo /target:winexe /win32icon:src\bin\logos\viewer_logo_large.ico
 //     /out:EMAP-SSN.exe src\bin\Launcher.cs
@@ -33,6 +37,16 @@ static class Launcher
         "PYTHONHOME", "PYTHONPATH", "QT_PLUGIN_PATH", "QT_QPA_PLATFORM_PLUGIN_PATH", "QML_IMPORT_PATH", "QML2_IMPORT_PATH"
     };
 
+    // The windows it can start, each as: the word that names it, the Python launcher that shows the splash and
+    // starts it, and the batch file that does the same in a visible console (the fallback), the last two relative
+    // to the folder this program is in. The first is what no word at all means.
+    static readonly string[][] Kinds =
+    {
+        new[] { "viewer", @"src\desktop\Desktop_Launcher.py", @"src\bin\EMAPSSN_Desktop_Launcher.bat" },
+        new[] { "tools", @"src\desktop\Desktop_Launcher.py", @"src\bin\EMAPSSN_Desktop_Launcher.bat" },
+        new[] { "vr", @"opt_vr\src\bin\Desktop_Launcher_VR.py", @"opt_vr\src\bin\EMAPSSN_Desktop_Launcher_VR.bat" },
+    };
+
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     static extern int MessageBox(IntPtr window, string text, string caption, uint type);
 
@@ -40,17 +54,18 @@ static class Launcher
     static int Main(string[] args)
     {
         string root = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');
-        string kind = "viewer";
+        string[] chosen = Kinds[0];
         bool console = false;
         foreach (string argument in args)
         {
             if (argument == "--console") console = true;
-            else if (argument == "viewer" || argument == "tools") kind = argument;
+            else foreach (string[] known in Kinds) if (argument == known[0]) chosen = known;
         }
+        string kind = chosen[0];
 
         string python = Path.Combine(root, ".venv", "Scripts", "python.exe");
-        string script = Path.Combine(root, "src", "desktop", "Desktop_Launcher.py");
-        string batch = Path.Combine(root, "src", "bin", "EMAPSSN_Desktop_Launcher.bat");
+        string script = Path.Combine(root, chosen[1]);
+        string batch = Path.Combine(root, chosen[2]);
 
         if (console || !File.Exists(python) || !File.Exists(script))
             return OpenConsole(root, batch, kind);

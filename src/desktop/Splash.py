@@ -23,7 +23,12 @@ closes, as it always has. One that is expanded stays: the user is watching, so i
 Close, and closes when that is pressed.
 
 If the window ends before it is ready, the splash opens that section by itself and says why, with
-Close: the error view.
+Close: the error view. A step of the start that goes wrong without stopping it (show_warning) opens the
+section by itself too, with that step's lines in the warning colour; the start goes on, and the splash,
+open, stays at Ready until Close is pressed, as it does for anyone who opened the section.
+
+A program that sits beside this one adds its own window with register_kind (its name under the
+product's name, its art), and its own texts with install_extra_catalogs; this file names none.
 
 It imports only PySide6's QtCore, QtGui and QtWidgets and the standard library, so it is on
 screen long before the heavy imports (NumPy, torch, VisPy) of the windows it waits for, and it
@@ -38,6 +43,7 @@ import argparse
 import json
 import os
 import sys
+import textwrap
 import time
 from pathlib import Path
 
@@ -75,6 +81,14 @@ KINDS = tuple(SUBTITLES)
 LOGO_FILES = {"config": "splash_logo_viewer_512.png", "tools": "splash_logo_tool_512.png",
               "viewer": "splash_logo_viewer_512.png"}
 
+
+def register_kind(kind, subtitle, logo):
+    """Add a window of a program beside this one: ``subtitle`` is its name under the product's, in English and
+    marked for translation by the program (the "Splash" context of its catalog), and ``logo`` is the path of its
+    art, a 512 px copy of its logo. A second call with the same ``kind`` replaces the first."""
+    SUBTITLES[kind] = subtitle
+    LOGO_FILES[kind] = str(logo)
+
 # Studio_Theme's NEUTRAL_SHADES["light"] and its default purple accent. tests/test_splash.py
 # compares them with the theme's own, so the splash cannot drift from it.
 SCHEME = {
@@ -91,6 +105,8 @@ DETAILS_GAP = 12
 BUTTON_HEIGHT = 34
 # How many lines the section keeps; the start prints a few dozen, a failing one a traceback.
 MAX_DETAIL_LINES = 5000
+# How many columns of the section's monospace font fit in it, where a warning wraps.
+WARNING_COLUMNS = 78
 # How much of the log one tick reads, so a burst of output never stalls the splash.
 TAIL_READ_LIMIT = 256 * 1024
 RADIUS = 14.0
@@ -186,6 +202,21 @@ def install_catalog(language):
         QCoreApplication.installTranslator(translator)
         return translator
     return None
+
+
+def install_extra_catalogs(language, catalogs):
+    """Install the catalogs a program beside this one adds, as (directory, name) pairs: the language's
+    <directory>/<language>/<name>_<language>.qm. Returns the translators (keep them alive); one that is
+    missing leaves its texts English."""
+    translators = []
+    if not language:
+        return translators
+    for directory, name in catalogs:
+        translator = QTranslator()
+        if translator.load(str(Path(directory) / language / f"{name}_{language}.qm")):
+            QCoreApplication.installTranslator(translator)
+            translators.append(translator)
+    return translators
 
 
 def tr(text):
@@ -307,6 +338,15 @@ def _font(pixels, bold=False, family="Noto Sans"):
     return font
 
 
+def _fitted_font(text, width, pixels, smallest, bold=True):
+    """The bold font of ``pixels``, or the largest size down to ``smallest`` that fits ``text`` in ``width``."""
+    font = _font(pixels, bold)
+    while pixels > smallest and QFontMetricsF(font).horizontalAdvance(text) > width:
+        pixels -= 1
+        font = _font(pixels, bold)
+    return font
+
+
 def screen_center(point=None):
     """The centre of the available area of the screen under ``point`` (the mouse pointer by default)."""
     screen = QGuiApplication.screenAt(QCursor.pos() if point is None else point) or QGuiApplication.primaryScreen()
@@ -372,8 +412,12 @@ class DetailsView(QPlainTextEdit):
                 return kind
         return None
 
-    def add_lines(self, items):
-        """Append (text, partial) pairs, keeping the newest line in view if the view was at its end."""
+    def add_lines(self, items, kind=None):
+        """Append (text, partial) pairs, keeping the newest line in view if the view was at its end.
+
+        ``kind`` ("info", "warning" or "error") puts every line in that kind's colour, whatever it says: a
+        step that went wrong as a whole shows its lines as a warning, though they read as plain output.
+        """
         items = list(items)
         if not items:
             return
@@ -388,8 +432,8 @@ class DetailsView(QPlainTextEdit):
                 cursor.removeSelectedText()
             elif not self._empty:
                 cursor.insertBlock()
-            kind = self._classifier.kind(text, remember=not partial)
-            cursor.insertText(text, self.formats[kind])
+            found = self._classifier.kind(text, remember=not partial)
+            cursor.insertText(text, self.formats[kind or found])
             self._empty = False
             self._partial = partial
         cursor.endEditBlock()
@@ -482,9 +526,24 @@ class SplashWindow(QWidget):
         self.update()
 
     # --- what the start prints
-    def add_output(self, text, partial=False):
+    def add_output(self, text, partial=False, kind=None):
         """Add one line of the start's output to the section (the dependency check's lines come this way)."""
-        self.details.add_lines([(text, partial)])
+        self.details.add_lines([(text, partial)], kind=kind)
+
+    def show_warning(self, lines):
+        """A step went wrong and the start goes on: its lines, in the warning colour, and the section open.
+
+        The section opens by itself so the lines are read, as an error view's does; unlike one, it can be
+        closed again, and the start goes on to Ready. A warning's lines are sentences, so they wrap to the
+        section's width (a log's lines do not: a traceback keeps its columns).
+        """
+        shown = []
+        for line in lines:
+            indent = " " * (len(line) - len(line.lstrip()))
+            shown.extend(textwrap.wrap(line, WARNING_COLUMNS, subsequent_indent=indent + "  ", break_long_words=False,
+                                       break_on_hyphens=False) or [""])
+        self.details.add_lines([(line, False) for line in shown], kind=WARNING)
+        self.set_details_open(True)
 
     def follow_log(self, path):
         """Follow the window's output: the file it is kept in (application.log), as it grows."""
@@ -689,8 +748,9 @@ class SplashWindow(QWidget):
         painter.setPen(c["text"])
         painter.setFont(_font(44, True))
         painter.drawText(QRectF(x, 58, width, 56), left | vcenter, PRODUCT)
-        painter.setFont(_font(30, True))
-        painter.drawText(QRectF(x, 112, width, 40), left | vcenter, tr(SUBTITLES[self.kind]))
+        subtitle = tr(SUBTITLES[self.kind])
+        painter.setFont(_fitted_font(subtitle, width, 30, 20))
+        painter.drawText(QRectF(x, 112, width, 40), left | vcenter, subtitle)
         painter.setPen(c["muted"])
         painter.setFont(_font(11))
         painter.drawText(

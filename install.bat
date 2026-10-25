@@ -46,24 +46,16 @@ set "VIEWER_ICON=!PROJECT_ROOT!\src\bin\logos\viewer_logo_large.ico"
 set "TOOL_ICON=!PROJECT_ROOT!\src\bin\logos\tool_logo_large.ico"
 
 :: 3. Build EMAP-SSN.exe, the launcher the shortcuts start: a few kilobytes with no console window, which shows
-::    the splash within a third of a second (src\bin\Launcher.cs). The C# compiler that ships with Windows
-::    builds it in a fraction of a second and nothing is downloaded. If it cannot be built, the shortcuts run the
-::    batch file in a console window, as before.
+::    the splash within a third of a second (src\bin\Launcher.cs). src\bin\Build_Launcher.bat does it with the
+::    C# compiler that ships with Windows, which builds it in a fraction of a second; nothing is downloaded
+::    (opt_vr's install_vr.bat uses the same script). If it cannot be built, the shortcuts run the batch file in
+::    a console window, as before.
 set "LAUNCHER_EXE=!PROJECT_ROOT!\EMAP-SSN.exe"
-set "CSC_EXE="
-for %%C in ("%WINDIR%\Microsoft.NET\Framework64\v4.0.30319\csc.exe" "%WINDIR%\Microsoft.NET\Framework\v4.0.30319\csc.exe") do (
-    if exist "%%~C" if not defined CSC_EXE set "CSC_EXE=%%~C"
-)
 set "USE_LAUNCHER_EXE="
-if defined CSC_EXE (
-    del /q "!LAUNCHER_EXE!" >nul 2>nul
-    "!CSC_EXE!" /nologo /target:winexe /optimize+ /out:"!LAUNCHER_EXE!" /win32icon:"!VIEWER_ICON!" "src\bin\Launcher.cs" >nul 2>nul
-    if exist "!LAUNCHER_EXE!" set "USE_LAUNCHER_EXE=1"
-)
-if defined USE_LAUNCHER_EXE (
-    echo [OK] Built EMAP-SSN.exe, the launcher with no console window.
+call "src\bin\Build_Launcher.bat"
+if !ERRORLEVEL! equ 0 (
+    set "USE_LAUNCHER_EXE=1"
 ) else (
-    echo [INFO] Could not build EMAP-SSN.exe ^(the C# compiler of the .NET Framework is missing or failed^).
     echo        The shortcuts will open the launcher in a console window instead.
 )
 
