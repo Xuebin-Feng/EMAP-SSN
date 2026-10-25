@@ -552,7 +552,7 @@ class ColourTests(WindowCase):
 
 
 class TimesTests(WindowCase):
-    """The time of each line is drawn in a gutter beside the text, never in it, and the Times switch shows or hides it."""
+    """The time of each line is drawn in a gutter beside the text, never in it, and the Show Times switch shows or hides it."""
 
     STARTED = time.mktime((2026, 10, 24, 11, 47, 44, 0, 0, -1))
 
@@ -644,7 +644,8 @@ class TimesTests(WindowCase):
 
     def test_the_switch_is_a_labelled_header_control_with_a_tooltip(self):
         window = self.window()
-        self.assertEqual(window.times_switch.text(), "Times")
+        self.assertEqual(window.times_switch.text(), "Show Times")
+        self.assertEqual(window.times_switch.toolTip(), "Show the time of each line, beside the text")
         self.assertIn("time", window.times_switch.toolTip().lower())
         self.assertTrue(window.times_switch.isCheckable())
 
@@ -700,7 +701,6 @@ class TimesTests(WindowCase):
         window = self.window()
         window.resize(700, 300)
         flush(self.app)
-        window.follow_switch.setChecked(False)
         scroll = window.text.verticalScrollBar()
         scroll.setValue(scroll.maximum())
         from PySide6.QtCore import QPoint, QPointF
@@ -733,7 +733,7 @@ class HeaderTests(WindowCase):
 
     def assertOneRow(self, window):
         controls = window.header_controls()
-        self.assertEqual(len(controls), 11)  # search, previous, next, filter, follow, times, copy, save, clear, log, folder
+        self.assertEqual(len(controls), 10)  # search, previous, next, filter, times, copy, save, clear, log, folder
         root = window.rect()
         centres, previous_right = [], None
         for control in controls:
@@ -862,12 +862,6 @@ class SearchTests(WindowCase):
         QTest.keyClick(window.search, Qt.Key.Key_Return)
         self.assertEqual(window.text.textCursor().block().blockNumber(), 2)
 
-    def test_going_to_a_match_turns_follow_off(self):
-        window = self.window_
-        self.assertTrue(window.follow_switch.isChecked())
-        window.search.setText("gamma")
-        self.assertFalse(window.follow_switch.isChecked())
-
     def test_matches_are_found_in_lines_that_arrive_later(self):
         window = self.window_
         window.search.setText("beta")
@@ -882,58 +876,248 @@ class SearchTests(WindowCase):
 
 
 class FollowTests(WindowCase):
-    def fill(self, count=400):
-        for number in range(count):
-            self.recorder.add("stdout", f"line {number}")
+    """The window follows the output with no control: it stays at the last line while that is in view, and a
+    view that is higher up never moves by itself."""
 
-    def test_following_keeps_the_newest_line_in_view(self):
-        self.fill()
+    def fill(self, count=400, prefix="line"):
+        for number in range(count):
+            self.recorder.add("stdout", f"{prefix} {number}")
+
+    def opened(self, count=400):
+        """A window of 700 x 300 px holding ``count`` lines, and its vertical scroll bar."""
+        self.fill(count)
         window = self.window()
         window.resize(700, 300)
         flush(self.app)
+        return window, window.text.verticalScrollBar()
+
+    def scroll_up(self, window):
+        """A page up by hand: the scroll bar's own action, as a wheel notch or a key press triggers it."""
         scroll = window.text.verticalScrollBar()
+        scroll.triggerAction(scroll.SliderAction.SliderPageStepSub)
+        flush(self.app)
+        return scroll.value()
+
+    def test_there_is_no_follow_control_in_the_header(self):
+        window = self.window()
+        self.assertFalse(hasattr(window, "follow_switch"))
+        self.assertEqual(window.findChildren(Desktop_App.ToggleSwitch), [window.times_switch])
+        for control in window.header_controls():
+            words = " ".join((getattr(control, "text", lambda: "")(), control.accessibleName(), control.toolTip()))
+            self.assertNotIn("follow", words.lower())
+
+    def test_a_fresh_window_follows_from_the_start(self):
+        window = self.window()
+        window.resize(700, 300)
+        flush(self.app)
+        self.fill()
+        self.drain(window)
+        scroll = window.text.verticalScrollBar()
+        self.assertGreater(scroll.maximum(), 0)
         self.assertEqual(scroll.value(), scroll.maximum())
         self.recorder.add("stdout", "one more")
         self.drain(window)
         self.assertEqual(scroll.value(), scroll.maximum())
 
-    def test_scrolling_up_turns_follow_off_and_the_view_stays_put(self):
-        self.fill()
-        window = self.window()
-        window.resize(700, 300)
+    def test_following_keeps_the_newest_line_in_view(self):
+        window, scroll = self.opened()
+        self.assertEqual(scroll.value(), scroll.maximum())
+        self.recorder.add("stdout", "one more")
+        self.drain(window)
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_scrolling_up_leaves_the_view_where_it_is_as_output_arrives(self):
+        window, scroll = self.opened()
+        value = self.scroll_up(window)
+        self.assertLess(value, scroll.maximum())
+        for text in ("arrives below", "and more"):
+            self.recorder.add("stdout", text)
+            self.drain(window)
+            self.assertEqual(scroll.value(), value)
+        self.assertLess(scroll.value(), scroll.maximum())
+
+    def test_reaching_the_bottom_again_follows_again(self):
+        window, scroll = self.opened()
+        self.scroll_up(window)
+        scroll.triggerAction(scroll.SliderAction.SliderToMaximum)
         flush(self.app)
-        scroll = window.text.verticalScrollBar()
-        scroll.triggerAction(scroll.SliderAction.SliderPageStepSub)
-        flush(self.app)
-        self.assertFalse(window.follow_switch.isChecked())
+        self.recorder.add("stdout", "arrives below")
+        self.drain(window)
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_the_wheel_scrolls_it_off_the_end_and_back(self):
+        from PySide6.QtCore import QPoint, QPointF
+        from PySide6.QtGui import QWheelEvent
+
+        window, scroll = self.opened()
+
+        def wheel(delta):
+            point = QPointF(40, 40)
+            event = QWheelEvent(point, point, QPoint(0, 0), QPoint(0, delta), Qt.MouseButton.NoButton,
+                                Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+            QApplication.sendEvent(window.text.viewport(), event)
+            flush(self.app)
+
+        wheel(480)
+        self.assertLess(scroll.value(), scroll.maximum())
         value = scroll.value()
         self.recorder.add("stdout", "arrives below")
         self.drain(window)
         self.assertEqual(scroll.value(), value)
-
-    def test_reaching_the_bottom_again_turns_follow_on(self):
-        self.fill()
-        window = self.window()
-        window.resize(700, 300)
-        flush(self.app)
-        scroll = window.text.verticalScrollBar()
-        scroll.triggerAction(scroll.SliderAction.SliderPageStepSub)
-        flush(self.app)
-        self.assertFalse(window.follow_switch.isChecked())
-        scroll.triggerAction(scroll.SliderAction.SliderToMaximum)
-        flush(self.app)
-        self.assertTrue(window.follow_switch.isChecked())
-
-    def test_switching_follow_on_jumps_to_the_end(self):
-        self.fill()
-        window = self.window()
-        window.resize(700, 300)
-        flush(self.app)
-        window.follow_switch.setChecked(False)
-        scroll = window.text.verticalScrollBar()
-        scroll.setValue(0)
-        window.follow_switch.setChecked(True)
+        wheel(-480 * 200)
         self.assertEqual(scroll.value(), scroll.maximum())
+        self.recorder.add("stdout", "arrives again")
+        self.drain(window)
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_a_window_resize_keeps_a_following_view_at_the_end_and_a_scrolled_one_in_place(self):
+        window, scroll = self.opened()
+        for height in (200, 420, 300):
+            window.resize(700, height)
+            flush(self.app, 4)
+            self.assertEqual(scroll.value(), scroll.maximum(), height)
+        value = self.scroll_up(window)
+        for height in (200, 420, 300):
+            window.resize(700, height)
+            flush(self.app, 4)
+            self.assertEqual(scroll.value(), value, height)
+            self.assertLess(scroll.value(), scroll.maximum())
+
+    def test_a_window_grown_to_show_every_line_follows_again(self):
+        window, scroll = self.opened(count=30)
+        self.scroll_up(window)
+        self.assertLess(scroll.value(), scroll.maximum())
+        window.resize(700, 900)
+        flush(self.app, 4)
+        self.assertEqual(scroll.maximum(), 0)  # every line is in view now, though nothing was scrolled
+        self.fill(200, "later")
+        self.drain(window)
+        self.assertGreater(scroll.maximum(), 0)
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_a_search_jump_up_stops_the_following_and_one_to_the_end_keeps_it(self):
+        window, scroll = self.opened()
+        window.search.setText("line 5")
+        self.assertEqual(window.text.textCursor().block().blockNumber(), 5)
+        self.assertLess(scroll.value(), scroll.maximum())
+        value = scroll.value()
+        self.recorder.add("stdout", "arrives below")
+        self.drain(window)
+        self.assertEqual(scroll.value(), value)  # the view stays where the search left it
+        window.search.setText("line 399")  # a match in the last lines leaves the end in view
+        self.assertEqual(scroll.value(), scroll.maximum())
+        self.recorder.add("stdout", "arrives below again")
+        self.drain(window)
+        self.assertEqual(scroll.value(), scroll.maximum())
+        window.search.setText("")  # clearing the search moves nothing
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_a_match_at_the_end_of_a_following_view_keeps_following(self):
+        window, scroll = self.opened()
+        window.search.setText("line 399")
+        self.assertEqual(scroll.value(), scroll.maximum())
+        self.recorder.add("stdout", "arrives below")
+        self.drain(window)
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def mixed(self, count=300, every=10):
+        """``count`` lines of which every ``every``-th is an error, in a window of 700 x 300 px."""
+        for number in range(count):
+            error = number % every == 0
+            self.recorder.add("stderr" if error else "stdout", f"{'Error: ' if error else ''}line {number}")
+        window = self.window()
+        window.resize(700, 300)
+        flush(self.app)
+        return window, window.text.verticalScrollBar()
+
+    def test_a_filter_change_keeps_a_following_view_at_the_end(self):
+        window, scroll = self.mixed(1000, 2)
+        for key in (ERROR, "all", WARNING):
+            window.filter_box.setCurrentIndex(window.filter_box.findData(key))
+            flush(self.app, 3)
+            self.assertEqual(scroll.value(), scroll.maximum(), key)
+            self.assertGreater(scroll.maximum(), 0)
+        self.recorder.add("stderr", "Error: one more")
+        self.drain(window)
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_a_filter_change_leaves_a_scrolled_view_in_place_and_not_following(self):
+        window, scroll = self.mixed(1000, 2)
+        scroll.setSliderPosition(200)  # a drag of the scroll bar's slider, which triggers its move action
+        flush(self.app)
+        self.assertEqual(scroll.value(), 200)
+        window.filter_box.setCurrentIndex(window.filter_box.findData(ERROR))
+        flush(self.app, 3)
+        self.assertLess(200, scroll.maximum())
+        self.assertEqual(scroll.value(), 200)  # a redraw is not a scroll
+        self.recorder.add("stderr", "Error: arrives below")
+        self.drain(window)
+        self.assertEqual(scroll.value(), 200)
+        window.filter_box.setCurrentIndex(window.filter_box.findData("all"))
+        flush(self.app, 3)
+        self.assertEqual(scroll.value(), 200)
+        self.assertLess(scroll.value(), scroll.maximum())
+
+    def test_a_filter_that_leaves_a_few_lines_follows_again(self):
+        window, scroll = self.mixed()
+        self.scroll_up(window)
+        window.filter_box.setCurrentIndex(window.filter_box.findData(ERROR))
+        flush(self.app, 3)
+        window.resize(700, 900)
+        flush(self.app, 4)
+        self.assertEqual(scroll.maximum(), 0)
+        for number in range(100):
+            self.recorder.add("stderr", f"Error: more {number}")
+        self.drain(window)
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_clear_view_follows_again_whatever_the_view_was(self):
+        window, scroll = self.opened()
+        self.scroll_up(window)
+        window.clear_view()
+        flush(self.app, 3)
+        self.assertEqual(scroll.maximum(), 0)
+        self.fill(400, "after")
+        self.drain(window)
+        self.assertGreater(scroll.maximum(), 0)
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_a_window_hidden_and_shown_again_keeps_a_scrolled_view_in_place(self):
+        window, scroll = self.opened()
+        value = self.scroll_up(window)
+        window.hide()
+        flush(self.app, 3)
+        window.show()
+        flush(self.app, 4)
+        self.assertEqual(scroll.value(), value)
+        self.recorder.add("stdout", "arrives below")
+        self.drain(window)
+        self.assertEqual(scroll.value(), value)
+
+    def test_a_progress_line_rewriting_the_last_line_stays_in_view_when_following(self):
+        window, scroll = self.opened()
+        for state in ("10%", "40%", "70%"):
+            time.sleep(Console_Capture.PARTIAL_NOTIFY_SECONDS + 0.01)  # listeners hear of a progress state only this often
+            self.recorder.add("stdout", state, partial=True)
+            self.drain(window)
+            self.assertEqual(window.text.document().lastBlock().text(), state)
+            self.assertEqual(scroll.value(), scroll.maximum())
+        self.recorder.add("stdout", "100% done")
+        self.drain(window)
+        self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_a_progress_line_leaves_a_scrolled_view_alone(self):
+        window, scroll = self.opened()
+        self.recorder.add("stdout", "10%", partial=True)
+        self.drain(window)
+        value = self.scroll_up(window)
+        for state in ("40%", "70%"):
+            time.sleep(Console_Capture.PARTIAL_NOTIFY_SECONDS + 0.01)
+            self.recorder.add("stdout", state, partial=True)
+            self.drain(window)
+            self.assertEqual(window.text.document().lastBlock().text(), state)
+            self.assertEqual(scroll.value(), value)
+        self.assertLess(scroll.value(), scroll.maximum())
 
 
 class ButtonTests(WindowCase):

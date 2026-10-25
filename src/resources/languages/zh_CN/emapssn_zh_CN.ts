@@ -2963,16 +2963,16 @@ Command-line usage:
 <context>
     <name>Console</name>
     <message>
-        <location filename="../../../desktop/Console_View.py" line="+334"/>
-        <location line="+72"/>
-        <location line="+383"/>
+        <location filename="../../../desktop/Console_View.py" line="+336"/>
+        <location line="+70"/>
+        <location line="+392"/>
         <location line="+42"/>
         <location line="+3"/>
         <source>Console</source>
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-474"/>
+        <location line="-481"/>
         <location line="+3"/>
         <source>Search the output…</source>
         <translation type="unfinished">搜索输出内容…</translation>
@@ -3003,14 +3003,17 @@ Command-line usage:
         <translation type="unfinished">仅错误</translation>
     </message>
     <message>
-        <location line="+3"/>
         <source>Follow output</source>
-        <translation type="unfinished">跟随输出</translation>
+        <translation type="obsolete">跟随输出</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>Times</source>
-        <translation type="unfinished">时间</translation>
+        <translation type="obsolete">时间</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Show Times</source>
+        <translation type="unfinished">显示时间</translation>
     </message>
     <message>
         <location line="+1"/>
@@ -3043,7 +3046,7 @@ Command-line usage:
         <translation type="unfinished">显示日志文件夹</translation>
     </message>
     <message>
-        <location line="+253"/>
+        <location line="+261"/>
         <source>{shown} lines shown · {written} written since start-up</source>
         <translation type="unfinished">显示 {shown} 行 · 启动以来共输出 {written} 行</translation>
     </message>
@@ -3063,7 +3066,7 @@ Command-line usage:
         <translation type="unfinished">没有日志文件（{error}）</translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+85"/>
         <source>{count} or more matches</source>
         <translation type="unfinished">{count} 个以上匹配项</translation>
     </message>
@@ -3080,7 +3083,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+44"/>
         <source>Save the output</source>
         <translation type="unfinished">保存输出</translation>
     </message>
@@ -9469,7 +9472,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Splash</name>
     <message>
-        <location filename="../../../desktop/Splash.py" line="+77"/>
+        <location filename="../../../desktop/Splash.py" line="+82"/>
         <source>Configuration</source>
         <translation type="unfinished">配置</translation>
     </message>
@@ -9484,13 +9487,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">查看器</translation>
     </message>
     <message>
-        <location line="+417"/>
-        <location line="+222"/>
+        <location line="+453"/>
+        <location line="+224"/>
         <source>Copy</source>
         <translation type="unfinished">复制</translation>
     </message>
     <message>
-        <location line="-221"/>
+        <location line="-223"/>
         <source>Open log</source>
         <translation type="unfinished">打开日志</translation>
     </message>
@@ -9525,7 +9528,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">（没有任何输出。）</translation>
     </message>
     <message>
-        <location line="+48"/>
+        <location line="+50"/>
         <source>Copied</source>
         <translation type="unfinished">已复制</translation>
     </message>
@@ -9549,13 +9552,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">它最后输出的内容：</translation>
     </message>
     <message>
-        <location filename="../../../desktop/Desktop_Launcher.py" line="+110"/>
+        <location filename="../../../desktop/Desktop_Launcher.py" line="+111"/>
         <location filename="../../../utilities/Startup_Status.py" line="+36"/>
         <source>Starting…</source>
         <translation type="unfinished">正在启动…</translation>
     </message>
     <message>
-        <location line="+487"/>
+        <location line="+496"/>
         <source>The window could not be started.</source>
         <translation type="unfinished">无法启动窗口。</translation>
     </message>

@@ -27,12 +27,16 @@ Show details) and keep it in temp/logs.
   without.
 * The time of each line is drawn in a gutter, as line numbers are, and is no part of
   the text: selecting, Copy, Save and the search see the output alone. The
-  Times switch hides the gutter, and the choice is kept (app_settings.json).
+  Show Times switch hides the gutter, and the choice is kept (app_settings.json).
 * The search field highlights every match and counts them (the count is in the footer);
   Enter and the arrows, or F3 and Shift+F3, go from one to the next. The filter shows all
-  output, only warnings and errors, or only errors. Follow output keeps the
-  newest line in view, and turns itself off when the view is scrolled up and
-  on again at the bottom.
+  output, only warnings and errors, or only errors.
+* The window follows the output without a control: while the last line is in view, new
+  lines keep it there, and a view that is scrolled up, by hand or by a search jump, never
+  moves by itself, not even for a redraw (the filter, a theme change). It follows again
+  once the last line is back in view: scrolled to by hand, or shown because the window
+  was made taller, Clear view emptied it or the filter left few lines. A window starts at
+  the bottom.
 * Copy puts the selection (or everything shown) on the clipboard, Save writes
   it to a file, Clear view empties the window (the log file keeps everything),
   and the last two buttons open the log file and show its folder.
@@ -374,9 +378,7 @@ class ConsoleWindow(QWidget):
             (QCoreApplication.translate("Console", "Errors only"), ERROR),
         ):
             self.filter_box.addItem(label, key)
-        self.follow_switch = ToggleSwitch(QCoreApplication.translate("Console", "Follow output"), QCoreApplication.translate("Console", "Follow output"))
-        self.follow_switch.setChecked(True)
-        self.times_switch = ToggleSwitch(QCoreApplication.translate("Console", "Times"), QCoreApplication.translate("Console", "Times"))
+        self.times_switch = ToggleSwitch(QCoreApplication.translate("Console", "Show Times"), QCoreApplication.translate("Console", "Show Times"))
         self.times_switch.setToolTip(QCoreApplication.translate("Console", "Show the time of each line, beside the text"))
         self.copy_button = self._button("copy", QCoreApplication.translate("Console", "Copy the selection, or all the output shown"))
         self.save_button = self._button("download", QCoreApplication.translate("Console", "Save the output shown to a file…"))
@@ -426,7 +428,6 @@ class ConsoleWindow(QWidget):
         self.previous_button.clicked.connect(lambda: self.find(False))
         self.next_button.clicked.connect(lambda: self.find(True))
         self.filter_box.currentIndexChanged.connect(self._filter_changed)
-        self.follow_switch.toggled.connect(self._set_following)
         self.times_switch.toggled.connect(self._set_times)
         self.copy_button.clicked.connect(self.copy_text)
         self.save_button.clicked.connect(self.save_text)
@@ -445,9 +446,8 @@ class ConsoleWindow(QWidget):
 
     def header_controls(self):
         """The header's controls, left to right: the search field, then everything that follows it."""
-        return [self.search, self.previous_button, self.next_button, self.filter_box, self.follow_switch,
-                self.times_switch, self.copy_button, self.save_button, self.clear_button, self.log_button,
-                self.folder_button]
+        return [self.search, self.previous_button, self.next_button, self.filter_box, self.times_switch,
+                self.copy_button, self.save_button, self.clear_button, self.log_button, self.folder_button]
 
     # --- looks
     def _tokens(self):
@@ -532,9 +532,13 @@ class ConsoleWindow(QWidget):
         if not self._pending:
             return
         batch, self._pending = self._pending, []
+        if not self._following:
+            self._follow_from_scroll()  # the last line may have come into view with no scroll: the window grew
         self._append(batch)
 
     def _render_all(self):
+        scroll = self.text.verticalScrollBar()
+        following, place = self._following, scroll.value()
         self._pending = []
         self.text.clear()
         self._last_seq = None
@@ -542,6 +546,12 @@ class ConsoleWindow(QWidget):
         self._sgr = {}
         self._classifier = Classifier()
         self._append(self.capture.snapshot())
+        if not following:
+            # A view that was higher up stays where it was, as far as the new text goes: a redraw is not a scroll.
+            self._setting_scroll = True
+            scroll.setValue(min(place, scroll.maximum()))
+            self._setting_scroll = False
+        self._follow_from_scroll()  # and where it ends up says whether the last line is in view
 
     def _wanted(self, kind):
         return not (self._filter == WARNING and kind == INFO or self._filter == ERROR and kind != ERROR)
@@ -655,6 +665,7 @@ class ConsoleWindow(QWidget):
 
     # --- scrolling
     def _set_following(self, on):
+        """Follow the output from now on (from its end), or stop following."""
         self._following = bool(on)
         if on:
             self._setting_scroll = True
@@ -663,7 +674,7 @@ class ConsoleWindow(QWidget):
             self._setting_scroll = False
 
     def _set_times(self, on):
-        """The Times switch: show or hide the gutter, and keep the choice for the next Console."""
+        """The Show Times switch: show or hide the gutter, and keep the choice for the next Console."""
         self.text.set_times_visible(on)
         save_show_times(on)
 
@@ -678,10 +689,11 @@ class ConsoleWindow(QWidget):
         QTimer.singleShot(0, self._follow_from_scroll)
 
     def _follow_from_scroll(self):
+        """Follow while the last line is in view (the view is at the bottom), and not otherwise."""
         scroll = self.text.verticalScrollBar()
         at_bottom = scroll.value() >= scroll.maximum() - 1
         if at_bottom != self._following:
-            self.follow_switch.setChecked(at_bottom)
+            self._set_following(at_bottom)
 
     def eventFilter(self, watched, event):
         if watched is self.text.viewport() and event.type() == QEvent.Type.Wheel:
@@ -755,8 +767,7 @@ class ConsoleWindow(QWidget):
             return False
         self.text.setTextCursor(found)
         self.text.centerCursor()
-        if self.follow_switch.isChecked():
-            self.follow_switch.setChecked(False)
+        self._follow_from_scroll()  # a jump up leaves the end out of view; a match at the end keeps it in
         return True
 
     # --- Copy, Save and the log file

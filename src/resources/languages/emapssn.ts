@@ -1848,11 +1848,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Follow output</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Times</source>
+        <source>Show Times</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
