@@ -20,7 +20,7 @@
   headings, "Session" and "Mouse and keyboard controls", are in the text
   colour; the link to the list of commands is in the first one's row, beside
   the ×. ControlsButton, at the start of the threshold slider, opens the card
-  above itself.
+  above itself, and ConsoleButton, after it, opens the Console.
   The card is a child of the canvas, so the network, the sliders, the Zoom
   box and the sidebar work as usual while it is open: it closes only
   by its × or by the button again, never by a click elsewhere, and it never
@@ -79,7 +79,7 @@ from PySide6.QtWidgets import (
 )
 
 from commands.zoom import MAX_ZOOM_PERCENT
-from desktop.Desktop_App import button_icon_room, installed_language
+from desktop.Desktop_App import UI_QSS_FONT_STACK, button_icon_room, fit_buttons_to_text, installed_language
 from desktop.Studio_Theme import TOKENS, icon_button, key_cap_qss, studio_icon
 from desktop.Viewer_Jobs_Card import JobsSection, section_qss
 from desktop.Viewer_State import alias_form
@@ -230,9 +230,9 @@ class ControlsCard(QWidget):
     text, the Viewer's list of actions (controls_rows): key caps in the left
     half of the section, what they do in the right half. The link to the list
     of commands is in the row of the first heading, beside the ×, and so is
-    the link that opens the Console, before it, when ``console`` (a function
-    that opens it) is given. Without a session the card has the controls only,
-    headed controls_title (or title).
+    Without a session the card has the controls only, headed controls_title
+    (or title). The Console has no link on the card: its button is ConsoleButton,
+    in the slider row.
 
     The card is a child of the canvas, not a window of its own, so it leaves
     the network, the sliders and the sidebar working under the mouse and the
@@ -275,7 +275,7 @@ class ControlsCard(QWidget):
     SHADOW = 8
 
     def __init__(self, title, text, anchor=None, parent=None, *, session=None, controls_title=None,
-                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None, console=None):
+                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsCard")
         self.anchor = anchor
@@ -284,8 +284,6 @@ class ControlsCard(QWidget):
         self.command = command
         self.command_line_open = command_line_open
         self.jobs = jobs
-        self.console = console
-        self.console_button = None
         self.jobs_section = None
         self._remeasure = QtCore.QTimer(self)
         self._remeasure.setSingleShot(True)
@@ -323,9 +321,6 @@ class ControlsCard(QWidget):
         self.session_heading.setObjectName("controlsHeading")
         header.addWidget(self.session_heading)
         header.addStretch(1)
-        if console is not None:
-            self.console_button = self._console_link()
-            header.addWidget(self.console_button)
         self.commands_button = self._commands_link()
         header.addWidget(self.commands_button)
         self.close_button = QPushButton()
@@ -547,18 +542,6 @@ class ControlsCard(QWidget):
         self.show_command_list_availability()
         return link
 
-    def _console_link(self):
-        """The link that opens the Console, for the header's row, before the list of commands."""
-        link = QPushButton(QtCore.QCoreApplication.translate("ViewerControls", "Console"))
-        link.setObjectName("controlsLink")
-        link.setIcon(studio_icon("square-terminal", TOKENS["accent_text"]))
-        link.setIconSize(QSize(16, 16))
-        link.setCursor(Qt.CursorShape.PointingHandCursor)
-        link.setToolTip(QtCore.QCoreApplication.translate(
-            "ViewerControls", "Show everything this Viewer has printed: progress, warnings and errors"))
-        link.clicked.connect(self.open_console)
-        return link
-
     def _share_columns(self):
         """Make the controls' two columns equal, each as wide as the wider of what they must hold.
 
@@ -711,11 +694,6 @@ class ControlsCard(QWidget):
             if found else
             QtCore.QCoreApplication.translate(
                 "ViewerControls", "The list of commands is not installed: docs/list_of_commands.html is missing."))
-
-    def open_console(self):
-        """Open the Console (the owner's ``console`` function). The card stays open and the keyboard with the canvas."""
-        if self.console is not None:
-            self.console()
 
     def open_command_list(self):
         """Open the list of commands, in the Viewer's language where it is translated, in the web browser.
@@ -875,7 +853,7 @@ class ControlsButton(QPushButton):
     title is the button's tooltip and the card's accessible name, which the
     card does not show; text the Viewer's list of actions, headed
     controls_title next to the session. session, area, command,
-    command_line_open, jobs, confirm_stop and console are the card's (ControlsCard). The card is a child of host, the
+    command_line_open, jobs and confirm_stop are the card's (ControlsCard). The card is a child of host, the
     canvas, which is the button's parent by default. A click while the card
     is open closes it; so does its ×, and nothing else does.
     """
@@ -883,7 +861,7 @@ class ControlsButton(QPushButton):
     SIZE = 28   # as tall as a field
 
     def __init__(self, title, text, parent=None, *, host=None, session=None, controls_title=None,
-                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None, console=None):
+                 area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None):
         super().__init__(parent)
         self.setObjectName("viewerControlsButton")
         self.title = title
@@ -896,7 +874,6 @@ class ControlsButton(QPushButton):
         self.command_line_open = command_line_open
         self.jobs = jobs
         self.confirm_stop = confirm_stop
-        self.console = console
         self.card = None
         self.setIcon(studio_icon("info", TOKENS["text_muted"]))
         self.setIconSize(QSize(16, 16))
@@ -939,7 +916,7 @@ class ControlsButton(QPushButton):
                                  session=self.session, controls_title=self.controls_title,
                                  area=self.area, command=self.command,
                                  command_line_open=self.command_line_open,
-                                 jobs=self.jobs, confirm_stop=self.confirm_stop, console=self.console)
+                                 jobs=self.jobs, confirm_stop=self.confirm_stop)
         return self.card.open()
 
     def refresh_card(self):
@@ -956,6 +933,53 @@ class ControlsButton(QPushButton):
         """Put an open card where the canvas's size and the button now leave it."""
         if self.card_is_open():
             self.card.place()
+
+
+class ConsoleButton(QPushButton):
+    """The Console button of the slider row, after the info button: the terminal icon and the word "Console".
+
+    ``text`` and ``tooltip`` are the owner's translated texts, and ``opened`` is what a
+    click calls (the owner opens the Console, or says why it cannot). The button is
+    as tall as the row's boxes (SLIDER_BOX_HEIGHT, the info button's SIZE) and as
+    wide as its text and icon ask, so a longer translation widens it instead of being
+    cut off (Desktop_App.fit_buttons_to_text). Its tint, border and hover are the info
+    button's, its text the size of the boxes' numbers. It never takes the keyboard, so
+    [ENTER] still opens the command line.
+    """
+
+    ICON_SIZE = 16
+    PADDING = 10       # between the icon or the text and the button's ends
+    FONT_POINTS = 12   # the row's text size, as its number boxes have
+
+    def __init__(self, text, tooltip, parent=None, *, opened=None):
+        super().__init__(text, parent)
+        self.setObjectName("viewerConsoleButton")
+        self.setIcon(studio_icon("square-terminal", TOKENS["text_muted"]))
+        self.setIconSize(QSize(self.ICON_SIZE, self.ICON_SIZE))
+        self.setFixedHeight(ControlsButton.SIZE)
+        self.setToolTip(tooltip)
+        self.setAccessibleName(text)
+        self.setAccessibleDescription(tooltip)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        t = TOKENS
+        self.setStyleSheet(f"""
+            QPushButton#viewerConsoleButton {{
+                background: {t['tint']}; border: 1px solid {t['tint']}; color: {t['text_soft']};
+                border-radius: {t['radius']}px; padding: 0px;
+                min-height: {ControlsButton.SIZE - 2}px; max-height: {ControlsButton.SIZE - 2}px;
+                font-family: {UI_QSS_FONT_STACK}; font-size: {self.FONT_POINTS}pt;
+            }}
+            QPushButton#viewerConsoleButton:hover {{
+                background: {t['tint_hover']}; border-color: {t['tint_hover']};
+            }}
+            QPushButton#viewerConsoleButton:pressed {{
+                background: {t['separator']}; border-color: {t['separator']};
+            }}
+        """)
+        fit_buttons_to_text(self, padding=self.PADDING)
+        if opened is not None:
+            self.clicked.connect(opened)
 
 
 # =====================================================================
@@ -1268,6 +1292,7 @@ class ZoomBox(QWidget):
 
 __all__ = [
     "CanvasSpinBox",
+    "ConsoleButton",
     "ControlsButton",
     "ControlsCard",
     "PathField",

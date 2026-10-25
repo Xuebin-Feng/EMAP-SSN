@@ -31,7 +31,7 @@ A progress bar that rewrites its line with carriage returns is one line that
 changes where it is. The window feeds from the capture only while it is shown.
 
 show_console opens this process's Console (or brings it forward): the Viewer's
-`console` command, its sidebar button and its Session card's link call it.
+`console` command and its Console button, at the bottom of the Viewer, call it.
 """
 
 from __future__ import annotations

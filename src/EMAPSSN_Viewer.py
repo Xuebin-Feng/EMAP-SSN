@@ -196,7 +196,7 @@ from desktop.Desktop_App import (
 from desktop.Studio_Theme import TOKENS, set_role, studio_icon
 from desktop.Viewer_Zoom import SmoothWheelZoom
 from desktop.Viewer_Widgets import (
-    ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ThresholdSpinBox, ZoomBox,
+    ConsoleButton, ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ThresholdSpinBox, ZoomBox,
 )
 from desktop.Viewer_State import (
     fewer_edges_while_moving,
@@ -280,15 +280,20 @@ SIDEBAR_SLIDE_MS = 220
 COMMAND_BOX_OPACITY = 0.95
 # Between a command being typed and what a click did, on the command line.
 CLICK_STATUS_SEPARATOR = "  ·  "
-# Between the controls' info button and the threshold's value, in px: wide
-# enough that the button doesn't read as a mark on the number.
-SLIDER_INFO_GAP = 26
-# The slider row along the canvas's bottom, in px: the threshold slider from
-# the left, the Zoom box at the right, level with it.
+# Between the last button of the slider row (the Console button, after the
+# controls' info button) and the threshold's value, in px: wide enough that
+# the button doesn't read as part of the number.
+SLIDER_BUTTONS_GAP = 16
+# The slider row along the canvas's bottom, in px: the info and Console
+# buttons and the threshold slider from the left, the Zoom box at the right,
+# level with it.
 SLIDER_ROW_HEIGHT = 45
 SLIDER_ROW_BOTTOM = 15
 SLIDER_ROW_LEFT = 20
 SLIDER_BOX_GAP = 20  # between the slider's end and the Zoom box
+# The threshold slider gives up room to the buttons and the boxes, down to
+# this width, in px; the window is kept wide enough that it never gets less.
+SLIDER_MIN_WIDTH = 60
 # The info card over the canvas stays this far (px) from its left, right and
 # bottom edges, and starts this far down: clear of the command line and the
 # background-job status text under it.
@@ -1092,7 +1097,6 @@ class MainViewer:
         if getattr(self, 'sidebar_buttons_to_persist', None):
             for cmd_name in self.sidebar_buttons_to_persist:
                 self.process_command(f"{cmd_name} --register-only", record_history=False, silent=True)
-        self._add_console_button()
         
         # Ensure the side panel is hidden at startup
         self.set_sidebar_visible(False)
@@ -1209,7 +1213,8 @@ class MainViewer:
 
     def _build_slider_overlay(self):
         """Set up the slider row over the canvas's bottom: the threshold slider from
-        the left, the controls' info button at its start, and the Zoom box at the right."""
+        the left, the controls' info button and the Console button at its start, and
+        the Zoom box at the right."""
         # The overlay is a child of the native canvas.
         self.slider_overlay = QtWidgets.QWidget(self.canvas.native)
         self.slider_overlay.setObjectName("sliderOverlay")
@@ -1236,11 +1241,18 @@ class MainViewer:
             command_line_open=lambda: getattr(self, 'console_mode', False),
             # The background jobs the card lists, and its buttons that arrange them.
             jobs=ViewerJobs(self),
-            # The card's Console link: the sidebar button's action.
-            console=self._console_button_clicked,
         )
         overlay_layout.addWidget(self.controls_button)
-        overlay_layout.addSpacing(SLIDER_INFO_GAP - overlay_layout.spacing())
+
+        # The Console button, after the info button: the terminal icon and the word,
+        # as tall as the boxes after it. It opens the Console, as the `console` command does.
+        self.console_button = ConsoleButton(
+            translate("Viewer", "Console"),
+            translate("Viewer", "Show everything this Viewer has printed: progress, warnings and errors"),
+            opened=self._console_button_clicked,
+        )
+        overlay_layout.addWidget(self.console_button)
+        overlay_layout.addSpacing(SLIDER_BUTTONS_GAP - overlay_layout.spacing())
 
         # The threshold, to read and to set, then the slider: each number of
         # the box is one of the slider's positions, so each follows the other.
@@ -1259,6 +1271,8 @@ class MainViewer:
         self.slider.setValue(start)
         self.threshold_box.show_value(self.threshold_box.value_at(start))
         self.slider.setFocusPolicy(QtCore.Qt.FocusPolicy.NoFocus)
+        # The slider is what gives up room to the buttons and the boxes.
+        self.slider.setMinimumWidth(SLIDER_MIN_WIDTH)
         self.slider.valueChanged.connect(self.on_slider_value_changed)
         self.slider.sliderReleased.connect(self._on_slider_released)
         self.threshold_box.valueChanged.connect(self._set_threshold_from_box)
@@ -1414,6 +1428,8 @@ class MainViewer:
         self.window_control = ViewerWindow(
             self.main_window, mode, requested=getattr(self, 'requested_window_mode', mode),
             fallback_reason=getattr(self, 'window_fallback_reason', None))
+        # The slider row is built first: the window keeps the room it needs.
+        self._update_window_minimum_width()
 
     def _command_line_message(self):
         """The command being typed, with an underscore at the cursor."""
@@ -3486,7 +3502,7 @@ class MainViewer:
 
         Returns "opened", "no_window" when the Viewer shows no windows (headless, or hidden and not
         shown), or "not_kept" when it was started with --console, so nothing is kept to show.
-        The console command reports each; the sidebar button explains the last.
+        The console command reports each; the Console button explains the last.
         """
         if not self.shows_windows():
             return "no_window"
@@ -3496,19 +3512,10 @@ class MainViewer:
         return "opened" if show_console(self.main_window) is not None else "not_kept"
 
     def _console_button_clicked(self):
+        """The Console button's click: open the Console, or say why nothing is kept to show."""
         if self.open_console_window() == "not_kept":
             from desktop.Console_View import not_available_text
             QtWidgets.QMessageBox.information(self.main_window, translate("Viewer", "Console"), not_available_text())
-
-    def _add_console_button(self):
-        """The Console button, last in the sidebar: the terminal icon and the Console window."""
-        self.add_sidebar_button(
-            "consoleBtn",
-            translate("Viewer", "Console"),
-            self._console_button_clicked,
-            translate("Viewer", "Show everything this Viewer has printed: progress, warnings and errors"),
-            icon="square-terminal",
-        )
 
     def _open_web_ui(
         self,
@@ -3566,7 +3573,35 @@ class MainViewer:
         margins = self.right_panel_layout.contentsMargins()
         button_width = fit_buttons_to_text(*self.sidebar_buttons.values())
         self._panel_w = button_width + margins.left() + margins.right()
-        self.main_window.setMinimumWidth(self._panel_w)
+        self._update_window_minimum_width()
+
+    def _slider_row_width(self):
+        """The canvas width the slider row needs for nothing in it to overlap, the sidebar aside.
+
+        From the left: the row's margin, the buttons, the threshold box and the slider at
+        its least (SLIDER_MIN_WIDTH), the gap, and the Zoom box with its margin at the right
+        (position_slider_overlay lays them out so). 0 while the row is not built.
+        """
+        overlay, box = getattr(self, 'slider_overlay', None), getattr(self, 'zoom_box', None)
+        hud_layout = getattr(self, 'hud_layout', None)
+        if overlay is None or box is None or hud_layout is None:
+            return 0
+        # Measured in the stylesheets' fonts, as the row is laid out.
+        for widget in (overlay, box, *overlay.findChildren(QtWidgets.QWidget)):
+            widget.ensurePolished()
+        overlay.layout().invalidate()
+        return (SLIDER_ROW_LEFT + overlay.layout().minimumSize().width() + SLIDER_BOX_GAP
+                + box.sizeHint().width() + round(hud_layout["status_x_offset"]))
+
+    def _update_window_minimum_width(self):
+        """Keep the window wide enough for the sidebar's buttons, and for the slider row beside the sidebar.
+
+        The row needs _slider_row_width and, while the sidebar has buttons, the room it takes
+        when open, so that opening it never makes the row overlap. A Viewer without the row
+        keeps the sidebar's width alone.
+        """
+        room = self._panel_w if getattr(self, 'sidebar_buttons', None) else 0
+        self.main_window.setMinimumWidth(max(self._panel_w, self._slider_row_width() + room))
 
 
     def start_web_server(self):

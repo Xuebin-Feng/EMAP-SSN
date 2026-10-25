@@ -30,7 +30,7 @@ def print_help():
       searches the output, filters it to warnings and errors, follows new
       lines, copies and saves it, and opens the log file, which keeps every
       line of the session (the window shows the last 20,000). The Console
-      button in the sidebar opens the same window.
+      button at the bottom of the Viewer opens the same window.
 
     Notes:
       A Viewer that shows no window (headless, or hidden and not shown) has

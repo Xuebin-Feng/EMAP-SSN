@@ -860,6 +860,11 @@ class ViewerCanvasTextTests(WindowTestCase):
         box.spin_box.show_zoom(81.0, 80.0, 200000.0)
         self.assert_translated(" ".join([box.before.text(), box.spin_box.text(), box.after.text()]), "81.0")
         self.assert_translated(box.toolTip(), "100", f"{ZOOM_100_PERCENT_WIDTH:g}")
+        # The Console button beside the info button: its word, its tooltip and its accessible name.
+        button = viewer.console_button
+        self.assert_translated(button.text())
+        self.assert_translated(button.toolTip())
+        self.assertEqual(button.accessibleName(), button.text())
 
     def test_the_selected_nodes_cluster_and_groups(self):
         from types import SimpleNamespace

@@ -11,8 +11,10 @@ frame; a hidden or headless window switches it at once, and the toggle turns
 a slide around where it is. The info button at the threshold slider's start
 opens the session and controls card, a child of the canvas that stays in the
 room the sidebar leaves it and follows the threshold, hidden nodes and undo
-while it is open; the threshold box between the button and the slider
-follows the slider and moves it.
+while it is open; the Console button after it opens the Console; the
+threshold box between the buttons and the slider follows the slider and moves
+it. The slider gives up the room the buttons take, and the window is kept wide
+enough that nothing in the row overlaps, with the sidebar closed or open.
 """
 
 import os
@@ -33,18 +35,34 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 import EMAPSSN_Viewer  # noqa: E402
-from EMAPSSN_Viewer import SIDEBAR_SLIDE_MS, MainViewer, _sidebar_room  # noqa: E402
+from EMAPSSN_Viewer import (  # noqa: E402
+    SIDEBAR_SLIDE_MS,
+    SLIDER_BOX_GAP,
+    SLIDER_BUTTONS_GAP,
+    SLIDER_MIN_WIDTH,
+    SLIDER_ROW_LEFT,
+    MainViewer,
+    _sidebar_room,
+)
 from PySide6 import QtWidgets  # noqa: E402
-from PySide6.QtCore import QPoint, Qt  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QPoint, QRect, Qt, QTranslator  # noqa: E402
 from PySide6.QtGui import QGuiApplication  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QWidget  # noqa: E402
 from vispy.util import keys as vispy_keys  # noqa: E402
 
-from desktop.Viewer_Widgets import SIDEBAR_INSET, ControlsButton, SidebarButton, SidebarPanel  # noqa: E402
+from desktop.Viewer_Widgets import (  # noqa: E402
+    SIDEBAR_INSET,
+    SLIDER_BOX_HEIGHT,
+    ConsoleButton,
+    ControlsButton,
+    SidebarButton,
+    SidebarPanel,
+)
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 
 CANVAS_SIZE = (1200, 800)
+ZH_QM = SRC / "resources" / "languages" / "zh_CN" / "emapssn_zh_CN.qm"
 
 
 class VispyLikeCanvas(QWidget):
@@ -359,23 +377,166 @@ class SliderOverlayTests(unittest.TestCase):
                 slider.setValue(400)
                 viewer.update_edges.assert_called_once_with()
 
-    def test_the_controls_button_starts_the_threshold_slider(self):
-        viewer = self.make_viewer()
+    def row_widgets(self, viewer):
         layout = viewer.slider_overlay.layout()
-        widgets = [layout.itemAt(index).widget() for index in range(layout.count())]
-        self.assertEqual([widget for widget in widgets if widget is not None],
-                         [viewer.controls_button, viewer.threshold_box, viewer.slider])
+        return [item.widget() for item in (layout.itemAt(index) for index in range(layout.count())) if item.widget()]
+
+    def test_the_buttons_start_the_threshold_slider(self):
+        viewer = self.make_viewer()
+        self.assertEqual(self.row_widgets(viewer),
+                         [viewer.controls_button, viewer.console_button, viewer.threshold_box, viewer.slider])
         button = viewer.controls_button
         self.assertIsInstance(button, ControlsButton)
         self.assertEqual(button.toolTip(), "Session and controls")
         self.assertTrue(button.text_source.startswith("[ENTER] Command | "))
         self.assertEqual(viewer.threshold_box.text(), "3.740")
-        # The box starts well clear of the button, so the button doesn't
-        # read as a mark on the number.
+
+    def test_the_console_button_sits_between_the_info_button_and_the_threshold_box(self):
+        viewer = self.make_viewer()
+        layout = viewer.slider_overlay.layout()
         layout.activate()
-        gap = viewer.threshold_box.x() - (button.x() + button.width())
-        self.assertGreaterEqual(gap, 24)
-        self.assertLessEqual(gap, 40)
+        info, console, box = viewer.controls_button, viewer.console_button, viewer.threshold_box
+        self.assertIsInstance(console, ConsoleButton)
+        # Left to right: the info button, the Console button, the threshold box, none over another.
+        self.assertLess(info.geometry().right(), console.geometry().left())
+        self.assertLess(console.geometry().right(), box.geometry().left())
+        # A button's width from the info button, then clear of the number, so it doesn't read as part of it.
+        self.assertEqual(console.x() - (info.x() + info.width()), layout.spacing())
+        self.assertEqual(box.x() - (console.x() + console.width()), SLIDER_BUTTONS_GAP)
+        self.assertGreater(SLIDER_BUTTONS_GAP, layout.spacing())
+        # As tall as the info button and the box, and level with them: the same top and bottom.
+        for widget in (info, console, box):
+            self.assertEqual(widget.height(), SLIDER_BOX_HEIGHT)
+            self.assertEqual(widget.y(), info.y())
+        # Wide enough for its icon and word (no text cut off), and not a square like the info button.
+        self.assertGreater(console.width(), info.width())
+        self.assertEqual(console.width(), console.maximumWidth())
+        self.assertEqual(console.text(), "Console")
+
+    def test_the_console_button_opens_the_console_as_the_old_sidebar_button_did(self):
+        viewer = self.make_viewer()
+        with mock.patch.object(viewer, "open_console_window", return_value="opened") as opener,                 mock.patch.object(EMAPSSN_Viewer.QtWidgets.QMessageBox, "information") as information:
+            viewer.console_button.click()
+        opener.assert_called_once_with()
+        information.assert_not_called()
+
+    def test_the_slider_gives_up_the_room_the_console_button_takes(self):
+        viewer = self.make_window_viewer()
+        wide = []
+        for room in (0, 160):
+            with mock.patch.object(EMAPSSN_Viewer, "_sidebar_room", return_value=room):
+                viewer.position_slider_overlay()
+            viewer.slider_overlay.layout().activate()
+            wide.append(viewer.slider.width())
+        # The sidebar's room comes out of the slider, and the slider is what shrinks, never the buttons or boxes.
+        self.assertEqual(wide[0] - wide[1], 160)
+        self.assertEqual(viewer.slider.minimumWidth(), SLIDER_MIN_WIDTH)
+        for widget in (viewer.controls_button, viewer.console_button, viewer.threshold_box):
+            self.assertGreaterEqual(widget.width(), widget.sizeHint().width())
+
+    # ---- the window keeps the row whole ----
+
+    def make_window_viewer(self, buttons=()):
+        """A Viewer with its slider row and its main window, as MainViewer.__init__ builds them, in this order."""
+        viewer = self.make_viewer()
+        viewer._build_main_window()
+        self.addCleanup(viewer.main_window.deleteLater)
+        self.addCleanup(viewer.main_window.close)
+        viewer._update_hud_elements = lambda: None
+        for name, label, icon in buttons:
+            viewer.add_sidebar_button(name, label, lambda: None, icon=icon)
+        viewer.set_sidebar_visible(False, animate=False)
+        # Shown, so that the row's layout follows the geometry it is given.
+        viewer.main_window.show()
+        self.app.processEvents()
+        return viewer
+
+    SIDEBAR_BUTTONS = (("metaDataBtn", "Meta Data", "chart-column"), ("agentBtn", "Agent", "bot"))
+
+    def assert_row_fits(self, viewer, width, room=0):
+        """Lay the row out in a canvas ``width`` wide, the sidebar taking ``room``, and check nothing overlaps or is cut off."""
+        viewer.canvas.size = (width, 700)
+        with mock.patch.object(EMAPSSN_Viewer, "_sidebar_room", return_value=room):
+            viewer.position_slider_overlay()
+        overlay = viewer.slider_overlay
+        overlay.layout().activate()
+        parts = [viewer.controls_button, viewer.console_button, viewer.threshold_box, viewer.slider]
+        rects = [part.geometry() for part in parts]
+        for left, right in zip(rects, rects[1:]):
+            self.assertLess(left.right(), right.left(), (left, right))
+        for part, rect in zip(parts, rects):
+            self.assertTrue(overlay.rect().contains(rect), (part.objectName(), rect, overlay.rect()))
+            self.assertGreaterEqual(rect.width(), part.minimumSizeHint().width())
+        self.assertGreaterEqual(viewer.slider.width(), SLIDER_MIN_WIDTH)
+        row, zoom = overlay.geometry(), viewer.zoom_box.geometry()
+        self.assertEqual(row.x(), SLIDER_ROW_LEFT)
+        self.assertGreaterEqual(zoom.x() - (row.x() + row.width()), SLIDER_BOX_GAP)
+        self.assertEqual(zoom.x() + zoom.width(), width - room - 10)
+        self.assertGreaterEqual(zoom.x(), 0)
+
+    def test_the_window_is_kept_wide_enough_for_the_row_with_the_sidebar_closed(self):
+        viewer = self.make_window_viewer()
+        least = viewer.main_window.minimumWidth()
+        self.assertEqual(least, viewer._slider_row_width())
+        # What the old window allowed (the sidebar's width, 121 px with the Console button in it) could not hold the row.
+        self.assertGreater(least, viewer._panel_w + 300)
+        self.assert_row_fits(viewer, least)
+        # At the least the slider has all it needs and no more.
+        self.assertEqual(viewer.slider.width(), SLIDER_MIN_WIDTH)
+        self.assert_row_fits(viewer, least + 1)
+        self.assert_row_fits(viewer, 1200)
+        # The least is tight: a pixel narrower, and the row no longer fits its room.
+        viewer.canvas.size = (least - 1, 700)
+        viewer.position_slider_overlay()
+        overlay = viewer.slider_overlay
+        self.assertLess(overlay.width(), overlay.layout().minimumSize().width())
+
+    def test_the_window_is_kept_wide_enough_for_the_row_and_an_open_sidebar_too(self):
+        viewer = self.make_window_viewer(self.SIDEBAR_BUTTONS)
+        least = viewer.main_window.minimumWidth()
+        self.assertEqual(least, viewer._slider_row_width() + viewer._panel_w)
+        # Opening the sidebar never asks the window to grow: it is as wide as that already, shut or open.
+        self.assert_row_fits(viewer, least, room=viewer._panel_w)
+        self.assertEqual(viewer.slider.width(), SLIDER_MIN_WIDTH)
+        self.assert_row_fits(viewer, least, room=0)
+        self.assert_row_fits(viewer, 1200, room=viewer._panel_w)
+        viewer.canvas.size = (least - 1, 700)
+        with mock.patch.object(EMAPSSN_Viewer, "_sidebar_room", return_value=viewer._panel_w):
+            viewer.position_slider_overlay()
+        self.assertLess(viewer.slider_overlay.width(), viewer.slider_overlay.layout().minimumSize().width())
+
+    def test_the_actual_window_cannot_be_made_narrower_than_the_row(self):
+        viewer = self.make_window_viewer(self.SIDEBAR_BUTTONS)
+        window = viewer.main_window
+        window.resize(1, 300)
+        self.app.processEvents()
+        self.assertEqual(window.minimumWidth(), viewer._slider_row_width() + viewer._panel_w)
+        self.assertGreaterEqual(window.width(), window.minimumWidth())
+
+    def test_a_longer_translation_asks_for_a_wider_window(self):
+        # The minimum follows the texts of the buttons and boxes in the language the Viewer started in.
+        english = self.make_window_viewer()
+        translator = QTranslator()
+        self.assertTrue(translator.load(str(ZH_QM)))
+        self.assertTrue(self.app.installTranslator(translator))
+        self.addCleanup(self.app.removeTranslator, translator)
+        chinese = self.make_window_viewer()
+        self.assertEqual(chinese.console_button.text(), "控制台")
+        # "控制台" is a shorter word than "Console", and the row it needs is shorter by as much.
+        self.assertLess(chinese.console_button.width(), english.console_button.width())
+        self.assertLess(chinese.main_window.minimumWidth(), english.main_window.minimumWidth())
+        for viewer in (english, chinese):
+            self.assert_row_fits(viewer, viewer.main_window.minimumWidth())
+
+    def test_a_long_pseudo_translation_still_fits_the_row_at_the_least_width(self):
+        from tests.translation_fixtures import pseudo_language
+
+        plain = self.make_window_viewer()
+        pseudo_language(self, self.app)
+        padded = self.make_window_viewer(self.SIDEBAR_BUTTONS)
+        self.assertNotEqual(padded.console_button.text(), "Console")
+        self.assertGreater(padded.console_button.width(), plain.console_button.width())
+        self.assert_row_fits(padded, padded.main_window.minimumWidth(), room=padded._panel_w)
 
     # ---- the info card ----
 

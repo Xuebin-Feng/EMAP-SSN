@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Console window (desktop.Console_View) and its entry points: lines are classified as errors, warnings or output from what they say, an indented line under a problem shares its colour, the window shows the capture's lines with their times, feeds live while shown and not while hidden, searches, filters, follows, clears, copies and saves, replaces a progress line in place, shows its footer, takes the theme's colours in light and dark and again when the theme changes; the Console button of the language row and the Viewer's sidebar button open it, and say why when nothing is kept."""
+"""The Console window (desktop.Console_View) and its entry points: lines are classified as errors, warnings or output from what they say, an indented line under a problem shares its colour, the window shows the capture's lines with their times, feeds live while shown and not while hidden, searches, filters, follows, clears, copies and saves, replaces a progress line in place, shows its footer, takes the theme's colours in light and dark and again when the theme changes; the Viewer's Console button, at the foot of its window, opens it, and says why when nothing is kept."""
 
 from __future__ import annotations
 
@@ -590,7 +590,7 @@ class EntryPointTests(WindowCase):
 
         from PySide6.QtWidgets import QHBoxLayout
 
-        # The Console is the Viewer's (its command, sidebar button and Session card link); Config and Tools
+        # The Console is the Viewer's (its command and the button at the foot of its window); Config and Tools
         # show what they print on the start-up splash, and their windows keep the footer they always had.
         self.assertEqual(list(inspect.signature(Desktop_App.language_selector_row).parameters),
                          ["selector", "theme_switch", "leading"])
@@ -609,7 +609,7 @@ class EntryPointTests(WindowCase):
 
 
 class ViewerEntryPointTests(WindowCase):
-    """The Viewer's sidebar button and the method the console command calls."""
+    """The Viewer's Console button, at the foot of its window, and the method the console command calls."""
 
     def setUp(self):
         super().setUp()
@@ -618,6 +618,13 @@ class ViewerEntryPointTests(WindowCase):
         self.module = EMAPSSN_Viewer
         viewer = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
         viewer.canvas = SimpleNamespace(native=QWidget(), size=(1000, 700))
+        self.addCleanup(viewer.canvas.native.deleteLater)
+        viewer.hud_layout = {"status_x_offset": 10.0, "status_line_spacing": 38.0}
+        viewer._hud_timer = mock.Mock()
+        viewer.min_threshold, viewer.max_threshold = 0.0, 9.6
+        viewer.current_slider_threshold = 3.74
+        viewer.update_edges = mock.Mock()
+        viewer._build_slider_overlay()
         viewer._build_main_window()
         self.addCleanup(viewer.main_window.deleteLater)
         self.addCleanup(viewer.main_window.close)
@@ -629,22 +636,43 @@ class ViewerEntryPointTests(WindowCase):
     def tearDown(self):
         Console_View._window = None
 
-    def test_the_sidebar_gets_a_console_button_with_the_terminal_icon(self):
-        self.viewer._add_console_button()
-        button = self.viewer.sidebar_buttons["consoleBtn"]
+    def test_the_row_at_the_foot_gets_a_console_button_with_the_terminal_icon(self):
+        button = self.viewer.console_button
         self.assertEqual(button.text(), "Console")
         self.assertFalse(button.icon().isNull())
-        self.assertTrue(button.toolTip())
+        self.assertTrue(button.toolTip().startswith("Show everything this Viewer has printed"))
+        self.assertIs(button.parentWidget(), self.viewer.slider_overlay)
 
-    def test_the_session_card_is_given_the_same_action_for_its_console_link(self):
+    def test_the_sidebar_and_the_session_card_have_no_console_entry_any_more(self):
+        import ast
+
+        self.assertFalse(hasattr(self.viewer, "_add_console_button"))
+        self.assertNotIn("consoleBtn", getattr(self.viewer, "sidebar_buttons", {}))
+        # Nothing at the Viewer's start-up adds a sidebar button of that name either.
+        source = (SRC / "EMAPSSN_Viewer.py").read_text(encoding="utf-8")
+        self.assertNotIn("consoleBtn", source)
+        self.assertNotIn("_add_console_button", source)
+        # The card is given no Console function, and has no link for one.
+        tree = ast.parse(source)
+        calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
+                 and getattr(node.func, "id", None) == "ControlsButton"]
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn("console", [keyword.arg for keyword in calls[0].keywords])
+        card = self.viewer.controls_button.toggle_card()
+        self.addCleanup(card.close)
+        self.assertFalse(hasattr(card, "console_button"))
+        self.assertEqual([link.text() for link in card.findChildren(QPushButton) if link.objectName() == "controlsLink"],
+                         ["List of commands"])
+
+    def test_the_button_is_given_the_action_the_old_sidebar_button_had(self):
         import ast
 
         tree = ast.parse((SRC / "EMAPSSN_Viewer.py").read_text(encoding="utf-8"))
         calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call)
-                 and getattr(node.func, "id", None) == "ControlsButton"]
+                 and getattr(node.func, "id", None) == "ConsoleButton"]
         self.assertEqual(len(calls), 1)
-        console = [keyword.value for keyword in calls[0].keywords if keyword.arg == "console"]
-        self.assertEqual([ast.unparse(value) for value in console], ["self._console_button_clicked"])
+        opened = [keyword.value for keyword in calls[0].keywords if keyword.arg == "opened"]
+        self.assertEqual([ast.unparse(value) for value in opened], ["self._console_button_clicked"])
 
     def test_opening_it_says_what_happened(self):
         viewer = self.viewer
@@ -658,20 +686,29 @@ class ViewerEntryPointTests(WindowCase):
         self.assertEqual(viewer.open_console_window(), "no_window")
 
     def test_the_button_explains_when_nothing_is_kept(self):
-        self.viewer._add_console_button()
         with mock.patch.object(Console_Capture, "_capture", None), mock.patch.object(
             self.module.QtWidgets.QMessageBox, "information"
         ) as information:
-            self.viewer.sidebar_buttons["consoleBtn"].click()
+            self.viewer.console_button.click()
         information.assert_called_once()
         self.assertIn("--console", information.call_args.args[2])
 
     def test_the_button_opens_the_window_when_output_is_kept(self):
-        self.viewer._add_console_button()
         with mock.patch.object(Console_Capture, "_capture", self.recorder):
-            self.viewer.sidebar_buttons["consoleBtn"].click()
+            self.viewer.console_button.click()
         self.assertIsNotNone(Console_View._window)
         self.addCleanup(Console_View._window.deleteLater)
+
+    def test_a_viewer_with_no_window_opens_nothing_and_says_nothing(self):
+        # As the sidebar button was: a headless Viewer, or a hidden one not shown, has no window to open or to
+        # explain in (the console command refuses with the reason).
+        self.viewer.headless = True
+        with mock.patch.object(Console_Capture, "_capture", self.recorder), mock.patch.object(
+            self.module.QtWidgets.QMessageBox, "information"
+        ) as information:
+            self.viewer.console_button.click()
+        information.assert_not_called()
+        self.assertIsNone(Console_View._window)
 
 
 if __name__ == "__main__":

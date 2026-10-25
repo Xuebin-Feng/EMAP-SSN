@@ -3,8 +3,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """The Viewer's widgets (desktop.Viewer_Widgets): its info card and the
-info button that opens it, its sidebar's rounded card and buttons, and the
-Zoom box.
+info button that opens it, the Console button beside that, its sidebar's
+rounded card and buttons, and the Zoom box.
 
 The Viewer lists its mouse and keyboard actions in one translated text. The
 card shows the session (the counts, and each input file as a read-only path;
@@ -44,15 +44,18 @@ from PySide6.QtGui import (  # noqa: E402
     QWheelEvent,
 )
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication, QLabel, QPushButton, QVBoxLayout, QWidget  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication, QLabel, QPushButton, QStyle, QStyleOptionButton, QVBoxLayout, QWidget,
+)
 
-from desktop.Desktop_App import fit_buttons_to_text  # noqa: E402
+from desktop.Desktop_App import clipped_button_text, fit_buttons_to_text  # noqa: E402
 from desktop.Studio_Theme import TOKENS, key_cap_qss, studio_icon  # noqa: E402
 from desktop.Viewer_Widgets import (  # noqa: E402
     FIXED_NOTE,
     PICK_FILES,
     SESSION_FILES,
     SIDEBAR_INSET,
+    ConsoleButton,
     ControlsButton,
     ControlsCard,
     PathField,
@@ -526,73 +529,20 @@ class ControlsCardTests(unittest.TestCase):
         last = card.descriptions[-1]
         self.assertGreater(last.mapTo(card.body, QPoint(0, 0)).y() + last.height(), card.body.height() - 20)
 
-    def card_with_console(self, console):
-        """A card whose owner gave it the function that opens the Console, as the Viewer does."""
-        button = ControlsButton(
-            "Session and controls", shipped_actions(), self.host, host=self.host, session=self.read_session,
-            controls_title="Mouse and keyboard controls",
-            area=lambda: self.host.rect().adjusted(8, 8, -8, -8),
-            command=self.command, command_line_open=lambda: False, console=console)
-        button.move(60, 700)
-        button.show()
-        card = button.toggle_card()
-        flush(self.app)
-        self.assertTrue(card.isVisible())
-        return button, card
+    def test_the_card_has_no_console_link_and_its_button_takes_no_console_function(self):
+        import inspect
 
-    def test_the_console_link_is_in_the_header_row_before_the_list_of_commands_link(self):
-        button, card = self.card_with_console(lambda: None)
-        console, commands, cross, heading = (card.console_button, card.commands_button, card.close_button,
-                                             card.session_heading)
-
-        def where(widget):
-            return widget.mapTo(card, QPoint(0, 0))
-
-        for widget in (console, commands, cross):
-            self.assertAlmostEqual(where(widget).y() + widget.height() / 2,
-                                   where(heading).y() + heading.height() / 2, delta=3)
-        # The heading, the Console link, the list of commands' link and the cross, in that order, none over another.
-        self.assertLess(where(heading).x() + heading.width(), where(console).x())
-        self.assertLessEqual(where(console).x() + console.width(), where(commands).x())
-        self.assertLessEqual(where(commands).x() + commands.width(), where(cross).x())
-        # In the header, above the scrolling sections, and the whole row inside the card.
-        self.assertLessEqual(where(console).y() + console.height(), where(card.scroll).y())
-        self.assertFalse(card.body.isAncestorOf(console))
-        self.assertLessEqual(where(cross).x() + cross.width(), card.card_rect().right())
-        # The link looks like its neighbour and says what it opens.
-        self.assertEqual((console.text(), console.objectName()), ("Console", "controlsLink"))
-        self.assertFalse(console.icon().isNull())
-        self.assertEqual(console.cursor().shape(), Qt.CursorShape.PointingHandCursor)
-        self.assertTrue(console.toolTip().startswith("Show everything this Viewer has printed"))
-        self.assertTrue(console.isEnabled())
-        self.assertEqual(console.focusPolicy(), Qt.FocusPolicy.NoFocus)
-
-    def test_the_console_link_does_not_make_the_card_wider(self):
-        _button, with_console = self.card_with_console(lambda: None)
-        without_console = self.open_card()
-        self.assertIsNone(without_console.console_button)
-        self.assertEqual(with_console.natural_size().width(), without_console.natural_size().width())
-
-    def test_a_click_on_the_console_link_opens_the_console_and_leaves_the_card_and_the_keyboard_alone(self):
-        opened = []
-        button, card = self.card_with_console(lambda: opened.append("console"))
-        self.host.activateWindow()
-        self.host.setFocus()
-        flush(self.app)
-        focus = QApplication.focusWidget()
-        QTest.mouseClick(card.console_button, Qt.MouseButton.LeftButton)
-        self.assertEqual(opened, ["console"])
-        self.assertTrue(button.card_is_open())
-        self.assertIs(QApplication.focusWidget(), focus)
-        QTest.mouseClick(card.console_button, Qt.MouseButton.LeftButton)
-        self.assertEqual(opened, ["console", "console"])
-
-    def test_a_card_given_no_console_function_has_no_console_link(self):
         card = self.open_card()
-        self.assertIsNone(card.console_button)
+        self.assertFalse(hasattr(card, "console_button"))
+        self.assertFalse(hasattr(card, "open_console"))
+        for owner in (ControlsCard, ControlsButton):
+            self.assertNotIn("console", inspect.signature(owner).parameters, owner)
+        # The header row holds the heading, the list of commands' link and the cross: nothing else.
+        header = card.layout().itemAt(0).layout()
+        widgets = [header.itemAt(index).widget() for index in range(header.count()) if header.itemAt(index).widget()]
+        self.assertEqual([widget.objectName() for widget in widgets], ["controlsHeading", "controlsLink", "controlsClose"])
         self.assertEqual([link.text() for link in card.findChildren(QPushButton) if link.objectName() == "controlsLink"],
                          ["List of commands"])
-        card.open_console()  # nothing to open, and nothing breaks
 
     def assert_halves(self, card):
         return assert_two_halves(self, card)
@@ -1328,28 +1278,135 @@ class ControlsCardLanguageTests(unittest.TestCase):
                 ("ViewerControls", "{total} ({visible} visible)"), ("ViewerControls", "{total} ({shown} shown)"),
                 ("ViewerControls", "Open the list of commands in your web browser"),
                 ("ViewerControls", "The list of commands is not installed: docs/list_of_commands.html is missing."),
-                ("ViewerControls", "Console"),
-                ("ViewerControls", "Show everything this Viewer has printed: progress, warnings and errors")):
+                ("Viewer", "Console"),
+                ("Viewer", "Show everything this Viewer has printed: progress, warnings and errors")):
             with self.subTest(source=source):
                 self.assertTrue(drafted.get((context, source)), (context, source))
 
-    def test_the_console_link_is_in_chinese_too(self):
+
+class ConsoleButtonTests(unittest.TestCase):
+    """The Console button of the slider row: the terminal icon and the word, beside the info button."""
+
+    TIP = "Show everything this Viewer has printed: progress, warnings and errors"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        apply_theme_for_class(cls, cls.app)
+
+    def make_button(self, text="Console", tip=TIP, opened=None):
+        host = QWidget()
+        self.addCleanup(host.deleteLater)
+        host.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        host.setGeometry(10, 0, 400, 100)
+        button = ConsoleButton(text, tip, host, opened=opened)
+        button.move(20, 30)
+        host.show()
+        flush(self.app)
+        return host, button
+
+    def test_it_is_as_tall_as_the_boxes_and_is_the_info_buttons_height(self):
+        _host, button = self.make_button()
+        self.assertEqual(button.height(), ControlsButton.SIZE)
+        self.assertEqual(button.height(), SLIDER_BOX_HEIGHT)
+        self.assertEqual(ThresholdSpinBox().height(), button.height())
+
+    def test_it_shows_the_icon_and_the_word_and_names_itself(self):
+        _host, button = self.make_button()
+        self.assertEqual(button.text(), "Console")
+        self.assertFalse(button.icon().isNull())
+        self.assertEqual(button.iconSize(), QSize(16, 16))
+        self.assertEqual(button.toolTip(), self.TIP)
+        self.assertEqual(button.accessibleName(), "Console")
+        self.assertEqual(button.accessibleDescription(), self.TIP)
+        self.assertEqual(button.cursor().shape(), Qt.CursorShape.PointingHandCursor)
+        # The canvas keeps the keyboard, as it does for the info button.
+        self.assertEqual(button.focusPolicy(), Qt.FocusPolicy.NoFocus)
+        self.assertEqual(button.objectName(), "viewerConsoleButton")
+
+    def test_it_takes_the_info_buttons_tint_border_and_hover_from_the_theme(self):
+        _host, button = self.make_button()
+        info = ControlsButton("Session and controls", shipped_actions())
+        self.addCleanup(info.deleteLater)
+        t = TOKENS
+        for sheet, name in ((button.styleSheet(), "viewerConsoleButton"), (info.styleSheet(), "viewerControlsButton")):
+            sheet = " ".join(sheet.split())
+            with self.subTest(button=name):
+                self.assertIn(f"background: {t['tint']}; border: 1px solid {t['tint']};", sheet)
+                self.assertIn(f"border-radius: {t['radius']}px", sheet)
+                self.assertIn(f"QPushButton#{name}:hover {{ background: {t['tint_hover']}; "
+                              f"border-color: {t['tint_hover']}; }}", sheet)
+                self.assertIn(f"QPushButton#{name}:pressed {{ background: {t['separator']}; "
+                              f"border-color: {t['separator']}; }}", sheet)
+
+    def background(self, button, state=QStyle.StateFlag.State_None):
+        """The fill of the button just inside its left end, clear of the icon, drawn by its style in ``state``.
+
+        The style draws it as for the pointer being over the button (State_MouseOver) or the button being
+        down (State_Sunken), which a test cannot count on the event loop and the pointer to set.
+        """
+        option = QStyleOptionButton()
+        button.initStyleOption(option)
+        option.state &= ~(QStyle.StateFlag.State_MouseOver | QStyle.StateFlag.State_Sunken)
+        option.state |= state
+        image = QImage(button.size(), QImage.Format.Format_ARGB32)
+        image.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(image)
+        try:
+            button.style().drawControl(QStyle.ControlElement.CE_PushButton, option, painter, button)
+        finally:
+            painter.end()
+        return QColor(image.pixel(5, button.height() // 2)).name()
+
+    def test_the_button_darkens_under_the_mouse_and_when_pressed(self):
+        _host, button = self.make_button()
+        self.assertEqual(self.background(button), TOKENS["tint"])
+        self.assertEqual(self.background(button, QStyle.StateFlag.State_MouseOver), TOKENS["tint_hover"])
+        self.assertEqual(self.background(button, QStyle.StateFlag.State_Sunken | QStyle.StateFlag.State_MouseOver),
+                         TOKENS["separator"])
+        self.assertEqual(self.background(button), TOKENS["tint"])
+
+    def test_the_width_asks_for_the_icon_and_the_text_and_no_text_is_cut_off(self):
+        widths = {}
+        for text in ("Console", "Console of this Viewer's output", "控制台", "[Çöññöölé]"):
+            with self.subTest(text=text):
+                _host, button = self.make_button(text)
+                self.assertEqual(clipped_button_text(button), 0)
+                room = button.iconSize().width() + 4 + button.fontMetrics().horizontalAdvance(text)
+                self.assertGreaterEqual(button.width(), room + 2 * ConsoleButton.PADDING)
+                self.assertEqual((button.minimumWidth(), button.maximumWidth()), (button.width(), button.width()))
+                widths[text] = button.width()
+        # A longer text widens the button; a shorter one narrows it.
+        self.assertGreater(widths["Console of this Viewer's output"], widths["Console"])
+        self.assertLess(widths["控制台"], widths["Console"])
+
+    def test_a_click_calls_what_it_was_given_and_leaves_the_keyboard_with_the_canvas(self):
+        opened = []
+        host, button = self.make_button(opened=lambda: opened.append("console"))
+        host.activateWindow()
+        host.setFocus()
+        flush(self.app)
+        focus = QApplication.focusWidget()
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+        self.assertEqual(opened, ["console"])
+        self.assertIs(QApplication.focusWidget(), focus)
+
+    def test_a_button_given_nothing_to_call_still_works(self):
+        _host, button = self.make_button()
+        QTest.mouseClick(button, Qt.MouseButton.LeftButton)
+
+    def test_the_viewers_texts_are_in_chinese_too(self):
         translator = QTranslator()
         self.assertTrue(translator.load(str(ZH_CATALOG.with_suffix(".qm"))))
         self.assertTrue(self.app.installTranslator(translator))
         self.addCleanup(self.app.removeTranslator, translator)
-        host = QWidget()
-        self.addCleanup(host.deleteLater)
-        host.resize(700, 500)
-        info = {"node_count": 1, "visible_node_count": 1, "edge_count": 0, "shown_edge_count": 0,
-                "inputs": {"node_fasta": os.path.abspath("set.fasta"), "msa": None}}
-        button = ControlsButton("会话与操作", shipped_actions(), host, host=host, session=lambda: info,
-                                console=lambda: None)
-        host.show()
-        card = button.toggle_card()
-        flush(self.app)
-        self.assertEqual(card.console_button.text(), "控制台")
-        self.assertEqual(card.console_button.toolTip(), "显示此查看器打印的全部内容：进度、警告和错误")
+        text = QCoreApplication.translate("Viewer", "Console")
+        tip = QCoreApplication.translate("Viewer", self.TIP)
+        self.assertEqual(text, "控制台")
+        self.assertEqual(tip, "显示此查看器打印的全部内容：进度、警告和错误")
+        _host, button = self.make_button(text, tip)
+        self.assertEqual((button.text(), button.toolTip(), button.accessibleName()), (text, tip, text))
+        self.assertEqual(clipped_button_text(button), 0)
 
 
 class ZoomBoxTests(unittest.TestCase):

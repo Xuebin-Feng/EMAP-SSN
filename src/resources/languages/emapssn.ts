@@ -8852,6 +8852,14 @@ The file was left unchanged and the tool was not started. Correct the file, or d
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Console</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Show everything this Viewer has printed: progress, warnings and errors</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Zoom: {zoom}%</source>
         <translation type="unfinished"></translation>
     </message>
@@ -8865,14 +8873,6 @@ The file was left unchanged and the tool was not started. Correct the file, or d
     </message>
     <message>
         <source>Hidden Nodes: {count}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Console</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Show everything this Viewer has printed: progress, warnings and errors</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -9078,14 +9078,6 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
     </message>
     <message>
         <source>List of commands</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Console</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Show everything this Viewer has printed: progress, warnings and errors</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
