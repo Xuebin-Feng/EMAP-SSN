@@ -780,7 +780,35 @@ class HeaderTests(WindowCase):
         flush(self.app, 4)
         self.assertEqual(window.width(), minimum)
         row = sum(control.minimumSizeHint().width() for control in window.header_controls())
-        self.assertGreaterEqual(minimum, row + 6 * (len(window.header_controls()) - 1) + 24)  # the controls, the gaps, the margins
+        gaps = 6 * (len(window.header_controls()) - 1) + 2 * Console_View.SWITCH_EXTRA_GAP
+        self.assertGreaterEqual(minimum, row + gaps + 24)  # the controls, the gaps (the switch's two wider), the margins
+
+    def test_the_show_times_switch_has_wider_gaps_on_both_sides_and_the_minimum_holds_them(self):
+        from desktop import Desktop_App
+        for language in (None, "zh_CN", Desktop_App.PSEUDO_LANGUAGE):
+            with self.subTest(language=language), self.in_language(language):
+                window = self.window()
+                controls = window.header_controls()
+                switch_at = controls.index(window.times_switch)
+                for width in (window.minimumWidth(), 1400):
+                    window.resize(width, 420)
+                    flush(self.app, 4)
+                    boxes = [QRect_of(control, window) for control in controls]
+                    gaps = [boxes[index + 1].left() - boxes[index].right() - 1 for index in range(len(boxes) - 1)]
+                    self.assertEqual(gaps[switch_at - 1], 18, gaps)  # between the filter and the switch
+                    self.assertEqual(gaps[switch_at], 18, gaps)      # between the switch and Copy
+                    others = gaps[:switch_at - 1] + gaps[switch_at + 1:]
+                    self.assertEqual(set(others), {6}, gaps)         # the rest of the row keeps its 6 px
+                # At the minimum the row just fits: the margins, the controls and every gap, the search field at its least.
+                window.resize(window.minimumWidth(), 420)
+                flush(self.app, 4)
+                self.assertEqual(window.width(), window.minimumWidth())
+                self.assertEqual(window.search.width(), Console_View.SEARCH_MINIMUM_WIDTH)
+                boxes = [QRect_of(control, window) for control in controls]
+                self.assertEqual(boxes[0].left(), 12)
+                self.assertEqual(boxes[-1].right(), window.width() - 12 - 1)
+                self.assertEqual(window.minimumWidth(), 24 + sum(box.width() for box in boxes) + 6 * (len(boxes) - 3) + 2 * 18)
+                self.assertOneRow(window)
 
     def test_the_search_field_is_the_one_that_gives_way_and_the_one_that_takes_the_room(self):
         window = self.window()
@@ -817,7 +845,16 @@ class HeaderTests(WindowCase):
         window = self.window()
         layout = window.layout().itemAt(0).layout()
         self.assertEqual(type(layout).__name__, "QHBoxLayout")
-        self.assertEqual([layout.itemAt(index).widget() for index in range(layout.count())], window.header_controls())
+        self.assertEqual(header_widgets(layout), window.header_controls())
+        # The only other items are the two blank gaps beside the Show Times switch.
+        spacers = [index for index in range(layout.count()) if layout.itemAt(index).spacerItem() is not None]
+        switch_index = [layout.itemAt(index).widget() for index in range(layout.count())].index(window.times_switch)
+        self.assertEqual(spacers, [switch_index - 1, switch_index + 1])
+
+
+def header_widgets(layout):
+    """The widgets of a header layout, left to right, without its blank gaps."""
+    return [layout.itemAt(index).widget() for index in range(layout.count()) if layout.itemAt(index).widget() is not None]
 
 
 def QRect_of(widget, window):
@@ -1608,7 +1645,7 @@ class ButtonRowTests(WindowCase):
         for control in with_row.header_controls():
             self.assertNotIn(control, with_row.button_controls())
         header = with_row.layout().itemAt(0).layout()
-        self.assertEqual([header.itemAt(index).widget() for index in range(header.count())], with_row.header_controls())
+        self.assertEqual(header_widgets(header), with_row.header_controls())
 
     def test_show_console_keeps_one_window_for_one_registry_and_a_new_one_for_another(self):
         with mock.patch.object(Console_Capture, "_capture", self.recorder):

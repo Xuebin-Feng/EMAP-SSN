@@ -42,7 +42,8 @@ Show details) and keep it in temp/logs.
   and the last two buttons open the log file and show its folder.
 * The header is one row that never wraps: the window cannot be made narrower
   than that row needs, in the language and font it is in, and the search field
-  is the one control that gives way (down to SEARCH_MINIMUM_WIDTH).
+  is the one control that gives way (down to SEARCH_MINIMUM_WIDTH). The Show Times
+  switch has 18 px on each side, the other controls 6.
 * A second row, under the search row, holds the buttons that pages and commands
   registered (ButtonRegistry; the Viewer's add_console_button), each with its
   icon and its label, in the order they were registered. A button registered while
@@ -135,6 +136,8 @@ MATCH_DARK = "#854d0e"
 MAX_MATCHES = 5000
 # The narrowest the search field gets when the window is as narrow as the header allows.
 SEARCH_MINIMUM_WIDTH = 120
+# The room added on each side of the Show Times switch, to the header's own 6 px between controls.
+SWITCH_EXTRA_GAP = 12
 # Between a registered button's label or icon and the button's ends: the "compact" role's 9 px and its border.
 ROW_BUTTON_PADDING = 10
 # Whether the gutter of times shows: kept in app_settings.json, as the other windows keep their theme
@@ -471,9 +474,13 @@ class ConsoleWindow(QWidget):
         # changes its width would change the window's minimum).
         bar.addWidget(self.search, 1)
         for widget in self.header_controls()[1:]:
+            if widget is self.times_switch:
+                bar.addSpacing(SWITCH_EXTRA_GAP)  # the switch has room on both sides, not packed in among the buttons
             bar.addWidget(widget)
-        for index in range(bar.count()):
-            bar.setAlignment(bar.itemAt(index).widget(), Qt.AlignmentFlag.AlignVCenter)
+            if widget is self.times_switch:
+                bar.addSpacing(SWITCH_EXTRA_GAP)
+        for widget in self.header_controls():
+            bar.setAlignment(widget, Qt.AlignmentFlag.AlignVCenter)
         root.addLayout(bar)
 
         # The second header row, the buttons that were registered: not shown (and no gap left) while there are none.
