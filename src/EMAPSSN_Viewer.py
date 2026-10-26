@@ -303,6 +303,11 @@ SLIDER_MIN_WIDTH = 60
 # background-job status text under it.
 SESSION_CARD_MARGIN = 8
 SESSION_CARD_TOP = 96
+# The window is kept at least this tall, in px: the command line and the
+# background-job text take the top SESSION_CARD_TOP, the slider row and the
+# Hidden Nodes line above it the bottom 85, and a strip of network is left
+# between them.
+WINDOW_MINIMUM_HEIGHT = 300
 
 
 def _slider_row_centre(canvas_height):
@@ -957,7 +962,10 @@ class MainViewer:
             if language_face is not None:
                 self.vispy_ui_face = self.vispy_monospace_face = language_face
         self.canvas.events.key_press.connect(self.on_key_press)
-        self.canvas.events.resize.connect(self.on_resize)
+        # Last: VisPy runs the most recently connected callback first, and the canvas's own
+        # resize handling, which sizes the view and so the camera's real rectangle, must
+        # come before on_resize reads the zoom from it.
+        self.canvas.events.resize.connect(self.on_resize, position='last')
         self.canvas.events.mouse_press.connect(self.on_mouse_press)
         self.canvas.events.mouse_release.connect(self.on_mouse_release)
         
@@ -1400,7 +1408,8 @@ class MainViewer:
             
         self.main_window.resize(1200, 800)
         self.main_window.setMinimumWidth(self._panel_w)
-        
+        self.main_window.setMinimumHeight(WINDOW_MINIMUM_HEIGHT)
+
         # Set the Vispy canvas directly as the central widget
         self.main_window.setCentralWidget(self.canvas.native)
         
@@ -3278,11 +3287,12 @@ class MainViewer:
         )
 
     def on_resize(self, event): 
-        # Resize events already run after VisPy has updated the canvas size and
-        # scene transforms. Refresh the HUD synchronously so pixel-anchored
-        # text follows the window instead of waiting for a Qt-backed timer,
-        # which can be starved during interactive window resizing. The Qt
-        # overlays move first.
+        # This runs after VisPy has updated the canvas size, the view and the
+        # scene transforms (it is connected last), so the Zoom box reads the
+        # camera as the resize left it. Refresh the HUD synchronously so
+        # pixel-anchored text follows the window instead of waiting for a
+        # Qt-backed timer, which can be starved during interactive window
+        # resizing. The Qt overlays move first.
         if hasattr(self, 'slider_overlay'):
             self.position_slider_overlay()
         if hasattr(self, 'reposition_expand_btn'):

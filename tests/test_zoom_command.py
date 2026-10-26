@@ -758,5 +758,115 @@ class ViewerWheelZoomTests(HundredPercentIs1000, unittest.TestCase):
         self.assertAlmostEqual(camera.rect.width, 1000.0 * 100 / 27)
 
 
+class ResizingCanvas:
+    """A canvas that sizes its view when it is resized, as VisPy's SceneCanvas does.
+
+    The view is sized by the first callback connected to the resize event, as
+    SceneCanvas connects its own handler when it is made; the camera then
+    works out the rectangle it shows for the view's new shape.
+    """
+
+    def __init__(self, view, size):
+        from vispy.util.event import EmitterGroup, Event
+
+        self.view = view
+        self.size = size
+        self.events = EmitterGroup(source=self, resize=Event)
+        self.events.resize.connect(self.size_the_view)
+
+    def size_the_view(self, event):
+        self.view.size = self.size
+
+    def resize(self, size):
+        self.size = size
+        self.events.resize()
+
+    def update(self):
+        pass
+
+
+class ZoomBoxResizeTests(HundredPercentIs1000, unittest.TestCase):
+    """The Zoom box shows the zoom of the picture after any resize of the window.
+
+    VisPy calls the most recently connected callback first, so the Viewer's
+    resize handler ran before the canvas had sized the view: the box read the
+    camera as the resize before had left it, a window behind. Only the box was
+    late; the camera's rectangle never moved. The Viewer now connects last.
+    """
+
+    def make_viewer(self, position):
+        from vispy import scene
+
+        import EMAPSSN_Viewer
+
+        view = scene.widgets.ViewBox()
+        view.size = (1400, 900)
+        view.camera = scene.PanZoomCamera(aspect=1)
+        # 200% on a 1400 x 900 view: 500 units wide, as tall as that view's shape makes it.
+        view.camera.rect = (0.0, 0.0, 500.0, 500.0 * 900 / 1400)
+        canvas = ResizingCanvas(view, (1400, 900))
+        viewer = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
+        viewer.canvas, viewer.view = canvas, view
+        viewer.hud_layout = {"status_x_offset": 10.0, "status_line_spacing": 34.0}
+        viewer.hud_displays = {}
+        viewer.pos = NETWORK.copy()
+        viewer.visible_mask = np.ones(len(NETWORK), dtype=bool)
+        viewer.hidden_text = SimpleNamespace(color=None, text="", pos=None)
+        viewer.selected_node_idx = None
+        viewer.tooltip = None
+        viewer.zoom_box = SimpleNamespace(spin_box=mock.Mock())
+        viewer.update_console_background = mock.Mock()
+        viewer._refresh_session_card = mock.Mock()
+        viewer.reposition_expand_btn = mock.Mock()
+        canvas.events.resize.connect(viewer.on_resize, position=position)
+        return viewer
+
+    def box(self, viewer):
+        """The zoom the box was last told to show."""
+        return viewer.zoom_box.spin_box.show_zoom.call_args.args[0]
+
+    def test_the_box_matches_the_picture_after_every_resize_and_the_camera_never_moves(self):
+        viewer = self.make_viewer("last")
+        camera = viewer.view.camera
+        rectangle = (tuple(camera.rect.pos), camera.rect.width, camera.rect.height)
+        # A shorter window shows more width at the same height of picture, so a smaller zoom, and
+        # the same window again shows the zoom it had: none of it left behind by the earlier sizes.
+        for height, zoom in ((900, 200.0), (600, 200.0 * 600 / 900), (900, 200.0), (300, 200.0 * 300 / 900),
+                             (900, 200.0), (40, 200.0 * 40 / 900), (900, 200.0), (1, 200.0 / 900), (900, 200.0)):
+            with self.subTest(height=height):
+                viewer.canvas.resize((1400, height))
+                self.assertAlmostEqual(self.box(viewer), zoom_command.current_zoom(viewer))
+                self.assertAlmostEqual(self.box(viewer), zoom, places=6)
+                self.assertEqual((tuple(camera.rect.pos), camera.rect.width, camera.rect.height), rectangle)
+
+    def test_a_width_only_resize_shows_the_zoom_of_the_width_it_gives(self):
+        viewer = self.make_viewer("last")
+        # Narrower, the view keeps its width and shows more height; wider, it shows more width.
+        for width, zoom in ((563, 200.0), (2000, 200.0 * 1400 / 2000), (1400, 200.0)):
+            viewer.canvas.resize((width, 900))
+            self.assertAlmostEqual(self.box(viewer), zoom, places=6)
+            self.assertAlmostEqual(self.box(viewer), zoom_command.current_zoom(viewer))
+
+    def test_the_box_is_a_resize_behind_when_connected_first_as_vispy_does_by_default(self):
+        # The premise: the default position is first, ahead of the canvas's own handler.
+        viewer = self.make_viewer("first")
+        viewer.canvas.resize((1400, 600))
+        self.assertAlmostEqual(self.box(viewer), 200.0)  # what the window before showed
+        self.assertAlmostEqual(zoom_command.current_zoom(viewer), 200.0 * 600 / 900)
+
+    def test_the_viewer_connects_its_resize_handler_last(self):
+        import ast
+
+        import EMAPSSN_Viewer
+
+        with open(EMAPSSN_Viewer.__file__, encoding="utf-8") as source:
+            tree = ast.parse(source.read())
+        init = next(node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)
+                    and node.name == "MainViewer").body
+        init = next(node for node in init if isinstance(node, ast.FunctionDef) and node.name == "__init__")
+        calls = [ast.unparse(node) for node in ast.walk(init) if isinstance(node, ast.Call)]
+        self.assertIn("self.canvas.events.resize.connect(self.on_resize, position='last')", calls)
+
+
 if __name__ == "__main__":
     unittest.main()

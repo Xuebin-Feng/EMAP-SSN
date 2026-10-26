@@ -602,6 +602,20 @@ class SliderOverlayTests(unittest.TestCase):
         self.assertEqual(window.minimumWidth(), viewer._slider_row_width() + viewer._panel_w)
         self.assertGreaterEqual(window.width(), window.minimumWidth())
 
+    def test_the_actual_window_cannot_be_made_shorter_than_the_command_line_the_row_and_the_hud(self):
+        viewer = self.make_window_viewer()
+        window = viewer.main_window
+        window.resize(window.width(), 1)
+        self.app.processEvents()
+        self.assertEqual(window.minimumHeight(), EMAPSSN_Viewer.WINDOW_MINIMUM_HEIGHT)
+        self.assertGreaterEqual(window.height(), EMAPSSN_Viewer.WINDOW_MINIMUM_HEIGHT)
+        # At the least, the command line and the background-job text above (SESSION_CARD_TOP) clear
+        # the Hidden Nodes line, a line's height above its middle, which is above the slider row.
+        # A strip of network is left between them.
+        viewer.hud_layout = {"status_x_offset": 10.0, "status_line_spacing": 34.0}
+        hidden_middle = viewer._status_hud_position(0, (window.width(), EMAPSSN_Viewer.WINDOW_MINIMUM_HEIGHT))[1]
+        self.assertGreaterEqual(hidden_middle - 16 - EMAPSSN_Viewer.SESSION_CARD_TOP, 100)
+
     def test_a_longer_translation_asks_for_a_wider_window(self):
         # The minimum follows the texts of the buttons and boxes in the language the Viewer started in.
         english = self.make_window_viewer()
