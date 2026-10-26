@@ -85,8 +85,11 @@ in logical px, devicePixelRatio, screen name and scale, active, focus widget and
 `window_first_painted`, `window_changed`, `window_hidden`, `window_close_requested`, `window_closed`,
 `window_destroyed`, `focus_changed`, `dialog_shown` (title, text, buttons), `file_dialog`, `desktop_open`
 (`open_path` / `open_url` arguments; the call still goes through), `capture`, `request`, `exit`.
-Everything written is passed through a redaction filter (key shapes, `--api-key X`, `"token": "..."`); it is a
-pattern filter, not a guarantee.
+Everything written is passed through a redaction filter (key shapes, `--api-key X`, `"token": "..."`, long random
+runs of letters and digits); it is a pattern filter, not a guarantee. It leaves a FASTA header alone, also one whose
+spaces became underscores (`sp|Q5ZKK2|GEMI4_CHICK_Gem-associated_protein_4_OS=Gallus_gallus_OX=9031`): a long run of
+words, numbers and short codes joined by `_` or `-` is a name, not a key, and a secret's name must end its word
+(`client_secret=...` and `accessToken: "..."` are masked, `Secretogranin-2_OS=...` and `gamma-secretase` are not).
 
 ## Operating the program: `probe.py do`
 

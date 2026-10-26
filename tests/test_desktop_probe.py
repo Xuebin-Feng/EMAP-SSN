@@ -132,6 +132,49 @@ class StoreTests(unittest.TestCase):
             with self.subTest(text=text):
                 self.assertEqual(store.redact_text(text), text)
 
+    FASTA_HEADERS = (
+        # UniProt headers as the programs show them, the spaces replaced by underscores (a node's name in a table or a title)
+        "sp|Q5ZKK2|GEMI4_CHICK_Gem-associated_protein_4_OS=Gallus_gallus_OX=9031_GN=GEMIN4_PE=2_SV=1",
+        "tr|A0A1D5PGT2|A0A1D5PGT2_CHICK_Secretogranin-2_OS=Gallus_gallus_OX=9031_GN=SCG2_PE=3_SV=1",
+        "sp|P49768|PSN1_HUMAN_Presenilin-1_gamma-secretase_subunit_OS=Homo_sapiens_OX=9606_GN=PSEN1_PE=1_SV=1",
+        "sp|P47872|SMS_HUMAN_Secretin_receptor_OS=Homo_sapiens_OX=9606_GN=SCTR_PE=1_SV=2",
+        "sp|Q9Y2X3|NOP58_HUMAN_Nucleolar_protein_58_OS=Homo_sapiens_OX=9606_GN=NOP58_PE=1_SV=1",
+        # the same with its spaces, and as a filename or a label an agent may read
+        ">sp|Q5ZKK2|GEMI4_CHICK Gem-associated protein 4 OS=Gallus gallus OX=9031 GN=GEMIN4 PE=2 SV=1",
+        "Cluster_alignment_of_the_selected_nodes_2024_05_report_final.txt",
+        "Sequence_Sets/sp|Q5ZKK2|GEMI4_CHICK_Gem-associated_protein_4_OS=Gallus_gallus",
+    )
+
+    def test_a_fasta_header_is_not_taken_for_a_key(self):
+        for header in self.FASTA_HEADERS:
+            with self.subTest(header=header[:50]):
+                self.assertEqual(store.redact_text(header), header)
+                self.assertEqual(store.redact_data({"title": header, "lines": [header]}), {"title": header, "lines": [header]})
+
+    def test_a_key_or_a_credential_beside_a_header_or_in_a_long_name_is_still_masked(self):
+        header = self.FASTA_HEADERS[0]
+        key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789"
+        random_runs = (
+            "A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7",              # letters and digits mixed, 34 long
+            "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",  # a SHA-256
+            "dGhpcyBpcyBhIHNlY3JldCB0b2tlbiB2YWx1ZQ12345678",  # base64
+            "Xk3_9aQ-mZ7pL2vN8wR4tY6uB1cD5eF0gH3jK",           # url-safe base64 with a join or two among long pieces
+        )
+        for run in random_runs:
+            with self.subTest(run=run[:12]):
+                for text in (f"{header} {run}", f"|{run}=", f"token {run}"):
+                    masked = store.redact_text(text)
+                    self.assertNotIn(run, masked, text)
+                self.assertIn(header, store.redact_text(f"{header} {run}"))  # the header is left as it was
+        self.assertNotIn(key, store.redact_text(f"{header} {key}"))
+        for text, value in (("client_secret=abcd1234efgh", "abcd1234efgh"), ("secrets: 'swordfish99'", "swordfish99"),
+                            ("MyToken=abcd1234", "abcd1234"), ('{"accessToken": "plainvalue99"}', "plainvalue99"),
+                            ("sp|Q5ZKK2|GEMI4_CHICK API_KEY=abcd1234efgh", "abcd1234efgh"),
+                            ("OS=Gallus_gallus password=hunter22", "hunter22"), ("x-api-key: 'abcd1234efgh'", "abcd1234efgh")):
+            with self.subTest(text=text):
+                self.assertNotIn(value, store.redact_text(text))
+        self.assertIn("OS=Gallus_gallus", store.redact_text("OS=Gallus_gallus password=hunter22"))
+
     def test_a_command_line_loses_the_value_after_a_secret_flag_and_any_key_shape(self):
         argv = ["tool.py", "--api-key", "abc", "--token=xyz12345", "--name", "ok", "--key", "k1", "sk-abcdefghijklmnopqrstuvwxyz"]
         redacted = store.redact_argv(argv)

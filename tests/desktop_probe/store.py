@@ -265,23 +265,49 @@ _KEY_SHAPES = (
     re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._\-+/=]{8,}"),
 )
 # A secret's name followed by "=" (or by a closing quote, a colon and an optional opening quote, as in JSON, or by
-# a colon and a quote), then its value. A label such as "Token: paste it here" is text, not an assignment.
+# a colon and a quote), then its value. A label such as "Token: paste it here" is text, not an assignment. The word
+# that names the secret ends the word it is in: "secret_key", "MyToken" and "client_secrets" name one, "Secretogranin",
+# "gamma-secretase" and "tokenizer" do not (a FASTA header whose spaces became underscores, "..._Secretin_receptor_
+# OS=Homo_sapiens", is not an assignment of the name before the "=").
 _NAMED_VALUE = re.compile(
     r"""(?ix)
-    (?P<name>[\w.\-]*(?:api[_\-]?key|apikey|token|secret|passw(?:or)?d|credential|authorization)[\w.\-]*)
+    (?P<name>[\w.\-]*(?:api[_\-]?key|apikey|token|secret|passw(?:or)?d|credential|authorization)s?(?!(?-i:[a-z]))[\w.\-]*)
     (?P<sep>["']\s*[:=]\s*["']?|\s*=\s*["']?|\s*:\s*["'])
     (?P<value>[^\s"',;}\]]{4,})
     """
 )
 _LONG_TOKEN = re.compile(r"(?<![\w/\\.\-])[A-Za-z0-9+_\-]{32,}={0,2}(?![\w/\\.\-])")
 _SECRET_FLAG = re.compile(r"(?i)^--?[\w\-]*(?:api[_\-]?key|apikey|token|secret|passw(?:or)?d|credential|key)$")
+# A joined name is made of segments that are a word, a number, a short code or an upper-case identifier (a UniProt
+# accession such as A0A1D5PGT2), which the pieces of a random key rarely are: those are long and of mixed case.
+_JOINED_NAME_MINIMUM = 4        # segments (three joins) before a run can be taken for a name
+_JOINED_NAME_PLAIN_SHARE = 0.7  # of the run's characters that must lie in such segments
+_JOINED_CODE_LENGTH = 6
+
+
+def _is_plain_segment(segment: str) -> bool:
+    return (segment.isalpha() or segment.isdigit() or len(segment) <= _JOINED_CODE_LENGTH
+            or segment == segment.upper())
+
+
+def _is_joined_name(text: str) -> bool:
+    """Words and codes joined by "_" or "-": a FASTA header whose spaces became underscores, a long file name.
+
+    ``GEMI4_CHICK_Gem-associated_protein_4_OS`` is one; a key is a run with no such structure, or with a join or two
+    among long mixed pieces.
+    """
+    segments = [segment for segment in re.split(r"[_\-]+", text.rstrip("=")) if segment]
+    if len(segments) < _JOINED_NAME_MINIMUM:
+        return False
+    plain = sum(len(segment) for segment in segments if _is_plain_segment(segment))
+    return plain >= _JOINED_NAME_PLAIN_SHARE * sum(len(segment) for segment in segments)
 
 
 def _looks_like_token(text: str) -> bool:
-    """A long run of letters and digits, which a key is and an amino-acid sequence or a word is not."""
+    """A long run of letters and digits, which a key is and an amino-acid sequence, a word or a joined name is not."""
     has_digit = any(character.isdigit() for character in text)
     has_letter = any(character.isalpha() for character in text)
-    return has_digit and has_letter
+    return has_digit and has_letter and not _is_joined_name(text)
 
 
 def redact_text(text: str) -> str:
