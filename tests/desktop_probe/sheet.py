@@ -151,7 +151,7 @@ def render_timeline(out) -> str:
             if entry["app_ready_ms"] is not None:
                 rows.append((entry["app_ready_ms"], f"{label}: QApplication ready"))
             for window in entry["windows"]:
-                title = f"{window.get('class')} {window.get('title')!r}"
+                title = f"{window.get('class')} {window['title']!r}" if window.get("title") else str(window.get("class"))
                 rows.append((window["shown_ms"], f"{label}: shown {title}" + (" (late by up to one scan)" if window.get("shown_late") else "")))
                 if "painted_ms" in window:
                     rows.append((window["painted_ms"], f"{label}: first painted {title}"))
@@ -206,6 +206,13 @@ def event_note(event) -> str | None:
         window = event.get("window") or {}
         return f"{who}: window {name.replace('window_', '')}: {window.get('class')} {window.get('title')!r}"
     return None
+
+
+def command_line(process, limit=140) -> str:
+    """The process's command line as a person reads it: the script's file name, then its arguments."""
+    argv = process.get("argv") or []
+    text = " ".join([Path(argv[0]).name, *argv[1:]]) if argv else ""
+    return text if len(text) <= limit else text[:limit] + "..."
 
 
 def contact_sheet(out) -> str:
@@ -263,7 +270,7 @@ def contact_sheet(out) -> str:
                     + (f"<ul class='events'>{lines}</ul>" if lines else "") + "</section>")
     rows = "".join(
         f"<tr><td>{html.escape(process['kind'])}</td><td>{process['pid']}</td><td>{clock(process['boot_wall_ms'])}</td>"
-        f"<td>{'running' if process['alive'] else 'ended'}</td><td>{html.escape(' '.join(process.get('argv', [])[:4])[:120])}</td></tr>"
+        f"<td>{'running' if process['alive'] else 'ended'}</td><td>{html.escape(command_line(process))}</td></tr>"
         for process in processes)
     count = sum(1 for kind, *_ in items if kind == "capture")
     return (
@@ -290,6 +297,6 @@ def card(capture) -> str:
         f"<figcaption><b>{html.escape(capture.get('title') or '')}</b><br>"
         f"<span class='meta'>{clock(capture['wall_ms'])} &middot; {html.escape(capture['kind'])} {capture['pid']} &middot; "
         f"{capture['width']}&times;{capture['height']} px, {capture['logical'][0]}&times;{capture['logical'][1]} logical, "
-        f"DPR {capture['dpr']} &middot; screen {html.escape(str(screen.get('name')))} {screen.get('scale')}x &middot; {html.escape(capture['reason'])}</span>"
+        f"DPR {capture['dpr']} &middot; screen {html.escape(str(screen.get('name') or 'offscreen'))} {screen.get('scale')}x &middot; {html.escape(capture['reason'])}</span>"
         + ("<br>" + "; ".join(notes) if notes else "") + "</figcaption></figure>"
     )

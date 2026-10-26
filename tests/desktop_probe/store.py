@@ -27,6 +27,7 @@ and the output folder (default <home>/out, or the --out of `on`) holds:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -82,7 +83,7 @@ def write_gate(checkout, out, *, auto_capture=True, settle_ms=SETTLE_MS) -> dict
             "settle_ms": int(settle_ms), "written_ms": wall_ms()}
     home = home_dir(checkout)
     home.mkdir(parents=True, exist_ok=True)
-    atomic_write_json(gate_file(checkout), gate)
+    atomic_write_json(gate_file(checkout), gate, attempts=50)
     (home / LAST_OUT_NAME).write_text(gate["out"], encoding="utf-8")
     return gate
 
@@ -129,13 +130,28 @@ def mono_ms() -> float:
     return round(time.monotonic() * 1000, 1)
 
 
-def atomic_write_json(path, data) -> None:
-    """Write ``data`` so that a reader sees the old file or the whole new one, never half."""
+def atomic_write_json(path, data, *, attempts: int = 1, pause: float = 0.01) -> None:
+    """Write ``data`` so that a reader sees the old file or the whole new one, never half.
+
+    On Windows a file that someone has open for reading cannot be replaced (Python opens without
+    FILE_SHARE_DELETE), and the command line reads these files all the time; ``attempts`` tries the
+    replacement again after ``pause`` seconds. A writer in the GUI thread keeps the default of one try, because
+    the next write will do, and a writer in a thread of its own asks for more.
+    """
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     temporary.write_text(json.dumps(redact_data(data), indent=1, ensure_ascii=False, default=str), encoding="utf-8")
-    os.replace(temporary, path)
+    for attempt in range(1, max(attempts, 1) + 1):
+        try:
+            os.replace(temporary, path)
+            return
+        except PermissionError:
+            if attempt >= attempts:
+                with contextlib.suppress(OSError):
+                    temporary.unlink()
+                raise
+            time.sleep(pause)
 
 
 def read_json(path, default=None):
@@ -182,7 +198,7 @@ def read_step(out) -> dict:
 def write_step(out, label) -> dict:
     out = ensure_out(out)
     step = {"seq": read_step(out)["seq"] + 1, "label": str(label), "wall_ms": wall_ms()}
-    atomic_write_json(out / "step.json", step)
+    atomic_write_json(out / "step.json", step, attempts=50)
     with open(out / "steps.jsonl", "a", encoding="utf-8") as handle:
         handle.write(json.dumps(redact_data(step), ensure_ascii=False) + "\n")
     return step
@@ -334,6 +350,24 @@ class EventLog:
 # Processes and requests
 # ---------------------------------------------------------------------------------------------
 
+def _windows_api():
+    """kernel32 and ntdll with the argument and result types the calls here need (handles are pointers, not ints)."""
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    ntdll = ctypes.WinDLL("ntdll")
+    kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    kernel32.GetProcessTimes.argtypes = [wintypes.HANDLE] + [ctypes.POINTER(wintypes.FILETIME)] * 4
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    ntdll.NtQueryInformationProcess.argtypes = [wintypes.HANDLE, ctypes.c_ulong, ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p]
+    ntdll.NtQueryInformationProcess.restype = ctypes.c_long
+    return ctypes, wintypes, kernel32, ntdll
+
+
 def own_start_time() -> float | None:
     """When this process began, in seconds since the epoch, read from the operating system without psutil.
 
@@ -342,12 +376,9 @@ def own_start_time() -> float | None:
     """
     try:
         if os.name == "nt":
-            import ctypes
-            from ctypes import wintypes
-
+            ctypes, wintypes, kernel32, _ntdll = _windows_api()
             created, exited, kernel, user = (wintypes.FILETIME() for _ in range(4))
-            handle = ctypes.windll.kernel32.GetCurrentProcess()
-            if not ctypes.windll.kernel32.GetProcessTimes(handle, *(ctypes.byref(item) for item in (created, exited, kernel, user))):
+            if not kernel32.GetProcessTimes(kernel32.GetCurrentProcess(), *(ctypes.byref(item) for item in (created, exited, kernel, user))):
                 return None
             ticks = (created.dwHighDateTime << 32) | created.dwLowDateTime
             return (ticks - 116444736000000000) / 10_000_000
@@ -367,22 +398,21 @@ def _parent_of(pid: int) -> int | None:
     """The parent of process ``pid`` (Windows: NtQueryInformationProcess; Linux: /proc), or None."""
     try:
         if os.name == "nt":
-            import ctypes
+            ctypes, _wintypes, kernel32, ntdll = _windows_api()
 
             class BasicInformation(ctypes.Structure):
                 _fields_ = [(name, ctypes.c_void_p) for name in ("status", "peb", "affinity", "priority", "pid", "parent")]
 
-            handle = ctypes.windll.kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
             if not handle:
                 return None
             try:
                 information = BasicInformation()
-                if ctypes.windll.ntdll.NtQueryInformationProcess(handle, 0, ctypes.byref(information),
-                                                                 ctypes.sizeof(information), None) != 0:
+                if ntdll.NtQueryInformationProcess(handle, 0, ctypes.byref(information), ctypes.sizeof(information), None) != 0:
                     return None
                 return int(information.parent or 0) or None
             finally:
-                ctypes.windll.kernel32.CloseHandle(handle)
+                kernel32.CloseHandle(handle)
         if sys.platform.startswith("linux"):
             with open(f"/proc/{pid}/stat", encoding="utf-8") as handle:
                 return int(handle.read().rsplit(")", 1)[1].split()[1]) or None

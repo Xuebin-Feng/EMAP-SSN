@@ -201,7 +201,7 @@ class Actions:
             if detail:
                 response["detail"] = detail
         try:
-            store.atomic_write_json(store.response_path(self.recorder.out, request_id), response)
+            store.atomic_write_json(store.response_path(self.recorder.out, request_id), response, attempts=30)
         except OSError as problem:
             self.recorder.event("response_failed", request_id=request_id, error=str(problem))
 

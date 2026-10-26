@@ -178,14 +178,35 @@ class StoreTests(unittest.TestCase):
         self.assertFalse(store.process_alive({"pid": 2 ** 22 + 12345}))
         self.assertFalse(store.process_alive({"pid": os.getpid(), "created": 12345.0}))  # a reused pid has another start time
 
-    def test_a_process_knows_when_it_began_and_who_started_it(self):
+    def test_a_process_knows_when_it_began_and_who_started_it_without_psutil(self):
+        import psutil
         started = store.own_start_time()
-        if started is not None:  # Windows and Linux; elsewhere the boot time is used
-            self.assertLess(abs(started - time.time()), 3600)
-            self.assertLessEqual(started, time.time() + 1)
+        if os.name == "nt" or sys.platform.startswith("linux"):
+            self.assertIsNotNone(started)
+            self.assertAlmostEqual(started, psutil.Process().create_time(), delta=2.0)
         chain = store.lineage()
-        self.assertTrue(chain)
-        self.assertIn(os.getppid(), chain)
+        self.assertEqual(chain[0], psutil.Process().parent().pid if os.name == "nt" or sys.platform.startswith("linux") else os.getppid())
+        self.assertEqual(chain[:len(chain)], [parent.pid for parent in psutil.Process().parents()][:len(chain)])
+
+    def test_a_replacement_that_collides_with_a_reader_is_tried_again_and_a_failure_leaves_no_temporary_file(self):
+        target = self.root / "answer.json"
+        real_replace = os.replace
+        calls = []
+
+        def busy_twice(source, destination):
+            calls.append(source)
+            if len(calls) < 3:
+                raise PermissionError(5, "Access is denied")
+            return real_replace(source, destination)
+
+        with mock.patch.object(store.os, "replace", busy_twice):
+            store.atomic_write_json(target, {"a": 1}, attempts=5, pause=0)
+        self.assertEqual(store.read_json(target), {"a": 1})
+        with mock.patch.object(store.os, "replace", side_effect=PermissionError(5, "Access is denied")):
+            with self.assertRaises(PermissionError):
+                store.atomic_write_json(target, {"a": 2}, attempts=1)
+        self.assertEqual(store.read_json(target), {"a": 1})
+        self.assertEqual([path.name for path in self.root.iterdir()], ["answer.json"])
 
 
 # ---------------------------------------------------------------------------------------------
@@ -217,6 +238,14 @@ class BootDecisionTests(unittest.TestCase):
         self.assertEqual(self.kind("src/desktop/Desktop_Launcher.py", ["session", "--settings", "x"]), ("splash", "session"))
         self.assertEqual(self.kind("src/desktop/Desktop_Launcher.py", ["viewer"]), ("splash", "viewer"))
         self.assertEqual(self.kind("src/desktop/Desktop_Launcher.py", ["--console"]), ("splash", None))
+
+    def test_the_mcp_servers_headless_runs_of_config_and_tools_are_told_apart_and_its_viewer_is_a_viewer(self):
+        launch = ["--headless", "launch-viewer", "--settings", "s.json", "--delete-settings", "--viewer-mode", "hidden"]
+        self.assertEqual(self.kind("src/EMAPSSN_Config.py", launch), ("viewer", "headless launch-viewer"))
+        self.assertEqual(self.kind("src/EMAPSSN_Config.py", ["--headless", "export", "--kind", "viewer"]), ("config", "headless export"))
+        self.assertEqual(self.kind("src/EMAPSSN_Tools.py", ["--headless", "export", "--tool", "x"]), ("tools", "headless export"))
+        self.assertEqual(self.kind("src/EMAPSSN_Config.py", ["--headless"]), ("config", "headless"))
+        self.assertEqual(self.kind("src/EMAPSSN_Config.py"), ("config", None))
 
     def test_any_other_script_or_command_is_left_alone(self):
         for argv in (["-c"], ["-m"], [""], [str(self.root / "src" / "Install_Dependencies.py")],
@@ -734,6 +763,7 @@ class CaptureTests(ProbeCase):
 class TargetTests(ProbeCase):
     def test_a_window_is_found_by_title_class_index_and_the_newest_wins_without_a_name(self):
         self.make_window("Alpha window")
+        self.pump()  # a scan numbers the windows it finds in turn; two found in one scan have no order
         self.make_window("Beta window")
         self.pump()
         windows = self.ok({"action": "windows"})["windows"]

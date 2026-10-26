@@ -55,7 +55,7 @@ class Recorder:
             "environment": {name: os.environ[name] for name in RECORDED_ENVIRONMENT if name in os.environ},
             "auto_capture": bool(gate.get("auto_capture", True)), "settle_ms": int(gate.get("settle_ms", store.SETTLE_MS)),
         }
-        self._write_process()
+        self._write_process(attempts=20)
         self.event("process_start", argv=self.process["argv"], detail=detail, ppid=self.process["ppid"])
 
     def _new_folder(self) -> Path:
@@ -68,13 +68,17 @@ class Recorder:
         folder.mkdir(parents=True, exist_ok=True)
         return folder
 
-    def _write_process(self) -> None:
-        store.atomic_write_json(self.folder / "process.json", self.process)
+    def _write_process(self, attempts) -> None:
+        store.atomic_write_json(self.folder / "process.json", self.process, attempts=attempts)
 
     def update_process(self, **fields) -> None:
+        """Add to process.json (the waiting thread does this; the file may be open in the command line meanwhile)."""
         with self._lock:
             self.process.update(fields)
-            self._write_process()
+            try:
+                self._write_process(attempts=200)
+            except OSError:
+                pass  # it is information for the timeline; the process goes on without it
 
     def event(self, name: str, **fields) -> dict | None:
         if os.getpid() != self.pid:  # a forked child (multiprocessing) shares this object: it writes nothing

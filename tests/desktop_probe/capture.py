@@ -21,25 +21,23 @@ from emapssn_desktop_probe import store, targets
 
 # Widgets drawn by something other than Qt's painter, by class name anywhere in the class's bases.
 EXTERNALLY_DRAWN = ("QOpenGLWidget", "QQuickWidget", "QWebEngineView", "QGLWidget")
-SAMPLE_GRID = 8
 
 
 def flat_colour(image: QtGui.QImage, rect: QtCore.QRect):
-    """The colour (#rrggbb) of a part of a picture that has just one, else None; sampled on a grid, so it is quick."""
+    """The colour (#rrggbb) of a part of a picture that has just one, else None.
+
+    Every pixel is compared (as bytes, so it takes milliseconds even for a 4K window): a canvas with two small
+    nodes on white must not count as blank.
+    """
     rect = rect.intersected(image.rect())
     if rect.isEmpty():
         return None
-    first = None
-    for row in range(SAMPLE_GRID):
-        for column in range(SAMPLE_GRID):
-            x = rect.x() + (rect.width() - 1) * column // max(SAMPLE_GRID - 1, 1)
-            y = rect.y() + (rect.height() - 1) * row // max(SAMPLE_GRID - 1, 1)
-            colour = image.pixelColor(x, y).name()
-            if first is None:
-                first = colour
-            elif colour != first:
-                return None
-    return first
+    part = image.copy(rect).convertToFormat(QtGui.QImage.Format.Format_RGB32)
+    pixels = bytes(part.constBits())
+    first = pixels[:4]
+    if pixels != first * (len(pixels) // 4):
+        return None
+    return part.pixelColor(0, 0).name()
 
 
 def drawn_elsewhere(widget, image: QtGui.QImage, scale: float) -> list[dict]:

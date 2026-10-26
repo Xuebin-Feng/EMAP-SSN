@@ -61,9 +61,13 @@ def alive(obj) -> bool:
 # ---------------------------------------------------------------------------------------------
 
 def normalize(text) -> str:
-    """Text as a person compares it: no accelerator ampersands, one space between words, no case."""
-    text = re.sub(r"&(?!&)", "", str(text or "")).replace("&&", "&")
-    return " ".join(text.split()).casefold()
+    """Text as a person compares it: one space between words, no case."""
+    return " ".join(str(text or "").split()).casefold()
+
+
+def shown_text(text) -> str:
+    """What a label looks like on screen: "&&" is one ampersand and any other "&" marks an accelerator, which is not drawn."""
+    return str(text or "").replace("&&", "").replace("&", "").replace("", "&")
 
 
 def is_secret_field(widget) -> bool:
@@ -275,10 +279,12 @@ def _spec_fields(spec) -> dict:
 
 
 def _field_matches(have, want, *, exact: bool) -> bool:
-    have, want = normalize(have), normalize(want)
+    """Whether ``want`` names ``have``, as the label shows it ("Save & Run") or as it is written ("Save && Run")."""
+    want = normalize(want)
     if not want:
         return False
-    return have == want if exact else want in have
+    forms = (normalize(shown_text(have)), normalize(have))
+    return want in forms if exact else any(want in form for form in forms)
 
 
 def _widget_matches(widget, fields, *, exact: bool) -> bool:

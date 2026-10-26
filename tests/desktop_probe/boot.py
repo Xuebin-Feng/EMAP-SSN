@@ -84,6 +84,14 @@ def decide(checkout, argv, environ):
     if kind is None:
         return None
     detail = argv[1] if kind == "splash" and len(argv) > 1 and not argv[1].startswith("-") else None
+    if kind in ("config", "tools") and "--headless" in argv:
+        # The MCP server runs Config and Tools without a window for exports and layouts, and starts a Viewer
+        # as "EMAPSSN_Config.py --headless launch-viewer": Config's script then runs the Viewer's in-process.
+        position = argv.index("--headless") + 1
+        operation = argv[position] if position < len(argv) and not argv[position].startswith("-") else None
+        detail = f"headless {operation}" if operation else "headless"
+        if operation == "launch-viewer":
+            kind = "viewer"
     return kind, detail
 
 
@@ -156,7 +164,10 @@ def _wait_for_qt(recorder):
         # What the timeline needs to join the launches up, read here so the main thread does not pay for it.
         from emapssn_desktop_probe import store
 
-        recorder.update_process(created=store.own_start_time(), ancestors=store.lineage())
+        try:
+            recorder.update_process(created=store.own_start_time(), ancestors=store.lineage())
+        except Exception:
+            pass  # only the timeline needs it
         while not (recorder.disabled or recorder.stopping):
             core = sys.modules.get("PySide6.QtCore")
             if core is not None:
