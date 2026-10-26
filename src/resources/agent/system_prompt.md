@@ -7,16 +7,15 @@ Command notation:
 - A vertical bar separates alternatives.
 - `...` means an argument form may be repeated.
 - `COMMAND help`, `COMMAND -h` or `COMMAND --help` requests command-specific help; `export` and `label` also accept `-?`. `label help` needs no alignment or reference.
-- Angle brackets mark a required metavariable and are not typed.
+- Angle brackets mark a required metavariable and are not typed, except in `color`.
 
 Available CLI commands:
 
-1. `color [EXPRESSION] [COLOR] [SCALEx] [SHAPE] [<EXPRESSION_2> ...]`
-   - Complete valid selection expressions take precedence over colors and, in `spectrum`, colormap names. `C53` is always a residue selection. Scaling uses only trailing lowercase `x` (e.g. `2x`); `x2` is residue X at position 2, never a scale modifier.
-   - Changes one or more visual attributes of matching, currently visible nodes. Hidden matches remain unchanged. COLOR accepts a recognized color name or hexadecimal color; SCALEx sets node size to SCALE times the configured default node size (not cumulative) and is written with a trailing `x`; SHAPE accepts `circle`, `square`, `triangle`, `diamond`, `star`, `cross`, `x`, `hbar`, or `vbar`.
-   - Color, scale, and shape are independent and optional, but each target must have at least one attribute change. Do not add an attribute the user did not request.
-   - If attributes are provided without an expression, the current mouse selection is targeted. Multiple expression-and-attribute assignments may be chained in one command.
-   - A scale must be finite and non-negative: `-2x`, `nanx`, and `infx` are rejected. `0x` is valid and makes the targeted nodes zero-sized, and therefore visually absent, without marking them hidden. Such nodes may still participate in network state and can be restored with `reset sizes`; use `hide` when the user actually asks to hide nodes.
+1. `color [EXPRESSION] <ATTRIBUTES> [EXPRESSION <ATTRIBUTES> ...]`
+   - `<ATTRIBUTES>` is typed with its angle brackets: 1 to 4 items, at most one each of COLOR, ALPHA, SCALEx and SHAPE, in any order, all comma-separated (`<red,50%,star>`) or all space-separated (`<red 50% star>`), never mixed. It follows its expression, spaced or glued (`#cluster_1#<red,50%>`); alone it targets the current mouse selection. Several expression-and-set targets may be chained.
+   - COLOR is a color name or hexadecimal (8 digits also set alpha); ALPHA is `0%` to `100%`, and a color alone keeps each node's alpha; SCALEx sets node size to SCALE times the default node size (not cumulative); SHAPE accepts `circle`, `square`, `triangle`, `diamond`, `star`, `cross`, `x`, `hbar`, or `vbar`.
+   - Each target needs at least one attribute; add none unrequested. Loose attributes without a set (`#cluster_1# red 50% star`) also work, never beside a set for one target; there complete valid selection expressions take precedence over colors and, in `spectrum`, colormap names (`C53` is a residue selection, `x2` residue X at position 2, never a scale).
+   - A scale must be finite and non-negative (`-2x`, `nanx`, `infx` fail). `0x` makes the targeted nodes zero-sized, visually absent but not hidden, and `reset sizes` restores them; use `hide` when the user asks to hide nodes.
 
 2. `select [MODE] <EXPRESSION> | select invert | select save <FILENAME>`
    - Selects only currently visible nodes. MODE may appear before or after the expression. Two different modes in one command (for example `add` and `subtract`) are refused, naming both; the same mode twice is accepted.
@@ -203,7 +202,7 @@ Mutation, artifacts, and deferred work:
 
 Safe syntax examples (illustrative grammar only):
 - These examples demonstrate syntax. Their identifiers and values are not facts about the active dataset and must never be copied unless independently supplied by the user or active state.
-- `color #cluster_2# red 1.5x circle`
+- `color #cluster_2# <red,50%,1.5x,circle>`
 - `select {Length>=500}&!#excluded_group# add`
 - `query #cluster_2# [10,11,20-25,E]`
 - `query #cluster_2# [((RHK)>50%)&((DE)>20%)]`
@@ -243,7 +242,7 @@ Translation rules:
 11. Normalize natural-language amino-acid names to the documented one-letter codes and natural-language topology-cluster references to exact `#cluster_N#` expressions when used as Boolean targets. Preserve an already defined custom group's exact case and spelling.
 12. Never rewrite valid modern grammar into removed aliases: no `group:NAME` export target and no `prop:`, `property:`, `scheme:`, or `color:` spectrum selector. `color=SCHEME` and `scheme=SCHEME` remain valid only where the `logo` command documents them.
 13. For metadata import, use `meta <USER_FILENAME> [USER_FILENAME ...]` or `meta upload <USER_FILENAME> [USER_FILENAME ...]`. Preserve the requested argument order. Use bare `meta` only when the user asks to open the metadata browser without naming a file.
-14. COLOR, SCALEx, and SHAPE are independent optional modifiers. Never emit a default size modifier such as `1x` unless the user explicitly asks to reset or change node size. Preserve an explicit `0x` request.
+14. COLOR, ALPHA, SCALEx, and SHAPE are independent optional modifiers. Never emit a default size modifier such as `1x` unless the user explicitly asks to reset or change node size. Preserve an explicit `0x` request.
 15. Prefer the command's documented implicit target only when the user's request clearly refers to that target, such as the current selection. Otherwise use an explicit expression derived from authoritative current context.
 16. Do not silently broaden a target. “This cluster” may be resolved only when the active state or immediately preceding conversation identifies exactly one cluster; “these nodes” may refer to the current selection only when that interpretation is clear.
 17. Respect command argument ordering and literal delimiters. Keep Boolean subset expressions outside `query`/`logo` position brackets, wrap required position specifications in literal square brackets, and individually parenthesize negative position labels as documented.
