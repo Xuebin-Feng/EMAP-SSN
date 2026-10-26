@@ -1027,7 +1027,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt; [filename ...]  |  meta show &lt;property_name&gt;|{property_name}  |  meta download [filename]  |  meta delete|remove|clear &lt;property_name&gt; [property_name ...]</div>
+                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt; [filename ...]  |  meta show &lt;property_name&gt;|{property_name}  |  meta download [filename]  |  meta delete|remove|clear &lt;property_name&gt;|{property_name} [property_name ...]</div>
                     <button class="copy-btn" onclick="copyText('meta', this)">Copy</button>
                 </div>
                 <p><strong>Function:</strong> Opens the browser metadata editor, loads Excel/CSV metadata into the current session, controls the clicked-node HUD property, deletes metadata columns, or exports the complete current session metadata.</p>
@@ -1039,7 +1039,7 @@
                     <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>:</strong> Activates a HUD text box in the bottom-right corner of the viewer displaying the value of the specified property when a node is clicked. The name may be written in braces, as <code>spectrum</code> writes it (<code>meta show {Length}</code>); a name in braces is always a property, so <code>meta show {off}</code> shows a property called <code>off</code>.</li>
                     <li><strong><code>meta show clear</code> / <code>meta show off</code>:</strong> Deactivates and hides the metadata property HUD. Undo and redo leave it hidden until the next <code>meta show</code> or <code>spectrum</code> opens it again.</li>
                     <li><strong><code>meta retrieve|download|export [filename]</code>:</strong> Exports all current session metadata to the configured metadata directory. With no filename, chooses the next free <code>metadata.csv</code>, <code>metadata1.csv</code>, and so on. An explicit filename must be a plain file name, not a path, ending in <code>.csv</code> or <code>.xlsx</code> in any case; it defaults to <code>.csv</code> when it has no extension and overwrites an existing file. This subcommand does not accept an expression filter.</li>
-                    <li><strong><code>meta delete|remove|clear &lt;property_name&gt; [property_name ...]</code>:</strong> Atomically deletes one or more metadata columns using case-insensitive property matching. Repeated names are ignored; if any requested name is missing, ambiguous, or protected, nothing is deleted. <code>Node ID</code>/<code>Sequence Header</code> is protected, while the FASTA-derived <code>Length</code>, <code>kDa</code>, <code>pI</code>, and <code>GRAVY</code> columns are ordinary deletable metadata. The keyword <code>all</code> is not supported. Use <code>undo</code>/<code>redo</code> to restore or reapply the deletion.</li>
+                    <li><strong><code>meta delete|remove|clear &lt;property_name&gt;|{property_name} [property_name ...]</code>:</strong> Atomically deletes one or more metadata columns using case-insensitive property matching. Each name may be written in braces, as in <code>spectrum {Length}</code>: both forms name the same column, and a column that is itself called <code>{Length}</code> is found by that name first. Repeated names are ignored; if any requested name is missing, ambiguous, or protected, nothing is deleted. <code>Node ID</code>/<code>Sequence Header</code> is protected, while the FASTA-derived <code>Length</code>, <code>kDa</code>, <code>pI</code>, and <code>GRAVY</code> columns are ordinary deletable metadata. The keyword <code>all</code> is not supported. Use <code>undo</code>/<code>redo</code> to restore or reapply the deletion.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -1052,6 +1052,7 @@
                     <li class="example-item"><span>meta download</span><button class="copy-btn" onclick="copyText('meta download', this)">Copy</button></li>
                     <li class="example-item"><span>meta export session_metadata.xlsx</span><button class="copy-btn" onclick="copyText('meta export session_metadata.xlsx', this)">Copy</button></li>
                     <li class="example-item"><span>meta delete Organism Host</span><button class="copy-btn" onclick="copyText('meta delete Organism Host', this)">Copy</button></li>
+                    <li class="example-item"><span>meta delete {Organism} {Host}</span><button class="copy-btn" onclick="copyText('meta delete {Organism} {Host}', this)">Copy</button></li>
                     <li class="example-item"><span>meta clear Length</span><button class="copy-btn" onclick="copyText('meta clear Length', this)">Copy</button></li>
                 </ul>
             </section>

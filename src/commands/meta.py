@@ -83,8 +83,11 @@ def print_help(meta_dir):
           Clears and removes the metadata property display. Undo and redo
           leave it closed until the next meta show or spectrum opens it.
       meta delete/remove/clear <property_name> [property_name ...]
+      meta delete/remove/clear {{property_name}} [{{property_name}} ...]
           Atomically deletes one or more metadata columns from the current session.
-          Property matching is case-insensitive. Node ID/Sequence Header cannot be
+          Property matching is case-insensitive. A name may be written in braces, as
+          in spectrum {{Length}}: both forms name the same column. A column that is
+          itself called {{Length}} is found by that name first. Node ID/Sequence Header cannot be
           deleted; the generated Length, kDa, pI, and GRAVY columns are deletable
           metadata. Deleting every column with "all" is not supported.
       meta help

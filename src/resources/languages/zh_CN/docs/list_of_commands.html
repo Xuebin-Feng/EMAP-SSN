@@ -1017,7 +1017,7 @@
 
 <div class="section-divider" id="sec-metadata" data-source-sha256="a5771f22af04af2aed168eb2e2bf305c60e3232a1bdcb969de2746099671aa36">元数据</div>
 
-            <section class="command-card" id="cmd-meta" data-source-sha256="d4794ffcd0c70406615fa3ed19716b3fa43b65f2bd80e4e4eafc04305a756849">
+            <section class="command-card" id="cmd-meta" data-source-sha256="8d50d0d78fd640e477f64e8da57863c746116312f7266649a42592b47044ff1a">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">meta</span>
@@ -1026,7 +1026,7 @@
                     
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt; [filename ...]  |  meta show &lt;property_name&gt;|{property_name}  |  meta download [filename]  |  meta delete|remove|clear &lt;property_name&gt; [property_name ...]</div>
+                    <div class="syntax-content">meta  |  meta [upload|import] &lt;filename&gt; [filename ...]  |  meta show &lt;property_name&gt;|{property_name}  |  meta download [filename]  |  meta delete|remove|clear &lt;property_name&gt;|{property_name} [property_name ...]</div>
                     <button class="copy-btn" onclick="copyText('meta', this)">复制</button>
                 </div>
                 <p><strong>功能：</strong>打开浏览器中的元数据编辑器，把 Excel/CSV 元数据加载到当前会话，控制点击节点时 HUD 显示的属性，删除元数据列，或导出当前会话的完整元数据。</p>
@@ -1038,7 +1038,7 @@
                     <li><strong><code>meta show &lt;property_name&gt;</code> / <code>meta display &lt;property_name&gt;</code>：</strong>在查看器右下角激活一个 HUD 文本框，在点击节点时显示指定属性的值。属性名可以写在大括号中，就像 <code>spectrum</code> 的写法（<code>meta show {Length}</code>）；写在大括号中的名称始终被视为属性，因此 <code>meta show {off}</code> 显示的是名为 <code>off</code> 的属性。</li>
                     <li><strong><code>meta show clear</code> / <code>meta show off</code>：</strong>停用并隐藏元数据属性 HUD。撤销和重做会让它保持隐藏，直到下一次 <code>meta show</code> 或 <code>spectrum</code> 再次打开它。</li>
                     <li><strong><code>meta retrieve|download|export [filename]</code>：</strong>把当前会话的全部元数据导出到已配置的元数据目录。不带文件名时，选择下一个未被占用的 <code>metadata.csv</code>、<code>metadata1.csv</code>，依此类推。显式的文件名必须是纯文件名而不是路径，并以 <code>.csv</code> 或 <code>.xlsx</code> 结尾（不区分大小写）；没有扩展名时默认为 <code>.csv</code>，并会覆盖已有的同名文件。此子命令不接受表达式过滤。</li>
-                    <li><strong><code>meta delete|remove|clear &lt;property_name&gt; [property_name ...]</code>：</strong>以原子方式删除一个或多个元数据列，属性名匹配不区分大小写。重复的名称会被忽略；只要有任何请求的名称不存在、有歧义或受保护，就不会删除任何内容。<code>Node ID</code>/<code>Sequence Header</code> 受保护，而由 FASTA 派生的 <code>Length</code>、<code>kDa</code>、<code>pI</code> 和 <code>GRAVY</code> 列属于可删除的普通元数据。不支持关键字 <code>all</code>。可用 <code>undo</code>/<code>redo</code> 恢复或重新应用删除操作。</li>
+                    <li><strong><code>meta delete|remove|clear &lt;property_name&gt;|{property_name} [property_name ...]</code>：</strong>以原子方式删除一个或多个元数据列，属性名匹配不区分大小写。每个名称都可以像 <code>spectrum {Length}</code> 那样写在花括号中，两种写法指同一列；先按输入的原样查找名称，因此名为 <code>{Length}</code> 的列会先按该名称被找到。重复的名称会被忽略；只要有任何请求的名称不存在、有歧义或受保护，就不会删除任何内容。<code>Node ID</code>/<code>Sequence Header</code> 受保护，而由 FASTA 派生的 <code>Length</code>、<code>kDa</code>、<code>pI</code> 和 <code>GRAVY</code> 列属于可删除的普通元数据。不支持关键字 <code>all</code>。可用 <code>undo</code>/<code>redo</code> 恢复或重新应用删除操作。</li>
                 </ul>
 
                 <div class="subheading">示例</div>
@@ -1051,6 +1051,7 @@
                     <li class="example-item"><span>meta download</span><button class="copy-btn" onclick="copyText('meta download', this)">复制</button></li>
                     <li class="example-item"><span>meta export session_metadata.xlsx</span><button class="copy-btn" onclick="copyText('meta export session_metadata.xlsx', this)">复制</button></li>
                     <li class="example-item"><span>meta delete Organism Host</span><button class="copy-btn" onclick="copyText('meta delete Organism Host', this)">复制</button></li>
+                    <li class="example-item"><span>meta delete {Organism} {Host}</span><button class="copy-btn" onclick="copyText('meta delete {Organism} {Host}', this)">复制</button></li>
                     <li class="example-item"><span>meta clear Length</span><button class="copy-btn" onclick="copyText('meta clear Length', this)">复制</button></li>
                 </ul>
             </section>

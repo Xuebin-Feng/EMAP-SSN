@@ -138,6 +138,13 @@ def broadcast_metadata_state(viewer):
     elif hasattr(viewer, "broadcast_event"):
         viewer.broadcast_event(metadata_state_event(viewer))
 
+def braced_property_name(text):
+    """The property name inside one pair of braces, as in {Length}, or None when text is not written so."""
+    inner = text[1:-1]
+    if len(text) >= 2 and text[0] == "{" and text[-1] == "}" and "{" not in inner and "}" not in inner:
+        return inner.strip()
+    return None
+
 def show_property_name(words):
     """The property a ``meta show`` names, and whether it was written in braces.
 
@@ -147,19 +154,27 @@ def show_property_name(words):
     display. The words are joined with spaces, so a name may contain them.
     """
     text = " ".join(words).strip()
-    inner = text[1:-1]
-    if len(text) >= 2 and text[0] == "{" and text[-1] == "}" and "{" not in inner and "}" not in inner:
-        return inner.strip(), True
-    return text, False
+    inner = braced_property_name(text)
+    if inner is None:
+        return text, False
+    return inner, True
 
 def _resolve_metadata_column_names(viewer, requested_names):
+    """The columns the requested names stand for, as written in the metadata.
+
+    A name may be written in braces, as in {Length}, as spectrum writes it.
+    The name as typed is looked up first, so a column that is itself called
+    {Length} is found by that name; only when no column has it are the braces
+    taken off. Inside braces a name is always a property, so {all} is a column
+    called all, not every column.
+    """
     if not isinstance(requested_names, (list, tuple)):
         raise MetadataColumnDeleteError(Message(
             "Metadata columns must be supplied as a list of property names."
         ))
 
     normalized = [str(name).strip() for name in requested_names]
-    if not normalized or any(not name for name in normalized):
+    if not normalized or any(not name or braced_property_name(name) == "" for name in normalized):
         raise MetadataColumnDeleteError(Message(
             "Specify at least one metadata property to delete."
         ))
@@ -170,7 +185,8 @@ def _resolve_metadata_column_names(viewer, requested_names):
 
     protected = {"node id", "sequence header"}
     protected_requested = [
-        name for name in normalized if name.casefold() in protected
+        name for name in normalized
+        if name.casefold() in protected or (braced_property_name(name) or "").casefold() in protected
     ]
     if protected_requested:
         raise MetadataColumnDeleteError(Message(
@@ -183,21 +199,29 @@ def _resolve_metadata_column_names(viewer, requested_names):
     for available_name in available:
         folded.setdefault(available_name.casefold(), []).append(available_name)
 
+    def column_named(name):
+        """(the column, None), or (None, 'missing') or (None, 'ambiguous') for name."""
+        if name in viewer.metadata:
+            return name, None
+        matches = folded.get(name.casefold(), [])
+        if len(matches) > 1:
+            return None, "ambiguous"
+        return (matches[0], None) if matches else (None, "missing")
+
     resolved = []
     missing = []
     ambiguous = []
     for requested in normalized:
-        if requested in viewer.metadata:
-            actual = requested
-        else:
-            matches = folded.get(requested.casefold(), [])
-            if not matches:
-                missing.append(requested)
-                continue
-            if len(matches) > 1:
-                ambiguous.append(requested)
-                continue
-            actual = matches[0]
+        actual, problem = column_named(requested)
+        inner = braced_property_name(requested)
+        if problem == "missing" and inner is not None:
+            actual, problem = column_named(inner)
+        if problem == "missing":
+            missing.append(requested)
+            continue
+        if problem == "ambiguous":
+            ambiguous.append(requested)
+            continue
         if actual not in resolved:
             resolved.append(actual)
 

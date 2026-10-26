@@ -116,6 +116,63 @@ class MetadataColumnDeletionTests(unittest.TestCase):
         ):
             meta_backend.delete_metadata_columns(viewer, ["all"])
 
+    def test_a_name_in_braces_deletes_the_same_columns_as_the_bare_name(self):
+        results = {}
+        for names in (["organism", "HOST"], ["{organism}", "{HOST}"], ["{Organism}", "host"],
+                      ["{ Organism }", "{Host}", "Organism"]):
+            viewer = make_viewer()
+            deleted = meta_backend.delete_metadata_columns(viewer, names)
+            event = viewer.broadcast_event.call_args.args[0]
+            results[tuple(names)] = (
+                deleted, list(viewer.metadata), len(viewer.position_history), event["columns"], event["types"]
+            )
+        bare = results[("organism", "HOST")]
+        self.assertEqual(bare[:3], (["Organism", "Host"], ["Length"], 1))
+        for names, result in results.items():
+            with self.subTest(names=names):
+                self.assertEqual(result, bare)
+
+    def test_a_column_called_in_braces_is_found_by_that_name_first(self):
+        viewer = make_viewer()
+        viewer.metadata["{Length}"] = {"type": "text", "values": np.array(["x", "y"], dtype=object)}
+
+        deleted = meta_backend.delete_metadata_columns(viewer, ["{Length}"])
+
+        self.assertEqual(deleted, ["{Length}"])
+        self.assertEqual(list(viewer.metadata), ["Length", "Organism", "Host"])
+        # With no column of that name, the braces come off.
+        self.assertEqual(meta_backend.delete_metadata_columns(viewer, ["{Length}"]), ["Length"])
+
+    def test_braces_name_a_property_so_all_in_braces_is_a_column_called_all(self):
+        viewer = make_viewer()
+        with self.assertRaisesRegex(meta_backend.MetadataColumnDeleteError, r"not found: \{all\}"):
+            meta_backend.delete_metadata_columns(viewer, ["{all}"])
+        self.assertEqual(list(viewer.metadata), ["Length", "Organism", "Host"])
+        viewer.metadata["all"] = {"type": "text", "values": np.array(["x", "y"], dtype=object)}
+        self.assertEqual(meta_backend.delete_metadata_columns(viewer, ["{all}"]), ["all"])
+
+    def test_a_bad_name_in_braces_aborts_without_mutation(self):
+        for requested, message in (
+            (["Organism", "{Missing}"], r"not found: \{Missing\}"),
+            (["Organism", "{Node ID}"], r"Protected columns cannot be deleted: \{Node ID\}"),
+            (["{sequence header}"], "Protected columns cannot be deleted"),
+            (["Organism", "{}"], "Specify at least one"),
+            (["Organism", "{ }"], "Specify at least one"),
+            (["Organism", "{{Host}}"], r"not found: \{\{Host\}\}"),
+            (["Organism", "{Host"], r"not found: \{Host"),
+            (["Organism", "Host}"], r"not found: Host\}"),
+        ):
+            with self.subTest(requested=requested):
+                viewer = make_viewer()
+                original = list(viewer.metadata)
+
+                with self.assertRaisesRegex(meta_backend.MetadataColumnDeleteError, message):
+                    meta_backend.delete_metadata_columns(viewer, requested)
+
+                self.assertEqual(list(viewer.metadata), original)
+                self.assertEqual(viewer.position_history, [])
+                viewer.broadcast_event.assert_not_called()
+
     def test_length_is_a_normal_deletable_metadata_column(self):
         viewer = make_viewer()
 
@@ -254,6 +311,37 @@ class MetadataCliDeletionTests(unittest.TestCase):
                     delete_mock.assert_called_once_with(
                         viewer, ["organism", "HOST"], broadcast=False
                     )
+
+    def test_a_command_with_names_in_braces_deletes_like_one_with_bare_names(self):
+        outcomes = {}
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            meta_command.cfg, "METADATA_DIR", temp_dir
+        ), mock.patch.object(meta_command.Command_Engine, "print_help"):
+            for alias in ("delete", "remove", "clear"):
+                for names in (["organism", "HOST"], ["{organism}", "{HOST}"], ["{Organism}", "host"]):
+                    viewer = make_viewer()
+                    with reported_outcomes() as (succeeded, failed):
+                        meta_command.run(viewer, [alias, *names])
+                    failed.assert_not_called()
+                    outcomes[(alias, tuple(names))] = (
+                        list(viewer.metadata), len(viewer.position_history),
+                        [call.args[1] for call in succeeded.call_args_list],
+                    )
+        for (alias, names), outcome in outcomes.items():
+            with self.subTest(alias=alias, names=names):
+                self.assertEqual(outcome, (["Length"], 1, ["Deleted metadata columns: Organism, Host."]))
+
+    def test_a_command_with_a_bad_name_in_braces_fails_and_changes_nothing(self):
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            meta_command.cfg, "METADATA_DIR", temp_dir
+        ), mock.patch.object(meta_command.Command_Engine, "print_help"):
+            viewer = make_viewer()
+            with reported_outcomes() as (succeeded, failed):
+                meta_command.run(viewer, ["delete", "{Organism}", "{Missing}"])
+        succeeded.assert_not_called()
+        self.assertIn("not found: {Missing}", failed.call_args.args[1])
+        self.assertEqual(list(viewer.metadata), ["Length", "Organism", "Host"])
+        self.assertEqual(viewer.position_history, [])
 
     def test_delete_without_names_prints_usage(self):
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
