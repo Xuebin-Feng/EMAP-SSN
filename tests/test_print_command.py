@@ -2010,6 +2010,95 @@ class PrintZoomTests(unittest.TestCase):
                 result.engine.command_failed.assert_not_called()
                 self.assertEqual(os.path.basename(result.save.call_args.args[0]), name)
 
+    def test_zoom_equals_n_is_zoom_n_in_one_word(self):
+        cases = (
+            (["full", "zoom=200"], ["full", "zoom", "200"]),
+            (["fig1", "full", "zoom=200"], ["fig1", "full", "zoom", "200"]),
+            (["zoom=200", "fig1", "full"], ["zoom", "200", "fig1", "full"]),
+            (["fig1", "zoom=200", "full", "transparent"], ["fig1", "zoom", "200", "full", "transparent"]),
+            (["ZOOM=200", "Full"], ["ZOOM", "200", "Full"]),
+            (["fig1", "full", "zoom=200%"], ["fig1", "full", "zoom", "200%"]),
+            (["fig1", "full", "zoom=200", "%"], ["fig1", "full", "zoom", "200", "%"]),
+            (["fig1", "full", "zoom=2e2"], ["fig1", "full", "zoom", "2e2"]),
+            (["full", "zoom=2000"], ["full", "zoom", "2000"]),
+        )
+        for equals, spaced in cases:
+            with self.subTest(arguments=equals):
+                one = self.run_print(equals)
+                two = self.run_print(spaced)
+                one.engine.command_failed.assert_not_called()
+                one.save.assert_called_once()
+                self.assertEqual(one.tile_rects, two.tile_rects)
+                self.assertEqual(
+                    os.path.basename(one.save.call_args.args[0]).split("_")[0],
+                    os.path.basename(two.save.call_args.args[0]).split("_")[0],
+                )
+                self.assertTrue(one.tile_rects[1:])
+        for equals, spaced in (
+            (["svg", "zoom=200"], ["svg", "zoom", "200"]),
+            (["fig1", "svg", "zoom=200%"], ["fig1", "svg", "zoom", "200%"]),
+        ):
+            with self.subTest(arguments=equals):
+                one, two = self.run_print(equals), self.run_print(spaced)
+                one.engine.command_failed.assert_not_called()
+                self.assertEqual(one.export_svg.call_args.kwargs["view_width"], 500.0)
+                self.assertEqual(
+                    os.path.basename(one.scheduler.jobs[0].output_path).split("_")[0],
+                    os.path.basename(two.scheduler.jobs[0].output_path).split("_")[0],
+                )
+
+    def test_zoom_equals_n_is_not_a_file_name(self):
+        result = self.run_print(["full", "zoom=200"])
+        self.assertTrue(os.path.basename(result.save.call_args.args[0]).startswith("test_sequences_"))
+        self.assertTrue(all(rect[2] == 500.0 for rect in result.tile_rects[1:]))
+
+    def test_a_name_with_an_equals_sign_that_does_not_start_with_zoom_equals_is_still_a_name(self):
+        for arguments, name in (
+            (["my=name"], "my=name.png"),
+            (["a=zoom"], "a=zoom.png"),
+            (["zoomed=3"], "zoomed=3.png"),
+            (["zoom-3=x"], "zoom-3=x.png"),
+            (["zoomx=1", "full"], "zoomx=1.png"),
+            (["fig=1", "full", "zoom=200"], "fig=1.png"),
+            (["zoom=200", "my=name", "full"], "my=name.png"),
+            (["my=name.svg"], "my=name.svg"),
+        ):
+            with self.subTest(arguments=arguments):
+                result = self.run_print(arguments)
+                result.engine.command_failed.assert_not_called()
+                saved = (
+                    result.scheduler.jobs[0].output_path if name.endswith(".svg") else result.save.call_args.args[0]
+                )
+                self.assertEqual(os.path.basename(saved), name)
+
+    def test_zoom_equals_is_refused_as_zoom_is(self):
+        needs = "Error: zoom needs a zoom percentage, as in print full zoom 200."
+        for arguments in (["full", "zoom="], ["full", "zoom=full"], ["svg", "zoom=svg"], ["zoom=", "200", "full"],
+                          ["fig1", "zoom=transparent", "full"], ["ZOOM=", "full"]):
+            with self.subTest(arguments=arguments):
+                self.assert_refused(arguments, needs)
+        for arguments in (["zoom=200"], ["fig1", "zoom=200"], ["fig1", "transparent", "zoom=200%"]):
+            with self.subTest(arguments=arguments):
+                self.assert_refused(arguments, "Error: zoom N works only with full or svg.")
+        for arguments in (["full", "zoom=200", "zoom", "300"], ["full", "zoom", "200", "zoom=300"],
+                          ["full", "zoom=200", "zoom=300"], ["svg", "zoom=200%", "zoom=200"]):
+            with self.subTest(arguments=arguments):
+                self.assert_refused(arguments, "Error: zoom N can be given only once.")
+        self.assert_refused(
+            ["my", "zoom=200", "net", "full"],
+            "Error: Unrecognized print argument 'net'. A file name is one word; "
+            "the modifiers are transparent, full, svg, zoom N.",
+        )
+        for value, message in (
+            ("wide", "Error: Zoom must be a number, with an optional % sign, as in zoom 200 or zoom 200%."),
+            ("0", "Error: Zoom must be a positive, finite percentage."),
+            ("-5", "Error: Zoom must be a positive, finite percentage."),
+            ("200%%", "Error: Zoom must be a number, with an optional % sign, as in zoom 200 or zoom 200%."),
+        ):
+            for modifier in ("full", "svg"):
+                with self.subTest(value=value, modifier=modifier):
+                    self.assert_refused([modifier, f"zoom={value}"], message)
+
     def test_zoom_without_a_percentage_is_refused(self):
         message = "Error: zoom needs a zoom percentage, as in print full zoom 200."
         for arguments in (["full", "zoom"], ["zoom", "full"], ["svg", "zoom", "svg"],

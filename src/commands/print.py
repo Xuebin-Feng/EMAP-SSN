@@ -107,6 +107,9 @@ def print_help():
     Scale (with full or svg only, anywhere among the modifiers):
       zoom N      : Draws at the scale 'zoom N' would set: the Viewer's zoom
                     of N percent, as in its Zoom box, without moving the view.
+                    zoom=N is the same, in one word (zoom=200, zoom=200%), so
+                    a file name cannot start with zoom=; any other name with
+                    an = is a name as before.
                     100% is a view {ZOOM_100_PERCENT_WIDTH:g} scene units wide, and a
                     bigger N is closer (200% is half as wide). The % sign is
                     optional, and a space may come before it. N must be a
@@ -140,6 +143,7 @@ def print_help():
       print my_network.svg                (The same: a .svg name selects SVG)
       print my_network full zoom 200      (Whole network, drawn at a 200% zoom)
       print my_network svg zoom 200%      (SVG sized as at a 200% zoom)
+      print my_network full zoom=200      (The same as zoom 200)
     """)
 
 # The marker names a node's shape can hold: vispy's own aliases, which the
@@ -1420,11 +1424,16 @@ def run(viewer, args):
             is_full = True
         elif a.lower() == "svg":
             is_svg = True
-        elif a.lower() == "zoom":
-            # The next word is N, whatever it holds, so it never joins the
-            # file name; a name such as zoom.png is not this keyword.
-            percent = words[position] if position < len(words) else None
-            position += 1
+        elif a.lower() == "zoom" or a.lower().startswith("zoom="):
+            if a.lower() == "zoom":
+                # The next word is N, whatever it holds, so it never joins the
+                # file name; a name such as zoom.png is not this keyword.
+                percent = words[position] if position < len(words) else None
+                position += 1
+            else:
+                # zoom=N is zoom N in one word. A file name may not start with
+                # zoom=, or it would be saved under it with no zoom applied.
+                percent = a[len("zoom="):] or None
             if percent is None or percent.lower() in PRINT_MODIFIERS:
                 _refuse(viewer, Message(
                     "Error: {syntax} needs a zoom percentage, as in {example}.",
