@@ -54,6 +54,12 @@ still change before version 1.0.0.
     during the start, with warnings and errors coloured, Copy and Open log. Opened, the
     splash stays at the end and says "Ready" until it is closed. If the program stops before
     its window opens, the section opens by itself with the reason.
+  - **Like any window:** the splash opens in front without taking the keyboard. Other
+    windows can then cover it, and a click brings it back. Its taskbar button has the
+    small icon of the window it starts and sits in that window's group, so the button
+    becomes the window's own when the splash closes. It can be dragged from anywhere but
+    its buttons, the Show details link and the details text. While the window is still
+    starting, Alt+F4 and the taskbar's Close leave it open.
   - **Fallbacks:** if the launcher can't be built, the shortcuts work as before. Running
     `EMAPSSN.bat` directly, or with `--console`, still shows the console. A failed install
     or repair opens the console as it always did.
@@ -98,7 +104,8 @@ still change before version 1.0.0.
     Viewer without one. A terminal opens only when the environment needs setup or repair,
     when the start fails before the splash shows, or with `--console`
     (`src/bin/EMAPSSN_Desktop_Launcher.sh tools --console`). On Wayland the desktop decides
-    where the splash appears and whether it stays on top. The macOS start is written but
+    where the splash appears. On X11 it stays above other windows for its first 2.5 s, so a
+    desktop can't open it hidden behind the focused window. The macOS start is written but
     not yet tested on a Mac. VR Config remains Windows-only.
 - **A `help` command in the Viewer.** `help` lists every command with a one-line summary, and
   `help X` shows X's help, the same as `X help`, without running X. The list comes from the
