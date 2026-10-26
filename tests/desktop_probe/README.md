@@ -103,7 +103,9 @@ is exact. The answer is JSON; the exit code is 0 when `ok` is true. Under the ho
 ~100 ms; a request named `kind-<kind>--<id>.json` goes to whichever process of that kind claims it first).
 
 **Targets.** `window` is a title regex, or `{"title", "class", "objectName"}`, or an index from `windows`; with
-none, the active window. `widget` is a string or an object. A string matches `objectName`, accessible name,
+none, the active window. When the regex matches several windows (the Viewer and its Console share a title
+prefix) the active one is used, else the newest, and the answer carries a `window_note` saying so: anchor the
+regex (`"\\]$"`, `"Console$"`) before a `close`. `widget` is a string or an object. A string matches `objectName`, accessible name,
 visible text or tooltip (exact first, then as a substring; "Save & Run" matches a button written `Save && Run`
 and a label written `Run &it` matches "Run it"). An object combines `objectName`, `accessibleName`, `text`,
 `toolTip`, `class`, `path` (the child indices `tree` prints, e.g. `"0/2/1"`), `index` (which of several

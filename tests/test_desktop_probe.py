@@ -818,6 +818,21 @@ class TargetTests(ProbeCase):
         self.assertTrue(button["visible"] and button["enabled"])
         self.assertEqual(len(button["geometry"]), 4)
 
+    def test_a_window_name_that_matches_several_windows_is_answered_with_a_note_saying_which_was_used(self):
+        self.make_window("Report window")
+        self.pump()
+        self.make_window("Report window - details")
+        self.pump()
+        answer = self.ask({"action": "tree", "window": "^Report window"})
+        self.assertTrue(answer["ok"], answer)
+        self.assertIn("2 windows matched", answer["window_note"])
+        self.assertIn("'Report window - details'", answer["window_note"])  # the newest of them
+        exact = self.ask({"action": "tree", "window": "^Report window$"})
+        self.assertNotIn("window_note", exact)
+        self.assertEqual(exact["result"]["window"], "Report window")
+        closed = self.ask({"action": "close", "window": "Report window"})  # a deferred action carries the note too
+        self.assertIn("window_note", closed)
+
     def test_nothing_found_and_too_many_found_are_errors_that_list_what_is_there(self):
         def build(window, layout):
             for _ in range(2):

@@ -55,10 +55,11 @@ class Deferred:
 
 
 class Pending:
-    def __init__(self, request_id, request, deferred):
+    def __init__(self, request_id, request, deferred, window_note=None):
         self.request_id = request_id
         self.request = request
         self.deferred = deferred
+        self.window_note = window_note
         self.deadline = time.monotonic() + deferred.block_ms / 1000
         self.finished_at = None
         self.result = None
@@ -88,6 +89,7 @@ class Actions:
         self.probe = probe
         self.recorder = probe.recorder
         self._pending: list[Pending] = []
+        self._window_note = None  # set when a request's "window" matched more than one window
         self._requests = Path(self.recorder.out) / "requests"
         self._claimed = self.recorder.folder / "claimed"
         self._prefixes = (f"pid-{self.recorder.pid}--", f"kind-{self.recorder.kind}--")
@@ -142,6 +144,7 @@ class Actions:
         self.recorder.event("request", request_id=request_id, action=action,
                             summary={key: value for key, value in request.items() if key not in ("id", "expr", "text")})
         handler = getattr(self, "do_" + action, None) if re.fullmatch(r"[a-z_]+", action) else None
+        self._window_note = None
         if handler is None:
             known = sorted(name[3:] for name in dir(self) if name.startswith("do_"))
             return self._respond(request_id, action, False, error=f"unknown action {action!r}", actions=known)
@@ -152,11 +155,11 @@ class Actions:
         except Exception as error:
             return self._respond(request_id, action, False, error=f"{type(error).__name__}: {error}")
         if isinstance(outcome, Deferred):
-            pending = Pending(request_id, request, outcome)
+            pending = Pending(request_id, request, outcome, self._window_note)
             self._pending.append(pending)
             QtCore.QTimer.singleShot(0, lambda: self._run_pending(pending))
         else:
-            self._respond(request_id, action, True, result=outcome)
+            self._respond(request_id, action, True, result=outcome, window_note=self._window_note)
 
     def _run_pending(self, pending: Pending) -> None:
         try:
@@ -190,7 +193,7 @@ class Actions:
                 if pending.responded:
                     self.recorder.event("action_completed", request_id=pending.request_id, action=action)
                 else:
-                    self._respond(pending.request_id, action, True, result=result)
+                    self._respond(pending.request_id, action, True, result=result, window_note=pending.window_note)
             elif not pending.responded and now >= pending.deadline:
                 pending.responded = True
                 self._respond(
@@ -201,9 +204,11 @@ class Actions:
                         "windows": [self._brief(entry) for entry in self.probe.windows.inventory()],
                     })
 
-    def _respond(self, request_id, action, ok, *, result=None, error=None, **detail) -> None:
+    def _respond(self, request_id, action, ok, *, result=None, error=None, window_note=None, **detail) -> None:
         response = {"id": request_id, "ok": ok, "action": action, "pid": self.recorder.pid, "kind": self.recorder.kind,
                     "wall_ms": store.wall_ms()}
+        if window_note:
+            response["window_note"] = window_note
         if ok:
             response["result"] = result
         else:
@@ -222,8 +227,13 @@ class Actions:
 
     def _window(self, request):
         self.probe.windows.scan()
-        return targets.find_window(request.get("window"), serials=self.probe.windows.serials,
-                                   include_hidden=bool(request.get("include_hidden")))
+        window, matches = targets.find_window(request.get("window"), serials=self.probe.windows.serials,
+                                              include_hidden=bool(request.get("include_hidden")))
+        if matches > 1:  # the answer says so: a close or a click must not go to a window by accident
+            title = targets.window_title(window) or type(window).__name__
+            self._window_note = (f"{matches} windows matched 'window'; used {title!r} (the active one, else the newest). "
+                                 "Name it more exactly, for example a longer regular expression anchored with $.")
+        return window, matches
 
     def _target(self, request, *, widget_key="widget"):
         """The (target, window) a request names: a widget of the window, or the window itself without a "widget"."""
