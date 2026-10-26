@@ -821,7 +821,7 @@
                 <ul>
                     <li><strong>Viewing Groups:</strong> Type <code>group list</code> to print a statistical table showing active custom groups, node counts, and network percentages.</li>
                     <li><strong>Inspecting Nodes:</strong> Left-clicking a node displays its custom groups on the second line of the tooltip header.</li>
-                    <li><strong>Deleting Groups:</strong> Run <code>group remove &lt;Group1&gt; [Group2]</code> (or <code>group delete</code>) to delete custom groups from the network. Every named group must exist; if any is missing, the command fails and nothing is removed.</li>
+                    <li><strong>Deleting Groups:</strong> Run <code>group remove &lt;Group1&gt; [Group2]</code> (or <code>group delete</code>) to delete custom groups from the network. A group may be written bare or as <code>#Group1#</code>, as in an expression. Every named group must exist; if any is missing, the command fails and nothing is removed.</li>
                 </ul>
 
                 <div class="subheading">Examples</div>
@@ -830,6 +830,7 @@
                     <li class="example-item"><span>group P106 mutant</span><button class="copy-btn" onclick="copyText('group P106 mutant', this)">Copy</button></li>
                     <li class="example-item"><span>group list</span><button class="copy-btn" onclick="copyText('group list', this)">Copy</button></li>
                     <li class="example-item"><span>group remove active_site mutant</span><button class="copy-btn" onclick="copyText('group remove active_site mutant', this)">Copy</button></li>
+                    <li class="example-item"><span>group remove #active_site# #mutant#</span><button class="copy-btn" onclick="copyText('group remove #active_site# #mutant#', this)">Copy</button></li>
                 </ul>
             </section>
 

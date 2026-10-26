@@ -113,8 +113,10 @@ def print_help():
 
     Commands:
       list          - Prints current group statistics to the console.
-      remove/delete - Deletes the specified group(s) entirely. If any named
-                      group does not exist, nothing is removed.
+      remove/delete - Deletes the specified group(s) entirely. A group is named
+                      bare or as #NAME#, as in an expression: remove mutant and
+                      remove #mutant# are the same. If any named group does not
+                      exist, nothing is removed.
 
     Examples:
       group active_site                        (Assigns to currently selected nodes)
@@ -124,6 +126,7 @@ def print_help():
       group {Length<300} short_seqs            (Assigns "short_seqs" to nodes with Length < 300)
       group list                               (Prints all active groups)
       group remove active_site mutant          (Deletes both groups from the network)
+      group remove #active_site# #mutant#      (The same, naming them as expressions do)
     """)
 
 def run(viewer, args):
@@ -191,11 +194,21 @@ def run(viewer, args):
             
         group_labels = getattr(viewer, 'group_labels', None)
         existing_groups = set().union(*group_labels) if group_labels is not None else set()
-        groups_to_remove = list(dict.fromkeys(g.lower() for g in args[1:]))
+        # A group may be written NAME or #NAME#, as in an expression. A group name
+        # has no #, so the name as typed is tried first and the delimiters only
+        # come off a name that no group has.
+        groups_to_remove = []
+        missing = []
+        for typed in dict.fromkeys(g.lower() for g in args[1:]):
+            label = re.fullmatch(r'#([^#]+)#', typed)
+            name = label.group(1).strip() if label and typed not in existing_groups else typed
+            if name not in existing_groups:
+                missing.append(typed)
+            elif name not in groups_to_remove:
+                groups_to_remove.append(name)
 
         # Like group assignment, removal is all-or-nothing: one missing name
         # (usually a typo) aborts the command before any undo state is saved.
-        missing = [g for g in groups_to_remove if g not in existing_groups]
         if missing:
             if existing_groups:
                 # The console line shows the first line; the existing groups are for the terminal.

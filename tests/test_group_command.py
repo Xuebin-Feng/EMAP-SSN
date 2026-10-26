@@ -166,6 +166,63 @@ class GroupCommandTests(unittest.TestCase):
             "Removed 1 group from 1 total node instance.",
         )
 
+    def test_remove_takes_a_group_as_a_name_or_as_a_label(self):
+        outcomes = {}
+        for arguments in (
+            ["remove", "alpha", "beta"],
+            ["remove", "#alpha#", "#beta#"],
+            ["delete", "#Alpha#", "beta"],
+            ["remove", "alpha", "#alpha#", "#beta#", "beta"],
+            ["delete", "# alpha #", "#beta#"],
+        ):
+            viewer, succeeded, failed = self.run_remove(
+                [{"alpha", "beta", "keep"}, {"alpha", "gamma"}, set()], arguments
+            )
+            failed.assert_not_called()
+            outcomes[tuple(arguments)] = (
+                viewer.group_labels,
+                viewer._save_state.call_count,
+                [call.args[1] for call in succeeded.call_args_list],
+            )
+        bare = outcomes[("remove", "alpha", "beta")]
+        self.assertEqual(bare[0], [{"keep"}, {"gamma"}, set()])
+        self.assertEqual(bare[1:], (1, ["Removed 2 groups from 3 total node instances."]))
+        for arguments, outcome in outcomes.items():
+            with self.subTest(arguments=arguments):
+                self.assertEqual(outcome, bare)
+
+    def test_remove_tries_the_name_as_typed_before_taking_off_the_delimiters(self):
+        # A name loaded from a cache may hold a #; it is found as it is written.
+        viewer, succeeded, failed = self.run_remove([{"#odd#", "odd"}], ["remove", "#odd#"])
+        self.assertEqual(viewer.group_labels, [{"odd"}])
+        failed.assert_not_called()
+        viewer, succeeded, failed = self.run_remove([{"#odd#", "odd"}], ["remove", "#odd#", "#odd#"])
+        self.assertEqual(viewer.group_labels, [{"odd"}])
+
+    def test_remove_with_a_missing_label_fails_and_removes_nothing(self):
+        for arguments, missing in (
+            (["remove", "#absent#"], "#absent#"),
+            (["remove", "alpha", "#absent#"], "#absent#"),
+            (["delete", "#ABSENT#", "#absent2#"], "#absent#, #absent2#"),
+            (["remove", "##"], "##"),
+            (["remove", "#"], "#"),
+            (["remove", "#alpha"], "#alpha"),
+            (["remove", "alpha#"], "alpha#"),
+            (["remove", "#alpha##"], "#alpha##"),
+            (["remove", "#al#pha#"], "#al#pha#"),
+            (["remove", "#cluster_1#"], "#cluster_1#"),
+            (["remove", "{alpha}"], "{alpha}"),
+        ):
+            with self.subTest(arguments=arguments):
+                viewer, succeeded, failed = self.run_remove([{"alpha"}, {"alpha", "beta"}], arguments)
+
+                self.assertEqual(viewer.group_labels, [{"alpha"}, {"alpha", "beta"}])
+                viewer._save_state.assert_not_called()
+                viewer.update_nodes.assert_not_called()
+                succeeded.assert_not_called()
+                failed.assert_called_once()
+                self.assertIn(f"not found: {missing.lower()}.", failed.call_args.args[1])
+
     def record(self, viewer, arguments):
         """Run group under a real execution context and return what it recorded."""
         record = {"messages": [], "outcome": None, "artifacts": [], "jobs": []}

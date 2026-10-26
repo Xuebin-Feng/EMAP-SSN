@@ -788,7 +788,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-group" data-source-sha256="2fc298a6796984bfc5515bfae3636126993a7eedba2bd8116b3becf564e37a9f">
+            <section class="command-card" id="cmd-group" data-source-sha256="164ebab2a659df16c040340f26de10b0a1c7ee5ae51307df7481d8a122233acc">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">group</span>
@@ -822,7 +822,7 @@
                 <ul>
                     <li><strong>查看分组：</strong>输入 <code>group list</code> 可打印统计表，显示当前的自定义分组、节点数和占网络的百分比。</li>
                     <li><strong>检查节点：</strong>左键点击节点会在提示框标题的第二行显示它所属的自定义分组。</li>
-                    <li><strong>删除分组：</strong>运行 <code>group remove &lt;Group1&gt; [Group2]</code>（或 <code>group delete</code>）可从网络中删除自定义分组。每个指定的分组都必须存在；只要有一个不存在，命令就会失败，且不会删除任何内容。</li>
+                    <li><strong>删除分组：</strong>运行 <code>group remove &lt;Group1&gt; [Group2]</code>（或 <code>group delete</code>）可从网络中删除自定义分组。分组可以直接写名称，也可以像在表达式中那样写成 <code>#Group1#</code>。每个指定的分组都必须存在；只要有一个不存在，命令就会失败，且不会删除任何内容。</li>
                 </ul>
 
                 <div class="subheading">示例</div>
@@ -831,6 +831,7 @@
                     <li class="example-item"><span>group P106 mutant</span><button class="copy-btn" onclick="copyText('group P106 mutant', this)">复制</button></li>
                     <li class="example-item"><span>group list</span><button class="copy-btn" onclick="copyText('group list', this)">复制</button></li>
                     <li class="example-item"><span>group remove active_site mutant</span><button class="copy-btn" onclick="copyText('group remove active_site mutant', this)">复制</button></li>
+                    <li class="example-item"><span>group remove #active_site# #mutant#</span><button class="copy-btn" onclick="copyText('group remove #active_site# #mutant#', this)">复制</button></li>
                 </ul>
             </section>
 
