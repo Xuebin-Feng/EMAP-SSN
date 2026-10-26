@@ -433,6 +433,32 @@ class LeftClickFocusTests(unittest.TestCase):
             {"type": "highlight_row", "index": None}
         )
 
+    def test_while_a_capture_hides_the_halo_a_click_redraws_no_node_and_does_the_rest(self):
+        # A capture (commands/print.py) leaves the halo out and runs while the Viewer answers the mouse: a
+        # click, a pan's first press on empty space included, must not look like a change of the network.
+        viewer, display = self.make_viewer()
+        viewer.transient_marks_hidden = True
+
+        viewer.apply_left_click_focus(1)
+        viewer.selected_node_idx = 1
+        viewer.clear_left_click_focus()
+
+        viewer.update_nodes.assert_not_called()
+        self.assertIsNone(viewer.selected_node_idx)
+        self.assertEqual(viewer.tooltip.text, "")
+        self.assertEqual(viewer.console_text.text, "Selected: [Cluster 7] B [Groups: alpha, beta]")
+        display.on_node_clicked.assert_called_once_with(1)
+        self.assertEqual(
+            viewer.broadcast_event.call_args_list,
+            [mock.call({"type": "highlight_row", "index": 1}), mock.call({"type": "highlight_row", "index": None})],
+        )
+        self.assertEqual(viewer.selected_indices, [0, 2])
+
+        # The halo is drawn again once the capture has put the marks back.
+        viewer.transient_marks_hidden = False
+        viewer.apply_left_click_focus(1)
+        viewer.update_nodes.assert_called_once_with()
+
 
 class CommandPromotionTests(unittest.TestCase):
     def make_viewer(self):

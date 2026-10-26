@@ -195,9 +195,6 @@ class HoverMarkersTests(unittest.TestCase):
         def promote(viewer):
             viewer.node_render_order = viewer.node_render_order[::-1].copy()
 
-        def capture(viewer):
-            viewer.transient_marks_hidden = True
-
         def resend(viewer):
             viewer.markers.set_data(pos=np.zeros((2, 2), np.float32))
 
@@ -205,11 +202,36 @@ class HoverMarkersTests(unittest.TestCase):
             cfg.NODE_BOUNDARY_WIDTH = 0.5
 
         for change in (recolour, resize, move, hide, reshape, select, click, promote,
-                       capture, resend, outline_setting):
+                       resend, outline_setting):
             with self.subTest(change=change.__name__):
                 self.setUp()
                 change(self.viewer)
                 self.assertTrue(self.hover(self.viewer._submitted_marker_node_order[0]))
+
+    def test_a_hover_while_a_capture_hides_the_marks_leaves_the_markers_alone(self):
+        # A capture (commands/print.py) leaves the hover colour out and runs while the Viewer answers the
+        # mouse: a hover then sends nothing, so that the capture does not see the network change, and the
+        # HUD follows the mouse all the same.
+        viewer = self.viewer
+        viewer.transient_marks_hidden = True
+        viewer.canvas.update.reset_mock()
+        viewer._update_hud_elements.reset_mock()
+        before = viewer.markers._data.tobytes()
+        for node in (9, 3, None):
+            with self.subTest(node=node), \
+                    mock.patch.object(viewer.markers, "set_data") as sent, \
+                    mock.patch.object(viewer.markers._vbo, "set_subdata") as sent_some:
+                self.assertFalse(self.hover(node))
+                sent.assert_not_called()
+                sent_some.assert_not_called()
+        self.assertEqual(viewer.markers._data.tobytes(), before)
+        viewer.canvas.update.assert_called()
+        viewer._update_hud_elements.assert_called()
+        # Once the marks are back, the hover is drawn as it was.
+        viewer.transient_marks_hidden = False
+        viewer.hovered_node_idx = 3
+        viewer.update_nodes()
+        self.assertFalse(self.hover(9))
 
     def test_an_unexpected_buffer_layout_sends_every_marker_and_says_so_once(self):
         reports = []

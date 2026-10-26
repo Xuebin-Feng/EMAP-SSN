@@ -3208,7 +3208,7 @@ class MainViewer:
             if getattr(display, 'on_node_clicked', None):
                 display.on_node_clicked(node_idx)
 
-        self.update_nodes()
+        self._redraw_left_click_marks()
         self.broadcast_event({"type": "highlight_row", "index": node_idx})
 
     def clear_left_click_focus(self):
@@ -3217,8 +3217,18 @@ class MainViewer:
         self.left_click_highlight_indices = None
         if getattr(self, 'tooltip', None) is not None:
             self.tooltip.text = ""
-        self.update_nodes()
+        self._redraw_left_click_marks()
         self.broadcast_event({"type": "highlight_row", "index": None})
+
+    def _redraw_left_click_marks(self):
+        """Draw the left-click halo as the click set it.
+
+        A capture (commands/print.py) leaves the halo out, and runs while the Viewer answers the
+        mouse, a click and a pan that starts with one included: the markers are then left as they
+        are, so that the capture does not take the click for a change of the network.
+        """
+        if not getattr(self, 'transient_marks_hidden', False):
+            self.update_nodes()
     
     def _color_hidden_count(self):
         """Colour the hidden-node count, and return it: the HUD's text colour
@@ -4021,7 +4031,15 @@ class MainViewer:
         When nothing else has changed since update_nodes sent the markers,
         only the two nodes' face colours are sent (desktop.Viewer_Markers);
         otherwise every marker is, as update_nodes does for any other change.
+        A capture (commands/print.py) leaves the hover colour out, and the
+        Viewer stays at work while it draws: the markers are then left as they
+        are, so that the capture does not take the mouse moving for a change of
+        the network. The HUD follows the mouse all the same.
         """
+        if getattr(self, 'transient_marks_hidden', False):
+            self.canvas.update()
+            self._update_hud_elements()
+            return
         hover = getattr(self, '_hover_markers', None)
         if hover is not None and hover.apply(self, previous, self.hovered_node_idx):
             # The markers now differ from what update_nodes sent.
