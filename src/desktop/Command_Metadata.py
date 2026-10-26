@@ -86,7 +86,7 @@ COMMAND_METADATA = {
         argument('action', 'reset clears cluster labels without running analysis.', choice('reset')),
         argument('target', 'Omit to analyze all available cluster/group results; an explicit target requires its memberships.', choice('clusters', 'cluster'), choice('groups', 'group')),
         argument('keys', 'Each key takes a finite number written as a fraction (0.4) or a percentage (40 or 40%): a trailing % always means percent, and a bare value above 1 is a percentage. gmax defaults to 40%, cmin to 98%, identity reweighting is off by default. The ambiguity codes X, B, Z and J are never reported as conserved but still count as occupied positions. gmin is fixed at 97% and cannot be supplied.', choice('gmax', 'global_max', 'g_max'), choice('cmin', 'cluster_min', 'c_min'), choice('id')),
-        argument('numbers', 'Alternatively supply gmax, cmin, then optional identity positionally. Do not put positional numbers after keyword arguments.'),
+        argument('numbers', 'Alternatively supply gmax, cmin, then optional identity positionally. Do not put positional numbers after keyword arguments. A key and its value may be joined with an =, as cmin=90% for cmin 90%.'),
         argument('filename', 'Optional final XLSX basename; extension added. Numeric or reserved names must include .xlsx. Explicit filenames overwrite; automatic timestamp names avoid collisions.'),
         requires=('alignment',), writes_files=True, opens_interface=True),
     'logo': entry('Queue a sequence-logo image for a selected subset; requires a nonempty MSA and background scheduler.',

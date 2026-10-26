@@ -391,6 +391,8 @@ def print_help():
       cmin (Cluster Min)  : Default 98%. Min frequency a residue must have WITHIN 
                             a subset to be reported as conserved.
       Both must lie between 0 and 100%; anything outside is rejected.
+      A keyword and its value may be written apart or with an =: cmin 90% and
+      cmin=90% are the same, for gmax, cmin and id.
       id (Identity)       : Optional sequence-redundancy threshold. Equivalent
                             forms: 0.9, 90, or 90%. Reweighting is OFF unless
                             supplied. Without the 'id' keyword, identity must be
@@ -421,6 +423,7 @@ def print_help():
       label 0.4 0.9               (Positional: gmax=40%, cmin=90%)
       label id 90%                 (Uses default gmax/cmin and 90% identity weights)
       label 0.4 0.9 90% report    (Sets gmax, cmin, identity, and filename)
+      label cmin=90% gmax=0.3     (The same as: label cmin 90% gmax 0.3)
       label cluster cmin 90%      (Analyzes only topology clusters)
       label clusters report       (Cluster-only report; writes report.xlsx)
       label group cmin 90%        (Analyzes only custom groups)
@@ -505,6 +508,21 @@ def _parse_label_arguments(args):
     }
     fixed_keys = {"gmin", "global_min", "g_min"}
     valid_targets = {"cluster", "clusters", "group", "groups"}
+    # A keyword may carry its value after an =, as in cmin=90%: the same as the
+    # two arguments cmin 90%. An = in anything else stays part of a name, which
+    # a file name may not hold (below). An empty value, as in "cmin=", leaves
+    # the keyword to take the next argument, as "cmin" does.
+    split_args = []
+    for raw_argument in args:
+        keyword, equals, value = raw_argument.partition("=")
+        if equals and keyword.lower() in valid_keys | fixed_keys:
+            split_args.append(keyword)
+            if value:
+                split_args.append(value)
+        else:
+            split_args.append(raw_argument)
+    args = split_args
+
     forced_target = "all"
     requested_filename = None
     positional_args = []

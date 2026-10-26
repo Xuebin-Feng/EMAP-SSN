@@ -912,7 +912,7 @@
                     <li><strong>GLOBAL CONSERVATION (fixed at 97%):</strong> Residues exceeding 97% frequency globally are reported as universally conserved. This threshold is not user-configurable.</li>
                     <li><strong>Ambiguity codes:</strong> <code>X</code>, <code>B</code>, <code>Z</code> and <code>J</code> (and <code>*</code>, <code>~</code> and <code>_</code>, which the alignment loader reads as <code>X</code>) are never reported as conserved residues, but still count as occupied positions, so frequencies and occupancy keep the same denominators. <code>U</code> and <code>O</code> are reported as residues.</li>
                 </ul>
-                <p>Thresholds are finite numbers written as fractions (<code>0.4</code>) or percentages (<code>40</code> or <code>40%</code>): a trailing <code>%</code> always means percent, so <code>0.5%</code> is half a percent, and a bare value above 1 is a percentage. The first two positional numbers remain <code>gmax</code> and <code>cmin</code>; an optional third positional number is identity (for example, <code>label 0.4 0.9 90%</code>). Use <code>id VALUE</code> to enable identity weighting while retaining default or keyword-based <code>gmax</code>/<code>cmin</code>. Do not mix positional numbers after keyword parameters.</p>
+                <p>Thresholds are finite numbers written as fractions (<code>0.4</code>) or percentages (<code>40</code> or <code>40%</code>): a trailing <code>%</code> always means percent, so <code>0.5%</code> is half a percent, and a bare value above 1 is a percentage. The first two positional numbers remain <code>gmax</code> and <code>cmin</code>; an optional third positional number is identity (for example, <code>label 0.4 0.9 90%</code>). Use <code>id VALUE</code> to enable identity weighting while retaining default or keyword-based <code>gmax</code>/<code>cmin</code>. A keyword and its value may be joined with an <code>=</code>: <code>cmin=90%</code> is <code>cmin 90%</code>, for <code>gmax</code>, <code>cmin</code> and <code>id</code>. Do not mix positional numbers after keyword parameters.</p>
 
                 <div class="subheading">Understanding the Excel Output</div>
                 <p>Output is written beneath the configured Analysis Results directory (by default, <code>Analysis_Results/Cluster_Label/</code>) and contains three worksheets:</p>
@@ -930,6 +930,7 @@
                     <li class="example-item"><span>label id 90%</span><button class="copy-btn" onclick="copyText('label id 90%', this)">Copy</button></li>
                     <li class="example-item"><span>label 0.4 0.9 90% weighted_report</span><button class="copy-btn" onclick="copyText('label 0.4 0.9 90% weighted_report', this)">Copy</button></li>
                     <li class="example-item"><span>label groups cmin 90%</span><button class="copy-btn" onclick="copyText('label groups cmin 90%', this)">Copy</button></li>
+                    <li class="example-item"><span>label cmin=90% gmax=0.3</span><button class="copy-btn" onclick="copyText('label cmin=90% gmax=0.3', this)">Copy</button></li>
                     <li class="example-item"><span>label groups group_report</span><button class="copy-btn" onclick="copyText('label groups group_report', this)">Copy</button></li>
                 </ul>
             </section>

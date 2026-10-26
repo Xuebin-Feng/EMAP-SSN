@@ -392,11 +392,52 @@ class LabelThresholdParsingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "cannot be empty"):
             label._parse_label_arguments(["..."])
 
-    def test_assignments_and_flags_are_not_filenames(self):
-        for args in (["gmax=0.4"], ["cmin=90%"], ["id=90"], ["-x"], ["--help"],
-                     ["0.4", "-report"], ["report=1.xlsx"]):
+    def test_other_assignments_and_flags_are_not_filenames(self):
+        for args in (["gmaxx=0.4"], ["cmn=90%"], ["id2=90"], ["=90%"], ["-x"], ["--help"],
+                     ["0.4", "-report"], ["report=1.xlsx"], ["cluster=1"], ["gmax", "0.4", "x=y"]):
             with self.subTest(args=args):
                 with self.assertRaisesRegex(ValueError, "Unrecognized argument"):
+                    label._parse_label_arguments(args)
+
+    def test_a_keyword_may_carry_its_value_after_an_equals_sign(self):
+        for assigned, spaced in (
+            (["gmax=0.3"], ["gmax", "0.3"]),
+            (["cmin=90%"], ["cmin", "90%"]),
+            (["id=90%"], ["id", "90%"]),
+            (["GMAX=30%", "Cmin=0.9"], ["gmax", "30%", "cmin", "0.9"]),
+            (["global_max=0.3", "cluster_min=95", "id=0.9"], ["global_max", "0.3", "cluster_min", "95", "id", "0.9"]),
+            (["g_max=1%", "c_min=2%"], ["g_max", "1%", "c_min", "2%"]),
+            (["cluster", "cmin=90%", "report"], ["cluster", "cmin", "90%", "report"]),
+            (["groups", "gmax=0.3", "cmin", "90%", "report.xlsx"], ["groups", "gmax", "0.3", "cmin", "90%", "report.xlsx"]),
+            (["cmin=", "90%"], ["cmin", "90%"]),
+            (["gmax=0%", "cmin=100%"], ["gmax", "0%", "cmin", "100%"]),
+        ):
+            with self.subTest(args=assigned):
+                self.assertEqual(label._parse_label_arguments(assigned), label._parse_label_arguments(spaced))
+        parsed = label._parse_label_arguments(["gmax=0.3", "cmin=90%", "id=90%"])
+        self.assertEqual(
+            (parsed["global_max"], parsed["cluster_min"], parsed["identity_threshold"]), (0.3, 0.9, 0.9)
+        )
+
+    def test_a_bad_assignment_is_refused_as_the_keyword_and_value_are(self):
+        for args, message in (
+            (["cmin="], "Missing numerical value for 'cmin'"),
+            (["gmax=abc"], "Invalid percentage 'abc' for 'gmax'"),
+            (["gmax=nan"], "Invalid percentage"),
+            (["cmin=150%"], "outside the supported range"),
+            (["cmin=90%", "cmin=80%"], "Duplicate assignment for 'cmin'"),
+            (["cmin=90%", "cmin", "80%"], "Duplicate assignment for 'cmin'"),
+            (["gmin=0.97"], "gmin is fixed at 97%"),
+            (["cmin=90%", "0.5"], "Positional argument '0.5' found after keywords"),
+            (["0.4", "0.9", "cmin=80%"], "defined both positionally and via keyword"),
+            (["id="], "Missing numerical value for 'id'"),
+            (["id=0"], "outside the supported range"),
+            (["report", "cmin=90%"], "must be the final argument"),
+            (["cmin=90%=x"], "Invalid percentage '90%=x' for 'cmin'"),
+            (["cmin", "=90%"], "Invalid percentage '=90%' for 'cmin'"),
+        ):
+            with self.subTest(args=args):
+                with self.assertRaisesRegex(ValueError, message):
                     label._parse_label_arguments(args)
 
     def test_gmax_and_cmin_must_lie_between_zero_and_one_hundred_percent(self):

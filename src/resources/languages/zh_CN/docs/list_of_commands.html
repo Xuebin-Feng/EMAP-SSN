@@ -881,7 +881,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-label" data-source-sha256="b1ae04c2e06c7a4f19b5f81aac559d3940cb0601ca8899600c9213cc3b0e614d">
+            <section class="command-card" id="cmd-label" data-source-sha256="644dcef5215e3163b75af4add5f69965e9314c8950fa02e835439df5b340b052">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">label</span>
@@ -911,7 +911,7 @@
                     <li><strong>GLOBAL CONSERVATION（固定为 97%）：</strong>全局频率超过 97% 的残基会被报告为全局保守。该阈值不可由用户配置。</li>
                     <li><strong>歧义代码：</strong><code>X</code>、<code>B</code>、<code>Z</code> 和 <code>J</code>（以及 <code>*</code>、<code>~</code> 和 <code>_</code>，比对加载器把它们读作 <code>X</code>）从不被报告为保守残基，但仍计为已占据的位置，因此频率和占有率保持相同的分母。<code>U</code> 和 <code>O</code> 会被报告为残基。</li>
                 </ul>
-                <p>阈值是写成分数（<code>0.4</code>）或百分比（<code>40</code> 或 <code>40%</code>）的有限数：末尾的 <code>%</code> 总是表示百分比，因此 <code>0.5%</code> 是百分之零点五，而大于 1 的裸值被视为百分比。前两个位置参数仍然是 <code>gmax</code> 和 <code>cmin</code>；可选的第三个位置参数是一致性（例如 <code>label 0.4 0.9 90%</code>）。使用 <code>id VALUE</code> 可启用一致性加权，同时保留默认的或基于关键字的 <code>gmax</code>/<code>cmin</code>。不要在关键字参数之后混用位置参数。</p>
+                <p>阈值是写成分数（<code>0.4</code>）或百分比（<code>40</code> 或 <code>40%</code>）的有限数：末尾的 <code>%</code> 总是表示百分比，因此 <code>0.5%</code> 是百分之零点五，而大于 1 的裸值被视为百分比。前两个位置参数仍然是 <code>gmax</code> 和 <code>cmin</code>；可选的第三个位置参数是一致性（例如 <code>label 0.4 0.9 90%</code>）。使用 <code>id VALUE</code> 可启用一致性加权，同时保留默认的或基于关键字的 <code>gmax</code>/<code>cmin</code>。关键字与其值可以用 <code>=</code> 连接：<code>cmin=90%</code> 即 <code>cmin 90%</code>，适用于 <code>gmax</code>、<code>cmin</code> 和 <code>id</code>。不要在关键字参数之后混用位置参数。</p>
 
                 <div class="subheading">理解 Excel 输出</div>
                 <p>输出写入已配置的分析结果目录之下（默认为 <code>Analysis_Results/Cluster_Label/</code>），包含三个工作表：</p>
@@ -929,6 +929,7 @@
                     <li class="example-item"><span>label id 90%</span><button class="copy-btn" onclick="copyText('label id 90%', this)">复制</button></li>
                     <li class="example-item"><span>label 0.4 0.9 90% weighted_report</span><button class="copy-btn" onclick="copyText('label 0.4 0.9 90% weighted_report', this)">复制</button></li>
                     <li class="example-item"><span>label groups cmin 90%</span><button class="copy-btn" onclick="copyText('label groups cmin 90%', this)">复制</button></li>
+                    <li class="example-item"><span>label cmin=90% gmax=0.3</span><button class="copy-btn" onclick="copyText('label cmin=90% gmax=0.3', this)">复制</button></li>
                     <li class="example-item"><span>label groups group_report</span><button class="copy-btn" onclick="copyText('label groups group_report', this)">复制</button></li>
                 </ul>
             </section>

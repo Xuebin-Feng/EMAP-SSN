@@ -305,6 +305,52 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 self.assertEqual(call_args.args[1], 0.9)
                 self.assertTrue(call_args.kwargs["report_backend"])
 
+    def test_keywords_with_an_equals_sign_give_the_same_report_as_keywords_apart(self):
+        results = {}
+        for name, args in (
+            ("apart", ["gmax", "30%", "cmin", "90%", "id", "100%", "report"]),
+            ("equals", ["gmax=30%", "cmin=90%", "id=100%", "report"]),
+            ("mixed", ["GMAX=0.3", "cmin", "90%", "ID=1", "report"]),
+            ("long names", ["global_max=30%", "cluster_min=0.9", "id=100%", "report"]),
+            ("empty value", ["gmax=", "30%", "cmin=90%", "id=100%", "report"]),
+        ):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                viewer = self.run_label(directory, args)
+                workbook = openpyxl.load_workbook(Path(directory, "report.xlsx"))
+                metadata = {
+                    row[0].value: row[1].value
+                    for row in workbook["Meta Data"].iter_rows(min_col=1, max_col=2)
+                }
+                results[name] = (
+                    metadata["Label Parameters"], metadata["Statistics"],
+                    viewer.identity_weight_mock.call_args.args[1],
+                )
+        self.assertEqual(len(results), 5)
+        self.assertEqual(len(set(results.values())), 1, results)
+        parameters = results["equals"][0]
+        self.assertIn("gmax_outside=30%", parameters)
+        self.assertIn("cmin=90%", parameters)
+        self.assertIn("identity=100%", parameters)
+
+    def test_a_bad_assignment_writes_nothing(self):
+        for args, expected_error in (
+            (["cmin="], "Missing numerical value for 'cmin'"),
+            (["gmax=abc"], "Invalid percentage 'abc' for 'gmax'"),
+            (["cmin=150%"], "outside the supported range"),
+            (["cmin=90%", "cmin=80%"], "Duplicate assignment for 'cmin'"),
+            (["gmin=0.97"], "gmin is fixed at 97%"),
+            (["cmin=90%", "0.5"], "found after keywords"),
+            (["id="], "Missing numerical value for 'id'"),
+            (["id=0"], "outside the supported range"),
+            (["report", "cmin=90%"], "must be the final argument"),
+        ):
+            with self.subTest(args=args), tempfile.TemporaryDirectory() as directory:
+                viewer = self.run_label(directory, args)
+
+                self.assertIn(expected_error, viewer.console_text.text)
+                self.assertEqual(list(Path(directory).iterdir()), [])
+                viewer.identity_weight_mock.assert_not_called()
+
     def test_third_positional_number_enables_identity_weighting(self):
         with tempfile.TemporaryDirectory() as directory:
             viewer = self.run_label(
@@ -1056,8 +1102,8 @@ class LabelWorkbookPercentTests(unittest.TestCase):
 
     def test_mistyped_assignments_are_rejected_not_taken_as_filenames(self):
         for args in (
-            ["gmax=0.4"], ["cmin=90%"], ["id=90"], ["-x"], ["0.4", "--cmin"],
-            ["cmin", "90%", "-h"],
+            ["gmaxx=0.4"], ["cmn=90%"], ["id2=90"], ["-x"], ["0.4", "--cmin"],
+            ["cmin", "90%", "-h"], ["report=1"],
         ):
             with self.subTest(args=args), tempfile.TemporaryDirectory() as directory:
                 viewer = self.run_label(directory, args)
