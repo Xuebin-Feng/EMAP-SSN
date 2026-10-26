@@ -750,42 +750,65 @@
             </section>
 
 
-            <section class="command-card" id="cmd-color" data-source-sha256="bde426daa068aa93f60949ac0b1662e01caee1d1f6e03c4092ab641e33252c33">
+            <section class="command-card" id="cmd-color" data-source-sha256="09b3ca34ef02a378e1ffab1ae7b599f08bd70c7634458f56654e2fc3587dd3df">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">color</span>
                         <span class="command-card-desc-title">&ndash; 高级节点样式工具</span>
                     </div>
-                    
+
                 </div>
                 <div class="syntax-box">
-                    <div class="syntax-content">color [expression] [color] [scale] [shape] [&lt;expression_2&gt; ...]</div>
+                    <div class="syntax-content">color [EXPR] &lt;ATTRIBUTES&gt; [EXPR &lt;ATTRIBUTES&gt; ...]</div>
                     <button class="copy-btn" onclick="copyText('color', this)">复制</button>
                 </div>
-                <p><strong>概述：</strong>color 命令用于改变通过表达式解释器或当前鼠标选择选定的可见网络节点的颜色、大小和形状。此命令永远不会改变被隐藏的节点。</p>
-                
+                <p><strong>概述：</strong>color 命令用于改变通过表达式解释器或当前鼠标选择选定的可见网络节点的颜色、alpha（不透明度）、大小和形状。此命令永远不会改变被隐藏的节点。目标的属性写在属性集中，属性集使用字面的尖括号，如 <code>&lt;red,50%,star&gt;</code> 或 <code>&lt;red 50% star&gt;</code>；较早的松散写法 <code>color #cluster_1# red 2x star</code> 仍可作为简写使用。</p>
+
+                <div class="subheading">属性集</div>
+                <ul>
+                    <li><strong>形式：</strong><code>&lt;ITEM,ITEM,...&gt;</code> 或 <code>&lt;ITEM ITEM ...&gt;</code>，需连同尖括号一起输入（ITEM 是占位符）。一个属性集包含 1 到 4 项，顺序任意，每种类型至多一项：颜色、alpha、缩放倍数和形状。<code>&lt;red,50%,star&gt;</code> 与 <code>&lt;star 50% red&gt;</code> 是同一个属性集。</li>
+                    <li><strong>分隔符：</strong>各项之间要么全部用逗号分隔，要么全部用空格分隔。逗号两侧和括号内侧的空格会被忽略，因此 <code>&lt;red, 50%, star&gt;</code> 和 <code>&lt; red 50% star &gt;</code> 都可以。两种分隔符混用的属性集，如 <code>&lt;red, 50% star&gt;</code> 或 <code>&lt;red 50%, star&gt;</code>，会被拒绝。</li>
+                    <li><strong>位置：</strong>属性集跟在其表达式之后，可以是独立的一个词（<code>#cluster_1# &lt;red,50%&gt;</code>），也可以紧贴表达式（<code>#cluster_1#&lt;red 50%&gt;</code>）。属性集属于它前面的表达式；没有表达式的属性集作用于当前选中的节点（<code>color &lt;80%,square&gt;</code>）。<code>&lt;</code> 如果位于 <code>{metadata}</code> 或 <code>&quot;header text&quot;</code> 内部，永远不会开启属性集，因此 <code>{Length&lt;500}&lt;red&gt;</code> 会把 Length 小于 500 的节点染成红色。</li>
+                    <li><strong>多个目标：</strong>每个目标各带自己的表达式和属性集：<code>color &quot;ATA&quot;&amp;#cluster_2# &lt;blue,1.5x&gt; #noise# &lt;20%&gt;</code>。</li>
+                    <li><strong>属性集内部不会读取任何表达式，</strong>因此 <code>&lt;C53&gt;</code> 就是 Matplotlib 颜色 <code>C53</code>。形状 <code>&gt;</code> 和 <code>-&gt;</code> 会结束一个词，所以用空格分隔的属性集会在它们处闭合；请改写为 <code>arrow</code> 和 <code>tailed_arrow</code>。</li>
+                    <li><strong>会被拒绝且不做任何修改的情况：</strong>空属性集（<code>&lt;&gt;</code>）、空项（<code>&lt;red,,50%&gt;</code>）、同类型的两项（<code>&lt;red,blue&gt;</code>）、未知项（<code>&lt;red,blu&gt;</code>）、从未闭合或内部含有另一个 <code>&lt;</code> 的属性集、混用逗号和空格的属性集、同一目标的两个属性集、同一目标同时给出属性集和松散属性（<code>#cluster_1# red &lt;50%&gt;</code>），以及 8 位十六进制颜色与 alpha 同时出现。提示信息会指出该属性集或该项。</li>
+                </ul>
+
                 <div class="subheading">属性</div>
                 <ul>
-                    <li><strong>颜色：</strong>标准颜色名称（<code>red</code>、<code>blue</code>、<code>green</code> 等）或十六进制代码（<code>#ff0000</code>）。</li>
+                    <li><strong>颜色：</strong>标准颜色名称（<code>red</code>、<code>blue</code>、<code>green</code> 等）或十六进制代码（<code>#ff0000</code>）。8 位（<code>#ff000080</code>）或 4 位（<code>#f008</code>）的十六进制代码同时设置 alpha。仅给出颜色时只改变红、绿、蓝，保留各节点原有的 alpha。</li>
+                    <li><strong>Alpha：</strong>不透明度，写作 0 到 100 之间的数字加 <code>%</code>（<code>50%</code>、<code>12.5%</code>、<code>0%</code>）。仅给出 alpha 时只改变 alpha，保留各节点原有的颜色。颜色与 alpha 相互独立：给半透明节点（例如 <code>cluster</code> 和 <code>subcluster</code> 以 40% 绘制的噪声节点）重新着色后，它仍保持半透明，直到给出 <code>100%</code>；<code>reset colors</code> 会恢复完全不透明。来自 8 位十六进制颜色的 alpha 不能与同一目标的 <code>N%</code> 同时使用。</li>
                     <li><strong>缩放倍数：</strong>以小写 <code>x</code> 结尾的大小倍数（如 <code>2x</code> 表示两倍大小，<code>0.5x</code> 表示一半大小），相对于配置的默认节点大小，而不是累积的。缩放倍数必须是有限的非负数，因此 <code>-2x</code>、<code>nanx</code> 和 <code>infx</code> 会被拒绝。<code>0x</code> 会把节点缩小到零大小但不隐藏它们；可用 <code>reset sizes</code> 恢复，或用 <code>hide</code> 隐藏节点。旧的前缀写法已被移除：<code>x2</code> 现在选中位置 2 处为残基 X 的节点。</li>
-                    <li><strong>形状：</strong>circle、square、triangle、star、diamond、cross、x、vbar（竖条）和 hbar（横条）。</li>
-                    <li><strong>优先级：</strong>构成完整选择表达式的词元总是先被当作表达式读取，然后才会被当作颜色、缩放倍数或形状。<code>C53</code> 选中位置 53 处的半胱氨酸，而不是 Matplotlib 颜色 <code>C53</code>，<code>x2</code> 则选中位置 2 处的残基 X。</li>
+                    <li><strong>形状：</strong>circle、square、triangle、star、diamond、cross、x、vbar（竖条）和 hbar（横条），以及 <code>^</code>、<code>|</code>、<code>*</code>、<code>+</code> 等 VisPy 标记符号。</li>
+                    <li><strong>Alpha 为 0%：</strong>alpha 为 0 的节点没有可见的填充，但保留细轮廓；与缩放为 <code>0x</code> 的节点不同，它仍然可以被悬停和点击（悬停时以悬停颜色显示）。如需让节点不碍事，请使用 <code>0x</code> 或 <code>hide</code>。</li>
+                </ul>
+
+                <div class="subheading">松散简写</div>
+                <ul>
+                    <li><strong>松散属性：</strong>不使用属性集时，目标的各项可以直接跟在其表达式之后，顺序任意：<code>color #cluster_1# red 50% 2x star</code>。在这种写法中，构成完整选择表达式的词元总是先被当作表达式读取，然后才会被当作颜色、alpha、缩放倍数或形状。<code>C53</code> 选中位置 53 处的半胱氨酸，而不是 Matplotlib 颜色 <code>C53</code>，<code>x2</code> 则选中位置 2 处的残基 X。</li>
+                    <li><strong>每个目标只用一种形式：</strong>一个目标要么使用属性集，要么使用松散属性，不能两者并用；同一目标的第二个 <code>N%</code>（或 <code>N%</code> 与 8 位十六进制颜色并用）会被拒绝。重复出现的颜色或形状仍像以前一样，针对所选节点开启一个新目标。</li>
                 </ul>
 
                 <div class="subheading">用法机制</div>
                 <ul>
-                    <li><strong>隐式界面定位（快捷方式）：</strong>如果已在查看器中用鼠标选中了节点，则无需书写表达式，直接输入 <code>color red 2x</code> 即可把样式直接应用到所选节点。</li>
-                    <li><strong>链式命令：</strong>可以在一条命令中快速为多个子集设置样式，例如 <code>color #cluster_1# red #cluster_2# blue 1.5x</code>。</li>
-                    <li><strong>属性叠加：</strong>不必同时提供全部三个属性。如果只想缩放，只需传入缩放倍数，例如 <code>color &quot;Mutant&quot; 3x</code>。</li>
+                    <li><strong>隐式界面定位（快捷方式）：</strong>如果已在查看器中用鼠标选中了节点，则无需书写表达式，直接输入 <code>color &lt;red,2x&gt;</code>（或 <code>color red 2x</code>）即可把样式直接应用到所选节点。</li>
+                    <li><strong>链式命令：</strong>可以在一条命令中快速为多个子集设置样式，例如 <code>color #cluster_1# &lt;red&gt; #cluster_2# &lt;blue,1.5x&gt;</code>。</li>
+                    <li><strong>属性叠加：</strong>不必同时提供全部四个属性。如果只想缩放，只需传入缩放倍数，例如 <code>color &quot;Mutant&quot; &lt;3x&gt;</code>。</li>
                     <li><strong>渲染顺序：</strong>一次命令调用修改的所有节点会作为一组置于顶层，组内按稳定的节点索引排序。后一次 color 调用的节点会渲染在先前各组之上。</li>
-                    <li><strong>撤销支持：</strong>输入 <code>undo</code> 即可立即还原颜色修改。</li>
+                    <li><strong>原子性：</strong>在任何节点被修改之前，所有参数和表达式都会先经过检查。被拒绝的命令不会修改任何内容，也不会增加撤销步骤；有效但没有匹配到任何节点的命令会成功并给出提示。</li>
+                    <li><strong>撤销支持：</strong>输入 <code>undo</code> 即可立即还原颜色修改。撤销、重做、保存的布局以及 <code>print</code>（PNG、透明 PNG 和 SVG）都会保留每个节点的 alpha，MCP 节点页面则把每个颜色报告为 <code>[red, green, blue, alpha]</code>。</li>
+                    <li><strong>VR 查看器：</strong>VR 查看器与本命令共用同一实现。头显把每个节点都绘制为不透明，因此改变 alpha 的命令结束时会提示头显中不显示透明度。</li>
                 </ul>
 
                 <div class="subheading">示例</div>
                 <ul class="example-list">
-                    <li class="example-item"><span>color red 2x triangle</span><button class="copy-btn" onclick="copyText('color red 2x triangle', this)">复制</button></li>
-                    <li class="example-item"><span>color P106 red</span><button class="copy-btn" onclick="copyText('color P106 red', this)">复制</button></li>
-                    <li class="example-item"><span>color #cluster_1# red #noise# 0x</span><button class="copy-btn" onclick="copyText('color #cluster_1# red #noise# 0x', this)">复制</button></li>
+                    <li class="example-item"><span>color #cluster_1# &lt;red,50%,star&gt;</span><button class="copy-btn" onclick="copyText('color #cluster_1# &lt;red,50%,star&gt;', this)">复制</button></li>
+                    <li class="example-item"><span>color #cluster_1#&lt;red 50% star&gt;</span><button class="copy-btn" onclick="copyText('color #cluster_1#&lt;red 50% star&gt;', this)">复制</button></li>
+                    <li class="example-item"><span>color &lt;80%,square&gt;</span><button class="copy-btn" onclick="copyText('color &lt;80%,square&gt;', this)">复制</button></li>
+                    <li class="example-item"><span>color P106 &lt;red&gt;</span><button class="copy-btn" onclick="copyText('color P106 &lt;red&gt;', this)">复制</button></li>
+                    <li class="example-item"><span>color &quot;ATA&quot;&amp;#cluster_2# &lt;blue,1.5x&gt; #noise# &lt;20%&gt;</span><button class="copy-btn" onclick="copyText('color &quot;ATA&quot;&amp;#cluster_2# &lt;blue,1.5x&gt; #noise# &lt;20%&gt;', this)">复制</button></li>
+                    <li class="example-item"><span>color {Length&lt;500}&lt;green&gt;</span><button class="copy-btn" onclick="copyText('color {Length&lt;500}&lt;green&gt;', this)">复制</button></li>
+                    <li class="example-item"><span>color #cluster_1# red 2x triangle</span><button class="copy-btn" onclick="copyText('color #cluster_1# red 2x triangle', this)">复制</button></li>
                 </ul>
             </section>
 
