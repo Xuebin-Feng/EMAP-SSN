@@ -772,6 +772,77 @@ class LogoSynchronousArtifactTests(unittest.TestCase):
             self.assertGreater(os.path.getsize(result["save_path"]), 0)
             self.assertIn("effective N 2.00", str(result["message"]))
 
+    def flat_payload(self, directory, sequences, mode="bits", filename="flat.svg"):
+        positions = tuple(range(len(sequences[0])))
+        return {**self.make_payload(directory, filename=filename), "selected_seqs": tuple(sequences),
+                "valid_cols": positions, "plot_positions": tuple(position + 10 for position in positions),
+                "mode": mode, "gap_mode": "with_gap", "identity_threshold": None}
+
+    def render_with_warnings(self, payload):
+        """The result of rendering, the warnings it raised, and the limits of the figure's y axis."""
+        import warnings
+
+        limits = []
+
+        def save(figure, target, **_kwargs):
+            limits.append(figure.axes[0].get_ylim())
+            target.write("rendered content")
+
+        with mock.patch("matplotlib.figure.Figure.savefig", autospec=True, side_effect=save), \
+                warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            result = logo_command._generate_logo_artifact(payload)
+        return result, [str(item.message) for item in caught], limits[0]
+
+    def test_a_logo_of_two_sequences_is_flat_and_says_so_without_a_matplotlib_warning(self):
+        # With two sequences the small-sample correction (19 / (2 ln 2 n) = 6.8 bits) takes all of the
+        # log2(20) = 4.3 bits, so every letter is 0 tall and logomaker limited the axes to (0, 0).
+        with tempfile.TemporaryDirectory() as directory:
+            payload = self.flat_payload(directory, ("ACDEFGHIKL", "ACDEFGHIKL"), filename="r6_logo.svg")
+            result, warned, ylim = self.render_with_warnings(payload)
+            self.assertTrue(os.path.isfile(result["save_path"]))
+        self.assertEqual(warned, [])
+        # The fixed scale the other logos have, so a flat one reads against them.
+        self.assertAlmostEqual(ylim[0], 0.0)
+        self.assertAlmostEqual(ylim[1], np.log2(20))
+        text = str(result["message"])
+        self.assertTrue(text.startswith("Saved with_gap bits logo for 2 aligned nodes to r6_logo.svg "), text)
+        self.assertIn("The logo is flat: every position has 0 bits, so it draws no letters.", text)
+        self.assertIn("2 aligned sequences are too few", text)
+        self.assertIn("pcts", text)
+
+    def test_a_logo_with_no_residue_at_its_positions_is_flat_in_pcts_mode_too(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = self.flat_payload(directory, ("----", "----", "----"), mode="pcts")
+            result, warned, ylim = self.render_with_warnings(payload)
+        self.assertEqual(warned, [])
+        self.assertEqual(ylim, (0.0, 1.0))
+        self.assertTrue(str(result["message"]).endswith(
+            "The logo is flat: no aligned node has a residue at any of these positions, so it draws no letters."))
+
+    def test_a_logo_with_letters_has_no_note(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = self.flat_payload(directory, ("ACDE",) * 12 + ("ACDF",))
+            result, warned, ylim = self.render_with_warnings(payload)
+        self.assertEqual(warned, [])
+        self.assertEqual(str(result["message"]), "Saved with_gap bits logo for 13 aligned nodes to flat.svg")
+        self.assertAlmostEqual(ylim[1], np.log2(20))
+
+    def test_the_warning_is_left_out_for_the_one_call_only(self):
+        import warnings
+        from matplotlib.figure import Figure
+
+        before = list(warnings.filters)
+        with tempfile.TemporaryDirectory() as directory:
+            self.render_with_warnings(self.flat_payload(directory, ("ACDE", "ACDE")))
+        self.assertEqual(warnings.filters, before)
+        # matplotlib still warns about the same range anywhere else, in this process.
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            Figure().subplots().set_ylim(0, 0)
+        self.assertEqual(len(caught), 1)
+        self.assertIn("identical low and high ylims", str(caught[0].message))
+
     def test_atomic_renderer_removes_partial_file_after_success(self):
         with tempfile.TemporaryDirectory() as directory:
             payload = self.make_payload(directory, filename="atomic.svg")

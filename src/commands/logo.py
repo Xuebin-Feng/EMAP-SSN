@@ -16,6 +16,7 @@
 import math
 import os
 import re
+import warnings
 import numpy as np
 from datetime import datetime  # <--- NEW IMPORT
 import EMAPSSN_Config as cfg
@@ -223,6 +224,9 @@ def _generate_logo_artifact(payload):
     raise_if_cancelled()
     dataframe = pd.DataFrame(matrix, index=plot_coordinates, columns=amino_acids)
     effective_sequence_count = float(sequence_weights.sum())
+    # With every letter 0 tall (few sequences, whose small-sample correction takes all the information,
+    # or no residue at the positions) there is nothing to draw but the axes.
+    flat = not bool(np.any(matrix > 0.0))
 
     if identity_threshold is not None:
         print(
@@ -249,7 +253,16 @@ def _generate_logo_artifact(payload):
     partial_path = named_partial = None
     try:
         raise_if_cancelled()
-        logo = logomaker.Logo(dataframe, ax=ax, color_scheme=payload["color_scheme"])
+        with warnings.catch_warnings():
+            if flat:
+                # logomaker sets the axes' limits to the extent of the letters, here the empty range
+                # (0, 0), and matplotlib warns about it into the Console. The scale is set below
+                # (_configure_logo_y_axis), so that one warning, in this one call, says nothing new.
+                warnings.filterwarnings(
+                    "ignore", message=r"Attempting to set identical (low and high ylims|bottom == top)",
+                    category=UserWarning,
+                )
+            logo = logomaker.Logo(dataframe, ax=ax, color_scheme=payload["color_scheme"])
         raise_if_cancelled()
 
         base_gap = 0.01
@@ -335,11 +348,25 @@ def _generate_logo_artifact(payload):
             n=len(selected_seqs), gap_mode=gap_mode, mode=mode, file=filename,
             identity=f"{identity_threshold * 100:g}", effective=f"{effective_sequence_count:.2f}",
         )
+    if flat:
+        message = JoinedMessage([message, _flat_logo_note(mode, len(selected_seqs))])
     return {
         "message": message,
         "save_path": save_path,
         "effective_sequence_count": effective_sequence_count,
     }
+
+
+def _flat_logo_note(mode, sequence_count):
+    """Why a logo draws no letters: every position of it is 0 tall."""
+    if mode == "pcts":
+        return Message("The logo is flat: no aligned node has a residue at any of these positions, so it draws no letters.")
+    return Message(
+        "The logo is flat: every position has 0 bits, so it draws no letters. %n aligned sequence(s) are too few "
+        "for the small-sample correction to leave any information, or no sequence has a residue at these "
+        "positions. The pcts mode shows the letters' shares.",
+        n=sequence_count,
+    )
 
 
 def _normalize_logo_filename(filename):

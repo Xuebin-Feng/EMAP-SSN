@@ -4435,8 +4435,8 @@ Command-line usage:
         <location line="+2"/>
         <location filename="../../../commands/label.py" line="+1295"/>
         <location line="+452"/>
-        <location filename="../../../commands/logo.py" line="+242"/>
-        <location line="+70"/>
+        <location filename="../../../commands/logo.py" line="+246"/>
+        <location line="+79"/>
         <location filename="../../../commands/print.py" line="+1333"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
@@ -4444,7 +4444,7 @@ Command-line usage:
     <message>
         <location line="+3"/>
         <location filename="../../../commands/label.py" line="+141"/>
-        <location filename="../../../commands/logo.py" line="+608"/>
+        <location filename="../../../commands/logo.py" line="+622"/>
         <location filename="../../../commands/print.py" line="+224"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
@@ -5758,7 +5758,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/logo.py" line="-555"/>
+        <location filename="../../../commands/logo.py" line="-581"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -5778,7 +5778,7 @@ Command-line usage:
         <translation type="unfinished">序列标识图重新加权只能提供一个一致性阈值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+194"/>
+        <location line="+206"/>
         <source>Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个已比对节点的 {gap_mode} {mode} 序列标识图保存到 {file}</numerusform>
@@ -5792,7 +5792,19 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+21"/>
+        <location line="+18"/>
+        <source>The logo is flat: no aligned node has a residue at any of these positions, so it draws no letters.</source>
+        <translation type="unfinished">序列标识图是平的：这些位置上没有任何已比对节点含有残基，因此没有绘制任何字母。</translation>
+    </message>
+    <message numerus="yes">
+        <location line="+1"/>
+        <source>The logo is flat: every position has 0 bits, so it draws no letters. %n aligned sequence(s) are too few for the small-sample correction to leave any information, or no sequence has a residue at these positions. The pcts mode shows the letters&apos; shares.</source>
+        <translation type="unfinished">
+            <numerusform>序列标识图是平的：每个位置都是 0 bits，因此没有绘制任何字母。%n 条已比对序列太少，小样本校正不会留下任何信息；或者这些位置上没有任何序列含有残基。pcts 模式会显示各字母的占比。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+16"/>
         <location filename="../../../commands/print.py" line="-66"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
@@ -13367,7 +13379,7 @@ Fedora / RHEL：
         <translation type="unfinished">未安装命令列表：缺少 docs/list_of_commands.html。</translation>
     </message>
     <message>
-        <location filename="../../../desktop/Viewer_Jobs_Card.py" line="+114"/>
+        <location filename="../../../desktop/Viewer_Jobs_Card.py" line="+116"/>
         <location line="+5"/>
         <source>Stop job</source>
         <translation type="unfinished">停止任务</translation>

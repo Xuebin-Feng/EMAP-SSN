@@ -4140,6 +4140,16 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>The logo is flat: no aligned node has a residue at any of these positions, so it draws no letters.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>The logo is flat: every position has 0 bits, so it draws no letters. %n aligned sequence(s) are too few for the small-sample correction to leave any information, or no sequence has a residue at these positions. The pcts mode shows the letters&apos; shares.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
+    </message>
+    <message>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished"></translation>
     </message>
