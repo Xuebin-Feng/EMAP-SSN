@@ -227,6 +227,16 @@ class StoreTests(unittest.TestCase):
         self.assertEqual([path.name for path in sorted(reversed(paths), key=store.request_order)], ["a.json", "b.json", "c.json"])
         self.assertEqual(store.request_order(self.root / "gone.json"), (0, "gone.json"))
 
+    def test_a_process_with_no_window_is_told_from_one_that_has_not_shown_its_window_yet(self):
+        for kind in ("layout", "mcp", "monitor"):
+            self.assertTrue(store.has_no_window({"kind": kind}), kind)
+        for kind in ("config", "tools", "viewer", "splash"):
+            self.assertFalse(store.has_no_window({"kind": kind, "detail": None}), kind)
+        self.assertTrue(store.has_no_window({"kind": "config", "detail": "headless export-settings"}))
+        self.assertTrue(store.has_no_window({"kind": "tools", "detail": "headless"}))
+        self.assertFalse(store.has_no_window({"kind": "viewer", "detail": "headless launch-viewer"}))  # a Viewer has windows
+        self.assertFalse(store.has_no_window({"kind": "splash", "detail": "viewer"}))
+
     def test_the_process_that_is_running_is_alive_and_a_made_up_one_is_not(self):
         self.assertTrue(store.process_alive({"pid": os.getpid(), "created": store.own_start_time()}))
         self.assertFalse(store.process_alive({"pid": 2 ** 22 + 12345}))
@@ -1554,6 +1564,36 @@ class CommandLineTests(ProbeCase):
         self.pump(120)
         code, text = self.run_cli(["wait", "--kind", "tools", "--title", "^waited", "--gone", "--timeout", "10"])
         self.assertEqual((code, text.strip()), (0, "gone"))
+
+    def test_wait_for_a_kind_with_no_window_succeeds_while_its_process_is_up_and_ends_when_it_is_gone(self):
+        now = store.wall_ms()
+        fake_process(self.out, os.getpid(), "layout", now, [("process_start", now, {})], argv=("Layout_Cache_Generator.py",))
+        code, text = self.run_cli(["wait", "--kind", "layout", "--timeout", "5"])
+        self.assertEqual(code, 0, text)
+        found = json.loads(text)
+        self.assertEqual((found["pid"], found["kind"], found["window"]), (os.getpid(), "layout", None))
+        self.assertIn("no window", found["note"])
+        code, _ = self.run_cli(["wait", "--kind", "tools", "--timeout", "0.3"])
+        self.assertEqual(code, 1)  # a kind that has windows is up when one is open, and none is
+        code, _ = self.run_cli(["wait", "--kind", "layout", "--gone", "--timeout", "0.3"])
+        self.assertEqual(code, 1)  # the process is still running
+        code, _ = self.run_cli(["wait", "--kind", "layout", "--title", "Layout", "--timeout", "0.3"])
+        self.assertEqual(code, 1)  # a title asks for a window, which this kind never has
+        shutil.rmtree(self.out / "procs" / f"{os.getpid()}-layout")
+        fake_process(self.out, 2 ** 22 + 54321, "layout", now, [("process_start", now, {})])  # a process that has ended
+        code, text = self.run_cli(["wait", "--kind", "layout", "--gone", "--timeout", "5"])
+        self.assertEqual((code, text.strip()), (0, "gone"))
+
+    def test_wait_without_a_kind_still_waits_for_a_window_and_ignores_the_processes_that_have_none(self):
+        now = store.wall_ms()
+        fake_process(self.out, os.getpid(), "mcp", now, [("process_start", now, {})])
+        code, _ = self.run_cli(["wait", "--timeout", "0.4"])
+        self.assertEqual(code, 1)
+        self.make_window("Some window")
+        self.pump(150)
+        code, text = self.run_cli(["wait", "--timeout", "5"])
+        self.assertEqual(code, 0, text)
+        self.assertEqual(json.loads(text)["window"]["title"], "Some window")
 
     def test_step_stamps_the_events_and_captures_that_follow(self):
         code, text = self.run_cli(["step", "open the console"])

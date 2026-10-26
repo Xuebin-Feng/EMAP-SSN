@@ -24,6 +24,7 @@ $P status                   # installed? on? which processes are recording?
 
 $P step "1 launch Config"                       # label what follows; every event and capture carries it
 $P wait --kind splash --title . --timeout 30    # wait for a window (prints it); --gone waits for it to close
+$P wait --kind layout --timeout 60              # a kind with no window (layout, mcp, monitor): waits for the process; --gone, for its end
 $P do --kind splash click widget="Show details" # click it, as a user does
 $P do --kind splash capture                     # a PNG of the splash, at the screen's scale
 $P do --kind config windows                     # what is open, geometry, DPR, screen, focus
@@ -33,6 +34,12 @@ $P sheet                                        # writes contact-sheet.html: rea
 $P off                      # quiet in every process within about three seconds
 $P uninstall                # remove the .pth and the stub (nothing else was changed)
 ```
+
+`wait` looks at the windows the processes record. A kind that never has a window has none to wait for: the Layout
+Generator (`layout`), the MCP server (`mcp`), the monitor (`monitor`), and a Config or Tools the MCP server runs
+headless. With `--kind` (or `--pid`) naming such a process and no `--title`, `wait` succeeds as soon as the process
+is up and prints it with `"window": null`, and `--gone` waits for the process to end. `--title` always asks for a
+window, and `wait` with neither `--kind` nor `--pid` is for a window of any process, whatever else is running.
 
 Every window is also captured **automatically ~300 ms after it is first shown** (`--settle-ms N` changes it,
 `--no-auto-capture` turns it off), so the contact sheet fills itself as you go. `step` labels group them.

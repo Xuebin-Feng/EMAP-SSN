@@ -527,6 +527,21 @@ def list_processes(out, *, live_only=False) -> list[dict]:
     return records
 
 
+# Kinds that have no window of their own: the Layout Generator and the MCP server are programs without a GUI, and the
+# monitor only watches the window it started (it may put up a failure dialog, which `wait --title` still finds). The
+# MCP server also runs Config and Tools headless, for exports and layouts, and that process records "headless ..." as
+# its detail (a headless launch of the Viewer is a Viewer, which has windows).
+WINDOWLESS_KINDS = ("layout", "mcp", "monitor")
+HEADLESS_KINDS = ("config", "tools")
+
+
+def has_no_window(record: dict) -> bool:
+    """Whether the process a process.json describes never shows a window, so "up" is all `wait` can wait for."""
+    if record.get("kind") in WINDOWLESS_KINDS:
+        return True
+    return record.get("kind") in HEADLESS_KINDS and str(record.get("detail") or "").startswith("headless")
+
+
 def request_order(path) -> tuple:
     """The key requests are handled by: when each file was written (its modification time), then its name.
 

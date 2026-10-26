@@ -240,12 +240,20 @@ def command_step(args) -> int:
 
 
 def command_wait(args) -> int:
+    """Wait for a window, or for it to go. A process of a kind with no window (the Layout Generator, the MCP server) is
+    waited for as a whole when it is named by --kind or --pid and no --title asks for a window: it is up once it exists
+    and gone when it ends."""
     out = store.out_for(args.checkout, args.out)
     pattern = re.compile(args.title, re.IGNORECASE) if args.title else None
+    named = bool(args.kind or args.pid)
     deadline = time.monotonic() + args.timeout
     while True:
         found = None
         for process in live_processes(out, args.kind, args.pid):
+            if named and pattern is None and store.has_no_window(process):
+                found = {"pid": process["pid"], "kind": process["kind"], "window": None,
+                         "note": f"a {process['kind']} process has no window: it is up"}
+                break
             listing = store.read_json(Path(process["folder"]) / "windows.json", {}) or {}
             for window in listing.get("windows", []):
                 if window.get("visible") and (pattern is None or pattern.search(window.get("title") or "")
@@ -262,6 +270,8 @@ def command_wait(args) -> int:
             return 0
         if time.monotonic() >= deadline:
             print("timed out waiting for " + ("the window to go" if args.gone else "the window"), file=sys.stderr)
+            if pattern is not None and any(store.has_no_window(process) for process in live_processes(out, args.kind, args.pid)):
+                print("a process of that kind has no window: leave out --title to wait for the process itself", file=sys.stderr)
             return 1
         time.sleep(POLL_SECONDS * 4)
 
@@ -373,7 +383,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = commands.add_parser("step", help="label what follows")
     sub.add_argument("label")
     sub.set_defaults(run=command_step)
-    sub = commands.add_parser("wait", help="wait for a window (or for it to go)")
+    sub = commands.add_parser("wait", help="wait for a window (or for a process with no window), or for it to go")
     sub.add_argument("--kind")
     sub.add_argument("--pid", type=int)
     sub.add_argument("--title", help="a regular expression for the window's title (or class)")
