@@ -1146,6 +1146,7 @@ class ViewerCanvasTextTests(WindowTestCase):
 
         failing = (
             lambda: Sequence_Utils.reject_bare_negative_positions("-1"),
+            lambda: Sequence_Utils.split_position_list("[1, 5 9]"),
             lambda: Sequence_Utils.normalize_displayed_position_atom("1-"),
             lambda: Sequence_Utils.normalize_displayed_position_atom("1-", allow_end=True),
             lambda: query.parse_query_positions("[-1]", []),

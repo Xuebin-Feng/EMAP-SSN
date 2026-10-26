@@ -158,6 +158,95 @@ class LogoPositionParsingTests(unittest.TestCase):
             )
 
 
+class LogoSpaceSeparatedPositionTests(unittest.TestCase):
+    """A position list is comma-separated or space-separated, and never both."""
+
+    def test_both_forms_give_the_same_positions(self):
+        for commas, spaces, expected in (
+            ("[1,5,9-12]", "[1 5 9-12]", [1, 5, 9, 10, 11, 12]),
+            ("[ 1, 5 ]", "[ 1 5 ]", [1, 5]),
+            ("[10,10.1,10.2,11]", "[10 10.1 10.2 11]", [10, "10.1", "10.2", 11]),
+            ("[(-3)-(-1),0,5]", "[(-3)-(-1) 0 5]", [-3, -2, -1, 0, 5]),
+            ("[(-1.1),(-1),0]", "[(-1.1) (-1) 0]", [-1, "-1.1", 0]),
+            ("[+1,+1.1]", "[+1 +1.1]", [1, "1.1"]),
+            ("[11,10.2,10,10.1]", "[11 10.2 10 10.1]", [10, "10.1", "10.2", 11]),
+            ("[3,1,3]", "[3 1 3]", [1, 3]),
+        ):
+            with self.subTest(commas=commas):
+                self.assertEqual(parse_logo_positions(commas), expected)
+            with self.subTest(spaces=spaces):
+                self.assertEqual(parse_logo_positions(spaces), expected)
+
+    def test_spaces_just_inside_the_brackets_are_ignored(self):
+        for position_spec in ("[1 5]", "[ 1 5]", "[1 5 ]", "[   1   5   ]", " [ 1 5 ] "):
+            with self.subTest(position_spec=position_spec):
+                self.assertEqual(parse_logo_positions(position_spec), [1, 5])
+        for position_spec in ("[1,5]", "[ 1,5]", "[1,5 ]", "[   1 ,  5   ]", " [ 1, 5 ] "):
+            with self.subTest(position_spec=position_spec):
+                self.assertEqual(parse_logo_positions(position_spec), [1, 5])
+
+    def test_a_range_may_have_spaces_around_its_dash_in_either_form(self):
+        for position_spec, expected in (
+            ("[9 - 12]", [9, 10, 11, 12]),
+            ("[9- 12]", [9, 10, 11, 12]),
+            ("[1, 9 - 12]", [1, 9, 10, 11, 12]),
+            ("[1 9 - 12]", [1, 9, 10, 11, 12]),
+            ("[1 9- 12 20]", [1, 9, 10, 11, 12, 20]),
+            ("[9 - 12 1]", [1, 9, 10, 11, 12]),
+            ("[(-3) - (-1) 0 5]", [-3, -2, -1, 0, 5]),
+            ("[(-3) - 1]", [-3, -2, -1, 0, 1]),
+        ):
+            with self.subTest(position_spec=position_spec):
+                self.assertEqual(parse_logo_positions(position_spec), expected)
+
+    def test_a_list_that_mixes_commas_and_spaces_is_refused_naming_the_item(self):
+        for position_spec, item in (
+            ("[1, 5 9]", "5 9"),
+            ("[1 5, 9]", "1 5"),
+            ("[1 5,]", "1 5"),
+            ("[1,5 ,9 12]", "9 12"),
+            ("[10 10.1, 11]", "10 10.1"),
+            ("[1, (-3) 0]", "(-3) 0"),
+        ):
+            with self.subTest(position_spec=position_spec):
+                with self.assertRaises(ValueError) as caught:
+                    parse_logo_positions(position_spec)
+                self.assertIsInstance(caught.exception.args[0], logo_command.Message)
+                self.assertIn(f"'{item}'", str(caught.exception))
+                self.assertIn("commas or with spaces, not both", str(caught.exception))
+
+    def test_a_space_before_a_dash_and_none_after_it_is_still_a_bare_negative(self):
+        for position_spec, correction in (
+            ("[1 -5]", "(-5)"),
+            ("[1 5 -3]", "(-3)"),
+            ("[9 -12]", "(-12)"),
+            ("[1, -5]", "(-5)"),
+            ("[-1 2]", "(-1)"),
+        ):
+            with self.subTest(position_spec=position_spec):
+                with self.assertRaisesRegex(ValueError, re.escape(correction)):
+                    parse_logo_positions(position_spec)
+
+    def test_ranges_keep_their_rules_in_a_space_separated_list(self):
+        with self.assertRaisesRegex(ValueError, "lower to higher"):
+            parse_logo_positions("[1 12 - 9]")
+        with self.assertRaisesRegex(ValueError, "list insertion positions explicitly"):
+            parse_logo_positions("[1 10.1 - 11]")
+        with self.assertRaisesRegex(ValueError, "Invalid position label"):
+            parse_logo_positions("[1 x 3]")
+
+    def test_an_empty_list_gives_no_positions(self):
+        for position_spec in ("[]", "[ ]", "[,]"):
+            with self.subTest(position_spec=position_spec):
+                self.assertEqual(parse_logo_positions(position_spec), [])
+
+    def test_the_size_cap_counts_a_space_separated_list_too(self):
+        with mock.patch.object(logo_command, "_MAX_LOGO_RANGE_POSITIONS", 10):
+            self.assertEqual(parse_logo_positions("[1 - 10]"), list(range(1, 11)))
+            with self.assertRaisesRegex(ValueError, "too large"):
+                parse_logo_positions("[1 - 6 7 - 12]")
+
+
 class LogoFilenameTests(unittest.TestCase):
     def test_a_name_that_is_only_an_extension_is_refused(self):
         for name in (".svg", ".png", ".SVG", " .png "):
@@ -1088,6 +1177,129 @@ class LogoArgumentTests(unittest.TestCase):
         self.assertEqual(job["payload"]["plot_positions"], (1,))
         self.assertIsNone(job["payload"]["identity_threshold"])
 
+    def test_a_space_separated_list_is_one_argument_however_the_line_split_it(self):
+        for args in (
+            ["[1", "2", "4]"],
+            ["[", "1", "2", "4", "]"],
+            ["[1", "2", "4", "]"],
+            ["[", "1", "2", "4]"],
+            ["[1 2 4]"],
+            ["[ 1 2 4 ]"],
+        ):
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args + ["pcts", "no_gap", "out.svg"])
+                self.assertEqual(job["payload"]["plot_positions"], (1, 2, 4))
+                self.assertEqual(job["payload"]["mode"], "pcts")
+                self.assertEqual(job["payload"]["gap_mode"], "no_gap")
+                self.assertEqual(job["payload"]["filename"], "out.svg")
+                self.assertIsNone(job["payload"]["identity_threshold"])
+
+    def test_a_number_in_a_space_separated_list_is_never_an_identity_threshold(self):
+        for args in (
+            ["[1", "2", "4]", "out.svg"],
+            ["[", "4", "]", "out.svg"],
+            ["[1", "2", "3", "4", "]", "out.svg"],
+            ["[1", "-", "4]", "out.svg"],
+        ):
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args)
+                self.assertIsNotNone(job)
+                self.assertIsNone(job["payload"]["identity_threshold"])
+
+    def test_the_identity_threshold_beside_a_space_separated_list_is_unchanged(self):
+        for args, threshold in (
+            (["[1", "2", "4]", "5"], 0.05),
+            (["5", "[1", "2", "4]"], 0.05),
+            (["[1", "2", "4]", "90%", "out.svg"], 0.9),
+            (["[1", "2", "4]", "0.5", "out.svg"], 0.5),
+            (["[1", "2", "4]", "90", "out.svg"], 0.9),
+        ):
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args)
+                self.assertEqual(job["payload"]["plot_positions"], (1, 2, 4))
+                self.assertEqual(job["payload"]["identity_threshold"], threshold)
+
+    def test_the_filename_and_the_expression_beside_a_space_separated_list_are_unchanged(self):
+        # Cluster 1 is the first node alone and cluster 2 the second.
+        for args, filename, sequences in (
+            (["#cluster_1#", "[1", "2]", "out.svg"], "out.svg", 1),
+            (["[1", "2]", "#cluster_1#", "|", "#cluster_2#", "out.svg"], "out.svg", 2),
+            (["#cluster_1#", "|", "#cluster_2#", "[1", "2]", "out.png"], "out.png", 2),
+            (["{Organism=Escherichia", "coli}", "[1", "2]", "out.svg"], "out.svg", 2),
+            (["[1", "2]", "out.svg", "pcts"], "out.svg", 3),
+        ):
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args, selected=())
+                self.assertEqual(job["payload"]["filename"], filename)
+                self.assertEqual(len(job["payload"]["selected_seqs"]), sequences)
+                self.assertEqual(job["payload"]["plot_positions"], (1, 2))
+                self.assertIsNone(job["payload"]["identity_threshold"])
+
+    def test_a_space_separated_list_with_no_filename_keeps_the_automatic_name(self):
+        _, job, _ = self.run_logo(["[1", "2]", "#cluster_1#"], selected=())
+
+        self.assertRegex(job["payload"]["filename"], r"^logo_\d{8}_\d{6}.*\.svg$")
+        self.assertEqual(len(job["payload"]["selected_seqs"]), 1)
+
+    def test_a_spaced_range_dash_in_a_command_line_is_a_range(self):
+        for args, positions in (
+            (["[1", "3", "-", "4]"], (1, 3, 4)),
+            (["[1", "-", "3]"], (1, 2, 3)),
+            (["[1", "-", "3", "4]"], (1, 2, 3, 4)),
+            (["[1,", "3", "-", "4]"], (1, 3, 4)),
+            (["[3", "-", "4", "1]"], (1, 3, 4)),
+        ):
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args + ["out.svg"])
+                self.assertEqual(job["payload"]["plot_positions"], positions)
+                self.assertIsNone(job["payload"]["identity_threshold"])
+
+    def test_positions_the_alignment_lacks_are_warned_about_in_either_form(self):
+        for args in (["[(-1)", "1", "2.1", "3]"], ["[(-1),", "1,", "2.1,", "3]"]):
+            with self.subTest(args=args):
+                _, job, output = self.run_logo(args + ["out.svg"])
+                self.assertEqual(job["payload"]["plot_positions"], (1, 3))
+                self.assertIn("Position -1 was not found", output)
+                self.assertIn("Position 2.1 was not found", output)
+
+    def test_a_mixed_list_is_refused_and_nothing_is_queued_or_written(self):
+        for args, item in (
+            (["[1,", "2", "4]", "out.svg"], "2 4"),
+            (["[1", "2,", "4]", "out.svg"], "1 2"),
+            (["[1", "2,", "4,]", "out.svg"], "1 2"),
+            (["[1,", "(-1)", "4]", "out.svg"], "(-1) 4"),
+        ):
+            with self.subTest(args=args):
+                viewer, job, _ = self.run_logo(args, existing_files=["out.svg"])
+                self.assertIsNone(job)
+                self.assertEqual(
+                    viewer.console_text.text,
+                    "Error: Separate positions with commas or with spaces, not both: "
+                    f"'{item}' has a space inside a comma-separated list. "
+                    "Write [1,5,9-12] or [1 5 9-12].",
+                )
+                with open(os.path.join(self.directory, "out.svg"), "rb") as kept:
+                    self.assertEqual(kept.read(), b"previous")
+                self.assertEqual(os.listdir(self.directory), ["out.svg"])
+
+    def test_a_bare_negative_in_a_space_separated_list_is_refused(self):
+        for args, correction in (
+            (["[1", "-2]", "out.svg"], "(-2)"),
+            (["[1", "2", "-3]", "out.svg"], "(-3)"),
+            (["[1", "-2", "3]", "out.svg"], "(-2)"),
+        ):
+            with self.subTest(args=args):
+                viewer, job, _ = self.run_logo(args)
+                self.assertIsNone(job)
+                self.assertIn(correction, viewer.console_text.text)
+                self.assertIn("Parentheses are required", viewer.console_text.text)
+
+    def test_a_list_that_is_never_closed_queues_nothing(self):
+        for args in (["[1", "2", "4", "out.svg"], ["[1", "2"], ["[1", "2", "4", "5"]):
+            with self.subTest(args=args):
+                _, job, _ = self.run_logo(args)
+                self.assertIsNone(job)
+
     def test_expression_tokens_are_joined_with_spaces(self):
         # Selects the two Escherichia nodes; "Escherichiacoli" matches none.
         _, job, _ = self.run_logo(
@@ -1259,6 +1471,17 @@ class LogoArgumentTests(unittest.TestCase):
         self.assertIn("1 means 100%", text)
         self.assertIn("5 means 5%", text)
         self.assertIn("not case-sensitive", text)
+
+    def test_help_shows_both_position_forms_and_refuses_mixing(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            logo_command.print_help()
+        text = " ".join(output.getvalue().split())
+
+        self.assertIn("separated by commas or by spaces", text)
+        self.assertIn("[1,5,9-12] and [1 5 9-12] both work", text)
+        self.assertIn("mixes commas and spaces, such as [1, 5 9], is refused", text)
+        self.assertIn("logo [10 10.1 10.2 11]", text)
 
     def test_help_states_the_filename_rule(self):
         output = io.StringIO()

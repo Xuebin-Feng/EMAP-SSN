@@ -53,6 +53,81 @@ def reject_bare_negative_positions(value):
         ))
 
 
+# The dash of a range, with or without spaces around it. It sits between two
+# items, so the dash inside a parenthesised negative, as in (-3), is not one.
+_RANGE_DASH_RE = re.compile(r"(?<=[\w)])\s*-\s*(?=[\w(+])")
+
+
+def split_position_list(position_spec):
+    """Split a bracketed position list into its items, each a position or a range.
+
+    The brackets may be left off, and spaces just inside them are ignored. A
+    list that holds a comma is comma-separated, with spaces around its items
+    and commas ignored: [1, 5, 9-12]. Any other list is space-separated:
+    [1 5 9-12]. The two forms are never mixed, so an item of a comma-separated
+    list that still holds a space is refused. The spaces around a range's dash
+    belong to the range, as in [9 - 12] and [1 9 - 12], and a bare negative
+    such as [1 -5] is refused as it always was.
+
+    The items come back as written, apart from those spaces, for the caller to
+    read as positions. A ValueError holds a Message, as reject_bare_negative_positions
+    does, and nothing is returned for a list that is refused.
+    """
+    text = str(position_spec).strip()
+    if text.startswith('[') and text.endswith(']'):
+        text = text[1:-1]
+
+    reject_bare_negative_positions(text)
+    text = _RANGE_DASH_RE.sub("-", text.strip())
+
+    if ',' not in text:
+        return text.split()
+
+    items = [item.strip() for item in text.split(',')]
+    for item in items:
+        if any(character.isspace() for character in item):
+            raise ValueError(Message(
+                "Separate positions with commas or with spaces, not both: '{item}' has a "
+                "space inside a comma-separated list. Write [1,5,9-12] or [1 5 9-12].",
+                item=item,
+            ))
+    return [item for item in items if item]
+
+
+def rejoin_split_brackets(args):
+    """Join the tokens of a bracketed argument that spaces split, e.g. "[1," "5]".
+
+    A command line is split at its spaces, so a position list written with
+    spaces arrives as several tokens, and a number among them would be read as
+    an argument of its own. Tokens whose brackets never balance are returned
+    as they were.
+    """
+    rejoined = []
+    pending = []
+    in_bracket = False
+
+    for arg in args:
+        if '[' in arg and not in_bracket:
+            if arg.count('[') > arg.count(']'):
+                in_bracket = True
+                pending.append(arg)
+            else:
+                rejoined.append(arg)
+        elif in_bracket:
+            pending.append(arg)
+            if ']' in arg:
+                joined = " ".join(pending)
+                if joined.count('[') <= joined.count(']'):
+                    rejoined.append(joined)
+                    pending = []
+                    in_bracket = False
+        else:
+            rejoined.append(arg)
+
+    rejoined.extend(pending)
+    return rejoined
+
+
 def normalize_displayed_position_atom(value, *, allow_end=False):
     """Return the alignment-label form of one user-facing position atom.
 
@@ -987,6 +1062,8 @@ __all__ = [
     "NONNEGATIVE_POSITION_PATTERN",
     "DISPLAYED_POSITION_ATOM_PATTERN",
     "reject_bare_negative_positions",
+    "split_position_list",
+    "rejoin_split_brackets",
     "normalize_displayed_position_atom",
     "format_alignment_offset_display",
     "sort_alignment_labels",

@@ -26,6 +26,7 @@ import Alignment_Manager
 import Command_Engine
 from commands.query import evaluate_frequency_logic, parse_query_positions, print_help, run
 from tests.sparse_alignment import load_manager, sparse_alignment, write_fasta
+from utilities.Localization import Message
 
 
 class QueryFrequencyLogicTests(unittest.TestCase):
@@ -509,6 +510,142 @@ class QueryPositionBreakdownTests(unittest.TestCase):
         succeeded.assert_called_once()
         self.assertEqual(str(succeeded.call_args.args[1]), "Queried 1 position. Check the Console.")
 
+    # Four sequences of three columns: K is 75% at position 1, R and H are 50% each
+    # at position 2, and A is the whole of position 3.
+    SPACED_HEADERS = ["s1", "s2", "s3", "s4"]
+    SPACED_RECORDS = list(zip(SPACED_HEADERS, ["KRA", "KRA", "RHA", "KHA"]))
+
+    def spaced_run(self, args, **options):
+        """run_reporting on the four sequences: the position lines, and (failed, succeeded)."""
+        viewer, output, failed, succeeded = self.run_reporting(
+            self.SPACED_RECORDS, self.SPACED_HEADERS, list(args), **options
+        )
+        return self.position_lines(output), viewer, failed, succeeded
+
+    def test_a_space_separated_list_is_one_argument_however_the_line_split_it(self):
+        comma_lines, *_ = self.spaced_run(['"*"', "[1,3]"])
+        self.assertEqual(len(comma_lines), 2)
+
+        for tokens in (
+            ["[1", "3]"],
+            ["[", "1", "3", "]"],
+            ["[1", "3", "]"],
+            ["[", "1", "3]"],
+            ["[1 3]"],
+            ["[ 1 3 ]"],
+        ):
+            with self.subTest(tokens=tokens):
+                lines, viewer, failed, succeeded = self.spaced_run(['"*"'] + tokens)
+                self.assertEqual(lines, comma_lines)
+                failed.assert_not_called()
+                self.assertEqual(
+                    str(succeeded.call_args.args[1]), "Queried 2 positions. Check the Console."
+                )
+
+    def test_the_expression_beside_a_space_separated_list_is_unchanged(self):
+        # Cluster 1 holds the first two nodes, which read KRA and KRA.
+        expected = ["Pos 1       \tGap   0.0% | K 100.0%", "Pos 2       \tGap   0.0% | R 100.0%"]
+        for args in (
+            ["#cluster_1#", "[1", "2]"],
+            ["[1", "2]", "#cluster_1#"],
+            ["#cluster_1#", "[", "1", "2", "]"],
+            ["#cluster_1#", "[1,2]"],
+        ):
+            with self.subTest(args=args):
+                _, output, failed, _ = self.run_reporting(
+                    self.SPACED_RECORDS, self.SPACED_HEADERS, args, cluster_labels=[1, 1, 2, 2]
+                )
+                self.assertIn("(2 sequences mapped)", output)
+                self.assertEqual(self.position_lines(output), expected)
+                failed.assert_not_called()
+
+    def test_end_and_ranges_with_spaces_query_the_same_positions_as_with_commas(self):
+        for commas, spaces in (
+            (["[1,END]"], ["[1", "END]"]),
+            (["[E,1]"], ["[E", "1]"]),
+            (["[1-E]"], ["[1", "-", "E]"]),
+            (["[2-E]"], ["[2", "-", "E]"]),
+            (["[1,2-E]"], ["[1", "2", "-", "E]"]),
+            (["[1-2,E]"], ["[1-2", "E]"]),
+            (["[ 1, 3 ]"], ["[", "1", "3", "]"]),
+        ):
+            with self.subTest(spaces=spaces):
+                self.assertEqual(
+                    self.spaced_run(['"*"'] + spaces)[0], self.spaced_run(['"*"'] + commas)[0]
+                )
+        self.assertEqual(len(self.spaced_run(['"*"', "[1", "-", "E]"])[0]), 3)
+
+    def test_a_mixed_list_is_refused_and_queries_nothing(self):
+        for tokens, item in (
+            (["[1,", "2", "3]"], "2 3"),
+            (["[1", "2,", "3]"], "1 2"),
+            (["[1", "2,", "3,]"], "1 2"),
+            (["[1,", "END", "3]"], "END 3"),
+        ):
+            with self.subTest(tokens=tokens):
+                lines, viewer, failed, succeeded = self.spaced_run(['"*"'] + tokens)
+                self.assertEqual(lines, [])
+                succeeded.assert_not_called()
+                failed.assert_called_once()
+                expected = (
+                    "Error: Separate positions with commas or with spaces, not both: "
+                    f"'{item}' has a space inside a comma-separated list. "
+                    "Write [1,5,9-12] or [1 5 9-12]."
+                )
+                self.assertEqual(str(failed.call_args.args[1]), expected)
+
+    def test_a_bare_negative_in_a_space_separated_list_is_refused(self):
+        for tokens, correction in (
+            (["[1", "-2]"], "(-2)"),
+            (["[1", "2", "-3]"], "(-3)"),
+            (["[-1", "2]"], "(-1)"),
+        ):
+            with self.subTest(tokens=tokens):
+                lines, _, failed, succeeded = self.spaced_run(['"*"'] + tokens)
+                self.assertEqual(lines, [])
+                succeeded.assert_not_called()
+                self.assertIn(correction, str(failed.call_args.args[1]))
+
+    def test_frequency_logic_keeps_its_spaces_and_never_reads_a_position_list(self):
+        # The text of a logic argument is the logic's own, so the position splitter never sees it.
+        # Position 1 is the only one with K over 10%, and no position has R and H over 50% together.
+        cases = (
+            (["[K>10%]"], ["1"]),
+            (["[ K>10% ]"], ["1"]),
+            (["[K", ">", "10%]"], ["1"]),
+            (["[", "K", ">", "10%", "]"], ["1"]),
+            (["[K > 10%]"], ["1"]),
+            (["[K >= 0.75]"], ["1"]),
+            (["[(K>0.1)", "&", "(R>0.05)]"], ["1"]),
+            (["[(K>0.1) & (R>0.05)]"], ["1"]),
+            (["[(K>0.1)&(R>0.05)]"], ["1"]),
+            (["[ ( K > 0.1 ) | ( H > 0.4 ) ]"], ["1", "2"]),
+            (["[((RHK)>50%)", "&", "((DE)>20%)]"], []),
+            (["[((RHK)>50%) & (GAP<20%)]"], ["1", "2"]),
+            (["[!(GAP>30%) & (K>5%)]"], ["1"]),
+            (["[(R>10%) ^ (H>10%)]"], ["1"]),
+        )
+        for tokens, matching in cases:
+            with self.subTest(tokens=tokens):
+                with mock.patch("commands.query.split_position_list", side_effect=AssertionError):
+                    lines, viewer, failed, succeeded = self.spaced_run(['"*"'] + tokens)
+                failed.assert_not_called()
+                self.assertEqual(
+                    str(succeeded.call_args.args[1]),
+                    f"Found {len(matching)} matching position{'' if len(matching) == 1 else 's'}. Check the Console.",
+                )
+                self.assertEqual([line.split()[1] for line in lines], matching)
+
+    def test_a_logic_argument_with_a_comma_or_space_pattern_is_not_a_position_list(self):
+        # Mixed separators would be refused in a position list; a frequency argument is not one.
+        with mock.patch("commands.query.split_position_list", side_effect=AssertionError):
+            for tokens in (["[K>10%", "&", "R>5%]"], ["[(K>10%)", "&", "(R>5%),", "(H>1%)]"]):
+                with self.subTest(tokens=tokens):
+                    lines, viewer, failed, _ = self.spaced_run(['"*"'] + tokens)
+                    self.assertEqual(lines, [])
+                    failed.assert_called_once()
+                    self.assertNotIn("commas or with spaces", str(failed.call_args.args[1]))
+
     def test_matched_nodes_that_are_not_aligned_say_so(self):
         # Node 2 is the only member of cluster 2 and the MSA lacks it.
         headers = ["arginine", "histidine", "unaligned"]
@@ -664,6 +801,108 @@ class QueryPositionParsingTests(unittest.TestCase):
             parse_query_positions("[(-01)-(-3)]", VALID_LABELS),
             ["-3", "-2", "-1"],
         )
+
+
+class QuerySpaceSeparatedPositionTests(unittest.TestCase):
+    """A position list is comma-separated or space-separated, and never both."""
+
+    def test_both_forms_give_the_same_positions(self):
+        for commas, spaces, expected in (
+            ("[1,2,1.1]", "[1 2 1.1]", ["1", "2", "1.1"]),
+            ("[ 1, 2 ]", "[ 1 2 ]", ["1", "2"]),
+            ("[(-1),(-1.1),0]", "[(-1) (-1.1) 0]", ["-1", "-1.1", "0"]),
+            ("[(-3)-(-1),1]", "[(-3)-(-1) 1]", ["-3", "-2", "-1", "1"]),
+            ("[(-2)-1,2]", "[(-2)-1 2]", ["-2", "-1", "-1.1", "0", "1", "2"]),
+            ("[E,0]", "[E 0]", ["2", "0"]),
+            ("[END,01]", "[END 01]", ["2", "1"]),
+            ("[END-1,0]", "[END-1 0]", ["1", "1.1", "2", "0"]),
+            ("[(-3)-E]", "[(-3) - E]", ["-3", "-2", "-1", "-1.1", "0", "1", "1.1", "2"]),
+            ("[1,+1,01]", "[1 +1 01]", ["1"]),
+        ):
+            with self.subTest(commas=commas):
+                self.assertEqual(parse_query_positions(commas, VALID_LABELS), expected)
+            with self.subTest(spaces=spaces):
+                self.assertEqual(parse_query_positions(spaces, VALID_LABELS), expected)
+
+    def test_spaces_just_inside_the_brackets_are_ignored(self):
+        for position_spec in ("[1 2]", "[ 1 2]", "[1 2 ]", "[   1   2   ]", " [ 1 2 ] ",
+                              "[1,2]", "[ 1,2]", "[1,2 ]", "[   1 ,  2   ]", " [ 1, 2 ] "):
+            with self.subTest(position_spec=position_spec):
+                self.assertEqual(parse_query_positions(position_spec, VALID_LABELS), ["1", "2"])
+
+    def test_a_range_may_have_spaces_around_its_dash_in_either_form(self):
+        for position_spec, expected in (
+            ("[0 - 2]", ["0", "1", "1.1", "2"]),
+            ("[0- 2]", ["0", "1", "1.1", "2"]),
+            ("[END - 1]", ["1", "1.1", "2"]),
+            ("[1 - E]", ["1", "1.1", "2"]),
+            ("[(-1.1), (-3) - (-2)]", ["-1.1", "-3", "-2"]),
+            ("[(-3) - (-2) 0]", ["-3", "-2", "0"]),
+            ("[0 1 - 2]", ["0", "1", "1.1", "2"]),
+            ("[1 0 - 1]", ["1", "0"]),
+            ("[END 0 - 1]", ["2", "0", "1"]),
+        ):
+            with self.subTest(position_spec=position_spec):
+                self.assertEqual(parse_query_positions(position_spec, VALID_LABELS), expected)
+
+    def test_a_list_that_mixes_commas_and_spaces_is_refused_naming_the_item(self):
+        for position_spec, item in (
+            ("[1, 2 0]", "2 0"),
+            ("[1 2, 0]", "1 2"),
+            ("[1 2,]", "1 2"),
+            ("[E, 1 END]", "1 END"),
+            ("[1.1 2, 0]", "1.1 2"),
+            ("[1, (-3) 0]", "(-3) 0"),
+        ):
+            with self.subTest(position_spec=position_spec):
+                with self.assertRaises(ValueError) as caught:
+                    parse_query_positions(position_spec, VALID_LABELS)
+                self.assertIsInstance(caught.exception.args[0], Message)
+                self.assertIn(f"'{item}'", str(caught.exception))
+                self.assertIn("commas or with spaces, not both", str(caught.exception))
+
+    def test_a_space_before_a_dash_and_none_after_it_is_still_a_bare_negative(self):
+        for position_spec, correction in (
+            ("[1 -2]", "(-2)"),
+            ("[1 2 -3]", "(-3)"),
+            ("[1, -1.1]", "(-1.1)"),
+            ("[-1 2]", "(-1)"),
+        ):
+            with self.subTest(position_spec=position_spec):
+                with self.assertRaisesRegex(ValueError, re.escape(correction)):
+                    parse_query_positions(position_spec, VALID_LABELS)
+
+    def test_logo_and_query_read_each_space_separated_list_alike(self):
+        # Apart from what a range covers: query's takes insertions in between, logo's does not.
+        from commands.logo import parse_logo_positions
+
+        for position_spec in (
+            "[1 2]", "[ 1 2 ]", "[(-3)-(-1) 0 2]", "[(-3) - (-1) 0 2]", "[1 2 1.1]", "[(-1) (-1.1) 0]",
+        ):
+            with self.subTest(position_spec=position_spec):
+                self.assertEqual(
+                    sorted(parse_query_positions(position_spec, VALID_LABELS)),
+                    sorted(str(position) for position in parse_logo_positions(position_spec)),
+                )
+        # Both refuse the same lists with the same message.
+        for position_spec in ("[1, 2 0]", "[1 2, 0]", "[1 -2]"):
+            with self.subTest(position_spec=position_spec):
+                with self.assertRaises(ValueError) as from_query:
+                    parse_query_positions(position_spec, VALID_LABELS)
+                with self.assertRaises(ValueError) as from_logo:
+                    parse_logo_positions(position_spec)
+                self.assertEqual(str(from_query.exception), str(from_logo.exception))
+
+    def test_help_shows_both_position_forms_and_refuses_mixing(self):
+        output = StringIO()
+        with redirect_stdout(output):
+            print_help()
+        text = " ".join(output.getvalue().split())
+
+        self.assertIn("separated by commas or by spaces", text)
+        self.assertIn("[1,5,20-30] and [1 5 20-30] both work", text)
+        self.assertIn("mixes commas and spaces, such as [1, 5 20], is refused", text)
+        self.assertIn("query [10 15 20-30]", text)
 
 
 if __name__ == "__main__":

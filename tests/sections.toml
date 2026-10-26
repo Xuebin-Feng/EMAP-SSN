@@ -37,6 +37,7 @@ modules = [
     "test_msa_sanitization",
     "test_node_render_order",
     "test_output_names",
+    "test_position_lists",
     "test_print_command",
     "test_query_command",
     "test_reference_resolution",

@@ -39,7 +39,8 @@ from utilities.Output_Names import validate_output_basename
 from utilities.Sequence_Utils import (
     DISPLAYED_POSITION_ATOM_PATTERN,
     normalize_displayed_position_atom,
-    reject_bare_negative_positions,
+    rejoin_split_brackets,
+    split_position_list,
 )
 
 LOGO_DIRECTORY = os.path.join("$analysis_result$", "Sequence_Logos")
@@ -481,21 +482,12 @@ def _logo_position_sort_key(position):
 def parse_logo_positions(position_spec):
     """Parse integer reference positions and explicit insertion labels.
 
+    The list is comma-separated or space-separated (split_position_list).
     Integer ranges retain their historical meaning and expand to integer
     reference positions only. Insertion positions must be listed explicitly.
     """
-    text = str(position_spec).strip()
-    if text.startswith('[') and text.endswith(']'):
-        text = text[1:-1]
-
-    reject_bare_negative_positions(text)
-
     positions = {}
-    for raw_part in text.split(','):
-        part = raw_part.strip()
-        if not part:
-            continue
-
+    for part in split_position_list(position_spec):
         range_match = _POSITION_RANGE_RE.fullmatch(part)
         if range_match:
             start = _normalize_logo_position_label(range_match.group(1))
@@ -558,15 +550,19 @@ def print_help():
         so it never widens the image.
 
     Arguments (Can be provided in almost any order):
-      1. [POSITIONS] : (Required) Comma-separated displayed positions or integer
-                       ranges enclosed in brackets: reference numbering when a
-                       reference is active, otherwise occupancy numbering, the same
-                       labels 'query' uses. Fractional insertion positions
-                       (alignment columns where the reference has a gap) are accepted
-                       when listed explicitly. Negative positions must be enclosed
-                       individually in parentheses. Spaces inside the brackets
-                       are allowed, and only one bracketed argument is accepted.
-                       Examples: [1,2,9-12], [10,10.1,10.2,11],
+      1. [POSITIONS] : (Required) Displayed positions or integer ranges enclosed
+                       in brackets, separated by commas or by spaces: reference
+                       numbering when a reference is active, otherwise occupancy
+                       numbering, the same labels 'query' uses. Fractional insertion
+                       positions (alignment columns where the reference has a gap)
+                       are accepted when listed explicitly. Negative positions must
+                       be enclosed individually in parentheses. Use one separator
+                       throughout: [1,5,9-12] and [1 5 9-12] both work, but a list
+                       that mixes commas and spaces, such as [1, 5 9], is refused.
+                       Spaces just inside the brackets, around the commas, and around
+                       a range's dash ([9 - 12]) are ignored. Only one bracketed
+                       argument is accepted.
+                       Examples: [1,2,9-12], [1 2 9-12], [10,10.1,10.2,11],
                        or [(-3)-(-1),0]
                        Non-contiguous positions are plotted adjacently while retaining
                        their original position labels.
@@ -611,6 +607,7 @@ def print_help():
     Examples:
       logo [10-20]                        (Logos pos 10-20 for selected or all nodes)
       logo [10,10.1,10.2,11]             (Includes explicit insertion positions)
+      logo [10 10.1 10.2 11]             (The same, separated by spaces)
       logo [(-1),0,1]                     (Includes a parenthesized negative position)
       logo #cluster_1# [(-3)-(-1)] pcts   (Percentage logo across a negative range)
       logo #cluster_1# [1,5] pcts no_gap  (Percentage logo ignoring gaps for pos 1 and 5)
@@ -619,36 +616,6 @@ def print_help():
       logo #cluster_1# [1,5] classic      (Generates bits logo using classic scheme)
       logo K10 [1] target_logo.png        (Logos pos 1 for K10 expr, saves as target_logo.png)
     """)
-
-def _rejoin_split_brackets(args):
-    """Join the tokens of a bracketed argument that spaces split, e.g. "[1," "5]".
-
-    Tokens whose brackets never balance are returned as they were.
-    """
-    rejoined = []
-    pending = []
-    in_bracket = False
-
-    for arg in args:
-        if '[' in arg and not in_bracket:
-            if arg.count('[') > arg.count(']'):
-                in_bracket = True
-                pending.append(arg)
-            else:
-                rejoined.append(arg)
-        elif in_bracket:
-            pending.append(arg)
-            if ']' in arg:
-                joined = " ".join(pending)
-                if joined.count('[') <= joined.count(']'):
-                    rejoined.append(joined)
-                    pending = []
-                    in_bracket = False
-        else:
-            rejoined.append(arg)
-
-    rejoined.extend(pending)
-    return rejoined
 
 
 def _resolve_color_scheme(value, known_schemes):
@@ -693,9 +660,9 @@ def run(viewer, args):
         Command_Engine.command_succeeded(viewer, 'Help information printed to the Console.')
         return
 
-    # 0.5. Join positions that spaces split, e.g. [1, 5], before any token is
-    # read on its own (a lone "5" would otherwise be an identity threshold).
-    args = _rejoin_split_brackets(args)
+    # 0.5. Join positions that spaces split, e.g. [1, 5] or [1 5], before any
+    # token is read on its own (a lone "5" would otherwise be an identity threshold).
+    args = rejoin_split_brackets(args)
 
     # 1. Extract Mode Keywords (Aggressively filter to prevent filename confusion)
     mode = "bits"

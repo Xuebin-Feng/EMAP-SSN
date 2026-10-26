@@ -6012,6 +6012,10 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Separate positions with commas or with spaces, not both: &apos;{item}&apos; has a space inside a comma-separated list. Write [1,5,9-12] or [1 5 9-12].</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Invalid position label &apos;{value}&apos;; expected a non-negative integer or insertion label, E, or END, or a negative position enclosed in parentheses.</source>
         <translation type="unfinished"></translation>
     </message>

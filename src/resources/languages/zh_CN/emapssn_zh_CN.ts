@@ -2967,15 +2967,15 @@ Command-line usage:
 <context>
     <name>Console</name>
     <message>
-        <location filename="../../../desktop/Console_View.py" line="+417"/>
+        <location filename="../../../desktop/Console_View.py" line="+424"/>
         <location line="+87"/>
-        <location line="+444"/>
+        <location line="+466"/>
         <location line="+41"/>
         <source>Console</source>
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-543"/>
+        <location line="-565"/>
         <location line="+3"/>
         <source>Search the output…</source>
         <translation type="unfinished">搜索输出内容…</translation>
@@ -3069,7 +3069,7 @@ Command-line usage:
         <translation type="unfinished">没有日志文件（{error}）</translation>
     </message>
     <message>
-        <location line="+85"/>
+        <location line="+107"/>
         <source>{count} or more matches</source>
         <translation type="unfinished">{count} 个以上匹配项</translation>
     </message>
@@ -4433,19 +4433,19 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../../commands/label.py" line="+1278"/>
+        <location filename="../../../commands/label.py" line="+1296"/>
         <location line="+457"/>
-        <location filename="../../../commands/logo.py" line="+242"/>
+        <location filename="../../../commands/logo.py" line="+243"/>
         <location line="+75"/>
-        <location filename="../../../commands/print.py" line="+1329"/>
+        <location filename="../../../commands/print.py" line="+1333"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
     <message>
         <location line="+3"/>
         <location filename="../../../commands/label.py" line="+141"/>
-        <location filename="../../../commands/logo.py" line="+642"/>
-        <location filename="../../../commands/print.py" line="+219"/>
+        <location filename="../../../commands/logo.py" line="+608"/>
+        <location filename="../../../commands/print.py" line="+224"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
@@ -4555,7 +4555,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+14"/>
-        <location filename="../../../commands/query.py" line="+152"/>
+        <location filename="../../../commands/query.py" line="+153"/>
         <source>Grouped amino-acid target &apos;{target}&apos; must contain at least two one-letter residue symbols.</source>
         <translation type="unfinished">成组的氨基酸目标“{target}”必须至少包含两个单字母残基符号。</translation>
     </message>
@@ -4745,13 +4745,13 @@ Command-line usage:
         <location line="+15"/>
         <location line="+72"/>
         <location line="+16"/>
-        <location filename="../../../commands/meta.py" line="+187"/>
+        <location filename="../../../commands/meta.py" line="+190"/>
         <location line="+119"/>
         <location filename="../../../commands/print.py" line="-77"/>
         <location line="+52"/>
         <location line="+15"/>
         <location line="+10"/>
-        <location filename="../../../commands/query.py" line="+583"/>
+        <location filename="../../../commands/query.py" line="+562"/>
         <location filename="../../../commands/reset.py" line="+114"/>
         <location filename="../../../commands/select.py" line="-195"/>
         <location filename="../../../web_ui/agent_backend.py" line="+373"/>
@@ -4771,16 +4771,16 @@ Command-line usage:
         <location filename="../../../commands/console.py" line="+57"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
         <location filename="../../../commands/esmfold.py" line="-234"/>
-        <location filename="../../../commands/export.py" line="+108"/>
-        <location filename="../../../commands/group.py" line="+138"/>
+        <location filename="../../../commands/export.py" line="+120"/>
+        <location filename="../../../commands/group.py" line="+141"/>
         <location filename="../../../commands/help.py" line="-55"/>
         <location filename="../../../commands/jobs.py" line="+216"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
         <location filename="../../../commands/offset.py" line="+92"/>
-        <location filename="../../../commands/print.py" line="-147"/>
-        <location filename="../../../commands/query.py" line="-260"/>
+        <location filename="../../../commands/print.py" line="-152"/>
+        <location filename="../../../commands/query.py" line="-236"/>
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+178"/>
@@ -5279,17 +5279,17 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/export.py" line="-40"/>
+        <location filename="../../../commands/export.py" line="-52"/>
         <source>Error: Export refused {source}: {error}</source>
         <translation type="unfinished">错误：拒绝导出{source}：{error}</translation>
     </message>
     <message>
-        <location line="+53"/>
+        <location line="+65"/>
         <source>Error: Legacy export group:NAME syntax is no longer supported. Use export #NAME#.</source>
         <translation type="unfinished">错误：不再支持旧的 export group:NAME 语法。请使用 export #NAME#。</translation>
     </message>
     <message>
-        <location line="+14"/>
+        <location line="+20"/>
         <source>Error: Unrecognized export target &apos;{target}&apos;. Use clusters, groups, or #LABEL#.</source>
         <translation type="unfinished">错误：无法识别的导出目标“{target}”。请使用 clusters、groups 或 #LABEL#。</translation>
     </message>
@@ -5401,7 +5401,7 @@ Command-line usage:
         <translation type="unfinished">错误：请指定要删除的一个或多个分组（例如 &apos;group remove group1 group2&apos;）。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+26"/>
         <source>Error: Group(s) not found: {groups}. Nothing was removed.</source>
         <translation type="unfinished">错误：找不到分组：{groups}。未删除任何分组。</translation>
     </message>
@@ -5552,12 +5552,12 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/label.py" line="-1306"/>
+        <location filename="../../../commands/label.py" line="-1321"/>
         <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
         <translation type="unfinished">{argument} 阈值“{value}”超出了支持的范围 0 到 100%。</translation>
     </message>
     <message>
-        <location line="+32"/>
+        <location line="+47"/>
         <source>gmin is fixed at 97% and cannot be set by the label command.</source>
         <translation type="unfinished">gmin 固定为 97%，不能由 label 命令设置。</translation>
     </message>
@@ -5683,7 +5683,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/esmfold.py" line="-187"/>
         <location filename="../../../commands/label.py" line="+5"/>
-        <location filename="../../../commands/print.py" line="+138"/>
+        <location filename="../../../commands/print.py" line="+143"/>
         <source>The background job scheduler is unavailable.</source>
         <translation type="unfinished">后台任务调度器不可用。</translation>
     </message>
@@ -5698,7 +5698,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/logo.py" line="-594"/>
+        <location filename="../../../commands/logo.py" line="-560"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -5743,7 +5743,7 @@ Command-line usage:
         <translation type="unfinished">无效的插入位置“{value}”：小数部分必须为正数。</translation>
     </message>
     <message>
-        <location line="+35"/>
+        <location line="+26"/>
         <source>Fractional range &apos;{range}&apos; is not supported; list insertion positions explicitly.</source>
         <translation type="unfinished">不支持小数范围“{range}”；请逐一列出插入位置。</translation>
     </message>
@@ -5767,7 +5767,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+148"/>
+        <location line="+123"/>
         <source>Unknown color scheme &apos;{value}&apos;. Use a preset from the help, or a color such as red or #ff0000.</source>
         <translation type="unfinished">未知的配色方案“{value}”。请使用帮助中的预设，或 red、#ff0000 这样的颜色。</translation>
     </message>
@@ -5805,7 +5805,7 @@ Command-line usage:
     </message>
     <message>
         <location line="-49"/>
-        <location filename="../../../commands/query.py" line="+70"/>
+        <location filename="../../../commands/query.py" line="+46"/>
         <source>No selection found. Defaulting to ALL nodes.</source>
         <translation type="unfinished">没有选中节点，默认使用全部节点。</translation>
     </message>
@@ -5944,7 +5944,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../../commands/print.py" line="-399"/>
+        <location filename="../../../commands/print.py" line="-404"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -5972,7 +5972,7 @@ Command-line usage:
         <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是缩放百分比，N 越大，视图放得越大，图像也越大。</translation>
     </message>
     <message>
-        <location line="+60"/>
+        <location line="+65"/>
         <source>Error: {syntax} needs a zoom percentage, as in {example}.</source>
         <translation type="unfinished">错误：{syntax} 需要一个缩放百分比，例如 {example}。</translation>
     </message>
@@ -6022,7 +6022,7 @@ Command-line usage:
         <translation type="obsolete">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是视图宽度，N 越小，视图放得越大，图像也越大。</translation>
     </message>
     <message>
-        <location line="-327"/>
+        <location line="-332"/>
         <source>Saved {format}: {file}</source>
         <translation type="unfinished">已保存 {format}：{file}</translation>
     </message>
@@ -6032,7 +6032,7 @@ Command-line usage:
         <translation type="unfinished">已替换同名的现有文件。</translation>
     </message>
     <message>
-        <location line="+338"/>
+        <location line="+343"/>
         <location line="+38"/>
         <source>Failed to save {format}: {error}</source>
         <translation type="unfinished">保存 {format} 失败：{error}</translation>
@@ -6043,7 +6043,7 @@ Command-line usage:
         <translation type="unfinished">保存 {format} 出错。请查看控制台。</translation>
     </message>
     <message>
-        <location filename="../../../commands/query.py" line="-471"/>
+        <location filename="../../../commands/query.py" line="-450"/>
         <source>Invalid frequency Boolean expression. Ensure operators and parentheses are complete.</source>
         <translation type="unfinished">无效的频率布尔表达式。请确保运算符和括号完整。</translation>
     </message>
@@ -6058,12 +6058,12 @@ Command-line usage:
         <translation type="unfinished">频率逻辑没有为每个比对位置得出一个值。</translation>
     </message>
     <message>
-        <location line="+115"/>
+        <location line="+112"/>
         <source>other (&lt;1% each): {percent}</source>
         <translation type="unfinished">其他（各低于 1%）：{percent}</translation>
     </message>
     <message>
-        <location line="+92"/>
+        <location line="+98"/>
         <source>Error: Query command requires a POSITIONS or LOGIC_ARGUMENT parameter.</source>
         <translation type="unfinished">错误：query 命令需要 POSITIONS 或 LOGIC_ARGUMENT 参数。</translation>
     </message>
@@ -6078,7 +6078,7 @@ Command-line usage:
         <translation type="unfinished">错误：所选 MSA 中没有当前网络的已比对行，无法进行查询分析。</translation>
     </message>
     <message>
-        <location line="+40"/>
+        <location line="+16"/>
         <source>Error: No bracketed argument provided. Use [...] syntax (e.g., [10-20] or [K&gt;10%]).</source>
         <translation type="unfinished">错误：未提供方括号参数。请使用 [...] 语法（例如 [10-20] 或 [K&gt;10%]）。</translation>
     </message>
@@ -6891,7 +6891,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已取消选中所有节点。</translation>
     </message>
     <message>
-        <location filename="../../../Metadata_Core.py" line="+157"/>
+        <location filename="../../../Metadata_Core.py" line="+172"/>
         <source>Metadata columns must be supplied as a list of property names.</source>
         <translation type="unfinished">元数据列必须以属性名称列表的形式提供。</translation>
     </message>
@@ -6906,12 +6906,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">不支持一次删除所有元数据列。</translation>
     </message>
     <message>
-        <location line="+9"/>
+        <location line="+10"/>
         <source>Protected columns cannot be deleted: {names}.</source>
         <translation type="unfinished">受保护的列不能删除：{names}。</translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+38"/>
         <source>not found: {names}</source>
         <translation type="unfinished">未找到：{names}</translation>
     </message>
@@ -7082,7 +7082,12 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">负位置“{position}”必须写成 &apos;({position})&apos;。负位置必须加括号。</translation>
     </message>
     <message>
-        <location line="+27"/>
+        <location line="+40"/>
+        <source>Separate positions with commas or with spaces, not both: &apos;{item}&apos; has a space inside a comma-separated list. Write [1,5,9-12] or [1 5 9-12].</source>
+        <translation type="unfinished">位置之间请统一用逗号或统一用空格分隔，不要混用：“{item}”在以逗号分隔的列表中含有空格。请写成 [1,5,9-12] 或 [1 5 9-12]。</translation>
+    </message>
+    <message>
+        <location line="+62"/>
         <source>Invalid position label &apos;{value}&apos;; expected a non-negative integer or insertion label, E, or END, or a negative position enclosed in parentheses.</source>
         <translation type="unfinished">无效的位置标签“{value}”；应为非负整数、插入位置标签、E 或 END，或者用括号括起来的负位置。</translation>
     </message>

@@ -24,7 +24,8 @@ from utilities.Sequence_Utils import (
     DISPLAYED_POSITION_ATOM_PATTERN,
     format_alignment_offset_display,
     normalize_displayed_position_atom,
-    reject_bare_negative_positions,
+    rejoin_split_brackets,
+    split_position_list,
 )
 
 
@@ -262,14 +263,11 @@ def evaluate_frequency_logic(inner, gap_fractions, aa_fractions, sequence_count=
 
 
 def parse_query_positions(position_spec, valid_labels):
-    """Expand a query position list against mapped alignment labels."""
-    text = str(position_spec).strip()
-    if text.startswith('[') and text.endswith(']'):
-        text = text[1:-1]
+    """Expand a query position list against mapped alignment labels.
 
-    reject_bare_negative_positions(text)
-
-    parsed_args = [part.strip() for part in text.split(',') if part.strip()]
+    The list is comma-separated or space-separated (split_position_list).
+    """
+    parsed_args = split_position_list(position_spec)
     expanded_positions = []
     seen_positions = set()
     max_val = valid_labels[-1][0] if valid_labels else (0, 0)
@@ -397,10 +395,15 @@ def print_help():
 
     Syntax Modes:
       1. Position Breakdown Mode:
-         [POSITIONS] - Comma-separated list or ranges enclosed in brackets.
-         Accepts decimal positions, and 'E' or 'END' for the last displayed position.
-         Negative positions must be enclosed individually in parentheses.
-         Example: [(-1), 0, 15.1, 20-30, 250-E, END] or [(-3)-(-1)]
+         [POSITIONS] - List or ranges enclosed in brackets, separated by commas
+         or by spaces. Accepts decimal positions, and 'E' or 'END' for the last
+         displayed position. Negative positions must be enclosed individually in
+         parentheses. Use one separator throughout: [1,5,20-30] and [1 5 20-30]
+         both work, but a list that mixes commas and spaces, such as [1, 5 20],
+         is refused. Spaces just inside the brackets, around the commas, and
+         around a range's dash ([20 - 30]) are ignored.
+         Example: [(-1), 0, 15.1, 20-30, 250-E, END], [(-1) 0 15.1 20-30 250-E END]
+         or [(-3)-(-1)]
 
       2. Position Frequency Search Mode:
          [LOGIC_ARGUMENT] - Frequency criteria with operators (>, <, >=, <=) and 
@@ -448,6 +451,7 @@ def print_help():
 
     Examples:
       query [10, 15, 20-30]                         (Queries pos 10, 15, and 20 to 30)
+      query [10 15 20-30]                           (The same, separated by spaces)
       query [(-1),0,10.1]                           (Queries negative, zero, and insertion positions)
       query #cluster_1# [(-3)-2]                    (Queries a range crossing zero in cluster 1)
       query [K>10%]                                 (Finds positions where Lysine > 10%)
@@ -495,31 +499,7 @@ def run(viewer, args):
         return
 
     # --- Reconstruct bracketed arguments (in case of spaces within brackets) ---
-    reconstructed_args = []
-    temp_bracket = []
-    in_bracket = False
-    
-    for a in args:
-        if '[' in a and not in_bracket:
-            if a.count('[') > a.count(']'):
-                in_bracket = True
-                temp_bracket.append(a)
-            else:
-                reconstructed_args.append(a)
-        elif in_bracket:
-            temp_bracket.append(a)
-            if ']' in a:
-                joined = " ".join(temp_bracket)
-                if joined.count('[') <= joined.count(']'):
-                    reconstructed_args.append(joined)
-                    temp_bracket = []
-                    in_bracket = False
-        else:
-            reconstructed_args.append(a)
-            
-    if temp_bracket:
-        reconstructed_args.extend(temp_bracket)
-    args = reconstructed_args
+    args = rejoin_split_brackets(args)
 
     # --- 1. Extract Positions/Logic Argument (First argument containing brackets) ---
     bracket_indices = [i for i, a in enumerate(args) if a.strip().startswith('[') and a.strip().endswith(']')]
