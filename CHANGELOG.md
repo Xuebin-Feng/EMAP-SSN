@@ -332,6 +332,16 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **The command line's cursor is a blinking bar,** as in other applications, instead of an
+  underscore in the text. The text no longer shifts or opens a gap at the cursor.
+  - **Blinking:** the bar blinks at the system's rate, stays steady after each key, and
+    hides when the command line closes.
+  - **Lines and languages:** it follows the cursor through wrapped lines, in any language
+    and display scale.
+  - **Home and End:** they now move the cursor to the start and end of the command.
+  - **No redraw:** moving the cursor or the blink no longer redraws the network.
+  - **Prints:** a `print` or MCP view capture taken with the command line open shows the
+    command without a cursor.
 - **Recolouring keeps a node's alpha.** `color #noise# red` used to make faded nodes, such as
   subcluster Noise at 40 %, fully opaque. It now changes only their colour; add `100%` to
   make them opaque.
