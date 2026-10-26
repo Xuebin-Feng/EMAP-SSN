@@ -4,7 +4,45 @@ All notable changes to EMAP-SSN are documented in this file. The project uses
 [Semantic Versioning](https://semver.org/); interfaces and persisted formats may
 still change before version 1.0.0.
 
-## [Unreleased]
+## [0.5.0] - 2026-10-26
+
+### Highlights
+
+- **Windows that start without a console, and a Console for what they print.** The
+  shortcuts and menu entries start Config, Tools and the Viewer behind a start-up splash,
+  with no console or terminal, on Windows and Linux (macOS is written but untested).
+  Everything they print goes to log files and to the Viewer's new Console window, which
+  also holds the Meta Data, Agent and Fold View buttons in place of the sidebar.
+- **A Viewer that keeps responding.** Commands run through an ordered queue: `cluster`
+  and `subcluster` compute in the background, and `print full` draws its tiles between
+  mouse and key events. File jobs and folds are numbered background jobs in the info
+  card's Session section, where they can be moved, removed or stopped, and `help`,
+  `jobs` and `console` are new commands.
+- **Faster drawing of dense networks.** The edge layer caps how many edges blend into a
+  pixel, with the same picture, and reuses its last picture while only nodes or text
+  change, hovering picks the node drawn under the cursor at a fifth of the cost, and Low
+  Resource Mode is a set of switches, with fewer edges while moving and a frame-rate
+  readout.
+- **PaCMAP layouts, and large networks in bounded memory.** A Layout Method dropdown
+  offers SSN, UMAP and PaCMAP, which keeps related groups closer together than UMAP.
+  UMAP and threshold modes and Compute Network Statistics read the network in slices: a
+  44,000-sequence network of 974 million pairs needs under 1 GB where it needed 14 to
+  88 GB. Embedding SSEARCH's tiled GPU path is 2.6 to 3.7 times faster.
+- **A redesigned Fold View.** A frame of its own around Mol* 5.13.1, a Structures card,
+  one Color by choice with per-residue alignment layers (Information Content and Residue
+  Agreement), a sequence strip, Measure and Labels tools and image export; folds queue
+  instead of being refused, and `esmfold stop` ends them.
+- **Embeddings as an input.** Config and VR Config can select a protein language model
+  embedding file, checked against the sequences like the MSA, and the `embedding`
+  command switches it; commands name the inputs they need.
+- **Commands and docs.** The Zoom box, `zoom` and `print … zoom` use percentages, `color`
+  sets alpha and takes attribute sets, more commands take a name in both of its forms,
+  the command line has a blinking caret, and the Quick Start and Command Reference are in
+  Simplified Chinese (drafts awaiting review).
+- **MCP: hidden Viewers and waiting for commands** (server 0.16.0). `mode="hidden"`
+  draws with no window until `show_session`, `wait_command_request` replaces polling,
+  and a request whose only work left is a file job or a fold no longer holds the
+  Viewer's command line.
 
 ### Upgrade Notes
 
@@ -2899,7 +2937,7 @@ still change before version 1.0.0.
 - Distributed as GitHub-generated source archives. Native executables and model
   weights are not included.
 
-[Unreleased]: https://github.com/Xuebin-Feng/EMAP-SSN/compare/v0.4.0...HEAD
+[0.5.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.5.0
 [0.4.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.4.0
 [0.3.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.3.0
 [0.2.0]: https://github.com/Xuebin-Feng/EMAP-SSN/releases/tag/v0.2.0

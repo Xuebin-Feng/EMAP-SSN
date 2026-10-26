@@ -88,7 +88,7 @@ LANGUAGES = SRC_DIR / "resources" / "languages"
 APP_SETTINGS_VARIABLE = "SSN_APP_SETTINGS_PATH"
 
 PRODUCT = "EMAP-SSN"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 # What each kind of window is called under the product's name, and which art it takes.
 SUBTITLES = {
     "config": Status.QT_TRANSLATE_NOOP("Splash", "Configuration"),
