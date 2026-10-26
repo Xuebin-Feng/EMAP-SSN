@@ -1004,6 +1004,48 @@ class FollowTests(WindowCase):
         self.drain(window)
         self.assertEqual(scroll.value(), scroll.maximum())
 
+    def press(self, window, key, modifier=Qt.KeyboardModifier.NoModifier):
+        QTest.keyClick(window.text, key, modifier)
+        flush(self.app)
+
+    def test_home_end_and_control_home_and_end_go_to_the_top_and_the_bottom(self):
+        window, scroll = self.opened()
+        control = Qt.KeyboardModifier.ControlModifier
+        for key, modifier in ((Qt.Key.Key_Home, Qt.KeyboardModifier.NoModifier), (Qt.Key.Key_Home, control)):
+            with self.subTest(key=key, modifier=modifier):
+                self.press(window, Qt.Key.Key_End, control)
+                self.assertEqual(scroll.value(), scroll.maximum())
+                self.press(window, key, modifier)
+                self.assertEqual(scroll.value(), 0)
+                self.assertGreater(scroll.maximum(), 0)
+        for key, modifier in ((Qt.Key.Key_End, Qt.KeyboardModifier.NoModifier), (Qt.Key.Key_End, control)):
+            with self.subTest(key=key, modifier=modifier):
+                self.press(window, Qt.Key.Key_Home, control)
+                self.assertEqual(scroll.value(), 0)
+                self.press(window, key, modifier)
+                self.assertEqual(scroll.value(), scroll.maximum())
+
+    def test_control_home_stops_the_following_and_control_end_follows_again(self):
+        window, scroll = self.opened()
+        control = Qt.KeyboardModifier.ControlModifier
+        self.press(window, Qt.Key.Key_Home, control)
+        for text in ("arrives below", "and more"):
+            self.recorder.add("stdout", text)
+            self.drain(window)
+            self.assertEqual(scroll.value(), 0)  # the view stays at the top while output arrives
+        self.press(window, Qt.Key.Key_End, control)
+        self.recorder.add("stdout", "arrives at the end")
+        self.drain(window)
+        self.assertEqual(scroll.value(), scroll.maximum())
+        self.assertIn("arrives at the end", self.lines(window)[-1])
+
+    def test_select_all_and_copy_still_work_from_the_keyboard(self):
+        window, scroll = self.opened(count=20)
+        self.press(window, Qt.Key.Key_A, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(window.text.textCursor().selectedText().count(" "), 19)
+        self.press(window, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(QGuiApplication.clipboard().text().splitlines(), [f"line {n}" for n in range(20)])
+
     def test_the_wheel_scrolls_it_off_the_end_and_back(self):
         from PySide6.QtCore import QPoint, QPointF
         from PySide6.QtGui import QWheelEvent

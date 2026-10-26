@@ -34,7 +34,8 @@ Show details) and keep it in temp/logs.
 * The window follows the output without a control: while the last line is in view, new
   lines keep it there, and a view that is scrolled up, by hand or by a search jump, never
   moves by itself, not even for a redraw (the filter, a theme change). It follows again
-  once the last line is back in view: scrolled to by hand, or shown because the window
+  once the last line is back in view: scrolled to by hand (End and Ctrl+End take it
+  there, Home and Ctrl+Home to the top), or shown because the window
   was made taller, Clear view emptied it or the filter left few lines. A window starts at
   the bottom.
 * Copy puts the selection (or everything shown) on the clipboard, Save writes
@@ -88,6 +89,7 @@ from PySide6.QtGui import (
     QTextDocument,
 )
 from PySide6.QtWidgets import (
+    QAbstractSlider,
     QApplication,
     QDialog,
     QFileDialog,
@@ -318,6 +320,21 @@ class ConsoleText(QPlainTextEdit):
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._place_gutter()
+
+    def keyPressEvent(self, event):
+        """Ctrl+Home and Ctrl+End go to the top and the bottom, as Home and End do.
+
+        A read-only view moves by Home and End alone; these two take the scroll bar's own action, so the window
+        follows the output again once the last line is in view, as for any scroll by hand.
+        """
+        if event.matches(QKeySequence.StandardKey.MoveToStartOfDocument):
+            self.verticalScrollBar().triggerAction(QAbstractSlider.SliderAction.SliderToMinimum)
+        elif event.matches(QKeySequence.StandardKey.MoveToEndOfDocument):
+            self.verticalScrollBar().triggerAction(QAbstractSlider.SliderAction.SliderToMaximum)
+        else:
+            super().keyPressEvent(event)
+            return
+        event.accept()
 
     def changeEvent(self, event):
         super().changeEvent(event)
