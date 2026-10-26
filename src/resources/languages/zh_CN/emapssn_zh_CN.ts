@@ -6726,27 +6726,63 @@ Command-line usage:
         <translation type="obsolete">缩放已对齐到视图宽度：{width}</translation>
     </message>
     <message>
-        <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+213"/>
+        <location filename="../../../desktop/Desktop_Launcher_Monitor.py" line="+206"/>
+        <source>EMAP-SSN Application Failure</source>
+        <translation type="unfinished">EMAP-SSN 应用程序故障</translation>
+    </message>
+    <message>
+        <location line="+8"/>
         <source>SSN could not open a terminal to display the application failure. Review the retained log at {log}. Terminal error: {error}</source>
         <translation type="unfinished">SSN 无法打开终端来显示应用程序故障。请查看保留在 {log} 的日志。终端错误：{error}</translation>
     </message>
     <message>
-        <location line="+28"/>
-        <source>EMAP-SSN stopped unexpectedly. The last lines it printed:
+        <location line="+46"/>
+        <source>EMAP-SSN stopped unexpectedly.</source>
+        <translation type="unfinished">EMAP-SSN 意外停止了。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>EMAP-SSN was stopped by signal {signal}.</source>
+        <translation type="unfinished">EMAP-SSN 被信号 {signal} 终止了。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>The last lines it printed:
 
 {lines}
 
 The whole output is in {log}.</source>
-        <translation type="unfinished">EMAP-SSN 意外停止了。它最后输出的内容：
+        <translation type="unfinished">它最后输出的内容：
 
 {lines}
 
 完整输出保存在 {log}。</translation>
     </message>
     <message>
-        <location line="-36"/>
+        <location line="+6"/>
+        <source>It printed nothing. Its log is {log}.</source>
+        <translation type="unfinished">它没有输出任何内容。日志位于 {log}。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>Its log could not be read: {log}</source>
+        <translation type="unfinished">无法读取它的日志：{log}</translation>
+    </message>
+    <message>
+        <source>EMAP-SSN stopped unexpectedly. The last lines it printed:
+
+{lines}
+
+The whole output is in {log}.</source>
+        <translation type="obsolete">EMAP-SSN 意外停止了。它最后输出的内容：
+
+{lines}
+
+完整输出保存在 {log}。</translation>
+    </message>
+    <message>
         <source>SSN Application Failure</source>
-        <translation type="unfinished">SSN 应用程序故障</translation>
+        <translation type="obsolete">SSN 应用程序故障</translation>
     </message>
     <message>
         <location filename="../../../EMAPSSN_Config.py" line="-4923"/>

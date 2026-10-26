@@ -283,7 +283,8 @@ class SessionAndStatusTests(unittest.TestCase):
                 result = Desktop_Launcher_Monitor.run_monitor("viewer", state, failure_report="dialog")
         self.assertEqual(result, 9)
         terminal.assert_not_called()
-        dialog.assert_called_once_with(state.resolve() / "application.log")
+        # The window's exit status goes to the dialog, which says what stopped it when the status shows a signal.
+        dialog.assert_called_once_with(state.resolve() / "application.log", 9)
 
     def test_a_failure_before_the_window_opened_leaves_the_report_to_the_launcher_whichever_way(self):
         for report in ("terminal", "dialog"):
@@ -333,6 +334,104 @@ class SessionAndStatusTests(unittest.TestCase):
             Desktop_Launcher_Monitor._report_application_failure(Path("no/such/application.log"))
         critical.assert_called_once()
         self.assertIn("application.log", critical.call_args.args[2])
+        self.assertIn("could not be read", critical.call_args.args[2])
+        self.assertNotIn("printed nothing", critical.call_args.args[2])
+
+    def crash_dialog(self, text, return_code=None, signal_name=None):
+        """The title and text of the dialog for a log holding ``text`` (None: no log), the dialog stubbed.
+
+        ``signal_name`` stands in for what the host makes of the exit status; without it, the host's own does.
+        """
+        with tempfile.TemporaryDirectory() as folder:
+            log = Path(folder) / "application.log"
+            if text is not None:
+                log.write_text(text, encoding="utf-8")
+            with mock.patch("PySide6.QtWidgets.QMessageBox.critical") as critical:
+                if signal_name is None:
+                    Desktop_Launcher_Monitor._report_application_failure(log, return_code)
+                else:
+                    with mock.patch.object(Desktop_Launcher_Monitor, "_stopping_signal", return_value=signal_name):
+                        Desktop_Launcher_Monitor._report_application_failure(log, return_code)
+        critical.assert_called_once()
+        return critical.call_args.args[1], critical.call_args.args[2]
+
+    def test_the_crash_dialog_is_titled_with_the_product_name(self):
+        title, _text = self.crash_dialog("a\n")
+        self.assertEqual(title, "EMAP-SSN Application Failure")
+
+    def test_every_wording_of_the_crash_dialog_is_translated(self):
+        from PySide6.QtWidgets import QApplication
+        from tests.translation_fixtures import outside_the_catalog, pseudo_language
+
+        pseudo_language(self, QApplication.instance() or QApplication([]))
+        for text, return_code, signal_name in (("one\n", None, None), ("", None, None), (None, None, None),
+                                               ("one\n", -9, "SIGKILL (9)"), ("", -9, "SIGKILL (9)")):
+            with self.subTest(text=text, signal_name=signal_name):
+                title, shown = self.crash_dialog(text, return_code, signal_name)
+                # The pseudo-language brackets what a catalog gave, with the values (the lines, the log's
+                # path, the signal) inside; letters outside every bracket came from no catalog.
+                for what in (title, shown):
+                    self.assertIn("[", what)
+                    self.assertEqual(outside_the_catalog(what), "", what)
+
+    def test_a_log_with_nothing_printed_says_so_and_does_not_show_a_dash(self):
+        for text in ("", "\n  \n\t\n"):
+            with self.subTest(text=text):
+                _title, shown = self.crash_dialog(text)
+                self.assertTrue(shown.startswith("EMAP-SSN stopped unexpectedly. It printed nothing."), shown)
+                self.assertIn("application.log", shown)
+                self.assertNotIn("The last lines it printed", shown)
+                self.assertNotIn("\n-\n", shown)  # what the dialog showed in its place
+        _title, shown = self.crash_dialog("one\ntwo\n")
+        self.assertTrue(shown.startswith("EMAP-SSN stopped unexpectedly. The last lines it printed:\n\none\ntwo\n\n"), shown)
+
+    def test_a_status_that_shows_a_signal_says_it_was_stopped_by_it(self):
+        _title, shown = self.crash_dialog("one\n", -9, signal_name="SIGKILL (9)")
+        self.assertTrue(shown.startswith("EMAP-SSN was stopped by signal SIGKILL (9). The last lines it printed:"), shown)
+        self.assertNotIn("stopped unexpectedly", shown)
+        _title, shown = self.crash_dialog("", -9, signal_name="SIGKILL (9)")
+        self.assertTrue(shown.startswith("EMAP-SSN was stopped by signal SIGKILL (9). It printed nothing."), shown)
+
+    def test_a_status_that_shows_no_signal_says_nothing_about_one(self):
+        # 3221225477 is Windows' access violation; 1 and 137 are ordinary statuses (137 is what a shell reports
+        # for a child it saw killed, not a signal this process was given).
+        for return_code in (None, 0, 1, 137, 3221225477):
+            with self.subTest(return_code=return_code):
+                _title, shown = self.crash_dialog("one\n", return_code)
+                self.assertTrue(shown.startswith("EMAP-SSN stopped unexpectedly."), shown)
+                self.assertNotIn("signal", shown)
+
+    def test_a_negative_status_is_a_signal_on_posix_and_no_signal_on_windows(self):
+        import enum
+
+        class Signals(enum.IntEnum):
+            SIGKILL = 9
+            SIGSEGV = 11
+
+        # The host's signal names are replaced, so the names are the same wherever this runs.
+        with mock.patch.object(Desktop_Launcher_Monitor, "signal", mock.Mock(Signals=Signals)):
+            for platform_name in ("linux", "darwin"):
+                with self.subTest(platform_name=platform_name):
+                    stopping = Desktop_Launcher_Monitor._stopping_signal
+                    self.assertEqual(stopping(-9, platform_name=platform_name), "SIGKILL (9)")
+                    self.assertEqual(stopping(-11, platform_name=platform_name), "SIGSEGV (11)")
+                    self.assertEqual(stopping(-37, platform_name=platform_name), "37")  # no name for it
+                    for return_code in (0, 1, 9, 137, None):
+                        self.assertIsNone(stopping(return_code, platform_name=platform_name))
+            self.assertIsNone(Desktop_Launcher_Monitor._stopping_signal(-9, platform_name="win32"))
+
+    @unittest.skipIf(sys.platform == "win32", "a process is ended by a signal on POSIX only")
+    def test_a_process_that_was_really_killed_is_named_by_the_host(self):
+        import signal as host_signal
+        import subprocess
+
+        process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+        process.kill()
+        process.wait()
+        self.assertEqual(process.returncode, -host_signal.SIGKILL)
+        self.assertEqual(Desktop_Launcher_Monitor._stopping_signal(process.returncode), "SIGKILL (9)")
+        _title, shown = self.crash_dialog("one\n", process.returncode)
+        self.assertTrue(shown.startswith("EMAP-SSN was stopped by signal SIGKILL (9)."), shown)
 
     def test_the_detached_monitor_is_started_with_the_report_and_arguments_it_was_given(self):
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
@@ -764,7 +863,7 @@ class FailureDialogTests(unittest.TestCase):
             Desktop_Launcher_Monitor._install_chosen_language(self.app)
         install.assert_called_once_with(self.app, "de")
         title, text, log = self.report()
-        self.assertEqual(title, "SSN Application Failure")
+        self.assertEqual(title, "EMAP-SSN Application Failure")
         self.assertTrue(text.startswith("SSN could not open a terminal"), text)
 
 

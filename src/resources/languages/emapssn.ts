@@ -4872,7 +4872,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>SSN Application Failure</source>
+        <source>EMAP-SSN Application Failure</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -4880,11 +4880,27 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>EMAP-SSN stopped unexpectedly. The last lines it printed:
+        <source>EMAP-SSN stopped unexpectedly.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>EMAP-SSN was stopped by signal {signal}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>The last lines it printed:
 
 {lines}
 
 The whole output is in {log}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>It printed nothing. Its log is {log}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Its log could not be read: {log}</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">

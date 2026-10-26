@@ -31,6 +31,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
 import sys
 import threading
@@ -42,14 +43,14 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 try:
-    from utilities.Localization import Message
+    from utilities.Localization import JoinedMessage, Message
     from utilities.Terminal_Launcher import (
         HoldMode,
         TerminalUnavailableError,
         launch_in_terminal,
     )
 except ModuleNotFoundError:
-    from Localization import Message  # type: ignore[no-redef]
+    from Localization import JoinedMessage, Message  # type: ignore[no-redef]
     from Terminal_Launcher import (  # type: ignore[no-redef]
         HoldMode,
         TerminalUnavailableError,
@@ -202,7 +203,7 @@ def _show_failure_dialog(message: Message) -> None:
         application = QApplication.instance() or QApplication([])
         if owns_application:
             _install_chosen_language(application)
-        QMessageBox.critical(None, Message("SSN Application Failure").display(), message.display())
+        QMessageBox.critical(None, Message("EMAP-SSN Application Failure").display(), message.display())
         if owns_application:
             application.quit()
     except Exception:
@@ -228,21 +229,47 @@ def _report_terminal_failure(log_path: Path, error: Exception) -> None:
 CRASH_DIALOG_LINES = 12
 
 
-def _report_application_failure(log_path: Path) -> None:
+def _stopping_signal(return_code: int | None, *, platform_name: str | None = None) -> str | None:
+    """The signal that ended a process with this exit status, as "SIGKILL (9)", or None when the status shows none.
+
+    On POSIX a process a signal ended has the signal's number, negated, as its status. No other status says
+    so, and Windows has none that does. A number the host has no name for comes alone, as "37".
+    """
+    platform_name = sys.platform if platform_name is None else platform_name
+    if platform_name == "win32" or not isinstance(return_code, int) or return_code >= 0:
+        return None
+    try:
+        return f"{signal.Signals(-return_code).name} ({-return_code})"
+    except ValueError:
+        return str(-return_code)
+
+
+def _report_application_failure(log_path: Path, return_code: int | None = None) -> None:
     """A window ended in failure after it opened, and no terminal is open to show why: tell it in a dialog.
 
-    The dialog is the one _report_terminal_failure uses when a terminal cannot open. It names the
-    log, which keeps the whole output, and shows the end of it.
+    The dialog is the one _report_terminal_failure uses when a terminal cannot open. It says how the
+    window ended (the signal that stopped it, when its exit status shows one), names the log, which
+    keeps the whole output, and shows the end of it.
     """
     try:
         lines = [line for line in log_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+        readable = True
     except OSError:
-        lines = []
-    _show_failure_dialog(Message(
-        "EMAP-SSN stopped unexpectedly. The last lines it printed:\n\n{lines}\n\nThe whole output is in {log}.",
-        lines="\n".join(lines[-CRASH_DIALOG_LINES:]) or "-",
-        log=log_path,
-    ))
+        lines, readable = [], False
+    signal_name = _stopping_signal(return_code)
+    lead = (Message("EMAP-SSN stopped unexpectedly.") if signal_name is None
+            else Message("EMAP-SSN was stopped by signal {signal}.", signal=signal_name))
+    if lines:
+        detail = Message(
+            "The last lines it printed:\n\n{lines}\n\nThe whole output is in {log}.",
+            lines="\n".join(lines[-CRASH_DIALOG_LINES:]),
+            log=log_path,
+        )
+    elif readable:
+        detail = Message("It printed nothing. Its log is {log}.", log=log_path)
+    else:
+        detail = Message("Its log could not be read: {log}", log=log_path)
+    _show_failure_dialog(JoinedMessage([lead, detail]))
 
 
 def _wait_for_dismissal(path: Path, timeout: float = 3.0) -> bool:
@@ -633,7 +660,7 @@ def run_monitor(
 
     if supervised is None and ready_seen and _wait_for_dismissal(dismissed_path):
         if failure_report == "dialog":
-            _report_application_failure(log_path)
+            _report_application_failure(log_path, return_code)
         else:
             try:
                 _open_error_terminal(log_path)
