@@ -21,7 +21,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 
-from PySide6 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtWidgets
 
 from emapssn_desktop_probe import targets
 
@@ -102,14 +102,22 @@ class WindowTracker:
         return record
 
     def _watch_handle(self, record, widget) -> None:
-        """Put the filter on the window's QWindow once it has one (it is made when the window is first shown)."""
-        if record.handle_key is not None:
-            return
+        """Put the filter on the window's QWindow once it has one (it is made when the window is first shown).
+
+        Qt may make a new QWindow when a window is hidden and shown again, so the one it has now is compared with
+        the one the filter is on.
+        """
         handle = widget.windowHandle()
-        if handle is not None and targets.alive(handle):
-            record.handle_key = targets.cpp_key(handle)
-            self._by_handle[record.handle_key] = record.key
-            handle.installEventFilter(self._watcher)
+        if handle is None or not targets.alive(handle):
+            return
+        key = targets.cpp_key(handle)
+        if key == record.handle_key:
+            return
+        if record.handle_key is not None:
+            self._by_handle.pop(record.handle_key, None)
+        record.handle_key = key
+        self._by_handle[key] = record.key
+        handle.installEventFilter(self._watcher)
 
     def _observe(self, record, widget, visible, *, via) -> None:
         self._watch_handle(record, widget)

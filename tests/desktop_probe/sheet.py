@@ -230,6 +230,8 @@ def contact_sheet(out) -> str:
                 if note:
                     items.append(("note", event["wall_ms"], {"text": note, "step_seq": None, "step": event.get("step", ""),
                                                              "wall_ms": event["wall_ms"]}))
+    for event in store.read_events(out / "attached.jsonl"):  # pictures `probe.py attach` added
+        items.append(("capture", event["wall_ms"], event))
     items.sort(key=lambda item: item[1])
     # A step owns what happened from its own time until the next step's.
     boundaries = [(step["wall_ms"], step) for step in steps]

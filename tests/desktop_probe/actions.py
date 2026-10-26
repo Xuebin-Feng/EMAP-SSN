@@ -41,6 +41,7 @@ MODIFIERS = {"ctrl": Qt.KeyboardModifier.ControlModifier, "control": Qt.Keyboard
              "meta": Qt.KeyboardModifier.MetaModifier, "cmd": Qt.KeyboardModifier.MetaModifier}
 BUTTONS = {"left": Qt.MouseButton.LeftButton, "right": Qt.MouseButton.RightButton, "middle": Qt.MouseButton.MiddleButton}
 PRINTED_LINES = 40
+WRITING_SECONDS = 1.0     # a request file that does not parse yet and is younger than this may still be being written
 
 
 class Deferred:
@@ -105,6 +106,8 @@ class Actions:
             if not self._owned_by_this_user(source):
                 self.recorder.event("request_rejected", request_id=request_id, reason="not written by this user")
                 continue
+            if store.read_json(source) is None and self._younger_than(source, WRITING_SECONDS):
+                continue  # a request an agent is still writing: the next look finds it whole
             self._claimed.mkdir(parents=True, exist_ok=True)
             claimed = self._claimed / name
             try:
@@ -115,6 +118,13 @@ class Actions:
             with contextlib.suppress(OSError):
                 os.remove(claimed)
             self.handle(request_id, request)
+
+    @staticmethod
+    def _younger_than(path, seconds) -> bool:
+        try:
+            return time.time() - os.stat(path).st_mtime < seconds
+        except OSError:
+            return False
 
     @staticmethod
     def _owned_by_this_user(path) -> bool:

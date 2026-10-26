@@ -108,8 +108,57 @@ def _log_boot_failure(checkout, error):
         pass
 
 
+class Boot:
+    """The probe's start in one process: the work the program's main thread must not wait for happens in ``run``.
+
+    The main thread decides (a few string comparisons), starts the thread and goes on. The thread imports the
+    probe's modules, makes the recorder and its files, notes who started the process, and then waits for the
+    program's QApplication. ``finish`` is what an exit calls: it waits for the recorder, which an exit that comes
+    very early would otherwise beat.
+    """
+
+    def __init__(self, checkout, kind, detail, argv):
+        self.checkout = str(checkout)
+        self.kind = kind
+        self.detail = detail
+        self.argv = list(argv)
+        self.pid = os.getpid()
+        self.boot_wall_ms = int(time.time() * 1000)
+        self.boot_mono_ms = round(time.monotonic() * 1000, 1)
+        self.recorder = None
+        self.ready = threading.Event()  # set when the recorder is made, or when it could not be
+
+    def run(self):
+        try:
+            load_package(os.path.dirname(os.path.abspath(__file__)))
+            from emapssn_desktop_probe import recorder, store
+
+            gate = store.read_gate(self.checkout)
+            if gate is None:  # the gate went away between the stub's look and now
+                return
+            self.recorder = recorder.Recorder(self.checkout, self.kind, gate, self.argv, detail=self.detail,
+                                              boot_wall_ms=self.boot_wall_ms, boot_mono_ms=self.boot_mono_ms)
+            self.recorder.prepare()
+        except Exception as error:  # the program goes on without the probe
+            _log_boot_failure(self.checkout, error)
+            self.recorder = None
+            return
+        finally:
+            self.ready.set()
+        _wait_for_qt(self.recorder)
+
+    def event(self, name, **fields):
+        if self.recorder is not None and os.getpid() == self.pid:
+            self.recorder.event(name, **fields)
+
+    def finish(self, how):
+        self.ready.wait(2.0)
+        if self.recorder is not None:
+            self.recorder.finish(how)
+
+
 def start(checkout, argv=None, environ=None):
-    """Start the probe in this process when it should run here; the recorder when it did, else None."""
+    """Start the probe in this process when it should run here; the Boot when it did, else None."""
     global _started
     argv = sys.argv if argv is None else argv
     environ = os.environ if environ is None else environ
@@ -119,33 +168,27 @@ def start(checkout, argv=None, environ=None):
         decision = decide(checkout, argv, environ)
         if decision is None:
             return None
-        load_package(os.path.dirname(os.path.abspath(__file__)))
-        from emapssn_desktop_probe import recorder, store
-
-        gate = store.read_gate(checkout)
-        if gate is None:
-            return None
         kind, detail = decision
-        _started = recorder.Recorder(checkout, kind, gate, argv, detail=detail)
+        _started = Boot(checkout, kind, detail, argv)
         _install_exit_records(_started)
-        thread = threading.Thread(target=_wait_for_qt, args=(_started,), name="desktop-probe-wait", daemon=True)
-        thread.start()
+        threading.Thread(target=_started.run, name="desktop-probe-wait", daemon=True).start()
         return _started
     except Exception as error:  # the program goes on without the probe
         _log_boot_failure(str(checkout), error)
         return None
 
 
-def _install_exit_records(recorder):
+def _install_exit_records(boot):
     """Write the exit event on a normal exit and before os._exit, which skips the exit handlers."""
-    atexit.register(recorder.finish, "exit")
+    atexit.register(boot.finish, "exit")
     original = os._exit
 
     def recorded_exit(code):
-        if os.getpid() == recorder.pid:  # a forked worker's os._exit is not this process's exit
+        if os.getpid() == boot.pid:  # a forked worker's os._exit is not this process's exit
             try:
-                recorder.event("exit_code", code=code)
-                recorder.finish("os._exit")
+                boot.ready.wait(2.0)
+                boot.event("exit_code", code=code)
+                boot.finish("os._exit")
             except Exception:
                 pass
         original(code)
@@ -154,7 +197,7 @@ def _install_exit_records(recorder):
 
 
 def _wait_for_qt(recorder):
-    """Wait, in a thread of its own, for the program's QApplication, then hand over to the runtime in the GUI thread.
+    """Wait, in the thread of its own, for the program's QApplication, then hand over to the runtime in the GUI thread.
 
     Only the module table and QCoreApplication.instance() are looked at here, and the thread ends as soon as it
     has handed over. It is a daemon, so it never delays the program's exit.
@@ -166,8 +209,9 @@ def _wait_for_qt(recorder):
 
         try:
             recorder.update_process(created=store.own_start_time(), ancestors=store.lineage())
+            recorder.add_details()
         except Exception:
-            pass  # only the timeline needs it
+            pass  # only the timeline and the record need it
         while not (recorder.disabled or recorder.stopping):
             core = sys.modules.get("PySide6.QtCore")
             if core is not None:

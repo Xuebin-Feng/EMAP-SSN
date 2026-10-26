@@ -324,8 +324,10 @@ class EventLog:
         self._handle = None
         self.count = 0
 
-    def write(self, name: str, **fields) -> dict:
-        record = {"ev": name, "wall_ms": wall_ms(), "mono_ms": mono_ms(), **self._base,
+    def write(self, name: str, *, at=None, **fields) -> dict:
+        """Write one event; ``at`` is its (wall-clock ms, monotonic ms) when it happened before it could be written."""
+        wall, mono = at or (wall_ms(), mono_ms())
+        record = {"ev": name, "wall_ms": wall, "mono_ms": mono, **self._base,
                   "step": self._steps.current()["label"], **fields}
         line = json.dumps(redact_data(record), ensure_ascii=False, default=str)
         with self._lock:

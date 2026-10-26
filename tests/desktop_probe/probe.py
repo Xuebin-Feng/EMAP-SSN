@@ -18,6 +18,7 @@ Run it with the checkout's own interpreter (.venv/bin/python on Linux and macOS,
     probe.py do --kind K|--pid N [--timeout S] '{"action": "windows"}'     (or: windows, click widget=Save)
     probe.py timeline [--json]        per launch: time to the splash, the window, the splash's close
     probe.py sheet                    write contact-sheet.html next to the captures
+    probe.py attach IMAGE.png         add a picture made another way (the Viewer's print) to the sheet
 
 See README.md in this folder for what the probe is, what it records and every action `do` takes. It is
 test-only: nothing in it is meant for a user's machine, and nothing in src/ knows it exists.
@@ -316,6 +317,35 @@ def command_sheet(args) -> int:
     return 0
 
 
+def png_size(path) -> tuple[int, int]:
+    """The width and height in a PNG file's header."""
+    header = Path(path).read_bytes()[:24]
+    if header[:8] != b"\x89PNG\r\n\x1a\n":
+        raise SystemExit(f"{path} is not a PNG file.")
+    return int.from_bytes(header[16:20], "big"), int.from_bytes(header[20:24], "big")
+
+
+def command_attach(args) -> int:
+    """Put a picture made another way (the Viewer's `print` of its canvas) on the contact sheet, under the current step."""
+    out = store.ensure_out(store.out_for(args.checkout, args.out))
+    source = Path(args.image)
+    width, height = png_size(source)
+    step = store.read_step(out)
+    attached = store.read_events(out / "attached.jsonl")
+    number = len(attached) + 1
+    caption = args.caption or source.stem
+    name = f"attached-{number:04d}-{store.slug(step['label'], 30)}-{store.slug(caption, 40)}.png"
+    shutil.copyfile(source, out / "captures" / name)
+    record = {"ev": "capture", "wall_ms": store.wall_ms(), "mono_ms": store.mono_ms(), "pid": 0, "kind": "attached",
+              "step": step["label"], "file": f"captures/{name}", "path": str(out / "captures" / name), "width": width,
+              "height": height, "dpr": 1.0, "logical": [width, height], "title": caption, "window": "", "reason": "attached",
+              "number": number, "screen": {}, "flat_colour": None, "drawn_elsewhere": []}
+    with open(out / "attached.jsonl", "a", encoding="utf-8") as handle:
+        handle.write(json.dumps(store.redact_data(record), ensure_ascii=False) + "\n")
+    print(f"attached captures/{name}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0], formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--checkout", default=str(HERE.parents[1]), help="the checkout (default: the one this file is in)")
@@ -362,6 +392,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub = commands.add_parser("sheet", help="write the contact sheet")
     sub.add_argument("--file", help="where to write it (default: contact-sheet.html in the output folder)")
     sub.set_defaults(run=command_sheet)
+    sub = commands.add_parser("attach", help="add a PNG made another way (the Viewer's print of its canvas) to the sheet")
+    sub.add_argument("image")
+    sub.add_argument("--caption")
+    sub.set_defaults(run=command_attach)
     return parser
 
 

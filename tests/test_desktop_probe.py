@@ -13,7 +13,6 @@ import importlib.util
 import io
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -526,6 +525,7 @@ class ProbeCase(unittest.TestCase):
         self.root = Path(self.temp.name)
         store.write_gate(self.root, self.root / "out", settle_ms=20)
         self.recorder = recorder.Recorder(self.root, "tools", store.read_gate(self.root), ["tools.py"])
+        self.recorder.prepare()
         self.out = self.recorder.out
         self.probe = self.runtime.Probe(self.recorder, self.app)
         self.probe.start()
@@ -1108,6 +1108,18 @@ class ActionTests(ProbeCase):
         self.assertEqual((answer["pid"], answer["kind"]), (os.getpid(), "tools"))
         self.assertFalse(store.response_path(self.out, "other-pid").exists())
 
+    def test_a_request_that_is_still_being_written_is_left_until_it_parses(self):
+        path = self.out / "requests" / store.request_name({"pid": os.getpid()}, "slow")
+        path.write_text('{"action": "pi', encoding="utf-8")
+        self.pump(200)
+        self.assertTrue(path.exists())
+        self.assertFalse(store.response_path(self.out, "slow").exists())
+        path.write_text('{"action": "ping"}', encoding="utf-8")
+        deadline = time.monotonic() + 5
+        while not store.response_path(self.out, "slow").exists() and time.monotonic() < deadline:
+            self.pump(30)
+        self.assertTrue(store.read_json(store.response_path(self.out, "slow"))["ok"])
+
     def test_an_unknown_action_and_a_broken_request_get_answers_that_say_what_is_known(self):
         unknown = self.ask({"action": "levitate"})
         self.assertFalse(unknown["ok"])
@@ -1426,6 +1438,34 @@ class SheetTests(unittest.TestCase):
         self.assertIn("Launch 1: splash viewer (pid 100)", text)
         self.assertIn("monitor process started", text)
         self.assertRegex(text, r"3210 ms\s+config: shown ConfigGUI 'EMAP-SSN Configuration'")
+
+    def test_a_picture_made_another_way_is_attached_under_the_current_step_and_shown_on_the_sheet(self):
+        import struct
+        import zlib
+
+        def tiny_png(width, height):
+            def chunk(kind, data):
+                return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+            rows = b"".join(b"\x00" + b"\xff\x00\x00" * width for _ in range(height))
+            return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+                    + chunk(b"IDAT", zlib.compress(rows)) + chunk(b"IEND", b""))
+
+        image = Path(self.temp.name) / "canvas.png"
+        image.write_bytes(tiny_png(30, 20))
+        store.write_step(self.out, "the canvas by print")
+        code, text = run_json(["--out", str(self.out), "attach", str(image), "--caption", "Viewer canvas <print>"])
+        self.assertEqual(code, 0, text)
+        (stored,) = list((self.out / "captures").glob("attached-0001-the-canvas-by-print-*.png"))
+        self.assertEqual(stored.read_bytes(), image.read_bytes())
+        page = sheet.contact_sheet(self.out)
+        self.assertIn(f"src='captures/{stored.name}'", page)
+        self.assertIn("30&times;20 px", page)
+        self.assertIn("Viewer canvas &lt;print&gt;", page)
+        self.assertIn("the canvas by print", page)
+        broken = Path(self.temp.name) / "not.png"
+        broken.write_bytes(b"not a picture at all, really")
+        with self.assertRaises(SystemExit):
+            probe_cli.main(["--out", str(self.out), "attach", str(broken)])
 
     def test_two_launches_are_two_entries_and_an_empty_run_says_so(self):
         self.assertIn("No process has recorded anything", sheet.render_timeline(self.out))

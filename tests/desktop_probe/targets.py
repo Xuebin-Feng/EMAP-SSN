@@ -22,8 +22,6 @@ from dataclasses import dataclass
 import shiboken6
 from PySide6 import QtCore, QtGui, QtWidgets
 
-from emapssn_desktop_probe import store
-
 Qt = QtCore.Qt
 SECRET_WORDS = re.compile(r"(?i)api|key|token|secret|passw|credential")
 TEXT_LIMIT = 300
