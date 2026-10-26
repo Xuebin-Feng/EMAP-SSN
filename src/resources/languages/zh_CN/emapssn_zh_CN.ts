@@ -4767,7 +4767,7 @@ Command-line usage:
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+49"/>
         <location filename="../../../commands/cluster.py" line="+343"/>
-        <location filename="../../../commands/color.py" line="+473"/>
+        <location filename="../../../commands/color.py" line="+476"/>
         <location filename="../../../commands/console.py" line="+57"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
         <location filename="../../../commands/esmfold.py" line="-234"/>
