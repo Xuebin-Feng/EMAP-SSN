@@ -71,11 +71,16 @@ def _refused_output_name(viewer, name, source):
         return True
     return False
 
+# The plain names that need no # around them: letters, digits, underscores,
+# hyphens and periods, as a group name is written, and not starting with a hyphen.
+_BARE_LABEL = re.compile(r'[A-Za-z0-9_][A-Za-z0-9_.\-]*')
+
+
 def print_help():
     print("""
     FASTA Export Tool
     =================
-    Usage: export [clusters | groups | #LABEL# ...]
+    Usage: export [clusters | groups | LABEL ...]
            export help
 
     Description:
@@ -88,17 +93,24 @@ def print_help():
       refused and nothing is written.
       
     [TARGET] Arguments (Default: clusters):
-      clusters : Exports sequences based on their assigned topology cluster ID. 
+      clusters / cluster : Exports sequences based on their assigned topology cluster ID.
                  (Note: Unclustered 'Noise' nodes are automatically ignored).
       groups / group : Exports separate .fasta files for ALL custom group labels currently defined.
-      #LABEL# : Exports a specific custom group, topology cluster, or noise label.
-                Multiple labels may be mixed and repeated labels are deduplicated.
+      LABEL : Exports a specific custom group, topology cluster, or noise label,
+              written #LABEL# or, for a plain name, bare: #human# and human are the
+              same. A plain name is letters, digits, underscores, hyphens and
+              periods, not starting with a hyphen. clusters, cluster, group, groups
+              and help are never labels (no group may have those names); write
+              #LABEL# to name anything else. Multiple labels may be mixed and
+              repeated labels are deduplicated.
 
     Examples:
       export             (Defaults to exporting all clusters)
       export group       (Exports all custom groups)
       export #human# (Exports only the sequences in the 'human' group)
+      export human       (The same)
       export #cluster_1# #noise# (Exports one cluster and the explicit noise subset)
+      export cluster_1 noise     (The same)
     """)
     
 def run(viewer, args):
@@ -122,7 +134,7 @@ def run(viewer, args):
             Command_Engine.print_help(viewer, msg)
             Command_Engine.command_failed(viewer, msg)
             return
-        if arg_lower == "clusters":
+        if arg_lower in ["clusters", "cluster"]:
             mode_tokens.append("clusters")
             continue
         if arg_lower in ["group", "groups"]:
@@ -131,6 +143,12 @@ def run(viewer, args):
         label_match = re.fullmatch(r'#([^#]+)#', arg)
         if label_match:
             label_tokens.append(label_match.group(1))
+            continue
+        # A plain name is a label too, as in "export cluster_1". The words above
+        # and help are reserved group names, so they never reach this test as a
+        # group; #name# is the way to write any other label.
+        if arg_lower != "help" and _BARE_LABEL.fullmatch(arg):
+            label_tokens.append(arg)
             continue
         msg = Message("Error: Unrecognized export target '{target}'. Use clusters, groups, or #LABEL#.", target=arg)
         Command_Engine.print_help(viewer, msg)

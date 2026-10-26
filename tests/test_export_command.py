@@ -188,6 +188,161 @@ class ExportCommandTests(unittest.TestCase):
                 writer.assert_not_called()
 
 
+class ExportBareLabelTests(unittest.TestCase):
+    """A label may be written bare, as cluster_1, as well as #cluster_1#; the keywords keep their meaning."""
+
+    def make_viewer(self):
+        viewer = one_node_viewer()
+        viewer.n_nodes = 4
+        viewer.full_headers = ["node_0", "node_1", "node_2", "node_3"]
+        viewer.cluster_labels = np.array([0, 1, -1, 1])
+        viewer.group_labels = [{"alpha", "groups"}, {"cluster_001", "my-group.v2"}, {"alpha", "beta"}, set()]
+        viewer._selected_fasta_records = list(zip(viewer.full_headers, ["AAAA", "CCCC", "DDDD", "EEEE"]))
+        return viewer
+
+    def export(self, args, viewer=None):
+        """Run export on a temporary folder; return (files written by folder, the viewer, the outcomes, the writer)."""
+        viewer = viewer or self.make_viewer()
+        metadata = SimpleNamespace(model_name="test", network_type="blast")
+        with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
+            cfg, "NODE_FASTA_FILE", os.path.join(temp_dir, "source.fasta")
+        ), mock.patch.object(cfg, "INPUT_HDF5", "network.h5"), mock.patch.object(
+            cfg, "TOP_EDGE_PERCENT", None
+        ), mock.patch.object(cfg, "SIMILARITY_THRESHOLD", 0.5), mock.patch.object(
+            export_command, "SEQUENCE_EXPORT_DIRECTORY", temp_dir
+        ), mock.patch.object(
+            export_command.cache_manifest, "validate_network_schema", return_value=metadata
+        ) as schema, mock.patch.object(export_command, "open_in_file_manager"):
+            with reported_outcomes() as (succeeded, failed), redirect_stdout(io.StringIO()):
+                export_command.run(viewer, args)
+            written = {}
+            for folder, _, names in os.walk(temp_dir):
+                for name in names:
+                    with open(os.path.join(folder, name), encoding="utf-8") as handle:
+                        written[os.path.relpath(os.path.join(folder, name), temp_dir)] = handle.read()
+        return written, viewer, succeeded, failed, schema
+
+    def test_a_bare_label_exports_what_the_label_in_hashes_does(self):
+        cases = (
+            (["#alpha#", "#cluster_1#", "#noise#"], ["alpha", "cluster_1", "noise"]),
+            (["#alpha#"], ["alpha"]),
+            (["#cluster_1#"], ["cluster_1"]),
+            (["#noise#"], ["noise"]),
+            (["#my-group.v2#"], ["my-group.v2"]),
+            (["#cluster_001#"], ["cluster_001"]),
+            (["#Alpha#", "#CLUSTER_1#", "#NOISE#"], ["Alpha", "CLUSTER_1", "NOISE"]),
+            (["#alpha#", "#cluster_1#"], ["alpha", "#cluster_1#", "cluster_1", "ALPHA"]),
+        )
+        for hashed, bare in cases:
+            expected, _viewer, succeeded, failed, _schema = self.export(hashed)
+            self.assertTrue(expected)
+            failed.assert_not_called()
+            with self.subTest(hashed=hashed, bare=bare):
+                written, _viewer, succeeded, failed, _schema = self.export(bare)
+                failed.assert_not_called()
+                self.assertEqual(written, expected)
+                self.assertEqual(len(succeeded.call_args_list), 1)
+
+    def test_the_files_of_a_bare_export_are_the_labels_subsets(self):
+        written, _viewer, _succeeded, failed, _schema = self.export(["alpha", "cluster_1", "noise"])
+        failed.assert_not_called()
+        self.assertEqual(
+            {os.path.basename(name): text for name, text in written.items()},
+            {
+                "alpha.fasta": ">node_0\nAAAA\n>node_2\nDDDD\n",
+                "Cluster_1.fasta": ">node_1\nCCCC\n>node_3\nEEEE\n",
+                "Noise.fasta": ">node_2\nDDDD\n",
+            },
+        )
+
+    def test_the_keywords_keep_their_meaning_even_beside_a_group_with_that_name(self):
+        # The viewer holds a group called groups, as a cache may carry one.
+        by_keyword, *_ = self.export(["groups"])
+        by_group = self.export(["group"])[0]
+        self.assertEqual(by_keyword, by_group)
+        self.assertIn("alpha.fasta", {os.path.basename(name) for name in by_keyword})
+        self.assertIn("beta.fasta", {os.path.basename(name) for name in by_keyword})
+        # Written #groups#, it is the group.
+        only_group = self.export(["#groups#"])[0]
+        self.assertEqual({os.path.basename(name) for name in only_group}, {"groups.fasta"})
+        # And cluster is clusters, as group is groups.
+        self.assertEqual(self.export(["cluster"])[0], self.export(["clusters"])[0])
+        self.assertEqual(self.export(["CLUSTER"])[0], self.export([])[0])
+
+    def test_a_bare_label_is_refused_as_a_label_in_hashes_is(self):
+        for args, hashed, message in (
+            (["missing"], ["#missing#"], "does not exist"),
+            (["alpha", "missing"], ["#alpha#", "#missing#"], "does not exist"),
+            (["cluster_9"], ["#cluster_9#"], "does not exist"),
+            # A group called cluster_0 beside the cluster of that name.
+            (["cluster_0", "alpha"], ["#cluster_0#", "#alpha#"], "ambiguous"),
+        ):
+            refusals = []
+            for given in (args, hashed):
+                viewer = self.make_viewer()
+                viewer.group_labels[0].add("cluster_0")
+                written, viewer, succeeded, failed, schema = self.export(given, viewer)
+                self.assertEqual(written, {})
+                succeeded.assert_not_called()
+                failed.assert_called_once()
+                schema.assert_not_called()
+                refusals.append((viewer.console_text.text, failed.call_args.args[1]))
+            with self.subTest(args=args):
+                self.assertIn(message, refusals[0][0])
+                self.assertEqual(refusals[0], refusals[1])
+
+    def test_a_keyword_cannot_be_combined_with_labels(self):
+        for args in (["groups", "alpha"], ["alpha", "clusters"], ["cluster", "noise"], ["group", "#alpha#"]):
+            with self.subTest(args=args):
+                written, viewer, succeeded, failed, schema = self.export(args)
+                self.assertEqual(written, {})
+                failed.assert_called_once()
+                self.assertIn("cannot be combined", viewer.console_text.text)
+                schema.assert_not_called()
+
+    def test_anything_but_a_plain_name_or_a_label_in_hashes_is_still_unrecognized(self):
+        for argument in (
+            "{Length>5}", "{Length}", "$sele$", "@list@", '"ATA"', "-x", "-alpha", "a/b", "a:b", "a&b", "a|b",
+            "!alpha", "(alpha)", "#", "##", "#alpha", "alpha#", "#a#b#", "[1-3]", "al pha", "", "..\\x", "a*",
+            "help", "HELP", "-h", "--help", "-?",
+        ):
+            # After another target, the help words are no longer help.
+            with self.subTest(args=["alpha", argument]):
+                written, viewer, succeeded, failed, schema = self.export(["alpha", argument])
+                self.assertEqual(written, {})
+                succeeded.assert_not_called()
+                failed.assert_called_once()
+                self.assertIn(f"Unrecognized export target '{argument}'", failed.call_args.args[1])
+                schema.assert_not_called()
+            if argument.lower() in ("help", "-h", "--help", "-?"):
+                continue
+            with self.subTest(args=[argument]):
+                written, viewer, succeeded, failed, schema = self.export([argument])
+                self.assertEqual(written, {})
+                succeeded.assert_not_called()
+                failed.assert_called_once()
+                self.assertIn(f"Unrecognized export target '{argument}'", failed.call_args.args[1])
+                schema.assert_not_called()
+
+    def test_the_legacy_group_prefix_is_still_refused(self):
+        for args in (["group:alpha"], ["alpha", "group:alpha"], ["GROUP:alpha"], ["group:"]):
+            with self.subTest(args=args):
+                written, viewer, succeeded, failed, schema = self.export(args)
+                self.assertEqual(written, {})
+                failed.assert_called_once()
+                self.assertIn("Legacy export group:NAME syntax is no longer supported", failed.call_args.args[1])
+                schema.assert_not_called()
+
+    def test_help_first_still_prints_help(self):
+        for args in (["help", "alpha"], ["-?"], ["--help", "x y"]):
+            with self.subTest(args=args):
+                written, _viewer, succeeded, failed, schema = self.export(args)
+                self.assertEqual(written, {})
+                succeeded.assert_called_once()
+                failed.assert_not_called()
+                schema.assert_not_called()
+
+
 class ExportBranchTests(unittest.TestCase):
     """Missing prerequisites, folder naming, and an export with nothing to write."""
 

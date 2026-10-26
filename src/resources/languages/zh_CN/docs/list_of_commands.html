@@ -934,7 +934,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-export" data-source-sha256="510e16d53d8e75e20754a640f6c1675ce0ebbc4759b03f3dd323b092b123a5e9">
+            <section class="command-card" id="cmd-export" data-source-sha256="733e99c1b1d3317e0773c4bf322d76931aa74b1b13e50b5cd80b0cff8dc4e6de">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">export</span>
@@ -950,9 +950,9 @@
                 
                 <div class="subheading">目标与提取模式</div>
                 <ul>
-                    <li><strong>clusters（默认）：</strong>以 <code>export</code> 或 <code>export clusters</code> 运行。为每个有效的数学簇生成一个单独的 <code>.fasta</code> 文件（例如 <code>Cluster_1.fasta</code>）。为保持数据完整，噪声节点会被跳过。</li>
+                    <li><strong>clusters（默认）：</strong>以 <code>export</code>、<code>export clusters</code> 或 <code>export cluster</code> 运行。为每个有效的数学簇生成一个单独的 <code>.fasta</code> 文件（例如 <code>Cluster_1.fasta</code>）。为保持数据完整，噪声节点会被跳过。</li>
                     <li><strong>groups / group：</strong>以 <code>export groups</code> 运行。为会话中当前定义的每个自定义分组标签生成一个单独的 <code>.fasta</code> 文件。</li>
-                    <li><strong>#LABEL#：</strong>导出一个特定的自定义分组、拓扑簇或噪声子集。可按需重复和混用标签目标（例如 <code>export #kinase# #cluster_1# #noise#</code>）；重复的标签会去重。</li>
+                    <li><strong>#LABEL# 或 LABEL：</strong>导出一个特定的自定义分组、拓扑簇或噪声子集。标签可以写成 <code>#LABEL#</code>；如果它是普通名称（字母、数字、下划线、连字符和句点，且不以连字符开头），也可以不加 # 直接写：<code>export cluster_1 noise kinase</code> 等同于 <code>export #cluster_1# #noise# #kinase#</code>。<code>clusters</code>、<code>cluster</code>、<code>group</code>、<code>groups</code> 和 <code>help</code> 这些词永远不是标签（任何分组都不能取这些名称）；要表示其他任何名称，请写成 <code>#LABEL#</code>。可按需重复和混用标签目标（例如 <code>export #kinase# #cluster_1# #noise#</code>）；重复的标签会去重。</li>
                     <li><strong>验证：</strong>所有标签都会在创建任何输出之前解析。“全部目标”模式不能与特定标签混用，有歧义的簇/分组名称会被拒绝，并且不再接受旧的 <code>group:NAME</code> 语法。</li>
                     <li><strong>输出名称：</strong>分组标签用于命名文件，聚类参数用于命名簇文件夹。如果其中之一会成为路径，或包含 Windows 不允许出现在文件名中的字符（只有手动编辑过的布局缓存才可能带有这类字符），导出会被拒绝，并指出相应的标签或参数，且不会写入任何内容。</li>
                 </ul>
@@ -969,6 +969,8 @@
                     <li class="example-item"><span>export groups</span><button class="copy-btn" onclick="copyText('export groups', this)">复制</button></li>
                     <li class="example-item"><span>export #human#</span><button class="copy-btn" onclick="copyText('export #human#', this)">复制</button></li>
                     <li class="example-item"><span>export #cluster_1# #noise#</span><button class="copy-btn" onclick="copyText('export #cluster_1# #noise#', this)">复制</button></li>
+                    <li class="example-item"><span>export human</span><button class="copy-btn" onclick="copyText('export human', this)">复制</button></li>
+                    <li class="example-item"><span>export cluster_1 noise</span><button class="copy-btn" onclick="copyText('export cluster_1 noise', this)">复制</button></li>
                 </ul>
             </section>
 
