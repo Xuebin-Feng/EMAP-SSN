@@ -29,6 +29,7 @@ from PySide6 import QtCore, QtWidgets  # noqa: E402
 from desktop import Viewer_Window  # noqa: E402
 from desktop.Viewer_Window import HEADLESS, HIDDEN, NORMAL, MacActivation, ViewerWindow, WindowUnavailable  # noqa: E402
 from utilities import Viewer_Display as display  # noqa: E402
+from utilities.Localization import Message  # noqa: E402
 from mcp_server.viewer import Viewer_Client  # noqa: E402
 from mcp_server.viewer.Viewer_Client import MCPViewerClient, MCPViewerError  # noqa: E402
 from tests.viewer_fixtures import SnapshotHTTPFixture  # noqa: E402
@@ -40,8 +41,8 @@ WAYLAND = {"WAYLAND_DISPLAY": "wayland-0"}
 class DisplayResolverTests(unittest.TestCase):
     def test_linux_needs_an_x_server_or_a_wayland_compositor(self):
         reason = display.display_unavailable_reason({}, "linux")
-        self.assertIn("no display was found", reason)
-        self.assertIn("DISPLAY and WAYLAND_DISPLAY", reason)
+        self.assertIn("no display was found", str(reason))
+        self.assertIn("DISPLAY and WAYLAND_DISPLAY", str(reason))
         self.assertIsNone(display.display_unavailable_reason(DISPLAY, "linux"))
         # Qt chooses Wayland here, and the Viewer's own platform code leaves it alone.
         self.assertIsNone(display.display_unavailable_reason(WAYLAND, "linux"))
@@ -51,7 +52,7 @@ class DisplayResolverTests(unittest.TestCase):
         # EMAPSSN_Viewer._configure_linux_vispy_platform moves Wayland to xcb, which needs DISPLAY.
         for environment in ({**WAYLAND, "XDG_SESSION_TYPE": "wayland"}, {**WAYLAND, "QT_QPA_PLATFORM": "wayland"}):
             with self.subTest(environment=environment):
-                self.assertIn("XWayland", display.display_unavailable_reason(environment, "linux"))
+                self.assertIn("XWayland", str(display.display_unavailable_reason(environment, "linux")))
         self.assertIsNone(display.display_unavailable_reason({**WAYLAND, "QT_QPA_PLATFORM": "xcb", "DISPLAY": ":1"}, "linux"))
 
     def test_windows_has_no_such_case_and_macos_needs_a_graphical_session(self):
@@ -62,7 +63,46 @@ class DisplayResolverTests(unittest.TestCase):
                 if expected is None:
                     self.assertIsNone(reason)
                 else:
-                    self.assertIn(expected, reason)
+                    self.assertIn(expected, str(reason))
+
+    def test_every_reason_is_a_message_whose_english_is_what_mcp_and_the_environment_carry(self):
+        # The platform and environment are arguments, so each platform's reasons are checked on any host.
+        reasons = {
+            "no display was found (DISPLAY and WAYLAND_DISPLAY are not set)":
+                display.display_unavailable_reason({}, "linux"),
+            "the Wayland session has no XWayland display (DISPLAY is not set), which the Viewer's OpenGL needs":
+                display.display_unavailable_reason({**WAYLAND, "XDG_SESSION_TYPE": "wayland"}, "linux"),
+            "this process is not in a graphical login session (launchd session 'Background')":
+                display.display_unavailable_reason({}, "darwin", macos_session=lambda: "Background"),
+        }
+        for english, reason in reasons.items():
+            with self.subTest(english=english):
+                self.assertIsInstance(reason, Message)
+                self.assertEqual(str(reason), english)
+                # The reason a hidden Viewer's environment carries is the same English.
+                self.assertIsInstance(display.reason_message(english), Message)
+                self.assertEqual(str(display.reason_message(english)), english)
+                self.assertEqual(display.reason_message(english).template, reason.template)
+        mode, reason = display.resolve_window_mode("hidden", {}, "linux")
+        self.assertIsInstance(reason, Message)
+        environment = {"SSN_VIEWER_WINDOW": "hidden"}
+        display.apply_hidden_environment(environment, "linux")
+        self.assertIs(type(environment[display.FALLBACK_ENV]), str)
+        self.assertEqual(environment[display.FALLBACK_ENV], str(reason))
+
+    def test_a_reason_text_that_is_not_one_of_these_stays_as_it_is(self):
+        for text in (None, "", "the native platform could not open the hidden window (x)", "this process is not in a "
+                     "graphical login session (launchd session ", "no display was found"):
+            with self.subTest(text=text):
+                self.assertIs(display.reason_message(text), text)
+
+    def test_the_macos_session_name_comes_back_whole_from_the_environment(self):
+        for name in ("Background", "a'b", "}{", "System"):
+            with self.subTest(name=name):
+                reason = display.display_unavailable_reason({}, "darwin", macos_session=lambda name=name: name)
+                again = display.reason_message(str(reason))
+                self.assertEqual(again.values, reason.values)
+                self.assertEqual(str(again), str(reason))
 
     def test_resolve_window_mode(self):
         self.assertEqual(display.resolve_window_mode("normal", {}, "linux"), ("normal", None))
@@ -70,7 +110,7 @@ class DisplayResolverTests(unittest.TestCase):
         self.assertEqual(display.resolve_window_mode("hidden", DISPLAY, "linux"), ("hidden", None))
         mode, reason = display.resolve_window_mode("hidden", {}, "linux")
         self.assertEqual(mode, "headless")
-        self.assertIn("no display", reason)
+        self.assertIn("no display", str(reason))
 
     def test_a_hidden_environment_keeps_the_native_platform(self):
         environment = {"SSN_VIEWER_WINDOW": "hidden", "QT_QPA_PLATFORM": "offscreen", **DISPLAY}

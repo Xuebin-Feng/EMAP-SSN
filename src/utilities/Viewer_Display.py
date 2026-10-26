@@ -24,6 +24,8 @@ import os
 import subprocess
 import sys
 
+from utilities.Localization import Message
+
 WINDOW_ENV = "SSN_VIEWER_WINDOW"
 FALLBACK_ENV = "SSN_VIEWER_WINDOW_FALLBACK"
 HEADLESS_ENV = "SSN_VIEWER_HEADLESS"
@@ -49,8 +51,41 @@ def _macos_session_name():
     return name if done.returncode == 0 and name else None
 
 
+def _no_display_reason():
+    return Message("no display was found (DISPLAY and WAYLAND_DISPLAY are not set)")
+
+
+def _no_xwayland_reason():
+    return Message("the Wayland session has no XWayland display (DISPLAY is not set), which the Viewer's OpenGL needs")
+
+
+def _no_graphical_session_reason(session):
+    """``session`` is the launchd session's name as repr writes it."""
+    return Message("this process is not in a graphical login session (launchd session {session})", session=session)
+
+
+def reason_message(text):
+    """``text`` as the Message it came from, when it is one of the reasons below as the environment carries it.
+
+    A hidden Viewer that falls back to headless hands its reason to the Viewer process as English text
+    (FALLBACK_ENV), so a page it shows would hold English in a translated sentence. Any other text is
+    returned as it is.
+    """
+    if not isinstance(text, str):
+        return text
+    for reason in (_no_display_reason(), _no_xwayland_reason()):
+        if str(reason) == text:
+            return reason
+    head, _, tail = _no_graphical_session_reason("").template.partition("{session}")
+    if text.startswith(head) and text.endswith(tail) and len(text) >= len(head) + len(tail):
+        return _no_graphical_session_reason(text[len(head):len(text) - len(tail)])
+    return text
+
+
 def display_unavailable_reason(environ=None, platform_name=None, macos_session=None):
-    """Why Qt's native platform cannot open here, or None when it can.
+    """Why Qt's native platform cannot open here, as a Message, or None when it can.
+
+    str() of it is the English reason that MCP clients and FALLBACK_ENV carry; a page shows it translated.
 
     Linux needs an X server (or XWayland: the Viewer runs VisPy through xcb in a
     Wayland session) or a Wayland compositor; without either Qt aborts at start.
@@ -64,17 +99,17 @@ def display_unavailable_reason(environ=None, platform_name=None, macos_session=N
         has_x11 = bool(environ.get("DISPLAY"))
         has_wayland = bool(environ.get("WAYLAND_DISPLAY"))
         if not has_x11 and not has_wayland:
-            return "no display was found (DISPLAY and WAYLAND_DISPLAY are not set)"
+            return _no_display_reason()
         selected = _text(environ.get("QT_QPA_PLATFORM"))
         # EMAPSSN_Viewer._configure_linux_vispy_platform moves Wayland to xcb.
         uses_xcb = selected.startswith("wayland") or (
             not selected and _text(environ.get("XDG_SESSION_TYPE")) == "wayland")
         if uses_xcb and not has_x11:
-            return "the Wayland session has no XWayland display (DISPLAY is not set), which the Viewer's OpenGL needs"
+            return _no_xwayland_reason()
     elif platform_name == "darwin":
         session = (macos_session or _macos_session_name)()
         if session is not None and session != "Aqua":
-            return f"this process is not in a graphical login session (launchd session {session!r})"
+            return _no_graphical_session_reason(repr(session))
     return None
 
 
@@ -82,7 +117,7 @@ def resolve_window_mode(requested, environ=None, platform_name=None):
     """The window mode a launch of kind ``requested`` gets, as (mode, fallback_reason).
 
     ``requested`` is "normal", "headless" or "hidden"; mode is one of them.
-    fallback_reason is set only when a hidden launch has to run headless.
+    fallback_reason, a Message, is set only when a hidden launch has to run headless.
     """
     if requested == "hidden":
         reason = display_unavailable_reason(environ, platform_name)
@@ -105,7 +140,7 @@ def apply_hidden_environment(environ=None, platform_name=None):
     mode, reason = resolve_window_mode("hidden", environ, platform_name)
     if mode == "headless":
         environ["QT_QPA_PLATFORM"] = "offscreen"
-        environ[FALLBACK_ENV] = reason
+        environ[FALLBACK_ENV] = str(reason)
         return mode
     # An inherited offscreen platform (a test run, a CI shell) is not what a
     # hidden Viewer wants; normal mode drops it the same way.

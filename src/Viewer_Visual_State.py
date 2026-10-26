@@ -71,9 +71,10 @@ def opengl_failure_note(viewer, error):
     """
     if not (os.environ.get('QT_QPA_PLATFORM') == 'offscreen' or getattr(viewer, 'headless', False)):
         return None
-    reason = getattr(viewer, 'window_fallback_reason', None)
+    from utilities.Viewer_Display import display_unavailable_reason, reason_message
+    # The fallback's reason reaches the Viewer as English text (its environment); its own are Messages.
+    reason = reason_message(getattr(viewer, 'window_fallback_reason', None))
     if reason is None and sys.platform.startswith('linux'):
-        from utilities.Viewer_Display import display_unavailable_reason
         reason = display_unavailable_reason()
     if reason:
         return Message('This Viewer has no OpenGL context to render with, because {reason}.', reason=reason)

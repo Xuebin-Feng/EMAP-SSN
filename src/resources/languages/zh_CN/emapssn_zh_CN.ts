@@ -2967,7 +2967,7 @@ Command-line usage:
 <context>
     <name>Console</name>
     <message>
-        <location filename="../../../desktop/Console_View.py" line="+424"/>
+        <location filename="../../../desktop/Console_View.py" line="+441"/>
         <location line="+87"/>
         <location line="+466"/>
         <location line="+41"/>
@@ -4433,10 +4433,10 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../../commands/label.py" line="+1296"/>
-        <location line="+457"/>
-        <location filename="../../../commands/logo.py" line="+243"/>
-        <location line="+75"/>
+        <location filename="../../../commands/label.py" line="+1295"/>
+        <location line="+452"/>
+        <location filename="../../../commands/logo.py" line="+242"/>
+        <location line="+70"/>
         <location filename="../../../commands/print.py" line="+1333"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
@@ -4736,7 +4736,7 @@ Command-line usage:
         <location line="+127"/>
         <location filename="../../../commands/esmfold.py" line="+120"/>
         <location line="+582"/>
-        <location line="+91"/>
+        <location line="+94"/>
         <location line="+114"/>
         <location line="+49"/>
         <location filename="../../../commands/label.py" line="-115"/>
@@ -4770,7 +4770,7 @@ Command-line usage:
         <location filename="../../../commands/color.py" line="+476"/>
         <location filename="../../../commands/console.py" line="+57"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
-        <location filename="../../../commands/esmfold.py" line="-234"/>
+        <location filename="../../../commands/esmfold.py" line="-237"/>
         <location filename="../../../commands/export.py" line="+120"/>
         <location filename="../../../commands/group.py" line="+141"/>
         <location filename="../../../commands/help.py" line="-55"/>
@@ -5219,7 +5219,7 @@ Command-line usage:
         <translation type="unfinished">stop 不能与其他关键字同时使用。</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+23"/>
         <source>Nothing is selected, so the last clicked node is folded: {node}.</source>
         <translation type="unfinished">未选择任何节点，因此将折叠最后点击的节点的结构：{node}。</translation>
     </message>
@@ -5545,7 +5545,7 @@ Command-line usage:
         <location filename="../../../commands/cluster.py" line="-448"/>
         <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/help.py" line="+68"/>
-        <location filename="../../../commands/hide.py" line="+37"/>
+        <location filename="../../../commands/hide.py" line="+40"/>
         <location filename="../../../commands/jobs.py" line="+11"/>
         <location filename="../../../commands/meta.py" line="+10"/>
         <location filename="../../../commands/redo.py" line="+57"/>
@@ -5571,7 +5571,7 @@ Command-line usage:
         <translation type="unfinished">在当前边阈值下，没有可隐藏的孤立节点。</translation>
     </message>
     <message numerus="yes">
-        <location line="+19"/>
+        <location line="+18"/>
         <source>Hidden %n single/free node(s).</source>
         <translation type="unfinished">
             <numerusform>已隐藏 %n 个孤立节点。</numerusform>
@@ -5593,7 +5593,7 @@ Command-line usage:
         <translation type="unfinished">没有可见节点符合“{expression}”，未隐藏任何节点。</translation>
     </message>
     <message numerus="yes">
-        <location line="+19"/>
+        <location line="+18"/>
         <source>Hidden %n node(s) matching expression.</source>
         <translation type="unfinished">
             <numerusform>已隐藏 %n 个符合表达式的节点。</numerusform>
@@ -5612,7 +5612,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/label.py" line="-1321"/>
+        <location filename="../../../commands/label.py" line="-1316"/>
         <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
         <translation type="unfinished">{argument} 阈值“{value}”超出了支持的范围 0 到 100%。</translation>
     </message>
@@ -5696,7 +5696,7 @@ Command-line usage:
         <translation type="unfinished">错误：导出 XLSX 需要 &apos;openpyxl&apos;。请运行：{command}</translation>
     </message>
     <message>
-        <location line="+414"/>
+        <location line="+409"/>
         <source>Exported to {path}</source>
         <translation type="unfinished">已导出到 {path}</translation>
     </message>
@@ -5758,7 +5758,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/logo.py" line="-560"/>
+        <location filename="../../../commands/logo.py" line="-555"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -5778,7 +5778,7 @@ Command-line usage:
         <translation type="unfinished">序列标识图重新加权只能提供一个一致性阈值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+199"/>
+        <location line="+194"/>
         <source>Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个已比对节点的 {gap_mode} {mode} 序列标识图保存到 {file}</numerusform>
@@ -6851,7 +6851,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1452"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1461"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -6919,7 +6919,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+432"/>
+        <location line="+433"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -7122,7 +7122,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">{model} [单独条款]</translation>
     </message>
     <message>
-        <location filename="../../../utilities/Output_Names.py" line="+37"/>
+        <location filename="../../../utilities/Output_Names.py" line="+38"/>
         <source>Filename cannot be empty.</source>
         <translation type="unfinished">文件名不能为空。</translation>
     </message>
@@ -7157,7 +7157,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">无效的位置标签“{value}”；应为非负整数或插入位置标签，或者用括号括起来的负位置。</translation>
     </message>
     <message>
-        <location line="+624"/>
+        <location line="+616"/>
         <source>MSA headers must not be empty after sanitization.</source>
         <translation type="unfinished">清理后的 MSA 序列标题不能为空。</translation>
     </message>
@@ -7278,7 +7278,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">此查看器中没有该命令请求，或它已被清除</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Visual_State.py" line="+79"/>
+        <location filename="../../../Viewer_Visual_State.py" line="+80"/>
         <source>This Viewer has no OpenGL context to render with, because {reason}.</source>
         <translation type="unfinished">此查看器没有可用于渲染的 OpenGL 上下文，原因：{reason}。</translation>
     </message>
@@ -8553,7 +8553,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">Leiden 的边权重必须是有限数。</translation>
     </message>
     <message>
-        <location filename="../../../Alignment_Manager.py" line="+290"/>
+        <location filename="../../../Alignment_Manager.py" line="+284"/>
         <source>Sparse HDF5 is missing required object &apos;{path}&apos;.</source>
         <translation type="unfinished">稀疏 HDF5 缺少必需对象“{path}”。</translation>
     </message>
@@ -8723,7 +8723,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message>
-        <location filename="../../../tools/Sanitize_Sequences.py" line="+278"/>
+        <location filename="../../../tools/Sanitize_Sequences.py" line="+270"/>
         <source>{count} sequence · min {min} · median {median} · mean {mean} · SD {sd} · max {max} aa</source>
         <translation type="unfinished">{count} 条序列 · 最短 {min} · 中位数 {median} · 平均值 {mean} · 标准差 {sd} · 最长 {max} aa</translation>
     </message>
@@ -8803,7 +8803,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">保序回归拟合曲线</translation>
     </message>
     <message>
-        <location filename="../../../Embedding_Manager.py" line="+113"/>
+        <location filename="../../../Embedding_Manager.py" line="+105"/>
         <source>The embedding file changed after the Viewer loaded it: {path}. Reopen the Viewer to use the new file.</source>
         <translation type="unfinished">查看器加载 embedding 文件后，该文件已更改：{path}。请重新打开查看器以使用新文件。</translation>
     </message>
@@ -9205,6 +9205,21 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location filename="../../../commands/help.py" line="-1"/>
         <source>Error: help takes at most one command name, not &apos;{argument}&apos;.</source>
         <translation type="unfinished">错误：help 最多接受一个命令名，不能是“{argument}”。</translation>
+    </message>
+    <message>
+        <location filename="../../../utilities/Viewer_Display.py" line="+55"/>
+        <source>no display was found (DISPLAY and WAYLAND_DISPLAY are not set)</source>
+        <translation type="unfinished">未找到显示器（DISPLAY 和 WAYLAND_DISPLAY 均未设置）</translation>
+    </message>
+    <message>
+        <location line="+4"/>
+        <source>the Wayland session has no XWayland display (DISPLAY is not set), which the Viewer&apos;s OpenGL needs</source>
+        <translation type="unfinished">Wayland 会话没有 XWayland 显示（DISPLAY 未设置），而查看器的 OpenGL 需要它</translation>
+    </message>
+    <message>
+        <location line="+5"/>
+        <source>this process is not in a graphical login session (launchd session {session})</source>
+        <translation type="unfinished">此进程不在图形登录会话中（launchd 会话 {session}）</translation>
     </message>
 </context>
 <context>
@@ -13057,7 +13072,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-1934"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-1935"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -13066,7 +13081,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-177"/>
+        <location line="-178"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -13109,7 +13124,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1798"/>
+        <location line="+1799"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

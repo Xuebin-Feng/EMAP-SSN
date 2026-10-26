@@ -6128,6 +6128,18 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>no display was found (DISPLAY and WAYLAND_DISPLAY are not set)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>the Wayland session has no XWayland display (DISPLAY is not set), which the Viewer&apos;s OpenGL needs</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>this process is not in a graphical login session (launchd session {session})</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished"></translation>
     </message>

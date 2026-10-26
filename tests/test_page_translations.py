@@ -1052,6 +1052,47 @@ class AgentMessageTests(unittest.TestCase):
             self.assertTrue(str(caught.exception).startswith(("Viewer canvas", "Associated command")))
             self.assert_translated(display_text(caught.exception), "OpenGL context 6", "6")
 
+    def test_the_no_display_reasons_of_each_platform(self):
+        # The platform is an argument, so the Linux and macOS reasons are checked on any host.
+        from utilities import Viewer_Display as display
+
+        reasons = [
+            display.display_unavailable_reason({}, "linux"),
+            display.display_unavailable_reason({"WAYLAND_DISPLAY": "w", "XDG_SESSION_TYPE": "wayland"}, "linux"),
+            display.display_unavailable_reason({}, "darwin", macos_session=lambda: "Background"),
+        ]
+        for reason in reasons:
+            with self.subTest(reason=str(reason)):
+                self.assertIsInstance(reason, Message)
+                self.assert_translated(display_text(reason), "'Background'")
+
+    def test_the_viewer_capture_error_names_the_missing_display_in_the_pages_language(self):
+        from Viewer_Visual_State import capture_view, opengl_failure_note
+        from utilities import Viewer_Display as display
+
+        def failing(message):
+            def render():
+                raise RuntimeError(message)
+            return SimpleNamespace(render=render)
+
+        # Linux with no display: the reason is found on the spot ...
+        linux = SimpleNamespace(platform="linux")
+        with mock.patch.dict(os.environ, {"QT_QPA_PLATFORM": "offscreen"}, clear=True), \
+                mock.patch("Viewer_Visual_State.sys", linux), mock.patch("utilities.Viewer_Display.sys", linux), \
+                self.assertRaises(ValueError) as caught:
+            capture_view(SimpleNamespace(canvas=failing("6")))
+        self.assertTrue(str(caught.exception).endswith("because no display was found "
+                                                       "(DISPLAY and WAYLAND_DISPLAY are not set)."))
+        self.assert_translated(display_text(caught.exception), "6")
+        # ... and a hidden Viewer that fell back to headless was handed it as English text by its environment.
+        for reason in (display.display_unavailable_reason({}, "linux"),
+                       display.display_unavailable_reason({}, "darwin", macos_session=lambda: "Background")):
+            with self.subTest(reason=str(reason)):
+                viewer = SimpleNamespace(headless=True, window_fallback_reason=str(reason))
+                note = opengl_failure_note(viewer, RuntimeError("6"))
+                self.assertTrue(str(note).endswith(f"because {reason}."))
+                self.assert_translated(display_text(note), "'Background'")
+
     def test_the_command_portal_errors_an_agent_reply_can_meet(self):
         from Viewer_Command_Portal import ViewerCommandPortal as Portal
 
