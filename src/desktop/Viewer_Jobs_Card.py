@@ -58,7 +58,8 @@ def clock(seconds):
 class ElidedLabel(QLabel):
     """A one-line label that cuts its text short with "…" to fit, and shows the whole text when hovered.
 
-    It asks for no width of its own, so a long name never widens the card.
+    It asks for no width of its own, so a long name never widens the card. It paints its text itself, so
+    a screen reader finds none in it: its accessible name is the whole text, as set_full_text last gave it.
     """
 
     def __init__(self, parent=None):
@@ -71,6 +72,7 @@ class ElidedLabel(QLabel):
         """Show ``text`` as far as it fits; the tooltip is ``tip`` (default: the text) once it is cut."""
         self._full = text
         self._tip = tip
+        self.setAccessibleName(text)
         self._show_tip()
         self.update()
 

@@ -159,6 +159,38 @@ class SectionContentTests(SectionCase):
         self.assertTrue(shown.endswith("…"))
         self.assertLess(len(shown), len(label.full_text()))
 
+    def test_a_screen_reader_gets_the_description_and_the_state_of_a_row_whole_and_current(self):
+        from PySide6.QtGui import QAccessible
+
+        section = self.make([files_lane(running(1, f"label -> {LONG_NAME}"), queued(2, "logo -> logo.svg", 2))], width=420)
+        long_row, short_row = section.rows[1], section.rows[2]
+        self.assertTrue(long_row.lead.is_elided())
+
+        def read(label):
+            """What the platform's accessibility interface reports as the label's name."""
+            return QAccessible.queryAccessibleInterface(label).text(QAccessible.Text.Name)
+
+        # The label paints its own text, so QLabel's text is empty: the name is the whole text, cut or not.
+        self.assertEqual(long_row.lead.text(), "")
+        for label in (long_row.lead, long_row.state, short_row.lead, short_row.state):
+            with self.subTest(label=label.full_text()):
+                self.assertTrue(label.full_text())
+                self.assertEqual(label.accessibleName(), label.full_text())
+                self.assertEqual(read(label), label.full_text())
+        self.assertEqual(read(long_row.lead), f"#1  label -> {LONG_NAME}")
+        self.assertEqual(read(short_row.state), "Queued · position 2")
+        # It follows the text: the running job's clock moves on, and the name with it.
+        self.assertEqual(read(long_row.state), "Running · 00:05")
+        long_row.refresh_state(107.0)
+        self.assertEqual(long_row.state.full_text(), "Running · 00:07")
+        self.assertEqual(read(long_row.state), "Running · 00:07")
+        label = ElidedLabel()
+        self.addCleanup(label.deleteLater)
+        self.assertEqual(label.accessibleName(), "")
+        label.set_full_text("one")
+        label.set_full_text("two", "a tip")
+        self.assertEqual(label.accessibleName(), "two")
+
     def test_a_job_shows_its_own_progress_after_its_state(self):
         section = self.make([files_lane(running(1, "esmfold", progress="Folding 2 of 3: node_b"),
                                         queued(2, "esmfold", 2, progress=Message("Waiting")))])
