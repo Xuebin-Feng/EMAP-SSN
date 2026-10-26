@@ -45,7 +45,7 @@ from PySide6.QtGui import (  # noqa: E402
 )
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (  # noqa: E402
-    QApplication, QLabel, QPushButton, QStyle, QStyleOptionButton, QVBoxLayout, QWidget,
+    QApplication, QDoubleSpinBox, QLabel, QPushButton, QStyle, QStyleOptionButton, QVBoxLayout, QWidget,
 )
 
 from desktop.Desktop_App import clipped_button_text, fit_buttons_to_text  # noqa: E402
@@ -1574,8 +1574,14 @@ class ZoomBoxTests(unittest.TestCase):
     def test_its_width_holds_as_the_limits_change(self):
         spin_box, _sets = self.make_spin_box(lowest=0.1)
         narrow = spin_box.sizeHint()
+        plain = QDoubleSpinBox.sizeHint(spin_box).width()  # what Qt alone says for this range
         spin_box.show_zoom(242.0, 3000.0, 4000.0)
-        self.assertEqual(spin_box.sizeHint(), narrow)
+        # A lower highest limit has Qt's own width fall by a digit's worth or more, which the box makes up for...
+        self.assertLess(QDoubleSpinBox.sizeHint(spin_box).width(), plain - 1)
+        # ...to the pixel, or to one: it takes the difference between two text widths, each a whole number of pixels
+        # (the font's advances are fractions on some systems, Linux's among them), so it can be one off.
+        self.assertLessEqual(abs(spin_box.sizeHint().width() - narrow.width()), 1)
+        self.assertEqual(spin_box.sizeHint().height(), narrow.height())
         self.assertEqual(narrow.height(), SLIDER_BOX_HEIGHT)
         self.assertGreaterEqual(
             narrow.width(), QFontMetrics(spin_box.font()).horizontalAdvance(spin_box.textFromValue(ZOOM_ROOM)))
