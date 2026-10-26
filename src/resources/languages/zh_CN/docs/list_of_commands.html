@@ -704,7 +704,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-subcluster" data-source-sha256="bf1b92983a20a8caf7ee018b6d2e1503365ef3597264e239ab03de19951ce0db">
+            <section class="command-card" id="cmd-subcluster" data-source-sha256="b164d37b5109365675a976e1ba7de9d866c712c4f60060592d68ad13900959db">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">subcluster</span>
@@ -720,7 +720,7 @@
                 
                 <div class="subheading">参数</div>
                 <ul>
-                    <li><strong>&lt;cluster_name&gt;：</strong>要进行子聚类的簇的名称（如 <code>cluster_2</code>、<code>cluster_5</code>），写法与选择表达式中相同，不带前导零：<code>cluster_01</code> 会被拒绝，错误信息会指出 <code>cluster_1</code>。</li>
+                    <li><strong>&lt;cluster_name&gt;：</strong>要进行子聚类的唯一一个簇，写法与选择表达式中相同（如 <code>#cluster_2#</code>、<code>#cluster_5#</code>）；也接受不带井号的 <code>cluster_2</code>，二者指同一个簇。不带前导零：<code>cluster_01</code> 和 <code>#cluster_01#</code> 会被拒绝，错误信息会指出 <code>cluster_1</code>。其他任何写法都会在做任何更改之前被拒绝：其他标签（如 <code>#noise#</code> 或 <code>#my_group#</code>）、表达式（如 <code>#cluster_2#|#cluster_3#</code> 或 <code>$sele$</code>），以及少了一个 <code>#</code> 的名称（如 <code>#cluster_2</code>）。子聚类只针对一个簇，因为它生成的分组 <code>subcluster_N_M</code> 以该簇的 N 命名。</li>
                     <li><strong>clear：</strong>从查看器会话中清除生成的子簇分组标签（<code>subcluster_N_M</code>），并保留名称相似的自定义分组。它不会还原先前子聚类所应用的颜色。</li>
                     <li><strong>[min_size]：</strong>（可选）要保留的子簇的最小大小，至少为 1（默认：10）。更小的分组被视为噪声。簇内没有边的节点在 min_size 为 1 时（所有模式下）自成一个单节点子簇，更大时则为噪声。当没有任何子簇达到 min_size 时，命令报告成功但不做任何更改：簇保留其颜色和先前的子簇，也不会增加撤销步骤。</li>
                     <li><strong>多余的参数：</strong>簇名称、mode、param_1 和 min_size 之后（或 <code>clear</code> 之后）的任何内容都会被拒绝，错误信息会指出第一个多余的参数，且不做任何更改。</li>
@@ -734,8 +734,8 @@
                 </ul>
                 <div class="subheading">示例</div>
                 <ul class="example-list">
-                    <li class="example-item"><span>subcluster cluster_2</span><button class="copy-btn" onclick="copyText('subcluster cluster_2', this)">复制</button></li>
-                    <li class="example-item"><span>subcluster cluster_2 mcl 2.0 5</span><button class="copy-btn" onclick="copyText('subcluster cluster_2 mcl 2.0 5', this)">复制</button></li>
+                    <li class="example-item"><span>subcluster #cluster_2#</span><button class="copy-btn" onclick="copyText('subcluster #cluster_2#', this)">复制</button></li>
+                    <li class="example-item"><span>subcluster #cluster_2# mcl 2.0 5</span><button class="copy-btn" onclick="copyText('subcluster #cluster_2# mcl 2.0 5', this)">复制</button></li>
                     <li class="example-item"><span>subcluster cluster_5 leiden 1.5</span><button class="copy-btn" onclick="copyText('subcluster cluster_5 leiden 1.5', this)">复制</button></li>
                     <li class="example-item"><span>subcluster clear</span><button class="copy-btn" onclick="copyText('subcluster clear', this)">复制</button></li>
                 </ul>

@@ -719,7 +719,7 @@
                 
                 <div class="subheading">Arguments</div>
                 <ul>
-                    <li><strong>&lt;cluster_name&gt;:</strong> Name of the cluster to subcluster (e.g. <code>cluster_2</code>, <code>cluster_5</code>), written as in a selection expression, without leading zeros: <code>cluster_01</code> is refused and the error names <code>cluster_1</code>.</li>
+                    <li><strong>&lt;cluster_name&gt;:</strong> The one cluster to subcluster, written as in a selection expression (e.g. <code>#cluster_2#</code>, <code>#cluster_5#</code>); the bare <code>cluster_2</code> is accepted too and means the same cluster. Write it without leading zeros: <code>cluster_01</code> and <code>#cluster_01#</code> are refused and the error names <code>cluster_1</code>. Anything else is refused before anything changes: another label such as <code>#noise#</code> or <code>#my_group#</code>, an expression such as <code>#cluster_2#|#cluster_3#</code> or <code>$sele$</code>, and a name missing one <code>#</code> such as <code>#cluster_2</code>. Subclustering works on one cluster because the groups it makes, <code>subcluster_N_M</code>, go by that cluster's N.</li>
                     <li><strong>clear:</strong> Clears the generated subcluster group labels (<code>subcluster_N_M</code>) from the viewer session and keeps custom groups with lookalike names. It does not restore the colors applied by earlier subclustering.</li>
                     <li><strong>[min_size]:</strong> (Optional) Minimum size of subclusters to keep, at least 1 (Default: 10). Smaller groups are treated as Noise. A node with no edge inside the cluster is a singleton subcluster when min_size is 1, in every mode, and Noise when it is larger. When no subcluster reaches min_size, the command reports success but changes nothing: the cluster keeps its colors and its earlier subclusters, and no undo step is added.</li>
                     <li><strong>Extra arguments:</strong> Anything after the cluster name, mode, param_1 and min_size (or after <code>clear</code>) is refused with an error that names the first extra argument, and nothing changes.</li>
@@ -733,8 +733,8 @@
                 </ul>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
-                    <li class="example-item"><span>subcluster cluster_2</span><button class="copy-btn" onclick="copyText('subcluster cluster_2', this)">Copy</button></li>
-                    <li class="example-item"><span>subcluster cluster_2 mcl 2.0 5</span><button class="copy-btn" onclick="copyText('subcluster cluster_2 mcl 2.0 5', this)">Copy</button></li>
+                    <li class="example-item"><span>subcluster #cluster_2#</span><button class="copy-btn" onclick="copyText('subcluster #cluster_2#', this)">Copy</button></li>
+                    <li class="example-item"><span>subcluster #cluster_2# mcl 2.0 5</span><button class="copy-btn" onclick="copyText('subcluster #cluster_2# mcl 2.0 5', this)">Copy</button></li>
                     <li class="example-item"><span>subcluster cluster_5 leiden 1.5</span><button class="copy-btn" onclick="copyText('subcluster cluster_5 leiden 1.5', this)">Copy</button></li>
                     <li class="example-item"><span>subcluster clear</span><button class="copy-btn" onclick="copyText('subcluster clear', this)">Copy</button></li>
                 </ul>
