@@ -169,15 +169,15 @@ class BackgroundJobScheduler(QtCore.QObject):
     # A job asks for a function to be run on the GUI thread (JobHandle.call_in_gui).
     _gui_requested = QtCore.Signal(object)
 
-    def __init__(self, viewer, job_numbers=None):
+    def __init__(self, viewer):
         super().__init__()
         self._viewer_ref = weakref.ref(viewer)
         self._lock = threading.Lock()
         self._accepting = True
         self._lanes = {}
-        # Job numbers: the Viewer's command queue draws from the same count, so
-        # every job the Viewer lists has a number of its own.
-        self._job_numbers = job_numbers if job_numbers is not None else itertools.count(1)
+        # Job numbers: 1, 2, ... in the order the jobs are given. Only background jobs have one; the
+        # commands in the Viewer's command queue (Command_Queue) are not jobs and are not numbered.
+        self._job_numbers = itertools.count(1)
         # Every output path a job not yet finished reserves, and the job.
         self._reserved = {}
         self._cleaned = set()

@@ -862,14 +862,23 @@ output at 16 MiB. Truncated output explicitly reports `available_from` and
 `truncated`. `list_command_requests` recovers IDs after MCP reconnection; Viewer
 exit loses this in-memory history. Disconnecting does not cancel work.
 
-A command's `jobs` list has an entry per job it queued: `job_id`, `status`, `kind`, `lane` and
-`lane_title`, `description`, `position` and `waiting_for` while it waits, `cancellable`, `stopping`,
+A command's `jobs` list has an entry per background job it queued (a file, a fold): `job_id`, `status`, `kind`,
+`lane` and `lane_title`, `description`, `position` and `waiting_for` while it waits, `cancellable`, `stopping`,
 `stop_requested`, `releases_request`, `started_at`, `finished_at`, `message`, `output_path` and `progress`.
+`job_id` is the job's number, the one `jobs` lists and `jobs cancel` takes; only background jobs have one.
 `progress` is null until the job reports one, then one plain line such as `MCL iteration 4`. Lane jobs of the
-background scheduler (files, folds) give theirs while they run. A command that computes in the command queue
-gives the text it reports (MCL clustering is the one built-in command that does today), copied in about twice a
-second, at most 256 characters, with the last line kept after the job ends. `wait_command_request`'s progress
-notifications include it.
+background scheduler (files, folds) give theirs while they run.
+
+A command that waits or computes in the Viewer's command queue (`cluster` and `subcluster` always, any other
+command given while one waits) is not a background job: it has no entry in `jobs` and no number, and `jobs` does
+not list it. Its own record has a `queue` object instead: `status` (`queued`, then `running`, `applying` and how it
+ended), `position` in the line (1 for the command at its turn), `progress`, `started_at`, `finished_at` and
+`message`; a command that never waited has none, and no field says whether it can be stopped. A command that
+computes gives the text it reports as `progress` (MCL clustering is the one built-in command that does today),
+copied in about twice a second, at most 256 characters, with the last line kept after it ends.
+`wait_command_request`'s progress notifications include it, as `queue` or as a job. `jobs cancel` does not reach a
+command in the queue, and an `undo` sent through `execute_commands` waits its turn behind it, so a client cannot
+stop one; the user can, by typing `undo` in the Viewer or pressing Ctrl+Z.
 
 Agent batches are sequential and stop after failure/cancellation; completed effects
 are not rolled back. Label/logo/print jobs and ESMFold folds are jobs of the Viewer's

@@ -1716,8 +1716,7 @@ class FreedLineTests(PortalFixture, unittest.TestCase):
         self.release['b'].set()
         self.assertEqual(self.finish(second)['status'], 'succeeded')
 
-    def test_work_in_the_command_queue_keeps_the_head(self):
-        # A job entry that does not declare the release, as the command queue's do, holds the head.
+    def test_a_job_that_does_not_declare_the_release_holds_the_head(self):
         def run(viewer, args):
             context = CURRENT.get()
             context.add_job('queued-1', command='cluster')
@@ -1733,6 +1732,48 @@ class FreedLineTests(PortalFixture, unittest.TestCase):
             self.held.job_event('queued-1', 'succeeded')
             self.assertEqual(self.finish(first)['status'], 'succeeded')
             self.assertEqual(self.finish(second)['status'], 'succeeded')
+
+    def test_work_in_the_command_queue_keeps_the_head_and_is_no_job(self):
+        # The command queue's entry is the command's own `queue`, not an entry of `jobs`: it has no number.
+        def run(viewer, args):
+            context = CURRENT.get()
+            context.join_queue()
+            context.queue_event('running')
+            self.held = context
+            ce.command_succeeded(viewer)
+
+        with fake_test_command(run):
+            first = self.portal.submit('one', 'test a')['request_id']
+            second = self.portal.submit('two', 'select "one"')['request_id']
+            self.idle(30)
+            self.assertEqual((self.status(first), self.status(second)), ('running', 'queued'))
+            command = self.portal.get(first)['commands'][0]
+            self.assertEqual((command['jobs'], command['queue']['status']), ([], 'running'))
+            self.held.queue_place(1)
+            self.held.queue_progress('pass 2 of 3')
+            self.assertEqual(self.portal.get(first)['commands'][0]['queue']['position'], 1)
+            self.assertEqual(self.portal.get(first)['commands'][0]['queue']['progress'], 'pass 2 of 3')
+            self.held.queue_event('succeeded')
+            self.assertEqual(self.finish(first)['status'], 'succeeded')
+            self.assertEqual(self.finish(second)['status'], 'succeeded')
+            self.assertEqual(self.portal.get(first)['commands'][0]['queue']['status'], 'succeeded')
+
+    def test_a_command_the_queue_cancels_ends_cancelled_with_its_message(self):
+        def run(viewer, args):
+            context = CURRENT.get()
+            context.join_queue()
+            self.held = context
+            ce.command_succeeded(viewer)
+
+        with fake_test_command(run):
+            first = self.portal.submit('one', 'test a')['request_id']
+            self.idle(30)
+            self.assertEqual(self.status(first), 'running')
+            self.held.queue_event('cancelled', 'Cancelled by undo before it finished.')
+            result = self.finish(first)
+            self.assertEqual(result['status'], 'cancelled', result)
+            self.assertEqual(result['commands'][0]['queue']['message'], 'Cancelled by undo before it finished.')
+            self.assertEqual(result['commands'][0]['messages'][-1]['text'], 'Cancelled by undo before it finished.')
 
     def test_a_request_with_work_awaiting_the_user_keeps_the_head(self):
         def run(viewer, args):

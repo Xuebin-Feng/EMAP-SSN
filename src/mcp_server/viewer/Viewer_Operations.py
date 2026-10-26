@@ -547,8 +547,14 @@ def _wait_step(record):
             'arguments': {'request_id': record['request_id'], 'session_id': record['session_id']}}
 
 
+def _entry_line(name, entry):
+    """What a job, or a command's turn in the Viewer's command queue, is doing: its status, place and progress."""
+    return (f"{name} {entry['status']}" + (f" at {entry['position']}" if entry.get('position') else '')
+            + (f", {entry['progress']}" if entry.get('progress') else ''))
+
+
 def _wait_line(record):
-    """One line saying where a request stands: how many commands have finished, the one at work, its jobs and their progress."""
+    """One line saying where a request stands: how many commands have finished, the one at work, its queue turn, jobs and progress."""
     commands = record.get('commands', [])
     total = record.get('total_commands', len(commands))
     unfinished = [command for command in commands if command['status'] not in FINISHED_STATES]
@@ -557,10 +563,11 @@ def _wait_line(record):
     current = next((command for command in unfinished if command['status'] != 'queued'), unfinished[0] if unfinished else None)
     if current is not None:
         text = current['command'] if len(current['command']) <= 60 else current['command'][:57] + '...'
+        queue = current.get('queue')
         jobs = '; '.join(
-            f"job {job['job_id']} {job['status']}" + (f" at {job['position']}" if job.get('position') else '')
-            + (f", {job['progress']}" if job.get('progress') else '')
-            for job in current.get('jobs', []) if job['status'] not in FINISHED_STATES)
+            ([_entry_line('queue', queue)] if queue is not None and queue['status'] not in FINISHED_STATES else [])
+            + [_entry_line(f"job {job['job_id']}", job)
+               for job in current.get('jobs', []) if job['status'] not in FINISHED_STATES])
         line += f"; {current['status']}: {text}" + (f" ({jobs})" if jobs else '')
     return line
 

@@ -48,6 +48,12 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
+def _holds_queue(record):
+    """Whether the Viewer's command queue still holds record's command (see ExecutionContext.join_queue)."""
+    queue = record.get('queue')
+    return queue is not None and queue['status'] not in TERMINAL
+
+
 class CommandInteractionError(RuntimeError):
     pass
 
@@ -186,41 +192,75 @@ class ExecutionContext:
         self.record['jobs'].append(job)
         return job
 
+    def join_queue(self):
+        """Say that the Viewer's command queue holds this command: `queue` in its record shows where it stands.
+
+        A command in the queue (Command_Queue) is not a background job, so it has no entry in `jobs` and no
+        number: `jobs` and its cancel act on the background jobs only. Its `queue` has the status ('queued',
+        then 'running', 'applying' and how the command ended), the `position` in the line (1 for the command at
+        its turn), the `progress` of its computation as a job entry has it, and `started_at`, `finished_at` and
+        `message`. The command's own status stays running until its queue entry has ended.
+        """
+        self.record['queue'] = dict(status='queued', position=None, progress=None, started_at=None, finished_at=None)
+
+    def queue_event(self, status, message=None):
+        """The command queue's news of this command: its turn has come, or it has ended."""
+        if self.record.get('queue') is not None:
+            self._entry_event(self.record['queue'], status, message)
+        self.portal.changed.emit(self.request_id)
+
+    def queue_place(self, position):
+        """Show the command's place in the queue's line, 1 for the command at its turn."""
+        if self.record.get('queue') is not None:
+            self.record['queue']['position'] = position
+
+    def queue_progress(self, text):
+        """Show what the command reports as it computes, as the queue entry's `progress` (see job_progress)."""
+        return self._entry_progress(self.record.get('queue'), text)
+
     def job_event(self, job_id, status, message=None, artifacts=()):
         for job in self.record['jobs']:
             if job['job_id'] == str(job_id):
-                job['status'] = status
-                if status == 'running' and job.get('started_at') is None:
-                    job['started_at'] = now()
-                if status in {'succeeded', 'failed', 'cancelled'}:
-                    job['finished_at'] = now()
-                    job['stopping'] = False
-                    job['cancellable'] = False
-                if message:
-                    job['message'] = str(message)[:1024]
-                    self.portal.append_output(self.request_id, 'stderr' if status == 'failed' else 'stdout', str(message) + '\n')
-                for artifact in artifacts:
-                    self.report(artifact=artifact)
-                if status in {'failed', 'cancelled'}:
-                    self.report(status, message)
+                self._entry_event(job, status, message, artifacts)
                 break
         self.portal.changed.emit(self.request_id)
+
+    def _entry_event(self, entry, status, message, artifacts=()):
+        """Record how a job, or the command's queue entry, stands: its status, times, message and artifacts."""
+        entry['status'] = status
+        if status == 'running' and entry.get('started_at') is None:
+            entry['started_at'] = now()
+        if status in {'succeeded', 'failed', 'cancelled'}:
+            entry['finished_at'] = now()
+            for key in ('stopping', 'cancellable'):
+                if key in entry:
+                    entry[key] = False
+        if message:
+            entry['message'] = str(message)[:1024]
+            self.portal.append_output(self.request_id, 'stderr' if status == 'failed' else 'stdout', str(message) + '\n')
+        for artifact in artifacts:
+            self.report(artifact=artifact)
+        if status in {'failed', 'cancelled'}:
+            self.report(status, message)
 
     def job_progress(self, job_id, text):
         """Show what a job reports as it goes in its entry, as `progress`; return whether the entry changed.
 
         `progress` (None in a new entry) is one plain line, here no markup and at most MAX_PROGRESS_CHARACTERS.
-        The command queue's computing commands are fed through this; the background scheduler writes the same
-        field for its lane jobs itself (Background_Job_Scheduler._update_records). Call it on the Viewer's
-        thread, which also reads the record, and throttle there: this keeps only a line that differs.
+        The background scheduler writes the same field for its lane jobs itself
+        (Background_Job_Scheduler._update_records), and the command queue's computing commands report theirs
+        with queue_progress. Call it on the Viewer's thread, which also reads the record, and throttle there:
+        this keeps only a line that differs.
         """
+        entry = next((job for job in self.record['jobs'] if job['job_id'] == str(job_id)), None)
+        return self._entry_progress(entry, text)
+
+    @staticmethod
+    def _entry_progress(entry, text):
         text = ' '.join(str(text).split())[:MAX_PROGRESS_CHARACTERS] if text is not None else ''
-        for job in self.record['jobs']:
-            if job['job_id'] == str(job_id):
-                if text and job.get('progress') != text:
-                    job['progress'] = text
-                    return True
-                break
+        if entry is not None and text and entry.get('progress') != text:
+            entry['progress'] = text
+            return True
         return False
 
     def children(self, commands):
@@ -335,10 +375,10 @@ class ViewerCommandPortal(QtCore.QObject):
                     except Exception as error:
                         context.report('failed', str(error))
             # A command that waits its turn in the Viewer's command queue reports when it has run.
-            if record['outcome'] is None and not any(j['status'] not in TERMINAL for j in record['jobs']):
+            if record['outcome'] is None and not self._has_work_left(record):
                 context.report('failed', 'Command handler did not report an explicit outcome.')
             self.publish(request_id)
-        if any(j['status'] not in TERMINAL for j in record['jobs']):
+        if self._has_work_left(record):
             record['status'] = ('awaiting_user_input' if any(j['status'] == 'awaiting_user_input' for j in record['jobs']) else 'running')
             return False
         for child in record['children']:
@@ -350,6 +390,11 @@ class ViewerCommandPortal(QtCore.QObject):
                 record['outcome'] = child['status']
         record.update(status=record['outcome'], finished_at=now())
         return True
+
+    @staticmethod
+    def _has_work_left(record):
+        """Whether the Viewer still works for record's command: its turn in the command queue, or a job."""
+        return _holds_queue(record) or any(j['status'] not in TERMINAL for j in record['jobs'])
 
     @staticmethod
     def _skip(record):
@@ -401,7 +446,7 @@ class ViewerCommandPortal(QtCore.QObject):
         awaiting user input keeps its place, as before.
         """
         pending = [job for job in record['jobs'] if job['status'] not in TERMINAL]
-        return (bool(pending) and all(job.get('releases_request') for job in pending)
+        return (bool(pending) and all(job.get('releases_request') for job in pending) and not _holds_queue(record)
                 and record is request['commands'][-1] and not record['children']
                 and record['status'] == 'running')
 

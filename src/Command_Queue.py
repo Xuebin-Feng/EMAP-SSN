@@ -24,7 +24,12 @@ if they had been typed one by one, and the Viewer keeps responding meanwhile.
 
 A module without plan() (not yet split) runs its whole run(viewer, args) on
 the GUI thread at its turn. When nothing waits, a command that is not heavy
-runs at once, as it always did, without becoming a job.
+runs at once, as it always did, without waiting in the queue.
+
+A command in the queue is not a background job (Background_Job_Scheduler): it
+has no number, the ``jobs`` command and the Session card do not list it, and
+``jobs cancel`` does not reach it. Undo typed by hand takes it back (take_back).
+Its command portal record says where it stands in the queue (ExecutionContext.join_queue).
 
 A failure at a command's turn cancels the commands given after it from the same
 place: typed at the command line, or by a script typed there. The command
@@ -34,7 +39,6 @@ the rest of a request itself.
 from __future__ import annotations
 
 import collections
-import itertools
 import queue as queue_module
 import threading
 import time
@@ -106,10 +110,9 @@ class Job:
     the live one only if nothing was selected by hand after it was given.
     """
 
-    def __init__(self, queue, viewer, job_id, line, name, args, module, plan, source, context, silent):
+    def __init__(self, queue, viewer, line, name, args, module, plan, source, context, silent):
         self.queue = queue
         self._viewer = weakref.ref(viewer)
-        self.job_id = job_id
         self.line = line
         self.name = name
         self.args = args
@@ -146,8 +149,8 @@ class Job:
         return self._viewer()
 
     def label(self):
-        """'#14 color red': how messages name the job."""
-        return f"#{self.job_id} {self.line}"
+        """'color red': how messages name the command; it has no number, which only a background job has."""
+        return self.line
 
     # --- the selection ---------------------------------------------------
 
@@ -262,16 +265,14 @@ class ManualExecutor:
 class CommandQueue(QtCore.QObject):
     """The Viewer's command queue (see the module docstring). Lives on the GUI thread."""
 
-    changed = QtCore.Signal()
     _computed = QtCore.Signal(object, object, object)
 
     HISTORY = 20
 
-    def __init__(self, viewer, *, executor=None, job_numbers=None):
+    def __init__(self, viewer, *, executor=None):
         super().__init__()
         self._viewer = weakref.ref(viewer)
         self.executor = executor if executor is not None else ThreadExecutor()
-        self._numbers = job_numbers if job_numbers is not None else itertools.count(1)
         self.jobs = []
         self.finished = collections.deque(maxlen=self.HISTORY)
         # True while a job's step runs on the GUI thread: undo and redo then belong to that job.
@@ -296,9 +297,6 @@ class CommandQueue(QtCore.QObject):
     def uses_module(self, command_name):
         """Whether a waiting or running job still has to run command_name's module."""
         return any(job.name == command_name for job in self.jobs)
-
-    def find(self, job_id):
-        return next((job for job in self.jobs if job.job_id == job_id), None)
 
     def running(self):
         """The job whose turn it is, or None."""
@@ -326,7 +324,7 @@ class CommandQueue(QtCore.QObject):
                 self._run_planned_now(viewer, module, plan)
             return None
 
-        job = Job(self, viewer, next(self._numbers), line, name, list(args), module, plan, source, context, silent)
+        job = Job(self, viewer, line, name, list(args), module, plan, source, context, silent)
         if self.jobs and self._last_given is not None and self._last_given_epoch == job.dispatch_epoch:
             job.previous = self._last_given
         else:
@@ -335,17 +333,15 @@ class CommandQueue(QtCore.QObject):
         self.jobs.append(job)
         self._last_given, self._last_given_epoch = job, job.dispatch_epoch
         if context is not None:
-            context.add_job(str(job.job_id), command=line, kind='command', description=line, cancellable=True)
+            context.join_queue()
         self._update_places()
         if ahead is not None:
-            message = Message("#{job} {command}: waiting for #{ahead} {ahead_command}.",
-                              job=job.job_id, command=line, ahead=ahead.job_id, ahead_command=ahead.line)
+            message = Message("{command}: waiting for {ahead_command}.", command=line, ahead_command=ahead.line)
             print(message)
             if not silent and hasattr(viewer, 'console_text'):
                 Command_Engine.show_status(viewer, message)
             if context is not None:
                 context.report(message=message)
-        self.changed.emit()
         self._pump(from_dispatch=True)
         return job
 
@@ -422,7 +418,6 @@ class CommandQueue(QtCore.QObject):
         job.resolve_selection()
         self._event(job, 'running')
         self._update_places()
-        self.changed.emit()
         if job.plan is LEGACY:
             self._step(job, viewer, lambda: Command_Engine.run_command_module(
                 viewer, job.module, job.name, list(job.args), job.silent))
@@ -517,24 +512,19 @@ class CommandQueue(QtCore.QObject):
             self._status_timer.stop()
         self._update_places()
         self._show_finished(job, viewer)
-        self.changed.emit()
         self._schedule(0)
 
     def _event(self, job, status, message=None):
-        """Tell the command portal record that gave job how it stands."""
+        """Tell the command portal record that gave job how it stands in the queue."""
         if job.context is None:
             return
-        job.context.job_event(str(job.job_id), status, message)
+        job.context.queue_event(status, message)
 
     def _update_places(self):
-        """Each waiting job's place in the line, in its portal record: position and the job ahead of it."""
+        """Each waiting job's place in the line, in its portal record."""
         for position, job in enumerate(self.jobs, 1):
-            if job.context is None:
-                continue
-            for entry in job.context.record['jobs']:
-                if entry['job_id'] == str(job.job_id):
-                    entry['position'] = position
-                    entry['waiting_for'] = str(self.jobs[position - 2].job_id) if position > 1 else None
+            if job.context is not None:
+                job.context.queue_place(position)
 
     def _cancel_after_failure(self, failed, viewer):
         """A command from the command line failed: cancel the later commands from there, which assumed it worked."""
@@ -543,13 +533,13 @@ class CommandQueue(QtCore.QObject):
         later = [job for job in self.jobs if job.source in COMMAND_LINE_SOURCES and job.status == 'queued']
         if not later:
             return
-        reason = Message("Cancelled: #{job}, given before it, failed.", job=failed.job_id)
+        reason = Message("Cancelled: {command}, given before it, failed.", command=failed.line)
         for job in later:
             job.cancel_requested = True
             self._finish(job, viewer, 'cancelled', reason)
-        note = Message("Cancelled %n command(s) given after #{job}, which failed: {commands}. "
+        note = Message("Cancelled %n command(s) given after {command}, which failed: {commands}. "
                        "Press Up at the command line to recall the ones you typed.",
-                       n=len(later), job=failed.job_id, commands=", ".join(job.label() for job in later))
+                       n=len(later), command=failed.line, commands=", ".join(job.label() for job in later))
         print(note)
         if viewer is not None and hasattr(viewer, 'set_background_job_status'):
             viewer.set_background_job_status(note)
@@ -578,9 +568,6 @@ class CommandQueue(QtCore.QObject):
             self.cancel(job, reason)
             cancelled.append(job)
         return cancelled
-
-    def cancel_all(self, reason=None):
-        return self.cancel_newest(len(self.jobs), reason)
 
     def take_back(self, count=1):
         """Undo by hand while commands wait: cancel the newest count of them.
@@ -616,16 +603,14 @@ class CommandQueue(QtCore.QObject):
             except RuntimeError:
                 pass
         self.executor.shutdown()
-        if viewer is not None:
-            self.changed.emit()
 
     # --- the status line -----------------------------------------------------
 
     @staticmethod
     def _copy_progress(job):
-        """Show the progress text a compute step reports in the job's command portal entry, as `progress`."""
+        """Show the progress text a compute step reports in the job's command portal record, as `progress`."""
         if job.context is not None and job.progress_text:
-            job.context.job_progress(str(job.job_id), job.progress_text)
+            job.context.queue_progress(job.progress_text)
 
     def _show_running(self):
         viewer = self._viewer()
@@ -638,11 +623,10 @@ class CommandQueue(QtCore.QObject):
             return
         seconds = f"{job.seconds():.0f}"
         if job.progress_text:
-            parts = [Message("Running #{job} {command}: {progress} ({seconds} s).", job=job.job_id,
+            parts = [Message("Running {command}: {progress} ({seconds} s).",
                              command=job.line, progress=job.progress_text, seconds=seconds)]
         else:
-            parts = [Message("Running #{job} {command} ({seconds} s).", job=job.job_id, command=job.line,
-                             seconds=seconds)]
+            parts = [Message("Running {command} ({seconds} s).", command=job.line, seconds=seconds)]
         waiting = len(self.jobs) - 1
         if waiting:
             parts.append(Message("%n more command(s) waiting.", n=waiting))
@@ -655,9 +639,9 @@ class CommandQueue(QtCore.QObject):
             return  # Cancellation says so itself.
         seconds = f"{job.seconds():.1f}"
         if job.status == 'succeeded':
-            message = Message("#{job} {command} finished in {seconds} s.", job=job.job_id, command=job.line, seconds=seconds)
+            message = Message("{command} finished in {seconds} s.", command=job.line, seconds=seconds)
         else:
-            message = Message("#{job} {command} failed after {seconds} s.", job=job.job_id, command=job.line, seconds=seconds)
+            message = Message("{command} failed after {seconds} s.", command=job.line, seconds=seconds)
         if self.jobs:
             message = JoinedMessage([message, Message("%n more command(s) waiting.", n=len(self.jobs))])
         viewer.set_background_job_status(message)

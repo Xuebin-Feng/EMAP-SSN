@@ -29,7 +29,7 @@ from PySide6.QtCore import QCoreApplication, QEvent, QPoint, Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
-from desktop.Viewer_Jobs import JobLane, JobRow, ViewerJobs, job_lanes  # noqa: E402
+from desktop.Viewer_Jobs import JobLane, JobRow, ViewerJobs, job_lanes, job_lines  # noqa: E402
 from desktop.Viewer_Jobs_Card import ElidedLabel, JobsSection, clock  # noqa: E402
 from desktop.Viewer_Widgets import ControlsButton  # noqa: E402
 from tests.test_viewer_widgets import RecordingCanvas, flush, shipped_actions  # noqa: E402
@@ -402,6 +402,14 @@ class ViewerJobsTests(ScheduledJobsCase):
         self.assertEqual(files[1].description, "b description")
         self.assertEqual(files[1].path, self.path("b"))
 
+    def test_the_badge_lines_name_the_background_jobs_and_nothing_else(self):
+        self.assertEqual(job_lines(self.scheduler), [])
+        self.assertEqual(job_lines(None), [])
+        first, entered = self.hold("a")
+        self.assertTrue(entered.wait(10))
+        second, _ = self.hold("b")
+        self.assertEqual(job_lines(self.scheduler), [f"#{first} running: a description", f"#{second} waiting: b description"])
+
     def test_a_lane_with_nothing_in_it_is_not_listed(self):
         self.scheduler.register_lane("folding", Message("Folding"))
         self.assertEqual(self.jobs.lanes(), [])
@@ -461,6 +469,37 @@ class ViewerJobsTests(ScheduledJobsCase):
             with mock.patch("desktop.Viewer_Jobs.viewer_shows_windows", return_value=False):
                 self.assertFalse(self.jobs.open_log(job_id), "nobody is at the Viewer")
             services.open_path.assert_not_called()
+
+
+class JobsBesideCommandsTests(ScheduledJobsCase):
+    """Cluster and the commands that wait behind it are not background jobs: the lists and the numbers leave them out."""
+
+    def setUp(self):
+        super().setUp()
+        import io
+        from contextlib import redirect_stdout
+        from tests.test_command_queue import QueueViewer
+        self.queue_viewer = QueueViewer()
+        self.addCleanup(self.queue_viewer.close)
+        self.addCleanup(self.queue_viewer.command_queue.shutdown)
+        self.queue_viewer.background_job_scheduler = self.scheduler
+        output = redirect_stdout(io.StringIO())
+        output.__enter__()
+        self.addCleanup(output.__exit__, None, None, None)
+
+    def test_the_lists_hold_no_command_and_the_first_job_is_number_one(self):
+        from tests.test_command_queue import CLUSTER
+        self.queue_viewer.type(CLUSTER)
+        self.queue_viewer.type("color red")
+        self.assertEqual(len(self.queue_viewer.command_queue.pending()), 2)
+        self.assertEqual((self.jobs.lanes(), job_lines(self.scheduler)), ([], []))
+        first, entered = self.hold("a")
+        self.assertTrue(entered.wait(10))
+        self.assertEqual(first, 1)
+        (lane,) = self.jobs.lanes()
+        self.assertEqual([(row.job_id, row.state) for row in lane.rows], [(1, "running")])
+        self.assertEqual(job_lines(self.scheduler), ["#1 running: a description"])
+        self.assertEqual(len(self.queue_viewer.command_queue.pending()), 2)
 
 
 class SectionOverSchedulerTests(ScheduledJobsCase):

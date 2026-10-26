@@ -4774,7 +4774,7 @@ Command-line usage:
         <location filename="../../../commands/export.py" line="+120"/>
         <location filename="../../../commands/group.py" line="+141"/>
         <location filename="../../../commands/help.py" line="-55"/>
-        <location filename="../../../commands/jobs.py" line="+216"/>
+        <location filename="../../../commands/jobs.py" line="+201"/>
         <location filename="../../../commands/label.py" line="+18"/>
         <location filename="../../../commands/logo.py" line="-149"/>
         <location filename="../../../commands/meta.py" line="-137"/>
@@ -6851,7 +6851,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1453"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1452"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -6919,7 +6919,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+433"/>
+        <location line="+432"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -7248,7 +7248,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">HDF5 残基编码 {code} 必须映射到字符串。</translation>
     </message>
     <message>
-        <location filename="../../../Viewer_Command_Portal.py" line="+269"/>
+        <location filename="../../../Viewer_Command_Portal.py" line="+309"/>
         <source>Viewer command portal is shutting down.</source>
         <translation type="unfinished">查看器的命令入口正在关闭。</translation>
     </message>
@@ -7268,7 +7268,7 @@ EMAP-SSN 的集成代码采用 Apache-2.0 许可，但单独下载的模型权�
         <translation type="unfinished">查看器的命令队列已满；请稍后用相同的 submission_id 重试</translation>
     </message>
     <message>
-        <location line="+195"/>
+        <location line="+200"/>
         <source>That command is not waiting to be run or discarded.</source>
         <translation type="unfinished">该命令当前不处于待运行或待丢弃状态。</translation>
     </message>
@@ -8992,25 +8992,39 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">此结构的逐残基数据中没有可用的属性。</translation>
     </message>
     <message>
-        <location filename="../../../Command_Queue.py" line="+312"/>
+        <location filename="../../../Command_Queue.py" line="+310"/>
         <source>The command queue is shutting down.</source>
         <translation type="unfinished">命令队列正在关闭。</translation>
     </message>
     <message>
-        <location line="+29"/>
         <source>#{job} {command}: waiting for #{ahead} {ahead_command}.</source>
-        <translation type="unfinished">#{job} {command}：正在等待 #{ahead} {ahead_command}。</translation>
+        <translation type="obsolete">#{job} {command}：正在等待 #{ahead} {ahead_command}。</translation>
     </message>
     <message>
-        <location line="+205"/>
         <source>Cancelled: #{job}, given before it, failed.</source>
-        <translation type="unfinished">已取消：在它之前提交的 #{job} 失败了。</translation>
+        <translation type="obsolete">已取消：在它之前提交的 #{job} 失败了。</translation>
+    </message>
+    <message numerus="yes">
+        <source>Cancelled %n command(s) given after #{job}, which failed: {commands}. Press Up at the command line to recall the ones you typed.</source>
+        <translation type="obsolete">
+            <numerusform>#{job} 失败，已取消在它之后提交的 %n 条命令：{commands}。在命令行按向上键可找回您输入的命令。</numerusform>
+        </translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>{command}: waiting for {ahead_command}.</source>
+        <translation type="unfinished">{command}：正在等待 {ahead_command}。</translation>
+    </message>
+    <message>
+        <location line="+197"/>
+        <source>Cancelled: {command}, given before it, failed.</source>
+        <translation type="unfinished">已取消：在它之前提交的 {command} 失败了。</translation>
     </message>
     <message numerus="yes">
         <location line="+4"/>
-        <source>Cancelled %n command(s) given after #{job}, which failed: {commands}. Press Up at the command line to recall the ones you typed.</source>
+        <source>Cancelled %n command(s) given after {command}, which failed: {commands}. Press Up at the command line to recall the ones you typed.</source>
         <translation type="unfinished">
-            <numerusform>#{job} 失败，已取消在它之后提交的 %n 条命令：{commands}。在命令行按向上键可找回您输入的命令。</numerusform>
+            <numerusform>{command} 失败，已取消在它之后提交的 %n 条命令：{commands}。在命令行按向上键可找回您输入的命令。</numerusform>
         </translation>
     </message>
     <message>
@@ -9019,7 +9033,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">在完成前已取消。</translation>
     </message>
     <message>
-        <location line="+20"/>
+        <location line="+17"/>
         <source>Cancelled by undo before it finished.</source>
         <translation type="unfinished">在完成前已被撤销取消。</translation>
     </message>
@@ -9036,17 +9050,35 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已取消：查看器已关闭。</translation>
     </message>
     <message>
-        <location line="+26"/>
-        <source>Running #{job} {command}: {progress} ({seconds} s).</source>
-        <translation type="unfinished">正在运行 #{job} {command}：{progress}（{seconds} 秒）。</translation>
+        <location line="+24"/>
+        <source>Running {command}: {progress} ({seconds} s).</source>
+        <translation type="unfinished">正在运行 {command}：{progress}（{seconds} 秒）。</translation>
     </message>
     <message>
         <location line="+3"/>
+        <source>Running {command} ({seconds} s).</source>
+        <translation type="unfinished">正在运行 {command}（{seconds} 秒）。</translation>
+    </message>
+    <message>
+        <location line="+13"/>
+        <source>{command} finished in {seconds} s.</source>
+        <translation type="unfinished">{command} 已完成，用时 {seconds} 秒。</translation>
+    </message>
+    <message>
+        <location line="+2"/>
+        <source>{command} failed after {seconds} s.</source>
+        <translation type="unfinished">{command} 在 {seconds} 秒后失败。</translation>
+    </message>
+    <message>
+        <source>Running #{job} {command}: {progress} ({seconds} s).</source>
+        <translation type="obsolete">正在运行 #{job} {command}：{progress}（{seconds} 秒）。</translation>
+    </message>
+    <message>
         <source>Running #{job} {command} ({seconds} s).</source>
-        <translation type="unfinished">正在运行 #{job} {command}（{seconds} 秒）。</translation>
+        <translation type="obsolete">正在运行 #{job} {command}（{seconds} 秒）。</translation>
     </message>
     <message numerus="yes">
-        <location line="+4"/>
+        <location line="-12"/>
         <location line="+14"/>
         <source>%n more command(s) waiting.</source>
         <translation type="unfinished">
@@ -9054,14 +9086,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message>
-        <location line="-4"/>
         <source>#{job} {command} finished in {seconds} s.</source>
-        <translation type="unfinished">#{job} {command} 已完成，用时 {seconds} 秒。</translation>
+        <translation type="obsolete">#{job} {command} 已完成，用时 {seconds} 秒。</translation>
     </message>
     <message>
-        <location line="+2"/>
         <source>#{job} {command} failed after {seconds} s.</source>
-        <translation type="unfinished">#{job} {command} 在 {seconds} 秒后失败。</translation>
+        <translation type="obsolete">#{job} {command} 在 {seconds} 秒后失败。</translation>
     </message>
     <message numerus="yes">
         <source>%n job(s) waiting or running; the list is in the terminal.</source>
@@ -9070,50 +9100,56 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/jobs.py" line="-76"/>
         <source>No commands wait or run, and no file is being written.</source>
-        <translation type="unfinished">没有等待或运行中的命令，也没有正在写入的文件。</translation>
+        <translation type="obsolete">没有等待或运行中的命令，也没有正在写入的文件。</translation>
     </message>
     <message>
-        <location line="+12"/>
         <source>Cancelled with jobs cancel.</source>
-        <translation type="unfinished">已用 jobs cancel 取消。</translation>
+        <translation type="obsolete">已用 jobs cancel 取消。</translation>
     </message>
     <message>
-        <location line="+15"/>
+        <location filename="../../../commands/jobs.py" line="-44"/>
         <source>Error: &apos;{word}&apos; is not a job number. Use jobs cancel N, or jobs cancel all.</source>
         <translation type="unfinished">错误：“{word}”不是任务编号。请使用 jobs cancel N 或 jobs cancel all。</translation>
     </message>
     <message>
-        <location line="+10"/>
         <source>Error: No job #{job} waits or runs; nothing was cancelled.</source>
-        <translation type="unfinished">错误：没有等待或运行中的任务 #{job}；未取消任何任务。</translation>
+        <translation type="obsolete">错误：没有等待或运行中的任务 #{job}；未取消任何任务。</translation>
     </message>
     <message>
         <source>Error: Job #{job} is writing its file and cannot be cancelled; nothing was cancelled.</source>
         <translation type="obsolete">错误：任务 #{job} 正在写入文件，无法取消；未取消任何任务。</translation>
     </message>
     <message>
-        <location line="+17"/>
         <source>Nothing to cancel: no command waits or runs.</source>
-        <translation type="unfinished">没有可取消的内容：没有等待或运行中的命令。</translation>
+        <translation type="obsolete">没有可取消的内容：没有等待或运行中的命令。</translation>
     </message>
     <message numerus="yes">
-        <location line="-8"/>
+        <location line="+14"/>
         <source>Cancelled %n job(s): {jobs}.</source>
         <translation type="unfinished">
             <numerusform>已取消 %n 个任务：{jobs}。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location line="-48"/>
+        <location line="-39"/>
         <source>%n job(s) waiting or running; the list is in the Console.</source>
         <translation type="unfinished">
             <numerusform>有 %n 个任务在等待或运行；列表已输出到控制台。</numerusform>
         </translation>
     </message>
+    <message>
+        <location line="+2"/>
+        <source>No background job waits or runs.</source>
+        <translation type="unfinished">没有等待或运行中的后台任务。</translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>Error: No background job #{job} waits or runs; nothing was cancelled.</source>
+        <translation type="unfinished">错误：没有等待或运行中的后台任务 #{job}；未取消任何任务。</translation>
+    </message>
     <message numerus="yes">
-        <location line="+51"/>
+        <location line="+11"/>
         <source>Told %n running job(s) to stop: {jobs}. Each ends at its next step; until then jobs lists it as stopping.</source>
         <translation type="unfinished">
             <numerusform>已要求 %n 个运行中的任务停止：{jobs}。每个任务会在下一步结束；在此之前 jobs 会将其列为正在停止。</numerusform>
@@ -9125,12 +9161,17 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已在停止：{jobs}。</translation>
     </message>
     <message>
-        <location line="+23"/>
+        <location line="+2"/>
+        <source>Nothing to cancel: no background job waits or runs.</source>
+        <translation type="unfinished">没有可取消的内容：没有等待或运行中的后台任务。</translation>
+    </message>
+    <message>
+        <location line="+21"/>
         <source>Error: Unrecognized jobs argument &apos;{argument}&apos;.</source>
         <translation type="unfinished">错误：无法识别的 jobs 参数“{argument}”。</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../desktop/Viewer_Jobs.py" line="+41"/>
+        <location filename="../../../desktop/Viewer_Jobs.py" line="+42"/>
         <source>%n job(s)</source>
         <translation type="unfinished">
             <numerusform>%n 个任务</numerusform>
@@ -13016,7 +13057,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-1935"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-1934"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>

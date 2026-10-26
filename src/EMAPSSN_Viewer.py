@@ -996,12 +996,11 @@ class MainViewer:
         # --- 4. Draw Initial State ---
         self.draw_network()
         self.create_hud()
-        # One count numbers the commands that wait their turn and the files being written.
-        self._job_numbers = itertools.count(1)
-        self.background_job_scheduler = BackgroundJobScheduler(self, job_numbers=self._job_numbers)
-        # Commands that read or change the network run here, one at a time, in the order given.
-        self.command_queue = CommandQueue(self, job_numbers=self._job_numbers)
-        self.command_queue.changed.connect(self._refresh_jobs_badge)
+        # The background jobs (files, folds) run in lanes of their own, numbered by the scheduler.
+        self.background_job_scheduler = BackgroundJobScheduler(self)
+        # Commands that read or change the network run here, one at a time, in the order given. They are not
+        # background jobs: they have no number, and the badge and the card do not list them.
+        self.command_queue = CommandQueue(self)
         # The badge and the Session card's Background jobs list follow the scheduler's lanes.
         self.background_job_scheduler.changed.connect(self._on_background_jobs_changed)
         if hasattr(self.canvas.events, "close"):
@@ -3322,7 +3321,7 @@ class MainViewer:
         return left - 10
 
     def _build_jobs_badge(self):
-        """The jobs badge (desktop.Viewer_Jobs): shown while commands wait or run, or files are written."""
+        """The jobs badge (desktop.Viewer_Jobs): shown while a background job waits or runs."""
         self.jobs_badge = JobsBadge(self.canvas)
         self.reposition_expand_btn()
 
@@ -3336,8 +3335,7 @@ class MainViewer:
     def _refresh_jobs_badge(self):
         badge = getattr(self, 'jobs_badge', None)
         if badge is not None:
-            badge.show_jobs(job_lines(getattr(self, 'command_queue', None),
-                                      getattr(self, 'background_job_scheduler', None)))
+            badge.show_jobs(job_lines(getattr(self, 'background_job_scheduler', None)))
 
     def _note_hand_selection(self):
         """A selection was made by hand: it is newer than every command given so far."""

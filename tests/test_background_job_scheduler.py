@@ -113,6 +113,18 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
                 if reveal.called:
                     reveal.assert_called_once_with(directory)
 
+    def test_each_scheduler_numbers_its_own_jobs_from_one_and_takes_no_count_from_outside(self):
+        # The number of a job is the order the scheduler was given it in: nothing else draws from it.
+        import inspect
+        self.assertNotIn("job_numbers", inspect.signature(BackgroundJobScheduler).parameters)
+        for _run in range(2):
+            scheduler = BackgroundJobScheduler(ViewerStub())
+            self.addCleanup(scheduler.shutdown)
+            with tempfile.TemporaryDirectory() as directory:
+                numbers = [scheduler.enqueue("test", f"job {n}", None, lambda payload: {}, os.path.join(directory, f"{n}.out"))
+                           for n in range(3)]
+            self.assertEqual(numbers, [1, 2, 3])
+
     def test_a_viewer_that_is_gone_reveals_nothing(self):
         scheduler = BackgroundJobScheduler(ViewerStub())
         self.addCleanup(scheduler.shutdown)

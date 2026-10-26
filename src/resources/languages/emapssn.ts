@@ -3264,15 +3264,15 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>#{job} {command}: waiting for #{ahead} {ahead_command}.</source>
+        <source>{command}: waiting for {ahead_command}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Cancelled: #{job}, given before it, failed.</source>
+        <source>Cancelled: {command}, given before it, failed.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <source>Cancelled %n command(s) given after #{job}, which failed: {commands}. Press Up at the command line to recall the ones you typed.</source>
+        <source>Cancelled %n command(s) given after {command}, which failed: {commands}. Press Up at the command line to recall the ones you typed.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
@@ -3296,11 +3296,11 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Running #{job} {command}: {progress} ({seconds} s).</source>
+        <source>Running {command}: {progress} ({seconds} s).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Running #{job} {command} ({seconds} s).</source>
+        <source>Running {command} ({seconds} s).</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
@@ -3310,11 +3310,11 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <source>#{job} {command} finished in {seconds} s.</source>
+        <source>{command} finished in {seconds} s.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>#{job} {command} failed after {seconds} s.</source>
+        <source>{command} failed after {seconds} s.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3968,11 +3968,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <source>No commands wait or run, and no file is being written.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Cancelled with jobs cancel.</source>
+        <source>No background job waits or runs.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3980,7 +3976,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: No job #{job} waits or runs; nothing was cancelled.</source>
+        <source>Error: No background job #{job} waits or runs; nothing was cancelled.</source>
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
@@ -4000,7 +3996,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Nothing to cancel: no command waits or runs.</source>
+        <source>Nothing to cancel: no background job waits or runs.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

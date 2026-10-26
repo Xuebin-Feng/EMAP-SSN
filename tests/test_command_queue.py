@@ -186,7 +186,9 @@ class OrderTests(QueueTestCase):
         self.assertIsNone(viewer.cluster_labels)
         self.assertEqual(viewer.selected_indices, [])
         self.assertEqual(self.red_nodes(), [])
-        self.assertIn("waiting for #1 cluster jaccard 0.5 3", self.output.getvalue())
+        # The commands that wait are named by their line: a command in the queue has no number.
+        self.assertIn("select #cluster_1#: waiting for cluster jaccard 0.5 3.", self.output.getvalue())
+        self.assertIn("color red: waiting for select #cluster_1#.", self.output.getvalue())
 
         self.finish_compute()
 
@@ -339,51 +341,63 @@ class SelectionTimelineTests(QueueTestCase):
 
 
 class CancelAndUndoTests(QueueTestCase):
-    def test_jobs_cancel_removes_a_waiting_command_and_the_others_run(self):
+    """A waiting or running command is taken back by undo, not by jobs, which is about background jobs."""
+
+    def test_undo_cancels_a_waiting_command_and_the_others_run(self):
         viewer = self.viewer
         viewer.type(CLUSTER)
         viewer.type("select #cluster_1#")
         viewer.type("color red")
-        viewer.type("jobs cancel 3")
-        self.assertIn("Cancelled 1 job: #3 color red.", self.output.getvalue())
+        viewer.type("undo")
+        self.assertIn("Undo: cancelled 1 command that had not finished: color red.", self.output.getvalue())
         self.finish_compute()
         self.assertEqual(self.red_nodes(), [])
         self.assertEqual(sorted(viewer.selected_indices), [0, 1, 2, 3])
         self.assertEqual([job.status for job in viewer.queue.finished], ['cancelled', 'succeeded', 'succeeded'])
 
-    def test_cancelling_a_running_compute_throws_its_result_away(self):
+    def test_undo_cancels_a_running_compute_and_throws_its_result_away(self):
         viewer = self.viewer
         viewer.type(CLUSTER)
         viewer.type("color red")
-        viewer.type("jobs cancel 1")
+        viewer.type("undo 2")
         # The command after it went on at once; the compute's result, when it comes, is dropped.
         self.settle()
         self.assertEqual(viewer.queue.pending(), [])
         self.finish_compute()
         self.assertIsNone(viewer.cluster_labels)
         self.assertEqual(viewer.saved, 0)  # color red matched nothing: no selection
+        self.assertEqual([job.status for job in viewer.queue.finished], ['cancelled', 'cancelled'])
 
-    def test_jobs_cancel_with_an_unknown_number_cancels_nothing(self):
+    def test_jobs_cancel_does_not_reach_a_waiting_or_running_command(self):
         viewer = self.viewer
         viewer.type(CLUSTER)
         viewer.type("color red")
-        viewer.type("jobs cancel 2 9")
-        self.assertEqual(len(viewer.queue.pending()), 2)
-        self.assertIn("Error: No job #9 waits or runs; nothing was cancelled.", self.output.getvalue())
+        for command in ("jobs cancel", "jobs cancel all"):
+            with self.subTest(command=command):
+                viewer.type(command)
+                self.assertEqual(viewer.console_text.text, "Nothing to cancel: no background job waits or runs.")
+                self.assertEqual([job.status for job in viewer.queue.pending()], ['running', 'queued'])
 
-    def test_jobs_cancel_all_and_the_listing(self):
+    def test_a_number_names_no_command_even_where_one_would_have_had_it(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("color red")
+        viewer.type("jobs cancel 1 2")
+        self.assertEqual(len(viewer.queue.pending()), 2)
+        self.assertIn("Error: No background job #1 waits or runs; nothing was cancelled.", self.output.getvalue())
+        self.assertNotIn("Cancelled", self.output.getvalue())
+
+    def test_jobs_lists_no_command_of_the_queue(self):
         viewer = self.viewer
         viewer.type(CLUSTER)
         viewer.type("color red")
         viewer.type("jobs")
         listing = self.output.getvalue()
-        self.assertIn("#1     running", listing)
-        self.assertIn("#2     waiting", listing)
-        self.assertEqual(viewer.console_text.text, "2 jobs waiting or running; the list is in the Console.")
-        viewer.type("jobs cancel all")
-        self.assertEqual(viewer.queue.pending(), [])
-        viewer.type("jobs cancel")
-        self.assertEqual(viewer.console_text.text, "Nothing to cancel: no command waits or runs.")
+        self.assertNotIn(CLUSTER + "  (", listing)
+        self.assertNotIn("running  ", listing)
+        self.assertNotIn("waiting  ", listing)
+        self.assertEqual(viewer.console_text.text, "No background job waits or runs.")
+        self.assertEqual(len(viewer.queue.pending()), 2)
 
     def test_undo_by_hand_cancels_the_newest_waiting_command_then_undoes(self):
         viewer = self.viewer
@@ -391,7 +405,7 @@ class CancelAndUndoTests(QueueTestCase):
         viewer.type("color red")
         viewer.type("undo")
         self.assertEqual([job.line for job in viewer.queue.pending()], [CLUSTER])
-        self.assertIn("Undo: cancelled 1 command that had not finished: #2 color red.", self.output.getvalue())
+        self.assertIn("Undo: cancelled 1 command that had not finished: color red.", self.output.getvalue())
         viewer.type("undo")
         self.assertEqual(viewer.queue.pending(), [])
         self.assertEqual(viewer.undone, 0)
@@ -460,7 +474,7 @@ class FailureTests(QueueTestCase):
         statuses = [(job.line, job.status) for job in viewer.queue.finished]
         self.assertEqual(statuses, [(CLUSTER, 'succeeded'), ("subcluster cluster_9", 'failed'),
                                     ("color red", 'cancelled'), ("hide", 'cancelled')])
-        self.assertIn("Cancelled 2 commands given after #2, which failed: #3 color red, #4 hide.",
+        self.assertIn("Cancelled 2 commands given after subcluster cluster_9, which failed: color red, hide.",
                       self.output.getvalue())
         self.assertEqual(viewer.saved, 1)
 
@@ -485,17 +499,12 @@ class FailureTests(QueueTestCase):
 
 
 class FileJobTests(QueueTestCase):
-    """jobs lists and cancels the background scheduler's file jobs too, numbered with the commands."""
+    """jobs lists and cancels the background scheduler's jobs, and only those: the commands in the queue have no number."""
 
     def setUp(self):
         super().setUp()
-        import itertools
         from Background_Job_Scheduler import BackgroundJobScheduler
-        numbers = itertools.count(1)
-        self.viewer.command_queue.shutdown()
-        self.viewer.command_queue = CommandQueue(self.viewer, executor=ManualExecutor(), job_numbers=numbers)
-        self.addCleanup(self.viewer.command_queue.shutdown)
-        self.scheduler = BackgroundJobScheduler(self.viewer, job_numbers=numbers)
+        self.scheduler = BackgroundJobScheduler(self.viewer)
         self.viewer.background_job_scheduler = self.scheduler
         self.addCleanup(self.scheduler.shutdown)
         self.folder = tempfile.TemporaryDirectory()
@@ -539,62 +548,137 @@ class FileJobTests(QueueTestCase):
         self.app.processEvents()
         return condition()
 
+    def finish_jobs(self):
+        """Let the job that holds its thread go on, and wait until the line is empty: no file is open afterwards."""
+        self.release.set()
+        self.assertTrue(self.wait_for(lambda: self.scheduler.listing() == []))
+
     def test_a_file_job_not_started_is_dropped_and_one_being_written_is_stopped(self):
-        self.viewer.type(CLUSTER)  # job 1
-        writing = self.enqueue("first")  # job 2
+        self.viewer.type(CLUSTER)  # a command in the queue: no job number
+        writing = self.enqueue("first")
         self.assertTrue(self.started.wait(10))
-        waiting = self.enqueue("second")  # job 3
-        after = self.enqueue("third")  # job 4
-        self.assertEqual((writing, waiting, after), (2, 3, 4))
+        waiting = self.enqueue("second")
+        after = self.enqueue("third")
+        self.assertEqual((writing, waiting, after), (1, 2, 3))
         self.viewer.type("jobs")
         listing = self.output.getvalue()
-        self.assertIn("#2     running", listing)
-        self.assertIn("#3     waiting", listing)
-        self.viewer.type("jobs cancel 3")
-        self.assertIn("Cancelled 1 job: #3 logo -> second.svg.", self.output.getvalue())
+        self.assertIn("#1     running", listing)
+        self.assertIn("#2     waiting", listing)
+        self.viewer.type("jobs cancel 2")
+        self.assertIn("Cancelled 1 job: #2 logo -> second.svg.", self.output.getvalue())
         self.assertFalse(self.scheduler.is_output_path_reserved(str(self.path("second.svg"))))
         # The one being written is told to stop, and is not called cancelled before it has: it stops at its
         # next check point, not before.
         self.output.truncate(0)
         self.output.seek(0)
-        self.viewer.type("jobs cancel 2")
-        self.assertIn("Told 1 running job to stop: #2 logo -> first.svg.", self.output.getvalue())
+        self.viewer.type("jobs cancel 1")
+        self.assertIn("Told 1 running job to stop: #1 logo -> first.svg.", self.output.getvalue())
         self.assertNotIn("Cancelled", self.output.getvalue())
         self.assertNotIn("cannot be cancelled", self.output.getvalue())
         self.output.truncate(0)
         self.output.seek(0)
-        self.viewer.type("jobs cancel 2")
-        self.assertIn("Already stopping: #2 logo -> first.svg.", self.output.getvalue())
+        self.viewer.type("jobs cancel 1")
+        self.assertIn("Already stopping: #1 logo -> first.svg.", self.output.getvalue())
         self.assertNotIn("Told", self.output.getvalue())
         self.assertTrue(self.path(".first.partial.svg").exists())
         self.output.truncate(0)
         self.output.seek(0)
         self.viewer.type("jobs")
-        self.assertIn("#2     stopping", self.output.getvalue())
+        self.assertIn("#1     stopping", self.output.getvalue())
+        self.assertEqual([job.status for job in self.viewer.queue.pending()], ['running'], "the cluster was left alone")
         self.release.set()
-        self.assertTrue(self.wait_for(lambda: (2, True) in self.cancelled and "third" in self.ran))
-        self.assertEqual(sorted(self.cancelled), [(2, True), (3, False)])
+        self.assertTrue(self.wait_for(lambda: (1, True) in self.cancelled and "third" in self.ran))
+        self.assertEqual(sorted(self.cancelled), [(1, True), (2, False)])
         self.assertEqual(self.ran, ["third"], "the line goes on with the job after it")
         self.assertFalse(self.path(".first.partial.svg").exists(), "the unfinished file is deleted")
         self.assertFalse(self.path("first.svg").exists())
         self.assertTrue(self.wait_for(lambda: self.scheduler.listing() == []))
         self.assertFalse(self.scheduler.is_output_path_reserved(str(self.path("first.svg"))))
 
-    def test_cancel_all_takes_in_the_file_being_written_and_the_ones_waiting(self):
-        self.viewer.type(CLUSTER)  # job 1
-        self.enqueue("first")  # job 2
+    def test_cancel_all_takes_in_the_file_being_written_and_the_ones_waiting_but_no_command(self):
+        self.viewer.type(CLUSTER)
+        self.viewer.type("color red")
+        self.enqueue("first")  # job 1
         self.assertTrue(self.started.wait(10))
-        self.enqueue("second")  # job 3
+        self.enqueue("second")  # job 2
         self.viewer.type("jobs cancel all")
         text = self.output.getvalue()
-        # The waiting ones are cancelled; the one being written is told to stop, which is not the same.
-        self.assertIn("Cancelled 2 jobs: #1 cluster jaccard 0.5 3, #3 logo -> second.svg.", text)
-        self.assertIn("Told 1 running job to stop: #2 logo -> first.svg.", text)
+        # The waiting one is cancelled; the one being written is told to stop, which is not the same.
+        self.assertIn("Cancelled 1 job: #2 logo -> second.svg.", text)
+        self.assertIn("Told 1 running job to stop: #1 logo -> first.svg.", text)
+        self.assertEqual([job.line for job in self.viewer.queue.pending()], [CLUSTER, "color red"],
+                         "the commands in the queue were not cancelled")
         self.release.set()
         self.assertTrue(self.wait_for(lambda: len(self.cancelled) == 2))
-        self.assertEqual(sorted(self.cancelled), [(2, True), (3, False)])
+        self.assertEqual(sorted(self.cancelled), [(1, True), (2, False)])
         self.assertEqual(self.ran, [])
         self.assertFalse(self.path(".first.partial.svg").exists())
+
+    def test_jobs_lists_the_background_jobs_and_no_command_of_the_queue(self):
+        self.viewer.type(CLUSTER)
+        self.viewer.type("color red")
+        self.enqueue("first")
+        self.assertTrue(self.started.wait(10))
+        self.enqueue("second")
+        self.viewer.type("jobs")
+        listing = self.output.getvalue()
+        self.assertRegex(listing, r"#1\s+running\s+logo -> first\.svg\s+\(files\)")
+        self.assertRegex(listing, r"#2\s+waiting\s+logo -> second\.svg\s+\(files\)")
+        self.assertNotIn("color red  (", listing)
+        self.assertNotIn(CLUSTER + "  (", listing)
+        self.assertNotIn("Finished lately", listing)
+        self.assertEqual(self.viewer.console_text.text, "2 jobs waiting or running; the list is in the Console.")
+        self.finish_jobs()
+
+    def test_a_bare_cancel_cancels_the_newest_background_job_and_no_command(self):
+        self.viewer.type(CLUSTER)
+        self.viewer.type("color red")
+        self.enqueue("first")  # job 1
+        self.assertTrue(self.started.wait(10))
+        self.enqueue("second")  # job 2
+        self.viewer.type("jobs cancel")
+        self.assertIn("Cancelled 1 job: #2 logo -> second.svg.", self.output.getvalue())
+        self.assertEqual(len(self.viewer.queue.pending()), 2)
+        self.output.truncate(0)
+        self.output.seek(0)
+        self.viewer.type("jobs cancel")
+        self.assertIn("Told 1 running job to stop: #1 logo -> first.svg.", self.output.getvalue())
+        self.assertEqual(len(self.viewer.queue.pending()), 2)
+        self.finish_jobs()
+
+    def test_background_jobs_are_numbered_from_one_whatever_commands_ran_or_waited(self):
+        self.viewer.type(CLUSTER)
+        self.viewer.type("subcluster cluster_1 jaccard 0.5 3")
+        self.viewer.type("color red")
+        self.assertEqual(self.enqueue("first"), 1)
+        self.finish_compute()
+        self.finish_compute()
+        self.assertEqual(self.viewer.queue.pending(), [])
+        self.assertEqual([self.enqueue("second"), self.enqueue("third")], [2, 3])
+        self.viewer.type(CLUSTER)
+        self.assertEqual(self.enqueue("fourth"), 4)
+        self.assertTrue(self.started.wait(10))
+        self.assertEqual([entry.job.job_id for entry in self.scheduler.snapshot()], [1, 2, 3, 4])
+        self.finish_jobs()
+
+    def test_a_command_in_the_queue_has_no_job_number(self):
+        self.viewer.type(CLUSTER)
+        self.viewer.type("color red")
+        for job in self.viewer.queue.pending():
+            self.assertFalse(hasattr(job, "job_id"))
+        self.assertNotRegex(self.output.getvalue(), r"#[0-9]")
+        self.assertEqual(self.enqueue("first"), 1, "the first background job is #1 though two commands came before it")
+        self.finish_jobs()
+
+    def test_undo_still_cancels_a_waiting_command_beside_background_jobs(self):
+        self.viewer.type(CLUSTER)
+        self.viewer.type("color red")
+        self.enqueue("first")
+        self.assertTrue(self.started.wait(10))
+        self.viewer.type("undo")
+        self.assertEqual([job.line for job in self.viewer.queue.pending()], [CLUSTER])
+        self.assertEqual([entry.job.job_id for entry in self.scheduler.snapshot()], [1], "the job was left alone")
+        self.finish_jobs()
 
     def test_the_jobs_waiting_behind_a_running_one_are_taken_out_before_it_is_told_to_stop(self):
         # The running job ends the moment it is told to, while its stop function (ending a process, say) is
@@ -627,7 +711,7 @@ class FileJobTests(QueueTestCase):
         self.enqueue("first")  # job 1
         self.assertTrue(self.started.wait(10))
         self.viewer.type("jobs cancel 1 99")
-        self.assertIn("Error: No job #99 waits or runs; nothing was cancelled.", self.output.getvalue())
+        self.assertIn("Error: No background job #99 waits or runs; nothing was cancelled.", self.output.getvalue())
         self.assertEqual([entry.stopping for entry in self.scheduler.snapshot()], [False])
         self.release.set()
         self.assertTrue(self.wait_for(lambda: self.ran == ["first"]))
@@ -682,19 +766,23 @@ class PortalMappingTests(QueueTestCase):
             time.sleep(0.002)
         self.fail(f"request still {self.portal.get(request_id)['status']}")
 
-    def test_a_request_waits_for_its_job_and_reports_its_states(self):
+    def test_a_request_waits_for_its_command_and_reports_its_states(self):
         request = self.portal.submit('s1', [CLUSTER, "select #cluster_1#"])
         for _ in range(20):
             self.app.processEvents()
         record = self.portal.get(request['request_id'])
         self.assertEqual(record['status'], 'running')
-        self.assertEqual(record['commands'][0]['jobs'][0]['status'], 'running')
+        self.assertEqual(record['commands'][0]['status'], 'running')
+        self.assertEqual(record['commands'][0]['queue']['status'], 'running')
+        self.assertEqual(record['commands'][0]['jobs'], [], "a command in the queue is no job")
         self.assertEqual(record['commands'][1]['status'], 'queued')
         self.finish_compute()
         record = self.wait_request(request['request_id'])
         self.assertEqual(record['status'], 'succeeded')
         self.assertEqual([c['status'] for c in record['commands']], ['succeeded', 'succeeded'])
-        self.assertEqual(record['commands'][0]['jobs'][0]['status'], 'succeeded')
+        self.assertEqual(record['commands'][0]['queue']['status'], 'succeeded')
+        self.assertEqual(record['commands'][0]['jobs'], [])
+        self.assertNotIn('queue', record['commands'][1], "a command that never waited has no queue entry")
         self.assertEqual(sorted(self.viewer.selected_indices), [0, 1, 2, 3])
 
     def start_cluster(self, submission):
@@ -705,9 +793,9 @@ class PortalMappingTests(QueueTestCase):
         return request['request_id'], self.viewer.command_queue.running()
 
     def entry(self, request_id):
-        return self.portal.get(request_id)['commands'][0]['jobs'][0]
+        return self.portal.get(request_id)['commands'][0]['queue']
 
-    def test_a_computing_commands_progress_reaches_its_job_entry_once_per_status_tick(self):
+    def test_a_computing_commands_progress_reaches_its_queue_entry_once_per_status_tick(self):
         queue = self.viewer.command_queue
         request_id, job = self.start_cluster('p1')
         self.assertIsNone(self.entry(request_id)['progress'])
@@ -731,8 +819,8 @@ class PortalMappingTests(QueueTestCase):
         job.progress_text = 'last pass'
         self.finish_compute()
         record = self.wait_request(request_id)
-        self.assertEqual(record['commands'][0]['jobs'][0]['status'], 'succeeded')
-        self.assertEqual(record['commands'][0]['jobs'][0]['progress'], 'last pass')
+        self.assertEqual(record['commands'][0]['queue']['status'], 'succeeded')
+        self.assertEqual(record['commands'][0]['queue']['progress'], 'last pass')
 
     def test_a_cancelled_job_keeps_what_it_reported(self):
         request_id, job = self.start_cluster('p3')
@@ -747,7 +835,7 @@ class PortalMappingTests(QueueTestCase):
         queue._show_running()
         self.assertIsNone(self.entry(request_id)['progress'])
         self.finish_compute()
-        self.assertIsNone(self.wait_request(request_id)['commands'][0]['jobs'][0]['progress'])
+        self.assertIsNone(self.wait_request(request_id)['commands'][0]['queue']['progress'])
         self.viewer.type(CLUSTER)  # typed: no portal entry to copy into
         typed = queue.running()
         self.assertIsNone(typed.context)
@@ -775,8 +863,9 @@ class PortalMappingTests(QueueTestCase):
         request = self.portal.submit('s2', ["color red"])
         for _ in range(20):
             self.app.processEvents()
-        job = self.portal.get(request['request_id'])['commands'][0]['jobs'][0]
-        self.assertEqual((job['status'], job['position'], job['waiting_for']), ('queued', 2, '1'))
+        command = self.portal.get(request['request_id'])['commands'][0]
+        self.assertEqual((command['queue']['status'], command['queue']['position']), ('queued', 2))
+        self.assertEqual(command['jobs'], [])
         self.finish_compute()
         self.assertEqual(self.wait_request(request['request_id'])['status'], 'succeeded')
 
@@ -792,16 +881,59 @@ class PortalMappingTests(QueueTestCase):
         self.assertEqual([c['status'] for c in record['commands']], ['failed', 'skipped'])
         self.assertEqual(sorted(self.viewer.selected_indices), [4, 5, 6, 7])
 
-    def test_a_cancelled_job_cancels_its_command_and_a_jobs_request_runs_ahead(self):
+    def test_a_command_cancelled_by_undo_by_hand_ends_its_request_cancelled(self):
         request = self.portal.submit('s4', [CLUSTER, "color red"])
         for _ in range(20):
             self.app.processEvents()
-        cancel = self.portal.submit('s5', ["jobs cancel all"])
-        self.assertEqual(self.wait_request(cancel['request_id'])['status'], 'succeeded')
+        self.viewer.type("undo")  # typed in the Viewer: it takes back the command that computes
         record = self.wait_request(request['request_id'])
         self.assertEqual(record['status'], 'cancelled')
-        self.assertEqual(record['commands'][0]['jobs'][0]['status'], 'cancelled')
+        self.assertEqual(record['commands'][0]['queue']['status'], 'cancelled')
+        self.assertEqual(record['commands'][0]['jobs'], [])
         self.assertEqual(record['commands'][1]['status'], 'skipped')
+        self.finish_compute()
+        self.assertIsNone(self.viewer.cluster_labels, "the result of a cancelled command is thrown away")
+
+    def test_a_jobs_request_runs_ahead_and_lists_no_command_of_the_queue(self):
+        request = self.portal.submit('s5', [CLUSTER, "color red"])
+        for _ in range(20):
+            self.app.processEvents()
+        listing = self.portal.submit('s6', ["jobs"])
+        done = self.wait_request(listing['request_id'])
+        self.assertEqual(done['status'], 'succeeded')
+        self.assertEqual(done['commands'][0]['messages'][-1]['text'], "No background job waits or runs.")
+        self.assertNotIn(CLUSTER, self.portal.read_output(listing['request_id'])['text'])
+        self.assertEqual(self.portal.get(request['request_id'])['status'], 'running')
+        self.finish_compute()
+        self.assertEqual(self.wait_request(request['request_id'])['status'], 'succeeded')
+
+    def test_jobs_cancel_from_the_portal_leaves_a_command_in_the_queue_alone(self):
+        request = self.portal.submit('s7', [CLUSTER, "select #cluster_1#"])
+        for _ in range(20):
+            self.app.processEvents()
+        for number, words in enumerate(("jobs cancel", "jobs cancel all", "jobs cancel 1")):
+            cancel = self.portal.submit(f's8{number}', [words])
+            self.wait_request(cancel['request_id'])
+            self.assertEqual(self.portal.get(request['request_id'])['commands'][0]['queue']['status'], 'running', words)
+        self.finish_compute()
+        record = self.wait_request(request['request_id'])
+        self.assertEqual(record['status'], 'succeeded')
+        self.assertEqual(sorted(self.viewer.selected_indices), [0, 1, 2, 3])
+
+    def test_an_undo_sent_through_the_portal_waits_its_turn_behind_the_command(self):
+        request = self.portal.submit('s9', [CLUSTER])
+        for _ in range(20):
+            self.app.processEvents()
+        undo = self.portal.submit('s10', ["undo"])
+        for _ in range(20):
+            self.app.processEvents()
+        self.assertEqual((self.portal.get(request['request_id'])['status'], self.portal.get(undo['request_id'])['status']),
+                         ('running', 'queued'))
+        self.assertEqual(self.viewer.undone, 0)
+        self.finish_compute()
+        self.assertEqual(self.wait_request(request['request_id'])['status'], 'succeeded')
+        self.assertEqual(self.wait_request(undo['request_id'])['status'], 'succeeded')
+        self.assertEqual(self.viewer.undone, 1)
 
 
 def synthetic_network(n_nodes=10000, edges_per_cluster_node=90, seed=42):

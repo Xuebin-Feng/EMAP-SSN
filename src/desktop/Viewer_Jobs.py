@@ -3,11 +3,12 @@
 
 """The Viewer's view of its background jobs: the jobs badge, and what the Session card lists.
 
-* **The badge** shows how many commands wait or run, over the canvas's top
-  right, only while the command queue (Command_Queue) holds a command or the
-  background scheduler a job, under the frame-rate display's place, right-aligned
-  with it; its tooltip lists them. Like the frame rate it is a QLabel on the
-  canvas, never in a picture the canvas renders.
+* **The badge** shows how many background jobs wait or run, over the canvas's top
+  right, only while the background scheduler holds a job, under the frame-rate
+  display's place, right-aligned with it; its tooltip lists them. The commands in
+  the command queue (Command_Queue) are not background jobs and are not counted.
+  Like the frame rate it is a QLabel on the canvas, never in a picture the canvas
+  renders.
 * **The rows** (job_lanes) are what the Session card's Background jobs section
   lists: one JobLane for each lane of the scheduler that holds a job, with a
   JobRow for each of its jobs, the running one first, then the ones waiting, then
@@ -41,16 +42,11 @@ def badge_text(count):
     return display_text(Message("%n job(s)", n=count))
 
 
-def job_lines(queue, scheduler):
-    """One line per command that waits or runs and per background job, for the tooltip."""
-    lines = []
-    for job in (queue.pending() if queue is not None else []):
-        state = 'waiting' if job.status == 'queued' else job.status
-        lines.append(f"#{job.job_id} {state}: {job.line}")
+def job_lines(scheduler):
+    """One line per background job that waits or runs, for the tooltip."""
     listing = getattr(scheduler, 'listing', None)
-    for job, running in (listing() if listing is not None else []):
-        lines.append(f"#{job.job_id} {'running' if running else 'waiting'}: {job.description}")
-    return lines
+    return [f"#{job.job_id} {'running' if running else 'waiting'}: {job.description}"
+            for job, running in (listing() if listing is not None else [])]
 
 
 @dataclass(frozen=True)

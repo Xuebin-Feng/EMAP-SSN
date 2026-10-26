@@ -45,8 +45,12 @@ def record(status='running', commands=None, request_id='r1', session_id='origin'
             'commands': commands, 'total_commands': len(commands), 'next_offset': len(commands), 'complete': True}
 
 
-def command(text, status, jobs=()):
-    return {'command': text, 'command_id': text, 'status': status, 'jobs': list(jobs), 'messages': [], 'artifacts': []}
+def command(text, status, jobs=(), queue=None):
+    """A command record; ``queue`` is the entry of a command the Viewer's command queue holds, which has no job number."""
+    result = {'command': text, 'command_id': text, 'status': status, 'jobs': list(jobs), 'messages': [], 'artifacts': []}
+    if queue is not None:
+        result['queue'] = queue
+    return result
 
 
 def job(job_id='2', status='running', **extra):
@@ -243,6 +247,14 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue([m for _, _, m, _ in sent if 'pass' in m][0].endswith('(job 4 running, pass 1 of 3)'))
         self.assertTrue(any('pass 2 of 3' in message for _, _, message, _ in sent))
 
+    async def test_a_command_in_the_queue_is_told_by_its_queue_entry_and_not_as_a_job(self):
+        step = lambda status, **extra: record('running', [command('cluster', 'running', queue={'status': status, **extra})])
+        sent = await self.run_wait([(0, step('queued', position=2)), (2.0, step('running', position=1, progress='pass 1 of 3')),
+                                    (5.0, record('succeeded'))])
+        self.assertIn('running: 0 of 1 commands finished; running: cluster (queue queued at 2)', sent[0][2])
+        self.assertTrue(any(message.endswith('(queue running at 1, pass 1 of 3)') for _, _, message, _ in sent))
+        self.assertFalse(any('job' in message for _, _, message, _ in sent))
+
     async def test_changes_inside_the_minimum_interval_are_held_not_dropped(self):
         step = lambda n: record('running', [command('cluster', 'running', [job('4', 'running', progress=str(n))])])
         sent = await self.run_wait([(0, step(1)), (0.2, step(2)), (0.4, step(3)), (3.0, record('succeeded'))])
@@ -268,6 +280,13 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_nothing_is_sent_when_the_request_has_already_ended(self):
         self.assertEqual(await self.run_wait([(0, record('succeeded'))]), [])
+
+    def test_a_command_the_queue_has_finished_with_adds_nothing_to_the_line(self):
+        done = command('cluster', 'running', queue={'status': 'succeeded', 'position': None})
+        self.assertEqual(ops._wait_line(record('running', [done])), 'running: 0 of 1 commands finished; running: cluster')
+        both = command('cluster', 'running', [job('4', 'running')], queue={'status': 'running', 'position': 1})
+        self.assertEqual(ops._wait_line(record('running', [both])),
+                         'running: 0 of 1 commands finished; running: cluster (queue running at 1; job 4 running)')
 
     def test_a_long_command_and_a_nested_request_read_clearly(self):
         text = 'x' * 100

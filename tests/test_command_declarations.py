@@ -462,13 +462,12 @@ ALLOWED = {
         ("ExecutionContext.add_job", "string", "jobs"): (1, JOBS_KEY),
         ("ExecutionContext.job_event", "string", "jobs"): (1, JOBS_KEY),
         ("ExecutionContext.job_progress", "string", "jobs"): (1, JOBS_KEY),
-        ("ViewerCommandPortal._advance", "string", "jobs"): (3, JOBS_KEY),
+        ("ViewerCommandPortal._advance", "string", "jobs"): (1, JOBS_KEY),
+        ("ViewerCommandPortal._has_work_left", "string", "jobs"): (1, JOBS_KEY),
         ("ViewerCommandPortal._frees_the_line", "string", "jobs"): (1, JOBS_KEY),
         ("ViewerCommandPortal.read_output", "string", "offset"): (1, "a key of an output page"),
     },
-    "src/Command_Queue.py": {
-        ("CommandQueue._update_places", "string", "jobs"): (1, JOBS_KEY),
-    },
+    "src/Command_Queue.py": {},
     "src/Background_Job_Scheduler.py": {
         ("BackgroundJobScheduler._update_records", "string", "jobs"): (1, JOBS_KEY),
         ("BackgroundJobScheduler._report_succeeded", "string", "jobs"): (1, JOBS_KEY),

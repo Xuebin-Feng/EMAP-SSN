@@ -159,7 +159,7 @@ class ReviewTests(unittest.TestCase):
                 self.assertEqual(agent_policy('a_plugin_command_without_a_policy now'), kind)
 
     def test_the_jobs_listing_runs_and_jobs_cancel_waits_for_the_user(self):
-        # Cancelling discards the user's own commands and jobs; listing them changes nothing.
+        # Cancelling discards the user's own background jobs; listing them changes nothing.
         for command in ('jobs cancel', 'jobs cancel 14', 'jobs cancel #14 15', 'jobs cancel all', 'JOBS CANCEL'):
             self.assertEqual(agent_policy(command), 'approve', command)
         for command in ('jobs', 'jobs help', 'jobs --help'):
@@ -211,7 +211,7 @@ class WhatThePromptSaysTests(unittest.TestCase):
             'folds have one of their own (`folding`)',
             'A fold requested while another runs is queued, not refused.',
             "`jobs` lists it as `stopping`, and it is reported cancelled only once it has stopped",
-            'that `cluster`, `label`, `logo`, `print` or `esmfold` was accepted is not that it has completed',
+            'that `label`, `logo`, `print` or `esmfold` was accepted is not that it has completed',
         ):
             with self.subTest(needed=needed):
                 self.assertTrue(needed in text, f'the prompt no longer says: {needed}')
