@@ -586,7 +586,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-query" data-source-sha256="d4da5446318da2ecf9ff63c71ae768344420218288b132a20079791dc1ee10ed">
+            <section class="command-card" id="cmd-query" data-source-sha256="90cc51b78535f2d393c3273f79760f2d2e7a498f52a49759191862cb5f9c5feb">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">query</span>
@@ -616,6 +616,7 @@
                 <div class="subheading">核心参数</div>
                 <ul>
                     <li><strong>位置写法：</strong>方括号内的列，支持列表、范围、小数形式的插入位置，以及表示最后一个已映射位置标签的 <code>E</code>/<code>END</code>，该标签可以是插入位置标签或占有率标签（例如 <code>[10,15.1,20-30,250-E]</code>）。每个负的位置或范围端点都必须单独用括号括起来，如 <code>[(-1),(-1.1),0]</code> 或 <code>[(-3)-2]</code>；<code>[-1]</code> 和 <code>[-3--1]</code> 这类不带括号的写法无效。</li>
+                    <li><strong>分隔符：</strong>各位置可以用逗号或空格分隔：<code>[10,15.1,20-30]</code> 与 <code>[10 15.1 20-30]</code> 是同一个列表。请统一使用一种分隔符：混用两种分隔符的列表，如 <code>[10, 15.1 20-30]</code> 或 <code>[10 15.1, 20-30]</code>，会被拒绝，错误信息会指出有问题的项，并且不会查询任何位置。方括号内侧、逗号两侧以及范围短横线两侧的空格都会被忽略（<code>[20 - 30]</code>）。频率搜索不是位置列表：其中的空格是比较表达式的一部分，如 <code>[(K&gt;0.1) &amp; (R&gt;0.05)]</code>。</li>
                     <li><strong>插入位置（小数）：</strong>插入的残基用小数标记（例如 <code>106.1</code>、<code>106.2</code>）。查询 <code>[106-107]</code> 会按顺序直接打印 106、106.1、106.2 和 107 的统计信息。</li>
                     <li><strong>频率搜索：</strong>使用残基或空位条件，配合 <code>&gt;</code>、<code>&lt;</code>、<code>&gt;=</code> 或 <code>&lt;=</code>，分数或百分比，以及布尔运算符。频率以选定或全局节点子集映射得到的全部 MSA 行为分母，因此空位会稀释残基的百分比。分组目标会把其残基频率相加，如 <code>[(RHK)&gt;50%]</code>。多条件搜索仍要求每个完整的比较都加括号：<code>[((RHK)&gt;50%)&amp;((DE)&gt;20%)]</code> 或 <code>[((RHK)&gt;50%)&amp;(GAP&lt;20%)]</code>。空位用 <code>GAP</code> 或 <code>_</code> 表示。</li>
                     <li><strong>输出：</strong>每个位置会先打印其空位百分比，然后打印占比至少为 1% 的每个残基，按从大到小排列；X 以及比对中的任何其他符号都算作残基。占比不足 1% 的残基汇总在额外的一行 <code>other (&lt;1% each)</code> 中，因此不会遗漏任何出现的残基。</li>
@@ -624,6 +625,7 @@
                 <div class="subheading">示例</div>
                 <ul class="example-list">
                     <li class="example-item"><span>query [10, 15, 20-30]</span><button class="copy-btn" onclick="copyText('query [10, 15, 20-30]', this)">复制</button></li>
+                    <li class="example-item"><span>query [10 15 20-30]</span><button class="copy-btn" onclick="copyText('query [10 15 20-30]', this)">复制</button></li>
                     <li class="example-item"><span>query [(-1),0,10.1]</span><button class="copy-btn" onclick="copyText('query [(-1),0,10.1]', this)">复制</button></li>
                     <li class="example-item"><span>query #cluster_1# [(-3)-2]</span><button class="copy-btn" onclick="copyText('query #cluster_1# [(-3)-2]', this)">复制</button></li>
                     <li class="example-item"><span>query P106 [150-160]</span><button class="copy-btn" onclick="copyText('query P106 [150-160]', this)">复制</button></li>
@@ -1141,7 +1143,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-logo" data-source-sha256="452275464872bdd19cba3a31ddbff0c310e6ad551abf6e3ad9d6e82b1aa182d1">
+            <section class="command-card" id="cmd-logo" data-source-sha256="815d8a5ceb051a65db52220574a33e2d713b36ff7df579228bffebcc3f403208">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">logo</span>
@@ -1163,7 +1165,8 @@
 
                 <div class="subheading">核心参数</div>
                 <ul>
-                    <li><strong>[POSITIONS]（必需）：</strong>方括号中以逗号分隔的参考位置或整数范围（例如 <code>[10-25]</code>）。小数形式的插入位置表示参考序列为空位而被保留的比对列，可以显式列出（例如 <code>[10,10.1,10.2,11]</code>）。每个负的位置或范围端点都必须单独用括号括起来，如 <code>[(-1),0,1]</code> 或 <code>[(-3)-(-1)]</code>；不带括号的负位置无效。整数范围保持仅限整数的行为。逗号后允许有空格（<code>[1, 2]</code>）。每个范围都按从小到大书写（<code>[10-25]</code>，而不是 <code>[25-10]</code>）。</li>
+                    <li><strong>[POSITIONS]（必需）：</strong>方括号中的参考位置或整数范围，以逗号或空格分隔（例如 <code>[10-25]</code>）。小数形式的插入位置表示参考序列为空位而被保留的比对列，可以显式列出（例如 <code>[10,10.1,10.2,11]</code>）。每个负的位置或范围端点都必须单独用括号括起来，如 <code>[(-1),0,1]</code> 或 <code>[(-3)-(-1)]</code>；不带括号的负位置无效。整数范围保持仅限整数的行为。每个范围都按从小到大书写（<code>[10-25]</code>，而不是 <code>[25-10]</code>）。</li>
+                    <li><strong>分隔符：</strong><code>[1,5,9-12]</code> 与 <code>[1 5 9-12]</code> 是同一个列表。请统一使用一种分隔符：混用逗号和空格的列表，如 <code>[1, 5 9]</code> 或 <code>[1 5, 9]</code>，会被拒绝，错误信息会指出有问题的项，并且不会排队任何标识图任务。方括号内侧、逗号两侧以及范围短横线两侧的空格都会被忽略（<code>[9 - 12]</code>）。</li>
                     <li><strong>FILENAME：</strong>输出名称，必须以 <code>.svg</code> 或 <code>.png</code> 结尾；不提供时会创建带时间戳的 <code>logo_YYYYMMDD_HHMMSS.svg</code>。保存在已配置的分析结果目录之下（默认为 <code>Analysis_Results/Sequence_Logos/</code>）。最后剩下的、不带该扩展名的词会被当作表达式的一部分，因此拼错的关键字（如 <code>nogap</code>）会被拒绝而不是被用作文件名：请写成 <code>logo $sele$ [10-20] my_logo.svg</code>。</li>
                     <li><strong>MODE：</strong><code>bits</code>（默认——香农信息量）或 <code>pcts</code>（百分比）。</li>
                     <li><strong>GAP_MODE：</strong><code>with_gap</code>（默认——按占有率缩放堆叠高度）或 <code>no_gap</code>（忽略空位）。</li>
@@ -1182,6 +1185,7 @@
                 <ul class="example-list">
                     <li class="example-item"><span>logo [10-20]</span><button class="copy-btn" onclick="copyText('logo [10-20]', this)">复制</button></li>
                     <li class="example-item"><span>logo [10,10.1,10.2,11]</span><button class="copy-btn" onclick="copyText('logo [10,10.1,10.2,11]', this)">复制</button></li>
+                    <li class="example-item"><span>logo [10 10.1 10.2 11]</span><button class="copy-btn" onclick="copyText('logo [10 10.1 10.2 11]', this)">复制</button></li>
                     <li class="example-item"><span>logo [(-1),0,1]</span><button class="copy-btn" onclick="copyText('logo [(-1),0,1]', this)">复制</button></li>
                     <li class="example-item"><span>logo #cluster_1# [(-3)-(-1)] pcts</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [(-3)-(-1)] pcts', this)">复制</button></li>
                     <li class="example-item"><span>logo #cluster_1# [1,5] pcts no_gap</span><button class="copy-btn" onclick="copyText('logo #cluster_1# [1,5] pcts no_gap', this)">复制</button></li>
