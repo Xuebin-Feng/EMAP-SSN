@@ -33,7 +33,7 @@ from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_
 
 class ViewerStub:
     def __init__(self):
-        self.console_text = type("Console", (), {"text": "Cmd: untouched_"})()
+        self.console_text = type("Console", (), {"text": "Cmd: untouched"})()
         self.background_job_status = ""
         self.status_updates = []
         self.update_threads = []
@@ -219,7 +219,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
             ],
         )
         self.assertIn("completed", viewer.background_job_status)
-        self.assertEqual(viewer.console_text.text, "Cmd: untouched_")
+        self.assertEqual(viewer.console_text.text, "Cmd: untouched")
         self.assertTrue(any("Queued background job" in update for update in viewer.status_updates))
         self.assertTrue(any("Running background job" in update for update in viewer.status_updates))
         self.assertTrue(any("failed after" in update for update in viewer.status_updates))

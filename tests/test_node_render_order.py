@@ -633,7 +633,7 @@ class ClicksWhileTypingTests(unittest.TestCase):
     """An open command line doesn't stop the mouse: every click does what it
     does with the line closed, and its message follows the typed command."""
 
-    COMMAND_LINE = "Cmd: color_ red"
+    COMMAND_LINE = "Cmd: color red"
 
     def make_viewer(self, typing):
         viewer = MainViewer.__new__(MainViewer)
@@ -808,7 +808,7 @@ class ClicksWhileTypingTests(unittest.TestCase):
         self.run_gesture(viewer, self.GESTURES["right-drag a box"])
 
         viewer.on_key_press(SimpleNamespace(key="s", text="s", modifiers=[], handled=False))
-        self.assertEqual(viewer.console_text.text, "Cmd: colors_ red")
+        self.assertEqual(viewer.console_text.text, "Cmd: colors red")
 
         viewer.on_key_press(SimpleNamespace(key="Enter", text="", modifiers=[], handled=False))
         viewer.process_command.assert_called_once_with("colors red")

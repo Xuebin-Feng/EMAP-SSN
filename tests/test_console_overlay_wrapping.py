@@ -25,9 +25,13 @@ import EMAPSSN_Viewer
 from EMAPSSN_Viewer import (
     MainViewer,
     _apply_safe_rectangle_geometry,
+    _vispy_text_cursor_span_pixels,
+    _vispy_text_glyph_height_pixels,
     _vispy_text_line_height_pixels,
     _wrap_console_text_for_display,
 )
+from utilities import Localization
+from utilities.Localization import Message
 from vispy.visuals import RectangleVisual
 
 
@@ -479,6 +483,261 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
 
         self.assertEqual(viewer.console_bg.width, 1.0)
         self.assertEqual(viewer.console_bg.radius, 0.5)
+
+
+class FakeCaret:
+    """Records what the Viewer tells the command line's caret (desktop.Viewer_Caret)."""
+
+    def __init__(self):
+        self.shown = None      # (x, top, height) while it is placed, else None
+        self.steadied = 0
+
+    def show_at(self, x, top, height):
+        self.shown = (x, top, height)
+
+    def steady(self):
+        self.steadied += 1
+
+    def away(self):
+        self.shown = None
+
+
+class CommandCaretTests(unittest.TestCase):
+    """The command line's cursor is a caret drawn over the text, not a glyph in it.
+
+    The test font is 1 px wide a character and 1 px tall, so a position in
+    the console line reads straight off: the text starts at console_text_x
+    (30) and the line at console_text_y (60), each wrapped line 1.2 px lower.
+    """
+
+    TEXT_X, TEXT_Y, LINE = 30.0, 60.0, 1.2
+    PREFIX = len("Cmd: ")
+
+    @staticmethod
+    def make_typing_viewer(buffer="select cluster", cursor=None, size=(240, 100)):
+        viewer = ConsoleOverlayWrappingTests.make_viewer(size=size, text="")
+        viewer.console_mode = True
+        viewer.console_bg.visible = True
+        viewer.input_buffer = buffer
+        viewer.cursor_pos = len(buffer) if cursor is None else cursor
+        viewer.command_caret = FakeCaret()
+        viewer.canvas.update = mock.Mock()
+        return viewer
+
+    @staticmethod
+    def key(viewer, name, text=""):
+        viewer.on_key_press(SimpleNamespace(key=name, text=text, modifiers=[], handled=False))
+
+    @staticmethod
+    def drawn_places(viewer):
+        """Where each character of the logical text is drawn: its (line, column); then the end."""
+        lines = viewer.console_text.text.split("\n")
+        places = [(row, column) for row, line in enumerate(lines) for column in range(len(line))]
+        places.append((len(lines) - 1, len(lines[-1])))
+        return places
+
+    def test_the_command_line_text_has_no_cursor_glyph(self):
+        for cursor in (0, 1, 2, 3):
+            with self.subTest(cursor=cursor):
+                viewer = self.make_typing_viewer("sda", cursor)
+                viewer._update_console_text()
+                self.assertEqual(viewer.console_text.text, "Cmd: sda")
+                self.assertEqual(str(viewer._command_line_message()), "Cmd: sda")
+
+    def test_the_caret_sits_between_the_characters_at_the_cursor(self):
+        for cursor in range(len("select") + 1):
+            with self.subTest(cursor=cursor):
+                viewer = self.make_typing_viewer("select", cursor)
+                viewer._update_console_text()
+                self.assertEqual(viewer.command_caret.shown,
+                                 (self.TEXT_X + self.PREFIX + cursor, self.TEXT_Y, 1.0))
+
+    def test_the_text_takes_no_room_for_the_cursor(self):
+        # The same line, with the cursor anywhere in it, is as wide as the command and its prefix.
+        widths = set()
+        for cursor in (0, 3, 6):
+            viewer = self.make_typing_viewer("select", cursor)
+            viewer._update_console_text()
+            widths.add(viewer.console_bg.width)
+        self.assertEqual(len(widths), 1)
+
+    def test_a_key_that_moves_only_the_cursor_moves_the_caret_and_draws_nothing(self):
+        viewer = self.make_typing_viewer("select", 6)
+        viewer._update_console_text()
+        viewer.canvas.update.reset_mock()
+        with mock.patch.object(EMAPSSN_Viewer.Command_Engine, "show_status",
+                               wraps=EMAPSSN_Viewer.Command_Engine.show_status) as show_status:
+            for name, cursor in (("Left", 5), ("Left", 4), ("Right", 5), ("Right", 6)):
+                with self.subTest(key=name):
+                    self.key(viewer, name)
+                    self.assertEqual(viewer.cursor_pos, cursor)
+                    self.assertEqual(viewer.command_caret.shown[0], self.TEXT_X + self.PREFIX + cursor)
+            show_status.assert_not_called()
+            viewer.canvas.update.assert_not_called()
+            # A key that changes the text rewrites the line and draws the canvas again.
+            self.key(viewer, "a", "a")
+            show_status.assert_called_once()
+            viewer.canvas.update.assert_called_once_with()
+        self.assertEqual(viewer.console_text.text, "Cmd: selecta")
+        self.assertEqual(viewer.command_caret.shown[0], self.TEXT_X + self.PREFIX + 7)
+
+    def test_each_key_lights_the_caret_again(self):
+        viewer = self.make_typing_viewer("ab", 2)
+        viewer.command_history = ["earlier"]
+        viewer.history_index = 1
+        viewer._update_console_text()
+        for name, text in (("Left", ""), ("Right", ""), ("Left", ""), ("Delete", ""), ("x", "x"),
+                           ("Backspace", ""), ("Up", ""), ("Down", "")):
+            with self.subTest(key=name):
+                before = viewer.command_caret.steadied
+                self.key(viewer, name, text)
+                self.assertEqual(viewer.command_caret.steadied, before + 1)
+
+    def test_the_caret_follows_the_cursor_through_a_wrapped_command(self):
+        for width in (100, 112):
+            viewer = self.make_typing_viewer(
+                "alpha beta gamma delta epsilon zeta eta theta iota kappa", size=(width, 100))
+            viewer._update_console_text()
+            self.assertGreater(len(viewer.console_text.text.split("\n")), 2)
+            for cursor in range(len(viewer.input_buffer) + 1):
+                with self.subTest(width=width, cursor=cursor):
+                    viewer.cursor_pos = cursor
+                    viewer._update_console_text()
+                    row, column = self.drawn_places(viewer)[self.PREFIX + cursor]
+                    self.assertEqual(viewer.command_caret.shown,
+                                     (self.TEXT_X + column, self.TEXT_Y + row * self.LINE, 1.0))
+
+    def test_a_cursor_at_the_end_of_a_wrapped_line_is_at_the_start_of_the_next(self):
+        viewer = self.make_typing_viewer("alpha beta gamma delta epsilon zeta", size=(100, 100))
+        viewer._update_console_text()
+        first = len(viewer.console_text.text.split("\n")[0])
+        viewer.cursor_pos = first - self.PREFIX
+        viewer._update_console_text()
+        self.assertEqual(viewer.command_caret.shown, (self.TEXT_X, self.TEXT_Y + self.LINE, 1.0))
+        viewer.cursor_pos -= 1
+        viewer._update_console_text()
+        self.assertEqual(viewer.command_caret.shown, (self.TEXT_X + first - 1, self.TEXT_Y, 1.0))
+
+    def test_the_caret_follows_a_resize_that_wraps_the_line_elsewhere(self):
+        viewer = self.make_typing_viewer("alpha beta gamma delta epsilon zeta eta theta", 30, size=(400, 100))
+        viewer._update_console_text()
+        wide = viewer.command_caret.shown
+        self.assertEqual(wide, (self.TEXT_X + self.PREFIX + 30, self.TEXT_Y, 1.0))
+        viewer.canvas.size = (100, 100)
+        viewer.update_console_background()
+        row, column = self.drawn_places(viewer)[self.PREFIX + 30]
+        narrow = viewer.command_caret.shown
+        self.assertEqual(narrow, (self.TEXT_X + column, self.TEXT_Y + row * self.LINE, 1.0))
+        self.assertNotEqual(narrow, wide)
+        viewer.canvas.size = (400, 100)
+        viewer.update_console_background()
+        self.assertEqual(viewer.command_caret.shown, wide)
+
+    def test_the_caret_keeps_its_place_when_a_click_message_follows_the_command(self):
+        viewer = self.make_typing_viewer("select cluster", 3)
+        viewer._update_console_text()
+        placed = viewer.command_caret.shown
+        viewer._show_click_status(Message("Selected: {node}", node="Alpha"))
+        self.assertTrue(viewer.console_text.text.startswith("Cmd: select cluster"))
+        self.assertIn("Selected: Alpha", viewer.console_text.text)
+        self.assertEqual(viewer.command_caret.shown, placed)
+        # The next key shows the command alone again, with the caret where the key puts it.
+        self.key(viewer, "Right")
+        self.assertEqual(viewer.console_text.text, "Cmd: select cluster")
+        self.assertEqual(viewer.command_caret.shown, (placed[0] + 1, placed[1], placed[2]))
+
+    def test_the_caret_goes_while_a_message_has_the_console_line(self):
+        viewer = self.make_typing_viewer("select", 3)
+        viewer._update_console_text()
+        self.assertIsNotNone(viewer.command_caret.shown)
+        viewer.console_text.text = "Error: nothing is selected"    # a command's feedback, written to the line
+        viewer.update_console_background()
+        self.assertIsNone(viewer.command_caret.shown)
+        self.key(viewer, "Right")                                   # the next key shows the command again
+        self.assertIsNotNone(viewer.command_caret.shown)
+
+    def test_the_caret_is_away_while_the_command_line_is_closed(self):
+        viewer = self.make_typing_viewer("select", 3)
+        viewer._update_console_text()
+        viewer.console_mode = False
+        viewer.update_console_background()
+        self.assertIsNone(viewer.command_caret.shown)
+        viewer.console_mode = True
+        viewer.console_bg.visible = False
+        viewer.update_console_background()
+        self.assertIsNone(viewer.command_caret.shown)
+
+    def test_enter_and_escape_take_the_caret_away(self):
+        for name in ("Enter", "Escape"):
+            with self.subTest(key=name):
+                viewer = self.make_typing_viewer("select", 3)
+                viewer._update_console_text()
+                order = []
+                viewer.command_caret.away = lambda order=order: order.append("away")
+                viewer.process_command = lambda command, order=order: order.append("run")
+                self.key(viewer, name)
+                self.assertFalse(viewer.console_mode)
+                # Away before the command runs: a command that takes a while leaves no caret blinking.
+                self.assertEqual(order, ["away", "run"] if name == "Enter" else ["away"])
+
+    def test_opening_the_command_line_places_the_caret_after_the_prefix(self):
+        viewer = self.make_typing_viewer("", 0)
+        viewer.console_mode = False
+        viewer.console_bg.visible = False
+        viewer.command_history = []
+        viewer.clear_background_job_status = mock.Mock()
+        self.key(viewer, "Enter")
+        self.assertTrue(viewer.console_mode)
+        self.assertEqual(viewer.console_text.text, "Cmd: ")
+        self.assertEqual(viewer.command_caret.shown, (self.TEXT_X + self.PREFIX, self.TEXT_Y, 1.0))
+
+    def test_a_translation_may_put_the_command_anywhere(self):
+        for name, template, before in (("prefix", "命令：{command}", len("命令：")),
+                                       ("suffix", "{command} <- cmd", 0),
+                                       ("around", "[{command}]", 1)):
+            with self.subTest(translation=name):
+                previous = Localization.set_translator(
+                    lambda text, n, template=template: template if text == "Cmd: {command}" else text)
+                self.addCleanup(Localization.set_translator, previous)
+                viewer = self.make_typing_viewer("select", 2)
+                viewer._update_console_text()
+                self.assertEqual(viewer.console_text.text, template.format(command="select"))
+                self.assertEqual(viewer.command_caret.shown, (self.TEXT_X + before + 2, self.TEXT_Y, 1.0))
+                Localization.set_translator(previous)
+
+    def test_a_command_holding_the_private_mark_is_placed_right(self):
+        viewer = self.make_typing_viewer("ab", 2)
+        viewer._update_console_text()
+        self.assertEqual(viewer.console_text.text, "Cmd: ab")
+        self.assertEqual(viewer.command_caret.shown[0], self.TEXT_X + self.PREFIX + 2)
+
+    def test_a_viewer_without_a_caret_still_lays_the_line_out(self):
+        viewer = self.make_typing_viewer("select", 3)
+        del viewer.command_caret
+        viewer._update_console_text()
+        self.key(viewer, "Left")
+        self.assertEqual(viewer.console_text.text, "Cmd: select")
+
+    def test_the_caret_spans_the_glyphs_centred_on_the_letters(self):
+        class AccentedFont(FixedWidthFont):
+            # An accent standing 40 units above the letters, whose own tops are 1024 * 0.25 = 256 up.
+            def __getitem__(self, character):
+                glyph = dict(super().__getitem__(character))
+                if character in "ÅÉÑŐ":
+                    glyph["offset"] = (0.0, 1184.0)
+                return glyph
+
+        visual = SimpleNamespace(_font=AccentedFont(), transforms=SimpleNamespace(dpi=72.0),
+                                 font_size=100.0, _line_height=1.2)
+        # The glyphs reach 296 units up of 256 to the em, and none down: the cursor is that tall...
+        inset, height = _vispy_text_cursor_span_pixels(visual)
+        self.assertAlmostEqual(height, _vispy_text_glyph_height_pixels(visual))
+        self.assertAlmostEqual(height, 100.0 * 296 / 256)
+        # ...and sits half of what the accent stands above a "d" below the top of the line.
+        self.assertAlmostEqual(inset, 100.0 * 40 / 256 / 2.0)
+        # Without font metrics it spans the font's size from the top of the line.
+        bare = SimpleNamespace(transforms=SimpleNamespace(dpi=72.0), font_size=10.0, _line_height=1.2)
+        self.assertEqual(_vispy_text_cursor_span_pixels(bare), (0.0, 10.0))
 
 
 def shipped_hud_layout():

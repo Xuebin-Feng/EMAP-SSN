@@ -209,6 +209,7 @@ from desktop.Viewer_State import (
 )
 from desktop.Viewer_Inspection import ViewerInspectionService
 from desktop.Viewer_Window import HEADLESS, HIDDEN, NORMAL, ViewerWindow
+from desktop.Viewer_Caret import CommandCaret
 from desktop.Viewer_Edges import ViewerEdges
 from desktop.Viewer_Motion import MotionDetail
 from desktop.Viewer_Fps import FPS_GAP, FPS_HEIGHT, FpsOverlay
@@ -346,13 +347,13 @@ def _vispy_text_width_pixels(text_visual, text):
     return (width_val / 64.0) * n_pix
 
 
-def _vispy_text_line_height_pixels(text_visual):
-    """Return VisPy's rendered multiline advance in logical pixels."""
+def _vispy_text_glyph_height_pixels(text_visual):
+    """Return VisPy's glyph height in logical pixels: from the top of its tallest
+    glyph to the bottom of its lowest descender, the height a text cursor spans."""
     n_pix = (text_visual.font_size / 72.0) * text_visual.transforms.dpi
-    line_height = getattr(text_visual, '_line_height', 1.2)
     font = getattr(text_visual, '_font', None)
     if font is None:
-        return n_pix * line_height
+        return n_pix
 
     try:
         ratio = 1.0 / font.ratio
@@ -368,11 +369,41 @@ def _vispy_text_line_height_pixels(text_visual):
         glyph_height = ascender - descender
         lowres_size = float(font._lowres_size)
         if glyph_height > 0.0 and lowres_size > 0.0:
-            return (glyph_height / lowres_size) * n_pix * line_height
+            return (glyph_height / lowres_size) * n_pix
     except (AttributeError, KeyError, TypeError, ValueError, ZeroDivisionError):
         pass
 
-    return n_pix * line_height
+    return n_pix
+
+
+def _vispy_text_line_height_pixels(text_visual):
+    """Return VisPy's rendered multiline advance in logical pixels."""
+    return _vispy_text_glyph_height_pixels(text_visual) * getattr(text_visual, '_line_height', 1.2)
+
+
+def _vispy_text_cursor_span_pixels(text_visual):
+    """Return (top, height) of a text cursor, in logical pixels from the top of a text's first line.
+
+    The cursor is as tall as the glyphs reach (_vispy_text_glyph_height_pixels)
+    and centred on the letters, from the top of a "d" to the lowest
+    descender, rather than on the accent of an "Å" that sets the top of the line.
+    """
+    height = _vispy_text_glyph_height_pixels(text_visual)
+    font = getattr(text_visual, '_font', None)
+    try:
+        ratio = 1.0 / font.ratio
+        lowres_size = float(font._lowres_size)
+        accent = max(font[char]['offset'][1] * ratio for char in 'ÅÉÑŐjgpqy')
+        ascender = font['d']['offset'][1] * ratio
+        n_pix = (text_visual.font_size / 72.0) * text_visual.transforms.dpi
+        return max((accent - ascender) / lowres_size * n_pix, 0.0) / 2.0, height
+    except (AttributeError, KeyError, TypeError, ValueError, ZeroDivisionError):
+        return 0.0, height
+
+
+def _single_line(text):
+    """Return text with each line break a space, as the console line is wrapped from."""
+    return text.replace('\r\n', ' ').replace('\r', ' ').replace('\n', ' ')
 
 
 def _apply_safe_rectangle_geometry(rectangle, center, width, height, radius):
@@ -1081,6 +1112,7 @@ class MainViewer:
         self._build_main_window()
         self._build_fps_overlay()
         self._build_jobs_badge()
+        self._build_command_caret()
         
         # Initialize thread-safe QtCommunicator for server commands
         from web_ui import Web_Server
@@ -1454,17 +1486,102 @@ class MainViewer:
         # The slider row is built first: the window keeps the room it needs.
         self._update_window_minimum_width()
 
-    def _command_line_message(self):
-        """The command being typed, with an underscore at the cursor."""
-        buf = self.input_buffer
-        c = self.cursor_pos
-        return Message("Cmd: {command}", command=f"{buf[:c]}_{buf[c:]}")
+    def _command_line_message(self, command=None):
+        """The command being typed (command, if given), as the console line shows it.
+
+        The text holds no cursor glyph: the cursor is the caret, a bar drawn
+        over the text (_place_command_caret), so it takes no room in it.
+        """
+        return Message("Cmd: {command}", command=self.input_buffer if command is None else command)
+
+    def _command_line_shown(self):
+        """The command line as the console shows it, and how many of its characters come before the cursor."""
+        buffer, cursor = self.input_buffer, self.cursor_pos
+        # A mark at the cursor tells where the translation puts the command.
+        mark = next(char for char in map(chr, range(0xE000, 0xF900)) if char not in buffer)
+        marked = display_text(self._command_line_message(buffer[:cursor] + mark + buffer[cursor:]))
+        at = marked.index(mark)
+        return _single_line(marked[:at] + marked[at + 1:]), len(_single_line(marked[:at]))
 
     def _update_console_text(self):
-        """Helper to render the command line with a visible cursor."""
-        Command_Engine.show_status(self, self._command_line_message())
-        self.update_console_background()
-        self.canvas.update()
+        """Show the command being typed with the caret at the cursor, lit and blinking again from here.
+
+        The line is rewritten, and the canvas drawn again, only when its text
+        changed: a key that only moves the cursor moves the caret, and draws
+        nothing of the network.
+        """
+        shown, _cursor = self._command_line_shown()
+        if (self.console_text.text == getattr(self, '_console_rendered_text', None)
+                and getattr(self, '_console_logical_text', None) == shown):
+            self._place_command_caret()
+        else:
+            Command_Engine.show_status(self, self._command_line_message())
+            self.update_console_background()
+            self.canvas.update()
+        caret = getattr(self, 'command_caret', None)
+        if caret is not None:
+            caret.steady()
+
+    def _build_command_caret(self):
+        """The command line's cursor (desktop.Viewer_Caret): hidden until the line opens."""
+        self.command_caret = CommandCaret(self.canvas.native)
+
+    def _hide_command_caret(self):
+        """Take the caret away: the command line is closing."""
+        caret = getattr(self, 'command_caret', None)
+        if caret is not None:
+            caret.away()
+
+    def _place_command_caret(self):
+        """Put the caret where the cursor falls on the command line, or take it away.
+
+        It shows while the command line is open and the console line shows the
+        command, and not while a message has taken the line. The console text
+        is laid out first (update_console_background), which calls this.
+        """
+        caret = getattr(self, 'command_caret', None)
+        if caret is None:
+            return
+        spot = self._command_caret_spot()
+        if spot is None:
+            caret.away()
+        else:
+            caret.show_at(*spot)
+
+    def _command_caret_spot(self):
+        """The cursor's place on the command line as laid out now: (x, top, height) in canvas px.
+
+        None while the line is closed or shows something else. The text is
+        left-anchored; each wrapped line starts at the same x, one line step
+        below the one before.
+        """
+        if not (getattr(self, 'console_mode', False) and self.console_bg.visible):
+            return None
+        text_visual = self.console_text
+        rendered = self._console_rendered_text
+        shown, cursor = self._command_line_shown()
+        if text_visual.text != rendered or not self._console_logical_text.startswith(shown):
+            return None
+
+        # The wrapped lines hold the logical text; a cursor at a line's end is at the start of the next.
+        lines = rendered.split('\n')
+        line, used = 0, 0
+        while line < len(lines) - 1 and cursor >= used + len(lines[line]):
+            used += len(lines[line])
+            line += 1
+        column = min(max(cursor - used, 0), len(lines[line]))
+
+        cfg_hud = self.hud_layout
+        inset, height = _vispy_text_cursor_span_pixels(text_visual)
+        anchor_y = cfg_hud.get("console_text_anchor_y", "bottom")
+        top = cfg_hud["console_text_y"]
+        if anchor_y == "top":
+            top -= _vispy_text_glyph_height_pixels(text_visual)
+        elif anchor_y in ("center", "middle"):
+            top -= _vispy_text_glyph_height_pixels(text_visual) / 2.0
+        top += inset + line * _vispy_text_line_height_pixels(text_visual)
+        x = cfg_hud["console_text_x"] + _vispy_text_width_pixels(text_visual, lines[line][:column])
+        return x, top, height
 
     def _show_click_status(self, message):
         """Show what a click did on the console line.
@@ -1630,6 +1747,7 @@ class MainViewer:
             radius=radius,
         )
 
+        self._place_command_caret()
         self.update_background_job_status_layout()
 
     def update_background_job_status_layout(self):
@@ -2790,6 +2908,7 @@ class MainViewer:
             if self.console_mode:
                 self.console_mode = False
                 self.console_bg.visible = False
+                self._hide_command_caret()
                 Command_Engine.show_status(self, "")
                 self.canvas.update()
             return
@@ -2807,6 +2926,7 @@ class MainViewer:
             is_copy = (key_name.lower() == 'c') and is_modifier_active
 
             if event.key in ['Enter', 'Return']:
+                self._hide_command_caret()
                 self.process_command(self.input_buffer)
                 self.console_mode = False; self.console_bg.visible = False; self.canvas.update()
                 

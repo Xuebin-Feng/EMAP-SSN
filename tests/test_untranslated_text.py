@@ -906,8 +906,8 @@ class ViewerCanvasTextTests(WindowTestCase):
         viewer.canvas = SimpleNamespace(update=lambda: None)
         with contextlib.redirect_stdout(io.StringIO()):
             viewer.apply_left_click_focus(0)
-        self.assertIn("9_", viewer.console_text.text)
-        self.assert_translated(viewer.console_text.text, "101", "7", "8", "3", "9_")
+        self.assertIn("9", viewer.console_text.text)
+        self.assert_translated(viewer.console_text.text, "101", "7", "8", "3", "9")
 
     def test_a_selection_errors_first_line_and_what_failed(self):
         # The console line shows the error's first line; the terminal gets every line, in English.
