@@ -2949,6 +2949,14 @@ class MainViewer:
                 self.cursor_pos = min(len(self.input_buffer), self.cursor_pos + 1)
                 self._update_console_text()
                 
+            elif event.key == 'Home':
+                self.cursor_pos = 0
+                self._update_console_text()
+                
+            elif event.key == 'End':
+                self.cursor_pos = len(self.input_buffer)
+                self._update_console_text()
+                
             elif event.key == 'Up':
                 if hasattr(self, 'command_history') and self.command_history:
                     self.history_index = max(0, self.history_index - 1)

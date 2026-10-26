@@ -567,7 +567,7 @@ class CommandCaretTests(unittest.TestCase):
         viewer.canvas.update.reset_mock()
         with mock.patch.object(EMAPSSN_Viewer.Command_Engine, "show_status",
                                wraps=EMAPSSN_Viewer.Command_Engine.show_status) as show_status:
-            for name, cursor in (("Left", 5), ("Left", 4), ("Right", 5), ("Right", 6)):
+            for name, cursor in (("Left", 5), ("Left", 4), ("Right", 5), ("Home", 0), ("End", 6)):
                 with self.subTest(key=name):
                     self.key(viewer, name)
                     self.assertEqual(viewer.cursor_pos, cursor)
@@ -586,7 +586,7 @@ class CommandCaretTests(unittest.TestCase):
         viewer.command_history = ["earlier"]
         viewer.history_index = 1
         viewer._update_console_text()
-        for name, text in (("Left", ""), ("Right", ""), ("Left", ""), ("Delete", ""), ("x", "x"),
+        for name, text in (("Left", ""), ("Right", ""), ("Home", ""), ("Delete", ""), ("End", ""), ("x", "x"),
                            ("Backspace", ""), ("Up", ""), ("Down", "")):
             with self.subTest(key=name):
                 before = viewer.command_caret.steadied
