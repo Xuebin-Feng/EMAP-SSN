@@ -74,7 +74,7 @@ Relative input paths follow each tool's directory rules, not the settings file's
 ## Calculate a layout
 
 Choose the edge filter from evidence: `emapssn_pipeline(action="network_statistics")`
-scores a network as the layout will (pass the node FASTA, ALIGNMENT_SCORE and NORM_MODE)
+scores a network as the layout will (pass node_fasta_file, alignment_score and norm_mode)
 and reports kept edges, clusters and isolated nodes per cutoff. Prefer the user's
 criterion when given. `emapssn_pipeline(action="get_layout_schema")` explains every field.
 
@@ -119,7 +119,7 @@ sections are inputs, network, layout, simulation, physics, packing, and output.
 Viewer sections are inputs, alignment, visualization, and directories. Never add
 network, layout, physics, BOX_SCALE, or cache_fallback to Viewer JSON: verified
 cache provenance supplies score mode, normalization, edge filters, UMAP/PaCMAP settings,
-and box scale internally.Input FASTA/network paths remain explicit because cache
+and box scale internally. Input FASTA/network paths remain explicit because cache
 metadata records fingerprints and basenames, not source locations.
 
 Launch modes: `normal` opens a visible Viewer (start-up screen, no terminal). `hidden` opens no window
@@ -177,7 +177,7 @@ with `emapssn_pipeline(action="read_log")`, correct the cause, and avoid blindly
 
 Both log readers use byte offsets: continue from `next_offset`. `eof` means the
 current end of a stream, not job completion. `emapssn_viewer_data(action="read_log")` captures MCP-launched
-Viewers in either mode. After disconnect or close, supply a full session ID whose
+Viewers in every mode. After disconnect or close, supply a full session ID whose
 log location this transport retained. Viewers launched without MCP capture
 do not offer these logs. Valid file structure, completed generation, and numerical
 or scientific correctness are separate conclusions; state the evidence actually

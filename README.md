@@ -187,7 +187,9 @@ Use `get_settings_schema` to inspect the accepted fields. Exporting writes a set
 file; validation and launch consume that explicit document without merging personal
 settings again. A visible Viewer uses `mode: "normal"`: it opens with the start-up screen
 and no terminal, as the Viewer that Configuration starts does; `mode: "headless"` runs
-without a desktop window but still uses Qt/VisPy.
+without a desktop window but still uses Qt/VisPy; `mode: "hidden"` starts with no window
+but draws as a normal Viewer does, and viewer-control `show_session` brings its window
+on screen (`hide_session` takes it away again).
 See [Viewer session settings](docs/mcp_settings.md#viewer-sessions), including the
 Windows host restriction on independent subprocesses.
 
@@ -200,8 +202,9 @@ capture a new one to inspect the changed state, and follow returned cursors for
 paged results.
 
 Viewer-control `execute_commands` uses the same command portal as the web agent.
-Supply a unique `submission_id` and reuse it if retrying that submission. Follow
-viewer-data `get_command_request` until completion; `read_command_output` provides
+Supply a new random UUID as `submission_id`, and reuse it only to retry that submission.
+Wait with viewer-data `wait_command_request` until it ends, rather than polling
+`get_command_request`; `read_command_output` provides
 printed diagnostics and `capture_view` returns the current canvas as PNG. Batches
 stop on failure, and command submission alone does not mean background work has
 finished. The server supplies an [agent workflow guide](src/mcp_server/Agent_Instructions.md)
@@ -732,7 +735,8 @@ start a window with `--console` (`EMAP-SSN.exe viewer --console`, `EMAP-SSN.exe 
 to show: its Console opens for the button row alone, and says where the output is.
 The Viewer that the Configuration window starts opens the same way on every platform, with a start-up screen and no
 terminal; on Linux and macOS, if that start-up screen cannot run, the Viewer starts in a terminal instead, as it did
-before. A Viewer started by the MCP server (`mode: "normal"`) opens the same way. The layout generator, which prints
+before. A Viewer started by the MCP server (`mode: "normal"`) also opens with the start-up screen and no terminal;
+with no display its launch fails at once with the launcher's message. The layout generator, which prints
 its progress, still runs in a terminal; when it has saved the layout it opens the Viewer the same way (start-up screen,
 no terminal of its own) and ends, so its terminal closes by itself unless something went wrong.
 

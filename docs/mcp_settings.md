@@ -569,7 +569,7 @@ omitting `cache_filename` in the individual-parameter form now selects automatic
 
 The layout section's `LAYOUT_DIMENSIONS` is `2` (default) or `3`. 3D caches are
 written to separate `_3D`-suffixed folders and record `physics_3d`, `umap_3d` or `pacmap_3d` as
-their layout mode;the desktop Viewer opens only 2D caches. `LAYOUT_SEED` is a
+their layout mode; the desktop Viewer opens only 2D caches. `LAYOUT_SEED` is a
 non-negative integer (default `42`) or `null` for an unseeded run. With a fixed seed,
 UMAP layouts and CPU physics layouts reproduce exactly, and so do GPU physics layouts
 on the same GPU model while its compiled layout kernels are in use. The PyTorch
@@ -776,7 +776,7 @@ Layout exports exclude visualization and MSA display settings.
 
 Viewer JSON never contains generation settings or a `cache_fallback` section.
 Verified cache attributes and the folder manifest provide alignment score mode,
-normalization, edge filters, UMAP or PaCMAP settings, and box scale internally.Source-file
+normalization, edge filters, UMAP or PaCMAP settings, and box scale internally. Source-file
 fingerprints and cache headers are checked. Explicit source paths remain necessary:
 metadata stores basenames and fingerprints, not full source locations. Changing
 an explicit cache uses its provenance even if current saved generation settings differ.
@@ -828,8 +828,9 @@ syntax, file effects, history, and manual controls remain the user-command behav
    that reused an id with the same commands would silently be handed the first client's request; shorter ids
    such as `task-1` are refused before anything is sent.
 3. Follow the execution response's `next_step`, which contains the tool, action and arguments (including the resolved `session_id`): it points at
-   `emapssn_viewer_data(action="wait_command_request", arguments={"submission_id": "<a new random UUID>", "session_id": "viewer-session-id", "timeout_seconds": 30})`;
-   `request_id` works in place of `submission_id`. The wait returns the same record as `get_command_request`, plus
+   `emapssn_viewer_data(action="wait_command_request", arguments={"request_id": "<the request's id>", "session_id": "viewer-session-id"})`;
+   the submission's own `submission_id` works in place of `request_id`, and `timeout_seconds` (default 30, at
+   most 50) sets how long one call waits. The wait returns the same record as `get_command_request`, plus
    `waited_seconds` and `waiting`, as soon as the request is succeeded, failed, cancelled, skipped or
    awaiting_user_input (the user must act in the visible Viewer). Otherwise it returns after `timeout_seconds`
    (default 30, at most 50) with `waiting: true` and a `next_step` that waits again, so call it again instead of
@@ -869,12 +870,12 @@ A command's `jobs` list has an entry per background job it queued (a file, a fol
 `progress` is null until the job reports one, then one plain line such as `MCL iteration 4`. Lane jobs of the
 background scheduler (files, folds) give theirs while they run.
 
-A command that waits or computes in the Viewer's command queue (`cluster` and `subcluster` always, any other
-command given while one waits) is not a background job: it has no entry in `jobs` and no number, and `jobs` does
+A command that waits or computes in the Viewer's command queue (`cluster`, `subcluster` and `print` always, any
+other command given while one waits) is not a background job: it has no entry in `jobs` and no number, and `jobs` does
 not list it. Its own record has a `queue` object instead: `status` (`queued`, then `running`, `applying` and how it
 ended), `position` in the line (1 for the command at its turn), `progress`, `started_at`, `finished_at` and
 `message`; a command that never waited has none, and no field says whether it can be stopped. A command that
-computes gives the text it reports as `progress` (MCL clustering is the one built-in command that does today),
+computes gives the text it reports as `progress` (MCL clustering's iterations and `print full`'s tiles today),
 copied in about twice a second, at most 256 characters, with the last line kept after it ends.
 `wait_command_request`'s progress notifications include it, as `queue` or as a job. `jobs cancel` does not reach a
 command in the queue, and an `undo` sent through `execute_commands` waits its turn behind it, so a client cannot
@@ -976,7 +977,7 @@ is resized to at most 1600 pixels per dimension. Optional `request_id` associate
 completed request, but the image observes current state, not historical state.
 Camera, colors and visibility are not modified by capture. Headless Viewers on
 Windows have no OpenGL context, so capture fails there with an error naming
-normal mode as the remedy.
+hidden or normal mode as the remedy.
 
 `get_summary` includes camera rectangle, canvas dimensions, and loaded,
 threshold-qualified, visible-endpoint (after threshold), and rendered edge counts.
@@ -1030,7 +1031,7 @@ request IDs, paging and byte cursors. For example:
 
 ```python
 emapssn_viewer_data(action="read_command_output", arguments={
-    "submission_id": "<a new random UUID>", "session_id": "viewer-session-id",
+    "submission_id": "<the submission's id>", "session_id": "viewer-session-id",
     "stream": "stdout", "offset": 0, "limit": 8192
 })
 ```
