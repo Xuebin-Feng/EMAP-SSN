@@ -2,8 +2,10 @@
 
 The compute steps run on a ManualExecutor, which runs one only when a test says
 so, on the test's own thread: every interleaving below is decided by the test,
-with no sleeps. The last class runs a real Leiden clustering on the queue's
-worker thread and measures the GUI thread's timer meanwhile.
+with no sleeps. CooperativeStepTests run a command whose start step is a
+generator, which the queue steps in slices between the runs of the event loop.
+The last class runs a real Leiden clustering on the queue's worker thread and
+measures the GUI thread's timer meanwhile.
 """
 import io
 import sys
@@ -27,6 +29,7 @@ from PySide6 import QtCore, QtWidgets  # noqa: E402
 import Command_Engine as ce  # noqa: E402
 from Command_Queue import CommandQueue, ManualExecutor, ThreadExecutor  # noqa: E402
 from Viewer_Command_Portal import ViewerCommandPortal, bind  # noqa: E402
+from tests.command_fixtures import scratch_commands  # noqa: E402
 
 # Two 4-cliques joined by the bridge 3-4, and two nodes with no edge. Jaccard
 # at 0.5 with MIN_SIZE 3 makes the cliques cluster_1 (nodes 0-3) and
@@ -748,6 +751,260 @@ class TurnTests(QueueTestCase):
         viewer.queue.shutdown()
         self.assertEqual(viewer.queue.pending(), [])
         self.assertEqual([job.status for job in viewer.queue.finished], ['cancelled', 'cancelled'])
+
+
+# A command whose start step is a generator: it works for viewer.coop_count steps of viewer.coop_pause seconds each, on
+# the GUI thread, and yields the progress after each. What it does is logged on the viewer (the module is reloaded at
+# every dispatch, so it keeps nothing of its own).
+COOPERATIVE_COMMAND = '''
+import time
+from dataclasses import dataclass
+
+import Command_Engine
+
+
+@dataclass(frozen=True)
+class CoopPlan:
+    args: tuple
+    cooperative = True
+
+
+def plan(viewer, args):
+    return CoopPlan(tuple(args))
+
+
+def start(viewer, plan):
+    return _steps(viewer)
+
+
+def _steps(viewer):
+    log = viewer.coop_log
+    log.append("opened")
+    try:
+        for index in range(viewer.coop_count):
+            if index == getattr(viewer, "coop_fail_at", -1):
+                raise RuntimeError("step failed")
+            time.sleep(viewer.coop_pause)
+            log.append(("step", index))
+            yield f"step {index + 1} of {viewer.coop_count}"
+        Command_Engine.command_succeeded(viewer, "stepped")
+    finally:
+        log.append("closed")
+
+
+def run(viewer, args):
+    for _ in _steps(viewer):
+        pass
+'''
+
+# A cooperative command that hands its inputs on: compute and apply then run as they do for any command.
+INPUT_COMMAND = '''
+from dataclasses import dataclass
+
+import Command_Engine
+
+
+@dataclass(frozen=True)
+class InputPlan:
+    args: tuple
+    cooperative = True
+
+
+def plan(viewer, args):
+    return InputPlan(tuple(args))
+
+
+def start(viewer, plan):
+    return _gather(viewer)
+
+
+def _gather(viewer):
+    for index in range(3):
+        yield f"gathering {index}"
+    return {"gathered": 3}
+
+
+def compute(inputs, progress):
+    return inputs["gathered"] * 10
+
+
+def apply(viewer, plan, result):
+    viewer.coop_log.append(("applied", result))
+    Command_Engine.command_succeeded(viewer, "applied")
+
+
+def run(viewer, args):
+    pass
+'''
+
+
+class CooperativeStepTests(QueueTestCase):
+    """A start step that is a generator is stepped in slices: the event loop runs between them, input included."""
+
+    def setUp(self):
+        super().setUp()
+        stack = scratch_commands({"coop": COOPERATIVE_COMMAND, "coopinput": INPUT_COMMAND})
+        stack.__enter__()
+        self.addCleanup(stack.__exit__, None, None, None)
+        viewer = self.viewer
+        viewer.coop_log, viewer.coop_count, viewer.coop_pause = [], 12, 0.01
+
+    def pump_until(self, condition, timeout=10):
+        deadline = time.monotonic() + timeout
+        while not condition():
+            if time.monotonic() > deadline:
+                self.fail("the command queue did not get there")
+            self.app.processEvents()
+            time.sleep(0.001)
+
+    def steps_logged(self):
+        return [entry[1] for entry in self.viewer.coop_log if isinstance(entry, tuple) and entry[0] == "step"]
+
+    def test_the_steps_are_taken_in_slices_with_the_event_loop_running_between_them(self):
+        viewer = self.viewer
+        timer = QtCore.QTimer()
+        timer.setInterval(1)
+        timer.timeout.connect(lambda: viewer.coop_log.append("tick"))
+        timer.start()
+        self.addCleanup(timer.stop)
+
+        viewer.type("coop")
+        self.assertEqual(viewer.queue.running().status, 'running')  # its first slice ran inside the dispatch
+        self.pump_until(lambda: not viewer.queue.pending())
+        timer.stop()
+
+        self.assertEqual(self.steps_logged(), list(range(12)))
+        log = viewer.coop_log
+        first, last = log.index(("step", 0)), log.index(("step", 11))
+        # 12 steps of 10 ms in slices of 30 ms: the timer, which only the event loop serves, ticked between slices.
+        self.assertGreaterEqual(log[first:last].count("tick"), 2)
+        self.assertEqual([job.status for job in viewer.queue.finished], ['succeeded'])
+        self.assertEqual(log[-1], "closed")
+
+    def test_a_slice_takes_several_steps_but_not_all_of_them(self):
+        viewer = self.viewer
+        viewer.coop_count, viewer.coop_pause = 40, 0.01
+        slices = []
+        original = viewer.command_queue._slice_timer.start
+
+        def note(milliseconds):
+            slices.append(time.perf_counter())
+            return original(milliseconds)
+
+        with mock.patch.object(viewer.command_queue._slice_timer, "start", side_effect=note):
+            viewer.type("coop")
+            self.pump_until(lambda: not viewer.queue.pending())
+        # 40 steps of 10 ms in slices of 30 ms: the step that passes the time ends a slice, so about 10 slices.
+        self.assertTrue(5 <= len(slices) + 1 <= 25, len(slices))
+
+    def test_a_cooperative_command_waits_in_the_queue_even_with_nothing_ahead_of_it(self):
+        viewer = self.viewer
+        viewer.type("coop")
+        self.assertEqual([job.name for job in viewer.queue.pending()], ["coop"])
+        self.pump_until(lambda: not viewer.queue.pending())
+
+    def test_commands_given_meanwhile_wait_behind_it(self):
+        viewer = self.viewer
+        viewer.type("coop")
+        viewer.type(CLUSTER)
+        viewer.type("select #cluster_1#")
+        self.assertEqual([job.status for job in viewer.queue.pending()], ['running', 'queued', 'queued'])
+        self.assertIn(f"{CLUSTER}: waiting for coop.", self.output.getvalue())
+        # The cluster's compute step is submitted once coop is over: all its steps were taken by then.
+        self.pump_until(lambda: bool(viewer.executor.tasks))
+        self.assertEqual(self.steps_logged(), list(range(12)))
+        self.finish_compute()
+        self.assertEqual(viewer.queue.pending(), [])
+        self.assertEqual([job.status for job in viewer.queue.finished], ['succeeded'] * 3)
+        self.assertEqual(sorted(viewer.selected_indices), [0, 1, 2, 3])
+
+    def test_the_progress_it_yields_is_on_the_status_line_with_the_time(self):
+        viewer = self.viewer
+        viewer.type("coop")
+        viewer.queue._show_running()
+        self.assertTrue(any(line.startswith("Running coop: step ") and "of 12 (" in line for line in viewer.status_lines),
+                        viewer.status_lines)
+        self.pump_until(lambda: not viewer.queue.pending())
+
+    def test_the_status_line_is_refreshed_while_it_works_and_the_timer_stops_when_it_ends(self):
+        viewer = self.viewer
+        viewer.type("coop")
+        self.assertTrue(viewer.queue._status_timer.isActive())
+        self.pump_until(lambda: not viewer.queue.pending())
+        self.assertFalse(viewer.queue._status_timer.isActive())
+
+    def test_a_message_it_yields_is_kept_as_it_is_for_the_status_line_to_translate(self):
+        from utilities.Localization import Message
+
+        def steps(viewer, plan):
+            yield Message("Capturing tile {done} of {total}", done=1, total=2)
+            yield Message("Capturing tile {done} of {total}", done=2, total=2)
+
+        module = SimpleNamespace(plan=lambda viewer, args: SimpleNamespace(cooperative=True), start=steps)
+        job = self.viewer.command_queue.dispatch(module, "coop", [], "coop")
+        self.pump_until(lambda: job.finished)
+        self.assertEqual(str(job.progress_text), "Capturing tile 2 of 2")
+        self.assertIsInstance(job.progress_text, Message)
+
+    def test_what_it_returns_is_the_input_of_compute_and_apply(self):
+        viewer = self.viewer
+        viewer.type("coopinput")
+        self.pump_until(lambda: not viewer.queue.pending())
+        self.assertIn(("applied", 30), viewer.coop_log)
+        self.assertEqual([job.status for job in viewer.queue.finished], ['succeeded'])
+
+    def test_undo_closes_it_and_its_finally_block_runs(self):
+        viewer = self.viewer
+        viewer.coop_count = 100
+        viewer.type("coop")
+        self.pump_until(lambda: len(self.steps_logged()) >= 5)
+        self.assertNotIn("closed", viewer.coop_log)
+        viewer.type("undo")
+        self.assertEqual(viewer.queue.pending(), [])
+        self.assertEqual(viewer.coop_log[-1], "closed")
+        taken = len(self.steps_logged())
+        self.settle()
+        for _ in range(10):
+            self.app.processEvents()
+        self.assertEqual(len(self.steps_logged()), taken, "no step is taken after it was cancelled")
+        self.assertEqual([job.status for job in viewer.queue.finished], ['cancelled'])
+        self.assertIn("Cancelled by undo before it finished.", str(viewer.queue.finished[-1].message))
+
+    def test_a_step_that_raises_fails_the_command_and_the_queue_goes_on(self):
+        viewer = self.viewer
+        viewer.coop_fail_at = 4
+        viewer.type("coop")
+        viewer.type("select #cluster_1#")
+        self.pump_until(lambda: not viewer.queue.pending())
+        self.assertEqual(self.steps_logged(), [0, 1, 2, 3])
+        self.assertEqual(viewer.coop_log[-1], "closed")
+        self.assertIn("step failed", self.output.getvalue())
+        # Typed after it, the select was cancelled with it, as after any failure.
+        self.assertEqual([job.status for job in viewer.queue.finished], ['failed', 'cancelled'])
+        viewer.coop_fail_at = -1
+        viewer.type("coop")
+        self.pump_until(lambda: not viewer.queue.pending())
+        self.assertEqual(viewer.queue.finished[-1].status, 'succeeded')
+
+    def test_closing_the_viewer_closes_it_and_runs_nothing_more(self):
+        viewer = self.viewer
+        viewer.coop_count = 100
+        viewer.type("coop")
+        self.pump_until(lambda: len(self.steps_logged()) >= 3)
+        viewer.queue.shutdown()
+        self.assertEqual(viewer.coop_log[-1], "closed")
+        taken = len(self.steps_logged())
+        for _ in range(20):
+            self.app.processEvents()
+        self.assertEqual(len(self.steps_logged()), taken)
+        self.assertEqual([job.status for job in viewer.queue.finished], ['cancelled'])
+
+    def test_a_command_run_at_once_takes_all_its_steps_in_a_row(self):
+        from commands import coop
+        viewer = self.viewer
+        coop.run(viewer, [])
+        self.assertEqual(self.steps_logged(), list(range(12)))
+        self.assertEqual(viewer.queue.pending(), [])
 
 
 class PortalMappingTests(QueueTestCase):

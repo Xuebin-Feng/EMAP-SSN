@@ -22,6 +22,17 @@ if they had been typed one by one, and the Viewer keeps responding meanwhile.
   undo state once, writes the result and redraws. It waits while nodes are
   dragged or a box selection is drawn.
 
+A command whose work must run on the GUI thread but lasts longer than a frame
+(it draws, as print does, and drawing needs the Viewer's OpenGL context) says
+so with a plan whose ``cooperative`` is true, and its ``start`` returns a
+generator in place of its inputs. The queue steps the generator on the GUI
+thread for ``COOPERATIVE_SLICE_S`` at a time and lets the event loop run
+between the slices, so input, paints and timers are served while it works; the
+commands given meanwhile wait behind it, as behind any command. Each value it
+yields is the progress shown beside its time, and its return value is what
+``start`` would have returned. Cancelling the command closes the generator,
+which runs its ``finally`` blocks.
+
 A module without plan() (not yet split) runs its whole run(viewer, args) on
 the GUI thread at its turn. When nothing waits, a command that is not heavy
 runs at once, as it always did, without waiting in the queue.
@@ -39,6 +50,7 @@ the rest of a request itself.
 from __future__ import annotations
 
 import collections
+import inspect
 import queue as queue_module
 import threading
 import time
@@ -59,6 +71,11 @@ COMMAND_LINE_SOURCES = ('typed', 'script')
 _NO_SELECTION = np.empty(0, dtype=np.int64)
 # How often the status line shows a computing command's time and progress.
 STATUS_REFRESH_MS = 500
+# How long a cooperating command's steps hold the GUI thread before the event loop runs again: the longest
+# input, paints and timers wait, besides the one step that is under way when the time is up.
+COOPERATIVE_SLICE_S = 0.03
+_DONE = object()
+_MORE = object()
 
 
 class CommandCancelled(Exception):
@@ -122,6 +139,10 @@ class Job:
         self.context = context
         self.silent = silent
         self.heavy = plan is not LEGACY and bool(getattr(plan, 'heavy', False))
+        # Its start step is a generator the queue steps in slices (see the module docstring), and while
+        # it does, this is that generator.
+        self.cooperative = plan is not LEGACY and bool(getattr(plan, 'cooperative', False))
+        self.cooperation = None
         # Its feedback goes to the status line while a command is typed (Command_Engine.show_status).
         self.deferred = True
         self.status = 'queued'
@@ -287,6 +308,9 @@ class CommandQueue(QtCore.QObject):
         self._status_timer = QtCore.QTimer(self)
         self._status_timer.setInterval(STATUS_REFRESH_MS)
         self._status_timer.timeout.connect(self._show_running)
+        self._slice_timer = QtCore.QTimer(self)
+        self._slice_timer.setSingleShot(True)
+        self._slice_timer.timeout.connect(self._continue_cooperation)
 
     # --- what waits ----------------------------------------------------------
 
@@ -316,7 +340,8 @@ class CommandQueue(QtCore.QObject):
         if plan is None:
             return None
         heavy = plan is not LEGACY and bool(getattr(plan, 'heavy', False))
-        if not self.jobs and not heavy:
+        cooperative = plan is not LEGACY and bool(getattr(plan, 'cooperative', False))
+        if not self.jobs and not heavy and not cooperative:
             # Nothing waits: it runs now, as it always did.
             if plan is LEGACY:
                 Command_Engine._run_module(viewer, module, name, list(args), silent)
@@ -426,6 +451,15 @@ class CommandQueue(QtCore.QObject):
         inputs = self._step(job, viewer, lambda: job.module.start(viewer, job.plan))
         if job.finished:
             return
+        if inspect.isgenerator(inputs):
+            self._cooperate(job, viewer, inputs)
+            return
+        self._started(job, viewer, inputs)
+
+    def _started(self, job, viewer, inputs):
+        """The start step is over, and gave inputs (None: the command ends here): compute, then apply."""
+        if job.finished:
+            return
         if inputs is None or job.outcome in ('failed', 'cancelled'):
             self._finish(job, viewer)
             return
@@ -439,6 +473,63 @@ class CommandQueue(QtCore.QObject):
         self._show_running()
         self._status_timer.start()
         self.executor.submit(job, lambda: self._compute(job, inputs), self._computed.emit)
+
+    # --- a start step in slices -------------------------------------------
+
+    def _cooperate(self, job, viewer, generator):
+        """Step the generator a start step returned, a slice at a time, between the runs of the event loop."""
+        job.cooperation = generator
+        self._show_running()
+        self._status_timer.start()
+        self._slice(job, viewer)
+
+    def _continue_cooperation(self):
+        viewer = self._viewer()
+        job = self.running()
+        if job is not None and job.cooperation is not None and viewer is not None:
+            self._slice(job, viewer)
+
+    def _slice(self, job, viewer):
+        """Take the next steps of a cooperating command, for COOPERATIVE_SLICE_S; then the event loop runs."""
+        generator = job.cooperation
+        if generator is None or job.finished or self._closed:
+            return
+        deadline = time.perf_counter() + COOPERATIVE_SLICE_S
+
+        def advance():
+            while True:
+                try:
+                    progress = next(generator)
+                except StopIteration as stop:
+                    return _DONE, stop.value
+                if progress is not None:
+                    job.progress_text = progress
+                if time.perf_counter() >= deadline:
+                    return _MORE, None
+
+        outcome = self._step(job, viewer, advance)
+        if job.finished:
+            return
+        if outcome is None:
+            # The generator raised: _step reported it as the command's failure, and a generator that raised is over.
+            job.cooperation = None
+            self._finish(job, viewer)
+        elif outcome[0] is _MORE:
+            self._slice_timer.start(0)
+        else:
+            job.cooperation = None
+            self._started(job, viewer, outcome[1])
+
+    @staticmethod
+    def _stop_cooperating(job):
+        """Close the generator of a command that ends before it has: its finally blocks run, on this thread."""
+        generator, job.cooperation = job.cooperation, None
+        if generator is None:
+            return
+        try:
+            generator.close()
+        except Exception as error:  # A step that cannot be closed must not keep the queue from going on.
+            print(f"Warning: {job.line} could not be stopped cleanly ({error}).")
 
     @staticmethod
     def _compute(job, inputs):
@@ -495,6 +586,7 @@ class CommandQueue(QtCore.QObject):
                     viewer, 'Command handler did not report an explicit outcome.'))
             status = job.outcome if job.outcome in ('succeeded', 'failed', 'cancelled') else 'failed'
         self._copy_progress(job)  # what it last reported, though no status tick came after it
+        self._stop_cooperating(job)
         job.finished = True
         job.status = status
         job.message = message
@@ -508,7 +600,7 @@ class CommandQueue(QtCore.QObject):
         self._event(job, status, message)
         if status in ('failed', 'cancelled') and not job.cancelled_by_request:
             self._cancel_after_failure(job, viewer)
-        if not any(waiting.status == 'running' and waiting.heavy for waiting in self.jobs):
+        if not any(waiting.status == 'running' and (waiting.heavy or waiting.cooperative) for waiting in self.jobs):
             self._status_timer.stop()
         self._update_places()
         self._show_finished(job, viewer)
@@ -589,8 +681,10 @@ class CommandQueue(QtCore.QObject):
         self._closed = True
         self._wake.stop()
         self._status_timer.stop()
+        self._slice_timer.stop()
         viewer = self._viewer()
         for job in list(self.jobs):
+            self._stop_cooperating(job)
             job.cancel_requested = True
             job.cancelled_by_request = True
             job.finished = True
@@ -610,7 +704,7 @@ class CommandQueue(QtCore.QObject):
     def _copy_progress(job):
         """Show the progress text a compute step reports in the job's command portal record, as `progress`."""
         if job.context is not None and job.progress_text:
-            job.context.queue_progress(job.progress_text)
+            job.context.queue_progress(str(job.progress_text))
 
     def _show_running(self):
         viewer = self._viewer()
