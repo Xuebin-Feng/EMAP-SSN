@@ -81,7 +81,7 @@ class WhetherToColourTests(unittest.TestCase):
                 source = (SRC_DIR / name).read_text(encoding="utf-8")
                 tree = ast.parse(source)
                 imported = any(isinstance(node, ast.ImportFrom) and node.module == "utilities.Terminal_Colors"
-                               and any(alias.name == "colours_enabled" for alias in node.names)
+                               and any(alias.name in ("colours_enabled", "print_coloured") for alias in node.names)
                                for node in ast.walk(tree))
                 self.assertTrue(imported)
                 self.assertNotIn("isatty", source)
@@ -101,6 +101,44 @@ class WhetherToColourTests(unittest.TestCase):
             with mock.patch.object(sys, "stdout", self.Stream()):
                 self.assertEqual(cluster.get_colored_cluster_name(-1, "Noise"), "● Noise")
                 self.assertEqual(spectrum._terminal_endpoint_text("min", 1, (0, 0, 0)), "min: 1")
+
+
+class PrintColouredTests(unittest.TestCase):
+    """Errors are red and warnings amber, as the Console's help says; a stream that is not a terminal gets the text alone."""
+
+    class Terminal(io.StringIO):
+        def isatty(self):
+            return True
+
+    def printed(self, message, colour, stream):
+        with mock.patch.object(sys, "stdout", stream):
+            T.print_coloured(message, colour)
+        return stream.getvalue()
+
+    def test_a_terminal_gets_the_message_in_the_colour_and_a_buffer_gets_the_text(self):
+        self.assertEqual(self.printed("WARNING: a\n  - b", T.AMBER, self.Terminal()),
+                         f"{ESC}[33mWARNING: a\n  - b{ESC}[0m\n")
+        self.assertEqual(self.printed("ERROR: c", T.RED, self.Terminal()), f"{ESC}[91mERROR: c{ESC}[0m\n")
+        self.assertEqual(self.printed("WARNING: a", T.AMBER, io.StringIO()), "WARNING: a\n")
+
+    def test_amber_is_the_yellow_of_the_palette_and_is_not_red(self):
+        self.assertEqual((T.RED, T.AMBER), ("91", "33"))
+        self.assertEqual(T.apply_sgr(DEFAULT_STYLE, T.AMBER).fg, ("index", 3))
+        self.assertEqual(T.apply_sgr(DEFAULT_STYLE, T.RED).fg, ("index", 9))
+
+    def test_the_log_keeps_the_text_without_the_colour(self):
+        import tempfile
+
+        text = self.printed("WARNING: Incomplete MSA coverage\nAligned network nodes: 2/3", T.AMBER, self.Terminal())
+        with tempfile.TemporaryDirectory() as directory:
+            recorder = Console_Capture.Recorder("viewer", Path(directory))
+            for line in text.splitlines():
+                recorder.add("stdout", line)
+            recorder.close_log()
+            log = Path(recorder.log_path).read_text(encoding="utf-8")
+        self.assertNotIn(ESC, log)
+        self.assertIn(" O WARNING: Incomplete MSA coverage\n", log)
+        self.assertIn(" O Aligned network nodes: 2/3\n", log)
 
 
 class ReadingColoursTests(unittest.TestCase):

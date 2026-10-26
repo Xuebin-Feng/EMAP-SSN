@@ -127,6 +127,25 @@ class CoverageTests(EmbeddingFileTestCase):
         self.assertIn("Embedded network nodes: 1/2 (50.0%)", output)
         self.assertIn("  - absent_node", output)
 
+    def test_the_warning_is_amber_and_a_rejected_file_is_an_error_in_red_on_a_terminal(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        with redirect_stdout(Terminal()) as output:
+            Embedding_Manager.Embedding_Manager(
+                self.path, full_headers=["node_a", "absent_node"], sequences=SEQUENCES
+            )
+        self.assertIn("\033[33mWARNING: Incomplete embedding coverage", output.getvalue())
+        self.assertNotIn("\033[91m", output.getvalue())
+        self.assertTrue(output.getvalue().rstrip().endswith("\033[0m"))
+        incomplete = os.path.join(self.directory.name, "incomplete.h5")
+        write_embedding_file(incomplete, RECORDS, complete=False)
+        with redirect_stdout(Terminal()) as output:
+            Embedding_Manager.Embedding_Manager(incomplete, full_headers=["node_a"], sequences=SEQUENCES)
+        self.assertIn("\033[91mERROR: Embedding file rejected", output.getvalue())
+        self.assertNotIn("\033[33m", output.getvalue())
+
     def test_zero_coverage_is_accepted_with_a_warning(self):
         manager, output = load(self.path, ["other_1", "other_2"])
         self.assertIsNotNone(manager.source)

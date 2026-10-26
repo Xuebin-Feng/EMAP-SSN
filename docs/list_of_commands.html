@@ -543,7 +543,7 @@
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Loading Rules &amp; Integrity Checks</div>
-<p>The MSA may contain all, some, or none of the sequence headers currently plotted in the viewer. Coverage is matched by exact full headers. Missing nodes remain visible and usable for topology and metadata operations, but they are excluded from alignment-dependent analyses. A partial load prints a red warning in the Console with coverage details; only unreadable or malformed alignment files cause rollback.</p>
+<p>The MSA may contain all, some, or none of the sequence headers currently plotted in the viewer. Coverage is matched by exact full headers. Missing nodes remain visible and usable for topology and metadata operations, but they are excluded from alignment-dependent analyses. A partial load prints an amber warning in the Console with coverage details; only unreadable or malformed alignment files cause rollback.</p>
 <p>For amino-acid expressions, a missing alignment row is treated as unknown: neither <code>P106</code> nor <code>!P106</code> matches an unaligned node. Independent header, metadata, cluster, group, or file clauses can still match that node through normal Boolean logic.</p>
                 </div>
                 <div class="subheading">Examples</div>
@@ -574,7 +574,7 @@
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>Loading Rules &amp; Integrity Checks</div>
-<p>The embedding may contain all, some, or none of the sequence headers currently plotted in the viewer. A node is covered when the file holds its exact full header with the identical sequence. Missing nodes, and nodes whose sequence differs from the file's, remain visible and usable for topology and metadata operations, but they are excluded from embedding-dependent analyses. The command reports how many nodes are embedded and the embedding's model, width and saving mode; a partial load also prints a red warning in the Console with coverage details. Only an unreadable, malformed or incomplete embedding file causes rollback, which restores the previous embedding.</p>
+<p>The embedding may contain all, some, or none of the sequence headers currently plotted in the viewer. A node is covered when the file holds its exact full header with the identical sequence. Missing nodes, and nodes whose sequence differs from the file's, remain visible and usable for topology and metadata operations, but they are excluded from embedding-dependent analyses. The command reports how many nodes are embedded and the embedding's model, width and saving mode; a partial load also prints an amber warning in the Console with coverage details. Only an unreadable, malformed or incomplete embedding file causes rollback, which restores the previous embedding.</p>
 <p>A network built with another model than the embedding's is accepted, with a note: embedding commands use the embedding's model.</p>
                 </div>
                 <div class="subheading">Examples</div>

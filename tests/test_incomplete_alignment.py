@@ -78,7 +78,7 @@ class IncompleteAlignmentLoaderTests(unittest.TestCase):
                         else:
                             self.assertNotIn("was not found", output.getvalue())
 
-    def test_partial_fasta_load_tracks_exact_coverage_and_warns_red(self):
+    def test_partial_fasta_load_tracks_exact_coverage_and_warns_amber(self):
         with tempfile.TemporaryDirectory() as directory:
             fasta_path = os.path.join(directory, "partial.fasta")
             write_fasta(
@@ -102,10 +102,30 @@ class IncompleteAlignmentLoaderTests(unittest.TestCase):
         )
         self.assertTrue(manager.has_reference)
         warning = output.getvalue()
-        self.assertIn("\033[91mWARNING: Incomplete MSA coverage", warning)
+        # A warning is amber and an error red, as the Console's help says; the block is one colour to its reset.
+        self.assertIn("\033[33mWARNING: Incomplete MSA coverage", warning)
+        self.assertNotIn("\033[91m", warning)
         self.assertIn("Aligned network nodes: 2/3 (66.7%)", warning)
         self.assertIn("  - node2_full", warning)
-        self.assertIn("\033[0m", warning)
+        self.assertTrue(warning.rstrip().endswith("\033[0m"))
+
+    def test_a_missing_reference_warns_amber_and_a_rejected_file_is_an_error_in_red(self):
+        with tempfile.TemporaryDirectory() as directory:
+            fasta_path = os.path.join(directory, "missing_ref.fasta")
+            write_fasta(fasta_path, [("node1", "AC"), ("node2", "TC")])
+            output = TTYBuffer()
+            with redirect_stdout(output):
+                Alignment_Manager.Alignment_Manager(
+                    fasta_path, full_headers=["node1", "node2"], active_reference="absent",
+                )
+            self.assertIn("\033[33mWARNING: Configured alignment reference 'absent' was not found.", output.getvalue())
+            self.assertNotIn("\033[91m", output.getvalue())
+            output = TTYBuffer()
+            with redirect_stdout(output):
+                loader, reason = Alignment_Manager.load_alignment_with_reason(os.path.join(directory, "x.txt"))
+            self.assertIsNone(loader)
+            self.assertIn(f"\033[91mERROR: {reason}", output.getvalue())
+            self.assertNotIn("\033[33m", output.getvalue())
 
     def test_exact_full_header_matching_does_not_accept_shortened_description(self):
         with tempfile.TemporaryDirectory() as directory:

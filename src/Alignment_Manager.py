@@ -34,15 +34,8 @@ from utilities.Sequence_Utils import (
     simplify_node_label,
 )
 from utilities.Localization import Message
-from utilities.Terminal_Colors import colours_enabled
+from utilities.Terminal_Colors import AMBER, RED, print_coloured
 
-
-def _print_red_warning(message):
-    """Print a bright-red warning to terminals and plain text to redirected logs."""
-    if colours_enabled():
-        print(f"\033[91m{message}\033[0m")
-    else:
-        print(message)
 
 def _source_signature(msa_file):
     """The MSA file's (size, modification time), or None when it cannot be read."""
@@ -134,10 +127,11 @@ class Alignment_Manager:
         if self.missing_headers:
             self._warn_incomplete_coverage(reference_fallback, active_reference)
         elif reference_fallback:
-            _print_red_warning(
+            print_coloured(
                 f"WARNING: Configured alignment reference '{active_reference}' was not found. "
                 "The MSA remains loaded in pure occupancy mode; reference numbering and "
-                "alignment offsets are inactive."
+                "alignment offsets are inactive.",
+                AMBER,
             )
 
     def _can_reuse_rows_of(self, previous):
@@ -231,7 +225,7 @@ class Alignment_Manager:
                 f"Configured reference '{active_reference}' is missing; the MSA is loaded "
                 "in pure occupancy mode and reference numbering is inactive."
             )
-        _print_red_warning("\n".join(lines))
+        print_coloured("\n".join(lines), AMBER)
 
     @staticmethod
     def _offset_label(label, offset):
@@ -724,7 +718,7 @@ def load_alignment_with_reason(msa_path, filter_headers=None):
                 return SparseAlignmentLoader(msa_path, filter_headers), None
             except MSAValidationError as e:
                 reason = Message("MSA rejected: {error}", error=e)
-                _print_red_warning(f"ERROR: {reason}")
+                print_coloured(f"ERROR: {reason}", RED)
                 return None, reason
             except Exception as e:
                 reason = Message("Error loading HDF5: {error}", error=e)
@@ -741,14 +735,14 @@ def load_alignment_with_reason(msa_path, filter_headers=None):
             "Expected .fasta or .h5.",
             extension=extension or '(none)',
         )
-        _print_red_warning(f"ERROR: {reason}")
+        print_coloured(f"ERROR: {reason}", RED)
         return None, reason
 
     try:
         return InMemorySparseLoader(msa_path, filter_headers), None
     except MSAValidationError as e:
         reason = Message("MSA rejected: {error}", error=e)
-        _print_red_warning(f"ERROR: {reason}")
+        print_coloured(f"ERROR: {reason}", RED)
         return None, reason
     except Exception as e:
         reason = Message("Error loading FASTA into memory: {error}", error=e)

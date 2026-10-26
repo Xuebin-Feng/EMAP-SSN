@@ -5,14 +5,16 @@
 """Terminal colours: when to print them, how to read them, and how to take them out.
 
 Commands colour part of their output with ANSI escape sequences (``cluster``'s dots,
-``spectrum``'s range, the red warnings of the alignment and embedding managers). Two
-places show those colours: a terminal, and the Console window (desktop/Console_View.py),
-which reads the sequences itself. Everywhere else they are noise, so:
+``spectrum``'s range, the red errors and amber warnings of the alignment and embedding
+managers). Two places show those colours: a terminal, and the Console window
+(desktop/Console_View.py), which reads the sequences itself. Everywhere else they are
+noise, so:
 
 * ``colours_enabled`` is the one question a command asks before it colours: yes for a
   real terminal, and yes for the output the Console captures (utilities/Console_Capture.py
   hands that to the Console window, and passes it on to the stream the process started with
   only as the stream can take it). A plain redirect, a pipe or a buffer says no.
+* ``print_coloured`` prints a message in red (an error) or amber (a warning) if it says yes.
 * ``strip_ansi`` and ``AnsiStripper`` (for bytes arriving in chunks) take the sequences out,
   for the log file, the splash's details, and a stream that is not a terminal.
 * ``parse_ansi`` reads the colour sequences (SGR: reset, bold, italic, underline, reverse,
@@ -75,6 +77,25 @@ def colours_enabled(stream=None) -> bool:
     from utilities import Console_Capture
 
     return Console_Capture.is_capture_stream(stream)
+
+
+# The colours of the messages a command prints, as the Console's help says: errors are red and warnings
+# amber. Red is the bright one, SGR 91. Amber is the palette's yellow, SGR 33, which the Console draws as
+# it draws its own warnings (a `[Qt warning]` line): on its dark page it is that very shade, #fbbf24.
+RED = "91"
+AMBER = "33"
+
+
+def print_coloured(message: str, colour: str) -> None:
+    """Print ``message`` in ``colour`` (RED or AMBER) where colours_enabled(), and as plain text everywhere else.
+
+    The Console shows the colour; the log file and any stream that is not a terminal get the text
+    without it (Console_Capture strips the sequences there).
+    """
+    if colours_enabled():
+        print(f"{ESC}[{colour}m{message}{ESC}[0m")
+    else:
+        print(message)
 
 
 # =====================================================================

@@ -455,6 +455,22 @@ class ColourTests(WindowCase):
         self.assertEqual(colours, [yellow, yellow, yellow, TOKENS["text_soft"]])
         self.assertEqual(output_lines(window), ["WARNING: first", "  second", "  third", "after"])
 
+    def test_an_amber_warning_block_is_drawn_in_the_warning_colour_and_a_red_error_is_not_amber(self):
+        # What print_coloured writes (utilities.Terminal_Colors): a warning in AMBER, an error in RED.
+        for text in (f"{ESC}[{TC.AMBER}mWARNING: Incomplete MSA coverage", "Aligned network nodes: 2/3 (66.7%)",
+                     f"  - node2_full{ESC}[0m", f"{ESC}[{TC.RED}mERROR: MSA rejected{ESC}[0m"):
+            self.recorder.add("stdout", text)
+        for dark, palette in ((False, TC.PALETTE_LIGHT), (True, TC.PALETTE_DARK)):
+            with self.subTest(dark=dark):
+                window = self.window(dark=dark)
+                surface = self.surface(window)
+                amber = TC.readable_color(palette[3], surface)
+                self.assertEqual([fragments(window, number)[0][1] for number in range(4)],
+                                 [amber, amber, amber, TC.readable_color(palette[9], surface)])
+                self.assertGreaterEqual(TC.contrast_ratio(amber, surface), TC.MIN_CONTRAST)
+        # On the dark page this is the colour the window gives its own warnings, a [Qt warning] line.
+        self.assertEqual(TC.palette_color(("index", 3), dark=True), dark_tokens()["warning"])
+
     def test_a_colour_left_on_by_one_stream_does_not_tint_the_other(self):
         self.recorder.add("stdout", f"{ESC}[31mred and not reset")
         self.recorder.add("stderr", "plain on stderr")

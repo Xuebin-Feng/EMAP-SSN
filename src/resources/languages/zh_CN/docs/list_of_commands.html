@@ -524,7 +524,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-alignment" data-source-sha256="fe72417086c6a4cf6cd94f25efe493d5dd63beb556c4c91588ffee5c17c8e9b9">
+            <section class="command-card" id="cmd-alignment" data-source-sha256="74c5e56d991a9fea0d371b38f7dcb14ba6dbbbcc17ed3152e28308517831ab45">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">alignment</span>
@@ -544,7 +544,7 @@
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>加载规则与完整性检查</div>
-<p>MSA 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。覆盖情况按完整序列标题的精确匹配来计算。缺失的节点仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖比对的分析之外。部分加载会在控制台窗口中打印红色警告，并给出覆盖率详情；只有无法读取或格式错误的比对文件才会导致回滚。</p>
+<p>MSA 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。覆盖情况按完整序列标题的精确匹配来计算。缺失的节点仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖比对的分析之外。部分加载会在控制台窗口中打印琥珀色警告，并给出覆盖率详情；只有无法读取或格式错误的比对文件才会导致回滚。</p>
 <p>对于氨基酸表达式，缺失的比对行视为未知：<code>P106</code> 和 <code>!P106</code> 都不会匹配未比对的节点。独立的序列标题、元数据、簇、分组或文件子句仍可按普通布尔逻辑匹配该节点。</p>
                 </div>
                 <div class="subheading">示例</div>
@@ -555,7 +555,7 @@
             </section>
 
 
-            <section class="command-card" id="cmd-embedding" data-source-sha256="a69b057f9be295cf6cb4de2c0ffdf0dbfbaf249817f7e43b71489f6e2b596c3f">
+            <section class="command-card" id="cmd-embedding" data-source-sha256="d2c618037cee2e1c02ddc59b232c6f869f7645e0d89c0198fd7122704d5fe06a">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">embedding</span>
@@ -575,7 +575,7 @@
                 </ul>
                 <div class="callout callout-warn">
                     <div class="callout-title"><svg class="icon" aria-hidden="true"><use href="#i-triangle-alert"/></svg>加载规则与完整性检查</div>
-<p>embedding 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。只有当文件包含某个节点完整的序列标题且序列完全相同时，该节点才算被覆盖。缺失的节点，以及序列与文件中不同的节点，仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖 embedding 的分析之外。该命令会报告有多少节点具有 embedding，以及 embedding 的模型、宽度和保存模式；部分加载还会在控制台窗口中打印红色警告，并给出覆盖率详情。只有无法读取、格式错误或不完整的 embedding 文件才会导致回滚，回滚会恢复之前的 embedding。</p>
+<p>embedding 可以包含查看器中当前绘制的全部、部分或没有任何序列标题。只有当文件包含某个节点完整的序列标题且序列完全相同时，该节点才算被覆盖。缺失的节点，以及序列与文件中不同的节点，仍然可见，并可用于拓扑和元数据操作，但会被排除在依赖 embedding 的分析之外。该命令会报告有多少节点具有 embedding，以及 embedding 的模型、宽度和保存模式；部分加载还会在控制台窗口中打印琥珀色警告，并给出覆盖率详情。只有无法读取、格式错误或不完整的 embedding 文件才会导致回滚，回滚会恢复之前的 embedding。</p>
 <p>若网络由与该 embedding 不同的模型构建，查看器仍会接受，并给出提示：embedding 命令使用该 embedding 的模型。</p>
                 </div>
                 <div class="subheading">示例</div>

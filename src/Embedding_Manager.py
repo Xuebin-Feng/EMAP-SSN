@@ -27,17 +27,9 @@ from dataclasses import dataclass
 import numpy as np
 
 from utilities.Localization import Message
-from utilities.Terminal_Colors import colours_enabled
+from utilities.Terminal_Colors import AMBER, RED, print_coloured
 
 POOLING_METHODS = ("mean", "max")
-
-
-def _print_red_warning(message):
-    """Print a bright-red warning to terminals and plain text to redirected logs."""
-    if colours_enabled():
-        print(f"\033[91m{message}\033[0m")
-    else:
-        print(message)
 
 
 def _source_signature(path):
@@ -208,13 +200,13 @@ class Embedding_Manager:
                 self._manifest, self.width = read_embedding_summary(embed_file)
             except (OSError, ValueError, KeyError) as error:
                 self.load_failure = Message("Embedding file rejected: {error}", error=error)
-                _print_red_warning(f"ERROR: {self.load_failure}")
+                print_coloured(f"ERROR: {self.load_failure}", RED)
                 return
             if self._source_signature is None:
                 self.load_failure = Message(
                     "Embedding file could not be read: {path}", path=embed_file
                 )
-                _print_red_warning(f"ERROR: {self.load_failure}")
+                print_coloured(f"ERROR: {self.load_failure}", RED)
                 self._manifest = None
                 return
 
@@ -295,7 +287,7 @@ class Embedding_Manager:
             lines.extend(f"  - {header}" for header in shown)
             if len(headers) > len(shown):
                 lines.append(f"  ... and {len(headers) - len(shown)} more.")
-        _print_red_warning("\n".join(lines))
+        print_coloured("\n".join(lines), AMBER)
 
     def describe(self, network_path=None):
         """What the embedding command reports after the coverage, as a list of Messages.
