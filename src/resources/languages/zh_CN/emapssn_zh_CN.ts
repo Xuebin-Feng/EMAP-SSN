@@ -4767,7 +4767,7 @@ Command-line usage:
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+49"/>
         <location filename="../../../commands/cluster.py" line="+343"/>
-        <location filename="../../../commands/color.py" line="+95"/>
+        <location filename="../../../commands/color.py" line="+473"/>
         <location filename="../../../commands/console.py" line="+57"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
         <location filename="../../../commands/esmfold.py" line="-234"/>
@@ -4931,38 +4931,92 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/color.py" line="-10"/>
         <source>Error: Color command requires at least one property (color, scale, or shape) or expression.</source>
-        <translation type="unfinished">错误：color 命令至少需要一个属性（颜色、缩放倍数或形状）或表达式。</translation>
+        <translation type="obsolete">错误：color 命令至少需要一个属性（颜色、缩放倍数或形状）或表达式。</translation>
     </message>
     <message>
-        <location line="+66"/>
+        <location filename="../../../commands/color.py" line="-269"/>
         <source>Error: Invalid scale &apos;{scale}&apos;. A scale is a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.</source>
         <translation type="unfinished">错误：无效的缩放倍数“{scale}”。缩放倍数是一个有限的非负数，后接 x，例如 2x、0.5x 或 0x。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="+10"/>
         <source>Error: Scale &apos;{scale}&apos; is too large to make a valid node size.</source>
         <translation type="unfinished">错误：缩放倍数“{scale}”过大，无法得到有效的节点大小。</translation>
     </message>
     <message>
-        <location line="+43"/>
-        <location line="+43"/>
+        <location line="-80"/>
+        <location line="+377"/>
         <source>Color</source>
         <translation type="unfinished">着色</translation>
     </message>
     <message>
-        <location line="-40"/>
         <source>Error: Unrecognized color argument &apos;{argument}&apos;. Expected a Boolean expression, color, scale with trailing x, or shape.</source>
-        <translation type="unfinished">错误：无法识别的 color 参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放倍数或形状。</translation>
+        <translation type="obsolete">错误：无法识别的 color 参数“{argument}”。应为布尔表达式、颜色、以 x 结尾的缩放倍数或形状。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="-352"/>
+        <source>Error: &apos;{first}&apos; and &apos;{second}&apos; both set the alpha of one target. Give the alpha once, either in an 8-digit hex color or as N%.</source>
+        <translation type="unfinished">错误：“{first}”和“{second}”都为同一目标设置了不透明度。不透明度只能给出一次，要么写在 8 位十六进制颜色中，要么写成 N%。</translation>
+    </message>
+    <message>
+        <location line="+74"/>
+        <source>Error: Invalid alpha &apos;{alpha}&apos;. An alpha is a number from 0 to 100 followed by %, e.g. 50%, 12.5% or 0%.</source>
+        <translation type="unfinished">错误：无效的不透明度“{alpha}”。不透明度是 0 到 100 之间的数字，后接 %，例如 50%、12.5% 或 0%。</translation>
+    </message>
+    <message>
+        <location line="+87"/>
+        <location line="+107"/>
+        <source>Error: Malformed attribute set &apos;{set}&apos;. A set is &lt;ITEM,ITEM,...&gt; or &lt;ITEM ITEM ...&gt;: opened by &lt;, closed by &gt; and holding no empty item and no other &lt;.</source>
+        <translation type="unfinished">错误：属性集“{set}”格式不正确。属性集写作 &lt;项,项,...&gt; 或 &lt;项 项 ...&gt;：以 &lt; 开头，以 &gt; 结尾，不含空项，其中也不含其他 &lt;。</translation>
+    </message>
+    <message>
+        <location line="-97"/>
+        <source>Error: The attribute set &apos;{set}&apos; is empty. A set holds 1 to 4 attributes, e.g. &lt;red,50%,star&gt; or &lt;red 50% star&gt;.</source>
+        <translation type="unfinished">错误：属性集“{set}”为空。属性集包含 1 到 4 个属性，例如 &lt;red,50%,star&gt; 或 &lt;red 50% star&gt;。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
+        <source>Error: The attribute set &apos;{set}&apos; mixes commas and spaces between its items. Separate them all with commas (&lt;red,50%,star&gt;) or all with spaces (&lt;red 50% star&gt;).</source>
+        <translation type="unfinished">错误：属性集“{set}”在各项之间混用了逗号和空格。请全部用逗号分隔（&lt;red,50%,star&gt;），或全部用空格分隔（&lt;red 50% star&gt;）。</translation>
+    </message>
+    <message>
+        <location line="+12"/>
+        <source>Error: Unknown attribute &apos;{item}&apos; in the set &apos;{set}&apos;. Expected a color, an alpha such as 50%, a scale such as 2x, or a shape.</source>
+        <translation type="unfinished">错误：属性集“{set}”中有未知属性“{item}”。应为颜色、形如 50% 的不透明度、形如 2x 的缩放倍数或形状。</translation>
+    </message>
+    <message>
+        <location line="+7"/>
+        <source>Error: The attribute set &apos;{set}&apos; has two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A set holds at most one color, one alpha, one scale and one shape.</source>
+        <translation type="unfinished">错误：属性集“{set}”中有两个同类项“{first}”和“{second}”。一个属性集最多包含一个颜色、一个不透明度、一个缩放倍数和一个形状。</translation>
+    </message>
+    <message>
+        <location line="+33"/>
+        <source>Error: &apos;{loose}&apos; and the attribute set &apos;{set}&apos; are given for one target. Give a target its attributes either all loose (red 50% star) or all in one set (&lt;red,50%,star&gt;).</source>
+        <translation type="unfinished">错误：同一目标同时给出了“{loose}”和属性集“{set}”。请将目标的属性全部单独写出（red 50% star），或全部放在一个属性集中（&lt;red,50%,star&gt;）。</translation>
+    </message>
+    <message>
+        <location line="+11"/>
+        <source>Error: The attribute sets &apos;{first}&apos; and &apos;{second}&apos; are given for one target. Give a target one set, and start the next target with an expression.</source>
+        <translation type="unfinished">错误：同一目标同时给出了属性集“{first}”和“{second}”。每个目标只给一个属性集，下一个目标请以表达式开头。</translation>
+    </message>
+    <message>
+        <location line="+29"/>
+        <source>Error: Unrecognized color argument &apos;{argument}&apos;. Expected a Boolean expression, color, alpha with trailing %, scale with trailing x, shape, or attribute set &lt;...&gt;.</source>
+        <translation type="unfinished">错误：无法识别的 color 参数“{argument}”。应为布尔表达式、颜色、以 % 结尾的不透明度、以 x 结尾的缩放倍数、形状或属性集 &lt;...&gt;。</translation>
+    </message>
+    <message>
+        <location line="+31"/>
+        <source>Error: Color command requires at least one property (color, alpha, scale, or shape) or expression.</source>
+        <translation type="unfinished">错误：color 命令至少需要一个属性（颜色、不透明度、缩放倍数或形状）或表达式。</translation>
+    </message>
+    <message>
+        <location line="+21"/>
         <source>Error: No valid assignments found.</source>
         <translation type="unfinished">错误：未找到有效的赋值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+68"/>
+        <location line="+70"/>
         <source>%n node(s) ({properties})</source>
         <translation type="unfinished">
             <numerusform>%n 个节点（{properties}）</numerusform>
@@ -4980,8 +5034,14 @@ Command-line usage:
     </message>
     <message numerus="yes">
         <location line="+5"/>
-        <source>Skipped %n expression(s) with no color, scale or shape: {skipped}.</source>
+        <source>Skipped %n expression(s) with no color, alpha, scale or shape: {skipped}.</source>
         <translation type="unfinished">
+            <numerusform>已跳过 %n 个没有颜色、不透明度、缩放倍数或形状的表达式：{skipped}。</numerusform>
+        </translation>
+    </message>
+    <message numerus="yes">
+        <source>Skipped %n expression(s) with no color, scale or shape: {skipped}.</source>
+        <translation type="obsolete">
             <numerusform>已跳过 %n 个没有颜色、缩放倍数或形状的表达式：{skipped}。</numerusform>
         </translation>
     </message>

@@ -3426,7 +3426,11 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <source>Error: Color command requires at least one property (color, scale, or shape) or expression.</source>
+        <source>Color</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;{first}&apos; and &apos;{second}&apos; both set the alpha of one target. Give the alpha once, either in an 8-digit hex color or as N%.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3438,11 +3442,43 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Color</source>
+        <source>Error: Invalid alpha &apos;{alpha}&apos;. An alpha is a number from 0 to 100 followed by %, e.g. 50%, 12.5% or 0%.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Unrecognized color argument &apos;{argument}&apos;. Expected a Boolean expression, color, scale with trailing x, or shape.</source>
+        <source>Error: Malformed attribute set &apos;{set}&apos;. A set is &lt;ITEM,ITEM,...&gt; or &lt;ITEM ITEM ...&gt;: opened by &lt;, closed by &gt; and holding no empty item and no other &lt;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The attribute set &apos;{set}&apos; is empty. A set holds 1 to 4 attributes, e.g. &lt;red,50%,star&gt; or &lt;red 50% star&gt;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The attribute set &apos;{set}&apos; mixes commas and spaces between its items. Separate them all with commas (&lt;red,50%,star&gt;) or all with spaces (&lt;red 50% star&gt;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Unknown attribute &apos;{item}&apos; in the set &apos;{set}&apos;. Expected a color, an alpha such as 50%, a scale such as 2x, or a shape.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The attribute set &apos;{set}&apos; has two items of one kind, &apos;{first}&apos; and &apos;{second}&apos;. A set holds at most one color, one alpha, one scale and one shape.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: &apos;{loose}&apos; and the attribute set &apos;{set}&apos; are given for one target. Give a target its attributes either all loose (red 50% star) or all in one set (&lt;red,50%,star&gt;).</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The attribute sets &apos;{first}&apos; and &apos;{second}&apos; are given for one target. Give a target one set, and start the next target with an expression.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Unrecognized color argument &apos;{argument}&apos;. Expected a Boolean expression, color, alpha with trailing %, scale with trailing x, shape, or attribute set &lt;...&gt;.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Color command requires at least one property (color, alpha, scale, or shape) or expression.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -3464,7 +3500,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message numerus="yes">
-        <source>Skipped %n expression(s) with no color, scale or shape: {skipped}.</source>
+        <source>Skipped %n expression(s) with no color, alpha, scale or shape: {skipped}.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
