@@ -78,6 +78,22 @@ def extra_argument_error(argument, syntax):
     ], separator="\n")
 
 
+def cluster_name_digits(argument):
+    """The digits N of a cluster written #cluster_N# or cluster_N, or None for anything else.
+
+    The label is read as an expression reads it (Command_Engine.resolve_label_target):
+    in any case, with any space inside the # trimmed. Anything else is None, because
+    the command works on one cluster: the groups it makes, subcluster_N_M, and the
+    rule that a new cluster run removes them go by that cluster's N. So another
+    label (#noise#, #my_group#), an expression (#cluster_2#|#cluster_3#, $sele$)
+    and a name with one # missing (#cluster_2, cluster_2#) are all None.
+    """
+    delimited = re.fullmatch(r'#([^#]*)#', argument)
+    name = (delimited.group(1) if delimited else argument).strip().lower()
+    match = re.fullmatch(r'cluster_(\d+)', name)
+    return match.group(1) if match else None
+
+
 def print_help():
     print("""
     Cluster Subclustering Tool
@@ -96,9 +112,11 @@ def print_help():
       ordered by their lowest member node index.
 
     Arguments:
-      <CLUSTER_NAME>    - Name of the cluster to subcluster (e.g., cluster_2, cluster_5),
-                          written as in an expression, without leading zeros:
-                          cluster_01 is refused.
+      <CLUSTER_NAME>    - The one cluster to subcluster, written as in an expression
+                          (e.g., #cluster_2#, #cluster_5#); the bare cluster_2 is accepted
+                          too and means the same. Without leading zeros: cluster_01 is
+                          refused, in either form. Another label (#noise#, #my_group#) or
+                          an expression (#cluster_2#|#cluster_3#, $sele$) is refused.
       clear             - Clears the generated subcluster groups (subcluster_N_M) from the
                           viewer session. Custom groups with lookalike names, such as
                           subcluster_0_2 or subcluster_001_2, are kept.
@@ -133,9 +151,9 @@ def print_help():
       - MCL needs every edge score within the cluster to be finite and above 0.
 
     Examples:
-      subcluster cluster_2
-      subcluster cluster_2 mcl 2.0 5
-      subcluster cluster_5 leiden 1.5
+      subcluster #cluster_2#
+      subcluster #cluster_2# mcl 2.0 5
+      subcluster cluster_5 leiden 1.5    (the bare form of #cluster_5#)
       subcluster clear
     """)
 
@@ -200,11 +218,12 @@ def plan(viewer, args):
         return SubclusterClearPlan()
 
     # --- Parse Cluster Name ---
-    match = re.match(r'^cluster_(\d+)$', args[0].lower())
-    if not match:
+    digits = cluster_name_digits(args[0])
+    if digits is None:
         print_help()
         msg = Message(
-            "Error: First argument must be 'clear' or a cluster name like 'cluster_N' (got '{argument}').",
+            "Error: First argument must be 'clear' or exactly one cluster, "
+            "written cluster_N or #cluster_N# (got '{argument}').",
             argument=args[0],
         )
         Command_Engine.print_help(viewer, msg, report_message=False)
@@ -214,7 +233,6 @@ def plan(viewer, args):
     # Expressions know #cluster_N# only without leading zeros, as group.py's
     # canonical cluster names are, so cluster_01 names a cluster no expression
     # can select. Refused before anything changes.
-    digits = match.group(1)
     if len(digits) > 1 and digits.startswith('0'):
         msg = Message(
             "Error: Write the cluster as {canonical}, without leading zeros.",
@@ -224,7 +242,7 @@ def plan(viewer, args):
         Command_Engine.command_failed(viewer, msg)
         return None
 
-    cluster_id = int(match.group(1))
+    cluster_id = int(digits)
 
     # --- 2. Parse Other Parameters ---
     sub_args = args[1:]

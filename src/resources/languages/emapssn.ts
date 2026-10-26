@@ -4754,7 +4754,7 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: First argument must be &apos;clear&apos; or a cluster name like &apos;cluster_N&apos; (got &apos;{argument}&apos;).</source>
+        <source>Error: First argument must be &apos;clear&apos; or exactly one cluster, written cluster_N or #cluster_N# (got &apos;{argument}&apos;).</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

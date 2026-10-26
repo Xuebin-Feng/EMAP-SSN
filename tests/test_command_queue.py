@@ -217,6 +217,28 @@ class OrderTests(QueueTestCase):
         self.assertEqual(self.viewer.console_text.text, "Unknown command: colr")
         self.assertIn("Error: Unknown command: colr. Type help for the list of commands.", self.output.getvalue())
 
+    def test_a_subcluster_given_as_a_label_waits_its_turn_and_a_wrong_label_is_refused_at_once(self):
+        viewer = self.viewer
+        viewer.type(CLUSTER)
+        viewer.type("subcluster #cluster_1# jaccard 0.5 3")
+        self.assertEqual(len(viewer.queue.pending()), 2)
+        viewer.type("subcluster #noise#")
+        viewer.type("subcluster #cluster_1#|#cluster_2#")
+        self.assertEqual(len(viewer.queue.pending()), 2)
+        self.assertEqual(
+            viewer.console_text.text,
+            "Error: First argument must be 'clear' or exactly one cluster, "
+            "written cluster_N or #cluster_N# (got '#cluster_1#|#cluster_2#').",
+        )
+        self.finish_compute()
+        self.finish_compute()
+        self.assertEqual(viewer.queue.pending(), [])
+        self.assertEqual(
+            [set(names) for names in viewer.group_labels],
+            [{"subcluster_1_1"}] * 4 + [set()] * 6,
+        )
+        self.assertEqual([job.status for job in viewer.queue.finished], ['succeeded'] * 2)
+
     def test_a_cluster_list_given_while_a_cluster_computes_lists_the_new_clusters(self):
         self.viewer.type(CLUSTER)
         self.viewer.type("cluster list")

@@ -131,6 +131,41 @@ GREY = (0.8, 0.8, 0.8, 0.4)
 NOTHING_REACHED = (
     "No subcluster of cluster_1 reached the minimum size {size}; nothing was changed."
 )
+ONE_CLUSTER = (
+    "Error: First argument must be 'clear' or exactly one cluster, "
+    "written cluster_N or #cluster_N# (got '{argument}')."
+)
+
+
+def real_viewer():
+    """A MainViewer, with its real undo history, on the network of NETWORK_EDGES."""
+    from EMAPSSN_Viewer import MainViewer
+
+    n_nodes = 10
+    viewer = MainViewer.__new__(MainViewer)
+    viewer.n_nodes = n_nodes
+    viewer.full_headers = [f"n{node}" for node in range(n_nodes)]
+    viewer.edges = np.array(NETWORK_EDGES, dtype=np.int32)
+    viewer.pos = np.zeros((n_nodes, 2), dtype=np.float32)
+    viewer.visible_mask = np.ones(n_nodes, dtype=bool)
+    viewer.current_colors = np.zeros((n_nodes, 4))
+    viewer.current_sizes = np.full(n_nodes, 10.0, dtype=np.float32)
+    viewer.current_shapes = np.full(n_nodes, "disc", dtype=object)
+    viewer.node_render_order = np.arange(n_nodes, dtype=np.int32)
+    viewer.cluster_labels = np.array(NETWORK_CLUSTERS)
+    viewer.last_cluster_params = ("LEIDEN_1.0", 10)
+    viewer.group_labels = [set() for _ in range(n_nodes)]
+    viewer.metadata = {}
+    viewer._cacheable_attrs = set()
+    viewer.selected_indices = []
+    viewer.position_history = []
+    viewer.redo_stack = []
+    viewer.console_text = SimpleNamespace(text="")
+    viewer.update_nodes = mock.Mock()
+    viewer.update_selection_visual = mock.Mock()
+    viewer.update_edges = mock.Mock()
+    viewer.broadcast_event = mock.Mock()
+    return viewer
 
 
 class JaccardAndMCLSubclusterTests(unittest.TestCase):
@@ -448,9 +483,12 @@ class MCLPrecisionTests(unittest.TestCase):
 
 
 class SubclusterNameTests(unittest.TestCase):
-    """The cluster is named as expressions name it, without leading zeros."""
+    """The cluster is named as expressions name it, #cluster_N# or the bare cluster_N, without leading zeros."""
 
     def assert_refused(self, viewer, args, message):
+        groups = [set(names) for names in getattr(viewer, "group_labels", None) or ()]
+        colors = viewer.current_colors.copy()
+        labels = None if getattr(viewer, "cluster_labels", None) is None else viewer.cluster_labels.copy()
         with mock.patch.object(
             subcluster_command.network_clustering, "leiden_partition"
         ) as leiden, mock.patch.object(
@@ -465,6 +503,10 @@ class SubclusterNameTests(unittest.TestCase):
         self.assertEqual(output.count(message), 1)
         for kernel in (leiden, jaccard, mcl):
             kernel.assert_not_called()
+        self.assertEqual(list(getattr(viewer, "group_labels", None) or ()), groups)
+        np.testing.assert_array_equal(viewer.current_colors, colors)
+        if labels is not None:
+            np.testing.assert_array_equal(viewer.cluster_labels, labels)
         viewer._save_state.assert_not_called()
         viewer.update_nodes.assert_not_called()
 
@@ -476,6 +518,13 @@ class SubclusterNameTests(unittest.TestCase):
             ("cluster_010", "cluster_10"),
             ("cluster_00", "cluster_0"),
             ("cluster_0000", "cluster_0"),
+            ("#cluster_01#", "cluster_1"),
+            ("#cluster_001#", "cluster_1"),
+            ("#CLUSTER_01#", "cluster_1"),
+            ("#Cluster_010#", "cluster_10"),
+            ("#cluster_00#", "cluster_0"),
+            ("#cluster_0000#", "cluster_0"),
+            ("# cluster_01 #", "cluster_1"),
         ):
             message = f"Error: Write the cluster as {canonical}, without leading zeros."
             for rest in ([], ["jaccard", "0.5", "3"], ["mcl", "2", "1"], ["leiden", "1", "1"]):
@@ -510,16 +559,119 @@ class SubclusterNameTests(unittest.TestCase):
         failed.assert_called_once_with(viewer, "Error: Cluster 0 is empty or does not exist.")
         succeeded.assert_not_called()
 
-    def test_other_malformed_names_keep_their_error(self):
+    def test_other_malformed_names_are_refused(self):
         viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
-        for name in ("cluster_", "cluster_x", "cluster-1", "#cluster_1#", "1"):
+        for name in ("cluster_", "cluster_x", "cluster-1", "1"):
             with self.subTest(name=name):
-                self.assert_refused(
-                    viewer,
-                    [name],
-                    "Error: First argument must be 'clear' or a cluster name like "
-                    f"'cluster_N' (got '{name}').",
+                self.assert_refused(viewer, [name], ONE_CLUSTER.format(argument=name))
+
+    def test_the_label_form_names_the_same_cluster(self):
+        # The same cluster, by each form and each way of writing the label.
+        for name in ("#cluster_0#", "#Cluster_0#", "#CLUSTER_0#", "# cluster_0 #"):
+            with self.subTest(name=name):
+                viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+                succeeded, failed, _output = run_command(subcluster_command, viewer, [name])
+                failed.assert_called_once_with(viewer, "Error: Cluster 0 is empty or does not exist.")
+                succeeded.assert_not_called()
+
+    def test_the_label_form_checks_the_clusters_as_the_bare_name_does(self):
+        for args, message in (
+            (["#cluster_9#"], "Error: Cluster 9 is empty or does not exist."),
+            (["#cluster_3#"], "Error: No edges exist within cluster_3 to perform subclustering."),
+        ):
+            with self.subTest(args=args):
+                viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+                succeeded, failed, _output = run_command(subcluster_command, viewer, args)
+                failed.assert_called_once_with(viewer, message)
+                succeeded.assert_not_called()
+        unclustered = network_viewer(10, NETWORK_EDGES)
+        succeeded, failed, _output = run_command(subcluster_command, unclustered, ["#cluster_1#"])
+        failed.assert_called_once_with(
+            unclustered, "Error: No clusters are currently defined. Run 'cluster' first."
+        )
+
+    def test_the_label_form_is_checked_before_the_clusters_are_too(self):
+        viewer = network_viewer(10, NETWORK_EDGES)
+        self.assert_refused(
+            viewer,
+            ["#cluster_01#"],
+            "Error: Write the cluster as cluster_1, without leading zeros.",
+        )
+
+    def test_anything_but_one_cluster_is_refused_before_anything_changes(self):
+        for name in (
+            # Other labels, whether or not they exist.
+            "#noise#",
+            "#my_group#",
+            "#subcluster_1_1#",
+            "#no_such_group#",
+            "#cluster_x#",
+            "#cluster_#",
+            "#1#",
+            # Expressions.
+            "#cluster_1#|#cluster_2#",
+            "#cluster_1#&#cluster_2#",
+            "#cluster_1#^#cluster_2#",
+            "!#cluster_1#",
+            "(#cluster_1#)",
+            '"ATA"&#cluster_1#',
+            "$sele$",
+            "$SELE$",
+            "@list@",
+            "{Length}",
+            "{Length>5}",
+            "A53",
+            # A delimiter missing at one end, or too many.
+            "#cluster_1",
+            "cluster_1#",
+            "##cluster_1#",
+            "#cluster_1##",
+            "##cluster_1##",
+            "##",
+            "#",
+        ):
+            for rest in ([], ["mcl", "2.0", "5"]):
+                with self.subTest(name=name, rest=rest):
+                    viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+                    viewer.group_labels[2].update({"my_group", "subcluster_1_1"})
+                    viewer.group_labels[0].add("my_group")
+                    self.assert_refused(viewer, [name, *rest], ONE_CLUSTER.format(argument=name))
+
+    def test_a_refusal_adds_no_undo_step(self):
+        for name in ("#noise#", "#cluster_1#|#cluster_2#", "$sele$", "#cluster_1", "#cluster_01#"):
+            with self.subTest(name=name):
+                viewer = real_viewer()
+                run_command(subcluster_command, viewer, [name, "jaccard", "0.5", "3"])
+                self.assertEqual(viewer.position_history, [])
+                self.assertEqual(viewer.group_labels, [set() for _ in range(10)])
+
+    def test_both_forms_give_the_same_result(self):
+        for rest in (["jaccard", "0.5", "3"], ["mcl", "2", "1"]):
+            results = {}
+            # The last cannot be typed, since a command line is split at spaces,
+            # but a caller that runs the command with its own arguments may pass it.
+            for name in ("cluster_1", "Cluster_1", "#cluster_1#", "#CLUSTER_1#", "# cluster_1 #"):
+                viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
+                viewer.group_labels[0].add("mine")
+                succeeded, failed, output = run_command(subcluster_command, viewer, [name, *rest])
+                failed.assert_not_called()
+                results[name] = (
+                    [call.args[1] for call in succeeded.call_args_list],
+                    viewer.group_labels,
+                    viewer.current_colors.tolist(),
+                    viewer.console_text.text,
+                    viewer._save_state.call_count,
+                    viewer.update_nodes.call_count,
+                    output,
                 )
+            bare = results["cluster_1"]
+            self.assertEqual(len(bare[0]), 1)
+            self.assertTrue(bare[0][0].startswith("Done! Found "), bare[0])
+            self.assertEqual(bare[4], 1)
+            self.assertTrue(any(names for names in bare[1][2:8]))
+            for name, result in results.items():
+                with self.subTest(rest=rest, name=name):
+                    self.assertEqual(result, bare)
 
 
 class NoSubclusterReachesMinSizeTests(unittest.TestCase):
@@ -588,32 +740,7 @@ class NoSubclusterReachesMinSizeTests(unittest.TestCase):
         np.testing.assert_array_equal(viewer.current_colors[2:9], np.zeros((7, 4)))
 
     def test_the_run_leaves_the_undo_history_alone(self):
-        from EMAPSSN_Viewer import MainViewer
-
-        n_nodes = 10
-        viewer = MainViewer.__new__(MainViewer)
-        viewer.n_nodes = n_nodes
-        viewer.full_headers = [f"n{node}" for node in range(n_nodes)]
-        viewer.edges = np.array(NETWORK_EDGES, dtype=np.int32)
-        viewer.pos = np.zeros((n_nodes, 2), dtype=np.float32)
-        viewer.visible_mask = np.ones(n_nodes, dtype=bool)
-        viewer.current_colors = np.zeros((n_nodes, 4))
-        viewer.current_sizes = np.full(n_nodes, 10.0, dtype=np.float32)
-        viewer.current_shapes = np.full(n_nodes, "disc", dtype=object)
-        viewer.node_render_order = np.arange(n_nodes, dtype=np.int32)
-        viewer.cluster_labels = np.array(NETWORK_CLUSTERS)
-        viewer.last_cluster_params = ("LEIDEN_1.0", 10)
-        viewer.group_labels = [set() for _ in range(n_nodes)]
-        viewer.metadata = {}
-        viewer._cacheable_attrs = set()
-        viewer.selected_indices = []
-        viewer.position_history = []
-        viewer.redo_stack = []
-        viewer.console_text = SimpleNamespace(text="")
-        viewer.update_nodes = mock.Mock()
-        viewer.update_selection_visual = mock.Mock()
-        viewer.update_edges = mock.Mock()
-        viewer.broadcast_event = mock.Mock()
+        viewer = real_viewer()
 
         run_command(subcluster_command, viewer, self.FIRST)
         self.assertEqual(len(viewer.position_history), 1)
@@ -919,17 +1046,32 @@ class SubclusterSingleReportTests(unittest.TestCase):
         unclustered = network_viewer(10, NETWORK_EDGES)
         clustered = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
         for viewer, args, text in (
+            (clustered, ["cluster_x"], ONE_CLUSTER.format(argument="cluster_x")),
+            (clustered, ["#noise#"], ONE_CLUSTER.format(argument="#noise#")),
             (
                 clustered,
-                ["cluster_x"],
-                "Error: First argument must be 'clear' or a cluster name like 'cluster_N' (got 'cluster_x').",
+                ["#cluster_1#|#cluster_2#"],
+                ONE_CLUSTER.format(argument="#cluster_1#|#cluster_2#"),
             ),
             (unclustered, ["cluster_1"], "Error: No clusters are currently defined. Run 'cluster' first."),
+            (unclustered, ["#cluster_1#"], "Error: No clusters are currently defined. Run 'cluster' first."),
             (clustered, ["cluster_9"], "Error: Cluster 9 is empty or does not exist."),
+            (clustered, ["#cluster_9#"], "Error: Cluster 9 is empty or does not exist."),
             (
                 clustered,
                 ["cluster_01"],
                 "Error: Write the cluster as cluster_1, without leading zeros.",
+            ),
+            (
+                clustered,
+                ["#cluster_01#"],
+                "Error: Write the cluster as cluster_1, without leading zeros.",
+            ),
+            (
+                clustered,
+                ["#cluster_1#", "jaccard", "0.5", "3", "foo"],
+                "Error: Unrecognized subcluster argument 'foo'.\n"
+                "Usage: subcluster <CLUSTER_NAME> [MODE] [PARAM_1] [MIN_SIZE]",
             ),
             (
                 clustered,
@@ -1000,7 +1142,10 @@ class SubclusterModuleTests(unittest.TestCase):
             "MCL gives every node a self-loop as heavy as its strongest edge",
             "Isolated nodes (no edge within the cluster) are alike in all three modes",
             "singleton subclusters when MIN_SIZE is 1, Noise when it is larger",
-            "cluster_01 is refused",
+            "cluster_01 is refused, in either form",
+            "(e.g., #cluster_2#, #cluster_5#); the bare cluster_2 is accepted too and means the same",
+            "Another label (#noise#, #my_group#) or an expression (#cluster_2#|#cluster_3#, $sele$) is refused",
+            "subcluster #cluster_2# mcl 2.0 5",
             "When no subcluster reaches MIN_SIZE, nothing changes",
             "Anything after the arguments above (or after clear) is refused",
         ):

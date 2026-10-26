@@ -606,7 +606,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2607"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2736"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -619,12 +619,12 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2501"/>
+        <location line="-2628"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="+190"/>
+        <location filename="../../../EMAPSSN_Config.py" line="+192"/>
         <source>Input File Directory:</source>
         <translation type="unfinished">输入文件目录：</translation>
     </message>
@@ -706,23 +706,23 @@
     </message>
     <message>
         <location line="+1"/>
-        <location line="+3992"/>
+        <location line="+3995"/>
         <source>Visual Effects</source>
         <translation type="unfinished">视觉效果</translation>
     </message>
     <message>
-        <location line="-3991"/>
+        <location line="-3994"/>
         <source>Simulation &amp; Physics</source>
         <translation type="unfinished">模拟与物理</translation>
     </message>
     <message>
         <location line="+1"/>
-        <location line="+4590"/>
+        <location line="+4593"/>
         <source>Directories</source>
         <translation type="unfinished">目录</translation>
     </message>
     <message>
-        <location line="-4582"/>
+        <location line="-4585"/>
         <source>(custom)</source>
         <translation type="unfinished">（自定义）</translation>
     </message>
@@ -796,7 +796,7 @@ Matched: {matched} of %n FASTA header(s) | Missing: {missing} | Different sequen
         <translation type="unfinished">注意：该网络由 {network} 而非 {model} 构建。查看器接受这种情况；embedding 命令使用该 embedding 的模型。</translation>
     </message>
     <message>
-        <location line="+408"/>
+        <location line="+411"/>
         <source>Click or tab to an input or its label to see helpful tips here.</source>
         <translation type="unfinished">点击某个输入项或其标签，或用 Tab 键移到其上，即可在此查看提示。</translation>
     </message>
@@ -941,14 +941,14 @@ Missing nodes remain plotted but are excluded from alignment-dependent analyses.
         <translation type="obsolete">成功：参考 ID“{reference}”解析为 {header}。</translation>
     </message>
     <message numerus="yes">
-        <location line="-1177"/>
+        <location line="-1180"/>
         <source>It matches %n header(s) equally; the first in network order is used. Others: {others}</source>
         <translation type="unfinished">
             <numerusform>它与 %n 个序列标题的匹配程度相同，将使用网络顺序中的第一个。其他：{others}</numerusform>
         </translation>
     </message>
     <message>
-        <location line="+1218"/>
+        <location line="+1221"/>
         <source>Error during consistency check: {error}</source>
         <translation type="unfinished">一致性检查出错：{error}</translation>
     </message>
@@ -1613,7 +1613,7 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">正在计算网络统计…对于大型 HDF5 网络，这可能需要一点时间。</translation>
     </message>
     <message numerus="yes">
-        <location line="-2403"/>
+        <location line="-2406"/>
         <source>FASTA file is NOT a strict subset of the network file. The network lacks %n sequence(s).</source>
         <translation type="unfinished">
             <numerusform>FASTA 文件不是网络文件的真子集。网络中缺少 %n 条序列。</numerusform>
@@ -1624,12 +1624,12 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="obsolete">开启“改用流形布局绘图”时，节点无法拖动，因此只有选择框适用。</translation>
     </message>
     <message>
-        <location line="+2626"/>
+        <location line="+2629"/>
         <source>Warning: No valid edges were found in the selected FASTA subset.</source>
         <translation type="unfinished">警告：在所选 FASTA 子集中未找到有效的边。</translation>
     </message>
     <message>
-        <location line="-3166"/>
+        <location line="-3169"/>
         <source>Metric: Log10(E-Value)</source>
         <translation type="unfinished">指标：Log10(期望值)</translation>
     </message>
@@ -1776,7 +1776,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
 可显著提高大型网络的响应速度并降低绘制延迟。</translation>
     </message>
     <message>
-        <location line="+2533"/>
+        <location line="+2536"/>
         <source>Embedding Input (.h5):</source>
         <translation type="unfinished">Embedding 输入（.h5）：</translation>
     </message>
@@ -1888,7 +1888,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-3287"/>
+        <location line="-3290"/>
         <source>Current color: {value}</source>
         <translation type="unfinished">当前颜色：{value}</translation>
     </message>
@@ -1981,7 +1981,7 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">“{reference}”解析为 {header}</translation>
     </message>
     <message>
-        <location line="+1267"/>
+        <location line="+1270"/>
         <source>Resolves to {folder}.</source>
         <translation type="unfinished">解析为 {folder}。</translation>
     </message>
@@ -2967,10 +2967,10 @@ Command-line usage:
 <context>
     <name>Console</name>
     <message>
-        <location filename="../../../desktop/Console_View.py" line="+414"/>
-        <location line="+83"/>
+        <location filename="../../../desktop/Console_View.py" line="+417"/>
+        <location line="+87"/>
         <location line="+444"/>
-        <location line="+45"/>
+        <location line="+41"/>
         <source>Console</source>
         <translation type="unfinished">控制台</translation>
     </message>
@@ -3049,7 +3049,7 @@ Command-line usage:
         <translation type="unfinished">显示日志文件夹</translation>
     </message>
     <message>
-        <location line="+323"/>
+        <location line="+327"/>
         <source>{shown} lines shown · {written} written since start-up</source>
         <translation type="unfinished">显示 {shown} 行 · 启动以来共输出 {written} 行</translation>
     </message>
@@ -3103,7 +3103,7 @@ Command-line usage:
 {error}</translation>
     </message>
     <message>
-        <location line="+28"/>
+        <location line="+24"/>
         <source>This program&apos;s output is not kept here: it was started so that the output goes to the terminal it was started from (--console), where it can be read.</source>
         <translation type="unfinished">本程序的输出不在此处保留：它的启动方式让输出进入启动它的终端（--console），可以在那里查看。</translation>
     </message>
@@ -4391,7 +4391,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+1909"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2036"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -4784,7 +4784,7 @@ Command-line usage:
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+178"/>
-        <location filename="../../../commands/subcluster.py" line="+189"/>
+        <location filename="../../../commands/subcluster.py" line="+207"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
@@ -5493,7 +5493,7 @@ Command-line usage:
         <location filename="../../../commands/reference.py" line="+84"/>
         <location filename="../../../commands/run.py" line="-47"/>
         <location filename="../../../commands/save.py" line="+31"/>
-        <location filename="../../../commands/subcluster.py" line="-217"/>
+        <location filename="../../../commands/subcluster.py" line="-235"/>
         <location filename="../../../commands/undo.py" line="+57"/>
         <location line="+13"/>
         <location filename="../../../commands/zoom.py" line="+289"/>
@@ -6544,7 +6544,12 @@ Command-line usage:
         <translation type="unfinished">错误：无法识别的 subcluster 参数“{argument}”。</translation>
     </message>
     <message>
-        <location line="+231"/>
+        <location line="+148"/>
+        <source>Error: First argument must be &apos;clear&apos; or exactly one cluster, written cluster_N or #cluster_N# (got &apos;{argument}&apos;).</source>
+        <translation type="unfinished">错误：第一个参数必须是 &apos;clear&apos; 或恰好一个簇，写作 cluster_N 或 #cluster_N#（实际为“{argument}”）。</translation>
+    </message>
+    <message>
+        <location line="+101"/>
         <source>No subcluster groups to clear.</source>
         <translation type="unfinished">没有要清除的子簇分组。</translation>
     </message>
@@ -6556,12 +6561,11 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="-114"/>
         <source>Error: First argument must be &apos;clear&apos; or a cluster name like &apos;cluster_N&apos; (got &apos;{argument}&apos;).</source>
-        <translation type="unfinished">错误：第一个参数必须是 &apos;clear&apos; 或形如 &apos;cluster_N&apos; 的簇名称（实际为“{argument}”）。</translation>
+        <translation type="obsolete">错误：第一个参数必须是 &apos;clear&apos; 或形如 &apos;cluster_N&apos; 的簇名称（实际为“{argument}”）。</translation>
     </message>
     <message>
-        <location line="+13"/>
+        <location line="-101"/>
         <source>Error: Write the cluster as {canonical}, without leading zeros.</source>
         <translation type="unfinished">错误：请将簇写成 {canonical}，不要带前导零。</translation>
     </message>
@@ -6685,7 +6689,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">SSN 应用程序故障</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Config.py" line="-4920"/>
+        <location filename="../../../EMAPSSN_Config.py" line="-4923"/>
         <source>Enter a profile name.</source>
         <translation type="unfinished">请输入配置方案名称。</translation>
     </message>
@@ -6727,7 +6731,7 @@ The whole output is in {log}.</source>
         <translation type="obsolete">得分分布（{mode}）</translation>
     </message>
     <message>
-        <location line="+1498"/>
+        <location line="+1501"/>
         <source>the JSON root must be an object</source>
         <translation type="unfinished">JSON 的根必须是对象</translation>
     </message>
@@ -9739,12 +9743,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1537"/>
+        <location line="-1664"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Tools.py" line="+138"/>
+        <location filename="../../../EMAPSSN_Tools.py" line="+140"/>
         <source>TF32 (Nvidia GPU Only)</source>
         <translation type="unfinished">TF32（仅限 NVIDIA GPU）</translation>
     </message>
@@ -10014,20 +10018,20 @@ Fedora / RHEL：
     </message>
     <message>
         <location line="+544"/>
-        <location line="+538"/>
+        <location line="+541"/>
         <location line="+234"/>
         <source>AUTO ON</source>
         <translation type="unfinished">自动：开</translation>
     </message>
     <message>
-        <location line="-772"/>
-        <location line="+539"/>
+        <location line="-775"/>
+        <location line="+542"/>
         <location line="+234"/>
         <source>AUTO OFF</source>
         <translation type="unfinished">自动：关</translation>
     </message>
     <message>
-        <location line="-771"/>
+        <location line="-774"/>
         <source>Automatic host cache</source>
         <translation type="unfinished">自动主机缓存</translation>
     </message>
@@ -10593,7 +10597,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="obsolete">加速器精度：“自动 32 位”只考虑 IEEE FP32 和经过验证的 TF32（目标至少 4,096 条时才考虑 TF32）。“BF16（低精度）”只能手动选择，绝不会自动选用。BF16 会打印低精度警告，并在最多 2,048 个有代表性的目标上给出与 FP32 对比的参考报告；有限的数值差异绝不会阻止执行。</translation>
     </message>
     <message>
-        <location line="+797"/>
+        <location line="+800"/>
         <source>Sequence Sanitization Settings:</source>
         <translation type="unfinished">序列清理设置：</translation>
     </message>
@@ -10621,7 +10625,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">覆盖原文件：</translation>
     </message>
     <message>
-        <location line="-1804"/>
+        <location line="-1807"/>
         <source>Alignment Length</source>
         <comment>normalization mode</comment>
         <translation type="unfinished">比对长度</translation>
@@ -10672,7 +10676,7 @@ Outputs the query sequence followed by ranked matching sequences.</source>
         <translation type="unfinished">所在磁盘剩余 {free}。</translation>
     </message>
     <message>
-        <location line="+454"/>
+        <location line="+457"/>
         <source>The raw FASTA sequence database to clean.</source>
         <translation type="unfinished">要清理（sanitize）的原始 FASTA 序列库。</translation>
     </message>
@@ -12656,7 +12660,7 @@ The file was left unchanged and the tool was not started. Correct the file, or d
 {error}</translation>
     </message>
     <message>
-        <location line="-5008"/>
+        <location line="-5011"/>
         <source>Embedding Multiple Sequence Alignment</source>
         <translation type="unfinished">Embedding 多序列比对</translation>
     </message>
@@ -12809,7 +12813,7 @@ Fedora / RHEL：
 请安装提供它的软件包。</translation>
     </message>
     <message>
-        <location line="+876"/>
+        <location line="+879"/>
         <source>Supports local ESM-2/ESM-C/ProtBERT/ProstT5/Ankh and remote API models (e.g. `ESM C 6B` with API key).</source>
         <translation type="unfinished">支持本地的 ESM-2/ESM-C/ProtBERT/ProstT5/Ankh 和远程 API 模型（如需要 API 密钥的 `ESM C 6B`）。</translation>
     </message>
