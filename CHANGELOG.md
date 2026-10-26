@@ -69,7 +69,8 @@ still change before version 1.0.0.
     and the threshold box, and the `console` command open a Console window with the
     Viewer's output, with search, an errors-only filter, Copy, Save and Open log. It keeps
     the newest line in view while the last line is on screen, and never scrolls a view the
-    user has moved up.
+    user has moved up. Closing the Viewer closes its Console too, and the program ends as
+    before; closing the Console leaves the Viewer open.
     - **Colours:** the colours commands print in a terminal show here too, such as
       `cluster`'s dots and `spectrum`'s values, and warnings and errors are amber and red.
       The log file, Copy, Save, and what MCP and Agent clients read get plain text.
