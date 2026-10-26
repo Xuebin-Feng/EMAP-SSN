@@ -769,6 +769,38 @@ class NonBlockingStreamTests(unittest.TestCase):
         self.assertEqual(sum(line.startswith("line ") for line in lines), 3000)
 
 
+class InheritedPipeTests(unittest.TestCase):
+    """close() does not wait for a program this process started that holds descriptors 1 and 2.
+
+    On Linux QtWebEngine's helper processes keep copies of Tools' capture pipes, so the readers, which
+    waited for the pipes' end, made close() wait out its two seconds every time Tools closed.
+    """
+
+    PROGRAM = (
+        "import json, subprocess, sys, time; sys.path.insert(0, sys.argv[1]); "
+        "from utilities import Console_Capture as C; "
+        "c = C.install('probe', sys.argv[2], False); "
+        "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'], stdin=subprocess.DEVNULL); "
+        "print('LAST LINE', flush=True); "
+        "started = time.monotonic(); c.close(); seconds = time.monotonic() - started; "
+        "child.kill(); child.wait(); "
+        "json.dump({'seconds': seconds, 'log': open(c.log_path, encoding='utf-8').read()}, open(sys.argv[3], 'w'))"
+    )
+
+    @unittest.skipIf(sys.platform == "win32", "Windows reads its pipes to their end, as it always did")
+    def test_close_ends_at_once_with_the_last_line_while_a_child_holds_the_pipes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result_path = os.path.join(directory, "result.json")
+            done = subprocess.run(
+                [sys.executable, "-c", self.PROGRAM, str(SRC_DIR), os.path.join(directory, "logs"), result_path],
+                capture_output=True, stdin=subprocess.DEVNULL, env=child_environment(), timeout=120,
+            )
+            self.assertEqual(done.returncode, 0, done.stderr.decode("utf-8", "replace"))
+            result = json.loads(Path(result_path).read_text(encoding="utf-8"))
+        self.assertLess(result["seconds"], 1.0)
+        self.assertIn("LAST LINE", result["log"])
+
+
 class HardExitTests(unittest.TestCase):
     """``hard_exit`` ends the process with os._exit only after what it printed has left the pipes.
 

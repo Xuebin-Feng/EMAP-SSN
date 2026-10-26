@@ -46,6 +46,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import select
 import sys
 import threading
 import time
@@ -70,6 +71,9 @@ FORWARD_QUEUE_CHUNKS = 512
 EAGAIN_PATIENCE_SECONDS = 10.0
 EAGAIN_FIRST_PAUSE_SECONDS = 0.001
 EAGAIN_LONGEST_PAUSE_SECONDS = 0.01
+# Once close() has put descriptors 1 and 2 back (Linux and macOS), a pipe's reader stops when the pipe has
+# been quiet this long: programs this process started may hold the pipe open, and its end would never come.
+CLOSE_QUIET_SECONDS = 0.05
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 LOG_DIR_VARIABLE = "SSN_LOG_DIR"
@@ -531,6 +535,44 @@ def _set_windows_std_handle(descriptor: int):
 # The capture
 # =====================================================================
 
+class _PipeReader:
+    """One capture pipe, read chunk by chunk for its pump.
+
+    Until close() asks (``wake`` turns readable), a read waits for output as long as it takes, and the
+    pipe's end is the end. Programs this process started can hold copies of descriptors 1 and 2 (on Linux
+    QtWebEngine's helper processes do), and then the end never comes: close() would wait out its deadline,
+    two seconds, every time Tools closes. Once close() has put the descriptors back, nothing of this process
+    writes to the pipe, so what is left to read is what the pipe holds and a write still under way: the
+    reader stops when the pipe has been quiet for CLOSE_QUIET_SECONDS. With no ``wake`` (Windows, where a
+    pipe cannot be waited on together with something else) it reads to the end, as it always did.
+    """
+
+    def __init__(self, read_end, wake=None):
+        self.read_end = read_end
+        self.wake = wake
+        self.closing = False
+        self.poller = None
+        if wake is not None:
+            self.poller = select.poll()
+            self.poller.register(read_end, select.POLLIN)
+            self.poller.register(wake, select.POLLIN)
+
+    def read(self) -> bytes:
+        """The next chunk, or b"" at the pipe's end (once close() has asked: when the pipe falls quiet)."""
+        if self.poller is None:
+            return os.read(self.read_end, 65536)
+        while not self.closing:
+            ready = {descriptor for descriptor, _ in self.poller.poll()}
+            if self.read_end in ready:  # output first: what came before close() asked is read before it stops
+                return os.read(self.read_end, 65536)
+            if self.wake in ready:
+                self.closing = True
+                self.poller.unregister(self.wake)
+        if not self.poller.poll(CLOSE_QUIET_SECONDS * 1000):
+            return b""
+        return os.read(self.read_end, 65536)
+
+
 class Capture(Recorder):
     """The file-descriptor plumbing: two pipes over descriptors 1 and 2, a reader and a forwarder for each."""
 
@@ -549,6 +591,9 @@ class Capture(Recorder):
         self.forward_dropped = 0
         self._crash = None
         self._crash_path = None
+        # Linux and macOS: close() writes to this pipe to tell the readers that nothing of this process writes
+        # to theirs any more (_PipeReader). It is not inherited: os.pipe makes its descriptors private.
+        self._wake = os.pipe() if sys.platform != "win32" else None
         names = (("stdout", 1), ("stderr", 2))
         for name, descriptor in names:
             self.forwarding[name] = original_is_read(descriptor) if forward is None else bool(forward)
@@ -607,10 +652,11 @@ class Capture(Recorder):
     # --- reader
     def _pump(self, name, read_end, forward_queue):
         splitter = Splitter()
+        reader = _PipeReader(read_end, self._wake[0] if self._wake is not None else None)
         try:
             while True:
                 try:
-                    chunk = os.read(read_end, 65536)
+                    chunk = reader.read()
                 except OSError:
                     break
                 if not chunk:
@@ -682,9 +728,21 @@ class Capture(Recorder):
                 except Exception:
                     pass
         sys.stdout, sys.stderr = self._python_streams
+        if self._wake is not None:
+            try:
+                os.write(self._wake[1], b"x")  # never read, so it stays readable for both readers
+            except OSError:
+                pass
         deadline = time.monotonic() + 2.0
         for thread in self._threads:
             thread.join(max(0.0, deadline - time.monotonic()))
+        if self._wake is not None and not any(
+                thread.is_alive() for thread in self._threads if not thread.name.startswith("console-forward")):
+            for descriptor in self._wake:  # a reader still running polls them: those are left to the process's end
+                try:
+                    os.close(descriptor)
+                except OSError:
+                    pass
         for saved in self._saved.values():
             if saved is not None:
                 try:
