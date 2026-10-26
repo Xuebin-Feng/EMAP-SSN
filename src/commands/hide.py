@@ -22,9 +22,12 @@ from utilities.Localization import JoinedMessage, Message
 def _drop_hidden_from_selection(viewer, selection):
     """Leave selection, less its hidden nodes, as the selection; hidden nodes leave the live one too.
 
-    The live selection may be one made by hand after this command was given,
-    which stays (Command_Engine.set_command_selection); a hidden node is never
-    selected, whichever selection it is in.
+    The Viewer never keeps a hidden node selected: undo and redo, picking, box
+    selection and the select commands all leave hidden nodes out. So hiding a
+    node takes it out of the live selection, whichever selection that is, and
+    that upkeep is not a choice of selection. The live selection may be one
+    made by hand after this command was given, which stays apart from the
+    nodes now hidden (Command_Engine.set_command_selection).
     """
     kept = [i for i in selection if viewer.visible_mask[i]]
     if not Command_Engine.set_command_selection(viewer, kept):
@@ -99,9 +102,8 @@ def run(viewer, args):
         viewer.visible_mask[single_nodes_mask] = False
         
         # Clean up selection if any selected nodes were hidden
-        if hasattr(viewer, 'selected_indices'):
-            _drop_hidden_from_selection(viewer, Command_Engine.command_selection(viewer))
-            
+        _drop_hidden_from_selection(viewer, Command_Engine.command_selection(viewer))
+
         viewer.hovered_node_idx = None
         viewer.selected_node_idx = None
         viewer.tooltip.text = ""
@@ -159,9 +161,8 @@ def run(viewer, args):
         viewer.visible_mask[newly_hidden] = False
 
         # Clean up selection if any selected nodes were hidden
-        if hasattr(viewer, 'selected_indices'):
-            _drop_hidden_from_selection(viewer, Command_Engine.command_selection(viewer))
-            
+        _drop_hidden_from_selection(viewer, Command_Engine.command_selection(viewer))
+
         viewer.hovered_node_idx = None
         viewer.selected_node_idx = None
         viewer.tooltip.text = ""

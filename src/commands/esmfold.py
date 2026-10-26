@@ -737,9 +737,12 @@ def run(viewer, args):
     is_large = options["large"]
     is_multi = options["multi"]
 
-    # 3. Determine selected nodes. With nothing selected, the node last clicked
-    # (the left-click focus) is folded, and the outcome says so.
-    selected_indices = getattr(viewer, 'selected_indices', [])
+    # 3. Determine selected nodes: the selection this command was given, as a queued command uses it
+    # (Command_Engine.command_selection). With nothing selected, the node last clicked (the left-click
+    # focus) is folded, and the outcome says so. The Viewer keeps that click as a transient highlight,
+    # not as part of the selection, and does not date it, so the node clicked when the command runs is
+    # the one used.
+    selected_indices = Command_Engine.command_selection(viewer)
     clicked_note = None
     if not selected_indices:
         node_idx = getattr(viewer, 'selected_node_idx', None)
