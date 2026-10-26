@@ -338,6 +338,7 @@ modules = [
     "test_desktop_launcher_monitor",
     "test_desktop_open",
     "test_desktop_openers",
+    "test_desktop_probe",
     "test_detect_gpu",
     "test_launcher_scripts",
     "test_launcher_stub",
