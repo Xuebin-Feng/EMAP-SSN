@@ -105,6 +105,17 @@ still change before version 1.0.0.
   command catalog, so a new command file appears in it with no other change. The VR viewer
   keeps its own `help`. The Agent chat's model is not offered it, since its instructions
   already describe the commands.
+- **`color` sets a node's alpha, and takes a target's attributes as a set.**
+  - **Alpha:** `50%` sets how opaque the nodes are, from `0%` to `100%`. An 8-digit hex colour
+    (`#ff000080`) sets it too.
+  - **Sets:** `<red,50%,star>` or `<red 50% star>` gives one target its colour, alpha, scale
+    and shape, in any order, at most one of each. A set follows its expression, with or
+    without a space (`#cluster_1#<red,50%>`), or stands alone for the selected nodes. A set
+    that mixes commas and spaces, holds an unknown item or two of one kind is refused, and
+    nothing changes. The loose form (`color #cluster_1# red 2x star`) still works.
+  - Alpha survives undo, redo, saved layouts and `print`, in PNG and SVG; `color reset`
+    restores it. The VR headset draws nodes opaque, so the VR terminal notes a change of
+    alpha, as it notes shapes.
 - **Background jobs in the Viewer's Session card.** Below the input files, the card lists the
   jobs that write files (`print`, `label`, `logo`) and the structure folds (`esmfold`), in two
   lines, Files and Folding, that run side by side. Each line runs one job at a time, in order.
@@ -310,6 +321,9 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **Recolouring keeps a node's alpha.** `color #noise# red` used to make faded nodes, such as
+  subcluster Noise at 40 %, fully opaque. It now changes only their colour; add `100%` to
+  make them opaque.
 - **`subcluster` takes the cluster as `#cluster_N#`,** as `select`, `color` and the other
   commands write it; the bare `cluster_N` still works. Anything other than one cluster
   (`#noise#`, a group, `#cluster_2#|#cluster_3#`, `$sele$`) is refused with the reason, and
