@@ -80,7 +80,7 @@ from Embedding_Alignment_Engine import (
 from collections import deque
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from contextlib import nullcontext
-from multiprocessing import Pool, set_start_method, get_context
+from multiprocessing import set_start_method, get_context
 from tqdm import tqdm
 
 from utilities.Sequence_Utils import (
@@ -763,6 +763,14 @@ def _warm_task(spec):
     return (0, "warmup", "warmup", query, mode, gap, norm_mode, residues, residues)
 
 
+# The CPU search's worker pool always starts its processes with spawn, as the script itself asks for and as
+# Windows and macOS do anyway. A program that imports this module on Linux would otherwise fork, and a fork of
+# a process that has run torch's CPU kernels (an OpenMP thread pool) or used CUDA hangs in the child's first
+# parallel kernel: the workers never reported ready.
+_POOL_CONTEXT = get_context("spawn")
+Pool = _POOL_CONTEXT.Pool
+
+
 def _init_search_pool(input_h5, warm_spec, ready):
     try:
         init_worker(input_h5)
@@ -790,7 +798,7 @@ def _run_serial_search(tasks, input_h5, show_progress=False, timing=None):
 def _run_cpu_search(tasks, workers, input_h5, show_progress=True, timing=None):
     results = []
     workers = max(1, int(workers))
-    ready = get_context().Queue() if timing is not None else None
+    ready = _POOL_CONTEXT.Queue() if timing is not None else None
     try:
         with Pool(
             processes=workers,

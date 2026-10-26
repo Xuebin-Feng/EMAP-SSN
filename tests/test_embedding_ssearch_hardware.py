@@ -598,6 +598,12 @@ class PoolStartupTests(unittest.TestCase):
         self.assertIs(seen["initializer"], ssearch._init_search_pool)
         self.assertLess(len(pickle.dumps(seen["initargs"][:2])), 1024)
 
+    def test_the_pool_starts_its_workers_with_spawn_whoever_imports_the_module(self):
+        # On Linux a fork of a process that has run torch's CPU kernels or used CUDA (this test run, after the
+        # GPU and kernel tests) hung in the workers' first kernel, and RealCpuTests waited out its 120 s.
+        self.assertEqual(ssearch._POOL_CONTEXT.get_start_method(), "spawn")
+        self.assertIs(ssearch.Pool.__self__, ssearch._POOL_CONTEXT)
+
     def test_the_real_run_pool_keeps_its_one_argument(self):
         seen = {}
 
