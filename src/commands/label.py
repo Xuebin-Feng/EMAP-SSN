@@ -18,7 +18,6 @@ import os
 import re
 import math
 import datetime
-import tempfile
 import numpy as np
 from collections import Counter
 from dataclasses import dataclass
@@ -35,7 +34,7 @@ import EMAPSSN_Config as cfg
 from utilities import Alignment_Profiles
 from utilities.Job_Cancellation import CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled
 from utilities.Localization import Message
-from utilities.Output_Names import validate_output_basename
+from utilities.Output_Names import new_partial_file, validate_output_basename
 from utilities.Sequence_Utils import (
     format_alignment_offset_display,
     sort_alignment_labels,
@@ -1734,12 +1733,7 @@ def _run_label_artifact(viewer, args):
                 ws2.column_dimensions['C'].width = 10
 
             raise_if_cancelled()
-            file_descriptor, partial_path = tempfile.mkstemp(
-                prefix=f".{os.path.splitext(out_filename)[0]}.",
-                suffix=".partial.xlsx",
-                dir=out_dir,
-            )
-            os.close(file_descriptor)
+            partial_path = new_partial_file(out_dir, f".{os.path.splitext(out_filename)[0]}.", ".partial.xlsx")
             # Named to the scheduler, which deletes it if the Viewer closes while this job is stuck.
             named_partial = partial_path
             note_partial_path(named_partial)

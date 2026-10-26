@@ -12,9 +12,9 @@ import fnmatch
 import os
 import re
 import sys
-import tempfile
 
 from utilities.Localization import Message
+from utilities.Output_Names import new_partial_file
 from utilities.Terminal_Colors import colours_enabled
 
 # =====================================================================
@@ -236,16 +236,8 @@ def write_fasta_atomic(file_path, headers, sequences):
 
     temporary_path = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="\n",
-            dir=output_dir,
-            prefix=f".{os.path.basename(output_path)}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary_file:
-            temporary_path = temporary_file.name
+        temporary_path = new_partial_file(output_dir, f".{os.path.basename(output_path)}.", ".tmp")
+        with open(temporary_path, "w", encoding="utf-8", newline="\n") as temporary_file:
             for header, sequence in zip(headers, sequences):
                 temporary_file.write(f">{header}\n{sequence}\n")
 

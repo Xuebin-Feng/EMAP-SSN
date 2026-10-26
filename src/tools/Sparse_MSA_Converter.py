@@ -52,7 +52,7 @@ except ModuleNotFoundError:
 import numpy as np
 import h5py
 import json
-import tempfile
+from utilities.Output_Names import new_partial_file
 from utilities.Sequence_Utils import (
     AA_TO_INT,
     INT_TO_AA,
@@ -201,13 +201,7 @@ def build_sparse_alignment(input_path):
     temporary_path = None
 
     try:
-        with tempfile.NamedTemporaryFile(
-            dir=output_dir,
-            prefix=f".{os.path.basename(output_h5)}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary_file:
-            temporary_path = temporary_file.name
+        temporary_path = new_partial_file(output_dir, f".{os.path.basename(output_h5)}.", ".tmp")
 
         with h5py.File(temporary_path, "w") as hf:
             mat_group = hf.create_group("matrix")

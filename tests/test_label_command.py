@@ -1366,7 +1366,7 @@ class LabelJobCancellationTests(unittest.TestCase):
             with self.subTest(stage=name), tempfile.TemporaryDirectory() as directory:
                 self.reports.clear()
                 patch, calls = self.stop_when_called(owner, name)
-                with patch, mock.patch.object(label.tempfile, "mkstemp", wraps=label.tempfile.mkstemp) as made:
+                with patch, mock.patch.object(label, "new_partial_file", wraps=label.new_partial_file) as made:
                     self.run_label(directory, [])
                 self.assertTrue(calls, "the stage ran")
                 self.assert_stopped_leaving_nothing(directory)

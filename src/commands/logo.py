@@ -16,7 +16,6 @@
 import math
 import os
 import re
-import tempfile
 import numpy as np
 from datetime import datetime  # <--- NEW IMPORT
 import EMAPSSN_Config as cfg
@@ -35,7 +34,7 @@ from utilities.Alignment_Profiles import (
 )
 from utilities.Job_Cancellation import CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled
 from utilities.Localization import JoinedMessage, Message
-from utilities.Output_Names import validate_output_basename
+from utilities.Output_Names import new_partial_file, validate_output_basename
 from utilities.Sequence_Utils import (
     DISPLAYED_POSITION_ATOM_PATTERN,
     normalize_displayed_position_atom,
@@ -290,12 +289,7 @@ def _generate_logo_artifact(payload):
         fig.tight_layout()
         raise_if_cancelled()
         suffix = os.path.splitext(filename)[1].lower()
-        file_descriptor, partial_path = tempfile.mkstemp(
-            prefix=f".{os.path.splitext(filename)[0]}.",
-            suffix=f".partial{suffix}",
-            dir=logo_dir,
-        )
-        os.close(file_descriptor)
+        partial_path = new_partial_file(logo_dir, f".{os.path.splitext(filename)[0]}.", f".partial{suffix}")
         # Named to the scheduler, which deletes it if the Viewer closes while this job is stuck.
         named_partial = partial_path
         note_partial_path(named_partial)

@@ -17,6 +17,7 @@ import os
 import re
 import sys
 import tempfile
+import uuid
 
 from utilities.Localization import Message
 
@@ -40,6 +41,21 @@ def validate_output_basename(filename):
     if _UNSUPPORTED_CHARACTERS.search(filename):
         raise ValueError(Message("Filename contains unsupported characters: '{file}'.", file=filename))
     return filename
+
+
+def new_partial_file(folder, prefix, suffix):
+    """Make the empty file an output is written into before it replaces the output; return its path.
+
+    The name is ``prefix``, a random part and ``suffix``, in ``folder``, and the file is made with
+    O_EXCL, so it is this call's own, as tempfile.mkstemp's is. Unlike mkstemp's, which are for
+    their owner alone (mode 0600), it is made as any file a program saves is: the umask decides who
+    may read it. The output os.replace makes of it keeps that mode, so a logo, a label workbook or
+    an exported FASTA can be read by whoever can read a printed PNG beside it.
+    """
+    path = os.path.join(folder, f"{prefix}{uuid.uuid4().hex}{suffix}")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0), 0o666)
+    os.close(descriptor)
+    return path
 
 
 def first_case_collision(names):

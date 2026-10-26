@@ -19,8 +19,10 @@ from utilities import Output_Names  # noqa: E402
 from utilities.Output_Names import (  # noqa: E402
     first_case_collision,
     folder_ignores_case,
+    new_partial_file,
     validate_output_basename,
 )
+from utilities.Sequence_Utils import write_fasta_atomic  # noqa: E402
 from tests.command_fixtures import reported_outcomes  # noqa: E402
 from tests.folder_case_fixtures import ignores_case, make_case_sensitive  # noqa: E402
 
@@ -391,6 +393,38 @@ class ExportCacheNameTests(unittest.TestCase):
                 self.assertIn(
                     f"exports/source_[test]/{folder}/Cluster_0.fasta", self.written()
                 )
+
+
+@unittest.skipIf(sys.platform == "win32", "Windows has no file mode bits for the umask to decide")
+class PartialFileModeTests(unittest.TestCase):
+    """A partial file, and so the output os.replace makes of it, is made as a saved file is: the umask decides.
+
+    tempfile's files are for their owner alone (0600), which made logos, label workbooks and exported FASTA
+    files private while a printed PNG beside them was not.
+    """
+
+    def setUp(self):
+        self.previous_umask = os.umask(0o027)
+        self.addCleanup(os.umask, self.previous_umask)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.folder = directory.name
+
+    def test_the_partial_file_is_new_empty_hidden_and_follows_the_umask(self):
+        first = new_partial_file(self.folder, ".logo.", ".partial.svg")
+        second = new_partial_file(self.folder, ".logo.", ".partial.svg")
+        self.assertNotEqual(first, second)
+        for path in (first, second):
+            name = os.path.basename(path)
+            self.assertTrue(name.startswith(".logo.") and name.endswith(".partial.svg"), name)
+            self.assertEqual(os.path.getsize(path), 0)
+            self.assertEqual(os.stat(path).st_mode & 0o777, 0o640)
+
+    def test_an_exported_fasta_follows_the_umask(self):
+        path = write_fasta_atomic(os.path.join(self.folder, "Cluster_1.fasta"), ["a", "b"], ["MK", "MV"])
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o640)
+        self.assertEqual(Path(path).read_text(encoding="utf-8"), ">a\nMK\n>b\nMV\n")
+        self.assertEqual(os.listdir(self.folder), ["Cluster_1.fasta"])
 
 
 if __name__ == "__main__":

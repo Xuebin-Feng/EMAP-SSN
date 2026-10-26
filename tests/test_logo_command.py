@@ -1907,8 +1907,8 @@ class LogoJobCancellationTests(unittest.TestCase):
                 with self.subTest(filename=filename, stage=name), tempfile.TemporaryDirectory() as directory:
                     self.reports.clear()
                     patch, calls = self.stop_when_called(owner, name)
-                    with patch, mock.patch.object(logo_command.tempfile, "mkstemp",
-                                                  wraps=logo_command.tempfile.mkstemp) as made:
+                    with patch, mock.patch.object(logo_command, "new_partial_file",
+                                                  wraps=logo_command.new_partial_file) as made:
                         self.run_job(directory, filename)
                     self.assertTrue(calls, "the stage ran")
                     self.assertEqual(self.reports, ["stopped"])

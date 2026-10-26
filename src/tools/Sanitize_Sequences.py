@@ -72,12 +72,12 @@ try:
     from tools import _bootstrap
 except ModuleNotFoundError:
     import _bootstrap
-import tempfile
 from tqdm import tqdm
 from collections import Counter
 import numpy as np
 
 from utilities.Localization import Message, set_translator
+from utilities.Output_Names import new_partial_file
 from utilities.Sequence_Utils import (
     allocate_unique_headers,
     read_fasta,
@@ -234,16 +234,8 @@ def write_fasta_atomic(file_path, headers, sequences, refuse_empty=False):
 
     temporary_path = None
     try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            newline="\n",
-            dir=output_dir,
-            prefix=f".{os.path.basename(output_path)}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary_file:
-            temporary_path = temporary_file.name
+        temporary_path = new_partial_file(output_dir, f".{os.path.basename(output_path)}.", ".tmp")
+        with open(temporary_path, "w", encoding="utf-8", newline="\n") as temporary_file:
             for header, seq in zip(headers, sequences):
                 temporary_file.write(f">{header}\n{seq}\n")
 
