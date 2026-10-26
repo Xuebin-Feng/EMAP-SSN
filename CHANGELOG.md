@@ -38,6 +38,10 @@ still change before version 1.0.0.
   installer once more: `install.bat` on Windows (and `opt_vr\install_vr.bat` for VR
   Config), or `./install.sh` on macOS. The old shortcuts and `.app` bundles keep working,
   but still open a console or Terminal. Linux menu entries need nothing.
+- The MCP server is 0.16.0 (0.14.0 in v0.4.0). `execute_commands` now refuses a
+  `submission_id` shorter than 32 or longer than 128 characters: a client that sent short
+  ids such as `req-1` must send a new random UUID for each submission, and the same id
+  only to retry the same commands.
 
 ### Added
 
@@ -89,7 +93,9 @@ still change before version 1.0.0.
       where the output goes.
     - **Layout:** the Console's header stays on one row; the window can't be made narrower
       than it. The Viewer window can't be made narrower than its bottom row, so its
-      controls never overlap.
+      controls never overlap, or shorter than 300 px, which leaves room for the command
+      line, the control row and the Hidden Nodes line.
+    - **Keys:** Home and End, or Ctrl+Home and Ctrl+End, go to the top and the bottom.
     - Command help that used to be "printed to the terminal" now points to the Console. A
       command name the Viewer doesn't know prints `Error: Unknown command: …` there and in
       the log, as well as on the status line.
@@ -131,7 +137,9 @@ still change before version 1.0.0.
     nothing for the newest.
   - **Each row** shows the job's number, what it writes, and whether it runs (with its time
     and progress, such as "Drawing tile 3 of 8" or "Folding 2 of 3") or waits (with its
-    place). The card updates while open.
+    place). The card updates while open, and screen readers read each row in full.
+  - **A badge** at the top right, under the frame rate's row, counts the jobs while one
+    waits or runs; its tooltip lists them.
   - **Waiting jobs** can be moved up or down within their line, or removed.
   - **A running job** can be stopped, after a confirmation. It says "stopping" until it has
     really stopped, and is then reported cancelled. A stopped `print`, `label` or `logo`
@@ -213,8 +221,9 @@ still change before version 1.0.0.
     and fixed for the session;
   - the alignment and embedding, each with a button that runs `alignment` or `embedding`
     as if typed, to pick another file.
-  The values follow every command while the card is open. A link beside the × opens the
-  list of commands in the Viewer's language, or in English if that language has no
+  The values follow every command while the card is open. A path can be selected and
+  copied with Ctrl+C (Cmd+C on macOS) or the right-click menu. A link beside the × opens
+  the list of commands in the Viewer's language, or in English if that language has no
   translated copy.
 - **Show Frame Rate (FPS).** A switch in the Config's new Low Resource Mode section
   (below) shows the Viewer's frame rate at the top right: the
@@ -240,7 +249,7 @@ still change before version 1.0.0.
   - **macOS:** a hidden Viewer has no Dock icon until it is shown. This is untested on
     a real Mac.
   - **Summaries:** every session summary has a `window` section with the mode, whether
-    the window is visible or in front, and what it can do. The MCP server is 0.15.0.
+    the window is visible or in front, and what it can do.
   - **Cost:** a hidden Viewer takes about 150 MB more memory and 125 MB of video memory
     than a headless one, and starts 1 to 2 s later. `mode="headless"` is unchanged.
 - **`esmfold stop`** ends every ESMFold worker this Viewer started, with or without a
@@ -275,12 +284,15 @@ still change before version 1.0.0.
   - **Off the GUI thread:** `cluster` and `subcluster` now compute in the background
     while you pan, zoom, hover and select. At 44,000 nodes and 3 million edges, Leiden
     clustering used to freeze the Viewer for 3 s and MCL for 14 s; now the longest
-    pause is under 0.05 s, apart from one 0.4 s pause as MCL starts. Each applies in one
-    step that one undo takes back. MCL reports its iterations and can be cancelled
+    pause is under 0.05 s, apart from one 0.4 s pause as MCL starts. The libraries they
+    use (Numba, and for MCL `markov_clustering`) load in the background too, so the first
+    `cluster` or `subcluster` of a session doesn't freeze the Viewer either. Each applies
+    in one step that one undo takes back. MCL reports its iterations and can be cancelled
     between them.
-  - **Arguments** are checked when you press Enter, so a typo is refused at once.
-    References such as `#cluster_3#` are checked at the command's turn, since an earlier
-    command may create them.
+  - **Arguments** of `cluster` and `subcluster` are checked when you press Enter, so a
+    typo is refused at once; other commands check theirs at their turn. References such
+    as `#cluster_3#` are checked at the command's turn, since an earlier command may
+    create them.
   - **Selection:** a command uses the selection you had when you pressed Enter, counting
     `select` commands typed before it that have not run yet. A selection you make with
     the mouse meanwhile applies to the commands you type after it, and is never
@@ -329,6 +341,11 @@ still change before version 1.0.0.
     (Apache-2.0; Wang, Huang, Rudin and Shaposhnik, JMLR 2021), with no new dependency.
   - **Caches:** a PaCMAP cache is kept apart from UMAP's, in a folder ending
     `_PACMAP_k10` for 10 neighbours. It opens in the desktop Viewer in 2D and in VR in 3D.
+- **A test-only desktop probe** (`tests/desktop_probe`) lets a tester or an agent list,
+  capture and operate EMAP-SSN's Qt windows from inside the running program, through Qt's
+  own grabs and events, so it needs no screenshot or accessibility permission on GNOME
+  Wayland, X11, Windows or macOS. It acts only while its gate file exists, never in a test
+  run, and nothing in `src` knows about it. Its README gives the commands.
 
 ### Changed
 
@@ -424,7 +441,6 @@ still change before version 1.0.0.
   `viewer_settings_vr.json` and the VR client stay in `opt_vr`. VR Config and its viewer
   now start in the project root, so relative paths typed in commands resolve as on the
   desktop.
-
 - Config, Tools and VR Config start faster. The launcher's check imported the ESM and
   Transformers packages at every launch, which took about 6.5 s, or about 20 s when the
   programs had not been opened for a while (Windows Defender scans every file the import
@@ -510,8 +526,8 @@ still change before version 1.0.0.
   window has an 8-bit stencil buffer and otherwise draws as before, printing which it uses
   at start-up; print and exports are unchanged. `SSN_EDGE_STENCIL_LIMIT=0` turns it off.
 - The Viewer keeps the last picture of its edges and reuses it for frames where only the
-  nodes or text change: hovering, the click halo, tooltips, typing, status messages, the
-  HUD and the sidebar. With 30,000 nodes and 8 million edges, hovering goes from 15–24 to
+  nodes or text change: hovering, the click halo, tooltips, typing, status messages and
+  the HUD. With 30,000 nodes and 8 million edges, hovering goes from 15–24 to
   60 frames per second, with the same pixels. The picture is redrawn whenever the view,
   the window, the background or anything about the edges changes; print and other
   captures always draw the edges directly. It costs about 5 bytes per pixel of video
@@ -543,8 +559,7 @@ still change before version 1.0.0.
     other captures always draw every edge. The thinned copies take about a third more
     video memory for the edges, and none are made while the switch is off.
     `SSN_EDGE_MOTION_LOD=0` turns it off even when the switch is on.
-  - **No Zoom or Sidebar Animation:** the wheel zoom jumps without its glide and the
-    sidebar opens and closes without sliding.
+  - **No Zoom or Sidebar Animation:** the wheel zoom jumps without its glide.
   - **Update Colors After Mouse Release:** the threshold slider redraws the edges only
     when let go; a right-drag or rotation of nodes moves them and their edges, and colours
     the selection and its neighbours again only on release; a box selection colours its
@@ -707,14 +722,9 @@ still change before version 1.0.0.
 - MCP's command catalog failed for every command when one command file had no catalog
   entry. Such a command is now listed with a summary from its help, and the cautious
   defaults: it writes files, opens an interface, and waits for approval in the Agent chat.
-  The catalog's "background work" flag now comes from each command's own code: `print`,
-  `cluster` and `subcluster` were wrongly listed as running in the foreground.
-- The Fold View could act on structures that were being removed. Opening a session over
-  another, Undo, Clear or removing a structure takes a moment, and during it the
-  Structures list could redraw from the old scene, erroring out and losing open rows and
-  the pinned residue. A button pressed on an old row could act on the structure being
-  removed. It mostly happened on a busy computer. The list now waits until the change is
-  done, and every button acts on the scene as it is when pressed.
+  The catalog's "background work" flag now comes from each command's own code: `print` was
+  wrongly listed as running in the foreground, and `cluster` and `subcluster`, which now
+  compute in the background, are listed that way too.
 - A seeded UMAP layout could come out differently from one run to the next, although the
   docs say it reproduces exactly. umap's spectral start asks SciPy's ARPACK for each
   connected part of the network, and on a small part of interchangeable nodes (such as
@@ -732,11 +742,6 @@ still change before version 1.0.0.
   or `delete`, so a VR session left on the default folders, and the VR tests, left an
   empty `Input_Files/Meta_Data` behind. Like the desktop's, it now creates the folder
   only when it downloads metadata.
-- The paths in the Viewer's ⓘ card could be selected and copied with the right-click
-  menu, but Ctrl+C (Cmd+C on macOS) did nothing: the fields never take the keyboard, so
-  the key went to the canvas, which ignores it outside the command line. The card now
-  answers the standard Copy key for the field with a selection, and Select All for the
-  field last clicked. While the command line is open, Ctrl+C still copies the command.
 - In the Tools help pane, a code block indented under a list item showed as one line of
   inline code with its language name in front: the Sanitize Sequences page's FASTA
   structure read "text >Sequence_Header_1 … MKVLLVSDA…". Such blocks now show as code
@@ -750,10 +755,6 @@ still change before version 1.0.0.
   click, a right click, a node drag and Shift/Ctrl copying act on exactly the highlighted
   node. A click 2 to 5 points outside a node, which used to reach it, now counts as empty
   space, as the highlight shows.
-- With that change, nodes moved by a right-drag could no longer be picked: the hover,
-  clicks and a second drag missed them at both their new and their old place, and a
-  right press on them started a box selection instead. Moved nodes are now picked where
-  they are drawn.
 - Embedding SSEARCH's hardware benchmark could pick a plan about twice as slow as the
   best one. Timing the CPU pool started its workers one after another on Windows (about
   2.3 s each, so 20 s or more for eight), which used up the 5 s tuning budget before any
@@ -774,8 +775,8 @@ still change before version 1.0.0.
   - A worker that dies at startup now fails the job at once with its exit code and log,
     instead of after 60 s.
   - Closing the Viewer or a failed job ends the worker and its child processes.
-  - `agent`, `meta` and the sidebar's page buttons open no browser in a headless Viewer
-    either. A bare `agent` or `meta` there succeeds and gives the page's address.
+  - `agent` and `meta` open no browser in a headless Viewer either. A bare `agent` or
+    `meta` there succeeds and gives the page's address.
   - A Viewer with a window behaves as before.
 - A headless Viewer also opened other windows, or could hang:
   - `export`, `print` and `label` opened Explorer or a file manager on their output
@@ -823,41 +824,22 @@ still change before version 1.0.0.
   - layout caches, with their manifest and FASTA backup.
 
   Logs, crash reports and the settings and launch snapshots stay private.
-- On Linux and macOS, Tools ends as soon as its window closes, instead of 2 s later. Its web
-  view's helper processes held the output capture's pipes open, so closing waited for them.
 - On Linux, a program that imports the CPU alignment search no longer hangs while starting
   its worker pool. This happened after torch or CUDA had run in that program. The pool now
   always starts fresh worker processes (spawn), as the Tools script and Windows already did.
-- The Viewer's Zoom box now matches the picture after the window is made taller or shorter.
-  Before, it lagged one resize behind. The Viewer window can no longer be made shorter than
-  300 px, which leaves room for the command line, the control row and the Hidden Nodes line.
 - Warnings printed while an alignment or embeddings load (incomplete coverage, a missing
   reference, cleaned-up headers) are now amber, as the Console's help says. Errors stay red.
-- Ctrl+Home and Ctrl+End now take the Console to its top and bottom, like Home and End.
 - The crash dialog says EMAP-SSN in its title ("EMAP-SSN Application Failure").
   - When the program printed nothing, it now says so, where it showed a dash before.
   - On Linux and macOS, it names the signal that stopped the program, such as SIGKILL.
 - Pages that show why a Viewer has no display now show the reason in their own language,
   such as the Agent page's capture errors. MCP replies still carry the English.
-- Screen readers can read each background job's description and state in the Session card,
-  in full even when the card cuts the text short.
 - A `logo` whose letters are all 0 tall, such as two sequences in bits mode, no longer
   prints a logomaker warning in the Console. Its report says the logo is flat and why, and
   suggests the `pcts` mode.
-- **The test suite passes on Linux without a display.**
-  - The VR launcher tests that run the Windows-only launch chain are skipped on other
-    systems.
-  - The Tools chart window test runs offscreen.
-  - The Zoom box width test allows a pixel of font rounding.
-  - The test-only desktop probe:
-    - handles requests in the order they were written;
-    - lets `wait` succeed for programs with no window, such as the Layout Generator;
-    - no longer hides parts of FASTA protein headers as if they were secrets.
-- **The first `cluster` or `subcluster` of a session no longer freezes the Viewer.** The
-  libraries they use (Numba, and for MCL `markov_clustering`, which loads about 1,300
-  modules) were loaded on the Viewer's own thread. They now load on the command's worker
-  thread. On an 821-node network, the longest pause fell from 0.34 s to 0.09 s for
-  `cluster`, and from 1.6 s (once 15 s) to 0.1 s for `cluster mcl`.
+- An Agent chat turn could push an MCP client's snapshot out of the Viewer's store, so the
+  client's next node page failed with "Snapshot expired … refresh with get_summary". A
+  turn now keeps its snapshot in a store of its own.
 - **`print full` no longer holds the mouse and the keys while it draws its tiles.**
   - **Before:** a click or key waited until the capture ended, up to 11 s on a large print.
   - **Now:** the tiles are drawn in short slices, and the Viewer answers within about 0.06 s.
