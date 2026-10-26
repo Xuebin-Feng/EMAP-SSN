@@ -314,6 +314,15 @@ still change before version 1.0.0.
   commands write it; the bare `cluster_N` still works. Anything other than one cluster
   (`#noise#`, a group, `#cluster_2#|#cluster_3#`, `$sele$`) is refused with the reason, and
   nothing changes.
+- **More commands take a name in both of its forms.** The written form is tried first, so a
+  name that really holds the marks is still found.
+  - `meta delete` takes `{Length}` as well as `Length`.
+  - `group remove` takes `#kinase#` as well as `kinase`.
+  - `export` takes a bare `cluster_1`, `noise` or group name as well as `#cluster_1#`.
+    `clusters`, `cluster`, `groups` and `group` stay keywords.
+  - `print … full` takes `zoom=200` as well as `zoom 200`. Before, `zoom=200` was taken as
+    the file name, and the picture was drawn at the default zoom.
+  - `label` takes `cmin=90%`, `gmax=0.3` and `id=90%` as well as `cmin 90%`.
 - **A quieter dependency check.** Each start used to list the known, accepted differences
   between the `esm` package's stated requirements and the installed packages ("accepted: The
   package `esm` requires …"). It now prints one line saying the check passed with that many
