@@ -799,6 +799,43 @@ still change before version 1.0.0.
     fixed threshold is faster than before; a Top Edge % cutoff reads the file a few times
     and takes 1.2 to 1.6 times as long. The kept edges, their order, the cutoff and the
     printed cutoff line are exactly as before.
+- **On Linux and macOS, saved files follow the umask,** as a printed PNG already did. Before,
+  some outputs could be read by their owner alone:
+  - logos, `label` workbooks and `export` FASTA files;
+  - the Tools' sanitized FASTA files and sparse alignments;
+  - layout caches, with their manifest and FASTA backup.
+
+  Logs, crash reports and the settings and launch snapshots stay private.
+- On Linux and macOS, Tools ends as soon as its window closes, instead of 2 s later. Its web
+  view's helper processes held the output capture's pipes open, so closing waited for them.
+- On Linux, a program that imports the CPU alignment search no longer hangs while starting
+  its worker pool. This happened after torch or CUDA had run in that program. The pool now
+  always starts fresh worker processes (spawn), as the Tools script and Windows already did.
+- The Viewer's Zoom box now matches the picture after the window is made taller or shorter.
+  Before, it lagged one resize behind. The Viewer window can no longer be made shorter than
+  300 px, which leaves room for the command line, the control row and the Hidden Nodes line.
+- Warnings printed while an alignment or embeddings load (incomplete coverage, a missing
+  reference, cleaned-up headers) are now amber, as the Console's help says. Errors stay red.
+- Ctrl+Home and Ctrl+End now take the Console to its top and bottom, like Home and End.
+- The crash dialog says EMAP-SSN in its title ("EMAP-SSN Application Failure").
+  - When the program printed nothing, it now says so, where it showed a dash before.
+  - On Linux and macOS, it names the signal that stopped the program, such as SIGKILL.
+- Pages that show why a Viewer has no display now show the reason in their own language,
+  such as the Agent page's capture errors. MCP replies still carry the English.
+- Screen readers can read each background job's description and state in the Session card,
+  in full even when the card cuts the text short.
+- A `logo` whose letters are all 0 tall, such as two sequences in bits mode, no longer
+  prints a logomaker warning in the Console. Its report says the logo is flat and why, and
+  suggests the `pcts` mode.
+- **The test suite passes on Linux without a display.**
+  - The VR launcher tests that run the Windows-only launch chain are skipped on other
+    systems.
+  - The Tools chart window test runs offscreen.
+  - The Zoom box width test allows a pixel of font rounding.
+  - The test-only desktop probe:
+    - handles requests in the order they were written;
+    - lets `wait` succeed for programs with no window, such as the Layout Generator;
+    - no longer hides parts of FASTA protein headers as if they were secrets.
 
 ## [0.4.0] - 2026-10-16
 
