@@ -19,7 +19,6 @@ import Command_Engine
 import numpy as np
 import re
 import os
-from utilities import Network_Kernels as network_clustering
 from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Colors import colours_enabled
 import sys
@@ -37,6 +36,13 @@ except ImportError:
 if sys.platform == 'win32' and not globals().get("_WINDOWS_ANSI_ENABLED", False):
     os.system('')
     _WINDOWS_ANSI_ENABLED = True
+
+
+def __getattr__(name):
+    """subcluster.network_clustering is the clustering kernels, loaded when first asked for (see cluster.__getattr__)."""
+    if name == "network_clustering":
+        return cluster_cmd.network_clustering
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
 def get_colored_subcluster_name(sub_id, name_str, color_map=None):
@@ -369,19 +375,14 @@ def start(viewer, plan):
     print(f"Running {mode.upper()} Subclustering for cluster_{cluster_id} (Param={param1}, MinSize={min_sz})...")
 
     if mode == "mcl":
-        try:
-            import markov_clustering as mc  # noqa: F401  (availability check)
-            import scipy.sparse as sp  # noqa: F401
-        except ImportError:
+        if any(cluster_cmd.library_missing(name) for name in ("markov_clustering", "scipy")):
             msg = Message("Missing libraries! Run: {command}", command="pip install markov_clustering networkx scipy")
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
             Command_Engine.show_status(viewer, msg)
             return None
     elif mode == "leiden":
-        try:
-            import graspologic_native  # noqa: F401  (availability check)
-        except ImportError:
+        if cluster_cmd.library_missing("graspologic_native"):
             msg = Message("Missing library! Run: {command}", command="pip install graspologic-native")
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
@@ -399,6 +400,9 @@ def compute(inputs, progress):
     A refusal found here (no edge inside the cluster, unusable scores) comes
     back as the result's refusal, which apply() reports before anything changes.
     """
+    # Here, on the worker thread, and not when the module loads: see cluster.__getattr__.
+    from utilities import Network_Kernels as network_clustering
+
     cluster_id, mode, param1, min_sz = (
         inputs.plan.cluster_id, inputs.plan.mode, inputs.plan.param1, inputs.plan.min_size)
     target_mask = (inputs.cluster_labels == cluster_id)

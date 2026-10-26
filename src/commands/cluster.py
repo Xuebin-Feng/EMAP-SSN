@@ -17,9 +17,9 @@ from dataclasses import dataclass
 
 import Command_Engine
 import numpy as np
-from utilities import Network_Kernels as network_clustering
 from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Colors import colours_enabled
+import importlib.util
 import sys
 import os
 import colorsys
@@ -32,6 +32,33 @@ except ImportError:
 if sys.platform == 'win32' and not globals().get("_WINDOWS_ANSI_ENABLED", False):
     os.system('')
     _WINDOWS_ANSI_ENABLED = True
+
+
+def __getattr__(name):
+    """cluster.network_clustering, the clustering kernels, loads when it is first asked for.
+
+    The kernels' module imports Numba, which takes seconds on a cold start. Loading this module,
+    and a command's start step, run on the Viewer's GUI thread, which must not wait for that:
+    compute() asks for the kernels itself, on the command queue's worker thread.
+    """
+    if name == "network_clustering":
+        from utilities import Network_Kernels
+        return Network_Kernels
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+def library_missing(name):
+    """Whether the top-level package `name` is not installed, found without importing it.
+
+    A command checks its libraries at its turn, on the GUI thread, and importing them there holds
+    the Viewer for as long as they take to load (markov_clustering loads scikit-learn, SciPy's
+    statistics and matplotlib: seconds, and ten times that from a cold disk). The libraries
+    load in compute(), on the worker thread. A package set to None in sys.modules is missing,
+    as an import of it would say.
+    """
+    if name in sys.modules:
+        return sys.modules[name] is None
+    return importlib.util.find_spec(name) is None
 
 
 def get_colored_cluster_name(cid, name_str, color_map=None):
@@ -463,11 +490,7 @@ def start(viewer, plan):
     scores = viewer.edge_scores if hasattr(viewer, 'edge_scores') else None
 
     if mode == "mcl":
-        try:
-            import markov_clustering as mc  # noqa: F401  (availability check)
-            import networkx as nx  # noqa: F401
-            import scipy.sparse as sp  # noqa: F401
-        except ImportError:
+        if any(library_missing(name) for name in ("markov_clustering", "networkx", "scipy")):
             msg = Message("Missing libraries! Run: {command}", command="pip install markov_clustering networkx scipy")
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
@@ -481,9 +504,7 @@ def start(viewer, plan):
             return None
 
     elif mode == "leiden":
-        try:
-            import graspologic_native  # noqa: F401  (availability check)
-        except ImportError:
+        if library_missing("graspologic_native"):
             msg = Message("Missing library! Run: {command}", command="pip install graspologic-native")
             print(f"Error: {msg}")
             Command_Engine.command_failed(viewer, f'Error: {msg}')
@@ -496,6 +517,9 @@ def start(viewer, plan):
 
 def compute(inputs, progress):
     """Cluster the network. No viewer and no Qt: this runs on the command queue's worker thread."""
+    # Here, on the worker thread, and not when the module loads: see __getattr__.
+    from utilities import Network_Kernels as network_clustering
+
     mode, param1, min_sz = inputs.plan.mode, inputs.plan.param1, inputs.plan.min_size
     n_nodes = inputs.n_nodes
     edges = np.array(inputs.edges, dtype=np.int32).reshape(-1, 2)

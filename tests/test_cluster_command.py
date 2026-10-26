@@ -23,7 +23,7 @@ if SRC_DIR not in sys.path:
 # PySide6) on first use. Imported here, that first import cannot happen inside
 # a sys.modules window below, whose exit would drop the modules again.
 import Viewer_Command_Portal  # noqa: F401
-from commands import cluster
+from commands import cluster, subcluster
 from tests.command_fixtures import BARBELL_EDGES, network_viewer, run_command
 
 
@@ -1032,6 +1032,91 @@ class GeneratedSubclusterGroupTests(unittest.TestCase):
 
         action = COMMAND_METADATA["cluster"]["arguments"][0]["description"]
         self.assertIn("removes the generated subcluster_N_M groups", action)
+
+
+class FirstUseOnTheGuiThreadTests(unittest.TestCase):
+    """The first cluster or subcluster command of a session loads nothing slow on the GUI thread.
+
+    Numba (through the clustering kernels), and for MCL scikit-learn, SciPy's statistics, matplotlib and
+    networkx (through markov_clustering), take seconds to import, ten times that from a cold disk. The
+    command's module loads, and its start step runs, on the Viewer's GUI thread; those loads belong to
+    compute(), on the command queue's worker thread. Each case runs in a process of its own, where
+    nothing has imported them yet.
+    """
+
+    SLOW = ("numba", "markov_clustering", "sklearn", "networkx", "scipy.stats", "matplotlib")
+
+    def run_fresh(self, body):
+        script = (
+            "import sys\n"
+            f"sys.path[:0] = [{PROJECT_ROOT!r}, {SRC_DIR!r}]\n"
+            "import tests  # noqa: F401  (the test environment: private settings and temp folders)\n"
+            "import numpy as np\n"
+            "from commands import cluster, subcluster\n"
+            "from tests.command_fixtures import BARBELL_EDGES, network_viewer\n"
+            f"SLOW = {self.SLOW!r}\n"
+            "def loaded():\n"
+            "    return [name for name in SLOW if name in sys.modules]\n"
+            + body
+        )
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, "-c", script], capture_output=True, text=True, cwd=PROJECT_ROOT, timeout=300,
+            encoding="utf-8", errors="replace",
+        )
+        self.assertEqual(result.returncode, 0, result.stdout[-2000:] + result.stderr[-3000:])
+        return result.stdout
+
+    def test_the_modules_and_every_start_step_load_none_of_them(self):
+        output = self.run_fresh(
+            "assert not loaded(), loaded()\n"
+            "viewer = network_viewer(6, BARBELL_EDGES, edge_scores=np.ones(7), cluster_labels=[1] * 6)\n"
+            "import importlib.util\n"
+            "modes = ['leiden', 'jaccard'] + (['mcl'] if importlib.util.find_spec('markov_clustering') else [])\n"
+            "for mode in modes:\n"
+            "    inputs = cluster.start(viewer, cluster.plan(viewer, [mode]))\n"
+            "    assert inputs is not None, mode\n"
+            "    inputs = subcluster.start(viewer, subcluster.plan(viewer, ['cluster_1', mode]))\n"
+            "    assert inputs is not None, mode\n"
+            "    assert not loaded(), (mode, loaded())\n"
+            "print('NOTHING SLOW LOADED')\n"
+        )
+        self.assertIn("NOTHING SLOW LOADED", output)
+
+    def test_compute_loads_the_kernels_and_the_names_still_resolve(self):
+        output = self.run_fresh(
+            "viewer = network_viewer(6, BARBELL_EDGES, edge_scores=np.ones(7))\n"
+            "inputs = cluster.start(viewer, cluster.plan(viewer, ['jaccard', '0.2', '1']))\n"
+            "assert 'numba' not in sys.modules\n"
+            "result = cluster.compute(inputs, lambda text=None: None)\n"
+            "assert len(result.unique_labels) >= 1\n"
+            "from utilities import Network_Kernels\n"
+            "assert cluster.network_clustering is Network_Kernels\n"
+            "assert subcluster.network_clustering is Network_Kernels\n"
+            "print('KERNELS LOADED BY COMPUTE')\n"
+        )
+        self.assertIn("KERNELS LOADED BY COMPUTE", output)
+
+    def test_a_library_that_is_not_installed_is_found_without_importing_it(self):
+        self.assertTrue(cluster.library_missing("no_such_package_for_the_emapssn_tests"))
+        self.assertFalse(cluster.library_missing("numpy"))
+        with mock.patch.dict(sys.modules, {"graspologic_native": None}):
+            self.assertTrue(cluster.library_missing("graspologic_native"))
+        with mock.patch.dict(sys.modules, {"graspologic_native": SimpleNamespace()}):
+            self.assertFalse(cluster.library_missing("graspologic_native"))
+
+    def test_a_missing_library_is_still_reported_at_the_start_step_for_every_mode(self):
+        for mode, missing in (("leiden", "graspologic_native"), ("mcl", "markov_clustering"), ("mcl", "scipy")):
+            with self.subTest(mode=mode, missing=missing):
+                viewer = network_viewer(6, BARBELL_EDGES, edge_scores=np.ones(7), cluster_labels=[1] * 6)
+                with mock.patch.dict(sys.modules, {missing: None}):
+                    for command in (cluster, subcluster):
+                        with self.subTest(command=command.__name__):
+                            arguments = [mode] if command is cluster else ["cluster_1", mode]
+                            succeeded, failed, output = run_command(command, viewer, arguments)
+                            failed.assert_called_once()
+                            succeeded.assert_not_called()
+                            self.assertIn("Missing librar", output)
 
 
 if __name__ == "__main__":
