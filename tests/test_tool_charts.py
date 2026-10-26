@@ -29,14 +29,29 @@ if str(SRC) not in sys.path:
 from tools.tool_helpers import Tool_Charts  # noqa: E402
 
 
+#: What the probe exits with when matplotlib will not take its Qt backend here (no display to open): the test is skipped.
+NO_QT_BACKEND = 77
+
 # Draws a figure in a Qt window, styles it in teal and prints what it shows.
 WINDOW_PROBE = r"""
 import json, os, sys
 sys.path.insert(0, {src!r})
 import PySide6.QtWidgets  # matplotlib takes the binding already imported
 import matplotlib
-matplotlib.use("qtagg")
+try:
+    # On Linux with neither X11 nor Wayland (the suite runs offscreen, `env -u DISPLAY`) matplotlib calls the process
+    # "headless" and refuses its Qt backend, though the offscreen Qt platform needs no display: let it through.
+    from matplotlib import _c_internal_utils
+    if not _c_internal_utils.display_is_valid():
+        _c_internal_utils.display_is_valid = lambda: True
+except (ImportError, AttributeError):  # a matplotlib without that check: its own answer below
+    pass
 import matplotlib.pyplot as plt
+try:
+    plt.switch_backend("qtagg")  # where matplotlib checks that a Qt event loop can run
+except ImportError as error:
+    print("matplotlib will not take its Qt backend here: " + str(error), file=sys.stderr)
+    sys.exit({no_backend})
 from PySide6.QtCore import QSize
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
@@ -127,9 +142,11 @@ class ToolChartsTests(unittest.TestCase):
 
         environment = {**os.environ, "QT_QPA_PLATFORM": "offscreen", "PYTHONIOENCODING": "utf-8"}
         result = subprocess.run(
-            [sys.executable, "-c", WINDOW_PROBE.format(src=str(SRC), root=str(ROOT))],
+            [sys.executable, "-c", WINDOW_PROBE.format(src=str(SRC), root=str(ROOT), no_backend=NO_QT_BACKEND)],
             capture_output=True, text=True, encoding="utf-8", env=environment, timeout=300,
         )
+        if result.returncode == NO_QT_BACKEND:
+            self.skipTest(result.stderr.strip().splitlines()[-1])
         self.assertEqual(result.returncode, 0, result.stderr)
         seen = json.loads(result.stdout.strip().splitlines()[-1])
         tokens = theme_tokens("teal")
