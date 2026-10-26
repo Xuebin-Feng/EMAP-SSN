@@ -38,6 +38,8 @@ def print_help():
       * QUICK USE: If no expression is provided, the command automatically targets
         the nodes currently selected in the viewer using your mouse.
 
+      * color reset restores every node's configured color, with full alpha.
+
     Attribute sets:
       The attributes of one target go in a set: <ITEM,ITEM,...> or <ITEM ITEM ...>,
       written literally with the angle brackets. A set holds 1 to 4 items, in any
@@ -51,7 +53,8 @@ def print_help():
            non-negative, and small enough to give a finite node size.
            Old x2 scale syntax is removed; x2 now selects residue X at position 2.
         4. Shape: circle, square, triangle, star, diamond, cross, vbar, hbar, x
-           (inside a set, name the shapes > and -> arrow and tailed_arrow)
+           (The shapes > and -> end a word, so in a set written with spaces
+           name them arrow and tailed_arrow.)
       A set follows its expression as a word of its own (#cluster_1# <red,50%>)
       or glued to it (#cluster_1#<red 50%>). With no expression before it, a set
       targets the selected nodes. Give a target one set, and start the next target

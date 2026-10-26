@@ -512,6 +512,44 @@ class ColorAttributeSetTests(unittest.TestCase):
         succeeded.assert_called_once_with(viewer, "Applied: 2 nodes (red); 1 node (0.0x)")
 
 
+class ColorHelpTests(unittest.TestCase):
+    def help_text(self):
+        viewer = target_viewer()
+        output = io.StringIO()
+        with reported_outcomes() as (succeeded, failed), redirect_stdout(output):
+            color_command.run(viewer, ["help"])
+        failed.assert_not_called()
+        succeeded.assert_called_once()
+        return output.getvalue()
+
+    def test_help_shows_the_set_in_both_separators_and_the_loose_shorthand(self):
+        text = self.help_text()
+
+        self.assertIn("Advanced Coloring & Highlighting Tool", text)
+        self.assertIn("color [EXPR] <ATTRIBUTES> [EXPR <ATTRIBUTES> ...]", text)
+        # The literal brackets stand out against the placeholders in plain capitals.
+        self.assertIn("<ITEM,ITEM,...> or <ITEM ITEM ...>", text)
+        self.assertIn("#cluster_1#<red 50%>", text)
+        self.assertIn("never with both", text)
+        self.assertIn("Loose shorthand", text)
+        self.assertIn("Alpha", text)
+        self.assertIn("color reset", text)
+
+    def test_every_example_of_the_help_is_read_as_typed(self):
+        # Only the syntax is read: the clusters, positions and metadata the examples name need not exist.
+        import re
+
+        examples = self.help_text().split("Examples:")[1]
+        lines = [re.split(r"\s{2,}\(", line.strip())[0] for line in examples.splitlines()
+                 if line.strip().startswith("color ")]
+        self.assertGreaterEqual(len(lines), 6)
+        for line in lines:
+            with self.subTest(line=line):
+                assignments, skipped = color_command._read_arguments(line.split()[1:])
+                self.assertTrue(assignments)
+                self.assertEqual(skipped, [])
+
+
 class ColorSetSplittingTests(unittest.TestCase):
     """A set glued to its expression is split off at its own <, never at one inside the expression."""
 
