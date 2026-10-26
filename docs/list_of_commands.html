@@ -99,6 +99,7 @@
                 <li class="menu-item" data-target="cmd-run"><a href="#cmd-run"><span>run</span></a></li>
                 <li class="menu-item" data-target="cmd-console"><a href="#cmd-console"><span>console</span></a></li>
                 <li class="menu-item" data-target="cmd-help"><a href="#cmd-help"><span>help</span></a></li>
+                <li class="menu-item" data-target="cmd-jobs"><a href="#cmd-jobs"><span>jobs</span></a></li>
             </ul>
 
             <div class="menu-category">Alignment</div>
@@ -373,7 +374,8 @@
                     <div class="syntax-content">undo [N]   |   redo [N]</div>
                     <button class="copy-btn" onclick="copyText('undo', this)">Copy</button>
                 </div>
-                <p><strong>Function:</strong> <code>undo</code> restores the preceding saved visual/spatial state; <code>redo</code> reapplies a state that was undone. Commands that call the viewer state-saving hook participate in this history. The state includes which metadata property the HUD displays (set by <code>meta show</code> and by <code>spectrum</code>), so undoing a <code>spectrum</code> also takes its property off the HUD. It does not include the sidebar: undo and redo leave its buttons, and whether it is open, as they are.</p>
+                <p><strong>Function:</strong> <code>undo</code> restores the preceding saved visual/spatial state; <code>redo</code> reapplies a state that was undone. Commands that call the viewer state-saving hook participate in this history. The state includes which metadata property the HUD displays (set by <code>meta show</code> and by <code>spectrum</code>), so undoing a <code>spectrum</code> also takes its property off the HUD. It does not include the Console's row of page buttons: undo and redo leave it as it is.</p>
+                <p>While commands wait or compute in the viewer's command queue, a typed <code>undo</code>, or Ctrl+Z, cancels the newest of them first, since they have not happened yet; any steps left undo the network. From a script, an Agent reply or MCP, <code>undo</code> waits its turn like any other command.</p>
                 <p>With <code>N</code>, a positive whole number, <code>undo N</code> restores up to N states and <code>redo N</code> reapplies up to N undone states. Each stops early when its history runs out and reports how many steps were done. A zero, negative, non-integer, or extra argument is refused, and nothing changes.</p>
                 <div class="subheading">Examples</div>
                 <ul class="example-list">
@@ -467,6 +469,36 @@
                     <li class="example-item"><span>help</span><button class="copy-btn" onclick="copyText('help', this)">Copy</button></li>
                     <li class="example-item"><span>help zoom</span><button class="copy-btn" onclick="copyText('help zoom', this)">Copy</button></li>
                     <li class="example-item"><span>help help</span><button class="copy-btn" onclick="copyText('help help', this)">Copy</button></li>
+                </ul>
+            </section>
+
+            <section class="command-card" id="cmd-jobs">
+                <div class="command-card-header">
+                    <div class="command-card-title">
+                        <span class="command-card-name">jobs</span>
+                        <span class="command-card-desc-title">&ndash; List or Cancel Background Jobs</span>
+                    </div>
+
+                </div>
+                <div class="syntax-box">
+                    <div class="syntax-content">jobs   |   jobs cancel [N ... | all]</div>
+                    <button class="copy-btn" onclick="copyText('jobs', this)">Copy</button>
+                </div>
+                <p><strong>Function:</strong> Lists the background jobs that wait or run, and the folding workers and Python scripts that run; <code>jobs cancel</code> cancels background jobs. A background job is slow work that writes a file (<code>print</code>, <code>label</code>, <code>logo</code>) or folds structures (<code>esmfold</code>), in a line of its own, Files or Folding, while the viewer keeps responding. Background jobs are numbered #1, #2 and so on from each start of the viewer, in the order they were given.</p>
+                <div class="subheading">Jobs Details</div>
+                <ul>
+                    <li><strong>Cancelling:</strong> <code>jobs cancel</code> alone cancels the newest background job, <code>jobs cancel 14 15</code> (or <code>#14</code>) those jobs, and <code>jobs cancel all</code> every one. If a number names no background job that waits or runs, nothing is cancelled. A job that has not started is dropped. A running job is told to stop: it is listed as stopping until it has, and is then reported cancelled, with what it had written deleted; a file of that name from before stays as it was. A job with no step left to stop at completes instead.</li>
+                    <li><strong>Not the Command Queue:</strong> A command that waits or computes in the viewer's command queue, such as <code>cluster</code> or <code>subcluster</code>, is not a background job: it has no number, and <code>jobs</code> neither lists nor cancels it. To cancel the newest such command, type <code>undo</code> or press Ctrl+Z while it waits or computes.</li>
+                    <li><strong>Workers and Scripts:</strong> <code>esmfold stop</code> ends the folding workers, and <code>run stop</code> the Python scripts.</li>
+                    <li><strong>Session Card:</strong> The Session card, which the viewer's info button opens, lists the same jobs; there a waiting job can also be moved up or down or removed, and a running one stopped. A badge at the top right of the canvas counts them while one waits or runs.</li>
+                    <li><strong>Runs At Once:</strong> It runs at once, even while other commands wait.</li>
+                </ul>
+                <div class="subheading">Examples</div>
+                <ul class="example-list">
+                    <li class="example-item"><span>jobs</span><button class="copy-btn" onclick="copyText('jobs', this)">Copy</button></li>
+                    <li class="example-item"><span>jobs cancel</span><button class="copy-btn" onclick="copyText('jobs cancel', this)">Copy</button></li>
+                    <li class="example-item"><span>jobs cancel 14 15</span><button class="copy-btn" onclick="copyText('jobs cancel 14 15', this)">Copy</button></li>
+                    <li class="example-item"><span>jobs cancel all</span><button class="copy-btn" onclick="copyText('jobs cancel all', this)">Copy</button></li>
                 </ul>
             </section>
 
@@ -1328,7 +1360,7 @@
                 let visibleChildren = false;
 
                 if (targetId === 'sec-core') {
-                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console, #cmd-help'))
+                    visibleChildren = Array.from(document.querySelectorAll('#cmd-zoom, #cmd-save, #cmd-reset, #cmd-hide, #cmd-undoredo, #cmd-run, #cmd-console, #cmd-help, #cmd-jobs'))
                         .some(el => el.style.display !== 'none');
                 } else if (targetId === 'sec-alignment') {
                     visibleChildren = Array.from(document.querySelectorAll('#cmd-reference, #cmd-offset, #cmd-alignment, #cmd-embedding, #cmd-query'))
