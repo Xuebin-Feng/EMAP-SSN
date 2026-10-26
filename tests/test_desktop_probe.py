@@ -185,7 +185,12 @@ class StoreTests(unittest.TestCase):
             self.assertAlmostEqual(started, psutil.Process().create_time(), delta=2.0)
         chain = store.lineage()
         self.assertEqual(chain[0], psutil.Process().parent().pid if os.name == "nt" or sys.platform.startswith("linux") else os.getppid())
-        self.assertEqual(chain[:len(chain)], [parent.pid for parent in psutil.Process().parents()][:len(chain)])
+        # psutil stops at an ancestor whose pid has been reused (a long-lived session, as on a build machine) and the
+        # lineage goes on past it, so the two are compared as far as both reach.
+        known = [parent.pid for parent in psutil.Process().parents()]
+        shared = min(len(chain), len(known))
+        self.assertGreaterEqual(shared, 1)
+        self.assertEqual(chain[:shared], known[:shared])
 
     def test_a_replacement_that_collides_with_a_reader_is_tried_again_and_a_failure_leaves_no_temporary_file(self):
         target = self.root / "answer.json"
