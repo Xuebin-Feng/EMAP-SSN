@@ -4376,6 +4376,10 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Capturing tile {done} of {total}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Failed to save {format}: {error}</source>
         <translation type="unfinished"></translation>
     </message>

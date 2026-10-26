@@ -21,7 +21,6 @@ import datetime
 import uuid
 from dataclasses import dataclass
 import numpy as np
-import matplotlib.image as mpimg
 from matplotlib import colors as mcolors
 from PySide6 import QtCore
 from vispy import app
@@ -33,6 +32,18 @@ from utilities.Job_Cancellation import CancellableFile, forget_partial_path, not
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import edge_stages, opengl_failure_note
+
+def __getattr__(name):
+    """print.mpimg, matplotlib's image writer, loads when it is first asked for.
+
+    The first print of a session would otherwise load it when this module loads, on the GUI thread,
+    the Viewer waiting; _write_png asks for it on the background job's thread.
+    """
+    if name == "mpimg":
+        import matplotlib.image
+        return matplotlib.image
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
 
 PRINT_DIRECTORY = os.path.join("$analysis_result$", "Saved_Images")
 # The words print reads as modifiers rather than as part of the file name.
@@ -92,8 +103,11 @@ def print_help():
       full        : Renders the network tile by tile off screen and stitches
                     the tiles into a massive, ultra-high-resolution PNG of
                     the entire network without OpenGL edge-clipping. The view
-                    on screen stays put; keyboard and mouse input waits while
-                    the tiles are drawn, and resizing the window cancels it.
+                    on screen stays put and the Viewer stays usable while the
+                    tiles are drawn: the commands you give meanwhile wait for
+                    the print, and undo stops it. Resizing the window, or
+                    changing the network (selecting or moving nodes, say),
+                    cancels it; panning and zooming do not.
       svg         : Reconstructs the visible network as a Scalable Vector Graphic
                     for infinite zoom without pixelation (not with
                     transparent or full). Node sizes and line widths follow the
@@ -119,9 +133,9 @@ def print_help():
                     SVG. Node sizes stay in screen pixels. A full PNG whose
                     longest side is under 1000 px is saved with a warning.
 
-    Background job: print takes its picture at once, as the network is when
-    it runs: it draws the view, or every tile of a full PNG, and an SVG
-    copies the nodes and edges shown. The file is then finished and written
+    Background job: print takes its picture as the network is when it runs:
+    it draws the view, or every tile of a full PNG, and an SVG copies the
+    nodes and edges shown. The file is then finished and written
     (a PNG trimmed and encoded, an SVG written out) by the background job
     queue that label and logo use, so the Viewer can be used meanwhile and
     later changes don't alter the file. The queue reports when it is saved
@@ -925,19 +939,29 @@ def _hide_transient_marks(viewer):
     back exactly as they were, the hover colour too while the mouse is still
     over its node.
 
-    Returns the function that puts them back, or None when none is shown.
+    They stay hidden until restore, whether one is shown now or not: a full
+    capture takes a while and the mouse moves and clicks meanwhile, which
+    must not put a hover colour or a halo into the tiles drawn after it, nor
+    redraw the nodes while the capture is under way (_CaptureEvents).
+
+    Returns the function that puts them back, or None for a viewer that
+    draws no marks.
     """
     update_nodes = getattr(viewer, 'update_nodes', None)
-    if not callable(update_nodes) or not _shows_transient_marks(viewer):
+    if not callable(update_nodes):
         return None
+    shown = _shows_transient_marks(viewer)
 
     def restore():
         viewer.transient_marks_hidden = False
-        update_nodes()
+        # A hover or a click since the marks were hidden is drawn now.
+        if _shows_transient_marks(viewer):
+            update_nodes()
 
     viewer.transient_marks_hidden = True
     try:
-        update_nodes()
+        if shown:
+            update_nodes()
     except Exception:
         restore()
         raise
@@ -997,6 +1021,8 @@ def _write_png(filepath, image):
     or the Viewer closing, leaves any earlier file of that name as it was and
     no partial file behind.
     """
+    import matplotlib.image as mpimg
+
     directory = os.path.dirname(filepath)
     stem = os.path.splitext(os.path.basename(filepath))[0]
     partial_path = os.path.join(directory, f".{stem}.{uuid.uuid4().hex}.partial.png")
@@ -1030,18 +1056,28 @@ class _CaptureEvents:
     """Lets Qt run between full-capture tiles, and cancels spoiled captures.
 
     Between tiles the live view is on screen, so pending paints, timers and
-    window events run while keyboard and mouse input waits. What does run
-    can still spoil the mosaic: a resize or display-scale change alters the
-    tile geometry, and a web or background action can redraw the network.
-    Either cancels the capture. A camera move alone is harmless, because
-    every tile sets its own camera and puts the live one back.
+    window events run. Run by the command queue (_print, cooperative), the
+    event loop itself runs between the slices of tiles, input included, so
+    the Viewer answers the mouse and the keys while it draws; run at once
+    (run), the capture processes the events itself and keyboard and mouse
+    input waits. What runs can spoil the mosaic: a resize or display-scale
+    change alters the tile geometry, and an action, the user's or a web
+    page's or a background one, can redraw the network. Either cancels the
+    capture. A camera move alone is harmless, because every tile sets its
+    own camera and puts the live one back, and so is an edge layer that
+    draws again after a pan with fewer edges: it says what it draws changed
+    by its generation (desktop.Viewer_Edges), which a repaint leaves as it is.
     """
 
     def __init__(self, viewer, overlays):
         self._viewer = viewer
         self._geometry = _capture_geometry(viewer)
         self._changed = False
+        self._live_rect = None
         self._emitters = []
+        # The visuals that count what they draw (the edge layer's), and the count when the event loop was let run.
+        self._versioned = []
+        self._versions = []
         self._next_pause = time.perf_counter() + CAPTURE_EVENT_INTERVAL_S
         root = getattr(viewer.canvas, 'scene', None)
         if root is None:
@@ -1057,7 +1093,12 @@ class _CaptureEvents:
             nodes.extend(node.children)
             if (isinstance(node, VisualNode) and not isinstance(node, Widget)
                     and id(node) not in skipped):
-                self._watch(node.events.update)
+                if isinstance(getattr(node, 'generation', None), int):
+                    # Every change to what it draws bumps it, and an update that is only a repaint, as when a
+                    # pan ends and every edge is drawn again, leaves it: that is no change of the network.
+                    self._versioned.append(node)
+                else:
+                    self._watch(node.events.update)
 
     def _watch(self, emitter):
         emitter.connect(self._mark_changed)
@@ -1066,25 +1107,34 @@ class _CaptureEvents:
     def _mark_changed(self, event=None):
         self._changed = True
 
-    def pause_if_due(self):
-        """Process events if the last pause was long enough ago."""
-        if time.perf_counter() < self._next_pause:
-            return
-        camera = self._viewer.view.camera
-        live_rect = camera.rect
+    def release(self):
+        """Note the view as it is, before anything else runs: reclaim() says whether the run spoiled it."""
+        self._live_rect = self._viewer.view.camera.rect
         self._changed = False
-        _process_events_without_input()
+        self._versions = [node.generation for node in self._versioned]
+
+    def reclaim(self):
+        """Raise _CaptureInterrupted if what ran since release() spoiled the capture."""
         if _capture_geometry(self._viewer) != self._geometry:
             raise _CaptureInterrupted(Message(
                 "the Viewer window was resized during the capture, so nothing "
                 "was saved. Run print again."
             ))
         # A camera move updates every visual too, and only that is harmless.
-        if self._changed and camera.rect == live_rect:
+        redrawn = any(node.generation != version for node, version in zip(self._versioned, self._versions))
+        if redrawn or (self._changed and self._viewer.view.camera.rect == self._live_rect):
             raise _CaptureInterrupted(Message(
                 "the network display changed during the capture, so nothing "
                 "was saved. Run print again."
             ))
+
+    def pause_if_due(self):
+        """Process events, but not input, if the last pause was long enough ago."""
+        if time.perf_counter() < self._next_pause:
+            return
+        self.release()
+        _process_events_without_input()
+        self.reclaim()
         self._next_pause = time.perf_counter() + CAPTURE_EVENT_INTERVAL_S
 
     def close(self):
@@ -1393,7 +1443,13 @@ def _print_job(job):
     }
 
 
-def run(viewer, args):
+def _print(viewer, args, cooperative):
+    """The print command as a generator: it yields after each tile of a full capture, and returns when it has finished.
+
+    Cooperative (start, run by the command queue), it yields the progress to show and lets the event
+    loop run, input included, before it goes on; otherwise (run) it processes events itself between
+    the tiles, and never yields.
+    """
 
     # 1. Setup paths
     save_dir = cfg.resolve_directory_path(PRINT_DIRECTORY)
@@ -1563,8 +1619,10 @@ def run(viewer, args):
     # Viewer's OpenGL context, which the GUI thread holds. A capture leaves
     # the live view alone: each render hides the HUD and moves the camera
     # only between reading and restoring the live state, with no event
-    # processed in between (see _render_capture). A PNG also leaves out the
-    # hover colour and click halo, put back once it is drawn.
+    # processed in between (see _render_capture). The tiles of a full
+    # capture are drawn in slices, the event loop running between them
+    # (see _CaptureEvents). A PNG also leaves out the hover colour and click
+    # halo, put back once it is drawn.
     background = viewer.canvas.bgcolor
     if hasattr(background, 'rgba'):
         background = tuple(float(value) for value in background.rgba)
@@ -1700,8 +1758,14 @@ def run(viewer, args):
                     paste_y = r * keep_px_h
                     picture.paste(cropped, paste_y, paste_x)
 
-                    # Let the window paint and timers run; input stays queued
-                    events.pause_if_due()
+                    if cooperative:
+                        # The event loop runs now, input included; what it did is checked on return
+                        events.release()
+                        yield Message("Capturing tile {done} of {total}", done=tile_count, total=total_tiles)
+                        events.reclaim()
+                    else:
+                        # Let the window paint and timers run; input stays queued
+                        events.pause_if_due()
 
             print("Stitching complete. The PNG is finished in the background job.")
 
@@ -1765,3 +1829,28 @@ def run(viewer, args):
         _refuse(viewer, Message("Failed to save {format}: {error}", format=image_format, error=error))
         return
     Command_Engine.command_succeeded(viewer, f"Queued print for {filepath}; waiting for the background job.")
+
+
+@dataclass(frozen=True)
+class PrintPlan:
+    """A print for the command queue: its arguments, which start reads at its turn."""
+    args: tuple
+    # A full capture draws on the GUI thread for as long as it takes; the queue steps it in slices
+    # between the runs of the event loop (Command_Queue), so the Viewer answers input meanwhile.
+    cooperative = True
+
+
+def plan(viewer, args):
+    """Every print waits its turn in the command queue: the arguments are read, and refused, at its turn."""
+    return PrintPlan(tuple(args))
+
+
+def start(viewer, plan):
+    """At its turn: the print, as the generator the command queue steps (see _print)."""
+    return _print(viewer, list(plan.args), cooperative=True)
+
+
+def run(viewer, args):
+    """Run the command now, on the GUI thread, all its steps in a row; input waits while a full capture draws."""
+    for _ in _print(viewer, args, cooperative=False):
+        pass

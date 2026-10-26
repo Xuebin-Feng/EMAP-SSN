@@ -606,7 +606,7 @@
 <context>
     <name>ColorPicker</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2736"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+2587"/>
         <source>Select Color</source>
         <translation type="unfinished">选择颜色</translation>
     </message>
@@ -619,7 +619,7 @@
 <context>
     <name>Config</name>
     <message>
-        <location line="-2628"/>
+        <location line="-2470"/>
         <source>EMAP-SSN Configuration</source>
         <translation type="unfinished">EMAP-SSN 配置</translation>
     </message>
@@ -4391,7 +4391,7 @@ Command-line usage:
 <context>
     <name>LanguageSelector</name>
     <message>
-        <location filename="../../../desktop/Desktop_App.py" line="+2036"/>
+        <location filename="../../../desktop/Desktop_App.py" line="+1878"/>
         <source>System default ({language})</source>
         <translation type="unfinished">系统默认（{language}）</translation>
     </message>
@@ -4437,7 +4437,7 @@ Command-line usage:
         <location line="+452"/>
         <location filename="../../../commands/logo.py" line="+246"/>
         <location line="+79"/>
-        <location filename="../../../commands/print.py" line="+1333"/>
+        <location filename="../../../commands/print.py" line="+1383"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
@@ -4445,7 +4445,7 @@ Command-line usage:
         <location line="+3"/>
         <location filename="../../../commands/label.py" line="+141"/>
         <location filename="../../../commands/logo.py" line="+622"/>
-        <location filename="../../../commands/print.py" line="+224"/>
+        <location filename="../../../commands/print.py" line="+230"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
@@ -4766,7 +4766,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
         <location filename="../../../commands/alignment.py" line="+49"/>
-        <location filename="../../../commands/cluster.py" line="+343"/>
+        <location filename="../../../commands/cluster.py" line="+370"/>
         <location filename="../../../commands/color.py" line="+476"/>
         <location filename="../../../commands/console.py" line="+57"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
@@ -4784,7 +4784,7 @@ Command-line usage:
         <location filename="../../../commands/reset.py" line="-9"/>
         <location filename="../../../commands/select.py" line="-26"/>
         <location filename="../../../commands/spectrum.py" line="+178"/>
-        <location filename="../../../commands/subcluster.py" line="+207"/>
+        <location filename="../../../commands/subcluster.py" line="+213"/>
         <source>Help information printed to the Console</source>
         <translation type="unfinished">帮助信息已打印到控制台</translation>
     </message>
@@ -4894,7 +4894,7 @@ Command-line usage:
     </message>
     <message numerus="yes">
         <location filename="../../../Command_Engine.py" line="-269"/>
-        <location filename="../../../commands/cluster.py" line="+157"/>
+        <location filename="../../../commands/cluster.py" line="+154"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
@@ -4912,19 +4912,19 @@ Command-line usage:
         <translation type="obsolete">错误：缺少 Numba 库。</translation>
     </message>
     <message>
-        <location line="-158"/>
-        <location filename="../../../commands/subcluster.py" line="+169"/>
+        <location line="-159"/>
+        <location filename="../../../commands/subcluster.py" line="+166"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message>
-        <location line="+16"/>
-        <location filename="../../../commands/subcluster.py" line="+9"/>
+        <location line="+14"/>
+        <location filename="../../../commands/subcluster.py" line="+7"/>
         <source>Missing library! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message numerus="yes">
-        <location line="+128"/>
+        <location line="+131"/>
         <source>Done! Found %n cluster(s) via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 找到 %n 个簇。</numerusform>
@@ -5444,7 +5444,7 @@ Command-line usage:
     <message>
         <location filename="../../../commands/group.py" line="+7"/>
         <location line="+11"/>
-        <location filename="../../../commands/subcluster.py" line="-73"/>
+        <location filename="../../../commands/subcluster.py" line="-68"/>
         <source>No groups are currently defined.</source>
         <translation type="unfinished">当前未定义任何分组。</translation>
     </message>
@@ -5542,7 +5542,7 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-448"/>
+        <location filename="../../../commands/cluster.py" line="-445"/>
         <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/help.py" line="+68"/>
         <location filename="../../../commands/hide.py" line="+40"/>
@@ -6016,12 +6016,12 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../../commands/print.py" line="-404"/>
+        <location filename="../../../commands/print.py" line="-419"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
     <message>
-        <location line="+6"/>
+        <location line="+7"/>
         <source>the network display changed during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中网络显示发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -6034,7 +6034,7 @@ Command-line usage:
         <translation type="obsolete">错误：{syntax} 需要一个视图宽度，例如 {example}。</translation>
     </message>
     <message>
-        <location line="+204"/>
+        <location line="+212"/>
         <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at most {n}, or zoom out. The limit is {setting} in {file}.</source>
         <translation type="unfinished">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过 {limit} 百万像素的上限。请使用 {syntax}，并让 N 不超过 {n}，或缩小视图。此上限由 {file} 中的 {setting} 设定。</translation>
     </message>
@@ -6044,7 +6044,7 @@ Command-line usage:
         <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是缩放百分比，N 越大，视图放得越大，图像也越大。</translation>
     </message>
     <message>
-        <location line="+65"/>
+        <location line="+71"/>
         <source>Error: {syntax} needs a zoom percentage, as in {example}.</source>
         <translation type="unfinished">错误：{syntax} 需要一个缩放百分比，例如 {example}。</translation>
     </message>
@@ -6083,9 +6083,9 @@ Command-line usage:
         <translation type="obsolete">错误：使用 &apos;SVG&apos; 时最多只能有 2 个关键字（例如 &apos;print [filename] svg&apos;）。</translation>
     </message>
     <message>
-        <location line="+73"/>
+        <location line="+75"/>
         <location line="+12"/>
-        <location line="+121"/>
+        <location line="+127"/>
         <source>Error: No visible nodes to export.</source>
         <translation type="unfinished">错误：没有可导出的可见节点。</translation>
     </message>
@@ -6094,7 +6094,7 @@ Command-line usage:
         <translation type="obsolete">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是视图宽度，N 越小，视图放得越大，图像也越大。</translation>
     </message>
     <message>
-        <location line="-332"/>
+        <location line="-346"/>
         <source>Saved {format}: {file}</source>
         <translation type="unfinished">已保存 {format}：{file}</translation>
     </message>
@@ -6104,7 +6104,12 @@ Command-line usage:
         <translation type="unfinished">已替换同名的现有文件。</translation>
     </message>
     <message>
-        <location line="+343"/>
+        <location line="+330"/>
+        <source>Capturing tile {done} of {total}</source>
+        <translation type="unfinished">正在截取第 {done} 个分块，共 {total} 个</translation>
+    </message>
+    <message>
+        <location line="+27"/>
         <location line="+38"/>
         <source>Failed to save {format}: {error}</source>
         <translation type="unfinished">保存 {format} 失败：{error}</translation>
@@ -6657,7 +6662,7 @@ Command-line usage:
         <translation type="unfinished">正在对 {cluster} 进行子聚类（{mode}）…</translation>
     </message>
     <message>
-        <location line="+45"/>
+        <location line="+43"/>
         <source>Error: No edges exist within {cluster} to perform subclustering.</source>
         <translation type="unfinished">错误：{cluster} 内部没有边，无法进行子聚类。</translation>
     </message>
@@ -6899,12 +6904,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1461"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1495"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+709"/>
+        <location line="+793"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -6926,7 +6931,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+773"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+783"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -6967,7 +6972,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+433"/>
+        <location line="+443"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -6987,7 +6992,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">此查看器实例的 Web 服务器不可用：{error}</translation>
     </message>
     <message numerus="yes">
-        <location line="+294"/>
+        <location line="+302"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -8750,7 +8755,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+23"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-601"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-609"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
@@ -9040,7 +9045,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">此结构的逐残基数据中没有可用的属性。</translation>
     </message>
     <message>
-        <location filename="../../../Command_Queue.py" line="+310"/>
+        <location filename="../../../Command_Queue.py" line="+334"/>
         <source>The command queue is shutting down.</source>
         <translation type="unfinished">命令队列正在关闭。</translation>
     </message>
@@ -9059,12 +9064,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message>
-        <location line="+29"/>
+        <location line="+30"/>
         <source>{command}: waiting for {ahead_command}.</source>
         <translation type="unfinished">{command}：正在等待 {ahead_command}。</translation>
     </message>
     <message>
-        <location line="+197"/>
+        <location line="+264"/>
         <source>Cancelled: {command}, given before it, failed.</source>
         <translation type="unfinished">已取消：在它之前提交的 {command} 失败了。</translation>
     </message>
@@ -9093,7 +9098,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message>
-        <location line="+22"/>
+        <location line="+24"/>
         <source>Cancelled: the Viewer closed.</source>
         <translation type="unfinished">已取消：查看器已关闭。</translation>
     </message>
@@ -9647,7 +9652,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Splash</name>
     <message>
-        <location filename="../../../desktop/Splash.py" line="+82"/>
+        <location filename="../../../desktop/Splash.py" line="+94"/>
         <source>Configuration</source>
         <translation type="unfinished">配置</translation>
     </message>
@@ -9662,13 +9667,13 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">查看器</translation>
     </message>
     <message>
-        <location line="+453"/>
-        <location line="+224"/>
+        <location line="+507"/>
+        <location line="+234"/>
         <source>Copy</source>
         <translation type="unfinished">复制</translation>
     </message>
     <message>
-        <location line="-223"/>
+        <location line="-233"/>
         <source>Open log</source>
         <translation type="unfinished">打开日志</translation>
     </message>
@@ -9678,7 +9683,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">关闭</translation>
     </message>
     <message>
-        <location line="+83"/>
+        <location line="+93"/>
         <source>Hide details</source>
         <translation type="unfinished">隐藏详情</translation>
     </message>
@@ -9708,7 +9713,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">已复制</translation>
     </message>
     <message>
-        <location line="+63"/>
+        <location line="+93"/>
         <source>Protein Sequence Similarity Networks</source>
         <translation type="unfinished">蛋白质序列相似性网络</translation>
     </message>
@@ -9727,7 +9732,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="obsolete">它最后输出的内容：</translation>
     </message>
     <message>
-        <location filename="../../../desktop/Desktop_Launcher.py" line="+111"/>
+        <location filename="../../../desktop/Desktop_Launcher.py" line="+116"/>
         <location filename="../../../utilities/Startup_Status.py" line="+36"/>
         <source>Starting…</source>
         <translation type="unfinished">正在启动…</translation>
@@ -9912,7 +9917,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
 <context>
     <name>Tools</name>
     <message>
-        <location line="-1664"/>
+        <location line="-1506"/>
         <source>EMAP-SSN Tools</source>
         <translation type="unfinished">EMAP-SSN 工具</translation>
     </message>
@@ -13120,7 +13125,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-1935"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2041"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -13172,7 +13177,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+1799"/>
+        <location line="+1905"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>

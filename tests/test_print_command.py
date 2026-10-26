@@ -6,7 +6,9 @@ hidden), plus what the command checks before it writes (options, visible nodes),
 when it makes the save folder, and its automatic names; the `zoom N` scale of
 full and svg, and the hover colour and click halo a PNG leaves out; the file
 name as one word, an .svg name selecting SVG, and the report of a file replaced;
-the background job that finishes and writes the file, in the viewer's queue."""
+the background job that finishes and writes the file, in the viewer's queue; and
+the tiles of a full capture drawn in slices by the command queue, the event loop,
+input included, running between them."""
 
 import contextlib
 import datetime
@@ -3271,13 +3273,419 @@ class PrintTransientMarksTests(unittest.TestCase):
             self.run_print(viewer, ["marks", "zoom", "200"])
         update.assert_not_called()
 
-    def test_a_network_without_marks_is_not_redrawn(self):
+    def test_a_network_without_marks_is_not_redrawn_but_keeps_new_ones_out_of_the_tiles(self):
+        # The mouse moves and clicks while a full capture is drawn, and neither may reach a tile drawn after it.
+        for arguments in (["marks"], ["marks", "full"]):
+            with self.subTest(arguments=arguments):
+                viewer = marked_viewer(hovered=None, clicked=None)
+                with mock.patch.object(viewer, "update_nodes", wraps=viewer.update_nodes) as update:
+                    engine, during = self.run_print(viewer, arguments)
+                engine.command_failed.assert_not_called()
+                update.assert_not_called()
+                self.assertTrue(all(hidden for _data, hidden in during))
+                self.assertFalse(viewer.transient_marks_hidden)
+
+    def test_a_hover_or_click_that_comes_during_the_capture_is_drawn_when_it_ends(self):
         viewer = marked_viewer(hovered=None, clicked=None)
         with mock.patch.object(viewer, "update_nodes", wraps=viewer.update_nodes) as update:
-            engine, during = self.run_print(viewer, ["marks"])
-        engine.command_failed.assert_not_called()
+            restore = print_command._hide_transient_marks(viewer)
+            self.assertIsNotNone(restore)
+            self.assertTrue(viewer.transient_marks_hidden)
+            update.assert_not_called()
+            viewer.hovered_node_idx = 1
+            viewer.selected_node_idx = 2
+            restore()
+        update.assert_called_once()
+        after = drawn(viewer)
+        self.assertFalse(viewer.transient_marks_hidden)
+        np.testing.assert_array_equal(after["face_color"][node_slot(after, 1)], self.hover_rgba)
+        self.assertEqual(after["node_order"][after["rings"]].tolist(), [2])
+
+    def test_a_hover_or_click_that_is_over_by_then_is_not_redrawn(self):
+        viewer = marked_viewer()
+        with mock.patch.object(viewer, "update_nodes", wraps=viewer.update_nodes) as update:
+            restore = print_command._hide_transient_marks(viewer)
+            update.reset_mock()  # the marks that were shown were redrawn away
+            viewer.hovered_node_idx = None
+            viewer.selected_node_idx = None
+            restore()
         update.assert_not_called()
-        self.assertFalse(during[0][1])
+        self.assertFalse(viewer.transient_marks_hidden)
+
+    def test_a_viewer_that_draws_no_marks_has_nothing_to_hide(self):
+        viewer = zoom_viewer()
+        self.assertIsNone(print_command._hide_transient_marks(viewer))
+        self.assertFalse(getattr(viewer, "transient_marks_hidden", False))
+
+
+class PrintFirstUseTests(unittest.TestCase):
+    def test_the_module_does_not_load_the_image_writer_on_the_gui_thread(self):
+        # The first print of a session loads the module on the GUI thread: matplotlib's image writer waits for the job.
+        script = (
+            "import sys\n"
+            f"sys.path[:0] = [{PROJECT_ROOT!r}, {SRC_DIR!r}]\n"
+            "import tests  # noqa: F401\n"
+            "from commands import print as print_command\n"
+            "assert 'matplotlib.image' not in sys.modules\n"
+            "writer = print_command.mpimg\n"
+            "assert writer is sys.modules['matplotlib.image']\n"
+            "print('LOADED WHEN ASKED FOR')\n"
+        )
+        result = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True, cwd=PROJECT_ROOT,
+                                timeout=300, encoding="utf-8", errors="replace")
+        self.assertEqual(result.returncode, 0, result.stdout[-1500:] + result.stderr[-2500:])
+        self.assertIn("LOADED WHEN ASKED FOR", result.stdout)
+
+
+class PrintCooperativeTests(unittest.TestCase):
+    """print as the command queue runs it: start() gives a generator that yields after each tile of a full capture."""
+
+    def setUp(self):
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.save_dir = os.path.join(root.name, "Saved_Images")
+        self.engine = print_command.Command_Engine
+        for reporter in (self.engine.command_artifact, self.engine.command_succeeded, self.engine.command_failed):
+            reporter.reset_mock()
+        self.rects = []
+        self.render_mock = mock.Mock(side_effect=self.render)
+        patches = (
+            mock.patch.object(print_command, "PRINT_DIRECTORY", self.save_dir),
+            mock.patch.object(print_command, "_render_tile", self.render_mock),
+            mock.patch.object(print_command, "_write_png"),
+        )
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        self.save = print_command._write_png
+        hidden = redirect_stdout(io.StringIO())
+        hidden.__enter__()
+        self.addCleanup(hidden.__exit__, None, None, None)
+
+    def render(self, viewer, is_transparent):
+        self.rects.append(viewer.view.camera.rect)
+        return white_renders(viewer, is_transparent, TILE_SHAPE)
+
+    def steps(self, viewer, arguments):
+        """The generator the command queue steps for `print arguments`."""
+        return print_command.start(viewer, print_command.plan(viewer, arguments))
+
+    def test_the_plan_and_start_are_what_the_queue_reads_and_nothing_is_drawn_until_it_steps(self):
+        import inspect
+        viewer = zoom_viewer()
+
+        plan = print_command.plan(viewer, ["fig1", "full"])
+        steps = print_command.start(viewer, plan)
+
+        self.assertTrue(plan.cooperative)
+        self.assertFalse(getattr(plan, "heavy", False))
+        self.assertTrue(inspect.isgenerator(steps))
+        self.render_mock.assert_not_called()
+        self.engine.command_succeeded.assert_not_called()
+
+    def saved_images(self):
+        """The pictures _write_png was given since the last call."""
+        images = [call.args[1] for call in self.save.call_args_list]
+        self.save.reset_mock()
+        return images
+
+    def test_stepping_it_to_the_end_saves_what_run_saves(self):
+        for arguments in (["fig1", "full"], ["fig1", "full", "zoom", "2000"], ["fig1", "full", "transparent"],
+                          ["fig1"], ["fig1", "transparent"]):
+            with self.subTest(arguments=arguments):
+                print_command.run(zoom_viewer(), arguments)
+                expected, expected_rects = self.saved_images(), list(self.rects)
+                self.rects.clear()
+
+                stepped = zoom_viewer()
+                for _ in self.steps(stepped, arguments):
+                    pass
+
+                images = self.saved_images()
+                self.assertEqual(len(images), 1)
+                self.assertEqual(len(images), len(expected))
+                np.testing.assert_array_equal(images[0], expected[0])
+                self.assertEqual(self.rects, expected_rects)
+                self.assertEqual(len(stepped.background_job_scheduler.jobs), 1)
+                self.rects.clear()
+
+    def test_it_yields_the_progress_after_each_tile(self):
+        # 100 x 75 units at 0.125 per pixel: a 2 x 2 grid of tiles.
+        progress = list(self.steps(zoom_viewer(), ["fig1", "full"]))
+
+        self.assertEqual([str(message) for message in progress], [f"Capturing tile {n} of 4" for n in range(1, 5)])
+        self.assertTrue(all(isinstance(message, print_command.Message) for message in progress))
+
+    def test_a_plain_view_and_an_svg_are_taken_in_one_step(self):
+        with mock.patch.object(print_command, "_svg_snapshot"), mock.patch.object(print_command, "_write_svg"):
+            for arguments in (["fig1"], ["fig1", "svg"], ["help"]):
+                with self.subTest(arguments=arguments):
+                    self.assertEqual(list(self.steps(zoom_viewer(), arguments)), [])
+
+    def test_a_resize_between_tiles_cancels_it_and_nothing_is_saved(self):
+        viewer = zoom_viewer()
+        steps = self.steps(viewer, ["fig1", "full"])
+        next(steps)
+        next(steps)
+
+        viewer.canvas.size = (900, 600)
+        self.assertEqual(list(steps), [])  # it reported the failure itself and went no further
+
+        self.engine.command_failed.assert_called_once()
+        self.assertIn("window was resized", str(self.engine.command_failed.call_args.args[1]))
+        self.engine.command_succeeded.assert_not_called()
+        self.save.assert_not_called()
+        self.assertEqual(viewer.background_job_scheduler.jobs, [])
+        self.assertEqual(self.render_mock.call_count, 3)  # the measuring render and two tiles
+
+    def capture_events(self):
+        """Keep the _CaptureEvents a print makes, to tell it what the event loop did."""
+        made = []
+        real = print_command._CaptureEvents
+
+        def make(*arguments, **keywords):
+            made.append(real(*arguments, **keywords))
+            return made[-1]
+
+        patch = mock.patch.object(print_command, "_CaptureEvents", side_effect=make)
+        patch.start()
+        self.addCleanup(patch.stop)
+        return made
+
+    def test_a_change_of_the_network_between_tiles_cancels_it(self):
+        made = self.capture_events()
+        viewer = zoom_viewer()
+        steps = self.steps(viewer, ["fig1", "full"])
+        next(steps)
+
+        made[0]._mark_changed()  # a visual of the network was updated while the event loop ran
+        self.assertEqual(list(steps), [])
+
+        self.engine.command_failed.assert_called_once()
+        self.assertIn("network display changed", str(self.engine.command_failed.call_args.args[1]))
+        self.save.assert_not_called()
+        self.assertEqual(viewer.background_job_scheduler.jobs, [])
+
+    def test_a_camera_move_between_tiles_does_not(self):
+        made = self.capture_events()
+        viewer = zoom_viewer()
+        steps = self.steps(viewer, ["fig1", "full"])
+        next(steps)
+
+        made[0]._mark_changed()  # every visual is updated by a camera move too
+        viewer.view.camera.rect = SimpleNamespace(pos=(10.0, -12.5), width=100.0, height=75.0)
+        remaining = list(steps)
+
+        self.assertEqual(len(remaining), 3)
+        self.engine.command_failed.assert_not_called()
+        self.engine.command_succeeded.assert_called_once()
+        self.save.assert_called_once()
+
+    def test_the_input_that_changes_nothing_cancels_nothing(self):
+        made = self.capture_events()
+        steps = self.steps(zoom_viewer(), ["fig1", "full"])
+        for _ in steps:
+            # The event loop ran between every two tiles, and nothing was updated.
+            self.assertFalse(made[0]._changed)
+        self.engine.command_failed.assert_not_called()
+        self.save.assert_called_once()
+
+    def test_events_that_changed_the_network_are_noted_from_the_moment_the_event_loop_is_let_run(self):
+        viewer = zoom_viewer()
+        events = print_command._CaptureEvents(viewer, [])
+
+        events._mark_changed()  # something before the pause is no part of it
+        events.release()
+        events.reclaim()
+
+        events._mark_changed()
+        events.release()
+        events._mark_changed()
+        with self.assertRaises(print_command._CaptureInterrupted):
+            events.reclaim()
+
+    def scene_viewer(self):
+        """A zoom_viewer() whose canvas holds a scene: the edge layer and the node markers the capture watches."""
+        from vispy import scene
+        from desktop.Viewer_Edges import ViewerEdges
+
+        root = scene.Node()
+        positions = np.array([[0.0, 0.0], [1.0, 1.0], [2.0, 0.0]], dtype=np.float32)
+        layer = ViewerEdges(root, np.array([[0, 1], [1, 2]], dtype=np.int32), np.array([0.5, 0.9]), positions,
+                            (0, 0, 0, 0.5), 1.0, use_position_texture=False)
+        markers = scene.visuals.Markers(parent=root)
+        viewer = zoom_viewer()
+        viewer.canvas.scene = root
+        return viewer, layer, markers
+
+    def test_an_edge_layer_that_only_repaints_is_no_change_and_one_that_draws_other_edges_is(self):
+        # After a pan with fewer edges drawn the layer draws every edge again, and updates its visual to say so:
+        # the picture it draws is the same, which its generation, bumped by every real change, tells.
+        viewer, layer, _markers = self.scene_viewer()
+        events = print_command._CaptureEvents(viewer, [])
+        self.addCleanup(events.close)
+
+        events.release()
+        layer.visual.update()
+        events.reclaim()  # a repaint
+
+        events.release()
+        layer.visible = not layer.visible  # what draws changed
+        with self.assertRaises(print_command._CaptureInterrupted):
+            events.reclaim()
+
+    def test_that_holds_with_the_camera_moved_too(self):
+        viewer, layer, _markers = self.scene_viewer()
+        events = print_command._CaptureEvents(viewer, [])
+        self.addCleanup(events.close)
+
+        events.release()
+        viewer.view.camera.rect = SimpleNamespace(pos=(10.0, -12.5), width=100.0, height=75.0)
+        layer.visual.update()
+        events.reclaim()
+        events.release()
+        viewer.view.camera.rect = SimpleNamespace(pos=(20.0, -12.5), width=100.0, height=75.0)
+        layer.visible = not layer.visible
+        with self.assertRaises(print_command._CaptureInterrupted):
+            events.reclaim()
+
+    def test_a_node_marker_update_is_still_a_change_unless_the_camera_moved(self):
+        viewer, _layer, markers = self.scene_viewer()
+        events = print_command._CaptureEvents(viewer, [])
+        self.addCleanup(events.close)
+
+        events.release()
+        markers.update()
+        with self.assertRaises(print_command._CaptureInterrupted):
+            events.reclaim()
+
+        events.release()
+        viewer.view.camera.rect = SimpleNamespace(pos=(10.0, -12.5), width=100.0, height=75.0)
+        markers.update()
+        events.reclaim()
+
+    def test_it_closed_between_tiles_leaves_no_job_and_no_report(self):
+        viewer = zoom_viewer()
+        steps = self.steps(viewer, ["fig1", "full"])
+        next(steps)
+        next(steps)
+
+        steps.close()
+
+        viewer.canvas.update.assert_called()
+        self.save.assert_not_called()
+        self.assertEqual(viewer.background_job_scheduler.jobs, [])
+        self.engine.command_failed.assert_not_called()
+        self.engine.command_succeeded.assert_not_called()
+        # The live view is as it was.
+        self.assertEqual(viewer.view.camera.rect.width, 100.0)
+        self.assertTrue(viewer.zoom_text.visible)
+
+
+class PrintInTheCommandQueueTests(unittest.TestCase):
+    """The real command queue steps a print's tiles in slices: the event loop, and with it the Viewer's input, runs between them."""
+
+    @classmethod
+    def setUpClass(cls):
+        from PySide6 import QtWidgets
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    def setUp(self):
+        import Command_Engine as real_engine
+        from Command_Queue import CommandQueue
+        root = tempfile.TemporaryDirectory()
+        self.addCleanup(root.cleanup)
+        self.log = []
+        self.engine = print_command.Command_Engine
+        for reporter in (self.engine.command_artifact, self.engine.command_succeeded, self.engine.command_failed):
+            reporter.reset_mock()
+        # The queue records the outcome the real engine is told of.
+        self.engine.command_succeeded.side_effect = lambda viewer, message=None: real_engine._record_outcome("succeeded")
+        self.addCleanup(setattr, self.engine.command_succeeded, "side_effect", None)
+
+        def render(viewer, is_transparent):
+            self.log.append("tile")
+            time.sleep(0.01)
+            return white_renders(viewer, is_transparent, TILE_SHAPE)
+
+        for patch in (mock.patch.object(print_command, "PRINT_DIRECTORY", os.path.join(root.name, "Saved_Images")),
+                      mock.patch.object(print_command, "_render_tile", side_effect=render),
+                      mock.patch.object(print_command, "_write_png"),
+                      redirect_stdout(io.StringIO())):
+            patch.__enter__()
+            self.addCleanup(patch.__exit__, None, None, None)
+        class QueuedViewer(SimpleNamespace):
+            """The queue keeps a weak reference to its viewer, which a SimpleNamespace itself cannot be given."""
+
+        self.viewer = QueuedViewer(**vars(zoom_viewer()))
+        self.queue = CommandQueue(self.viewer)
+        self.viewer.command_queue = self.queue
+        self.addCleanup(self.queue.shutdown)
+
+    def pump_until(self, condition, timeout=20):
+        deadline = time.monotonic() + timeout
+        while not condition():
+            self.assertLess(time.monotonic(), deadline, "the command queue did not get there")
+            self.app.processEvents()
+            time.sleep(0.001)
+
+    def test_the_event_loop_runs_between_the_tiles_and_the_picture_is_the_same(self):
+        from PySide6 import QtCore
+        timer = QtCore.QTimer()
+        timer.setInterval(1)
+        timer.timeout.connect(lambda: self.log.append("tick"))
+        timer.start()
+        self.addCleanup(timer.stop)
+        arguments = ["fig1", "full", "zoom", "2000"]  # 3 x 3 tiles of 10 ms each, in slices of 30 ms
+
+        job = self.queue.dispatch(print_command, "print", arguments, "print " + " ".join(arguments))
+        self.assertIsNotNone(job)
+        self.pump_until(lambda: not self.queue.pending())
+        timer.stop()
+
+        self.assertEqual(self.log.count("tile"), 10)  # the render that measures the canvas, and nine tiles
+        first, last = self.log.index("tile"), len(self.log) - 1 - self.log[::-1].index("tile")
+        self.assertGreaterEqual(self.log[first:last].count("tick"), 2)
+        self.assertEqual(self.queue.finished[-1].status, "succeeded")
+        self.assertEqual(len(self.viewer.background_job_scheduler.jobs), 1)
+        saved = print_command._write_png.call_args.args[1]
+        self.assertEqual(saved.shape, (960, 1760, 4))
+
+    def test_a_command_given_meanwhile_waits_for_the_picture(self):
+        import Command_Engine as real_engine
+        order = []
+
+        def later_start(viewer, plan):
+            order.append(self.log.count("tile"))
+            real_engine._record_outcome("succeeded")
+
+        arguments = ["fig1", "full", "zoom", "2000"]
+        self.queue.dispatch(print_command, "print", arguments, "print fig1 full zoom 2000")
+        later = SimpleNamespace(plan=lambda viewer, args: SimpleNamespace(cooperative=False, heavy=False),
+                                start=later_start)
+        self.queue.dispatch(later, "later", [], "later")
+        self.assertEqual([job.name for job in self.queue.pending()], ["print", "later"])
+        self.pump_until(lambda: not self.queue.pending())
+        # `later` took its turn when every tile had been drawn.
+        self.assertEqual(order, [10])
+
+    def test_undo_stops_a_print_between_tiles_and_nothing_is_saved(self):
+        arguments = ["fig1", "full", "zoom", "2000"]
+        job = self.queue.dispatch(print_command, "print", arguments, "print fig1 full zoom 2000")
+        self.pump_until(lambda: self.log.count("tile") >= 3)
+        self.assertTrue(job.cooperation is not None)
+
+        self.queue.take_back(1)
+
+        self.assertEqual(self.queue.pending(), [])
+        self.assertEqual(job.status, "cancelled")
+        drawn = self.log.count("tile")
+        for _ in range(20):
+            self.app.processEvents()
+        self.assertEqual(self.log.count("tile"), drawn)
+        print_command._write_png.assert_not_called()
+        self.assertEqual(self.viewer.background_job_scheduler.jobs, [])
+        self.assertEqual(self.viewer.view.camera.rect.width, 100.0)
 
 
 if __name__ == "__main__":
