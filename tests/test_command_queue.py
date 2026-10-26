@@ -53,7 +53,8 @@ class QueueViewer:
         self.group_labels = [set() for _ in range(n)]
         self.metadata = {}
         self.alignment = None
-        self.current_colors = np.zeros((n, 4))
+        # The nodes start opaque, as the Viewer's do: color keeps the alpha it finds.
+        self.current_colors = np.tile([0.0, 0.0, 0.0, 1.0], (n, 1))
         self.current_sizes = np.ones(n)
         self.current_shapes = np.full(n, "disc", dtype=object)
         self.console_text = SimpleNamespace(text="")
@@ -169,7 +170,8 @@ class QueueTestCase(unittest.TestCase):
         return job
 
     def red_nodes(self):
-        return [i for i in range(self.viewer.n_nodes) if tuple(self.viewer.current_colors[i]) == RED]
+        # By their red, green and blue: color keeps a node's alpha, and the noise of a cluster is translucent.
+        return [i for i in range(self.viewer.n_nodes) if tuple(self.viewer.current_colors[i][:3]) == RED[:3]]
 
 
 class OrderTests(QueueTestCase):
@@ -846,7 +848,7 @@ class GuiResponsivenessTests(QueueTestCase):
         self.viewer.edges, self.viewer.edge_scores = edges, scores
         self.viewer.visible_mask = np.ones(10000, dtype=bool)
         self.viewer.group_labels = [set() for _ in range(10000)]
-        self.viewer.current_colors = np.zeros((10000, 4))
+        self.viewer.current_colors = np.tile([0.0, 0.0, 0.0, 1.0], (10000, 1))
 
     def timer_gaps(self, until):
         """Run the GUI thread's event loop, with a 5 ms timer ticking, until until() is true.
