@@ -323,6 +323,10 @@ still change before version 1.0.0.
   - `print … full` takes `zoom=200` as well as `zoom 200`. Before, `zoom=200` was taken as
     the file name, and the picture was drawn at the default zoom.
   - `label` takes `cmin=90%`, `gmax=0.3` and `id=90%` as well as `cmin 90%`.
+  - `logo` and `query` take a position list separated by spaces, `[1 5 9-12]`, as well as
+    by commas, `[1, 5, 9-12]`. A list that mixes the two is refused and names the item.
+    A range may keep spaces around its dash (`[9 - 12]`), and a bare negative such as
+    `[1 -5]` is still refused, never read as a range.
 - **A quieter dependency check.** Each start used to list the known, accepted differences
   between the `esm` package's stated requirements and the installed packages ("accepted: The
   package `esm` requires …"). It now prints one line saying the check passed with that many
