@@ -309,6 +309,10 @@ still change before version 1.0.0.
 
 ### Changed
 
+- **`subcluster` takes the cluster as `#cluster_N#`,** as `select`, `color` and the other
+  commands write it; the bare `cluster_N` still works. Anything other than one cluster
+  (`#noise#`, a group, `#cluster_2#|#cluster_3#`, `$sele$`) is refused with the reason, and
+  nothing changes.
 - **A quieter dependency check.** Each start used to list the known, accepted differences
   between the `esm` package's stated requirements and the installed packages ("accepted: The
   package `esm` requires …"). It now prints one line saying the check passed with that many
