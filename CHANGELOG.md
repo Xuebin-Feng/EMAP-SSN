@@ -119,6 +119,9 @@ still change before version 1.0.0.
 - **Background jobs in the Viewer's Session card.** Below the input files, the card lists the
   jobs that write files (`print`, `label`, `logo`) and the structure folds (`esmfold`), in two
   lines, Files and Folding, that run side by side. Each line runs one job at a time, in order.
+  - **Numbers:** background jobs are numbered #1, #2, … from each start of the Viewer, and
+    only they are. `jobs` lists the same jobs, and `jobs cancel` takes a number, `all`, or
+    nothing for the newest.
   - **Each row** shows the job's number, what it writes, and whether it runs (with its time
     and progress, such as "Drawing tile 3 of 8" or "Folding 2 of 3") or waits (with its
     place). The card updates while open.
@@ -282,11 +285,11 @@ still change before version 1.0.0.
     The message lists them and ↑ recalls them. MCP requests keep their meaning: a
     failure skips the rest of the request.
   - **Seeing and controlling it:** the console and status lines say what each command
-    waits for, and a badge under the FPS row counts the jobs. `jobs` lists every waiting
-    or running command and file job; `jobs cancel N` and `jobs cancel all` stop them.
-    `jobs cancel` needs approval when the Agent page asks for it.
-  - **MCP:** `get_command_request` reports a job's state as queued (with its place and
-    what it waits for), running, applying, succeeded, failed or cancelled.
+    waits for. A waiting or computing command is not a background job: it has no job
+    number, `jobs` and the badge under the FPS row leave it out, and `undo` or Ctrl+Z
+    takes it back.
+  - **MCP:** `get_command_request` reports a command's place in the queue as `queue`:
+    queued (with its place), running, applying, then how it ended.
   - **Still freezing for now:** switching `alignment` or `reference` (5 to 6 s at
     44,000 sequences) and importing an Excel sheet (about 3 s). Other commands wait
     their turn and then run as before, in under 0.05 s at that size.
