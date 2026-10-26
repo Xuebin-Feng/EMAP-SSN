@@ -60,7 +60,9 @@ its window opens all the same, for the buttons, with the text that says where th
 output went in place of the output, and what only works on output is off.
 
 show_console opens this process's Console (or brings it forward): the Viewer's
-`console` command and its Console button, at the bottom of the Viewer, call it.
+`console` command and its Console button, at the bottom of the Viewer, call it. The Console
+belongs to the window it was opened for: closing the Viewer closes its Console too (a Console
+left open never keeps the program running), and closing the Console leaves the Viewer as it is.
 """
 
 from __future__ import annotations
@@ -87,6 +89,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication,
+    QDialog,
     QFileDialog,
     QHBoxLayout,
     QLabel,
@@ -414,6 +417,10 @@ class ConsoleWindow(QWidget):
         self.buttons = buttons if buttons is not None else ButtonRegistry()
         self.dark = dark
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, False)
+        # The program's own window decides how long it runs: an open Console does not keep it running once
+        # that window is closed, and closing the Console does not end it.
+        self.setAttribute(Qt.WidgetAttribute.WA_QuitOnClose, False)
+        self._owner = None           # the window this Console belongs to (belong_to)
         self.setWindowTitle(title or QCoreApplication.translate("Console", "Console"))
         self.setObjectName("consoleWindow")
         self.resize(960, 600)
@@ -843,9 +850,31 @@ class ConsoleWindow(QWidget):
         if at_bottom != self._following:
             self._set_following(at_bottom)
 
+    def closeEvent(self, event):
+        # A dialog of the Console (its Save dialog) is closed with it, not left open on its own.
+        for dialog in self.findChildren(QDialog):
+            if dialog.isVisible():
+                dialog.reject()
+        super().closeEvent(event)
+
+    def belong_to(self, window):
+        """Close with ``window``, the window this Console was opened for, and never outlive it.
+
+        The window is closed, or hidden by the program (a hidden Viewer taken off screen), and the Console goes
+        with it. Closing the Console does nothing to the window.
+        """
+        self._owner = window
+        window.installEventFilter(self)
+
     def eventFilter(self, watched, event):
         if watched is self.text.viewport() and event.type() == QEvent.Type.Wheel:
             self._scrolled_by_user()
+        elif watched is self._owner and self.isVisible() and (
+            event.type() == QEvent.Type.Close
+            # A hide the system makes (the window minimized) leaves the window open.
+            or (event.type() == QEvent.Type.Hide and not event.spontaneous())
+        ):
+            self.close()
         return super().eventFilter(watched, event)
 
     # --- the filter and Clear view
@@ -990,10 +1019,12 @@ def show_console(parent=None, capture=None, *, dark=False, buttons=None):
         if parent is not None and parent.window() is not None and parent.window().windowTitle():
             title = QCoreApplication.translate("Console", "{window} – Console").format(window=parent.window().windowTitle())
         _window = ConsoleWindow(capture, None, dark=dark, title=title, buttons=buttons)
-        # Where it opens: beside the window it belongs to, on its screen.
-        if parent is not None and parent.window() is not None and parent.window().isVisible():
-            frame = parent.window().frameGeometry()
-            _window.move(frame.left() + 40, frame.top() + 40)
+        if parent is not None and parent.window() is not None:
+            _window.belong_to(parent.window())
+            # Where it opens: beside the window it belongs to, on its screen.
+            if parent.window().isVisible():
+                frame = parent.window().frameGeometry()
+                _window.move(frame.left() + 40, frame.top() + 40)
     _window.show()
     if _window.isMinimized():
         _window.showNormal()

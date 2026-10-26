@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The Console window (desktop.Console_View) and its entry points: lines are classified as errors, warnings or output from what they say, an indented line under a problem shares its colour, the window shows the capture's lines with their times, feeds live while shown and not while hidden, searches, filters, follows the output with no control, clears, copies and saves, replaces a progress line in place, shows its footer, takes the theme's colours in light and dark and again when the theme changes; its second header row shows the buttons that pages and commands registered (the Viewer's add_console_button); the Viewer's Console button, at the foot of its window, opens it, and a Viewer started with --console gets a Console that has the buttons and says where the output is."""
+"""The Console window (desktop.Console_View) and its entry points: lines are classified as errors, warnings or output from what they say, an indented line under a problem shares its colour, the window shows the capture's lines with their times, feeds live while shown and not while hidden, searches, filters, follows the output with no control, clears, copies and saves, replaces a progress line in place, shows its footer, takes the theme's colours in light and dark and again when the theme changes; its second header row shows the buttons that pages and commands registered (the Viewer's add_console_button); the Viewer's Console button, at the foot of its window, opens it, and a Viewer started with --console gets a Console that has the buttons and says where the output is; the Console belongs to the Viewer's window: closing the Viewer, however it is closed, closes its Console and ends the program, and closing the Console changes nothing of the Viewer."""
 
 from __future__ import annotations
 
@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -24,10 +25,10 @@ SRC = Path(__file__).resolve().parents[1] / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtCore import QEvent, Qt  # noqa: E402
-from PySide6.QtGui import QGuiApplication  # noqa: E402
+from PySide6.QtCore import QEvent, Qt, QTimer  # noqa: E402
+from PySide6.QtGui import QCloseEvent, QGuiApplication, QHideEvent  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication, QMessageBox, QPushButton, QWidget  # noqa: E402
+from PySide6.QtWidgets import QApplication, QDialog, QMainWindow, QMessageBox, QPushButton, QWidget  # noqa: E402
 
 from desktop import Console_View, Desktop_App  # noqa: E402
 from desktop.Console_View import (  # noqa: E402
@@ -1810,6 +1811,311 @@ class EntryPointTests(WindowCase):
         self.assertEqual(selector.minimumSizeHint().width(), selector.sizeHint().width())
 
 
+class OwnerWindowTests(WindowCase):
+    """The Console belongs to the window it was opened for (the Viewer's): it closes with it, never the other way round."""
+
+    def setUp(self):
+        super().setUp()
+        self.owner = QMainWindow()
+        self.owner.setWindowTitle("EMAP-SSN Viewer")
+        self.owner.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        self.owner.show()
+        self.addCleanup(self.owner.deleteLater)
+        self.addCleanup(self.owner.close)
+        self.recorder.add("stdout", "printed before")
+
+    def tearDown(self):
+        Console_View._window = None
+
+    def open_console(self, buttons=None):
+        with mock.patch.object(Console_Capture, "_capture", self.recorder):
+            console = show_console(self.owner, buttons=buttons or ButtonRegistry())
+        self.addCleanup(console.deleteLater)
+        flush(self.app, 2)
+        return console
+
+    def test_closing_the_window_closes_its_console_in_front_behind_or_minimized(self):
+        for how in ("in front", "behind", "minimized"):
+            with self.subTest(how=how):
+                console = self.open_console()
+                self.assertTrue(console.isVisible())
+                if how == "behind":
+                    console.lower()
+                elif how == "minimized":
+                    console.showMinimized()
+                    flush(self.app, 2)
+                    self.assertTrue(console.isMinimized())
+                self.owner.close()
+                flush(self.app, 2)
+                self.assertFalse(self.owner.isVisible())
+                self.assertFalse(console.isVisible())
+                self.owner.show()
+
+    def test_the_console_goes_with_the_window_whichever_way_the_window_closes(self):
+        # The title bar's close button asks the window to close (the window handle's close); a program's close() does
+        # the same; and a hide() is the Viewer taken off screen.
+        for how, close in (("the close button", lambda: self.owner.windowHandle().close()),
+                           ("close()", lambda: self.owner.close()), ("hide()", lambda: self.owner.hide())):
+            with self.subTest(how=how):
+                console = self.open_console()
+                close()
+                flush(self.app, 2)
+                self.assertFalse(console.isVisible())
+                self.owner.show()
+
+    def test_a_hide_the_system_makes_leaves_the_console_and_one_the_program_makes_closes_it(self):
+        console = self.open_console()
+        # A minimized window sends a hide event the system made (spontaneous) and stays open.
+        class SystemHide(QHideEvent):
+            def spontaneous(self):
+                return True
+
+        self.assertFalse(console.eventFilter(self.owner, SystemHide()))
+        self.owner.showMinimized()
+        flush(self.app, 2)
+        self.assertTrue(console.isVisible())
+        self.owner.showNormal()
+        # The event of any other window changes nothing either.
+        self.assertFalse(console.eventFilter(QWidget(), QHideEvent()))
+        self.assertTrue(console.isVisible())
+        self.assertFalse(console.eventFilter(self.owner, QHideEvent()))
+        self.assertFalse(console.isVisible())
+        # A close event closes it as well, before the window has finished going.
+        console.show()
+        self.assertFalse(console.eventFilter(self.owner, QCloseEvent()))
+        self.assertFalse(console.isVisible())
+
+    def test_closing_the_console_leaves_the_window_open_and_it_opens_again_with_its_contents(self):
+        buttons = ButtonRegistry()
+        console = self.open_console(buttons)
+        self.assertEqual(self.lines(console), ["printed before"])
+        console.close()
+        flush(self.app, 2)
+        self.assertFalse(console.isVisible())
+        self.assertTrue(self.owner.isVisible())
+        self.assertFalse(self.owner.isHidden())
+        self.recorder.add("stdout", "printed while it was closed")
+        again = self.open_console(buttons)
+        self.assertIs(again, console)
+        self.assertTrue(again.isVisible())
+        self.assertTrue(wait_for(self.app, lambda: self.lines(again) == ["printed before", "printed while it was closed"]))
+
+    def test_the_console_is_not_a_window_the_program_waits_for(self):
+        # Closing the last window ends the program, whatever else is open (Qt: WA_QuitOnClose), and closing the
+        # Console never does.
+        self.assertFalse(self.open_console().testAttribute(Qt.WidgetAttribute.WA_QuitOnClose))
+        self.assertFalse(self.window().testAttribute(Qt.WidgetAttribute.WA_QuitOnClose))
+
+    def test_a_console_opened_for_no_window_has_nothing_to_follow(self):
+        with mock.patch.object(Console_Capture, "_capture", self.recorder):
+            console = show_console(None)
+        self.addCleanup(console.deleteLater)
+        self.assertIsNone(console._owner)
+        self.owner.close()
+        flush(self.app, 2)
+        self.assertTrue(console.isVisible())
+        console.close()
+
+    def test_a_viewer_started_with_console_has_a_console_that_follows_its_window_too(self):
+        with mock.patch.object(Console_Capture, "_capture", None):
+            console = show_console(self.owner, buttons=ButtonRegistry())
+        self.addCleanup(console.deleteLater)
+        self.assertFalse(console.kept)
+        self.assertTrue(console.isVisible())
+        self.owner.close()
+        flush(self.app, 2)
+        self.assertFalse(console.isVisible())
+
+    def test_the_save_dialog_closes_with_the_console_and_the_save_ends_with_nothing_saved(self):
+        console = self.open_console()
+        open_dialogs, left_open = [], []
+
+        def visible_dialogs():
+            return [dialog for dialog in console.findChildren(QDialog) if dialog.isVisible()]
+
+        def close_the_window():
+            open_dialogs.extend(visible_dialogs())
+            self.owner.close()
+
+        def give_up():  # a dialog that the window's closing left open would hold Save here for ever
+            for dialog in visible_dialogs():
+                left_open.append(dialog)
+                dialog.reject()
+
+        # Save waits in the dialog's own event loop, as it does while the person chooses a file.
+        QTimer.singleShot(200, close_the_window)
+        QTimer.singleShot(5000, give_up)
+        saved = console.save_text()
+        self.assertEqual(len(open_dialogs), 1)
+        self.assertEqual(left_open, [])
+        self.assertIsNone(saved)
+        self.assertFalse(console.isVisible())
+        self.assertEqual(visible_dialogs(), [])
+
+    def test_a_hidden_viewer_that_was_shown_takes_its_console_off_screen_and_closes_it_with_the_window(self):
+        from desktop.Viewer_Window import HIDDEN, ViewerWindow
+
+        control = ViewerWindow(self.owner, HIDDEN, platform="linux", alert=lambda *_: None)
+        control.open()
+        self.assertFalse(control.shows_windows())
+        control.show()
+        self.assertTrue(control.shows_windows())
+        console = self.open_console()
+        # Taken off screen again, the Viewer shows no windows, and the Console it opened goes too.
+        control.hide()
+        flush(self.app, 2)
+        self.assertFalse(console.isVisible())
+        self.assertFalse(control.shows_windows())
+        # Shown again, a Console opens again; closing the shown window ends the Viewer and closes it with the window.
+        control.show()
+        console = self.open_console()
+        self.assertTrue(console.isVisible())
+        self.owner.close()
+        flush(self.app, 2)
+        self.assertFalse(console.isVisible())
+
+
+# The program's event loop, run in a program of its own so that no other test's windows or hooks are in it. Each
+# scenario opens a window and its Console, closes something and says whether the loop ended by itself (it is
+# stopped after SECONDS otherwise) and what stayed open.
+EVENT_LOOP_SCRIPT = r"""
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from PySide6.QtCore import QMetaObject, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QMainWindow
+from desktop import Console_View
+from desktop.Console_View import ButtonRegistry, ConsoleWindow, show_console
+from utilities.Console_Capture import Recorder
+
+SECONDS = 6.0
+app = QApplication([])
+recorder = Recorder("viewer", None)
+recorder.add("stdout", "printed")
+results = {}
+
+
+def run(name, scenario):
+    Console_View._window = None
+    main = QMainWindow()
+    main.setWindowTitle("EMAP-SSN Viewer")
+    main.show()
+    state = {"stopped": False, "last_window_closed": 0, "main": main}
+    app.lastWindowClosed.connect(lambda: state.update(last_window_closed=state["last_window_closed"] + 1))
+
+    def stop():
+        state["stopped"] = True
+        app.quit()
+
+    watchdog = QTimer()
+    watchdog.setSingleShot(True)
+    watchdog.timeout.connect(stop)
+    watchdog.start(int(SECONDS * 1000))
+    scenario(main, state)
+    app.exec()
+    watchdog.stop()
+    console = state.get("console")
+    results[name] = {
+        "ended_by_itself": not state["stopped"],
+        "last_window_closed": state["last_window_closed"],
+        "console_visible": None if console is None else console.isVisible(),
+        "main_visible": main.isVisible(),
+        "main_visible_midway": state.get("main_visible_midway"),
+        "last_window_closed_midway": state.get("last_window_closed_midway"),
+        "saved": state.get("saved", "not asked"),
+    }
+    app.lastWindowClosed.disconnect()
+
+
+def with_console(main, state):
+    console = state["console"] = show_console(main, recorder, buttons=ButtonRegistry())
+    return console
+
+
+def window_closed(main, state):
+    with_console(main, state)
+    QTimer.singleShot(150, main.close)
+
+
+def window_closed_console_not_following(main, state):
+    console = state["console"] = ConsoleWindow(recorder)
+    console.show()
+    QTimer.singleShot(150, main.close)
+
+
+def window_closed_in_the_save_dialog(main, state):
+    console = with_console(main, state)
+    QTimer.singleShot(100, lambda: state.update(saved=console.save_text()))
+    QTimer.singleShot(500, main.close)
+
+
+def application_quit(main, state):
+    with_console(main, state)
+    # As the shutdown route of the Viewer's web server asks for it.
+    QTimer.singleShot(150, lambda: QMetaObject.invokeMethod(app, "quit", Qt.ConnectionType.QueuedConnection))
+
+
+def console_closed(main, state):
+    console = with_console(main, state)
+    QTimer.singleShot(100, console.close)
+    QTimer.singleShot(700, lambda: state.update(
+        main_visible_midway=main.isVisible(), last_window_closed_midway=state["last_window_closed"]))
+    QTimer.singleShot(800, app.quit)
+
+
+run("window_closed", window_closed)
+run("window_closed_console_not_following", window_closed_console_not_following)
+run("window_closed_in_the_save_dialog", window_closed_in_the_save_dialog)
+run("application_quit", application_quit)
+run("console_closed", console_closed)
+print("RESULT " + json.dumps(results))
+"""
+
+
+class EventLoopTests(unittest.TestCase):
+    """A real event loop: what ends the program and what stays open."""
+
+    @classmethod
+    def setUpClass(cls):
+        environment = dict(os.environ, QT_QPA_PLATFORM="offscreen")
+        done = subprocess.run([sys.executable, "-c", EVENT_LOOP_SCRIPT, str(SRC)], env=environment,
+                              capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=180)
+        lines = [line for line in done.stdout.splitlines() if line.startswith("RESULT ")]
+        if not lines:
+            raise AssertionError(f"the event loop program gave no result (exit code {done.returncode}):\n{done.stdout}\n{done.stderr}")
+        cls.results = json.loads(lines[-1][len("RESULT "):])
+
+    def test_closing_the_window_with_its_console_open_ends_the_program_and_closes_the_console(self):
+        result = self.results["window_closed"]
+        self.assertTrue(result["ended_by_itself"], result)
+        self.assertEqual(result["last_window_closed"], 1)
+        self.assertFalse(result["main_visible"])
+        self.assertFalse(result["console_visible"])
+
+    def test_a_console_left_open_cannot_keep_the_program_running(self):
+        # One that nothing closes with the window: the program ends all the same, as the window was its last.
+        result = self.results["window_closed_console_not_following"]
+        self.assertTrue(result["ended_by_itself"], result)
+        self.assertEqual(result["last_window_closed"], 1)
+
+    def test_the_program_ends_when_the_window_closes_while_the_save_dialog_is_open(self):
+        result = self.results["window_closed_in_the_save_dialog"]
+        self.assertTrue(result["ended_by_itself"], result)
+        self.assertIsNone(result["saved"])
+        self.assertFalse(result["console_visible"])
+
+    def test_the_application_quitting_closes_the_window_and_its_console(self):
+        result = self.results["application_quit"]
+        self.assertTrue(result["ended_by_itself"], result)
+        self.assertFalse(result["main_visible"])
+        self.assertFalse(result["console_visible"])
+
+    def test_closing_the_console_ends_nothing_and_leaves_the_window_open(self):
+        result = self.results["console_closed"]
+        self.assertEqual(result["last_window_closed_midway"], 0)
+        self.assertTrue(result["main_visible_midway"])
+        self.assertFalse(result["console_visible"])
+
+
 class ViewerEntryPointTests(WindowCase):
     """The Viewer's Console button, at the foot of its window, and the method the console command calls."""
 
@@ -1906,6 +2212,28 @@ class ViewerEntryPointTests(WindowCase):
             self.viewer.console_button.click()
         self.assertIsNotNone(Console_View._window)
         self.addCleanup(Console_View._window.deleteLater)
+
+    def test_closing_the_viewers_window_closes_its_console_and_closing_the_console_leaves_the_window_alone(self):
+        viewer = self.viewer
+        viewer.main_window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        viewer.main_window.show()
+        with mock.patch.object(Console_Capture, "_capture", self.recorder):
+            viewer.console_button.click()
+            console = Console_View._window
+            self.addCleanup(console.deleteLater)
+            self.assertTrue(console.isVisible())
+            # The Console closes: the Viewer is as it was, and its button brings the same window back.
+            console.close()
+            flush(self.app, 2)
+            self.assertTrue(viewer.main_window.isVisible())
+            viewer.console_button.click()
+            self.assertIs(Console_View._window, console)
+            self.assertTrue(console.isVisible())
+            # The Viewer's window closes: the Console goes with it.
+            viewer.main_window.close()
+            flush(self.app, 2)
+            self.assertFalse(viewer.main_window.isVisible())
+            self.assertFalse(console.isVisible())
 
     def test_the_window_gets_the_viewers_registry_and_a_button_added_later_appears_in_it(self):
         viewer = self.viewer
