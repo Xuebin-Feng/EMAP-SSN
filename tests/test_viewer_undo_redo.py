@@ -327,6 +327,36 @@ class ViewerUndoRedoTests(unittest.TestCase):
                 reset(viewer, target)
                 self.assertEqual(len(viewer.position_history), 1)
 
+    def test_undo_and_redo_keep_the_alpha_of_each_color(self):
+        viewer = make_viewer()
+        viewer.current_colors[1] = [1.0, 0.0, 0.0, 0.4]
+        viewer._save_state()
+        viewer.current_colors[1, 3] = 0.0
+        viewer.current_colors[2] = [0.0, 1.0, 0.0, 0.7]
+
+        self.assertTrue(quietly(viewer._do_undo))
+        np.testing.assert_array_equal(viewer.current_colors[1], np.array([1, 0, 0, 0.4], dtype=np.float32))
+        np.testing.assert_array_equal(viewer.current_colors[2], BLUE)
+        self.assertTrue(quietly(viewer._do_redo))
+        np.testing.assert_array_equal(viewer.current_colors[1], np.array([1, 0, 0, 0.0], dtype=np.float32))
+        np.testing.assert_array_equal(viewer.current_colors[2], np.array([0, 1, 0, 0.7], dtype=np.float32))
+
+    def test_reset_colors_restores_the_alpha_and_a_change_of_alpha_alone_is_an_undo_step(self):
+        import matplotlib.colors as mcolors
+        import EMAPSSN_Config as cfg
+
+        viewer = make_viewer()
+        viewer.current_colors[:] = mcolors.to_rgba(cfg.INITIAL_NODE_COLOR)
+        # With nothing but the alpha changed there is still something to reset.
+        viewer.current_colors[1, 3] = 0.3
+
+        reset(viewer, "colors")
+
+        np.testing.assert_array_equal(viewer.current_colors[:, 3], np.ones(4))
+        self.assertEqual(len(viewer.position_history), 1)
+        self.assertTrue(quietly(viewer._do_undo))
+        self.assertAlmostEqual(float(viewer.current_colors[1, 3]), 0.3, places=6)
+
     def test_clearing_clusters_clears_their_parameters_and_undo_restores_both(self):
         viewer = make_viewer()
         change_every_field(viewer)

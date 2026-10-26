@@ -195,6 +195,19 @@ class SnapshotTests(SnapshotFixture, unittest.TestCase):
 
 
 class SnapshotAdditionalTests(SnapshotFixture, unittest.TestCase):
+    def test_a_node_pages_color_is_its_rgba_with_the_alpha_last(self):
+        self.v.current_colors = np.array(
+            [[1, 0, 0, 0.25], [0, 1, 0, 1], [0, 0, 1, 0], [0.5, 0.5, 0.5, 0.5]], dtype=np.float32
+        )
+        self.v.current_sizes = np.ones(4, dtype=np.float32)
+        self.v.pos = np.zeros((4, 2), dtype=np.float32)
+        sid = self.service.capture_snapshot(include_visual=True)
+        rows = self.store.execute('query_nodes', sid, visual_fields=['color'])['rows']
+        self.assertEqual(
+            [row['visual']['color'] for row in rows],
+            [[1.0, 0.0, 0.0, 0.25], [0.0, 1.0, 0.0, 1.0], [0.0, 0.0, 1.0, 0.0], [0.5, 0.5, 0.5, 0.5]],
+        )
+
     def test_preflight_before_copy_and_foreign_snapshot(self):
         store = SnapshotStore(max_bytes=1)
         with mock.patch('desktop.Viewer_Inspection.deepcopy') as copy:

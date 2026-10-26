@@ -227,6 +227,37 @@ class SnapshotProvenanceTests(HeadlessSettingsFixture, unittest.TestCase):
                         self.assertEqual(actual[key], expected[key])
                     viewer = self.snapshot_viewer(saved)
 
+    def test_a_snapshot_keeps_the_alpha_of_every_node_color(self):
+        # Colors are saved and loaded as RGBA, so a translucent node reopens translucent.
+        source, document = self.cache_and_viewer()
+        from EMAPSSN_Viewer import MainViewer
+        import EMAPSSN_Viewer
+        expected = resolve_viewer_document(document, self.root)
+        viewer = MainViewer.__new__(MainViewer)
+        with mock.patch.multiple(EMAPSSN_Viewer.cfg, create=True, CACHE_MANIFEST_ID=None,
+                                 INPUT_IS_EVALUE=False, **expected):
+            viewer.load_and_simulate()
+        self.assertEqual(viewer.current_colors.shape[1], 4)
+        viewer.current_colors[0] = [1.0, 0.0, 0.0, 0.25]
+        viewer.current_colors[1, 3] = 0.0
+        with mock.patch.object(save_command, "resolve_selected_cache", return_value=source), \
+             mock.patch.object(save_command.Command_Engine, "print_help"), \
+             mock.patch.object(save_command.Command_Engine, "command_failed") as failed:
+            save_command.run(viewer, ["alpha.h5"])
+        failed.assert_not_called()
+        saved = Path(source).parent / "alpha.h5"
+        with h5py.File(saved, "r") as cache:
+            np.testing.assert_array_equal(cache["colors"][:2], viewer.current_colors[:2])
+        reopened = copy.deepcopy(document)
+        reopened["inputs"]["TARGET_CACHE_PATH"] = str(saved)
+        again = MainViewer.__new__(MainViewer)
+        with mock.patch.multiple(EMAPSSN_Viewer.cfg, create=True, CACHE_MANIFEST_ID=None,
+                                 INPUT_IS_EVALUE=False, **resolve_viewer_document(reopened, self.root)):
+            again.load_and_simulate()
+        np.testing.assert_array_equal(again.current_colors[:2], viewer.current_colors[:2])
+        self.assertEqual(float(again.current_colors[0, 3]), 0.25)
+        self.assertEqual(float(again.current_colors[1, 3]), 0.0)
+
     def test_invalid_snapshot_provenance_does_not_replace_destination(self):
         source, _ = self.cache_and_viewer()
         destination = Path(source).parent / "protected.h5"
