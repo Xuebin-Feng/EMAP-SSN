@@ -195,6 +195,9 @@ instead of screenshots.
   never sees them. Window position (`geometry` x, y) is 0, 0 on native Wayland.
 * `activate`/focus: a click does not raise or activate the window; `windows` says which is active.
 * The probe cannot be loaded into a process started with `python -S`, and sees only this clone's venv.
-* Start-up cost when on: see the numbers in the hand-over report; when off, one `stat`.
+* Cost, measured on Windows (a laptop with Defender running): gate off, one `stat` per interpreter start (no
+  difference measurable). Gate on: about 10 ms later for an entry point's first line (the rest of the start-up
+  work is in a thread), about 50 ms (2 %) longer for Config to be ready, and about 1 % of one core while a window
+  sits idle (the 25 ms scan). Files are written under the output folder only.
 * `eval` and the request folder are a way to run code in the program: use the probe only in a test clone, and
   turn it off (`probe.py off`) and remove it (`probe.py uninstall`) when the round is over.
