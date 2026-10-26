@@ -65,9 +65,9 @@ still change before version 1.0.0.
 - Visual Effects profiles saved by this version hold the new Low Resource Mode switches
   instead of `LOW_RESOURCE_MODE`, so v0.4.0 refuses them ("unknown setting key(s)"), and
   it refuses Viewer settings documents exported now for the same reason. Profiles and
-  documents saved by v0.4.0 keep working here: their `LOW_RESOURCE_MODE` turns No Zoom or
-  Sidebar Animation, Update Colors After Mouse Release and Update Web Pages After Mouse
-  Release on or off.
+  documents saved by v0.4.0 keep working here: their `LOW_RESOURCE_MODE` turns No Zoom
+  Animation, Update Colors After Mouse Release and Update Web Pages After Mouse Release
+  on or off.
 - Inputs & Outputs profiles saved by this version hold `LAYOUT_METHOD` and
   `PACMAP_NEIGHBORS`, so v0.4.0 refuses them, and Viewer settings documents exported now
   for the same reason. Profiles, documents and caches saved by v0.4.0 keep working here
@@ -597,7 +597,7 @@ still change before version 1.0.0.
     other captures always draw every edge. The thinned copies take about a third more
     video memory for the edges, and none are made while the switch is off.
     `SSN_EDGE_MOTION_LOD=0` turns it off even when the switch is on.
-  - **No Zoom or Sidebar Animation:** the wheel zoom jumps without its glide.
+  - **No Zoom Animation:** the wheel zoom jumps without its glide.
   - **Update Colors After Mouse Release:** the threshold slider redraws the edges only
     when let go; a right-drag or rotation of nodes moves them and their edges, and colours
     the selection and its neighbours again only on release; a box selection colours its
@@ -606,8 +606,8 @@ still change before version 1.0.0.
     selection, and of a box selection, only on release.
   - **Show Frame Rate (FPS)** (see Added).
   A settings file, profile or settings document with the old Low Resource Mode switch
-  sets No Zoom or Sidebar Animation, Update Colors After Mouse Release and Update Web
-  Pages After Mouse Release to its value.
+  sets No Zoom Animation, Update Colors After Mouse Release and Update Web Pages After
+  Mouse Release to its value.
   Dragging nodes in low resource mode no longer hides their edges: they follow the
   nodes. The old tip said low resource mode hid the edges while panning and zooming; it
   never did. VR Config shows none of these switches, as before.

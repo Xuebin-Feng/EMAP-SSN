@@ -1256,7 +1256,7 @@ class MainViewer:
         camera = self.view.camera
         # VisPy's zoom a notch, about the point under the cursor, played out
         # over a few frames (desktop.Viewer_Zoom) rather than in one; Low
-        # Resource Mode's No Zoom or Sidebar Animation zooms at once, sparing the frames between.
+        # Resource Mode's No Zoom Animation zooms at once, sparing the frames between.
         if (event.type == 'mouse_wheel' and not event.handled and camera.interactive
                 and not low_resource_animations(cfg)):
             center = camera._scene_transform.imap(event.pos)
@@ -3613,7 +3613,8 @@ class MainViewer:
 
     def _sidebar_can_slide(self):
         """Whether the sidebar slides: only in a shown window, with a slide time,
-        and not under Low Resource Mode's No Zoom or Sidebar Animation, which switches it at once."""
+        and not under Low Resource Mode's No Zoom Animation, which also switches the
+        sidebar (off since the Console took its buttons) at once."""
         window = getattr(self, 'main_window', None)
         return (
             SIDEBAR_SLIDE_MS > 0

@@ -5,9 +5,9 @@
 """The Config's Low Resource Mode section (EMAPSSN_Config.py, Visual Effects tab).
 
 Under a padded line like the saved-config row's (the tab's sections have no
-titles), a switch per category (Fewer Edges Drawn While Moving, No Zoom or
-Sidebar Animation, Update Colors After Mouse Release, Update Web Pages After
-Mouse Release) and Show Frame Rate (FPS), all off by default. The section has
+titles), a switch per category (Fewer Edges Drawn While Moving, No Zoom
+Animation, Update Colors After Mouse Release, Update Web Pages After Mouse
+Release) and Show Frame Rate (FPS), all off by default. The section has
 its own two columns under the colour grid above it: two switches to a row in
 that order, the first column's labels at Text Color's x and the second's at
 Initial Node Color's at every width where the two are side by side, each
@@ -46,7 +46,7 @@ SWITCHES = ("FEWER_EDGES_WHILE_MOVING", "LOW_RESOURCE_ANIMATIONS", "LOW_RESOURCE
             "LOW_RESOURCE_WEBSERVER", "SHOW_FPS")
 OLD_CATEGORIES = tuple(LOW_RESOURCE_DEFAULTS)   # what LOW_RESOURCE_MODE stood for
 LABELS = {"FEWER_EDGES_WHILE_MOVING": "Fewer Edges Drawn While Moving:",
-          "LOW_RESOURCE_ANIMATIONS": "No Zoom or Sidebar Animation:",
+          "LOW_RESOURCE_ANIMATIONS": "No Zoom Animation:",
           "LOW_RESOURCE_DRAWING": "Update Colors After Mouse Release:",
           "LOW_RESOURCE_WEBSERVER": "Update Web Pages After Mouse Release:",
           "SHOW_FPS": "Show Frame Rate (FPS):"}
@@ -543,7 +543,8 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
         self.assertIn("`SSN_EDGE_MOTION_LOD=0`", text["FEWER_EDGES_WHILE_MOVING"])
         self.assertIn("Prints and captures", text["FEWER_EDGES_WHILE_MOVING"])
         self.assertIn("glide", text["LOW_RESOURCE_ANIMATIONS"])
-        self.assertIn("slide", text["LOW_RESOURCE_ANIMATIONS"])
+        # The sidebar is off since the Console took its buttons, so its slide is no longer offered.
+        self.assertNotIn("sidebar", text["LOW_RESOURCE_ANIMATIONS"])
         for words in ("threshold slider", "neighbour colouring", "selection box"):
             self.assertIn(words, text["LOW_RESOURCE_DRAWING"])
         self.assertIn("Meta Data sheet", text["LOW_RESOURCE_WEBSERVER"])
@@ -557,8 +558,8 @@ class ConfigSectionTests(SectionGeometry, unittest.TestCase):
 
     # What each switch still does in a Viewer opened in UMAP mode (Layout Method set to
     # UMAP or PaCMAP) is shown in test_low_resource_mode.UmapModeTests: Fewer Edges Drawn While
-    # Moving, for a selection of 250,000 edges or more; the zoom and sidebar
-    # animations and the frame rate, in full; Update Colors After Mouse Release, for
+    # Moving, for a selection of 250,000 edges or more; the zoom animation and
+    # the frame rate, in full; Update Colors After Mouse Release, for
     # the threshold slider and the selection box; Update Web Pages After Mouse
     # Release, for the selection box. Nodes cannot be dragged there. So no switch
     # has lost every effect, and none is greyed.

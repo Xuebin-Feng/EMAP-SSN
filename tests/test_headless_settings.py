@@ -171,7 +171,7 @@ class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
 
     def test_viewer_exports_and_validation_take_the_old_low_resource_switch(self):
         """LOW_RESOURCE_MODE, in saved settings, an older export or an overlay,
-        stands for No Zoom or Sidebar Animation, Update Colors After Mouse Release and
+        stands for No Zoom Animation, Update Colors After Mouse Release and
         Update Web Pages After Mouse Release; exports write those and never the old key."""
         from desktop.Viewer_State import validate_viewer_document
         categories = ("LOW_RESOURCE_ANIMATIONS", "LOW_RESOURCE_DRAWING", "LOW_RESOURCE_WEBSERVER")

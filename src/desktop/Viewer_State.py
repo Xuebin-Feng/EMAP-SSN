@@ -64,7 +64,7 @@ VISUAL_PROFILE_DEFAULTS = {
 # the Viewer can be spared, all off by default. The Viewer asks each through
 # its helper below, so a category can come to cover more without new reads.
 LOW_RESOURCE_DEFAULTS = {
-    # No Zoom or Sidebar Animation: the wheel zoom without its glide, the sidebar without its slide.
+    # No Zoom Animation: the wheel zoom without its glide (and the sidebar, which is off, without its slide).
     "LOW_RESOURCE_ANIMATIONS": False,
     # Update Colors After Mouse Release: the threshold slider redraws the edges when let
     # go; a right-drag of nodes leaves their edges out, and a selection box
@@ -92,7 +92,7 @@ def fewer_edges_while_moving(configuration):
 
 
 def low_resource_animations(configuration):
-    """No Zoom or Sidebar Animation: whether the wheel zoom and the sidebar skip their animations."""
+    """No Zoom Animation: whether the wheel zoom (and the sidebar, which is off) skips its animation."""
     return bool(getattr(configuration, "LOW_RESOURCE_ANIMATIONS", False))
 
 
@@ -109,9 +109,9 @@ def low_resource_webserver(configuration):
     return bool(getattr(configuration, "LOW_RESOURCE_WEBSERVER", False))
 
 
-# The one switch the categories replaced, which turned No Zoom or Sidebar
-# Animation, Update Colors After Mouse Release and Update Web Pages After Mouse
-# Release on or off together. Settings files, saved profiles and settings
+# The one switch the categories replaced, which turned No Zoom Animation,
+# Update Colors After Mouse Release and Update Web Pages After Mouse Release on
+# or off together. Settings files, saved profiles and settings
 # documents written before may hold it.
 LEGACY_LOW_RESOURCE_KEY = "LOW_RESOURCE_MODE"
 

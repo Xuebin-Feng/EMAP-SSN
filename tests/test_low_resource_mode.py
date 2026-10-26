@@ -6,7 +6,7 @@
 EMAPSSN_Config.py, EMAPSSN_Viewer.py, desktop/Viewer_Fps.py).
 
 The Visual Effects tab's Low Resource Mode section has a switch per category
-(Fewer Edges Drawn While Moving, No Zoom or Sidebar Animation, Update Colors
+(Fewer Edges Drawn While Moving, No Zoom Animation, Update Colors
 After Mouse Release, Update Web Pages After Mouse Release) and Show Frame Rate
 (FPS), all off by default. These tests check the old single switch's migration
 in settings files and settings documents; that each category's helper reads
@@ -403,7 +403,7 @@ class UmapModeTests(unittest.TestCase):
 
     * Fewer Edges Drawn While Moving still thins a selection of MIN_SUBSET_SEGMENTS
       edges (250,000) or more, and is never in effect for fewer;
-    * No Zoom or Sidebar Animation and Show Frame Rate (FPS) never look at the mode;
+    * No Zoom Animation and Show Frame Rate (FPS) never look at the mode;
     * Update Colors After Mouse Release keeps the threshold slider and the selection
       box, and loses the node drag;
     * Update Web Pages After Mouse Release keeps the selection box, and loses the

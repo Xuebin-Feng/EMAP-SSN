@@ -206,7 +206,7 @@ DIRECTORY_LABELS = {
 # then the frame rate, in this order.
 LOW_RESOURCE_SWITCH_LABELS = {
     "FEWER_EDGES_WHILE_MOVING": QT_TRANSLATE_NOOP("Config", "Fewer Edges Drawn While Moving:"),
-    "LOW_RESOURCE_ANIMATIONS": QT_TRANSLATE_NOOP("Config", "No Zoom or Sidebar Animation:"),
+    "LOW_RESOURCE_ANIMATIONS": QT_TRANSLATE_NOOP("Config", "No Zoom Animation:"),
     "LOW_RESOURCE_DRAWING": QT_TRANSLATE_NOOP("Config", "Update Colors After Mouse Release:"),
     "LOW_RESOURCE_WEBSERVER": QT_TRANSLATE_NOOP("Config", "Update Web Pages After Mouse Release:"),
     "SHOW_FPS": QT_TRANSLATE_NOOP("Config", "Show Frame Rate (FPS):"),
@@ -2586,8 +2586,8 @@ if __name__ == "__main__":
                     ),
                 ),
                 "LOW_RESOURCE_ANIMATIONS": Tip(
-                    translate("Config", "Skips the Viewer's animations: the wheel zoom without the glide, and the sidebar without the slide."),
-                    details=(translate("Config", "Each wheel step zooms at once, and the sidebar opens and closes at once, sparing the frames in between."),),
+                    translate("Config", "Skips the Viewer's zoom animation: the wheel zoom jumps without its glide."),
+                    details=(translate("Config", "Each wheel step zooms at once, sparing the frames in between."),),
                 ),
                 "LOW_RESOURCE_DRAWING": Tip(
                     translate("Config", "Redraws less of the network while you drag, and catches up when you let go."),

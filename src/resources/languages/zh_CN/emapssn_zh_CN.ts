@@ -1338,17 +1338,15 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">开启时，显卡会另存一份已绘制边的精简副本，这些边占用的显存约增加三分之一。</translation>
     </message>
     <message>
-        <location line="+4"/>
         <source>Skips the Viewer&apos;s animations: the wheel zoom without the glide, and the sidebar without the slide.</source>
-        <translation type="unfinished">跳过查看器的动画：滚轮缩放不再平滑过渡，侧边栏不再滑动开合。</translation>
+        <translation type="obsolete">跳过查看器的动画：滚轮缩放不再平滑过渡，侧边栏不再滑动开合。</translation>
     </message>
     <message>
-        <location line="+1"/>
         <source>Each wheel step zooms at once, and the sidebar opens and closes at once, sparing the frames in between.</source>
-        <translation type="unfinished">滚轮每转一格即刻缩放，侧边栏即刻打开或关闭，省去其间各帧的绘制。</translation>
+        <translation type="obsolete">滚轮每转一格即刻缩放，侧边栏即刻打开或关闭，省去其间各帧的绘制。</translation>
     </message>
     <message>
-        <location line="+3"/>
+        <location line="+8"/>
         <source>Redraws less of the network while you drag, and catches up when you let go.</source>
         <translation type="unfinished">拖动时减少网络的重绘，松开后再一并更新。</translation>
     </message>
@@ -1656,12 +1654,11 @@ The default uses $cache_file$ and follows the Cache File Directory; custom relat
         <translation type="unfinished">比对长度</translation>
     </message>
     <message>
-        <location line="-621"/>
         <source>No Zoom or Sidebar Animation:</source>
-        <translation type="unfinished">无缩放和侧边栏动画：</translation>
+        <translation type="obsolete">无缩放和侧边栏动画：</translation>
     </message>
     <message>
-        <location line="+1"/>
+        <location line="-620"/>
         <source>Update Colors After Mouse Release:</source>
         <translation type="unfinished">松开鼠标后再更新颜色：</translation>
     </message>
@@ -1888,7 +1885,12 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="obsolete">选择颜色</translation>
     </message>
     <message>
-        <location line="-3290"/>
+        <location line="-3997"/>
+        <source>No Zoom Animation:</source>
+        <translation type="unfinished">无缩放动画：</translation>
+    </message>
+    <message>
+        <location line="+707"/>
         <source>Current color: {value}</source>
         <translation type="unfinished">当前颜色：{value}</translation>
     </message>
@@ -2311,7 +2313,17 @@ Significantly improves responsiveness and reduces rendering latency for large ne
         <translation type="unfinished">布局方法设为 UMAP 或 PaCMAP 时，只绘制所选节点的边，因此只有所选节点的边达到 250,000 条或更多时才会省略部分边，并且节点无法拖动。</translation>
     </message>
     <message>
-        <location line="+16"/>
+        <location line="+5"/>
+        <source>Skips the Viewer&apos;s zoom animation: the wheel zoom jumps without its glide.</source>
+        <translation type="unfinished">跳过查看器的缩放动画：滚轮缩放直接跳到目标，不再平滑过渡。</translation>
+    </message>
+    <message>
+        <location line="+1"/>
+        <source>Each wheel step zooms at once, sparing the frames in between.</source>
+        <translation type="unfinished">滚轮每转一格即刻缩放，省去其间各帧的绘制。</translation>
+    </message>
+    <message>
+        <location line="+10"/>
         <source>With Layout Method set to UMAP or PaCMAP, nodes cannot be dragged, so only the threshold slider and the selection box apply.</source>
         <translation type="unfinished">布局方法设为 UMAP 或 PaCMAP 时，节点无法拖动，因此只有阈值滑块和选择框适用。</translation>
     </message>
@@ -6972,7 +6984,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+443"/>
+        <location line="+444"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -8755,7 +8767,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+23"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-609"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-610"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>

@@ -494,7 +494,7 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>No Zoom or Sidebar Animation:</source>
+        <source>No Zoom Animation:</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
@@ -1093,11 +1093,11 @@
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Skips the Viewer&apos;s animations: the wheel zoom without the glide, and the sidebar without the slide.</source>
+        <source>Skips the Viewer&apos;s zoom animation: the wheel zoom jumps without its glide.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Each wheel step zooms at once, and the sidebar opens and closes at once, sparing the frames in between.</source>
+        <source>Each wheel step zooms at once, sparing the frames in between.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>
