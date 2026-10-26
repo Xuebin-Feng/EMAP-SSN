@@ -353,38 +353,56 @@ class InstallTests(unittest.TestCase):
             process.stdout.close()
 
     def test_a_venv_with_the_probe_installed_and_the_gate_off_loads_nothing_and_writes_nothing(self):
-        _process, output = self.start("src/EMAPSSN_Tools.py", """
+        _process, output = self.start("src/EMAPSSN_Tools.py", f"""
             import sys
-            print("MODULES", [name for name in sys.modules if "desktop_probe" in name])
+            ours = [name for name, module in sys.modules.items() if name != "__main__" and {str(self.root)!r} in str(getattr(module, "__file__", ""))]
+            print("MODULES", ours)
             """, gate=False)
         self.assertIn("MODULES []", output)
         self.assertFalse((self.root / "temp").exists())
         self.assertFalse((self.root / "out").exists())
 
     def test_with_the_gate_on_a_script_that_is_no_entry_point_is_left_alone(self):
-        _process, output = self.start("src/tools/Something.py", """
-            import sys
-            print("STARTED", getattr(sys.modules.get("emapssn_desktop_probe_boot"), "_started", None))
-            """)
-        self.assertIn("STARTED None", output)
-        self.assertFalse((self.root / "out" / "procs").exists() and any((self.root / "out" / "procs").iterdir()))
+        self.start("src/tools/Something.py", "pass\n")
+        self.assertEqual(self.recorded_folders(), [])
 
     def test_a_process_of_a_test_run_stays_inert_even_when_it_runs_an_entry_point(self):
-        _process, output = self.start("src/EMAPSSN_Tools.py", """
-            import sys
-            print("STARTED", getattr(sys.modules.get("emapssn_desktop_probe_boot"), "_started", None))
-            """, environment=clean_environment(**{boot.TEST_ENVIRONMENT: "4242"}))
-        self.assertIn("STARTED None", output)
-        self.assertEqual(list((self.root / "out" / "procs").iterdir()) if (self.root / "out" / "procs").exists() else [], [])
+        self.start("src/EMAPSSN_Tools.py", "pass\n", environment=clean_environment(**{boot.TEST_ENVIRONMENT: "4242"}))
+        self.assertEqual(self.recorded_folders(), [])
+
+    def recorded_folders(self):
+        procs = self.root / "out" / "procs"
+        return sorted(path.name for path in procs.iterdir()) if procs.exists() else []
 
     def test_the_hook_run_twice_by_a_python_that_runs_pth_lines_twice_starts_one_probe(self):
         _process, output = self.start("src/desktop/Desktop_Launcher.py", f"""
             import site
             site.addsitedir({str(self.site)!r})
             """)
-        folders = sorted(path.name for path in (self.root / "out" / "procs").iterdir())
+        folders = self.recorded_folders()
         self.assertEqual(len(folders), 1, folders)
         self.assertTrue(folders[0].endswith("-splash"))
+
+    def test_two_checkouts_that_share_one_venv_and_so_one_stub_each_get_their_own_probe(self):
+        other = make_checkout(Path(self.temp.name) / "other")
+        store.write_gate(other, other / "out")
+        store.write_gate(self.root, self.root / "out")
+        stub_folder = self.root / "shared"
+        stub_folder.mkdir()
+        shutil.copyfile(PROBE_DIR / "stub.py", stub_folder / probe_cli.STUB_NAME)
+        script = self.root / "src" / "EMAPSSN_Tools.py"
+        script.write_text(textwrap.dedent(f"""
+            import sys
+            sys.path.insert(0, {str(stub_folder)!r})
+            import emapssn_desktop_probe_stub as stub
+            stub.load({str(other)!r})   # the other checkout's .pth runs first: this script is not its entry point
+            stub.load({str(self.root)!r})
+            stub.load({str(self.root)!r})
+            """), encoding="utf-8")
+        result = subprocess.run([sys.executable, str(script)], capture_output=True, text=True, cwd=self.root, env=clean_environment())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(self.recorded_folders()), 1)
+        self.assertFalse((other / "out" / "procs").exists() and any((other / "out" / "procs").iterdir()))
 
     def test_an_entry_point_records_its_start_and_exit_with_the_command_line_redacted(self):
         process, _output = self.start("src/EMAPSSN_Tools.py", "pass\n",

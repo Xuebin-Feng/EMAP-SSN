@@ -11,22 +11,22 @@ The .pth file beside it names the checkout and imports this module only when the
 So a venv with the probe installed and the gate off pays one stat call per interpreter start and imports
 nothing. With the gate on, ``load`` runs boot.py from the checkout (so the probe's code is the checkout's own and
 a change to it needs no reinstall) and lets it decide whether this process is one of the checkout's entry points.
-Python 3.13 runs a .pth line twice in a venv, hence the guard. Standard library only, nothing but ``load`` may
-raise into the interpreter's start-up, and it does not.
+Python 3.13 runs a .pth line twice in a venv, hence the guard, which is per checkout: two checkouts may share one
+venv (each has its own .pth, and this one stub). Standard library only, nothing but ``load`` may raise into the
+interpreter's start-up, and it does not.
 """
 
 import importlib.util
 import os
 import sys
 
-_loaded = False
+_loaded = set()
 
 
 def load(checkout):
-    global _loaded
-    if _loaded:
+    if checkout in _loaded:
         return
-    _loaded = True
+    _loaded.add(checkout)
     try:
         path = os.path.join(checkout, "tests", "desktop_probe", "boot.py")
         spec = importlib.util.spec_from_file_location("emapssn_desktop_probe_boot", path)
