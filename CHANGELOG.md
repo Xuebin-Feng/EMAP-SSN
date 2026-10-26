@@ -853,6 +853,20 @@ still change before version 1.0.0.
     - handles requests in the order they were written;
     - lets `wait` succeed for programs with no window, such as the Layout Generator;
     - no longer hides parts of FASTA protein headers as if they were secrets.
+- **The first `cluster` or `subcluster` of a session no longer freezes the Viewer.** The
+  libraries they use (Numba, and for MCL `markov_clustering`, which loads about 1,300
+  modules) were loaded on the Viewer's own thread. They now load on the command's worker
+  thread. On an 821-node network, the longest pause fell from 0.34 s to 0.09 s for
+  `cluster`, and from 1.6 s (once 15 s) to 0.1 s for `cluster mcl`.
+- **`print full` no longer holds the mouse and the keys while it draws its tiles.**
+  - **Before:** a click or key waited until the capture ended, up to 11 s on a large print.
+  - **Now:** the tiles are drawn in short slices, and the Viewer answers within about 0.06 s.
+    The status line counts the tiles. The capture takes 7–18 % longer, and the PNG is the
+    same, byte for byte.
+  - **During the capture:**
+    - panning, zooming, hovering and clicking leave it alone;
+    - selecting or moving nodes, or resizing the window, cancels it, saving nothing;
+    - commands typed meanwhile wait for the print, and `undo` stops it.
 
 ## [0.4.0] - 2026-10-16
 
