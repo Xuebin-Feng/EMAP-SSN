@@ -25,6 +25,7 @@ import h5py
 import numpy as np
 
 import Cache_Manifest as cache_manifest
+from utilities.Output_Names import new_partial_file
 from utilities.Sequence_Utils import derive_node_metadata, load_sanitized_fasta
 from desktop.Viewer_State import prepare_network
 
@@ -603,11 +604,12 @@ def _generation_lock(saved_root):
                 fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
 
 
+# The files a run stages are the cache's own outputs, published beside one another, so they are
+# made as any file the program saves is (the umask decides who may read them: new_partial_file),
+# not for their owner alone as tempfile.mkstemp makes them.
 def _stage_json(folder: str, filename: str, payload: Mapping[str, Any]) -> str:
-    descriptor, staged = tempfile.mkstemp(
-        prefix=f".{filename}.", suffix=".partial", dir=folder
-    )
-    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+    staged = new_partial_file(folder, f".{filename}.", ".partial")
+    with open(staged, "w", encoding="utf-8", newline="\n") as handle:
         json.dump(payload, handle, indent=2, sort_keys=True, ensure_ascii=False)
         handle.write("\n")
         handle.flush()
@@ -616,10 +618,8 @@ def _stage_json(folder: str, filename: str, payload: Mapping[str, Any]) -> str:
 
 
 def _stage_fasta(folder: str, filename: str, records: list[tuple[str, str]]) -> str:
-    descriptor, staged = tempfile.mkstemp(
-        prefix=f".{filename}.", suffix=".partial", dir=folder
-    )
-    with os.fdopen(descriptor, "w", encoding="utf-8", newline="\n") as handle:
+    staged = new_partial_file(folder, f".{filename}.", ".partial")
+    with open(staged, "w", encoding="utf-8", newline="\n") as handle:
         for header, sequence in records:
             handle.write(f">{header}\n{sequence}\n")
         handle.flush()
@@ -808,12 +808,7 @@ def _generate_layout_cache_locked(settings: LayoutGenerationSettings) -> LayoutG
             )
             staged_paths.append(staged_manifest)
 
-        descriptor, staged_cache = tempfile.mkstemp(
-            prefix=f".{settings.CACHE_FILENAME}.",
-            suffix=".partial",
-            dir=cache_folder,
-        )
-        os.close(descriptor)
+        staged_cache = new_partial_file(cache_folder, f".{settings.CACHE_FILENAME}.", ".partial")
         staged_paths.append(staged_cache)
         with h5py.File(staged_cache, "w") as output:
             string_dtype = h5py.string_dtype(encoding="utf-8")

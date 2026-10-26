@@ -629,6 +629,78 @@ class LayoutCacheGenerationTests(unittest.TestCase):
         )
 
 
+@unittest.skipIf(sys.platform == "win32", "Windows has no file mode bits for the umask to decide")
+class LayoutCacheFileModeTests(unittest.TestCase):
+    """The files a run publishes are made as any saved file is, so the umask decides who may read them.
+
+    They were staged with tempfile.mkstemp, whose files are for their owner alone (0600), so a layout cache,
+    its manifest and the FASTA backup were private on Linux and macOS while the other outputs were not
+    (utilities.Output_Names.new_partial_file, tests/test_output_names.py). What is private on purpose stays so.
+    """
+
+    def setUp(self):
+        self.previous_umask = os.umask(0o027)
+        self.addCleanup(os.umask, self.previous_umask)
+
+    @staticmethod
+    def mode(path):
+        return os.stat(path).st_mode & 0o777
+
+    def test_the_staged_files_follow_the_umask_and_are_named_as_partials(self):
+        with tempfile.TemporaryDirectory() as folder:
+            staged_json = Layout_Cache_Generator._stage_json(folder, "manifest.json", {"a": 1})
+            staged_fasta = Layout_Cache_Generator._stage_fasta(folder, "set.fasta", [("a", "MK")])
+            for staged, name in ((staged_json, "manifest.json"), (staged_fasta, "set.fasta")):
+                with self.subTest(name=name):
+                    base = os.path.basename(staged)
+                    self.assertTrue(base.startswith(f".{name}.") and base.endswith(".partial"), base)
+                    self.assertEqual(self.mode(staged), 0o640)
+            self.assertEqual(pathlib.Path(staged_json).read_text(encoding="utf-8"), '{\n  "a": 1\n}\n')
+            self.assertEqual(pathlib.Path(staged_fasta).read_text(encoding="utf-8"), ">a\nMK\n")
+
+    def test_the_published_cache_its_manifest_and_the_fasta_backup_follow_the_umask(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            _write_inputs(temp_path)
+            settings = LayoutGenerationSettings.from_document(_settings_document(temp_path))
+            fake_engine = SimpleNamespace(
+                calculate_layout=lambda _connectivity, node_count, _params: (
+                    np.zeros((node_count, 2), dtype=np.float32), 10.0))
+            with mock.patch.dict(sys.modules, {"Layout_Engine_SSN": fake_engine}), redirect_stdout(io.StringIO()):
+                result = generate_layout_cache(settings)
+            folder = pathlib.Path(result.cache_path).parent
+            published = {path.name: self.mode(path) for path in folder.iterdir() if not path.name.startswith(".layout-")}
+            self.assertEqual(published, {
+                pathlib.Path(result.cache_path).name: 0o640,
+                Cache_Manifest.MANIFEST_FILENAME: 0o640,
+                "set.fasta": 0o640,
+            })
+            self.assertEqual(list(folder.glob("*.partial")), [])
+
+    def test_the_viewer_launch_snapshot_stays_private(self):
+        modes = []
+
+        def start(project_root, env, *, settings_path=None, executable=None, platform_name=None):
+            modes.append(self.mode(settings_path))
+            pathlib.Path(settings_path).unlink()
+            return mock.Mock(poll=mock.Mock(return_value=None))
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_path = pathlib.Path(temp_dir)
+            _write_inputs(temp_path)
+            settings_file = temp_path / "settings.json"
+            settings_file.write_text(json.dumps(_settings_document(temp_path, cache_filename="cli_test.h5")),
+                                     encoding="utf-8")
+            fake_result = SimpleNamespace(cache_path=str(temp_path / "layouts" / "folder" / "cli_test.h5"))
+            with mock.patch("Layout_Cache_Generator.generate_layout_cache", return_value=fake_result), \
+                    mock.patch("desktop.Viewer_State.validate_viewer_document", side_effect=lambda doc, root: doc), \
+                    mock.patch("desktop.Desktop_Launcher_Monitor.launch_viewer_session", side_effect=start), \
+                    mock.patch.dict(os.environ), redirect_stdout(io.StringIO()):
+                os.environ.pop("SSN_VIEWER_SETTINGS_PATH", None)
+                self.assertEqual(Layout_Cache_Generator.main([str(settings_file), "--launch-viewer"]), 0)
+        self.assertEqual(modes, [0o600])
+
+
 class LayoutTargetProtectionTests(unittest.TestCase):
     """resolve_layout_selection refuses a Viewer-chosen target folder that
     belongs to another cache, and creates nothing while it checks."""
