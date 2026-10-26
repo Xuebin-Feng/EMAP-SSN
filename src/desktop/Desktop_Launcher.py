@@ -48,13 +48,18 @@ Apple Events permission is needed): when the environment needs setup the launche
 instead of opening one itself. Imports only PySide6 and the standard library, so it is up before the heavy
 modules load.
 
+The splash is an ordinary frameless window (desktop/Splash.py), not a splash-screen one: on Windows it has a taskbar
+button with the window's small icon, in the window's taskbar group (the splash sets the same AppUserModelID, name
+and relaunch command as the window, from desktop/Taskbar_Identity.py), so the button is the window's when the splash
+closes; it goes behind other windows and comes forward when clicked, and the user can drag it.
+
 Linux and macOS notes. The launcher gives its process the desktop identity of the window it starts, so the
 splash and the window are one entry in the taskbar or Dock: on Linux the name of the kind's .desktop entry
 (application name, which is the X11 window class, and desktop file name, which is the Wayland app id; the
 same two calls the windows make, desktop.Desktop_App.configure_linux_qt_desktop_identity), on macOS the
 kind's logo as the application icon. On a Wayland session the launcher runs on Wayland itself (only the
-window is moved to XWayland, by the monitor), where a client cannot place its window or keep it on top: the
-splash asks for both with its window hints and takes what the compositor gives. Nothing here has been run on
+window is moved to XWayland, by the monitor), where a client cannot place its window or stack it above others: the
+splash asks for the centre of the screen and takes what the compositor gives. Nothing here has been run on
 a Mac; see README.md.
 """
 
@@ -633,7 +638,7 @@ class Launch(QObject):
                 window=self._window_name(), minutes=int(self.timeout // 60)))
 
     def _window_name(self):
-        return f"{SplashModule.PRODUCT} {SplashModule.tr(SplashModule.SUBTITLES[self.info.splash_kind])}"
+        return SplashModule.window_name(self.info.splash_kind)
 
     def window_ready(self):
         self.mark("gui_ready")

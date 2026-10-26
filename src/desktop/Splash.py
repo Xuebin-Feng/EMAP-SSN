@@ -31,19 +31,30 @@ section by itself too, with that step's lines in the warning colour; the start g
 open, stays at Ready until Close is pressed, as it does for anyone who opened the section.
 
 A program that sits beside this one adds its own window with register_kind (its name under the
-product's name, its art), and its own texts with install_extra_catalogs; this file names none.
+product's name, its art, its small icon and taskbar identity), and its own texts with install_extra_catalogs; this file
+names none.
 
-It imports only PySide6's QtCore, QtGui and QtWidgets, the standard library and the Qt-free colour maths
-(Theme_Colors), so it is on screen long before the heavy imports (NumPy, torch, VisPy) of the windows it waits
-for (Studio_Theme itself would add QtSvg and the icon engine: about 5 ms with its bytecode cached, 25 ms
-while it is compiled), and it runs in a process of its own: the windows load torch before Qt on purpose. It has no taskbar
-button (a Qt splash-screen window is a tool window on Windows) and opens on the screen under
-the mouse pointer.
+It imports only PySide6's QtCore, QtGui and QtWidgets, the standard library, the Qt-free colour maths
+(Theme_Colors) and the taskbar identity (Taskbar_Identity: ctypes and QtCore), so it is on screen long before the
+heavy imports (NumPy, torch, VisPy) of the windows it waits for (Studio_Theme itself would add QtSvg and the icon
+engine: about 5 ms with its bytecode cached, 25 ms while it is compiled), and it runs in a process of its own: the
+windows load torch before Qt on purpose.
+
+It is an ordinary frameless window, not a Qt splash-screen window (a tool window on Windows, with no taskbar button, which a
+desktop may keep above the others). It opens in front of the other windows without taking the keyboard focus, then goes
+behind them as any window does, and comes forward when it is clicked, or its taskbar button is. The button has the small
+icon of the window the splash is for and that window's taskbar identity (desktop/Taskbar_Identity.py: the same
+AppUserModelID, name and relaunch command on Windows, the same window class on Linux), so the splash and the window are one
+group and the button is the window's when the splash closes. Pressing anywhere on it but a button, the link or the section's
+text (which is selectable) and dragging moves it, with the system's own move (QWindow.startSystemMove: Windows, X11 and
+Wayland). The error view raises and activates it, since a start that failed must be seen. It opens on the screen under the
+mouse pointer.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import sys
@@ -64,6 +75,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QPushButton, QWidget
 
+from desktop.Taskbar_Identity import APP_USER_MODEL_IDS, TaskbarIdentity, launcher_relaunch_command
 from desktop.Theme_Colors import DEFAULT_THEME_COLOR, THEME_COLORS, shade_set
 from utilities import Startup_Status as Status
 from utilities.Console_Capture import Splitter
@@ -88,12 +100,47 @@ LOGO_FILES = {"config": "splash_logo_viewer_512.png", "tools": "splash_logo_tool
               "viewer": "splash_logo_viewer_512.png"}
 
 
-def register_kind(kind, subtitle, logo):
+@dataclasses.dataclass(frozen=True)
+class Taskbar:
+    """What a kind's splash is to the Windows taskbar, which gives the splash a button of its own like any window's.
+
+    ``icon`` is the window's small icon, an .ico (a path under LOGOS, or absolute): the taskbar shows small icons,
+    and the desktop shortcuts the large art. ``app_id`` is the AppUserModelID the window sets, so that the splash
+    and the window are one group and the button is the window's when the splash closes, and ``relaunch`` the
+    command line a pinned copy starts, as the window gives it (desktop/Taskbar_Identity.py: the windows and the
+    splash set the same properties); None for a window that cannot be started again on its own, which then sets
+    only its ID. ``app_id`` None sets no identity: the splash has its icon and its name, and the taskbar groups it
+    with nothing.
+    """
+
+    icon: str
+    app_id: str | None = None
+    relaunch: str | None = None
+
+
+# The built-in windows' taskbar identity, as they set it themselves (APP_USER_MODEL_IDS, and the words EMAP-SSN.exe
+# starts them with): Config, Tools, and the Viewer a session starts, which sets only its process's ID and has no way
+# of being started again, so its splash groups with the Viewers that are open and says nothing of relaunching.
+TASKBARS = {
+    "config": Taskbar("viewer_logo.ico", APP_USER_MODEL_IDS["config"], launcher_relaunch_command("viewer")),
+    "tools": Taskbar("tool_logo.ico", APP_USER_MODEL_IDS["tools"], launcher_relaunch_command("tools")),
+    "viewer": Taskbar("viewer_logo.ico", APP_USER_MODEL_IDS["viewer"]),
+}
+
+
+def register_kind(kind, subtitle, logo, taskbar=None):
     """Add a window of a program beside this one: ``subtitle`` is its name under the product's, in English and
-    marked for translation by the program (the "Splash" context of its catalog), and ``logo`` is the path of its
-    art, a 512 px copy of its logo. A second call with the same ``kind`` replaces the first."""
+    marked for translation by the program (the "Splash" context of its catalog), ``logo`` is the path of its
+    art, a 512 px copy of its logo, and ``taskbar`` (a Taskbar) its small icon and its identity in the taskbar
+    (without one, the splash has no icon of its own and the taskbar groups it with nothing). A second call with the
+    same ``kind`` replaces the first."""
     SUBTITLES[kind] = subtitle
     LOGO_FILES[kind] = str(logo)
+    if taskbar is None:
+        TASKBARS.pop(kind, None)
+    else:
+        TASKBARS[kind] = taskbar
+
 
 # The splash's colours by role, and the token of the Studio theme's light set (the windows' own) each one is: the greys,
 # the text and the warning and danger colours are the same in every theme colour, and "accent" and "accent_soft" are
@@ -140,6 +187,12 @@ WARNING_COLUMNS = 78
 # How much of the log one tick reads, so a burst of output never stalls the splash.
 TAIL_READ_LIMIT = 256 * 1024
 RADIUS = 14.0
+# Linux (X11): a window manager stacks a window that opens without the focus, as this one asks to, just below the window
+# that has it, which would hide a splash that opens over another window. So on Linux it opens above the others and, this
+# many milliseconds later, becomes a window like the others: seen at first, behind other windows after. Windows puts a
+# window shown without activation in front of the active one by itself (measured), macOS is not tested, and Wayland lets a
+# program neither stack its window nor keep it above others, where the hint changes nothing.
+OPEN_ON_TOP_MS = 2500 if sys.platform.startswith("linux") else 0
 # The bar: the text column's width, 3 px high.
 TEXT_X, TEXT_WIDTH = 40.0, 300.0
 # The status line (elided in the middle) and the error view's reason (wrapped) are this wide, so that they end short of
@@ -403,6 +456,11 @@ def art_rect():
     return QRectF(WIDTH - ART_RIGHT_MARGIN - ART_SIZE, (HEIGHT - ART_SIZE) / 2, ART_SIZE, ART_SIZE)
 
 
+def window_name(kind):
+    """The name of the window a splash is for, as its own title has it: the product's, then the kind's (translated)."""
+    return f"{PRODUCT} {tr(SUBTITLES[kind])}"
+
+
 def screen_center(point=None):
     """The centre of the available area of the screen under ``point`` (the mouse pointer by default)."""
     screen = QGuiApplication.screenAt(QCursor.pos() if point is None else point) or QGuiApplication.primaryScreen()
@@ -506,12 +564,19 @@ class SplashWindow(QWidget):
     closed = Signal()
 
     def __init__(self, kind="config", language=None, status_file=None, theme_color=None):
-        super().__init__(None, Qt.WindowType.SplashScreen | Qt.WindowType.FramelessWindowHint
-                         | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.NoDropShadowWindowHint)
+        # A top-level window like the others, only frameless: it goes behind other windows, has a taskbar button
+        # that the window it waits for takes over, and comes forward when it is clicked. (A Qt splash-screen window
+        # is a tool window on Windows, with no button, and a desktop may keep a splash-type window above the rest.)
+        flags = Qt.WindowType.Window | Qt.WindowType.FramelessWindowHint | Qt.WindowType.NoDropShadowWindowHint
+        if OPEN_ON_TOP_MS:
+            flags |= Qt.WindowType.WindowStaysOnTopHint
+        super().__init__(None, flags)
         if kind not in SUBTITLES:
             raise ValueError(f"unknown splash kind {kind!r}")
         self.kind = kind
         self.language = language
+        self.setWindowTitle(window_name(kind))  # what the taskbar and the task switchers call it: the window's own name
+        self._set_taskbar_identity()
         self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground, True)  # the rounded corners
         self.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, True)
         self.setFixedSize(WIDTH, HEIGHT)
@@ -524,6 +589,7 @@ class SplashWindow(QWidget):
         self.shown_fraction = 0.0
         self._news_time = time.monotonic()
         self._started = self._news_time
+        self._opened_on_top = False
         self.error = False
         self.error_title = ""
         self.ready = False            # the window is up and the section is open: the user closes the splash
@@ -542,6 +608,16 @@ class SplashWindow(QWidget):
         self.timer.start(TICK_MS)
         self.move_to(screen_center())
         self._apply_layout()
+
+    def _set_taskbar_identity(self):
+        """The small icon of the window it is for and, on Windows, that window's taskbar identity (Taskbar)."""
+        taskbar = TASKBARS.get(self.kind)
+        icon = None if taskbar is None else LOGOS / taskbar.icon
+        if icon is None or not icon.is_file():
+            return
+        self.setWindowIcon(QIcon(str(icon)))
+        if taskbar.app_id and icon.suffix == ".ico":  # the taskbar reads an .ico; the windows set theirs the same way
+            TaskbarIdentity(self, taskbar.app_id, str(icon), self.windowTitle(), taskbar.relaunch)
 
     # --- placing
     def move_to(self, center):
@@ -772,7 +848,37 @@ class SplashWindow(QWidget):
         else:
             super().keyPressEvent(event)
 
+    def mousePressEvent(self, event):
+        """Press anywhere that is not a button, the link or the section's text, and drag: the system moves the window."""
+        handle = self.windowHandle()
+        if (event.button() == Qt.MouseButton.LeftButton and handle is not None
+                and self.childAt(event.position().toPoint()) is None and handle.startSystemMove()):
+            event.accept()
+        else:
+            super().mousePressEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if OPEN_ON_TOP_MS and not self._opened_on_top:
+            self._opened_on_top = True
+            QTimer.singleShot(OPEN_ON_TOP_MS, self._open_as_normal_window)
+
+    def _open_as_normal_window(self):
+        """End the first moments above the other windows (OPEN_ON_TOP_MS): from here on it stacks as any window does."""
+        try:
+            handle = self.windowHandle()
+            if handle is not None and handle.flags() & Qt.WindowType.WindowStaysOnTopHint:
+                handle.setFlag(Qt.WindowType.WindowStaysOnTopHint, False)
+        except RuntimeError:  # the splash has gone (closed and deleted) before the timer fired
+            pass
+
     def closeEvent(self, event):
+        if event.spontaneous() and not (self.error or self.ready):
+            # The system's own request (the taskbar's Close window, Alt+F4) while the window is still starting: the launcher
+            # ends with the splash, and a start that failed after that would be reported to no one. The launcher's close()
+            # is not spontaneous, and the error view and the Ready view, which the user closes, take the system's request.
+            event.ignore()
+            return
         self.timer.stop()
         super().closeEvent(event)
         self.closed.emit()

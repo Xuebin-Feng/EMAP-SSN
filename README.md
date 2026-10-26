@@ -678,6 +678,16 @@ in view, with **Copy** and **Open log**. If that section is open when the window
 stays: it says **Ready** and closes when you press **Close**. If it is closed, it closes by itself, as before.
 If the window fails to start, the section opens by itself with what it printed and why, and **Close**.
 
+The start-up screen is an ordinary window, not one that stays on top. It opens in front of the other windows without
+taking the keyboard focus, goes behind them like any window when you work in another one, and comes forward when you
+click it. It has a taskbar button (Windows, and the dock or panel on Linux), so you can bring it forward from there
+too, and you can move it: press anywhere on it except a button, the **Show details** link and the section's text (which
+you select as usual), and drag. On Windows the button has the small icon of the window being started and is in that window's
+taskbar group, so it simply becomes the window's own button when the start-up screen closes; the Viewer that a session
+opens groups with the Viewers that are already open, since that is where its window goes. While the window is still
+starting, closing the start-up screen from the taskbar or with Alt+F4 does nothing, so that a start that then fails is
+not left unreported; **Close** is there once it says **Ready** or shows an error, and closes it.
+
 The VR Configuration window of opt_vr starts the same way (`EMAP-SSN VR.lnk` runs `EMAP-SSN.exe vr`), with a step of its
 own after the dependency check: **Checking VR hardware…**. A machine that cannot drive a headset gets a warning, not a
 refusal, because the window is useful without one: the section opens by itself with what the check printed in the
@@ -692,10 +702,13 @@ and when the start-up screen itself cannot run. To always start in a terminal, r
 `src/bin/EMAPSSN_Desktop_Launcher.sh viewer --console` (or `tools --console`); `./emapssn` and `./emapssn_tools` also
 run in the terminal you start them from. The start-up screen and the window share the desktop entry's name and icon in the
 taskbar: the start-up screen takes the entry's name as its window class and its Wayland application ID, as the
-windows do. On a Wayland session the start-up screen is a native Wayland window (the windows themselves still run through
-XWayland, see Linux Troubleshooting), and Wayland lets a program neither place its window nor keep it above others: it asks
-for the centre of the screen and for the top, and the compositor decides, so the start-up screen may open off-centre or
-behind another window.
+windows do, and it is a normal window (not a splash-screen window, which a dock may leave out or keep above the rest), so
+the dock lists it and groups it with the window. On an X11 session it stays above other windows for its first two and a
+half seconds, because a window manager stacks a window that opens without the focus below the focused one, which would
+hide it; after that it is stacked as any window is. On a Wayland session the start-up screen is a native Wayland window (the
+windows themselves still run through XWayland, see Linux Troubleshooting), and Wayland lets a program neither place its
+window nor stack it above others: it asks for the centre of the screen, and the compositor decides, so the start-up screen
+may open off-centre or behind another window.
 
 **macOS (written, but not tested on a Mac).** After you run `./install.sh` again, `EMAP-SSN.app` and
 `EMAP-SSN Tools.app` start the same start-up screen with no Terminal window, and open Terminal, as before, only when the

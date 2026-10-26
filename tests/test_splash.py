@@ -2,7 +2,7 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""The start-up splash (desktop.Splash) and the status the windows report to it (utilities.Startup_Status): the light colours are the Studio theme's, its accents (the kicker, bar, link, focus, soft fill and the art's glow) are in the theme colour the window it is for has saved, purple where that is missing, unreadable or unknown, the language follows the saved setting as the windows do, a status file is read line by line as it grows, texts are translated and filled in, the bar fills as the start passes its milestones and never goes back, the window has no taskbar button and opens on the screen under the pointer, and the error view shows the last lines with Copy, Open log and Close. A step of the start that goes wrong without stopping it opens the section by itself with its lines in the warning colour, wrapped to the section's width. A program beside this one adds a window (its name and art) and its own translation catalogs. The splash process hands over to the window it waits for: it closes when the ready file appears, and an error view stays."""
+"""The start-up splash (desktop.Splash) and the status the windows report to it (utilities.Startup_Status): the light colours are the Studio theme's, its accents (the kicker, bar, link, focus, soft fill and the art's glow) are in the theme colour the window it is for has saved, purple where that is missing, unreadable or unknown, the language follows the saved setting as the windows do, a status file is read line by line as it grows, texts are translated and filled in, the bar fills as the start passes its milestones and never goes back, the window is an ordinary frameless one, not a splash-screen window: it has a taskbar button with the small icon of the window it is for, in that window's taskbar group, goes behind other windows and comes forward when clicked, is dragged by the system's own move from anywhere but its buttons, the link and the section's text, and opens on the screen under the pointer, and the error view shows the last lines with Copy, Open log and Close. A step of the start that goes wrong without stopping it opens the section by itself with its lines in the warning colour, wrapped to the section's width. A program beside this one adds a window (its name and art) and its own translation catalogs. The splash process hands over to the window it waits for: it closes when the ready file appears, and an error view stays."""
 
 from __future__ import annotations
 
@@ -24,7 +24,7 @@ if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
 from PySide6.QtCore import QCoreApplication, QPoint, QSize, Qt  # noqa: E402
-from PySide6.QtGui import QColor, QGuiApplication, QImage, QPainter, QPixmap  # noqa: E402
+from PySide6.QtGui import QCloseEvent, QColor, QGuiApplication, QIcon, QImage, QPainter, QPixmap, QWindow  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
@@ -564,40 +564,140 @@ class StatusTests(WindowCase):
 
 
 class PlacementTests(WindowCase):
-    def test_it_is_a_splash_screen_without_a_taskbar_button(self):
+    def test_it_is_an_ordinary_frameless_window_not_a_splash_screen_one(self):
         window = self.splash()
-        self.assertTrue(window.windowFlags() & Qt.WindowType.SplashScreen)
-        self.assertTrue(window.windowFlags() & Qt.WindowType.FramelessWindowHint)
-        self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+        flags = window.windowFlags()
+        self.assertEqual(window.windowType(), Qt.WindowType.Window)  # X11: _NET_WM_WINDOW_TYPE_NORMAL, which docks list and group
+        for kind in (Qt.WindowType.SplashScreen, Qt.WindowType.Tool, Qt.WindowType.Dialog, Qt.WindowType.Popup, Qt.WindowType.ToolTip):
+            self.assertNotEqual(window.windowType(), kind)
+        self.assertTrue(flags & Qt.WindowType.FramelessWindowHint)
+        self.assertTrue(flags & Qt.WindowType.NoDropShadowWindowHint)
+        self.assertTrue(window.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))  # the rounded corners
+        self.assertEqual((window.width(), window.height()), (Splash.WIDTH, Splash.HEIGHT))
 
-    @unittest.skipUnless(sys.platform == "win32", "Windows tool windows have no taskbar button")
-    def test_on_windows_it_is_a_tool_window_not_an_app_window(self):
+    def test_it_opens_without_taking_the_keyboard_focus_and_a_click_activates_it(self):
+        window = self.splash()
+        self.assertTrue(window.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating))
+        self.assertFalse(window.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus)  # a click activates it as any window's
+        self.assertEqual(window.details_button.focusPolicy(), Qt.FocusPolicy.ClickFocus)
+
+    def test_it_stays_above_other_windows_only_for_the_first_moments_where_that_is_needed(self):
+        # Linux (X11): a window opened without the focus is stacked below the focused one, so the splash opens above and
+        # becomes a normal window after OPEN_ON_TOP_MS. Windows puts it in front by itself; Wayland cannot stack at all.
+        with mock.patch.object(Splash, "OPEN_ON_TOP_MS", 0):
+            window = self.splash()
+            self.assertFalse(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertFalse(window.windowHandle().flags() & Qt.WindowType.WindowStaysOnTopHint)
+        timers = []
+        with mock.patch.object(Splash, "OPEN_ON_TOP_MS", 2500), \
+                mock.patch.object(Splash.QTimer, "singleShot", lambda milliseconds, callback: timers.append((milliseconds, callback))):
+            window = self.splash()
+            self.assertTrue(window.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertTrue(window.windowHandle().flags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertEqual([milliseconds for milliseconds, _ in timers], [2500])
+            window.hide()
+            window.show()
+            self.assertEqual(len(timers), 1)  # once, though it is shown again
+            timers[0][1]()
+            self.assertFalse(window.windowHandle().flags() & Qt.WindowType.WindowStaysOnTopHint)
+            self.assertTrue(window.isVisible())  # the window manager is told; no hide and show, so nothing flickers
+
+    def test_the_first_moments_are_on_linux_only(self):
+        self.assertEqual(Splash.OPEN_ON_TOP_MS > 0, sys.platform.startswith("linux"))
+
+    def test_the_end_of_the_first_moments_after_the_window_has_gone_is_harmless(self):
+        import shiboken6
+
+        window = SplashWindow("config")
+        window._open_as_normal_window()  # never shown: no window handle yet
+        shiboken6.delete(window)
+        window._open_as_normal_window()  # the C++ object is gone: the timer fires into nothing
+
+    def test_the_error_view_still_raises_and_activates_the_splash(self):
+        window = self.splash()
+        with mock.patch.object(window, "raise_") as raised, mock.patch.object(window, "activateWindow") as activated:
+            window.show_error(["It printed this."], None)
+        raised.assert_called_once_with()
+        activated.assert_called_once_with()
+
+    def test_nothing_else_raises_or_activates_it(self):
+        window = self.splash()
+        with mock.patch.object(window, "raise_") as raised, mock.patch.object(window, "activateWindow") as activated:
+            window.set_status("Starting…", 0.2)
+            window.show_warning(["A step went wrong."])
+            window.show_ready()
+            window._tick()
+        raised.assert_not_called()
+        activated.assert_not_called()
+
+    @unittest.skipUnless(sys.platform == "win32", "the taskbar button and its identity are Windows'")
+    def test_on_windows_it_is_an_app_window_that_goes_behind_others_with_its_windows_taskbar_identity(self):
         # The offscreen platform has no native windows: Windows' own platform makes the splash's window in a process
-        # of its own and reads the styles it got. The window is created and never shown, so nothing appears.
+        # of its own and reads the styles and the taskbar properties it got. The window is created and never shown, so
+        # nothing appears.
         program = textwrap.dedent(
             """
-            import ctypes, sys
+            import ctypes, json, sys
             sys.path.insert(0, sys.argv[1])
             from PySide6.QtWidgets import QApplication
-            from desktop.Splash import SplashWindow
+            from desktop import Splash, Taskbar_Identity as T
             app = QApplication([])
-            window = SplashWindow("config")
-            window.create()
-            app.processEvents()
+            Splash.load_fonts(None)
+            found = {}
             user32 = ctypes.windll.user32
             user32.GetWindowLongW.restype = ctypes.c_long
             user32.GetWindowLongW.argtypes = [ctypes.c_void_p, ctypes.c_int]
-            print(user32.GetWindowLongW(int(window.winId()), -20) & 0xFFFFFFFF)
+            shell32, ole32 = ctypes.windll.shell32, ctypes.windll.ole32
+            shell32.SHGetPropertyStoreForWindow.argtypes = [ctypes.c_void_p, ctypes.POINTER(T._Guid), ctypes.POINTER(ctypes.c_void_p)]
+            shell32.SHGetPropertyStoreForWindow.restype = ctypes.c_long
+            ole32.PropVariantClear.argtypes = [ctypes.POINTER(T._PropVariant)]
+            for kind in sys.argv[2:]:
+                window = Splash.SplashWindow(kind)
+                window.create()
+                app.processEvents()
+                hwnd = int(window.winId())
+                store = ctypes.c_void_p()
+                iid = T._guid(T._PROPERTY_STORE_IID)
+                assert shell32.SHGetPropertyStoreForWindow(hwnd, ctypes.byref(iid), ctypes.byref(store)) == 0
+                methods = ctypes.cast(ctypes.cast(store, ctypes.POINTER(ctypes.c_void_p))[0], ctypes.POINTER(ctypes.c_void_p))
+                get_value = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(T._PropertyKey),
+                                               ctypes.POINTER(T._PropVariant))(methods[5])
+                texts = {}
+                for property_id in (2, 3, 4, 5):
+                    key = T._PropertyKey(T._guid(T._TASKBAR_PROPERTY_FORMAT), property_id)
+                    value = T._PropVariant()
+                    get_value(store, ctypes.byref(key), ctypes.byref(value))
+                    texts[property_id] = ctypes.wstring_at(value.pointer) if value.type == T._VT_LPWSTR else None
+                    ole32.PropVariantClear(ctypes.byref(value))
+                found[kind] = {"ex": user32.GetWindowLongW(hwnd, -20) & 0xFFFFFFFF, "texts": texts, "title": window.windowTitle()}
+            print(json.dumps(found))
             """
         )
         environment = {key: value for key, value in os.environ.items() if key not in {"QT_QPA_PLATFORM", "PYTHONPATH"}}
-        done = subprocess.run([sys.executable, "-c", program, str(SRC)], capture_output=True, text=True,
-                              env=environment, timeout=60, creationflags=0x08000000)
-        if done.returncode != 0 or not done.stdout.strip().isdigit():
+        done = subprocess.run([sys.executable, "-c", program, str(SRC), "config", "tools", "viewer"], capture_output=True,
+                              text=True, env=environment, timeout=60, creationflags=0x08000000)
+        if done.returncode != 0 or not done.stdout.strip().startswith("{"):
             self.skipTest(f"no native window here: {done.stderr.strip()[-200:]}")
-        extended = int(done.stdout.strip())
-        self.assertTrue(extended & 0x80, "WS_EX_TOOLWINDOW")
-        self.assertFalse(extended & 0x40000, "WS_EX_APPWINDOW")
+        found = json.loads(done.stdout.strip().splitlines()[-1])
+        from desktop import Taskbar_Identity
+
+        for kind, word, icon, name in (("config", "viewer", "viewer_logo.ico", "EMAP-SSN Configuration"),
+                                       ("tools", "tools", "tool_logo.ico", "EMAP-SSN Tools"),
+                                       ("viewer", None, "viewer_logo.ico", "EMAP-SSN Viewer")):
+            with self.subTest(kind=kind):
+                got = found[kind]
+                self.assertFalse(got["ex"] & 0x80, "WS_EX_TOOLWINDOW: a tool window has no taskbar button")
+                self.assertFalse(got["ex"] & 0x8, "WS_EX_TOPMOST: it would stay above the other windows")
+                self.assertFalse(got["ex"] & 0x08000000, "WS_EX_NOACTIVATE: a click would not bring it forward")
+                self.assertEqual(got["title"], name)
+                texts = {int(key): value for key, value in got["texts"].items()}
+                self.assertEqual(texts[5], Taskbar_Identity.APP_USER_MODEL_IDS[kind])  # the window's own ID
+                if word is None:  # the Viewer has no way of being started again: its ID only
+                    self.assertEqual((texts[2], texts[3], texts[4]), (None, None, None))
+                else:
+                    self.assertEqual(texts[2], Taskbar_Identity.launcher_relaunch_command(word))
+                    self.assertEqual(texts[3], str(Splash.LOGOS / icon) + ",0")
+                    self.assertEqual(texts[4], name)
 
     def test_it_opens_centred_on_the_screen_under_the_pointer(self):
         from PySide6.QtCore import QRect
@@ -619,6 +719,218 @@ class PlacementTests(WindowCase):
         window = self.splash()
         window.move_to(QPoint(800, 500))
         self.assertEqual((window.x() + window.width() // 2, window.y() + window.height() // 2), (800, 500))
+
+
+class TaskbarTests(WindowCase):
+    """The splash's taskbar button: the small icon of the window it is for, in that window's taskbar group, named as the window is."""
+
+    WINDOW_SOURCES = {"config": "EMAPSSN_Config.py", "tools": "EMAPSSN_Tools.py", "viewer": "EMAPSSN_Viewer.py"}
+
+    def test_every_built_in_kind_has_the_small_icon_and_the_identity_of_its_window(self):
+        from desktop.Taskbar_Identity import APP_USER_MODEL_IDS, launcher_relaunch_command
+
+        expected = {"config": ("viewer_logo.ico", APP_USER_MODEL_IDS["config"], launcher_relaunch_command("viewer")),
+                    "tools": ("tool_logo.ico", APP_USER_MODEL_IDS["tools"], launcher_relaunch_command("tools")),
+                    "viewer": ("viewer_logo.ico", APP_USER_MODEL_IDS["viewer"], None)}  # the Viewer cannot be started again
+        self.assertEqual(set(Splash.TASKBARS) & set(Splash.KINDS), set(Splash.KINDS))
+        for kind, (icon, app_id, relaunch) in expected.items():
+            with self.subTest(kind=kind):
+                taskbar = Splash.TASKBARS[kind]
+                self.assertEqual((taskbar.icon, taskbar.app_id, taskbar.relaunch), (icon, app_id, relaunch))
+                self.assertTrue((Splash.LOGOS / icon).is_file())
+                self.assertEqual((Splash.LOGOS / icon).suffix, ".ico")
+
+    def test_the_icon_is_the_one_the_window_itself_loads_never_the_large_art_of_the_shortcuts(self):
+        for kind, name in self.WINDOW_SOURCES.items():
+            with self.subTest(kind=kind):
+                icon = Splash.TASKBARS[kind].icon
+                self.assertNotIn("large", icon)
+                self.assertIn(f'"{icon}"', (SRC / name).read_text(encoding="utf-8"))
+
+    def test_the_splash_sets_the_id_and_the_start_command_the_window_sets(self):
+        import ast
+
+        for kind, word in (("config", "viewer"), ("tools", "tools")):
+            with self.subTest(kind=kind):
+                tree = ast.parse((SRC / self.WINDOW_SOURCES[kind]).read_text(encoding="utf-8"))
+                calls = [node for node in ast.walk(tree) if isinstance(node, ast.Call) and ast.unparse(node.func) == "TaskbarIdentity"]
+                self.assertEqual(len(calls), 1)
+                self.assertEqual(ast.unparse(calls[0].args[1]), f"APP_USER_MODEL_IDS['{kind}']")
+                self.assertEqual(ast.unparse(calls[0].args[4]), f"launcher_relaunch_command('{word}')")
+        # The Viewer sets only its process's ID, so its splash sets the same ID and nothing to start it again.
+        source = (SRC / self.WINDOW_SOURCES["viewer"]).read_text(encoding="utf-8")
+        self.assertNotIn("TaskbarIdentity", source)
+        self.assertIn("set_app_user_model_id(APP_USER_MODEL_IDS[\"viewer\"])", source)
+
+    def test_the_name_is_the_windows_own_in_english_and_in_chinese(self):
+        names = {"config": ("Config", Desktop_App.CONFIG_DISPLAY_NAME), "tools": ("Tools", Desktop_App.TOOLS_DISPLAY_NAME),
+                 "viewer": ("Viewer", Desktop_App.VIEWER_DISPLAY_NAME)}
+        translator = Splash.install_catalog("zh_CN")
+        self.assertIsNotNone(translator)
+        self.addCleanup(QCoreApplication.removeTranslator, translator)
+        for language in ("zh_CN", None):
+            if language is None:
+                QCoreApplication.removeTranslator(translator)
+            for kind, (context, text) in names.items():
+                with self.subTest(kind=kind, language=language):
+                    self.assertEqual(Splash.window_name(kind), QCoreApplication.translate(context, text))
+        self.assertEqual(Splash.window_name("config"), "EMAP-SSN Configuration")
+
+    def test_the_window_has_that_name_as_its_title_and_the_small_icon(self):
+        window = self.splash("tools")
+        self.assertEqual(window.windowTitle(), "EMAP-SSN Tools")
+        self.assertFalse(window.windowIcon().isNull())
+        self.assertEqual(window.windowIcon().pixmap(16).toImage(), QIcon(str(Splash.LOGOS / "tool_logo.ico")).pixmap(16).toImage())
+
+    def test_the_identity_goes_on_the_window_through_the_windows_own_helper(self):
+        from desktop.Taskbar_Identity import APP_USER_MODEL_IDS, launcher_relaunch_command
+
+        with mock.patch.object(Splash, "TaskbarIdentity") as identity:
+            window = SplashWindow("config")
+            self.addCleanup(window.deleteLater)
+            viewer = SplashWindow("viewer")
+            self.addCleanup(viewer.deleteLater)
+        self.assertEqual(identity.call_args_list, [
+            mock.call(window, APP_USER_MODEL_IDS["config"], str(Splash.LOGOS / "viewer_logo.ico"), "EMAP-SSN Configuration",
+                      launcher_relaunch_command("viewer")),
+            mock.call(viewer, APP_USER_MODEL_IDS["viewer"], str(Splash.LOGOS / "viewer_logo.ico"), "EMAP-SSN Viewer", None)])
+
+    def test_off_windows_the_helper_does_nothing_and_the_window_class_is_the_launchers(self):
+        # Linux: the window class and the Wayland app id are the process's (Desktop_Launcher.configure_desktop_identity gives
+        # them the kind's .desktop name, as the windows have); the splash adds none of its own, and sets no property.
+        from desktop import Taskbar_Identity
+
+        with mock.patch.object(Taskbar_Identity.sys, "platform", "linux"), \
+                mock.patch.object(Taskbar_Identity, "set_window_taskbar_identity") as setter:
+            window = self.splash("config")
+            window.winId()
+        setter.assert_not_called()
+
+
+class DragTests(WindowCase):
+    """A press on the splash but not on a button, the link or the section's text drags it by the system's own move."""
+
+    def press(self, window, point, button=Qt.MouseButton.LeftButton, started=True):
+        with mock.patch.object(QWindow, "startSystemMove", return_value=started) as move:
+            QTest.mousePress(window, button, Qt.KeyboardModifier.NoModifier, point)
+            QTest.mouseRelease(window, button, Qt.KeyboardModifier.NoModifier, point)
+        return move.call_count
+
+    def test_a_press_on_the_text_the_art_or_the_margin_starts_the_move(self):
+        window = self.splash()
+        art = Splash.art_rect().center().toPoint()
+        for point in (QPoint(20, 20), QPoint(int(Splash.TEXT_X) + 30, 85), art, QPoint(Splash.WIDTH - 5, Splash.HEIGHT - 5),
+                      QPoint(int(Splash.TEXT_X), int(Splash.BAR_Y))):
+            with self.subTest(point=point):
+                self.assertIsNone(window.childAt(point))
+                self.assertEqual(self.press(window, point), 1)
+
+    def test_it_uses_the_window_system_so_it_works_on_windows_x11_and_wayland(self):
+        window = self.splash()
+        with mock.patch.object(QWindow, "startSystemMove", return_value=True) as move:
+            QTest.mousePress(window, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPoint(20, 20))
+        self.assertEqual(move.call_args.args, ())  # no arguments: the system takes the pointer
+
+    def test_a_press_on_the_details_link_does_not(self):
+        window = self.splash()
+        self.assertTrue(window.details_button.isVisible())
+        self.assertEqual(self.press(window, window.details_button.geometry().center()), 0)
+        self.assertEqual(self.press(window, window.details_button.geometry().topLeft() + QPoint(2, 2)), 0)
+
+    def test_a_press_in_the_section_or_on_its_buttons_does_not_and_one_beside_them_does(self):
+        window = self.splash()
+        window.set_details_open(True)
+        flush(self.app)
+        self.assertEqual(self.press(window, window.details.geometry().center()), 0)  # its text is selected by dragging
+        self.assertEqual(self.press(window, window.details.geometry().topLeft() + QPoint(3, 3)), 0)
+        for button in (window.copy_button, window.log_button):  # Open log is off: a disabled button is a button
+            with self.subTest(button=button.text()):
+                self.assertTrue(button.isVisible())
+                self.assertEqual(self.press(window, button.geometry().center()), 0)
+        self.assertEqual(self.press(window, QPoint(8, Splash.HEIGHT + 100)), 1)  # the section's margin
+        self.assertEqual(self.press(window, QPoint(Splash.WIDTH // 2, window.height() - 6)), 1)
+
+    def test_a_press_on_the_close_button_of_the_error_view_and_the_ready_view_does_not(self):
+        for state in ("error", "ready"):
+            with self.subTest(state=state):
+                window = self.splash()
+                if state == "error":
+                    window.show_error(["It printed this."], None)
+                else:
+                    window.set_details_open(True)
+                    window.show_ready()
+                flush(self.app)
+                self.assertTrue(window.close_button.isVisible())
+                self.assertEqual(self.press(window, window.close_button.geometry().center()), 0)
+                self.assertEqual(self.press(window, QPoint(20, 20)), 1)
+
+    def test_only_the_left_button_drags(self):
+        window = self.splash()
+        for button in (Qt.MouseButton.RightButton, Qt.MouseButton.MiddleButton):
+            with self.subTest(button=button):
+                self.assertEqual(self.press(window, QPoint(20, 20), button), 0)
+
+    def test_a_system_that_cannot_move_a_window_leaves_the_press_unhandled_and_nothing_breaks(self):
+        window = self.splash()
+        self.assertEqual(self.press(window, QPoint(20, 20), started=False), 1)
+        self.assertTrue(window.isVisible())
+        self.assertEqual((window.width(), window.height()), (Splash.WIDTH, Splash.HEIGHT))
+
+    def test_a_press_before_the_window_has_a_native_window_is_ignored(self):
+        from PySide6.QtCore import QEvent, QPointF
+        from PySide6.QtGui import QMouseEvent, QPointingDevice
+
+        window = SplashWindow("config")
+        self.addCleanup(window.deleteLater)
+        self.assertIsNone(window.windowHandle())
+        event = QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(20, 20), QPointF(20, 20), Qt.MouseButton.LeftButton,
+                            Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, QPointingDevice.primaryPointingDevice())
+        window.mousePressEvent(event)  # no handle to ask the system with: nothing happens
+
+
+class CloseTests(WindowCase):
+    """The taskbar's Close window and Alt+F4 close the splash only once there is something to close it for."""
+
+    class FromTheSystem(QCloseEvent):
+        def spontaneous(self):
+            return True
+
+    def request(self, window):
+        event = self.FromTheSystem()
+        window.closeEvent(event)
+        return event
+
+    def test_while_the_window_is_starting_the_systems_request_is_refused_and_the_start_is_still_followed(self):
+        window = self.splash()
+        closed = []
+        window.closed.connect(lambda: closed.append(True))
+        event = self.request(window)
+        self.assertFalse(event.isAccepted())
+        self.assertEqual(closed, [])
+        self.assertTrue(window.timer.isActive())  # the status goes on: a start that fails still reaches the error view
+
+    def test_the_launchers_own_close_is_not_the_systems_and_goes_through(self):
+        window = self.splash()
+        closed = []
+        window.closed.connect(lambda: closed.append(True))
+        window.close()
+        self.assertEqual(closed, [True])
+        self.assertFalse(window.timer.isActive())
+
+    def test_the_error_view_and_the_ready_view_close_from_the_taskbar_too(self):
+        for state in ("error", "ready"):
+            with self.subTest(state=state):
+                window = self.splash()
+                closed = []
+                window.closed.connect(lambda: closed.append(True))
+                if state == "error":
+                    window.show_error(["It printed this."], None)
+                else:
+                    window.set_details_open(True)
+                    window.show_ready()
+                event = self.request(window)
+                self.assertTrue(event.isAccepted())
+                self.assertEqual(closed, [True])
 
 
 class ErrorViewTests(WindowCase):
@@ -733,6 +1045,13 @@ class LightnessTests(unittest.TestCase):
         self.assertEqual(self.imported_after(
             "import desktop.Splash, sys; assert 'desktop.Theme_Colors' in sys.modules; "
             "assert 'desktop.Studio_Theme' not in sys.modules and 'PySide6.QtSvg' not in sys.modules"), [])
+
+    def test_the_taskbar_identity_is_the_light_module_the_windows_share_not_their_app_module(self):
+        # The windows' own module (Desktop_App, with the settings and the theme behind it) would cost the splash a tenth of a
+        # second of its start; the identity they share with it is in a module of ctypes and QtCore.
+        self.assertEqual(self.imported_after(
+            "import desktop.Splash, sys; assert 'desktop.Taskbar_Identity' in sys.modules; "
+            "assert 'utilities.App_Settings' not in sys.modules and 'PySide6.QtNetwork' not in sys.modules"), [])
 
     def test_the_line_classifier_the_section_colours_by_is_the_standard_library_only(self):
         self.assertEqual(self.imported_after("import utilities.Line_Kinds, sys; assert 'PySide6' not in sys.modules"), [])
@@ -1300,6 +1619,7 @@ class PluginKindTests(WindowCase):
         # then does the registration go, so no window paints a kind that is no longer there.
         self.addCleanup(Splash.SUBTITLES.pop, "plug", None)
         self.addCleanup(Splash.LOGO_FILES.pop, "plug", None)
+        self.addCleanup(Splash.TASKBARS.pop, "plug", None)
         self.addCleanup(self.delete_windows)
 
     def delete_windows(self):
@@ -1319,6 +1639,53 @@ class PluginKindTests(WindowCase):
         self.assertFalse(window.logo.isNull())
         self.assertEqual(window.logo.toImage(), QPixmap(str(art)).toImage())
         self.assertNotIn("plug", Splash.KINDS)  # the built-in windows are what the standalone command line offers
+
+    def test_a_registered_window_brings_its_own_small_icon_and_taskbar_identity(self):
+        from desktop.Taskbar_Identity import launcher_relaunch_command
+
+        icon = Splash.LOGOS / "tool_logo.ico"
+        taskbar = Splash.Taskbar(icon, "ca.test.plug.window", launcher_relaunch_command("plug", Path("plug.bat"), ""))
+        Splash.register_kind("plug", "Plug-in Configuration", Splash.LOGOS / "splash_logo_tool_512.png", taskbar=taskbar)
+        self.assertIs(Splash.TASKBARS["plug"], taskbar)
+        with mock.patch.object(Splash, "TaskbarIdentity") as identity:
+            window = self.splash("plug")
+        identity.assert_called_once_with(window, "ca.test.plug.window", str(icon), "EMAP-SSN Plug-in Configuration",
+                                         taskbar.relaunch)
+        self.assertEqual(window.windowTitle(), "EMAP-SSN Plug-in Configuration")
+        self.assertFalse(window.windowIcon().isNull())
+
+    def test_a_window_registered_without_a_taskbar_has_a_title_and_no_icon_or_identity(self):
+        Splash.register_kind("plug", "Plug-in Configuration", Splash.LOGOS / "splash_logo_tool_512.png")
+        self.assertNotIn("plug", Splash.TASKBARS)
+        with mock.patch.object(Splash, "TaskbarIdentity") as identity:
+            window = self.splash("plug")
+        identity.assert_not_called()
+        self.assertEqual(window.windowTitle(), "EMAP-SSN Plug-in Configuration")
+        self.assertTrue(window.windowIcon().isNull())
+
+    def test_registering_again_without_a_taskbar_takes_the_first_ones_away(self):
+        art = Splash.LOGOS / "splash_logo_tool_512.png"
+        Splash.register_kind("plug", "One", art, taskbar=Splash.Taskbar("tool_logo.ico", "ca.test.plug.window"))
+        Splash.register_kind("plug", "Two", art)
+        self.assertNotIn("plug", Splash.TASKBARS)
+
+    def test_an_icon_that_is_missing_or_not_an_ico_never_stops_the_splash_and_sets_no_identity(self):
+        art = Splash.LOGOS / "splash_logo_tool_512.png"
+        for icon, has_icon in (("no_such_icon.ico", False), (str(art), True)):  # an .ico is what the taskbar reads
+            with self.subTest(icon=icon):
+                Splash.register_kind("plug", "Plug-in Configuration", art, taskbar=Splash.Taskbar(icon, "ca.test.plug.window"))
+                with mock.patch.object(Splash, "TaskbarIdentity") as identity:
+                    window = self.splash("plug")
+                identity.assert_not_called()
+                self.assertEqual(not window.windowIcon().isNull(), has_icon)
+
+    def test_an_icon_with_no_id_is_the_windows_icon_and_nothing_more(self):
+        Splash.register_kind("plug", "Plug-in Configuration", Splash.LOGOS / "splash_logo_tool_512.png",
+                             taskbar=Splash.Taskbar("tool_logo.ico"))
+        with mock.patch.object(Splash, "TaskbarIdentity") as identity:
+            window = self.splash("plug")
+        identity.assert_not_called()
+        self.assertFalse(window.windowIcon().isNull())
 
     def test_a_second_registration_replaces_the_first(self):
         Splash.register_kind("plug", "One", Splash.LOGOS / "splash_logo_tool_512.png")
