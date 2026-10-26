@@ -274,7 +274,8 @@ still change before version 1.0.0.
   - **Selection:** a command uses the selection you had when you pressed Enter, counting
     `select` commands typed before it that have not run yet. A selection you make with
     the mouse meanwhile applies to the commands you type after it, and is never
-    replaced by an earlier `select` that runs later.
+    replaced by an earlier `select` that runs later. `esmfold`, and `logo`'s use of all
+    nodes when none is selected, follow the same rule.
   - **Undo:** while commands wait or run, Ctrl+Z, `undo` and the Meta Data sheet's undo
     cancel your newest command instead. With nothing waiting, undo works as before.
   - **Failure:** a command that fails at its turn cancels the commands typed after it.
