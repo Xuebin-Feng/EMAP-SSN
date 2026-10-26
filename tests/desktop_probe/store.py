@@ -527,6 +527,19 @@ def list_processes(out, *, live_only=False) -> list[dict]:
     return records
 
 
+def request_order(path) -> tuple:
+    """The key requests are handled by: when each file was written (its modification time), then its name.
+
+    A request's name carries its id, which `probe.py do` starts with the time in milliseconds, but a request an
+    agent writes by hand may have any id, so the order the files were written is what counts. The name breaks a tie
+    between two files stamped in the same tick of the file system's clock.
+    """
+    try:
+        return os.stat(path).st_mtime_ns, Path(path).name
+    except OSError:
+        return 0, Path(path).name
+
+
 def request_name(target: dict, request_id: str) -> str:
     if "pid" in target:
         return f"pid-{int(target['pid'])}--{request_id}.json"

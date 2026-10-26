@@ -215,6 +215,18 @@ class StoreTests(unittest.TestCase):
         path = store.write_request(self.root, {"pid": 5}, {"action": "windows"}, "r1")
         self.assertEqual(json.loads(path.read_text(encoding="utf-8")), {"action": "windows", "id": "r1"})
 
+    def test_requests_are_ordered_by_when_they_were_written_and_then_by_name(self):
+        paths = [self.root / name for name in ("a.json", "b.json", "c.json")]
+        for path in paths:
+            path.write_text("{}", encoding="utf-8")
+        for path, stamp in zip(paths, (30, 10, 20)):
+            os.utime(path, ns=(stamp * 10 ** 9, stamp * 10 ** 9))
+        self.assertEqual([path.name for path in sorted(paths, key=store.request_order)], ["b.json", "c.json", "a.json"])
+        for path in paths:
+            os.utime(path, ns=(10 ** 9, 10 ** 9))  # the same instant: the name decides
+        self.assertEqual([path.name for path in sorted(reversed(paths), key=store.request_order)], ["a.json", "b.json", "c.json"])
+        self.assertEqual(store.request_order(self.root / "gone.json"), (0, "gone.json"))
+
     def test_the_process_that_is_running_is_alive_and_a_made_up_one_is_not(self):
         self.assertTrue(store.process_alive({"pid": os.getpid(), "created": store.own_start_time()}))
         self.assertFalse(store.process_alive({"pid": 2 ** 22 + 12345}))
@@ -1187,6 +1199,90 @@ class ActionTests(ProbeCase):
             self.pump(30)
         self.assertTrue(store.read_json(store.response_path(self.out, "slow"))["ok"])
 
+    def write_in_order(self, requests):
+        """Write request files one after the other, each stamped a second after the one before it, whatever the ids are:
+        the way two commands run at once would leave them, with the order they were written in the files' times."""
+        stamp = time.time_ns() - 60 * 10 ** 9
+        paths = []
+        for request_id, request in requests:
+            path = store.write_request(self.out, {"pid": os.getpid()}, request, request_id)
+            os.utime(path, ns=(stamp, stamp))
+            stamp += 10 ** 9
+            paths.append(path)
+        return paths
+
+    def answers(self, ids, *, seconds=15.0):
+        """The answers to ``ids``, once every one is there (the event loop and the probe run meanwhile)."""
+        deadline = time.monotonic() + seconds
+        while time.monotonic() < deadline:
+            found = [store.read_json(store.response_path(self.out, request_id)) for request_id in ids]
+            if all(found):
+                return found
+            self.app.processEvents()
+            self.probe._tick()
+            time.sleep(0.004)
+        raise AssertionError(f"no answers to {ids}")
+
+    def test_requests_are_handled_in_the_order_they_were_written(self):
+        # A click and the eval written after it, both there when the probe first looks. The click runs from a timer, later
+        # than the look, so an eval handled in the same look saw the button as it was; and the ids sort the eval first.
+        for click_id, eval_id in (("a-click", "b-eval"), ("z-click", "y-eval")):
+            with self.subTest(ids=(click_id, eval_id)):
+                def build(window, layout):
+                    button = QtWidgets.QPushButton("Toggle")
+                    button.setCheckable(True)
+                    layout.addWidget(button)
+                window = self.make_window(f"Order window {click_id}", build)
+                self.pump()
+                select = {"window": f"Order window {click_id}", "widget": "Toggle"}
+                self.write_in_order([
+                    (eval_id + "-before", {"action": "eval", "expr": "widget.isChecked()", **select}),
+                    (click_id, {"action": "click", "settle_ms": 0, **select}),
+                    (eval_id, {"action": "eval", "expr": "widget.isChecked()", **select}),
+                ])
+                before, click, after = self.answers([eval_id + "-before", click_id, eval_id])
+                self.assertEqual((before["result"]["value"], click["ok"], after["result"]["value"]), (False, True, True))
+                self.assertLessEqual(before["wall_ms"], click["wall_ms"])
+                self.assertLessEqual(click["wall_ms"], after["wall_ms"])
+                window.close()
+
+    def test_a_click_finds_the_window_the_click_before_it_opens(self):
+        opened = []
+
+        def build(window, layout):
+            button = QtWidgets.QPushButton("Open")
+
+            def open_second():
+                second = self.make_window("Opened by the click", lambda inner, inner_layout: inner_layout.addWidget(
+                    QtWidgets.QLabel("hello from the second window")))
+                opened.append(second)
+            button.clicked.connect(open_second)
+            layout.addWidget(button)
+        self.make_window("Opener", build)
+        self.pump()
+        self.write_in_order([
+            ("first", {"action": "click", "window": "Opener", "widget": "Open", "settle_ms": 0}),
+            ("second", {"action": "capture", "window": "Opened by the click"}),
+        ])
+        first, second = self.answers(["first", "second"])
+        self.assertTrue(first["ok"], first)
+        self.assertTrue(second["ok"], second)  # the window was there when the request was looked at
+
+    def test_a_request_written_behind_one_that_is_still_being_written_waits_for_it(self):
+        now = time.time_ns()
+        slow = self.out / "requests" / store.request_name({"pid": os.getpid()}, "slow")
+        slow.write_text('{"action": "pi', encoding="utf-8")
+        os.utime(slow, ns=(now - 10 ** 8,) * 2)  # written first, and young enough that it may still be being written
+        quick = store.write_request(self.out, {"pid": os.getpid()}, {"action": "ping"}, "quick")
+        os.utime(quick, ns=(now - 5 * 10 ** 7,) * 2)
+        self.pump(200)
+        self.assertTrue(slow.exists() and quick.exists())  # neither is taken: the one written later does not go first
+        slow.write_text('{"action": "ping"}', encoding="utf-8")
+        os.utime(slow, ns=(now - 10 ** 8,) * 2)
+        slow_answer, quick_answer = self.answers(["slow", "quick"])
+        self.assertTrue(slow_answer["ok"] and quick_answer["ok"])
+        self.assertLessEqual(slow_answer["wall_ms"], quick_answer["wall_ms"])
+
     def test_an_unknown_action_and_a_broken_request_get_answers_that_say_what_is_known(self):
         unknown = self.ask({"action": "levitate"})
         self.assertFalse(unknown["ok"])
@@ -1247,6 +1343,47 @@ class DialogTests(ProbeCase):
         self.assertEqual(outcome["clicked"], "Yes please")
         self.pump(200)
         self.assertTrue(any(event["ev"] == "action_completed" for event in self.events()))
+
+    def test_a_request_written_behind_one_that_opens_a_modal_dialog_goes_ahead_once_that_one_is_answered(self):
+        outcome = {}
+
+        def build(window, layout):
+            button = QtWidgets.QPushButton("Ask me")
+
+            def open_dialog():
+                box = QtWidgets.QMessageBox(window)
+                box.setWindowTitle("Queued question")
+                box.setText("Proceed?")
+                box.addButton("Yes please", QtWidgets.QMessageBox.ButtonRole.AcceptRole)
+                box.exec()
+                clicked = box.clickedButton()
+                outcome["clicked"] = clicked.text() if clicked is not None else None
+            button.clicked.connect(open_dialog)
+            layout.addWidget(button)
+        self.make_window("Queued parent", build)
+        self.pump()
+
+        def close_if_stuck():  # a request that is held up for good must fail this test, not leave its dialog open for ever
+            modal = QtWidgets.QApplication.activeModalWidget()
+            if modal is not None:
+                modal.reject()
+        QtCore.QTimer.singleShot(10_000, close_if_stuck)
+        stamp = time.time_ns() - 10 ** 9
+        for index, (request_id, request) in enumerate((
+                ("1-open", {"action": "click", "window": "Queued parent", "widget": "Ask me", "block_ms": 200, "settle_ms": 0}),
+                ("2-answer", {"action": "click", "window": "Queued question", "widget": "Yes please", "settle_ms": 0}))):
+            path = store.write_request(self.out, {"pid": os.getpid()}, request, request_id)
+            os.utime(path, ns=(stamp + index * 10 ** 6,) * 2)
+        deadline = time.monotonic() + 30
+        paths = [store.response_path(self.out, name) for name in ("1-open", "2-answer")]
+        while not all(path.exists() for path in paths) and time.monotonic() < deadline:
+            self.app.processEvents()
+            self.probe._tick()
+            time.sleep(0.004)
+        opened, answered = (store.read_json(path) for path in paths)
+        self.assertFalse(opened["result"]["completed"])  # still inside exec() when its answer fell due
+        self.assertTrue(answered["ok"], answered)       # and the request behind it was not held until the dialog was gone
+        self.assertEqual(outcome["clicked"], "Yes please")
 
     def test_file_dialogs_take_their_answers_from_the_queue_and_cancel_when_it_is_empty(self):
         reply = self.ok({"action": "dialog_answers", "answers": [

@@ -9,6 +9,10 @@ process it names finds it within about 100 ms, claims it by renaming it, and wri
 Every request has an "action"; most take a "window" (a title regex, or {"title", "class", "objectName"}, or an
 index from `windows`) and a "widget" (see targets.py). The actions are the ``do_`` methods of Actions below.
 
+Requests are handled in the order they were written, one after the other: a request is handled (its window and
+widget looked up, its answer made or its action started) only once the one before it has been answered, so an
+`eval` written after a click sees what the click did, and a click on a window the click before it opens finds it.
+
 Actions that act on the program like a user (click, type, key, set_value, close, hover, resize, viewer_command)
 run from a zero-delay timer, not inside the polling call. The program may answer one with a modal dialog, which
 runs a nested event loop and would not return; the polling timer keeps firing inside that loop, so the agent can
@@ -20,6 +24,7 @@ Only the GUI thread calls into this module.
 
 from __future__ import annotations
 
+import collections
 import contextlib
 import os
 import re
@@ -89,6 +94,7 @@ class Actions:
         self.probe = probe
         self.recorder = probe.recorder
         self._pending: list[Pending] = []
+        self._waiting: collections.deque = collections.deque()  # (request_id, request) claimed, not yet handled
         self._window_note = None  # set when a request's "window" matched more than one window
         self._requests = Path(self.recorder.out) / "requests"
         self._claimed = self.recorder.folder / "claimed"
@@ -96,20 +102,20 @@ class Actions:
 
     # --- the inbox
     def poll(self) -> None:
+        """Claim the requests that have arrived, oldest first, and handle those whose turn it is (see ``advance``)."""
         try:
-            names = sorted(os.listdir(self._requests))
+            names = [name for name in os.listdir(self._requests)
+                     if not name.startswith(".") and name.endswith(".json") and name.startswith(self._prefixes)]
         except OSError:
             return
-        for name in names:
-            if name.startswith(".") or not name.endswith(".json") or not name.startswith(self._prefixes):
-                continue
+        for name in sorted(names, key=lambda name: store.request_order(self._requests / name)):
             source = self._requests / name
             request_id = name.split("--", 1)[1][:-5]
             if not self._owned_by_this_user(source):
                 self.recorder.event("request_rejected", request_id=request_id, reason="not written by this user")
                 continue
             if store.read_json(source) is None and self._younger_than(source, WRITING_SECONDS):
-                continue  # a request an agent is still writing: the next look finds it whole
+                break  # a request an agent is still writing: the next look finds it whole, and none written after it goes first
             self._claimed.mkdir(parents=True, exist_ok=True)
             claimed = self._claimed / name
             try:
@@ -119,6 +125,19 @@ class Actions:
             request = store.read_json(claimed)
             with contextlib.suppress(OSError):
                 os.remove(claimed)
+            self._waiting.append((request_id, request))
+        self.advance()
+
+    def advance(self) -> None:
+        """Handle the claimed requests in the order they were written, each once the one before it has been answered.
+
+        A request that acts on the program runs from a timer, later than the call that reads it, and an `eval` or a
+        `capture` read in the same look must see what the click before it did, so the next request waits until the
+        last has been answered. An action that is still running when its answer is due (``block_ms``: it opened a
+        modal dialog) counts as answered, so the request to click the dialog's button is not held up behind it.
+        """
+        while self._waiting and all(pending.responded for pending in self._pending):
+            request_id, request = self._waiting.popleft()
             self.handle(request_id, request)
 
     @staticmethod
@@ -171,7 +190,12 @@ class Actions:
         pending.finished_at = time.monotonic()
 
     def finish_pending(self) -> None:
-        """Answer the actions that have run and settled, and those that have run too long (a modal dialog is open)."""
+        """Answer the actions that have run and settled, and those that have run too long (a modal dialog is open),
+        then let the request that was waiting for them go ahead."""
+        self._answer_pending()
+        self.advance()
+
+    def _answer_pending(self) -> None:
         now = time.monotonic()
         for pending in list(self._pending):
             action = pending.request["action"]

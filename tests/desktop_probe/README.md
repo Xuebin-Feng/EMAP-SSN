@@ -105,6 +105,17 @@ is exact. The answer is JSON; the exit code is 0 when `ok` is true. Under the ho
 `requests/pid-<n>--<id>.json` and reads `responses/<id>.json`; you may do that yourself (a process polls every
 ~100 ms; a request named `kind-<kind>--<id>.json` goes to whichever process of that kind claims it first).
 
+**Order.** A process handles its requests one at a time, in the order they were written (the files' modification
+times, then their names), so commands started together, or request files written one after the other, do what
+their order says. A request is handled (its window and widget looked up, its answer made or its action started)
+only once the one before it has been answered. So an `eval` written after a `click` or a `viewer_command` sees what
+that did, once its settle time has passed, and a click on a window the click before it opens finds the window.
+Three things to know: a request that is still running when its answer falls due (a modal dialog, `block_ms`) counts
+as answered, so the request that clicks the dialog's button is not held up behind it; a request file that is not
+yet valid JSON and younger than a second (an agent is still writing it) holds back the ones written after it; and
+a `viewer_command` that only queued the command (`outcome` null) has not finished when the next request runs: ask
+again with `eval` or `windows` to see it end.
+
 **Targets.** `window` is a title regex, or `{"title", "class", "objectName"}`, or an index from `windows`; with
 none, the active window. When the regex matches several windows (the Viewer and its Console share a title
 prefix) the active one is used, else the newest, and the answer carries a `window_note` saying so: anchor the
