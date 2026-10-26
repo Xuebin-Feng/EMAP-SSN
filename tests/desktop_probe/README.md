@@ -30,7 +30,7 @@ $P do --kind config windows                     # what is open, geometry, DPR, s
 $P timeline                                     # per launch: process start -> splash shown/painted -> window shown -> splash closed
 $P sheet                                        # writes contact-sheet.html: read THAT, no screenshots needed
 
-$P off                      # quiet in every process within about a second
+$P off                      # quiet in every process within about three seconds
 $P uninstall                # remove the .pth and the stub (nothing else was changed)
 ```
 

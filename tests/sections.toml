@@ -380,6 +380,12 @@ paths = [
 ]
 sections = ["fold_color", "fold_struct", "fold_canvas", "fold_session", "fold_layout", "fold_text", "fold_panel", "fold_webgl"]
 
+# The desktop probe (tests/desktop_probe) is loaded by file path and as a package of its own, which the reference
+# scan cannot follow: a change to any of its files runs the section of its tests.
+[[rules]]
+paths = ["tests/desktop_probe/**"]
+sections = ["platform"]
+
 # The vendored Mol* (molstar.js, its stylesheets, licence and notices) is what the page tests load.
 [[rules]]
 paths = ["src/resources/esmfold/molstar*", "src/resources/esmfold/*.molstar*", "src/resources/esmfold/NOTICES.*"]

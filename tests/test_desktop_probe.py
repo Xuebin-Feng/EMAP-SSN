@@ -580,7 +580,11 @@ class ProbeCase(unittest.TestCase):
             if response is not None:
                 return response
             time.sleep(0.004)
-        raise AssertionError(f"no answer to {request}")
+        errors = self.recorder.folder / "errors.log"
+        raise AssertionError(
+            f"no answer to {request}; probe disabled: {self.recorder.disabled}; "
+            f"errors.log: {errors.read_text(encoding='utf-8')[-1500:] if errors.exists() else None}; "
+            f"windows: {[(type(w).__name__, w.windowTitle()) for w in self.app.topLevelWidgets() if w.isVisible()]}")
 
     def ok(self, request, **options):
         response = self.ask(request, **options)
@@ -1271,7 +1275,10 @@ class SafetyTests(ProbeCase):
 
     def test_removing_the_gate_file_turns_the_probe_off_within_a_second_or_so(self):
         store.remove_gate(self.root)
-        for _ in range(self.runtime.GATE_EVERY + 1):
+        for _ in range(self.runtime.GATE_EVERY * (self.runtime.GATE_MISSES - 1) + 1):
+            self.probe._tick()
+        self.assertFalse(self.recorder.disabled)  # one look that finds it gone, or two, is not enough
+        for _ in range(self.runtime.GATE_EVERY):
             self.probe._tick()
         self.assertTrue(self.recorder.disabled)
         self.assertEqual(self.events("probe_disabled")[-1]["reason"], "the gate file was removed")

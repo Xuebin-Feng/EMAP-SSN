@@ -57,6 +57,22 @@ def default_out(checkout) -> Path:
     return home_dir(checkout) / "out"
 
 
+def gate_missing(checkout) -> bool:
+    """Whether the gate file is certainly gone: the file system says "not found", not "cannot tell".
+
+    A running probe asks this about once a second. On Windows a file that is being replaced or scanned can fail
+    an existence check for a moment, so only the answer FileNotFoundError counts, and the runtime acts on
+    several of them in a row.
+    """
+    try:
+        os.stat(gate_file(checkout))
+    except FileNotFoundError:
+        return True
+    except OSError:
+        return False
+    return False
+
+
 def read_gate(checkout) -> dict | None:
     """The gate's settings when the probe is on for this checkout, else None.
 

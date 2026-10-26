@@ -31,6 +31,7 @@ from emapssn_desktop_probe import actions, capture, hooks, store, targets, windo
 TICK_MS = 25
 REQUEST_EVERY = 4        # ticks between looks at the requests folder (about 100 ms)
 GATE_EVERY = 40          # ticks between looks at the gate file (about 1 s)
+GATE_MISSES = 3          # looks in a row that must find it gone before the probe turns itself off
 SECRET_TITLE = re.compile(r"(?i)api[ _-]?key|token|passw|secret|credential")
 
 _probe = None
@@ -85,6 +86,7 @@ class Probe:
         self.desktop_open = hooks.DesktopOpenRecorder(self)
         self._timer = None
         self._ticks = 0
+        self._gate_misses = 0
         self._captures = 0
         self._focus = None
         self._inventory_json = None
@@ -141,11 +143,12 @@ class Probe:
         if self._stopped:
             return
         self._ticks += 1
-        if self._ticks % GATE_EVERY == 0 and store.read_gate(self.recorder.checkout) is None:
-            self.recorder.disable("the gate file was removed")
-            self.shutdown()
-            return
         if self._ticks % GATE_EVERY == 0:
+            self._gate_misses = self._gate_misses + 1 if store.gate_missing(self.recorder.checkout) else 0
+            if self._gate_misses >= GATE_MISSES:
+                self.recorder.disable("the gate file was removed")
+                self.shutdown()
+                return
             self.desktop_open.refresh()
         self.windows.scan()
         self._check_focus()
