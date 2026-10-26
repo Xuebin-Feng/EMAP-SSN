@@ -597,14 +597,14 @@ class AppIdTests(unittest.TestCase):
     def test_setting_the_id_is_a_windows_only_call_that_reports_whether_it_took(self):
         from unittest import mock
 
-        from desktop import Desktop_App
+        from desktop import Taskbar_Identity
 
-        with mock.patch.object(Desktop_App.sys, "platform", "linux"):
-            self.assertFalse(Desktop_App.set_app_user_model_id("x"))
+        with mock.patch.object(Taskbar_Identity.sys, "platform", "linux"):
+            self.assertFalse(Taskbar_Identity.set_app_user_model_id("x"))
         if sys.platform == "win32":
             program = (
-                "import ctypes, sys; sys.path.insert(0, sys.argv[1]); from desktop import Desktop_App; "
-                "print(Desktop_App.set_app_user_model_id('ca.test.one')); "
+                "import ctypes, sys; sys.path.insert(0, sys.argv[1]); from desktop import Taskbar_Identity; "
+                "print(Taskbar_Identity.set_app_user_model_id('ca.test.one')); "
                 "p = ctypes.c_wchar_p(); ctypes.windll.shell32.GetCurrentProcessExplicitAppUserModelID(ctypes.byref(p)); print(p.value)"
             )
             done = subprocess.run([sys.executable, "-c", program, str(SRC)], capture_output=True, text=True, timeout=60,
@@ -616,27 +616,27 @@ def read_window_texts(hwnd, property_ids):
     """What Windows holds for a native window under System.AppUserModel.* (IPropertyStore::GetValue)."""
     import ctypes
 
-    from desktop import Desktop_App
+    from desktop import Taskbar_Identity
 
     shell32, ole32 = ctypes.windll.shell32, ctypes.windll.ole32
     shell32.SHGetPropertyStoreForWindow.argtypes = [
-        ctypes.c_void_p, ctypes.POINTER(Desktop_App._Guid), ctypes.POINTER(ctypes.c_void_p)]
+        ctypes.c_void_p, ctypes.POINTER(Taskbar_Identity._Guid), ctypes.POINTER(ctypes.c_void_p)]
     shell32.SHGetPropertyStoreForWindow.restype = ctypes.c_long
-    ole32.PropVariantClear.argtypes = [ctypes.POINTER(Desktop_App._PropVariant)]
+    ole32.PropVariantClear.argtypes = [ctypes.POINTER(Taskbar_Identity._PropVariant)]
     store = ctypes.c_void_p()
-    iid = Desktop_App._guid(Desktop_App._PROPERTY_STORE_IID)
+    iid = Taskbar_Identity._guid(Taskbar_Identity._PROPERTY_STORE_IID)
     assert shell32.SHGetPropertyStoreForWindow(hwnd, ctypes.byref(iid), ctypes.byref(store)) == 0
     methods = ctypes.cast(ctypes.cast(store, ctypes.POINTER(ctypes.c_void_p))[0], ctypes.POINTER(ctypes.c_void_p))
-    get_value = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(Desktop_App._PropertyKey),
-                                   ctypes.POINTER(Desktop_App._PropVariant))(methods[5])
-    release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(methods[Desktop_App._PROPERTY_STORE_RELEASE])
+    get_value = ctypes.WINFUNCTYPE(ctypes.c_long, ctypes.c_void_p, ctypes.POINTER(Taskbar_Identity._PropertyKey),
+                                   ctypes.POINTER(Taskbar_Identity._PropVariant))(methods[5])
+    release = ctypes.WINFUNCTYPE(ctypes.c_ulong, ctypes.c_void_p)(methods[Taskbar_Identity._PROPERTY_STORE_RELEASE])
     found = {}
     try:
         for property_id in property_ids:
-            key = Desktop_App._PropertyKey(Desktop_App._guid(Desktop_App._TASKBAR_PROPERTY_FORMAT), property_id)
-            value = Desktop_App._PropVariant()
+            key = Taskbar_Identity._PropertyKey(Taskbar_Identity._guid(Taskbar_Identity._TASKBAR_PROPERTY_FORMAT), property_id)
+            value = Taskbar_Identity._PropVariant()
             assert get_value(store, ctypes.byref(key), ctypes.byref(value)) >= 0  # S_FALSE (1) comes with a value too
-            found[property_id] = ctypes.wstring_at(value.pointer) if value.type == Desktop_App._VT_LPWSTR else None
+            found[property_id] = ctypes.wstring_at(value.pointer) if value.type == Taskbar_Identity._VT_LPWSTR else None
             ole32.PropVariantClear(ctypes.byref(value))
     finally:
         release(store)
@@ -662,12 +662,12 @@ class TaskbarIdentityTests(unittest.TestCase):
 
         from PySide6.QtWidgets import QWidget
 
-        from desktop import Desktop_App
+        from desktop import Taskbar_Identity
 
         widget = QWidget()
-        with mock.patch.object(Desktop_App.sys, "platform", "win32"), \
-                mock.patch.object(Desktop_App, "_set_window_texts", return_value=True) as store:
-            self.assertTrue(Desktop_App.set_window_taskbar_identity(
+        with mock.patch.object(Taskbar_Identity.sys, "platform", "win32"), \
+                mock.patch.object(Taskbar_Identity, "_set_window_texts", return_value=True) as store:
+            self.assertTrue(Taskbar_Identity.set_window_taskbar_identity(
                 widget, "ca.test.id", "C:/logos/small.ico", "EMAP-SSN Test", '"C:/x.exe" go'))
         hwnd, texts = store.call_args.args
         self.assertEqual(hwnd, int(widget.winId()))
@@ -675,16 +675,44 @@ class TaskbarIdentityTests(unittest.TestCase):
         # and ...ID in propkey.h; the icon is a path to an .ico and the index in it.
         self.assertEqual(texts, ((2, '"C:/x.exe" go'), (3, "C:/logos/small.ico,0"), (4, "EMAP-SSN Test"), (5, "ca.test.id")))
 
+    def test_a_window_that_cannot_be_started_again_gets_its_id_alone(self):
+        from unittest import mock
+
+        from PySide6.QtWidgets import QWidget
+
+        from desktop import Taskbar_Identity
+
+        widget = QWidget()
+        with mock.patch.object(Taskbar_Identity.sys, "platform", "win32"),                 mock.patch.object(Taskbar_Identity, "_set_window_texts", return_value=True) as store:
+            self.assertTrue(Taskbar_Identity.set_window_taskbar_identity(widget, "ca.test.id", "small.ico", "EMAP-SSN Test", None))
+        self.assertEqual(store.call_args.args[1], ((5, "ca.test.id"),))  # no name or icon without a command to go with them
+
+    def test_the_windows_module_gives_the_names_the_windows_and_opt_vr_import(self):
+        from desktop import Desktop_App, Taskbar_Identity
+
+        for name in ("APP_USER_MODEL_IDS", "LAUNCHER_BATCH", "LAUNCHER_EXE", "TaskbarIdentity", "launcher_relaunch_command",
+                     "set_app_user_model_id", "set_window_taskbar_identity"):
+            with self.subTest(name=name):
+                self.assertIs(getattr(Desktop_App, name), getattr(Taskbar_Identity, name))
+
+    def test_the_module_loads_without_the_windows_heavy_ones_so_the_splash_can_use_it(self):
+        program = ("import sys; sys.path.insert(0, sys.argv[1]); from desktop import Taskbar_Identity; "
+                   "print(sorted(name for name in ('desktop.Desktop_App', 'desktop.Studio_Theme', 'utilities.App_Settings') "
+                   "if name in sys.modules))")
+        done = subprocess.run([sys.executable, "-c", program, str(SRC)], capture_output=True, text=True, timeout=60,
+                              creationflags=CREATE_NO_WINDOW if sys.platform == "win32" else 0)
+        self.assertEqual(done.stdout.strip(), "[]", done.stderr)
+
     def test_elsewhere_it_does_nothing_and_says_so(self):
         from unittest import mock
 
         from PySide6.QtWidgets import QWidget
 
-        from desktop import Desktop_App
+        from desktop import Taskbar_Identity
 
-        with mock.patch.object(Desktop_App.sys, "platform", "linux"), \
-                mock.patch.object(Desktop_App, "_set_window_texts") as store:
-            self.assertFalse(Desktop_App.set_window_taskbar_identity(QWidget(), "id", "icon.ico", "Name", "command"))
+        with mock.patch.object(Taskbar_Identity.sys, "platform", "linux"), \
+                mock.patch.object(Taskbar_Identity, "_set_window_texts") as store:
+            self.assertFalse(Taskbar_Identity.set_window_taskbar_identity(QWidget(), "id", "icon.ico", "Name", "command"))
         store.assert_not_called()
 
     def test_a_refusal_from_windows_is_reported_and_not_raised(self):
@@ -692,21 +720,21 @@ class TaskbarIdentityTests(unittest.TestCase):
 
         from PySide6.QtWidgets import QWidget
 
-        from desktop import Desktop_App
+        from desktop import Taskbar_Identity
 
         for failure in (False, OSError("no property store"), AttributeError("no shell32")):
             with self.subTest(failure=failure):
                 options = {"side_effect": failure} if isinstance(failure, Exception) else {"return_value": failure}
-                with mock.patch.object(Desktop_App.sys, "platform", "win32"), \
-                        mock.patch.object(Desktop_App, "_set_window_texts", **options):
-                    self.assertFalse(Desktop_App.set_window_taskbar_identity(QWidget(), "id", "icon.ico", "Name", "command"))
+                with mock.patch.object(Taskbar_Identity.sys, "platform", "win32"), \
+                        mock.patch.object(Taskbar_Identity, "_set_window_texts", **options):
+                    self.assertFalse(Taskbar_Identity.set_window_taskbar_identity(QWidget(), "id", "icon.ico", "Name", "command"))
 
     @unittest.skipUnless(sys.platform == "win32", "the taskbar properties are Windows'")
     def test_windows_holds_what_was_set_on_the_window(self):
         import ctypes
         from types import SimpleNamespace
 
-        from desktop import Desktop_App
+        from desktop import Taskbar_Identity
 
         # A real, hidden native window: Qt's offscreen platform has no window handles, and nothing here may reach the taskbar.
         user32 = ctypes.windll.user32
@@ -718,8 +746,8 @@ class TaskbarIdentityTests(unittest.TestCase):
         self.assertTrue(hwnd)
         self.addCleanup(user32.DestroyWindow, hwnd)
         icon = str(SRC / "bin" / "logos" / "viewer_logo.ico")
-        command = Desktop_App.launcher_relaunch_command("viewer")
-        self.assertTrue(Desktop_App.set_window_taskbar_identity(
+        command = Taskbar_Identity.launcher_relaunch_command("viewer")
+        self.assertTrue(Taskbar_Identity.set_window_taskbar_identity(
             SimpleNamespace(winId=lambda: hwnd), "ca.test.identity", icon, "EMAP-SSN Test", command))
         self.assertEqual(read_window_texts(hwnd, (2, 3, 4, 5)), {
             2: command, 3: icon + ",0", 4: "EMAP-SSN Test", 5: "ca.test.identity"})
@@ -730,13 +758,13 @@ class TaskbarIdentityTests(unittest.TestCase):
         from PySide6.QtCore import QEvent
         from PySide6.QtWidgets import QWidget
 
-        from desktop import Desktop_App
+        from desktop import Taskbar_Identity
 
         widget = QWidget()
         arguments = ("ca.test.id", "icon.ico", "Name", "command")
-        with mock.patch.object(Desktop_App.sys, "platform", "win32"), \
-                mock.patch.object(Desktop_App, "set_window_taskbar_identity") as setter:
-            Desktop_App.TaskbarIdentity(widget, *arguments)
+        with mock.patch.object(Taskbar_Identity.sys, "platform", "win32"), \
+                mock.patch.object(Taskbar_Identity, "set_window_taskbar_identity") as setter:
+            Taskbar_Identity.TaskbarIdentity(widget, *arguments)
             setter.assert_not_called()  # no handle yet, and none is made for it
             widget.winId()
             setter.assert_called_once_with(widget, *arguments)
@@ -750,35 +778,35 @@ class TaskbarIdentityTests(unittest.TestCase):
 
         from PySide6.QtWidgets import QWidget
 
-        from desktop import Desktop_App
+        from desktop import Taskbar_Identity
 
         widget = QWidget()
-        with mock.patch.object(Desktop_App.sys, "platform", "linux"), \
-                mock.patch.object(Desktop_App, "set_window_taskbar_identity") as setter:
-            Desktop_App.TaskbarIdentity(widget, "id", "icon.ico", "Name", "command")
+        with mock.patch.object(Taskbar_Identity.sys, "platform", "linux"), \
+                mock.patch.object(Taskbar_Identity, "set_window_taskbar_identity") as setter:
+            Taskbar_Identity.TaskbarIdentity(widget, "id", "icon.ico", "Name", "command")
             widget.winId()
         setter.assert_not_called()
 
     def test_a_pinned_copy_starts_the_window_as_its_shortcut_does(self):
         from unittest import mock
 
-        from desktop import Desktop_App
+        from desktop import Taskbar_Identity
 
         with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as folder:
             exe = Path(folder) / "EMAP SSN" / "EMAP-SSN.exe"
             batch = Path(folder) / "EMAP SSN" / "launch.bat"
             exe.parent.mkdir()
-            with mock.patch.object(Desktop_App, "LAUNCHER_EXE", exe), mock.patch.dict(os.environ, {"COMSPEC": "C:\\Windows\\cmd.exe"}):
+            with mock.patch.object(Taskbar_Identity, "LAUNCHER_EXE", exe), mock.patch.dict(os.environ, {"COMSPEC": "C:\\Windows\\cmd.exe"}):
                 # Built by install.bat: what the shortcut runs, with the word for the window.
                 exe.write_bytes(b"MZ")
-                self.assertEqual(Desktop_App.launcher_relaunch_command("tools"), f'"{exe}" tools')
-                self.assertEqual(Desktop_App.launcher_relaunch_command("vr", batch, ""), f'"{exe}" vr')
+                self.assertEqual(Taskbar_Identity.launcher_relaunch_command("tools"), f'"{exe}" tools')
+                self.assertEqual(Taskbar_Identity.launcher_relaunch_command("vr", batch, ""), f'"{exe}" vr')
                 # Not built: the batch file in a console, as the shortcut then runs it (install.bat gives it the word,
                 # opt_vr's batch file takes none).
                 exe.unlink()
-                self.assertEqual(Desktop_App.launcher_relaunch_command("tools", batch),
+                self.assertEqual(Taskbar_Identity.launcher_relaunch_command("tools", batch),
                                  f'"C:\\Windows\\cmd.exe" /d /c ""{batch}" tools"')
-                self.assertEqual(Desktop_App.launcher_relaunch_command("vr", batch, ""),
+                self.assertEqual(Taskbar_Identity.launcher_relaunch_command("vr", batch, ""),
                                  f'"C:\\Windows\\cmd.exe" /d /c ""{batch}""')
 
     def test_the_words_the_windows_start_with_are_the_ones_the_launcher_knows(self):
