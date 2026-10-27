@@ -61,6 +61,7 @@ from desktop.Theme_Colors import (
     NEUTRAL_SHADES,
     THEME_COLORS,
     oklch_hex,
+    scroll_bar_rules,
     shade_set,
 )
 
@@ -266,16 +267,7 @@ QTabWidget > QStackedWidget {{
 QScrollArea, QScrollArea > QWidget#qt_scrollarea_viewport, QScrollArea > QWidget > QWidget {{
     background: transparent; border: none;
 }}
-QScrollBar:vertical {{ background: transparent; width: 10px; margin: 6px 2px 6px 0px; }}
-QScrollBar::handle:vertical {{ background: {t['scroll']}; border-radius: 4px; min-height: 32px; }}
-QScrollBar::handle:vertical:hover {{ background: {t['text_disabled']}; }}
-QScrollBar::add-line, QScrollBar::sub-line {{ height: 0px; width: 0px; }}
-QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
-QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 0px 6px 2px 6px; }}
-QScrollBar::handle:horizontal {{ background: {t['scroll']}; border-radius: 4px; min-width: 32px; }}
-QScrollBar::handle:horizontal:hover {{ background: {t['text_disabled']}; }}
-/* Where both scroll bars meet: nothing, so a card's rounded corner shows. */
-QAbstractScrollArea::corner {{ background: transparent; border: none; }}
+{scroll_bar_rules(t['scroll'], t['text_disabled'])}
 
 QSplitter::handle {{ background: transparent; }}
 

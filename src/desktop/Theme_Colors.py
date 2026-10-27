@@ -7,7 +7,8 @@ conversion that turns a family's hue into them.
 
 desktop/Studio_Theme.py builds the windows' tokens, palette and stylesheet from these (it imports every name
 here and keeps them in its own namespace, so it stays the place the windows take them from), and the start-up
-splash (desktop/Splash.py) takes the accent shades of the window it starts from here too. The splash is on
+splash (desktop/Splash.py) takes the accent shades of the window it starts from here too, and the text of the
+scroll bar rules (scroll_bar_rules), which are stylesheet text and need no Qt either. The splash is on
 screen a third of a second after a click and imports no more of Qt than it draws with: Studio_Theme brings in
 QtSvg and the icon engine, which it does not need (a few milliseconds with the bytecode cached, 25 while it is
 compiled). So the colours live in a module of their own, and there is one copy of them: nothing here is repeated
@@ -221,3 +222,24 @@ def shade_set(kind, color):
             for name, shade in ACCENT_SHADES[kind].items()
         }
     return {**NEUTRAL_SHADES[kind], **accents}
+
+
+def scroll_bar_rules(handle, hover):
+    """The stylesheet rules that draw the Studio scroll bar, as Qt stylesheet text: ``handle`` is the handle's colour
+    and ``hover`` its colour under the mouse (the windows give the "scroll" and "text_disabled" tokens).
+
+    A slim bar (10 px) with no track, no arrow buttons and no page fill, a rounded handle, and no corner where
+    two bars meet, so a card's rounded corner shows. Studio_Theme puts them in the application stylesheet; the
+    splash's section, which does not import Studio_Theme, takes the same text from here, so a scroll bar looks
+    the same in every window.
+    """
+    return f"""QScrollBar:vertical {{ background: transparent; width: 10px; margin: 6px 2px 6px 0px; }}
+QScrollBar::handle:vertical {{ background: {handle}; border-radius: 4px; min-height: 32px; }}
+QScrollBar::handle:vertical:hover {{ background: {hover}; }}
+QScrollBar::add-line, QScrollBar::sub-line {{ height: 0px; width: 0px; }}
+QScrollBar::add-page, QScrollBar::sub-page {{ background: none; }}
+QScrollBar:horizontal {{ background: transparent; height: 10px; margin: 0px 6px 2px 6px; }}
+QScrollBar::handle:horizontal {{ background: {handle}; border-radius: 4px; min-width: 32px; }}
+QScrollBar::handle:horizontal:hover {{ background: {hover}; }}
+/* Where both scroll bars meet: nothing, so a card's rounded corner shows. */
+QAbstractScrollArea::corner {{ background: transparent; border: none; }}"""

@@ -56,6 +56,7 @@ from desktop.Studio_Theme import (  # noqa: E402
     theme_tokens,
     web_page_properties,
 )
+from desktop.Theme_Colors import scroll_bar_rules, shade_set  # noqa: E402
 from utilities.App_Settings import read_app_settings  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class, contrast  # noqa: E402
 
@@ -166,7 +167,7 @@ class ThemeColorShadeTests(unittest.TestCase):
         from desktop import Studio_Theme, Theme_Colors
 
         names = ("THEME_COLORS", "DEFAULT_THEME_COLOR", "ACCENT_CHROMA", "NEUTRAL_SHADES", "ACCENT_SHADES",
-                 "BLACK_ACCENTS", "oklch_hex", "shade_set")
+                 "BLACK_ACCENTS", "oklch_hex", "shade_set", "scroll_bar_rules")
         studio = ast.parse(Path(Studio_Theme.__file__).read_text(encoding="utf-8"))
         defined = {node.name for node in studio.body if isinstance(node, (ast.FunctionDef, ast.ClassDef))}
         defined |= {target.id for node in studio.body if isinstance(node, ast.Assign)
@@ -200,6 +201,39 @@ class ThemeColorShadeTests(unittest.TestCase):
                 with self.subTest(color=color, token=token):
                     self.assertTrue(qss_icon_path("chevron-down", token, tokens).is_file())
             self.assertIn(tokens["primary"], studio_stylesheet(tokens))
+
+    def test_the_scroll_bar_rules_are_in_the_windows_stylesheet_once_in_every_colour(self):
+        for color in THEME_COLORS:
+            tokens = theme_tokens(color)
+            sheet = studio_stylesheet(tokens)
+            with self.subTest(color=color):
+                # The handle is the "scroll" token and, under the mouse, "text_disabled"; the text is written once, here.
+                self.assertEqual(sheet.count(scroll_bar_rules(tokens["scroll"], tokens["text_disabled"])), 1)
+                self.assertEqual(sheet.count("QScrollBar::handle"), 4)
+                self.assertEqual(sheet.count("QAbstractScrollArea::corner"), 1)
+
+    def test_the_scroll_bar_rules_draw_the_handle_and_its_hover_in_the_colours_given_light_and_dark(self):
+        template = scroll_bar_rules("HANDLE", "HOVER")
+        for kind in ("light", "dark_page"):
+            for color in THEME_COLORS:
+                tokens = shade_set(kind, color)
+                rules = scroll_bar_rules(tokens["scroll"], tokens["text_disabled"])
+                with self.subTest(kind=kind, color=color):
+                    # Only the four handle rules carry a colour; everything else is the same text in every theme.
+                    self.assertEqual(rules, template.replace("HANDLE", tokens["scroll"]).replace("HOVER", tokens["text_disabled"]))
+                    self.assertEqual(template.count("HANDLE"), 2)
+                    self.assertEqual(template.count("HOVER"), 2)
+                    self.assertIn(f"QScrollBar::handle:vertical {{ background: {tokens['scroll']}; ", rules)
+                    self.assertIn(f"QScrollBar::handle:horizontal {{ background: {tokens['scroll']}; ", rules)
+                    self.assertIn(f"QScrollBar::handle:vertical:hover {{ background: {tokens['text_disabled']}; }}", rules)
+                    self.assertIn(f"QScrollBar::handle:horizontal:hover {{ background: {tokens['text_disabled']}; }}", rules)
+
+    def test_the_hover_the_windows_draw_is_the_pages_scroll_hover_in_light_and_dark(self):
+        for color in THEME_COLORS:
+            with self.subTest(color=color):
+                self.assertEqual(shade_set("light", color)["text_disabled"], shade_set("light_page", color)["scroll_hover"])
+                self.assertEqual(shade_set("dark_page", color)["text_disabled"], shade_set("dark_page", color)["scroll_hover"])
+                self.assertEqual(shade_set("dark_page", color)["scroll"], "#3f3f46")
 
     def test_each_colour_has_a_name(self):
         names = [theme_color_name(color) for color in THEME_COLORS]

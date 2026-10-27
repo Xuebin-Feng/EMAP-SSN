@@ -76,7 +76,7 @@ from PySide6.QtGui import (
 from PySide6.QtWidgets import QApplication, QPlainTextEdit, QPushButton, QWidget
 
 from desktop.Taskbar_Identity import APP_USER_MODEL_IDS, TaskbarIdentity, launcher_relaunch_command
-from desktop.Theme_Colors import DEFAULT_THEME_COLOR, THEME_COLORS, shade_set
+from desktop.Theme_Colors import DEFAULT_THEME_COLOR, THEME_COLORS, scroll_bar_rules, shade_set
 from utilities import Startup_Status as Status
 from utilities.Console_Capture import Splitter
 from utilities.Line_Kinds import ERROR, WARNING, Classifier
@@ -149,6 +149,7 @@ SCHEME_TOKENS = {
     "surface": "surface", "panel": "surface_muted", "border": "border", "text": "text", "text_soft": "text_soft",
     "muted": "text_muted", "subtle": "text_subtle", "track": "border", "accent": "accent", "field_border": "field_border",
     "danger": "danger", "warning": "warning", "hover": "surface_muted", "accent_soft": "accent_soft",
+    "scroll": "scroll", "scroll_hover": "text_disabled",  # the section's scroll bars, as the windows' (scroll_bar_rules)
 }
 
 
@@ -504,7 +505,8 @@ class DetailsView(QPlainTextEdit):
         self.setStyleSheet(
             f"QPlainTextEdit {{ background: {scheme['panel']}; color: {scheme['text_soft']};"
             f" border: 1px solid {scheme['border']}; border-radius: 8px; padding: 6px;"
-            f" selection-background-color: {scheme['accent_soft']}; selection-color: {scheme['text']}; }}"
+            f" selection-background-color: {scheme['accent_soft']}; selection-color: {scheme['text']}; }}\n"
+            + scroll_bar_rules(scheme["scroll"], scheme["scroll_hover"])  # the windows' scroll bars, not the platform style's
         )
         self.formats = {}
         for kind, name in (("info", "text_soft"), (WARNING, "warning"), (ERROR, "danger")):

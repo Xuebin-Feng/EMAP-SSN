@@ -23,15 +23,19 @@ SRC = PROJECT_ROOT / "src"
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
-from PySide6.QtCore import QCoreApplication, QPoint, QSize, Qt  # noqa: E402
-from PySide6.QtGui import QCloseEvent, QColor, QGuiApplication, QIcon, QImage, QPainter, QPixmap, QWindow  # noqa: E402
+from PySide6.QtCore import QCoreApplication, QEvent, QPoint, QPointF, QSize, Qt  # noqa: E402
+from PySide6.QtGui import (  # noqa: E402
+    QCloseEvent, QColor, QEnterEvent, QGuiApplication, QIcon, QImage, QMouseEvent, QPainter, QPixmap, QWindow,
+)
 from PySide6.QtTest import QTest  # noqa: E402
-from PySide6.QtWidgets import QApplication  # noqa: E402
+from PySide6.QtWidgets import QApplication, QPlainTextEdit, QStyleFactory  # noqa: E402
 
 from desktop import Desktop_App, Splash  # noqa: E402
 from desktop.Splash import SplashWindow, StatusFeed, tail_lines  # noqa: E402
-from desktop.Studio_Theme import TOKENS, theme_tokens  # noqa: E402
-from desktop.Theme_Colors import BLACK_ACCENTS, DEFAULT_THEME_COLOR, THEME_COLORS  # noqa: E402
+from desktop.Studio_Theme import TOKENS, studio_stylesheet, theme_tokens  # noqa: E402
+from desktop.Theme_Colors import (  # noqa: E402
+    BLACK_ACCENTS, DEFAULT_THEME_COLOR, THEME_COLORS, scroll_bar_rules, shade_set,
+)
 from tests.theme_fixture import contrast  # noqa: E402
 from utilities import Startup_Status  # noqa: E402
 
@@ -1287,6 +1291,174 @@ class SectionTests(WindowCase):
         self.assertTrue(differing)  # the button is there
         for x, y in differing:
             self.assertTrue(box.contains(int(x / ratio), int(y / ratio)), (x, y))
+
+
+class SectionScrollBarTests(WindowCase):
+    """The section's scroll bars are the windows': Studio_Theme's rules in its colours, whatever style the platform draws with.
+
+    The splash is a process of its own that does not import Studio_Theme, so the rules are one text in the Qt-free
+    Theme_Colors that both take (scroll_bar_rules); the pictures here are what the section's two bars show.
+    """
+
+    LINES = [(f"[{i:02d}] " + "a long line of output that runs past the edge " * 5, False) for i in range(80)]
+    DARK = shade_set("dark_page", "purple")  # the pages' dark mode: the splash has no dark scheme, the view follows its own
+
+    def scheme(self, dark=False):
+        if not dark:
+            return Splash.SCHEME
+        return {**Splash.SCHEME, "scroll": self.DARK["scroll"], "scroll_hover": self.DARK["text_disabled"]}
+
+    def show(self, view):
+        self.addCleanup(view.deleteLater)
+        view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen, True)
+        view.resize(420, 170)
+        view.show()
+        if isinstance(view, Splash.DetailsView):
+            view.add_lines(self.LINES)
+        else:
+            view.setPlainText("\n".join(text for text, _ in self.LINES))
+        flush(self.app, 3)
+        self.assertTrue(view.verticalScrollBar().isVisible() and view.horizontalScrollBar().isVisible())
+        return view
+
+    def pixels(self, view, bar, colour, at="min"):
+        """The pixels of ``colour`` the picture of ``view`` has in ``bar``'s box with the bar at its ``at`` end.
+
+        Returns (left, right, top, bottom, count) relative to the box, or None where there is no such pixel.
+        """
+        bar.setValue(bar.minimum() if at == "min" else bar.maximum())
+        flush(self.app, 2)
+        self.assertEqual(view.devicePixelRatioF(), 1.0)  # the extents below are in pixels
+        image = view.grab().toImage()
+        origin = bar.mapTo(view, QPoint(0, 0))
+        wanted = QColor(colour).rgb()
+        found = [(x - origin.x(), y - origin.y())
+                 for x in range(origin.x(), origin.x() + bar.width()) for y in range(origin.y(), origin.y() + bar.height())
+                 if image.pixelColor(x, y).rgb() == wanted]
+        if not found:
+            return None
+        return (min(x for x, _ in found), max(x for x, _ in found), min(y for _, y in found), max(y for _, y in found),
+                len(found))
+
+    def hover(self, bar, point):
+        """Put the mouse over ``point`` (in the bar's own coordinates), as the system's pointer does."""
+        centre = QPointF(point)
+        self.app.sendEvent(bar, QEnterEvent(centre, centre, QPointF(bar.mapToGlobal(point))))
+        self.app.sendEvent(bar, QMouseEvent(QEvent.Type.MouseMove, centre, QPointF(bar.mapToGlobal(point)),
+                                            Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier))
+        flush(self.app, 2)
+
+    def use_every_style(self):
+        """The names of the styles this platform has; the application is back in its own when the test ends."""
+        self.addCleanup(self.app.setStyle, self.app.style().objectName())
+        return QStyleFactory.keys()
+
+    def test_the_scroll_colours_are_the_windows_in_every_family(self):
+        for color in THEME_COLORS:
+            scheme, tokens = Splash.scheme_for(color), theme_tokens(color)
+            with self.subTest(color=color):
+                self.assertEqual(scheme["scroll"], tokens["scroll"])
+                self.assertEqual(scheme["scroll_hover"], tokens["text_disabled"])  # what the windows' rule draws under the mouse
+                self.assertEqual((scheme["scroll"], scheme["scroll_hover"]), ("#d4d4d8", "#a1a1aa"))
+
+    def test_the_pages_hover_colour_is_the_one_the_windows_draw_in_light_and_dark(self):
+        for color in THEME_COLORS:
+            with self.subTest(color=color):
+                self.assertEqual(shade_set("light_page", color)["scroll_hover"], Splash.scheme_for(color)["scroll_hover"])
+                self.assertEqual(shade_set("dark_page", color)["scroll_hover"], shade_set("dark_page", color)["text_disabled"])
+
+    def test_the_view_carries_the_windows_scroll_bar_rules_in_every_family(self):
+        for color in THEME_COLORS:
+            window = self.splash(theme_color=color)
+            tokens = theme_tokens(color)
+            rules = scroll_bar_rules(tokens["scroll"], tokens["text_disabled"])
+            sheet = window.details.styleSheet()
+            with self.subTest(color=color):
+                self.assertIn(rules, sheet)
+                self.assertIn(rules, studio_stylesheet(tokens))  # the very text the windows' application stylesheet has
+                for line in (
+                    "QScrollBar:vertical { background: transparent; width: 10px; margin: 6px 2px 6px 0px; }",
+                    "QScrollBar:horizontal { background: transparent; height: 10px; margin: 0px 6px 2px 6px; }",
+                    "QScrollBar::handle:vertical { background: #d4d4d8; border-radius: 4px; min-height: 32px; }",
+                    "QScrollBar::handle:horizontal { background: #d4d4d8; border-radius: 4px; min-width: 32px; }",
+                    "QScrollBar::handle:vertical:hover { background: #a1a1aa; }",
+                    "QScrollBar::handle:horizontal:hover { background: #a1a1aa; }",
+                    "QScrollBar::add-line, QScrollBar::sub-line { height: 0px; width: 0px; }",
+                    "QScrollBar::add-page, QScrollBar::sub-page { background: none; }",
+                    "QAbstractScrollArea::corner { background: transparent; border: none; }",
+                ):
+                    self.assertIn(line, sheet)
+
+    def test_the_view_takes_its_bar_colours_from_the_scheme_it_is_given_light_and_dark(self):
+        for dark in (False, True):
+            scheme = self.scheme(dark)
+            sheet = Splash.DetailsView(None, scheme).styleSheet()
+            with self.subTest(dark=dark):
+                self.assertIn(scroll_bar_rules(scheme["scroll"], scheme["scroll_hover"]), sheet)
+                self.assertEqual(sheet.count(f"background: {scheme['scroll']};"), 2)
+                self.assertEqual(sheet.count(f"background: {scheme['scroll_hover']};"), 2)
+        self.assertEqual(self.scheme(True)["scroll"], "#3f3f46")
+        self.assertEqual(self.scheme(True)["scroll_hover"], "#52525b")
+
+    def test_the_handles_are_drawn_in_the_scroll_colour_ten_wide_with_no_arrow_buttons_in_every_style(self):
+        for dark in (False, True):
+            scheme = self.scheme(dark)
+            measured = {}
+            for style in self.use_every_style():
+                self.app.setStyle(style)
+                view = self.show(Splash.DetailsView(None, scheme))
+                vertical, horizontal = view.verticalScrollBar(), view.horizontalScrollBar()
+                with self.subTest(dark=dark, style=style):
+                    # The bars are 10 px thick, as the rules say; the handle fills them but the 2 px margin beside the view.
+                    self.assertEqual((vertical.width(), horizontal.height()), (10, 10))
+                    top = self.pixels(view, vertical, scheme["scroll"], "min")
+                    bottom = self.pixels(view, vertical, scheme["scroll"], "max")
+                    left = self.pixels(view, horizontal, scheme["scroll"], "min")
+                    right = self.pixels(view, horizontal, scheme["scroll"], "max")
+                    for found in (top, bottom, left, right):
+                        self.assertIsNotNone(found, "no pixel of the scroll colour: the platform's own bar is drawn")
+                    self.assertEqual(top[:2], (0, 7))      # 8 px wide, in the bar's first columns (the margin is on the right)
+                    self.assertEqual(left[2:4], (0, 7))    # 8 px thick, in the bar's first rows (the margin is below)
+                    # No arrow button: the handle starts a margin (6 px, and the rounding of its corners) from the bar's ends.
+                    self.assertLessEqual(top[2], 9)
+                    self.assertLessEqual(vertical.height() - 1 - bottom[3], 9)
+                    self.assertLessEqual(left[0], 9)
+                    self.assertLessEqual(horizontal.width() - 1 - right[1], 9)
+                    measured[style] = (top, bottom, left, right)
+            self.assertEqual(len({repr(found) for found in measured.values()}), 1, measured)  # the style makes no difference
+
+    def test_the_handle_is_the_one_a_window_draws_pixel_for_pixel(self):
+        # A plain text box under the windows' own stylesheet is what Config, Tools and the Viewer show.
+        reference = QPlainTextEdit()
+        reference.setReadOnly(True)
+        reference.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        reference.setStyleSheet(studio_stylesheet())
+        self.show(reference)
+        view = self.show(Splash.DetailsView(None, Splash.SCHEME))
+
+        def shape(found):  # where its columns are, how many rows it covers and how many pixels: not where it is along the bar
+            return found[0], found[1], found[3] - found[2], found[4]
+
+        for at in ("min", "max"):
+            with self.subTest(at=at):
+                ours = self.pixels(view, view.verticalScrollBar(), TOKENS["scroll"], at)
+                theirs = self.pixels(reference, reference.verticalScrollBar(), TOKENS["scroll"], at)
+                self.assertIsNotNone(theirs)
+                self.assertIsNotNone(ours, "no pixel of the scroll colour: the platform's own bar is drawn")
+                self.assertEqual(shape(ours), shape(theirs))
+
+    def test_the_handle_takes_the_hover_colour_under_the_mouse_light_and_dark(self):
+        for dark in (False, True):
+            scheme = self.scheme(dark)
+            view = self.show(Splash.DetailsView(None, scheme))
+            for bar, point in ((view.verticalScrollBar(), QPoint(4, 20)), (view.horizontalScrollBar(), QPoint(20, 4))):
+                bar.setValue(bar.minimum())
+                flush(self.app, 2)
+                origin = bar.mapTo(view, QPoint(0, 0))
+                with self.subTest(dark=dark, bar=bar.orientation().name):
+                    self.assertEqual(view.grab().toImage().pixelColor(origin + point).name(), scheme["scroll"])
+                    self.hover(bar, point)
+                    self.assertEqual(view.grab().toImage().pixelColor(origin + point).name(), scheme["scroll_hover"])
 
 
 class ReadyTests(WindowCase):
