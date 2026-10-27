@@ -175,7 +175,8 @@ still change before version 1.0.0.
     nothing for the newest.
   - **Each row** shows the job's number, what it writes, and whether it runs (with its time
     and progress, such as "Drawing tile 3 of 8" or "Folding 2 of 3") or waits (with its
-    place). The card updates while open, and screen readers read each row in full.
+    place). The card updates while open, growing to fit a job that starts or ends just
+    as it opens, and screen readers read each row in full.
   - **A badge** at the top right, under the frame rate's row, counts the jobs while one
     waits or runs; its tooltip lists them.
   - **Waiting jobs** can be moved up or down within their line, or removed.
@@ -327,6 +328,9 @@ still change before version 1.0.0.
     `cluster` or `subcluster` of a session doesn't freeze the Viewer either. Each applies
     in one step that one undo takes back. MCL reports its iterations and can be cancelled
     between them.
+  - **The first command:** the first command of a session paused the Viewer for up to
+    0.3 s while it prepared the letters of the console and status lines. It now prepares
+    them in short steps while it is idle after starting.
   - **Arguments** of `cluster` and `subcluster` are checked when you press Enter, so a
     typo is refused at once; other commands check theirs at their turn. References such
     as `#cluster_3#` are checked at the command's turn, since an earlier command may
@@ -899,6 +903,10 @@ still change before version 1.0.0.
   - **Now:** the tiles are drawn in short slices, and the Viewer answers within about 0.06 s.
     The status line counts the tiles. The capture takes 7–18 % longer, and the PNG is the
     same, byte for byte.
+  - **A covered or minimized Viewer** (seen on Linux under Wayland) drew 2 tiles a second
+    and froze for 1 s each time, because the desktop held every repaint of the window.
+    While the desktop does that, the window now stops repainting until the capture ends:
+    such a print took 74 s, and now takes 3 s.
   - **During the capture:**
     - panning, zooming, hovering and clicking leave it alone;
     - selecting or moving nodes, or resizing the window, cancels it, saving nothing;
