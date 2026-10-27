@@ -506,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="9c96794fb8e4269782daacfab20d2b79d5c0198e2e3119b7a67651242d2e6319">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="48334f442353224e598e7b7298b7bda8479d0400ce759c9d926b39abf4678d25">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -573,12 +573,22 @@
                             <tr>
                                 <td><strong>移动选中节点</strong></td>
                                 <td><span class="kbd">右键单击</span> + 在选中节点上拖动</td>
-                                <td>移动选中节点以分离重叠的簇，用于制作发表用的图（UMAP 或 PaCMAP 模式下不可用）；拖动过程中滚动可旋转这些节点。用 <span class="kbd">Ctrl+Z</span> 撤销，用 <span class="kbd">Ctrl+Y</span> 重做。</td>
+                                <td>移动选中节点以分离重叠的簇，用于制作发表用的图（UMAP 或 PaCMAP 模式下不可用）。移动时按住 <span class="kbd">Shift</span>，可使移动保持水平或垂直，取距起点偏移较大的方向。用 <span class="kbd">Ctrl+Z</span> 撤销，用 <span class="kbd">Ctrl+Y</span> 重做。</td>
+                            </tr>
+                            <tr>
+                                <td><strong>旋转移动中的节点</strong></td>
+                                <td>移动节点时使用<span class="kbd">鼠标滚轮</span></td>
+                                <td>绕拖动的起点旋转正在移动的节点：滚轮每转一格旋转 5&deg;，按住 <span class="kbd">Shift</span> 时每格 0.5&deg;，旋转更精细。触控板或高分辨率滚轮按其发送的格数的小数部分旋转。按住 <span class="kbd">Shift</span> 旋转不会移动节点；直线约束在指针下次移动时生效。</td>
+                            </tr>
+                            <tr>
+                                <td><strong>取消拖动</strong></td>
+                                <td>拖动时按 <span class="kbd">Esc</span></td>
+                                <td>取消正在进行的节点移动或选择框。被移动的节点回到拖动前的位置（包括旋转），该次移动不留下可撤销的步骤；选中节点保持按下时的状态。选择框会被收起，并恢复框选之前的选中节点。该次拖动的其余部分在松开按键前不起任何作用。没有拖动时，<span class="kbd">Esc</span> 关闭命令行。</td>
                             </tr>
                             <tr>
                                 <td><strong>复制序列标题/序列</strong></td>
                                 <td>在节点上 <span class="kbd">Shift</span> 或 <span class="kbd">Ctrl</span> + <span class="kbd">左键单击</span></td>
-                                <td><span class="kbd">Shift</span> 复制节点的完整序列标题，<span class="kbd">Ctrl</span> 将其序列复制到剪贴板。</td>
+                                <td><span class="kbd">Shift</span> 复制节点的完整序列标题，<span class="kbd">Ctrl</span> 将其序列复制到剪贴板。松开按键时才复制，且指针自按下起移动不足 5 像素；拖动不会复制任何内容。</td>
                             </tr>
                         </tbody>
                     </table>

@@ -581,12 +581,22 @@
                             <tr>
                                 <td><strong>Move Selected Nodes</strong></td>
                                 <td><span class="kbd">Right-Click</span> + Drag on a selected node</td>
-                                <td>Moves the selected nodes to separate overlapping clusters for publication figures (not available in UMAP or PaCMAP mode); scrolling while dragging rotates them. Undo with <span class="kbd">Ctrl+Z</span> and redo with <span class="kbd">Ctrl+Y</span>.</td>
+                                <td>Moves the selected nodes to separate overlapping clusters for publication figures (not available in UMAP or PaCMAP mode). Hold <span class="kbd">Shift</span> while moving to keep the move horizontal or vertical, whichever offset from the starting point is larger. Undo with <span class="kbd">Ctrl+Z</span> and redo with <span class="kbd">Ctrl+Y</span>.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Rotate Moving Nodes</strong></td>
+                                <td><span class="kbd">Mouse Scroll Wheel</span> while moving nodes</td>
+                                <td>Rotates the nodes being moved about the point where the drag began: 5&deg; per wheel notch, or 0.5&deg; per notch with <span class="kbd">Shift</span> held, for a finer turn. A touchpad or a high-resolution wheel turns by the fraction of a notch it sends. Turning with <span class="kbd">Shift</span> does not move the nodes; the straight-line hold applies when the pointer next moves.</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Cancel a Drag</strong></td>
+                                <td><span class="kbd">Esc</span> while dragging</td>
+                                <td>Cancels the node move or the selection box in progress. Moved nodes return to where they were before the drag, rotation included, and the move leaves nothing to undo; the selection stays as the press left it. A selection box is dropped and the selection from before it returns. The rest of that drag does nothing until you release the button. With no drag in progress, <span class="kbd">Esc</span> closes the command line.</td>
                             </tr>
                             <tr>
                                 <td><strong>Copy Header / Sequence</strong></td>
                                 <td><span class="kbd">Shift</span> or <span class="kbd">Ctrl</span> + <span class="kbd">Left-Click</span> on a node</td>
-                                <td><span class="kbd">Shift</span> copies the node's full header and <span class="kbd">Ctrl</span> copies its sequence to the clipboard.</td>
+                                <td><span class="kbd">Shift</span> copies the node's full header and <span class="kbd">Ctrl</span> copies its sequence to the clipboard. The copy is made when you release the button, if the pointer moved less than 5 pixels since the press; a drag copies nothing.</td>
                             </tr>
                         </tbody>
                     </table>
