@@ -1032,7 +1032,7 @@
                 </ul>
             </section>
 
-            <section class="command-card" id="cmd-esmfold" data-source-sha256="04086f13b3c7bec1950003da1957625df946f7f3eb8316285763f3b8967e662f">
+            <section class="command-card" id="cmd-esmfold" data-source-sha256="b3c4a02944b6c45a3a010a0d9a65e0f2481a7584c5a9e1503673650d4514391e">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">esmfold</span>
@@ -1048,7 +1048,7 @@
 
                 <div class="subheading">核心参数</div>
                 <ul>
-                    <li><strong>不带参数：</strong>用本地的 ESM3 1.4B 预测一个选中的节点，并生成主链坐标 PDB 文件。没有选中节点时，会折叠最后点击的节点并说明这一点（“未选择任何节点，因此将折叠最后点击的节点的结构：&lt;node&gt;。”）；如果也没有点击过任何节点，则在控制台中添加“结构视图”按钮并打开 Mol*，但不启动预测。如果选中了多个节点，除非给出 <code>multi</code>，否则命令会失败。</li>
+                    <li><strong>不带参数：</strong>用本地的 ESM3 1.4B 预测一个选中的节点，并生成主链坐标 PDB 文件。没有选中节点时，即使点击过某个节点也不会折叠任何结构：命令会在控制台中添加“结构视图”按钮并打开 Mol*，但不启动预测。如果选中了多个节点，除非给出 <code>multi</code>，否则命令会失败。没有选中节点时，<code>multi</code> 和 <code>large</code> 会失败。</li>
                     <li><strong>multi：</strong>在一个后台任务中依次处理当前选中的所有节点。除非与 <code>large</code> 组合，否则使用仅主链的本地模式。</li>
                     <li><strong>large：</strong>使用 <code>src/resources/Biohub_API.json</code> 中的模型远程预测一个选中的节点，当前为 ESM3 Large 98B。与本地仅主链的输出不同，当前 Biohub 的输出包含侧链重原子。可与 <code>multi</code> 以任意顺序组合，进行依次执行的远程批量预测。</li>
                     <li><strong>stop：</strong>结束正在运行的折叠及其启动的所有进程，并把等待中的折叠移出队列，不影响其他任何内容。已保存的结构会保留，写到一半的结构会被删除，每个折叠的任务都会报告为已取消。没有折叠在运行或等待时，命令也会成功并说明这一点。只包含停止命令的请求会立即运行，即使它所结束的 esmfold 请求仍在等待其工作进程。</li>

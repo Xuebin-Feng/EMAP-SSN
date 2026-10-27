@@ -53,8 +53,8 @@ def print_help():
     Usage:
       esmfold
           With exactly 1 node selected, folds it using ESM3 1.4B (biohub/esm3-sm-open-v1).
-          With no node selected, folds the node last clicked and says so. With no node
-          clicked either, adds the "Fold View" button to the Console's button row and opens the Mol* viewer in the browser.
+          With no node selected, folds nothing, even if a node was clicked: it adds the "Fold View" button
+          to the Console's button row and opens the Mol* viewer in the browser.
       esmfold multi
           Folds all currently selected nodes sequentially using ESM3 1.4B (biohub/esm3-sm-open-v1).
       esmfold large
@@ -738,20 +738,10 @@ def run(viewer, args):
     is_multi = options["multi"]
 
     # 3. Determine selected nodes: the selection this command was given, as a queued command uses it
-    # (Command_Engine.command_selection). With nothing selected, the node last clicked (the left-click
-    # focus) is folded, and the outcome says so. The Viewer keeps that click as a transient highlight,
-    # not as part of the selection, and does not date it, so the node clicked when the command runs is
-    # the one used.
+    # (Command_Engine.command_selection). With nothing selected nothing is folded, whether or not a node
+    # was clicked (the Viewer keeps a click as a transient highlight, not as part of the selection): a plain
+    # esmfold opens the structure viewer, and the forms that fold fail.
     selected_indices = Command_Engine.command_selection(viewer)
-    clicked_note = None
-    if not selected_indices:
-        node_idx = getattr(viewer, 'selected_node_idx', None)
-        if node_idx is not None:
-            selected_indices = [node_idx]
-            clicked_note = Message(
-                "Nothing is selected, so the last clicked node is folded: {node}.",
-                node=viewer.full_headers[node_idx].split()[0],
-            )
 
     if not selected_indices:
         if not args:
@@ -795,8 +785,6 @@ def run(viewer, args):
         Command_Engine.command_failed(viewer, f"Error: {failure}")
         _set_console_text(viewer, Message("Error: {error}", error=failure))
         return
-    if clicked_note is not None:
-        print(clicked_note)
 
     # 5. Select hardware only for local inference. Biohub runs remotely.
     device_str = None
@@ -986,9 +974,6 @@ def run(viewer, args):
         held = Message("Left out %n selected node(s) another fold holds: {nodes}.", n=len(taken), nodes=", ".join(taken))
         queued = JoinedMessage([queued, held])
         outcome += f" {held}"
-    if clicked_note is not None:
-        queued = JoinedMessage([clicked_note, queued])
-        outcome += f" {clicked_note}"
     for note, names in residue_notes:
         print(note)
         queued = JoinedMessage([queued, note])

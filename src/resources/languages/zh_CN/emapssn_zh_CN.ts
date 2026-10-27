@@ -4748,8 +4748,8 @@ Command-line usage:
         <location line="+127"/>
         <location filename="../../../commands/esmfold.py" line="+120"/>
         <location line="+582"/>
-        <location line="+94"/>
-        <location line="+114"/>
+        <location line="+84"/>
+        <location line="+112"/>
         <location line="+49"/>
         <location filename="../../../commands/label.py" line="-115"/>
         <location line="+20"/>
@@ -4782,7 +4782,7 @@ Command-line usage:
         <location filename="../../../commands/color.py" line="+476"/>
         <location filename="../../../commands/console.py" line="+57"/>
         <location filename="../../../commands/embedding.py" line="+57"/>
-        <location filename="../../../commands/esmfold.py" line="-237"/>
+        <location filename="../../../commands/esmfold.py" line="-225"/>
         <location filename="../../../commands/export.py" line="+120"/>
         <location filename="../../../commands/group.py" line="+141"/>
         <location filename="../../../commands/help.py" line="-55"/>
@@ -5231,12 +5231,11 @@ Command-line usage:
         <translation type="unfinished">stop 不能与其他关键字同时使用。</translation>
     </message>
     <message>
-        <location line="+23"/>
         <source>Nothing is selected, so the last clicked node is folded: {node}.</source>
-        <translation type="unfinished">未选择任何节点，因此将折叠最后点击的节点的结构：{node}。</translation>
+        <translation type="obsolete">未选择任何节点，因此将折叠最后点击的节点的结构：{node}。</translation>
     </message>
     <message>
-        <location line="+25"/>
+        <location line="+38"/>
         <source>Error: No nodes selected.</source>
         <translation type="unfinished">错误：未选择任何节点。</translation>
     </message>
@@ -5246,7 +5245,7 @@ Command-line usage:
         <translation type="unfinished">错误：选择了多个节点。请使用 &apos;esmfold multi&apos;。</translation>
     </message>
     <message>
-        <location line="+101"/>
+        <location line="+99"/>
         <source>The Biohub API settings cannot be used: {error} Fix or delete the file, then run esmfold large again.</source>
         <translation type="unfinished">无法使用 Biohub API 设置：{error} 请修复或删除该文件，然后再次运行 esmfold large。</translation>
     </message>
@@ -5753,7 +5752,7 @@ Command-line usage:
         <translation type="unfinished">未定义任何簇或分组。</translation>
     </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="-187"/>
+        <location filename="../../../commands/esmfold.py" line="-185"/>
         <location filename="../../../commands/label.py" line="+5"/>
         <location filename="../../../commands/print.py" line="+143"/>
         <source>The background job scheduler is unavailable.</source>
@@ -13101,7 +13100,7 @@ Fedora / RHEL：
         <translation type="unfinished">所有文件 (*)</translation>
     </message>
     <message>
-        <location filename="../../../commands/esmfold.py" line="+84"/>
+        <location filename="../../../commands/esmfold.py" line="+82"/>
         <source>ESMFold Web Server Error</source>
         <translation type="unfinished">ESMFold Web 服务器错误</translation>
     </message>

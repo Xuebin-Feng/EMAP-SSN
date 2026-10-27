@@ -205,17 +205,17 @@ class EsmfoldSelectionTests(QueuedSelectionCase):
         self.finish_fold()
         self.assertEqual(self.folded_nodes(), ["n7"])
 
-    def test_with_nothing_selected_the_node_clicked_when_the_fold_runs_is_folded(self):
-        # The click is a transient highlight the Viewer does not date, so it is not bound at the command's
-        # dispatch: the node clicked while the fold waits is the one it folds, and says so.
+    def test_with_nothing_selected_a_node_clicked_while_the_fold_waits_is_not_folded(self):
+        # A click is a transient highlight, not a selection: with none selected the fold has no node.
         viewer = self.viewer
         viewer.selected_node_idx = 2
         viewer.type(CLUSTER)
         viewer.type("esmfold large")
         viewer.selected_node_idx = 5
         self.finish_fold()
-        self.assertEqual(self.folded_nodes(), ["n5"])
-        self.assertIn("the last clicked node is folded: n5", self.output.getvalue())
+        self.assertIsNone(self.folded_nodes())
+        self.assertEqual(viewer.queue.finished[-1].status, 'failed')
+        self.assertIn("No nodes selected", self.output.getvalue())
 
     def test_a_selection_given_wins_over_a_node_clicked_while_the_fold_waits(self):
         viewer = self.viewer
@@ -225,7 +225,6 @@ class EsmfoldSelectionTests(QueuedSelectionCase):
         viewer.selected_node_idx = 5
         self.finish_fold()
         self.assertEqual(self.folded_nodes(), ["n3"])
-        self.assertNotIn("Nothing is selected", self.output.getvalue())
 
 
 class HideSelectionTests(QueuedSelectionCase):

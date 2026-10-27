@@ -3679,10 +3679,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Nothing is selected, so the last clicked node is folded: {node}.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Error: No nodes selected.</source>
         <translation type="unfinished"></translation>
     </message>

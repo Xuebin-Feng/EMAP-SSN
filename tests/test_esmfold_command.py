@@ -700,56 +700,51 @@ class ReportingTests(CommandCase):
         succeeded, _ = self.run_reporting(viewer, ["large"], opened=False)
         self.assertNotIn("not opened", succeeded.call_args.args[1])
 
-    CLICKED = "Nothing is selected, so the last clicked node is folded: node_1."
-
     def clicked_viewer(self):
+        """Two nodes, none selected, the second one clicked: a click is a highlight, not a selection."""
         viewer = make_viewer(2)
         viewer.selected_indices = []
         viewer.selected_node_idx = 1
         return viewer
 
-    def test_the_last_clicked_node_is_folded_and_every_report_says_so(self):
-        for arguments in ([], ["large"]):
-            with self.subTest(arguments=arguments):
-                viewer = self.clicked_viewer()
-                output = io.StringIO()
-                with mock.patch.object(Hardware_Utils, "get_optimal_device", return_value=FakeDevice("cuda")):
-                    succeeded, failed = self.run_reporting(viewer, arguments, output=output)
-
-                failed.assert_not_called()
-                self.assertEqual(len(viewer.background_job_scheduler.jobs), 1)
-                self.assertIn(self.CLICKED, output.getvalue())
-                self.assertIn(self.CLICKED, succeeded.call_args.args[1])
-                self.assertTrue(viewer.console_text.text.startswith(self.CLICKED), viewer.console_text.text)
-                self.assertIn("Queued 1 structure for folding", viewer.console_text.text)
-
-    def test_the_clicked_node_is_what_the_worker_folds(self):
+    def test_a_clicked_node_is_not_folded_and_a_plain_esmfold_opens_the_structure_viewer(self):
         viewer = self.clicked_viewer()
-        run, _ = self.queued(viewer, ["large"])
-        self.assertEqual(run.records, [["node_1", "ACDE"]])
+        output = io.StringIO()
+        with (
+            mock.patch.object(esmfold_command.esmfold_backend, "register") as register,
+            mock.patch.object(Hardware_Utils, "get_optimal_device") as get_device,
+        ):
+            succeeded, failed = self.run_reporting(viewer, [], output=output)
 
-    def test_the_note_names_the_node_by_its_first_word(self):
-        succeeded, _ = self.run_reporting(self.clicked_viewer(), ["large"])
-        self.assertNotIn("description", succeeded.call_args.args[1])
+        failed.assert_not_called()
+        self.assertEqual(viewer.background_job_scheduler.jobs, [])  # nothing is folded
+        get_device.assert_not_called()
+        self.assertEqual(succeeded.call_args.args[1], "Opened the structure viewer; no folding job was requested.")
+        self.assertNotIn("clicked", output.getvalue() + succeeded.call_args.args[1] + viewer.console_text.text)
 
-    def test_a_selection_wins_over_the_clicked_node_and_needs_no_note(self):
+    def test_the_forms_that_fold_fail_with_nothing_selected_whether_or_not_a_node_was_clicked(self):
+        for clicked in (False, True):
+            for arguments in (["multi"], ["large"], ["large", "multi"]):
+                with self.subTest(clicked=clicked, arguments=arguments):
+                    viewer = self.clicked_viewer()
+                    if not clicked:
+                        viewer.selected_node_idx = None
+                    succeeded, failed = self.run_reporting(viewer, arguments)
+
+                    self.assertEqual(viewer.background_job_scheduler.jobs, [])
+                    succeeded.assert_not_called()
+                    self.assertIn("No nodes selected", failed.call_args.args[1])
+                    self.assertTrue(viewer.console_text.text.startswith("Error:"), viewer.console_text.text)
+
+    def test_a_selection_is_folded_and_a_node_clicked_besides_is_left_alone(self):
         viewer = make_viewer(2)
         viewer.selected_indices = [0]
         viewer.selected_node_idx = 1
         output = io.StringIO()
-        succeeded, _ = self.run_reporting(viewer, ["large"], output=output)
+        run, succeeded = self.queued(viewer, ["large"], output=output)
 
-        self.assertNotIn("Nothing is selected", output.getvalue())
-        self.assertNotIn("Nothing is selected", succeeded.call_args.args[1])
-        self.assertNotIn("Nothing is selected", viewer.console_text.text)
-
-    def test_nothing_selected_and_nothing_clicked_still_fails_as_before(self):
-        viewer = make_viewer(2)
-        viewer.selected_indices = []
-        succeeded, failed = self.run_reporting(viewer, ["large"])
-        self.assertEqual(viewer.background_job_scheduler.jobs, [])
-        succeeded.assert_not_called()
-        self.assertIn("No nodes selected", failed.call_args.args[1])
+        self.assertEqual(run.records, [["node_0", "ACDE"]])
+        self.assertNotIn("clicked", output.getvalue() + succeeded.call_args.args[1] + viewer.console_text.text)
 
     # --- Per-residue data from the loaded alignment ---
 
