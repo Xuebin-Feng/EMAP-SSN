@@ -9292,7 +9292,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">此进程不在图形登录会话中（launchd 会话 {session}）</translation>
     </message>
     <message>
-        <location filename="../../../utilities/Job_Cancellation.py" line="+339"/>
+        <location filename="../../../utilities/Job_Cancellation.py" line="+358"/>
         <source>Could not save {path}: another program kept the file in use (a virus scan or a sync client, for example). The system reported: {error}</source>
         <translation type="unfinished">无法保存 {path}：另一个程序一直占用着该文件（例如病毒扫描程序或同步客户端）。系统报告：{error}</translation>
     </message>

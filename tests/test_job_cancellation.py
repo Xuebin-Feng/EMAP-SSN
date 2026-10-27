@@ -13,12 +13,14 @@ import gc
 import io
 import os
 import re
+import stat
 import sys
 import tempfile
 import threading
 import time
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -563,6 +565,67 @@ class ReplaceFileTests(HeldFileTestCase):
                 self.assertEqual(replace.call_count, 1)
                 pause.assert_not_called()
 
+    @staticmethod
+    def stat_reporting(mode, attributes):
+        """os.stat as it would report a file of this mode and these Windows attributes."""
+        return mock.patch.object(
+            Job_Cancellation.os, "stat", return_value=SimpleNamespace(st_mode=mode, st_file_attributes=attributes)
+        )
+
+    def assert_refused_at_once_as_it_came(self, target_state, winerror=5):
+        """replace_file given a refusal by Windows with this target state raises it unchanged, with no wait."""
+        error = held_file_error(winerror)
+        refusing = mock.patch.object(Job_Cancellation.os, "replace", side_effect=error)
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), \
+                mock.patch.object(Job_Cancellation, "_pause") as pause, refusing as replace, target_state, \
+                self.assertRaises(PermissionError) as raised:
+            replace_file("a", "b", delays=(30.0, 30.0))
+        self.assertIs(raised.exception, error)
+        self.assertNotIsInstance(raised.exception, FileInUseError)
+        self.assertEqual(replace.call_count, 1)
+        pause.assert_not_called()
+
+    def test_access_denied_for_a_read_only_target_is_its_own_refusal_and_is_raised_at_once(self):
+        self.assert_refused_at_once_as_it_came(
+            self.stat_reporting(stat.S_IFREG | 0o444, stat.FILE_ATTRIBUTE_READONLY))
+
+    def test_access_denied_for_a_folder_target_is_its_own_refusal_and_is_raised_at_once(self):
+        folder = self.directory / "folder"
+        folder.mkdir()
+        refusing = mock.patch.object(Job_Cancellation.os, "replace", side_effect=held_file_error(5))
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), \
+                mock.patch.object(Job_Cancellation, "_pause") as pause, refusing as replace, \
+                self.assertRaises(PermissionError) as raised:
+            replace_file(self.make("f.partial"), str(folder), delays=(30.0,))   # a real folder, as a target
+        self.assertNotIsInstance(raised.exception, FileInUseError)
+        self.assertEqual(replace.call_count, 1)
+        pause.assert_not_called()
+
+    def test_access_denied_for_a_target_that_is_neither_is_a_hold_and_is_waited_out(self):
+        source, target = self.make("g1.partial"), self.make("g1.png", b"old")
+        with transient_hold(2, winerror=5) as (attempts, pauses), \
+                self.stat_reporting(stat.S_IFREG | 0o644, stat.FILE_ATTRIBUTE_ARCHIVE):
+            replace_file(source, target)
+        self.assertEqual((len(attempts), len(pauses)), (3, 2))
+        self.assertEqual(Path(target).read_bytes(), b"new")
+
+    def test_access_denied_for_a_target_that_is_gone_is_a_hold_on_the_finished_file_and_is_waited_out(self):
+        source, target = self.make("g2.partial"), str(self.directory / "never-made.png")
+        with transient_hold(2, winerror=5) as (attempts, pauses):
+            replace_file(source, target)
+        self.assertEqual((len(attempts), len(pauses)), (3, 2))
+        self.assertEqual(Path(target).read_bytes(), b"new")
+
+    def test_a_sharing_or_lock_violation_is_a_hold_even_when_the_target_is_read_only(self):
+        for winerror in (32, 33):
+            with self.subTest(winerror=winerror):
+                source, target = self.make("g3.partial"), self.make("g3.png", b"old")
+                with transient_hold(2, winerror) as (attempts, pauses), \
+                        self.stat_reporting(stat.S_IFREG | 0o444, stat.FILE_ATTRIBUTE_READONLY):
+                    replace_file(source, target)
+                self.assertEqual((len(attempts), len(pauses)), (3, 2))
+                self.assertEqual(Path(target).read_bytes(), b"new")
+
     def test_off_windows_a_refusal_is_the_files_own_and_is_not_retried(self):
         error = held_file_error(32)
         with mock.patch.object(Job_Cancellation, "_on_windows", return_value=False), \
@@ -799,6 +862,39 @@ class RealHeldFileTests(HeldFileTestCase):
             self.assertEqual(sweep_leftover_partials(), 1, "still held")
         self.assertEqual(sweep_leftover_partials(), 0)
         self.assertFalse(os.path.exists(source))
+
+    def test_a_read_only_target_is_refused_at_once_with_the_original_error_and_no_wait(self):
+        source, target = self.make("ro.partial"), self.make("ro.png", b"old")
+        os.chmod(target, stat.S_IREAD)
+        self.addCleanup(os.chmod, target, stat.S_IWRITE)
+        with self.assertRaises(PermissionError) as refused:
+            os.replace(source, target)
+        self.assertEqual(refused.exception.winerror, 5, "Windows itself says access is denied")
+        with mock.patch.object(Job_Cancellation, "_pause") as pause, \
+                mock.patch.object(Job_Cancellation.os, "replace", wraps=os.replace) as replace, \
+                self.assertRaises(PermissionError) as raised:
+            replace_file(source, target, delays=(30.0, 30.0))
+        self.assertNotIsInstance(raised.exception, FileInUseError)
+        self.assertEqual(raised.exception.winerror, 5)
+        self.assertEqual(replace.call_count, 1)
+        pause.assert_not_called()
+        self.assertEqual(Path(target).read_bytes(), b"old")
+        self.assertTrue(os.path.exists(source))
+
+    def test_a_folder_target_is_refused_at_once_with_the_original_error_and_no_wait(self):
+        source, folder = self.make("dir.partial"), self.directory / "dir.png"
+        folder.mkdir()
+        with self.assertRaises(PermissionError) as refused:
+            os.replace(source, folder)
+        self.assertEqual(refused.exception.winerror, 5, "Windows itself says access is denied")
+        with mock.patch.object(Job_Cancellation, "_pause") as pause, \
+                mock.patch.object(Job_Cancellation.os, "replace", wraps=os.replace) as replace, \
+                self.assertRaises(PermissionError) as raised:
+            replace_file(source, str(folder), delays=(30.0, 30.0))
+        self.assertNotIsInstance(raised.exception, FileInUseError)
+        self.assertEqual(replace.call_count, 1)
+        pause.assert_not_called()
+        self.assertTrue(folder.is_dir())
 
     def test_the_deletion_waits_out_a_scan_too(self):
         partial = self.make("d.partial")

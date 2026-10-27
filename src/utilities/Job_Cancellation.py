@@ -25,7 +25,9 @@ the worker through it, so the scheduler names no command:
   just opened what was written, a sync client has the folder), and either call
   then waits and tries again, for about 2.5 seconds, instead of failing the
   job; a stop request ends the wait at once. A rename that is refused for the
-  whole wait raises FileInUseError, which says another program held the file.
+  whole wait raises FileInUseError, which says another program held the file
+  (not when the target is read-only or a folder: that is its own refusal, and
+  the error is raised at once as it came).
   A partial file that cannot be deleted either is named to leave_partial, and
   sweep_leftover_partials() deletes it later: the scheduler calls it when a
   job ends and when the Viewer closes, and it runs when the process ends.
@@ -59,6 +61,7 @@ import atexit
 from contextlib import contextmanager
 import io
 import os
+import stat
 import sys
 import threading
 import time
@@ -79,6 +82,7 @@ HELD_FILE_RETRY_DELAYS = (0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.5, 0.5)
 # (a virus scan, an indexer, a sync client, a viewer): ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION,
 # and ERROR_ACCESS_DENIED, which is what replacing a file that is held open gives.
 _HELD_FILE_WINERRORS = frozenset({5, 32, 33})
+_ACCESS_DENIED = 5
 
 
 class JobCancelled(BaseException):
@@ -312,6 +316,18 @@ def _held_by_another_program(error):
     return _on_windows() and getattr(error, "winerror", None) in _HELD_FILE_WINERRORS
 
 
+def _target_refuses_by_itself(target):
+    """Whether the file ``target`` is one Windows refuses to replace whoever has it open: read-only, or a folder.
+
+    Access denied then needs no other program to explain it, and waiting would not help.
+    """
+    try:
+        state = os.stat(target)
+    except OSError:
+        return False
+    return stat.S_ISDIR(state.st_mode) or bool(getattr(state, "st_file_attributes", 0) & stat.FILE_ATTRIBUTE_READONLY)
+
+
 def _pause(seconds):
     """Wait ``seconds``; return whether the job on this thread was told to stop meanwhile, which ends the wait at once."""
     handle = getattr(_bound, "handle", None)
@@ -326,7 +342,8 @@ def replace_file(source, target, delays=HELD_FILE_RETRY_DELAYS):
 
     A hold is the Windows errors of _HELD_FILE_WINERRORS; the rename is tried again after each of ``delays``
     (seconds) and then FileInUseError is raised. Any other error is raised at once, and so is JobCancelled
-    if the job on this thread is told to stop during a wait. Off Windows it is os.replace.
+    if the job on this thread is told to stop during a wait. Access denied (5) is a hold only when nothing
+    else explains it: a read-only target, or a folder, is raised at once as it came. Off Windows it is os.replace.
     """
     for pause in (*delays, None):
         try:
@@ -334,6 +351,8 @@ def replace_file(source, target, delays=HELD_FILE_RETRY_DELAYS):
             return
         except OSError as error:
             if not _held_by_another_program(error):
+                raise
+            if getattr(error, "winerror", None) == _ACCESS_DENIED and _target_refuses_by_itself(target):
                 raise
             if pause is None:
                 raise FileInUseError(Message(
@@ -350,6 +369,7 @@ def remove_partial(path, delays=HELD_FILE_RETRY_DELAYS):
 
     A file that is gone already counts. One that another program holds is tried again after each of ``delays``,
     except that a job told to stop does not wait: it tries once. A file still there is named to leave_partial.
+    The partial file is the job's own, fresh and never read-only, so access denied is always taken as a hold.
     """
     for pause in (*delays, None):
         try:
