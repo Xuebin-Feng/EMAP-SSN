@@ -32,7 +32,9 @@ from Bio.Seq import Seq
 from Bio.SeqRecord import SeqRecord
 import EMAPSSN_Config as cfg
 from utilities import Alignment_Profiles
-from utilities.Job_Cancellation import CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled
+from utilities.Job_Cancellation import (
+    CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled, remove_partial, replace_file,
+)
 from utilities.Localization import Message
 from utilities.Output_Names import new_partial_file, validate_output_basename
 from utilities.Sequence_Utils import (
@@ -1747,14 +1749,11 @@ def _run_label_artifact(viewer, args):
                     raise FileExistsError(Message(
                         "Output file already exists: {path}", path=out_path
                     ))
-                os.replace(partial_path, out_path)
+                replace_file(partial_path, out_path)
                 partial_path = None
             finally:
-                if partial_path and os.path.exists(partial_path):
-                    try:
-                        os.remove(partial_path)
-                    except OSError:
-                        pass
+                if partial_path:
+                    remove_partial(partial_path)
                 forget_partial_path(named_partial)
             
             msg = Message("Exported to {path}", path=out_path)

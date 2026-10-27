@@ -27,6 +27,7 @@ import Cache_Manifest
 from commands import save as save_command
 from desktop.Viewer_State import resolve_viewer_document
 from utilities.Cache_Metadata import read_cache_metadata, validate_cache_provenance
+from tests.held_file_fixtures import transient_hold
 from tests.layout_fixtures import (
     HeadlessSettingsFixture, make_compatibility, make_manifest, make_provenance,
 )
@@ -67,6 +68,51 @@ class InteractiveSaveTests(unittest.TestCase):
                     cache["node_render_order"][:], viewer.node_render_order
                 )
             np.testing.assert_array_equal(viewer.original_pos, viewer.pos)
+
+    def run_save_in_a_cache_folder(self, held_renames):
+        """Run `save` for a two-node viewer in a fresh cache folder, whose first ``held_renames`` renames fail as a
+        held file's do; return (the folder, command_failed's mock, the renames asked for, the waits made)."""
+        compatibility = make_compatibility()
+        manifest = make_manifest(compatibility)
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        folder = pathlib.Path(directory.name) / "cache-folder"
+        Cache_Manifest.write_manifest_atomic(folder, manifest)
+        viewer = SimpleNamespace(
+            cache_manifest_id=manifest["manifest_id"],
+            _cache_provenance=make_provenance(manifest["manifest_id"]),
+            full_headers=["A", "B"],
+            pos=np.zeros((2, 2), dtype=np.float32),
+            original_pos=np.ones((2, 2), dtype=np.float32),
+            node_render_order=np.array([1, 0], dtype=np.int32),
+        )
+        with mock.patch.object(save_command, "resolve_selected_cache", return_value=str(folder / "version_00.h5")), \
+                mock.patch.object(save_command.Command_Engine, "print_help"), \
+                mock.patch.object(save_command.Command_Engine, "command_failed") as failed, \
+                transient_hold(held_renames) as (attempts, pauses):
+            save_command.run(viewer, [])
+        return folder, failed, attempts, pauses
+
+    def test_a_virus_scan_holding_the_finished_file_for_a_moment_does_not_fail_the_save(self):
+        # Windows refuses the rename (WinError 32) while a scan has the file just written open.
+        folder, failed, attempts, pauses = self.run_save_in_a_cache_folder(3)
+
+        failed.assert_not_called()
+        self.assertEqual(len(attempts), 4)
+        self.assertEqual(len(pauses), 3)
+        with h5py.File(folder / "version_00.h5", "r") as cache:
+            np.testing.assert_array_equal(cache["node_render_order"][:], [1, 0])
+        self.assertFalse((folder / "version_00.h5.partial").exists())
+
+    def test_a_hold_that_never_ends_fails_the_save_saying_so_and_leaves_no_partial_file(self):
+        folder, failed, attempts, pauses = self.run_save_in_a_cache_folder(10 ** 6)
+
+        failed.assert_called_once()
+        message = str(failed.call_args.args[1])
+        self.assertIn("Error saving layout state", message)
+        self.assertIn("another program kept the file in use", message)
+        self.assertFalse((folder / "version_00.h5").exists())
+        self.assertFalse((folder / "version_00.h5.partial").exists())
 
     def test_the_sidebar_button_list_is_written_into_the_cache(self):
         # The list the viewer registers its sidebar buttons from at startup is a

@@ -19,6 +19,16 @@ the worker through it, so the scheduler names no command:
   file is renamed into place or deleted. When the Viewer closes and a job does
   not stop in time, the scheduler deletes the files still named, so that a
   half-written file does not depend on the job's thread to be deleted.
+* **Renaming and deleting a partial file.** replace_file(partial, target) is
+  the rename, and remove_partial(partial) the deletion after a failure. On
+  Windows another program may hold the file for a moment (a virus scan has
+  just opened what was written, a sync client has the folder), and either call
+  then waits and tries again, for about 2.5 seconds, instead of failing the
+  job; a stop request ends the wait at once. A rename that is refused for the
+  whole wait raises FileInUseError, which says another program held the file.
+  A partial file that cannot be deleted either is named to leave_partial, and
+  sweep_leftover_partials() deletes it later: the scheduler calls it when a
+  job ends and when the Viewer closes, and it runs when the process ends.
 * **Asking the user.** handle.call_in_gui(function, close=None) runs a function on the GUI
   thread, a dialog for instance, and waits for what it returns; a stop request closes
   the dialog (``close``) and ends the call, so a job never leaves one behind.
@@ -27,10 +37,12 @@ the worker through it, so the scheduler names no command:
   which the card offers to open.
 
 Outside a scheduler job, with no handle bound to the thread, every module
-function here does nothing, so code shared with the foreground or with the VR
-scheduler runs as it always did. A worker reaches its handle by taking it as a
-second parameter (the scheduler passes it to a worker that has two) or, from deep
-inside a helper that cannot take it, with current_job().
+function here that speaks to the job does nothing, so code shared with the
+foreground or with the VR scheduler runs as it always did; replace_file and
+remove_partial still rename and delete there, and wait for a held file as a
+job does, but nothing can stop the wait. A worker reaches its handle by taking
+it as a second parameter (the scheduler passes it to a worker that has two) or,
+from deep inside a helper that cannot take it, with current_job().
 
 JobCancelled derives from BaseException, as asyncio.CancelledError does: the
 ``except Exception`` blocks of the workers (a subset skipped after an error, an
@@ -43,19 +55,43 @@ it is a check point, so the call stops within one chunk of its output.
 
 from __future__ import annotations
 
+import atexit
 from contextlib import contextmanager
 import io
 import os
+import sys
 import threading
 import time
+
+from utilities.Localization import Message
 
 
 # How long a stopped job waits for the function it asked the GUI thread to run to end, once told to close it.
 GUI_CLOSE_WAIT_SECONDS = 5.0
 
+# The waits, in seconds, before each new try at a file another program holds: 2.55 s in all. Most holds end
+# in milliseconds (a scan opens a file just written), so the first waits are short; a scan of a large
+# picture, or a sync client, can take a second or two, so the last are half a second each, which polls
+# cheaply. A longer wait would only keep a user, whose file is held for good, waiting for the failure.
+HELD_FILE_RETRY_DELAYS = (0.05, 0.1, 0.2, 0.3, 0.4, 0.5, 0.5, 0.5)
+
+# What Windows says of a file another program has open without letting it be renamed or deleted
+# (a virus scan, an indexer, a sync client, a viewer): ERROR_SHARING_VIOLATION, ERROR_LOCK_VIOLATION,
+# and ERROR_ACCESS_DENIED, which is what replacing a file that is held open gives.
+_HELD_FILE_WINERRORS = frozenset({5, 32, 33})
+
 
 class JobCancelled(BaseException):
     """Raised at a check point of a background job that was told to stop."""
+
+
+class FileInUseError(PermissionError):
+    """Another program held a file for as long as the job waited for it to let go.
+
+    It is raised with a Message, so a window shows the failure translated, and
+    str(error) is English for the terminal; the error the system gave is the
+    message's {error} and the exception's __cause__.
+    """
 
 
 class GuiCall:
@@ -134,6 +170,10 @@ class JobHandle:
         """The check point: raise JobCancelled if the job was told to stop."""
         if self._event.is_set():
             raise JobCancelled()
+
+    def wait(self, seconds):
+        """Wait for up to ``seconds``, or until the job is told to stop; return whether it was."""
+        return self._event.wait(seconds)
 
     # --- the GUI thread ---
 
@@ -255,6 +295,111 @@ def forget_partial_path(path):
     handle = getattr(_bound, "handle", None)
     if handle is not None:
         handle.forget_partial(path)
+
+
+# --- renaming and deleting a partial file another program may hold ---
+
+
+def _on_windows():
+    return sys.platform == "win32"
+
+
+def _held_by_another_program(error):
+    """Whether error is Windows saying that another program has the file open or locked.
+
+    Only Windows holds a file against a rename or a deletion; elsewhere an error is the file's own.
+    """
+    return _on_windows() and getattr(error, "winerror", None) in _HELD_FILE_WINERRORS
+
+
+def _pause(seconds):
+    """Wait ``seconds``; return whether the job on this thread was told to stop meanwhile, which ends the wait at once."""
+    handle = getattr(_bound, "handle", None)
+    if handle is None:
+        time.sleep(seconds)
+        return False
+    return handle.wait(seconds)
+
+
+def replace_file(source, target, delays=HELD_FILE_RETRY_DELAYS):
+    """Rename ``source`` over ``target`` as os.replace does, waiting for another program that holds either.
+
+    A hold is the Windows errors of _HELD_FILE_WINERRORS; the rename is tried again after each of ``delays``
+    (seconds) and then FileInUseError is raised. Any other error is raised at once, and so is JobCancelled
+    if the job on this thread is told to stop during a wait. Off Windows it is os.replace.
+    """
+    for pause in (*delays, None):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as error:
+            if not _held_by_another_program(error):
+                raise
+            if pause is None:
+                raise FileInUseError(Message(
+                    "Could not save {path}: another program kept the file in use "
+                    "(a virus scan or a sync client, for example). The system reported: {error}",
+                    path=os.fspath(target), error=error,
+                )) from error
+        if _pause(pause):
+            raise JobCancelled()
+
+
+def remove_partial(path, delays=HELD_FILE_RETRY_DELAYS):
+    """Delete the partial file a failed or stopped job leaves; return whether it is gone. It never raises.
+
+    A file that is gone already counts. One that another program holds is tried again after each of ``delays``,
+    except that a job told to stop does not wait: it tries once. A file still there is named to leave_partial.
+    """
+    for pause in (*delays, None):
+        try:
+            os.remove(path)
+            return True
+        except FileNotFoundError:
+            return True
+        except OSError as error:
+            if pause is None or not _held_by_another_program(error):
+                break
+        if _pause(pause):
+            break
+    leave_partial(path)
+    return False
+
+
+# The partial files that could not be deleted, until a later try deletes them.
+_leftover_lock = threading.Lock()
+_leftover_partials = []
+_leftover_sweep_registered = False
+
+
+def leave_partial(path):
+    """Name a partial file that could not be deleted, for sweep_leftover_partials() to delete later."""
+    global _leftover_sweep_registered
+    path = os.fspath(path)
+    with _leftover_lock:
+        if path not in _leftover_partials:
+            _leftover_partials.append(path)
+        if not _leftover_sweep_registered:
+            _leftover_sweep_registered = True
+            atexit.register(sweep_leftover_partials)
+
+
+def sweep_leftover_partials():
+    """Try once more to delete each partial file that could not be deleted; return how many are still there."""
+    with _leftover_lock:
+        paths = list(_leftover_partials)
+    for path in paths:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
+        except OSError:
+            continue
+        with _leftover_lock:
+            if path in _leftover_partials:
+                _leftover_partials.remove(path)
+    with _leftover_lock:
+        return len(_leftover_partials)
 
 
 class CancellableFile:
@@ -379,12 +524,18 @@ class CancellableFile:
 
 __all__ = [
     "CancellableFile",
+    "FileInUseError",
+    "HELD_FILE_RETRY_DELAYS",
     "JobCancelled",
     "JobHandle",
     "bound_to",
     "cancel_requested",
     "current_job",
     "forget_partial_path",
+    "leave_partial",
     "note_partial_path",
     "raise_if_cancelled",
+    "remove_partial",
+    "replace_file",
+    "sweep_leftover_partials",
 ]

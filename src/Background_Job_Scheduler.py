@@ -34,6 +34,9 @@ scheduler without the scheduler being changed.
   registered with its JobHandle.
 * **Closing.** shutdown() stops every running job, waits a moment, and deletes
   the partial files of a job that did not stop.
+* **Files another program held.** A partial file a job could not delete (a virus
+  scan or a sync client had it) is named to Job_Cancellation.leave_partial; the
+  end of each job, and shutdown(), try to delete such files again.
 """
 
 from __future__ import annotations
@@ -51,7 +54,7 @@ import weakref
 from PySide6 import QtCore
 from desktop.Desktop_App import open_in_file_manager
 from desktop.Viewer_Window import viewer_shows_windows
-from utilities.Job_Cancellation import GuiCall, JobCancelled, JobHandle, bound_to
+from utilities.Job_Cancellation import GuiCall, JobCancelled, JobHandle, bound_to, sweep_leftover_partials
 from utilities.Localization import Message
 
 
@@ -514,6 +517,7 @@ class BackgroundJobScheduler(QtCore.QObject):
         closing the Viewer in the middle of a write leaves no half-written file
         whatever the job's thread is doing. A file it renames into place
         afterwards cannot appear: the partial file it would rename is gone.
+        The partial files that earlier jobs could not delete are tried once more.
         """
         with self._lock:
             if not self._accepting:
@@ -546,6 +550,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                 except OSError:
                     pass
             self._clean_up(job)
+        sweep_leftover_partials()
 
     def _run_lane(self, lane):
         """The lane's thread: take the job at the front of the line, run it, and report how it ended."""
@@ -602,6 +607,7 @@ class BackgroundJobScheduler(QtCore.QObject):
                     self._release(job)
                     accepting = self._accepting
                 self._clean_up(job)
+                sweep_leftover_partials()
                 if accepting:
                     self.changed.emit()
 

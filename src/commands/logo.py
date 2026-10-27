@@ -32,7 +32,9 @@ from utilities.Alignment_Profiles import (
     run_identity_neighbour_counts,
     set_num_threads,
 )
-from utilities.Job_Cancellation import CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled
+from utilities.Job_Cancellation import (
+    CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled, remove_partial, replace_file,
+)
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import new_partial_file, validate_output_basename
 from utilities.Sequence_Utils import (
@@ -308,15 +310,12 @@ def _generate_logo_artifact(payload):
         raise_if_cancelled()
         if not allow_overwrite and os.path.exists(save_path):
             raise FileExistsError(Message("Output file already exists: {path}", path=save_path))
-        os.replace(partial_path, save_path)
+        replace_file(partial_path, save_path)
         partial_path = None
     finally:
         fig.clear()
-        if partial_path and os.path.exists(partial_path):
-            try:
-                os.remove(partial_path)
-            except OSError:
-                pass
+        if partial_path:
+            remove_partial(partial_path)
         if named_partial is not None:
             forget_partial_path(named_partial)
 

@@ -28,7 +28,9 @@ from vispy.scene.visuals import VisualNode
 from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
 from commands.zoom import ZOOM_100_PERCENT_WIDTH, view_for_zoom, zoom_percent
-from utilities.Job_Cancellation import CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled
+from utilities.Job_Cancellation import (
+    CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled, remove_partial, replace_file,
+)
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import edge_stages, opengl_failure_note
@@ -845,12 +847,9 @@ def _write_svg(snapshot, filepath):
                 handle.write(text)
             handle.write('  </g>\n</svg>')
         raise_if_cancelled()
-        os.replace(partial_path, filepath)
+        replace_file(partial_path, filepath)
     except BaseException:
-        try:
-            os.remove(partial_path)
-        except OSError:
-            pass
+        remove_partial(partial_path)
         raise
     finally:
         forget_partial_path(partial_path)
@@ -1041,12 +1040,9 @@ def _write_png(filepath, image):
         with CancellableFile.at(partial_path, 'xb') as target:
             mpimg.imsave(target, image, format='png')
         raise_if_cancelled()
-        os.replace(partial_path, filepath)
+        replace_file(partial_path, filepath)
     except BaseException:
-        try:
-            os.remove(partial_path)
-        except OSError:
-            pass
+        remove_partial(partial_path)
         raise
     finally:
         forget_partial_path(partial_path)

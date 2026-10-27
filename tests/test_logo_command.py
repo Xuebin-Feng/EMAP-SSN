@@ -28,6 +28,7 @@ if SRC_DIR not in sys.path:
 import Alignment_Manager
 import Command_Engine
 from tests.command_fixtures import end_scheduler
+from tests.held_file_fixtures import transient_hold
 from tests.sparse_alignment import sparse_alignment
 from commands import logo as logo_command
 from utilities.Job_Cancellation import cancel_requested
@@ -874,6 +875,35 @@ class LogoSynchronousArtifactTests(unittest.TestCase):
                 [name for name in os.listdir(directory) if ".partial" in name],
                 [],
             )
+
+    def test_a_virus_scan_holding_the_finished_file_for_a_moment_does_not_fail_the_logo(self):
+        # Windows refuses the rename (WinError 32) while a scan has the file just written open.
+        for filename in ("held.svg", "held.png"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as directory:
+                payload = self.make_payload(directory, filename=filename)
+
+                with transient_hold(3) as (attempts, pauses):
+                    result = logo_command._generate_logo_artifact(payload)
+
+                self.assertEqual(len(attempts), 4)
+                self.assertEqual(len(pauses), 3)
+                self.assertEqual(os.listdir(directory), [filename])
+                self.assertGreater(os.path.getsize(result["save_path"]), 0)
+
+    def test_a_hold_that_never_ends_fails_the_logo_saying_so_and_leaves_nothing_behind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = self.make_payload(directory, filename="held.svg", allow_overwrite=True)
+            out_file = os.path.join(directory, "held.svg")
+            with open(out_file, "wb") as output:
+                output.write(b"previous content")
+
+            with transient_hold(10 ** 6), self.assertRaises(PermissionError) as raised:
+                logo_command._generate_logo_artifact(payload)
+
+            self.assertIn("another program kept the file in use", str(raised.exception))
+            self.assertEqual(os.listdir(directory), ["held.svg"])
+            with open(out_file, "rb") as output:
+                self.assertEqual(output.read(), b"previous content")
 
     def test_artifact_renderer_overwrites_existing_file(self):
         with tempfile.TemporaryDirectory() as directory:

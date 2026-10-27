@@ -4434,7 +4434,7 @@ Command-line usage:
 <context>
     <name>Message</name>
     <message>
-        <location filename="../../../Background_Job_Scheduler.py" line="+199"/>
+        <location filename="../../../Background_Job_Scheduler.py" line="+202"/>
         <source>Files</source>
         <translation type="unfinished">文件</translation>
     </message>
@@ -4445,18 +4445,18 @@ Command-line usage:
     </message>
     <message>
         <location line="+2"/>
-        <location filename="../../../commands/label.py" line="+1295"/>
+        <location filename="../../../commands/label.py" line="+1297"/>
         <location line="+452"/>
-        <location filename="../../../commands/logo.py" line="+231"/>
+        <location filename="../../../commands/logo.py" line="+233"/>
         <location line="+79"/>
-        <location filename="../../../commands/print.py" line="+1454"/>
+        <location filename="../../../commands/print.py" line="+1450"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
     <message>
         <location line="+3"/>
-        <location filename="../../../commands/label.py" line="+141"/>
-        <location filename="../../../commands/logo.py" line="+623"/>
+        <location filename="../../../commands/label.py" line="+138"/>
+        <location filename="../../../commands/logo.py" line="+620"/>
         <location filename="../../../commands/print.py" line="+231"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
@@ -4467,7 +4467,7 @@ Command-line usage:
         <translation type="unfinished">已排队后台任务 #{job}：{command}（第 {position} 位）→ {file}</translation>
     </message>
     <message>
-        <location line="+194"/>
+        <location line="+197"/>
         <source>Running background job #{job}: {description}</source>
         <translation type="unfinished">正在运行后台任务 #{job}：{description}</translation>
     </message>
@@ -5563,7 +5563,7 @@ Command-line usage:
         <location line="+26"/>
         <location filename="../../../commands/reference.py" line="+84"/>
         <location filename="../../../commands/run.py" line="-47"/>
-        <location filename="../../../commands/save.py" line="+31"/>
+        <location filename="../../../commands/save.py" line="+32"/>
         <location filename="../../../commands/subcluster.py" line="-235"/>
         <location filename="../../../commands/undo.py" line="+57"/>
         <location line="+13"/>
@@ -5623,7 +5623,7 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location filename="../../../commands/label.py" line="-1316"/>
+        <location filename="../../../commands/label.py" line="-1313"/>
         <source>The {argument} threshold &apos;{value}&apos; is outside the supported range of 0 to 100%.</source>
         <translation type="unfinished">{argument} 阈值“{value}”超出了支持的范围 0 到 100%。</translation>
     </message>
@@ -5707,7 +5707,7 @@ Command-line usage:
         <translation type="unfinished">错误：导出 XLSX 需要 &apos;openpyxl&apos;。请运行：{command}</translation>
     </message>
     <message>
-        <location line="+409"/>
+        <location line="+406"/>
         <source>Exported to {path}</source>
         <translation type="unfinished">已导出到 {path}</translation>
     </message>
@@ -5769,7 +5769,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/logo.py" line="-582"/>
+        <location filename="../../../commands/logo.py" line="-579"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -5789,7 +5789,7 @@ Command-line usage:
         <translation type="unfinished">序列标识图重新加权只能提供一个一致性阈值。</translation>
     </message>
     <message numerus="yes">
-        <location line="+206"/>
+        <location line="+203"/>
         <source>Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}</source>
         <translation type="unfinished">
             <numerusform>已将 %n 个已比对节点的 {gap_mode} {mode} 序列标识图保存到 {file}</numerusform>
@@ -9290,6 +9290,11 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <location line="+5"/>
         <source>this process is not in a graphical login session (launchd session {session})</source>
         <translation type="unfinished">此进程不在图形登录会话中（launchd 会话 {session}）</translation>
+    </message>
+    <message>
+        <location filename="../../../utilities/Job_Cancellation.py" line="+339"/>
+        <source>Could not save {path}: another program kept the file in use (a virus scan or a sync client, for example). The system reported: {error}</source>
+        <translation type="unfinished">无法保存 {path}：另一个程序一直占用着该文件（例如病毒扫描程序或同步客户端）。系统报告：{error}</translation>
     </message>
 </context>
 <context>

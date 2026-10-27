@@ -31,6 +31,7 @@ import Alignment_Manager
 from commands import label
 from desktop import Desktop_App as application_windows
 from tests.command_fixtures import end_scheduler
+from tests.held_file_fixtures import transient_hold
 from tests.sparse_alignment import sparse_alignment
 from utilities.Job_Cancellation import cancel_requested
 
@@ -285,6 +286,30 @@ class LabelWorkbookPercentTests(unittest.TestCase):
                 [path for path in Path(directory).iterdir() if ".partial" in path.name],
                 [],
             )
+
+    def test_a_virus_scan_holding_the_finished_workbook_for_a_moment_does_not_fail_the_report(self):
+        # Windows refuses the rename (WinError 32) while a scan has the file just written open.
+        with tempfile.TemporaryDirectory() as directory:
+            with transient_hold(3) as (attempts, pauses):
+                viewer = self.run_label(directory, ["held_report"])
+
+            output_path = Path(directory, "held_report.xlsx")
+            self.assertEqual(len(attempts), 4)
+            self.assertEqual(len(pauses), 3)
+            self.assertIn(str(output_path), viewer.console_text.text)
+            self.assertEqual(os.listdir(directory), ["held_report.xlsx"])
+            self.assertIn("Meta Data", openpyxl.load_workbook(output_path).sheetnames)
+
+    def test_a_hold_that_never_ends_fails_the_report_saying_so_and_leaves_nothing_behind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output_path = Path(directory, "held_report.xlsx")
+            output_path.write_bytes(b"previous content")
+            with transient_hold(10 ** 6), self.assertRaises(PermissionError) as raised:
+                self.run_label(directory, ["held_report"])
+
+            self.assertIn("another program kept the file in use", str(raised.exception))
+            self.assertEqual(os.listdir(directory), ["held_report.xlsx"])
+            self.assertEqual(output_path.read_bytes(), b"previous content")
 
     def test_bare_filename_is_allowed_after_keyword_parameters(self):
         with tempfile.TemporaryDirectory() as directory:

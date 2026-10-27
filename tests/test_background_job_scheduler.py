@@ -26,9 +26,11 @@ from PySide6 import QtCore
 
 from Background_Job_Scheduler import BackgroundJobScheduler
 from Viewer_Command_Portal import ExecutionContext, ViewerCommandPortal, bind
-from utilities.Job_Cancellation import JobCancelled, cancel_requested, raise_if_cancelled
+from utilities import Job_Cancellation
+from utilities.Job_Cancellation import JobCancelled, cancel_requested, leave_partial, raise_if_cancelled
 from utilities.Localization import Message, display_text
 from tests.command_fixtures import end_scheduler
+from tests.held_file_fixtures import held_file_error
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_state
 
 
@@ -790,6 +792,83 @@ class ShutdownCleanupTests(LineTestCase):
         self.scheduler.shutdown()
         self.assertLess(time.monotonic() - started, 1.0)
         self.assertFalse(self.scheduler._thread.is_alive())
+
+
+class HeldPartialFileTests(LineTestCase):
+    """A partial file a job could not delete, because another program held it, is deleted later: not left for good."""
+
+    def setUp(self):
+        super().setUp()
+        for patch in (
+            mock.patch.object(Job_Cancellation, "_leftover_partials", []),
+            mock.patch.object(Job_Cancellation, "_leftover_sweep_registered", True),  # no process-exit hook from a test
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+
+    def failing_job_leaving(self, partial):
+        """A worker that writes a partial file, gives up deleting it (as remove_partial does) and fails."""
+
+        def worker(payload, job):
+            with open(partial, "wb") as handle:
+                handle.write(b"half")
+            leave_partial(partial)
+            raise OSError("the picture could not be saved")
+
+        return worker
+
+    def test_a_partial_file_left_by_a_job_is_deleted_when_the_job_ends(self):
+        partial = self.path(".report.partial")
+        job_id = self.enqueue("report", self.failing_job_leaving(partial))
+        self.wait_idle()
+        self.assertIn(("failed", job_id), self.reports)
+        self.assertFalse(os.path.exists(partial))
+        self.assertEqual(Job_Cancellation._leftover_partials, [])
+
+    def test_a_partial_file_still_held_stays_listed_and_is_deleted_when_the_viewer_closes(self):
+        partial = self.path(".report.partial")
+        held = threading.Event()
+        held.set()
+        real_remove = os.remove
+
+        def remove(name):
+            if held.is_set() and name == partial:
+                raise held_file_error(32, name)
+            real_remove(name)
+
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), \
+                mock.patch.object(Job_Cancellation.os, "remove", side_effect=remove):
+            job_id = self.enqueue("report", self.failing_job_leaving(partial))
+            self.wait_idle()
+            self.assertIn(("failed", job_id), self.reports)
+            self.assertTrue(os.path.exists(partial), "the program still holds it")
+            self.assertEqual(Job_Cancellation._leftover_partials, [partial])
+            held.clear()
+            self.scheduler.shutdown(wait=0.2)
+        self.assertFalse(os.path.exists(partial))
+        self.assertEqual(Job_Cancellation._leftover_partials, [])
+
+    def test_the_next_job_that_ends_tries_again(self):
+        partial = self.path(".report.partial")
+        held = threading.Event()
+        held.set()
+        real_remove = os.remove
+
+        def remove(name):
+            if held.is_set() and name == partial:
+                raise held_file_error(32, name)
+            real_remove(name)
+
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), \
+                mock.patch.object(Job_Cancellation.os, "remove", side_effect=remove):
+            self.enqueue("report", self.failing_job_leaving(partial))
+            self.wait_idle()
+            self.assertTrue(os.path.exists(partial))
+            held.clear()
+            later = self.enqueue("later")
+            self.wait_idle()
+        self.assertIn(("succeeded", later), self.reports)
+        self.assertFalse(os.path.exists(partial))
 
 
 class LaneTests(LineTestCase):

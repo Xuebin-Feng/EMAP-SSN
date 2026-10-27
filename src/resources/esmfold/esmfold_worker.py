@@ -34,6 +34,7 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from resources import Biohub_API
+from utilities.Job_Cancellation import remove_partial, replace_file
 
 
 # A Viewer that is busy or gone must not stall folding.
@@ -186,21 +187,15 @@ def notify_job(event, action_url=None, **fields):
 
 
 def _replace_file(source, target, attempts=10):
-    """Move ``source`` over ``target``, waiting for readers to let go of it.
+    """Move ``source`` over ``target``, waiting for readers to let go of it: ``attempts`` tries, 0.2 s apart.
 
     Windows refuses to replace a file while another process has it open
     without delete sharing, which Python's ``open`` never grants. The readers
     here (the Viewer's web server serving a PDB, its WorkerTracker or an
-    external monitor polling the status file) release it quickly.
+    external monitor polling the status file) release it quickly. The wait is
+    replace_file's, with the pauses this caller asks for.
     """
-    for attempt in range(attempts):
-        try:
-            os.replace(source, target)
-            return
-        except PermissionError:
-            if attempt == attempts - 1:
-                raise
-            time.sleep(0.2)
+    replace_file(source, target, delays=(0.2,) * (attempts - 1))
 
 
 _portal_path = None
@@ -479,16 +474,18 @@ def _publish_text(path, text):
     The text goes to ``<path>.<pid>.partial`` first, which is renamed into place,
     so an interrupted run never leaves a truncated file (a later --skip-existing
     run would keep a truncated PDB). The Viewer's `esmfold stop` deletes the
-    ``*.<pid>.partial`` files of a worker it ended.
+    ``*.<pid>.partial`` files of a worker it ended. A reader, or a virus scan or
+    sync client that opened the file just written, may hold it for a moment:
+    replace_file waits for it, and remove_partial leaves a partial file that
+    stays held to be deleted when this worker ends.
     """
     partial_path = f"{path}.{os.getpid()}.partial"
     try:
         with open(partial_path, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(text)
-        _replace_file(partial_path, path)
+        replace_file(partial_path, path)
     finally:
-        if os.path.exists(partial_path):
-            os.remove(partial_path)
+        remove_partial(partial_path)
 
 
 def _write_prediction(output_protein, rec_id, structures_dir, model_suffix=None):

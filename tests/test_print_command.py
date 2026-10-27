@@ -39,6 +39,8 @@ if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
 from tests.command_fixtures import end_scheduler  # noqa: E402
+from tests.held_file_fixtures import held_file_error, hold_without_delete_sharing, transient_hold  # noqa: E402
+from utilities import Job_Cancellation  # noqa: E402
 
 
 def load_print_command():
@@ -569,6 +571,72 @@ class PrintPngEncodingTests(unittest.TestCase):
             with open(path, "rb") as handle:
                 self.assertEqual(handle.read(), b"earlier picture")
 
+    def test_a_virus_scan_holding_the_finished_file_for_a_moment_does_not_fail_the_picture(self):
+        # Windows refuses the rename (WinError 32) while a scan has the file just written open.
+        image = (np.random.default_rng(3).random((20, 31, 4)) * 255).astype(np.uint8)
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "picture.png")
+            direct = os.path.join(directory, "direct.png")
+            print_command.mpimg.imsave(direct, image)
+            with transient_hold(3) as (attempts, pauses):
+                print_command._write_png(path, image)
+            self.assertEqual(len(attempts), 4)
+            self.assertEqual(len(pauses), 3)
+            with open(path, "rb") as written, open(direct, "rb") as expected:
+                self.assertEqual(written.read(), expected.read())
+            self.assertEqual(sorted(os.listdir(directory)), ["direct.png", "picture.png"])
+
+    @unittest.skipUnless(sys.platform == "win32", "holds a file open as a Windows virus scanner does")
+    def test_a_program_really_holding_the_picture_it_replaces_for_a_moment_does_not_fail_the_picture(self):
+        image = (np.random.default_rng(3).random((20, 31, 4)) * 255).astype(np.uint8)
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "picture.png")
+            direct = os.path.join(directory, "direct.png")
+            print_command.mpimg.imsave(direct, image)
+            with open(path, "wb") as handle:
+                handle.write(b"earlier picture")
+            # Windows refuses to replace a file that is open without delete sharing (WinError 5).
+            with hold_without_delete_sharing(path, seconds=0.3):
+                print_command._write_png(path, image)
+            with open(path, "rb") as written, open(direct, "rb") as expected:
+                self.assertEqual(written.read(), expected.read())
+            self.assertEqual(sorted(os.listdir(directory)), ["direct.png", "picture.png"])
+
+    def test_a_hold_that_never_ends_fails_the_picture_saying_so_and_leaves_nothing_behind(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "picture.png")
+            with open(path, "wb") as handle:
+                handle.write(b"earlier picture")
+            with transient_hold(10 ** 6), self.assertRaises(PermissionError) as raised:
+                print_command._write_png(path, np.zeros((2, 2, 4), dtype=np.uint8))
+
+            self.assertIn("another program kept the file in use", str(raised.exception))
+            self.assertIn("being used by another process", str(raised.exception))
+            self.assertEqual(os.listdir(directory), ["picture.png"])
+            with open(path, "rb") as handle:
+                self.assertEqual(handle.read(), b"earlier picture")
+
+    def test_a_partial_file_that_stays_held_is_named_for_a_later_deletion(self):
+        leftovers = []
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "picture.png")
+            real_remove = os.remove
+
+            def remove(name):
+                if name.endswith(".partial.png"):
+                    raise held_file_error(32, name)
+                real_remove(name)
+
+            with transient_hold(10 ** 6), \
+                    mock.patch.object(Job_Cancellation.os, "remove", side_effect=remove), \
+                    mock.patch.object(Job_Cancellation, "leave_partial", side_effect=leftovers.append), \
+                    self.assertRaises(PermissionError):
+                print_command._write_png(path, np.zeros((2, 2, 4), dtype=np.uint8))
+
+            self.assertEqual(len(leftovers), 1)
+            self.assertTrue(leftovers[0].endswith(".partial.png"))
+            self.assertEqual(os.listdir(directory), [os.path.basename(leftovers[0])])
+
 
 class PrintOutputNameTests(unittest.TestCase):
     def run_print(self, save_dir, arguments):
@@ -763,6 +831,36 @@ class PrintSvgStreamingTests(unittest.TestCase):
                     self.assertRaisesRegex(RuntimeError, "disk full"):
                 print_command._write_svg(print_command._svg_snapshot(viewer), path)
 
+            self.assertEqual(os.listdir(directory), ["network.svg"])
+            with open(path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "earlier picture")
+
+    def test_a_virus_scan_holding_the_finished_file_for_a_moment_does_not_fail_the_picture(self):
+        viewer = self.mixed_network()
+        whole = export_svg(viewer)
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "network.svg")
+            with mock.patch.multiple(print_command.cfg, create=True, UMAP_MODE=False), \
+                    transient_hold(2, winerror=5) as (attempts, pauses), \
+                    redirect_stdout(io.StringIO()):
+                print_command._write_svg(print_command._svg_snapshot(viewer), path)
+            self.assertEqual(len(attempts), 3)
+            self.assertEqual(os.listdir(directory), ["network.svg"])
+            with open(path, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), whole)
+
+    def test_a_hold_that_never_ends_fails_the_picture_saying_so_and_leaves_nothing_behind(self):
+        viewer = self.mixed_network()
+        with tempfile.TemporaryDirectory() as directory:
+            path = os.path.join(directory, "network.svg")
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write("earlier picture")
+            with mock.patch.multiple(print_command.cfg, create=True, UMAP_MODE=False), \
+                    transient_hold(10 ** 6), redirect_stdout(io.StringIO()), \
+                    self.assertRaises(PermissionError) as raised:
+                print_command._write_svg(print_command._svg_snapshot(viewer), path)
+
+            self.assertIn("another program kept the file in use", str(raised.exception))
             self.assertEqual(os.listdir(directory), ["network.svg"])
             with open(path, encoding="utf-8") as handle:
                 self.assertEqual(handle.read(), "earlier picture")

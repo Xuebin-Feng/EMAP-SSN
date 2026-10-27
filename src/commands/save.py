@@ -22,6 +22,7 @@ import EMAPSSN_Config as cfg
 import Cache_Manifest as cache_manifest
 from desktop.Viewer_State import resolve_selected_cache
 from utilities.Cache_Metadata import validate_cache_provenance
+from utilities.Job_Cancellation import remove_partial, replace_file
 from utilities.Localization import JoinedMessage, Message
 
 def run(viewer, args):
@@ -137,7 +138,7 @@ def run(viewer, args):
                 
             if getattr(viewer, 'last_cluster_params', None) is not None: hf.attrs["last_cluster_params"] = json.dumps(viewer.last_cluster_params)
 
-        os.replace(partial_save_path, final_save_path)
+        replace_file(partial_save_path, final_save_path)
         Command_Engine.command_artifact(viewer, final_save_path)
         
         if hasattr(viewer, 'original_pos'):
@@ -147,8 +148,8 @@ def run(viewer, args):
         Command_Engine.print_help(viewer, msg)
 
     except Exception as e:
-        if 'partial_save_path' in locals() and os.path.exists(partial_save_path):
-            os.remove(partial_save_path)
+        if 'partial_save_path' in locals():
+            remove_partial(partial_save_path)
         msg = Message("Error saving layout state: {error}", error=e)
         Command_Engine.command_failed(viewer, msg)
         Command_Engine.print_help(viewer, msg)

@@ -12,9 +12,11 @@ chunk of their output, leaving nothing to fail on when they are collected.
 import gc
 import io
 import os
+import re
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -32,17 +34,31 @@ import numpy as np  # noqa: E402
 import openpyxl  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
+from tests.held_file_fixtures import (  # noqa: E402
+    held_file_error,
+    hold_without_delete_sharing,
+    transient_hold,
+)
+from utilities import Job_Cancellation, Localization  # noqa: E402
 from utilities.Job_Cancellation import (  # noqa: E402
+    HELD_FILE_RETRY_DELAYS,
     CancellableFile,
+    FileInUseError,
     JobCancelled,
     JobHandle,
     bound_to,
     cancel_requested,
     current_job,
     forget_partial_path,
+    leave_partial,
     note_partial_path,
     raise_if_cancelled,
+    remove_partial,
+    replace_file,
+    sweep_leftover_partials,
 )
+from utilities.Language_Packs import catalog_path  # noqa: E402
+from utilities.Localization import Message, display_text  # noqa: E402
 
 
 class StopAfter(io.BytesIO):
@@ -411,6 +427,385 @@ class EncodersThroughItTests(unittest.TestCase):
             gc.collect()
             self.assertEqual(unraisable, [])
             self.assertGreaterEqual(sink.count, 3)
+
+
+class HeldFileTestCase(unittest.TestCase):
+    """A folder of its own, and the list of partial files that could not be deleted private to the test."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.directory = Path(directory.name)
+        for patch in (
+            mock.patch.object(Job_Cancellation, "_leftover_partials", []),
+            mock.patch.object(Job_Cancellation, "_leftover_sweep_registered", False),
+        ):
+            patch.start()
+            self.addCleanup(patch.stop)
+        registered = mock.patch.object(Job_Cancellation.atexit, "register")
+        self.registered = registered.start()
+        self.addCleanup(registered.stop)
+
+    def make(self, name, content=b"new"):
+        path = self.directory / name
+        path.write_bytes(content)
+        return str(path)
+
+    @staticmethod
+    def hold_always(operation, winerror=32):
+        """os.replace or os.remove (the name) fails as Windows does for a file another program holds; the attempts."""
+        attempts = []
+
+        def refuse(*paths):
+            attempts.append(paths)
+            raise held_file_error(winerror, paths[0])
+
+        return mock.patch.object(Job_Cancellation.os, operation, side_effect=refuse), attempts
+
+
+class ReplaceFileTests(HeldFileTestCase):
+    """The rename of a finished partial file over its target waits out another program that holds either."""
+
+    def test_the_waits_add_up_to_about_two_and_a_half_seconds(self):
+        self.assertTrue(2.0 <= sum(HELD_FILE_RETRY_DELAYS) <= 3.0, sum(HELD_FILE_RETRY_DELAYS))
+
+    def test_a_hold_that_ends_is_waited_out_whichever_error_windows_gives(self):
+        for winerror in (32, 33, 5):
+            with self.subTest(winerror=winerror):
+                source, target = self.make("a.partial"), self.make("a.png", b"old")
+                with transient_hold(3, winerror) as (attempts, pauses):
+                    replace_file(source, target)
+                self.assertEqual(Path(target).read_bytes(), b"new")
+                self.assertFalse(os.path.exists(source))
+                self.assertEqual(len(attempts), 4)
+                self.assertEqual(pauses, list(HELD_FILE_RETRY_DELAYS[:3]))
+
+    def test_without_a_hold_it_is_one_rename_and_no_wait(self):
+        source, target = self.make("b.partial"), self.make("b.png", b"old")
+        with transient_hold(0) as (attempts, pauses):
+            replace_file(source, target)
+        self.assertEqual((len(attempts), pauses), (1, []))
+        self.assertEqual(Path(target).read_bytes(), b"new")
+
+    def test_a_hold_that_never_ends_fails_after_the_waits_and_says_another_program_held_the_file(self):
+        source, target = self.make("c.partial"), self.make("c.png", b"old")
+        with transient_hold(10 ** 6) as (attempts, pauses):
+            with self.assertRaises(FileInUseError) as raised:
+                replace_file(source, target)
+        self.assertEqual(len(attempts), len(HELD_FILE_RETRY_DELAYS) + 1)
+        self.assertEqual(pauses, list(HELD_FILE_RETRY_DELAYS))
+        error = raised.exception
+        self.assertIsInstance(error, PermissionError)
+        self.assertIn("another program", str(error))
+        self.assertIn("virus scan", str(error))
+        self.assertIn(target, str(error))
+        self.assertIn("being used by another process", str(error), "the system's own words follow")
+        self.assertEqual(error.__cause__.winerror, 32)
+        # The earlier file and the finished one are both as they were.
+        self.assertEqual(Path(target).read_bytes(), b"old")
+        self.assertTrue(os.path.exists(source))
+
+    def test_the_failure_shows_translated_and_keeps_the_systems_error_in_english_text(self):
+        source, target = self.make("d.partial"), self.make("d.png", b"old")
+        with transient_hold(10 ** 6):
+            with self.assertRaises(FileInUseError) as raised:
+                replace_file(source, target, delays=())
+        error = raised.exception
+        self.assertIsInstance(error.args[0], Message)
+        previous = Localization.set_translator(lambda template, n: "[zh] " + template)
+        try:
+            shown = display_text(error)
+        finally:
+            Localization.set_translator(previous)
+        self.assertTrue(shown.startswith("[zh] Could not save"), shown)
+        self.assertIn(target, shown)
+        self.assertIn("being used by another process", shown)
+
+    def test_the_failure_text_is_in_the_catalogs_and_has_a_chinese_draft_with_its_placeholders(self):
+        source, target = self.make("d2.partial"), self.make("d2.png", b"old")
+        with transient_hold(10 ** 6):
+            with self.assertRaises(FileInUseError) as raised:
+                replace_file(source, target, delays=())
+        template = raised.exception.args[0].template
+        key = (Localization.MESSAGE_CONTEXT, template, "")
+        english = {message.key: message for message in Localization.read_catalog(Localization.TEMPLATE_CATALOG)}
+        chinese = {message.key: message for message in Localization.read_catalog(catalog_path("zh_CN"))}
+        self.assertIn(key, english)
+        self.assertIn(key, chinese)
+        draft = chinese[key].translations[0]
+        self.assertTrue(draft, "a Chinese draft")
+        self.assertEqual(chinese[key].status, "unfinished", "a draft awaits review, as the others do")
+        self.assertEqual(set(re.findall(r"\{\w+\}", draft)), {"{path}", "{error}"})
+        previous = Localization.set_translator(lambda text, n: draft if text == template else text)
+        try:
+            shown = display_text(raised.exception)
+        finally:
+            Localization.set_translator(previous)
+        self.assertTrue(shown.startswith("无法保存 "), shown)
+        self.assertIn(target, shown)
+        self.assertIn("being used by another process", shown)
+
+    def test_any_other_error_is_raised_at_once_and_unchanged(self):
+        errors = (
+            PermissionError(13, "Access is denied"),                      # a permission, not a hold: no WinError
+            held_file_error(winerror=1224),                               # a mapped file: not one of the three
+            FileNotFoundError(2, "no such file"),
+            OSError(28, "No space left on device"),
+        )
+        for error in errors:
+            with self.subTest(error=repr(error)):
+                with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), \
+                        mock.patch.object(Job_Cancellation, "_pause") as pause, \
+                        mock.patch.object(Job_Cancellation.os, "replace", side_effect=error) as replace, \
+                        self.assertRaises(OSError) as raised:
+                    replace_file("a", "b")
+                self.assertIs(raised.exception, error)
+                self.assertEqual(replace.call_count, 1)
+                pause.assert_not_called()
+
+    def test_off_windows_a_refusal_is_the_files_own_and_is_not_retried(self):
+        error = held_file_error(32)
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=False), \
+                mock.patch.object(Job_Cancellation, "_pause") as pause, \
+                mock.patch.object(Job_Cancellation.os, "replace", side_effect=error) as replace, \
+                self.assertRaises(PermissionError) as raised:
+            replace_file("a", "b")
+        self.assertIs(raised.exception, error)
+        self.assertNotIsInstance(error, FileInUseError)
+        self.assertEqual(replace.call_count, 1)
+        pause.assert_not_called()
+
+    def test_the_caller_may_name_its_own_waits(self):
+        source, target = self.make("e.partial"), self.make("e.png", b"old")
+        with transient_hold(2) as (attempts, pauses):
+            replace_file(source, target, delays=(0.2,) * 9)
+        self.assertEqual(pauses, [0.2, 0.2])
+        with transient_hold(10 ** 6) as (attempts, pauses):
+            with self.assertRaises(FileInUseError):
+                replace_file(source, target, delays=(0.2,) * 9)
+        self.assertEqual((len(attempts), len(pauses)), (10, 9))
+
+    def test_outside_a_job_the_wait_is_a_sleep(self):
+        source, target = self.make("f.partial"), self.make("f.png", b"old")
+        real_replace, failures = os.replace, []
+
+        def replace(a, b):
+            failures.append(1)
+            if len(failures) <= 2:
+                raise held_file_error(32, a)
+            real_replace(a, b)
+
+        self.assertIsNone(current_job())
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), \
+                mock.patch.object(Job_Cancellation.time, "sleep") as sleep, \
+                mock.patch.object(Job_Cancellation.os, "replace", side_effect=replace):
+            replace_file(source, target)
+        self.assertEqual([call.args for call in sleep.call_args_list], [(0.05,), (0.1,)])
+        self.assertEqual(Path(target).read_bytes(), b"new")
+
+    def test_a_stop_during_a_wait_ends_it_at_once(self):
+        source, target = self.make("g.partial"), self.make("g.png", b"old")
+        handle = JobHandle()
+        refusing, attempts = self.hold_always("replace")
+        timer = threading.Timer(0.05, handle.request)
+        started = time.monotonic()
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), refusing, bound_to(handle):
+            timer.start()
+            try:
+                with self.assertRaises(JobCancelled):
+                    replace_file(source, target, delays=(30.0, 30.0))
+            finally:
+                timer.cancel()
+        self.assertLess(time.monotonic() - started, 10.0, "it did not wait out the 30 seconds")
+        self.assertEqual(len(attempts), 1)
+
+    def test_a_job_told_to_stop_already_does_not_wait_at_all(self):
+        source, target = self.make("h.partial"), self.make("h.png", b"old")
+        handle = JobHandle()
+        handle.request()
+        refusing, attempts = self.hold_always("replace")
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), refusing, bound_to(handle):
+            with self.assertRaises(JobCancelled):
+                replace_file(source, target, delays=(30.0,))
+        self.assertEqual(len(attempts), 1)
+
+
+class RemovePartialTests(HeldFileTestCase):
+    """The deletion of a partial file after a failure waits out another program too, and never raises."""
+
+    def test_an_existing_file_is_deleted_and_a_missing_one_counts_as_deleted(self):
+        partial = self.make("a.partial")
+        self.assertTrue(remove_partial(partial))
+        self.assertFalse(os.path.exists(partial))
+        self.assertTrue(remove_partial(partial))
+        self.assertEqual(Job_Cancellation._leftover_partials, [])
+
+    def test_a_hold_that_ends_is_waited_out(self):
+        partial = self.make("b.partial")
+        real_remove, attempts, pauses = os.remove, [], []
+
+        def remove(path):
+            attempts.append(path)
+            if len(attempts) <= 3:
+                raise held_file_error(32, path)
+            real_remove(path)
+
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), \
+                mock.patch.object(Job_Cancellation, "_pause", side_effect=lambda seconds: pauses.append(seconds)), \
+                mock.patch.object(Job_Cancellation.os, "remove", side_effect=remove):
+            self.assertTrue(remove_partial(partial))
+        self.assertFalse(os.path.exists(partial))
+        self.assertEqual(pauses, list(HELD_FILE_RETRY_DELAYS[:3]))
+        self.assertEqual(Job_Cancellation._leftover_partials, [])
+
+    def test_a_hold_that_never_ends_leaves_the_file_to_be_deleted_later_and_raises_nothing(self):
+        partial = self.make("c.partial")
+        refusing, attempts = self.hold_always("remove")
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), \
+                mock.patch.object(Job_Cancellation, "_pause", return_value=False) as pause, refusing:
+            self.assertFalse(remove_partial(partial))
+        self.assertEqual(len(attempts), len(HELD_FILE_RETRY_DELAYS) + 1)
+        self.assertEqual([call.args[0] for call in pause.call_args_list], list(HELD_FILE_RETRY_DELAYS))
+        self.assertEqual(Job_Cancellation._leftover_partials, [partial])
+        self.assertTrue(os.path.exists(partial))
+        # Once the program lets go, the sweep deletes it.
+        self.assertEqual(sweep_leftover_partials(), 0)
+        self.assertFalse(os.path.exists(partial))
+
+    def test_any_other_error_is_not_retried_but_the_file_is_still_left_to_be_deleted_later(self):
+        partial = self.make("d.partial")
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), \
+                mock.patch.object(Job_Cancellation, "_pause") as pause, \
+                mock.patch.object(Job_Cancellation.os, "remove", side_effect=PermissionError(13, "denied")) as remove:
+            self.assertFalse(remove_partial(partial))
+        self.assertEqual(remove.call_count, 1)
+        pause.assert_not_called()
+        self.assertEqual(Job_Cancellation._leftover_partials, [partial])
+
+    def test_off_windows_it_is_one_try(self):
+        partial = self.make("e.partial")
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=False), \
+                mock.patch.object(Job_Cancellation, "_pause") as pause, \
+                mock.patch.object(Job_Cancellation.os, "remove", side_effect=held_file_error(32)) as remove:
+            self.assertFalse(remove_partial(partial))
+        self.assertEqual(remove.call_count, 1)
+        pause.assert_not_called()
+
+    def test_a_job_told_to_stop_tries_once_and_does_not_wait(self):
+        partial = self.make("f.partial")
+        handle = JobHandle()
+        handle.request()
+        refusing, attempts = self.hold_always("remove")
+        started = time.monotonic()
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), refusing, bound_to(handle):
+            self.assertFalse(remove_partial(partial))
+        self.assertLess(time.monotonic() - started, 1.0)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(Job_Cancellation._leftover_partials, [partial])
+
+    def test_a_stop_during_the_wait_ends_it_and_leaves_the_file_to_be_deleted_later(self):
+        partial = self.make("g.partial")
+        handle = JobHandle()
+        refusing, attempts = self.hold_always("remove")
+        timer = threading.Timer(0.05, handle.request)
+        started = time.monotonic()
+        with mock.patch.object(Job_Cancellation, "_on_windows", return_value=True), refusing, bound_to(handle):
+            timer.start()
+            try:
+                self.assertFalse(remove_partial(partial, delays=(30.0, 30.0)))
+            finally:
+                timer.cancel()
+        self.assertLess(time.monotonic() - started, 10.0)
+        self.assertEqual(len(attempts), 1)
+        self.assertEqual(Job_Cancellation._leftover_partials, [partial])
+
+
+class LeftoverPartialTests(HeldFileTestCase):
+    """A partial file that stays held is deleted later: at a job's end, when the Viewer closes, or when the process ends."""
+
+    def test_the_sweep_deletes_what_can_be_deleted_now_and_keeps_the_rest_listed(self):
+        gone, held, missing = self.make("a.partial"), self.make("b.partial"), str(self.directory / "c.partial")
+        for path in (gone, held, missing):
+            leave_partial(path)
+        real_remove = os.remove
+
+        def remove(path):
+            if path == held:
+                raise held_file_error(32, path)
+            real_remove(path)
+
+        with mock.patch.object(Job_Cancellation.os, "remove", side_effect=remove):
+            self.assertEqual(sweep_leftover_partials(), 1)
+        self.assertEqual(Job_Cancellation._leftover_partials, [held])
+        self.assertFalse(os.path.exists(gone))
+        self.assertTrue(os.path.exists(held))
+        self.assertEqual(sweep_leftover_partials(), 0)
+        self.assertFalse(os.path.exists(held))
+
+    def test_a_file_is_listed_once_and_the_sweep_is_registered_to_run_when_the_process_ends(self):
+        path = self.make("d.partial")
+        leave_partial(path)
+        leave_partial(Path(path))
+        leave_partial(self.make("e.partial"))
+        self.assertEqual(len(Job_Cancellation._leftover_partials), 2)
+        self.registered.assert_called_once_with(sweep_leftover_partials)
+
+    def test_with_nothing_left_the_sweep_does_nothing(self):
+        with mock.patch.object(Job_Cancellation.os, "remove") as remove:
+            self.assertEqual(sweep_leftover_partials(), 0)
+        remove.assert_not_called()
+
+
+@unittest.skipUnless(sys.platform == "win32", "holds a file open as a Windows virus scanner does")
+class RealHeldFileTests(HeldFileTestCase):
+    """Windows itself refuses the rename and the deletion of a file another program has open without delete sharing."""
+
+    def test_a_file_held_without_delete_sharing_cannot_be_renamed_replaced_or_deleted(self):
+        source, target = self.make("s.partial"), self.make("s.png", b"old")
+        with hold_without_delete_sharing(source):
+            with self.assertRaises(PermissionError) as held_source:
+                os.replace(source, target)
+            with self.assertRaises(PermissionError) as held_deletion:
+                os.remove(source)
+        self.assertEqual((held_source.exception.winerror, held_deletion.exception.winerror), (32, 32))
+        with hold_without_delete_sharing(target):
+            with self.assertRaises(PermissionError) as held_target:
+                os.replace(source, target)
+        self.assertEqual(held_target.exception.winerror, 5)
+
+    def test_the_rename_waits_out_a_scan_that_holds_the_finished_file(self):
+        source, target = self.make("a.partial"), self.make("a.png", b"old")
+        with hold_without_delete_sharing(source, seconds=0.3):
+            replace_file(source, target)
+        self.assertEqual(Path(target).read_bytes(), b"new")
+        self.assertFalse(os.path.exists(source))
+
+    def test_the_rename_waits_out_a_program_that_holds_the_file_it_replaces(self):
+        source, target = self.make("b.partial"), self.make("b.png", b"old")
+        with hold_without_delete_sharing(target, seconds=0.3):
+            replace_file(source, target)
+        self.assertEqual(Path(target).read_bytes(), b"new")
+        self.assertFalse(os.path.exists(source))
+
+    def test_a_hold_that_outlasts_the_waits_fails_the_rename_and_the_partial_is_deleted_once_it_lets_go(self):
+        source, target = self.make("c.partial"), self.make("c.png", b"old")
+        with hold_without_delete_sharing(source):
+            with self.assertRaises(FileInUseError) as raised:
+                replace_file(source, target, delays=(0.01, 0.01))
+            self.assertIn("another program", str(raised.exception))
+            self.assertEqual(Path(target).read_bytes(), b"old")
+            self.assertFalse(remove_partial(source, delays=(0.01,)))
+            self.assertEqual(Job_Cancellation._leftover_partials, [source])
+            self.assertEqual(sweep_leftover_partials(), 1, "still held")
+        self.assertEqual(sweep_leftover_partials(), 0)
+        self.assertFalse(os.path.exists(source))
+
+    def test_the_deletion_waits_out_a_scan_too(self):
+        partial = self.make("d.partial")
+        with hold_without_delete_sharing(partial, seconds=0.3):
+            self.assertTrue(remove_partial(partial))
+        self.assertFalse(os.path.exists(partial))
+        self.assertEqual(Job_Cancellation._leftover_partials, [])
 
 
 class EveryQueuingCommandCanBeStoppedTests(unittest.TestCase):

@@ -6046,6 +6046,10 @@ The EMAP-SSN integration code is Apache-2.0, but the separately downloaded model
         <translation type="unfinished"></translation>
     </message>
     <message>
+        <source>Could not save {path}: another program kept the file in use (a virus scan or a sync client, for example). The system reported: {error}</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>Leiden clustering failed: {error}</source>
         <translation type="unfinished"></translation>
     </message>

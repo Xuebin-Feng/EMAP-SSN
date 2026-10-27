@@ -24,6 +24,8 @@ if str(SRC_DIR) not in sys.path:
 
 import Viewer_Worker_Tracking
 from resources.esmfold import esmfold_worker
+from tests.held_file_fixtures import held_file_error, transient_hold
+from utilities import Job_Cancellation
 from web_ui import esmfold_backend
 from web_ui.Plugin_Manager import WebPluginRegistry
 
@@ -494,22 +496,57 @@ class ESMFoldWorkerTests(unittest.TestCase):
             self.assertEqual(os.listdir(structures_dir), ["node.pdb"])
 
     def test_write_retries_while_windows_holds_the_target_open(self):
-        real_replace = os.replace
-        attempts = []
+        for winerror in (32, 33, 5):
+            with self.subTest(winerror=winerror), tempfile.TemporaryDirectory() as structures_dir:
+                with transient_hold(2, winerror) as (attempts, pauses):
+                    esmfold_worker._write_prediction(FakeOutput("NEW\n"), "node", structures_dir)
+                with open(os.path.join(structures_dir, "node.pdb"), encoding="utf-8") as handle:
+                    self.assertEqual(handle.read(), "NEW\n")
+                self.assertEqual(len(attempts), 3)
+                self.assertEqual(len(pauses), 2)
+                self.assertEqual(os.listdir(structures_dir), ["node.pdb"])
 
-        def replace(source, target):
-            attempts.append(target)
-            if len(attempts) < 3:
-                raise PermissionError("in use")
-            real_replace(source, target)
-
+    def test_a_hold_that_never_ends_fails_the_structure_saying_so_and_keeps_the_previous_one(self):
         with tempfile.TemporaryDirectory() as structures_dir:
-            with mock.patch.object(esmfold_worker.os, "replace", side_effect=replace), \
-                    mock.patch.object(esmfold_worker.time, "sleep"):
+            target = os.path.join(structures_dir, "node.pdb")
+            with open(target, "w", encoding="utf-8") as handle:
+                handle.write("OLD\n")
+            with transient_hold(10 ** 6) as (attempts, pauses), self.assertRaises(PermissionError) as raised:
                 esmfold_worker._write_prediction(FakeOutput("NEW\n"), "node", structures_dir)
-            with open(os.path.join(structures_dir, "node.pdb"), encoding="utf-8") as handle:
-                self.assertEqual(handle.read(), "NEW\n")
-        self.assertEqual(len(attempts), 3)
+            # The worker reports str(error) to the Viewer, as the failed structure's reason.
+            self.assertIn("another program kept the file in use", str(raised.exception))
+            self.assertIn("being used by another process", str(raised.exception))
+            with open(target, encoding="utf-8") as handle:
+                self.assertEqual(handle.read(), "OLD\n")
+            self.assertEqual(os.listdir(structures_dir), ["node.pdb"])
+
+    def test_a_partial_file_that_stays_held_is_left_to_be_deleted_when_the_worker_ends(self):
+        leftovers = []
+        with tempfile.TemporaryDirectory() as structures_dir:
+            real_remove = os.remove
+
+            def remove(name):
+                if name.endswith(".partial"):
+                    raise held_file_error(32, name)
+                real_remove(name)
+
+            with transient_hold(10 ** 6), \
+                    mock.patch.object(Job_Cancellation.os, "remove", side_effect=remove), \
+                    mock.patch.object(Job_Cancellation, "leave_partial", side_effect=leftovers.append), \
+                    self.assertRaises(PermissionError):
+                esmfold_worker._write_prediction(FakeOutput("NEW\n"), "node", structures_dir)
+            self.assertEqual([os.path.basename(path) for path in leftovers], [f"node.pdb.{os.getpid()}.partial"])
+
+    def test_the_worker_process_loads_the_shared_rename_without_qt(self):
+        # The worker is a process of its own: the helper must import there with nothing of the Viewer's.
+        result = subprocess.run(
+            [sys.executable, "-I", "-c",
+             "import sys; sys.path.insert(0, sys.argv[1]); "
+             "from resources.esmfold import esmfold_worker as w; "
+             "print(w.replace_file.__module__, 'PySide6' in sys.modules)", str(SRC_DIR)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=300,
+        )
+        self.assertEqual(result.stdout.split(), ["utilities.Job_Cancellation", "False"], result.stdout + result.stderr)
 
 
 class ViewerNotificationTests(unittest.TestCase):
@@ -655,6 +692,10 @@ class PortalStatusTests(unittest.TestCase):
         )
         portal.start()
         self.addCleanup(portal.stop)
+        # The holds these tests simulate are Windows errors, whatever platform the tests run on.
+        windows = mock.patch.object(Job_Cancellation, "_on_windows", return_value=True)
+        windows.start()
+        self.addCleanup(windows.stop)
 
     def read_status(self):
         with open(self.status_path, encoding="utf-8") as handle:
@@ -667,7 +708,7 @@ class PortalStatusTests(unittest.TestCase):
         def replace(source, target):
             attempts.append(target)
             if len(attempts) <= 3:
-                raise PermissionError(13, "Access is denied", target)
+                raise held_file_error(5, target)
             real_replace(source, target)
 
         esmfold_worker._portal_state["artifacts"].append("node_1.pdb")
@@ -711,7 +752,7 @@ class PortalStatusTests(unittest.TestCase):
 
         def replace(source, target):
             attempts.append(target)
-            raise PermissionError(13, "Access is denied", target)
+            raise held_file_error(5, target)
 
         output = io.StringIO()
         with mock.patch.object(esmfold_worker.os, "replace", side_effect=replace), \
@@ -738,7 +779,7 @@ class PortalStatusTests(unittest.TestCase):
 
         def replace(source, target):
             if held and target == self.status_path:
-                raise PermissionError(13, "Access is denied", target)
+                raise held_file_error(5, target)
             real_replace(source, target)
 
         def run_while_held(*args, **kwargs):
