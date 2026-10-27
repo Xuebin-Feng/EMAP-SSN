@@ -120,7 +120,7 @@ class WaitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.clock.pauses, [])
 
     async def test_it_waits_while_queued_or_running_and_returns_the_whole_record_when_it_ends(self):
-        final = record('succeeded', [command('cluster', 'succeeded', [job('2', 'succeeded', output_path='out.txt')])])
+        final = record('succeeded', [command('print', 'succeeded', [job('2', 'succeeded', output_path='out.txt')])])
         result, script, _ = await self.wait([(0, record('queued')), (0.5, record('running')), (6.0, final)])
         self.assertFalse(result['waiting'])
         self.assertEqual(result['status'], 'succeeded')
@@ -232,17 +232,17 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         return ctx.sent
 
     async def test_the_first_state_is_reported_at_once_and_a_change_follows_within_a_second(self):
-        queued = record('queued', [command('cluster', 'queued')])
-        running = record('running', [command('cluster', 'running', [job('4', 'running', position=1)])])
+        queued = record('queued', [command('print', 'queued')])
+        running = record('running', [command('print', 'running', [job('4', 'running', position=1)])])
         sent = await self.run_wait([(0, queued), (0.3, running), (4.0, record('succeeded'))])
         self.assertEqual(sent[0][0], 0.0)
-        self.assertIn('queued: 0 of 1 commands finished; queued: cluster', sent[0][2])
-        self.assertIn('running: 0 of 1 commands finished; running: cluster (job 4 running at 1)', sent[1][2])
+        self.assertIn('queued: 0 of 1 commands finished; queued: print', sent[0][2])
+        self.assertIn('running: 0 of 1 commands finished; running: print (job 4 running at 1)', sent[1][2])
         self.assertGreaterEqual(sent[1][3] - sent[0][3], ops.PROGRESS_MIN_SECONDS)
         self.assertLess(sent[1][3] - sent[0][3], ops.PROGRESS_MIN_SECONDS + 0.5)
 
     async def test_a_jobs_progress_text_is_in_the_message(self):
-        step = lambda text: record('running', [command('cluster', 'running', [job('4', 'running', progress=text)])])
+        step = lambda text: record('running', [command('print', 'running', [job('4', 'running', progress=text)])])
         sent = await self.run_wait([(0, step('pass 1 of 3')), (2.0, step('pass 2 of 3')), (5.0, record('succeeded'))])
         self.assertTrue([m for _, _, m, _ in sent if 'pass' in m][0].endswith('(job 4 running, pass 1 of 3)'))
         self.assertTrue(any('pass 2 of 3' in message for _, _, message, _ in sent))
@@ -256,7 +256,7 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(any('job' in message for _, _, message, _ in sent))
 
     async def test_changes_inside_the_minimum_interval_are_held_not_dropped(self):
-        step = lambda n: record('running', [command('cluster', 'running', [job('4', 'running', progress=str(n))])])
+        step = lambda n: record('running', [command('print', 'running', [job('4', 'running', progress=str(n))])])
         sent = await self.run_wait([(0, step(1)), (0.2, step(2)), (0.4, step(3)), (3.0, record('succeeded'))])
         messages = [message for _, _, message, _ in sent]
         self.assertTrue(messages[0].endswith('running, 1)'))
@@ -284,9 +284,9 @@ class ProgressTests(unittest.IsolatedAsyncioTestCase):
     def test_a_command_the_queue_has_finished_with_adds_nothing_to_the_line(self):
         done = command('cluster', 'running', queue={'status': 'succeeded', 'position': None})
         self.assertEqual(ops._wait_line(record('running', [done])), 'running: 0 of 1 commands finished; running: cluster')
-        both = command('cluster', 'running', [job('4', 'running')], queue={'status': 'running', 'position': 1})
+        both = command('print', 'running', [job('4', 'running')], queue={'status': 'running', 'position': 1})
         self.assertEqual(ops._wait_line(record('running', [both])),
-                         'running: 0 of 1 commands finished; running: cluster (queue running at 1; job 4 running)')
+                         'running: 0 of 1 commands finished; running: print (queue running at 1; job 4 running)')
 
     def test_a_long_command_and_a_nested_request_read_clearly(self):
         text = 'x' * 100

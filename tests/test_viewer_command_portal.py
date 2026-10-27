@@ -1719,7 +1719,7 @@ class FreedLineTests(PortalFixture, unittest.TestCase):
     def test_a_job_that_does_not_declare_the_release_holds_the_head(self):
         def run(viewer, args):
             context = CURRENT.get()
-            context.add_job('queued-1', command='cluster')
+            context.add_job('queued-1', command='print')
             context.job_event('queued-1', 'running')
             self.held = context
             ce.command_succeeded(viewer)

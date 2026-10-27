@@ -243,7 +243,7 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         )
 
     def test_background_center_tracks_bottom_anchored_text(self):
-        viewer = self.make_viewer(text="Cmd: _")
+        viewer = self.make_viewer(text="Cmd: ")
         viewer.hud_layout["console_bg_y_offset"] = 14.0
 
         viewer.update_console_background()
@@ -297,7 +297,7 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         self.assertTrue(status.visible)
 
     def test_background_job_status_rewraps_for_sidebar_and_resize(self):
-        viewer = self.make_viewer(size=(260, 160), text="Cmd: _")
+        viewer = self.make_viewer(size=(260, 160), text="Cmd: ")
         status = self.add_background_job_status(
             viewer,
             "Background job completed: " + ("result-path " * 12),
@@ -319,7 +319,7 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         self.assertLess(status.text.count("\n"), panel_text.count("\n"))
 
     def test_scheduler_status_does_not_mutate_typed_command_or_box(self):
-        viewer = self.make_viewer(size=(260, 160), text="Cmd: select cluster_1_")
+        viewer = self.make_viewer(size=(260, 160), text="Cmd: select cluster_1")
         status = self.add_background_job_status(viewer)
         viewer.update_console_background()
         command_before = viewer.console_text.text
@@ -477,7 +477,7 @@ class ConsoleOverlayWrappingTests(unittest.TestCase):
         self.assertEqual(viewer.console_bg.radius, 6.0)
 
     def test_tiny_canvas_clamps_corner_radius(self):
-        viewer = self.make_viewer(size=(41, 100), text="_")
+        viewer = self.make_viewer(size=(41, 100), text="Cmd: ")
 
         viewer.update_console_background()
 
@@ -760,7 +760,7 @@ class ShippedCommandLineTests(unittest.TestCase):
     TOGGLE_TOP = 10
 
     def test_the_command_box_lines_up_with_the_sidebar_toggle(self):
-        viewer = ConsoleOverlayWrappingTests.make_viewer(size=(1200, 800), text="Cmd: _")
+        viewer = ConsoleOverlayWrappingTests.make_viewer(size=(1200, 800), text="Cmd: ")
         viewer.hud_layout = shipped_hud_layout()
         layout = viewer.hud_layout
         viewer.console_bg = StrictRoundedRectangle(
@@ -875,11 +875,13 @@ class ShippedCommandLineTests(unittest.TestCase):
 class HudOrderTests(unittest.TestCase):
     """The Qt overlays move before the HUD text that keeps clear of them."""
 
-    def test_resize_moves_the_sidebar_toggle_before_the_hud(self):
+    def test_resize_places_the_frame_rate_and_jobs_badge_before_the_hud(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.slider_overlay = object()
         calls = []
         viewer.position_slider_overlay = lambda: calls.append("slider")
+        # reposition_expand_btn places the sidebar and its toggle, and with them the frame rate
+        # and the jobs badge, which the HUD text keeps clear of.
         viewer.reposition_expand_btn = lambda: calls.append("toggle")
         viewer._update_hud_elements = lambda: calls.append("hud")
 

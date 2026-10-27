@@ -279,6 +279,8 @@ class ToolExportGuiTests(unittest.TestCase):
 
     def test_execution_mode_gui_contract_and_export_round_trip(self):
         from PySide6.QtWidgets import QComboBox, QInputDialog, QLineEdit, QMessageBox
+        from desktop.Desktop_App import add_combo_options
+        from EMAPSSN_Tools import execution_mode_labels
 
         source = (SRC_DIR / "EMAPSSN_Tools.py").read_text(encoding="utf-8")
         self.assertGreaterEqual(source.count('"var_name": "EXECUTION_MODE"'), 2)
@@ -288,9 +290,12 @@ class ToolExportGuiTests(unittest.TestCase):
 
         script_path = str(SRC_DIR / "tools" / "Align_Similarity_Matrix.py")
         with tempfile.TemporaryDirectory() as temp_dir:
+            # As the window builds it: the labels shown over the stored values.
+            modes = ["auto", "scalar", "tiled"]
             mode = QComboBox()
-            mode.addItems(["auto", "scalar", "tiled"])
-            mode.setCurrentText("tiled")
+            add_combo_options(mode, modes, execution_mode_labels(modes))
+            mode.setCurrentIndex(mode.findData("tiled"))
+            self.assertNotEqual(mode.currentText(), "tiled")
             fake_window = SimpleNamespace()
             fake_window.dir_inputs = {
                 "EMBED_DIR": QLineEdit("Embeddings"),
@@ -338,6 +343,11 @@ class ToolExportGuiTests(unittest.TestCase):
 
     def test_tf32_precision_option_tracks_detected_and_selected_hardware(self):
         from PySide6.QtWidgets import QComboBox
+        from EMAPSSN_Tools import (
+            AUTOMATIC_32BIT_PRECISION_LABEL,
+            FP32_PRECISION_LABEL,
+            TF32_PRECISION_LABEL,
+        )
         from utilities import Hardware_Acceleration as Hardware_Utils
         import torch
 
@@ -351,10 +361,11 @@ class ToolExportGuiTests(unittest.TestCase):
         device.addItem("Auto", "auto")
         device.addItem("CPU", "cpu")
         device.addItem("CUDA", "cuda:0")
+        # The real precision dropdown: its first option is Automatic 32-bit.
         precision = QComboBox()
-        precision.addItem("auto", "auto")
-        precision.addItem("float32", "float32")
-        precision.addItem("TF32 (Nvidia GPU Only)", "tf32")
+        precision.addItem(AUTOMATIC_32BIT_PRECISION_LABEL, "automatic_32bit")
+        precision.addItem(FP32_PRECISION_LABEL, "float32")
+        precision.addItem(TF32_PRECISION_LABEL, "tf32")
         precision.setCurrentIndex(precision.findData("tf32"))
 
         # Without these, the BF16 half of the sync runs a real BF16 probe on cuda:0.
@@ -373,7 +384,8 @@ class ToolExportGuiTests(unittest.TestCase):
             self.assertFalse(
                 self.sync_tf32_precision_option(device, precision, [cpu])
             )
-            self.assertEqual(precision.currentText(), "auto")
+            self.assertEqual(precision.currentData(), "automatic_32bit")
+            self.assertEqual(precision.currentText(), AUTOMATIC_32BIT_PRECISION_LABEL)
             self.assertEqual(precision.findData("tf32"), -1)
             self.assertFalse(precision.property("tf32Available"))
 
@@ -399,7 +411,7 @@ class ToolExportGuiTests(unittest.TestCase):
                     [cpu, cuda],
                 )
             )
-            self.assertEqual(precision.currentText(), "auto")
+            self.assertEqual(precision.currentData(), "automatic_32bit")
             self.assertEqual(precision.findData("tf32"), -1)
 
             device.setCurrentIndex(device.findData("cuda:0"))
@@ -411,6 +423,17 @@ class ToolExportGuiTests(unittest.TestCase):
                 )
             )
             self.assertGreaterEqual(precision.findData("tf32"), 0)
+
+            # The fallback finds Automatic 32-bit by its stored value, not by being first.
+            shuffled = QComboBox()
+            shuffled.addItem(FP32_PRECISION_LABEL, "float32")
+            shuffled.addItem(AUTOMATIC_32BIT_PRECISION_LABEL, "automatic_32bit")
+            shuffled.addItem(TF32_PRECISION_LABEL, "tf32")
+            shuffled.setCurrentIndex(shuffled.findData("tf32"))
+            device.setCurrentIndex(device.findData("cpu"))
+            self.sync_tf32_precision_option(device, shuffled, [cpu, cuda])
+            self.assertEqual(shuffled.currentData(), "automatic_32bit")
+            self.assertEqual(shuffled.currentIndex(), 1)
 
     def test_bf16_precision_option_tracks_runtime_capability(self):
         from PySide6.QtWidgets import QComboBox
@@ -695,17 +718,21 @@ class ToolExportGuiTests(unittest.TestCase):
             layout = QFormLayout(form_parent)
             layout.setHorizontalSpacing(30)
             row_widgets = {}
+            # The window's own items and minimum widths (Generate_Embeddings.py's
+            # definitions): Saving Mode shows "Float32 (Full Precision)" over the
+            # stored float32 and keeps room for only 2 characters at its narrowest.
             definitions = (
                 ("MODEL_NAME", "Model Name:",
-                 ["ankh_large [non-commercial]", "esm2_t33_650M_UR50D"]),
-                ("SAVING_MODE", "Saving Mode:", ["float32", "float16"]),
-                ("DEVICE_SELECTION", "Device:", ["Auto Benchmark", "CPU"]),
+                 ["ankh_large [non-commercial]", "esm2_t33_650M_UR50D"], 20),
+                ("SAVING_MODE", "Saving Mode:",
+                 ["Float32 (Full Precision)", "Float16 (Half Size)"], 2),
+                ("DEVICE_SELECTION", "Device:", ["Auto Benchmark", "CPU"], 12),
             )
-            for var_name, label_text, options in definitions:
+            for var_name, label_text, options, minimum_characters in definitions:
                 label = QLabel(label_text)
                 field = QComboBox()
                 field.addItems(options)
-                field.setMinimumContentsLength(12)
+                field.setMinimumContentsLength(minimum_characters)
                 field.setSizeAdjustPolicy(
                     QComboBox.SizeAdjustPolicy
                     .AdjustToMinimumContentsLengthWithIcon
@@ -752,11 +779,10 @@ class ToolExportGuiTests(unittest.TestCase):
 
         widths = field_widths(1700)
         self.assertGreater(widths["MODEL_NAME"], widths["SAVING_MODE"])
-        # Saving mode only ever shows "float32"/"float16"; it keeps a legible
-        # dropdown while the surrendered space goes to the model names.
-        self.assertGreaterEqual(
-            widths["SAVING_MODE"],
-            QComboBox().fontMetrics().horizontalAdvance("float32") * 2,
+        # The 5:3 split: Saving Mode is given three fifths of the Model Name's
+        # width, whatever its labels need (it elides them, down to 2 characters).
+        self.assertAlmostEqual(
+            widths["SAVING_MODE"] / widths["MODEL_NAME"], 3 / 5, delta=0.05
         )
         # The device column keeps the third of the row it had before.
         self.assertLess(
