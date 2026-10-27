@@ -286,31 +286,65 @@ class SessionAndStatusTests(unittest.TestCase):
         # The window's exit status goes to the dialog, which says what stopped it when the status shows a signal.
         dialog.assert_called_once_with(state.resolve() / "application.log", 9)
 
+    # A window that prints what it is given, opens (writes gui.ready) and stays until something kills it.
+    STAYING_WINDOW = "\n".join([
+        "import os, sys, time",
+        "sys.stdout.write(sys.argv[1])",
+        "sys.stdout.flush()",
+        "open(os.environ['SSN_GUI_READY_FILE'], 'w').write('ready\\n')",
+        "time.sleep(60)",
+    ])
+
     def test_the_log_the_crash_dialog_names_is_still_there_when_the_dialog_has_closed(self):
-        # The dialog names the start's own application.log, so the folder it is in must outlive the monitor:
-        # only a window that ended well has its folder removed.
+        # A window really opens and is really killed. The dialog names the start's own application.log, so the
+        # state folder has to outlive the monitor with that file in it, as it was while the dialog was up: only a
+        # window that ended well has its folder removed (a Linux check of a killed Config thought the folder was
+        # emptied; its listing, cut to three lines, showed no files, but its block total counted them).
+        import psutil
+        import threading
+
         for printed in ("Traceback (most recent call last):\nValueError: boom\n", ""):
-            with self.subTest(printed=printed), tempfile.TemporaryDirectory() as temp_dir:
-                state = Path(temp_dir) / "state"
+            with self.subTest(printed=printed), tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir, \
+                    mock.patch.dict(Desktop_Launcher_Monitor.EXTRA_APPLICATIONS):
+                base = Path(temp_dir)
+                script = base / "window" / "Window.py"
+                script.parent.mkdir()
+                script.write_text(self.STAYING_WINDOW, encoding="utf-8")
+                Desktop_Launcher_Monitor.register_application("stayer", script, script.parent)
+                state = base / "state"
                 state.mkdir()
-                (state / "gui.ready").write_text("ready\n", encoding="utf-8")
-                (state / "terminal.dismissed").write_text("dismissed\n", encoding="utf-8")
+                (state / "terminal.dismissed").write_text("dismissed\n", encoding="utf-8")  # the launcher is done
 
-                def window(command, **options):
-                    options["stdout"].write(printed)  # what the window prints goes to the monitor's log
-                    return self._process(1)
+                def kill_when_open():
+                    deadline = time.monotonic() + 30
+                    while time.monotonic() < deadline:
+                        try:
+                            if (state / "gui.ready").is_file():
+                                return psutil.Process(int((state / "application.pid").read_text().strip())).kill()
+                        except (OSError, ValueError, psutil.Error):
+                            pass  # the monitor has not written the window's pid yet
+                        time.sleep(0.02)
 
-                with mock.patch.object(
-                    Desktop_Launcher_Monitor.subprocess, "Popen", side_effect=window
-                ), mock.patch("PySide6.QtWidgets.QMessageBox.critical") as critical:
-                    result = Desktop_Launcher_Monitor.run_monitor("viewer", state, failure_report="dialog")
+                def dialog(*arguments):
+                    shown.append((arguments[2], sorted(path.name for path in state.iterdir())))
 
-                self.assertEqual(result, 1)
-                critical.assert_called_once()  # the dialog has been closed when this call returns, and the monitor ends
+                shown = []
+                killer = threading.Thread(target=kill_when_open)
+                killer.start()
+                with mock.patch("PySide6.QtWidgets.QMessageBox.critical", side_effect=dialog):
+                    result = Desktop_Launcher_Monitor.run_monitor(
+                        "stayer", state, app_args=[printed], failure_report="dialog")
+                killer.join()
+
+                self.assertNotEqual(result, 0)
+                self.assertEqual(len(shown), 1)  # the dialog has been closed when that call returned, and the monitor ended
+                text, while_shown = shown[0]
                 log = state.resolve() / "application.log"
-                self.assertIn(str(log), critical.call_args.args[2])
+                self.assertIn(str(log), text)
+                self.assertIn("application.log", while_shown)
+                self.assertEqual(sorted(path.name for path in state.iterdir()), while_shown)  # nothing went after OK
                 self.assertEqual(log.read_text(encoding="utf-8"), printed)
-                self.assertEqual((state / "application.exit").read_text(encoding="utf-8").strip(), "1")
+                self.assertEqual((state / "application.exit").read_text(encoding="utf-8").strip(), str(result))
 
     def test_a_failure_before_the_window_opened_leaves_the_report_to_the_launcher_whichever_way(self):
         for report in ("terminal", "dialog"):
