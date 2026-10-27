@@ -334,7 +334,8 @@ def _generate_logo_artifact(payload):
             identity=f"{identity_threshold * 100:g}", effective=f"{effective_sequence_count:.2f}",
         )
     if flat:
-        message = JoinedMessage([message, _flat_logo_note(mode, len(selected_seqs))])
+        # The note is a second sentence, so the report before it ends with a full stop.
+        message = JoinedMessage([Message("{report}.", report=message), _flat_logo_note(mode, len(selected_seqs))])
     return {
         "message": message,
         "save_path": save_path,

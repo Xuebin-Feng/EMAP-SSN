@@ -4447,16 +4447,16 @@ Command-line usage:
         <location line="+2"/>
         <location filename="../../../commands/label.py" line="+1295"/>
         <location line="+452"/>
-        <location filename="../../../commands/logo.py" line="+246"/>
+        <location filename="../../../commands/logo.py" line="+231"/>
         <location line="+79"/>
-        <location filename="../../../commands/print.py" line="+1383"/>
+        <location filename="../../../commands/print.py" line="+1454"/>
         <source>Output file already exists: {path}</source>
         <translation type="unfinished">输出文件已存在：{path}</translation>
     </message>
     <message>
         <location line="+3"/>
         <location filename="../../../commands/label.py" line="+141"/>
-        <location filename="../../../commands/logo.py" line="+622"/>
+        <location filename="../../../commands/logo.py" line="+623"/>
         <location filename="../../../commands/print.py" line="+230"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
@@ -5770,7 +5770,7 @@ Command-line usage:
         <translation type="unfinished">无法为标签输入创建快照：{error}</translation>
     </message>
     <message>
-        <location filename="../../../commands/logo.py" line="-581"/>
+        <location filename="../../../commands/logo.py" line="-582"/>
         <source>Identity threshold cannot be empty.</source>
         <translation type="unfinished">一致性阈值不能为空。</translation>
     </message>
@@ -5804,7 +5804,12 @@ Command-line usage:
         </translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+8"/>
+        <source>{report}.</source>
+        <translation type="unfinished">{report}。</translation>
+    </message>
+    <message>
+        <location line="+11"/>
         <source>The logo is flat: no aligned node has a residue at any of these positions, so it draws no letters.</source>
         <translation type="unfinished">序列标识图是平的：这些位置上没有任何已比对节点含有残基，因此没有绘制任何字母。</translation>
     </message>
@@ -6028,7 +6033,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../../commands/print.py" line="-419"/>
+        <location filename="../../../commands/print.py" line="-429"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -6046,7 +6051,7 @@ Command-line usage:
         <translation type="obsolete">错误：{syntax} 需要一个视图宽度，例如 {example}。</translation>
     </message>
     <message>
-        <location line="+212"/>
+        <location line="+222"/>
         <source>Error: The full image would be {width}×{height} px ({megapixels} megapixels), more than the limit of {limit}. Use {syntax} with N of at most {n}, or zoom out. The limit is {setting} in {file}.</source>
         <translation type="unfinished">错误：完整图像将为 {width}×{height} 像素（{megapixels} 百万像素），超过 {limit} 百万像素的上限。请使用 {syntax}，并让 N 不超过 {n}，或缩小视图。此上限由 {file} 中的 {setting} 设定。</translation>
     </message>
@@ -6916,7 +6921,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1510"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1569"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -13343,7 +13348,7 @@ Fedora / RHEL：
         <translation type="unfinished">无</translation>
     </message>
     <message>
-        <location line="+151"/>
+        <location line="+152"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
@@ -13353,7 +13358,7 @@ Fedora / RHEL：
         <translation type="unfinished">会话</translation>
     </message>
     <message>
-        <location line="+133"/>
+        <location line="+135"/>
         <source>Nodes:</source>
         <translation type="unfinished">节点：</translation>
     </message>

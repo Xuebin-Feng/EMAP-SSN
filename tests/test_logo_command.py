@@ -785,10 +785,52 @@ class LogoSynchronousArtifactTests(unittest.TestCase):
         self.assertAlmostEqual(ylim[0], 0.0)
         self.assertAlmostEqual(ylim[1], np.log2(20))
         text = str(result["message"])
-        self.assertTrue(text.startswith("Saved with_gap bits logo for 2 aligned nodes to r6_logo.svg "), text)
-        self.assertIn("The logo is flat: every position has 0 bits, so it draws no letters.", text)
+        # Two sentences: the report ends with a full stop before the note.
+        self.assertTrue(text.startswith(
+            "Saved with_gap bits logo for 2 aligned nodes to r6_logo.svg. The logo is flat: every position has 0 bits, "
+            "so it draws no letters."), text)
         self.assertIn("2 aligned sequences are too few", text)
         self.assertIn("pcts", text)
+
+    def flat_message(self, mode, sequences, **changes):
+        with tempfile.TemporaryDirectory() as directory:
+            payload = {**self.flat_payload(directory, sequences, mode=mode, filename="r7_flat.svg"), **changes}
+            result, _warned, _ylim = self.render_with_warnings(payload)
+        return result["message"]
+
+    def test_the_flat_logo_message_is_two_sentences_in_every_form_of_the_report(self):
+        for changes in ({}, {"identity_threshold": 0.8, "effective_sequence_count": 1.5}):
+            for mode, sequences in (("bits", ("ACDE", "ACDE")), ("pcts", ("----", "----"))):
+                with self.subTest(identity=bool(changes), mode=mode):
+                    text = str(self.flat_message(mode, sequences, **changes))
+                    self.assertIn("to r7_flat.svg. The logo is flat: ", text)
+                    self.assertNotIn("r7_flat.svg The", text)
+                    self.assertEqual(text.count("r7_flat.svg"), 1)
+
+    def test_a_flat_logo_message_joins_in_chinese_punctuation_and_shows_every_part_translated(self):
+        from PySide6.QtWidgets import QApplication
+        from tests.translation_fixtures import outside_the_catalog, pseudo_language
+        from utilities import Localization
+        from utilities.Language_Packs import read_pack
+
+        message = self.flat_message("pcts", ("----", "----"))
+        # The report's own full stop is the language's: the sentence after it follows with no space.
+        translated = {
+            "{report}.": "{report}。",
+            "Saved {gap_mode} {mode} logo for %n aligned node(s) to {file}": "已保存 {gap_mode} {mode} 标志图到 {file}",
+            "The logo is flat: no aligned node has a residue at any of these positions, so it draws no letters.":
+                "标志图是平的。",
+        }
+        previous = Localization.set_translator(lambda template, n: translated.get(template, template))
+        self.addCleanup(Localization.set_translator, previous)
+        previous_punctuation = Localization.set_punctuation(read_pack("zh_CN").punctuation)
+        self.addCleanup(Localization.set_punctuation, previous_punctuation)
+        self.assertEqual(message.display(), "已保存 with_gap pcts 标志图到 r7_flat.svg。标志图是平的。")
+        # Under the pseudo-language no letter of it comes from outside the catalog.
+        Localization.set_translator(previous)
+        Localization.set_punctuation(previous_punctuation)
+        pseudo_language(self, QApplication.instance() or QApplication([]))
+        self.assertEqual(outside_the_catalog(message.display()), "")
 
     def test_a_logo_with_no_residue_at_its_positions_is_flat_in_pcts_mode_too(self):
         with tempfile.TemporaryDirectory() as directory:

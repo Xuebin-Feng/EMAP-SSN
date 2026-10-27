@@ -4140,6 +4140,10 @@ Command-line usage:
         </translation>
     </message>
     <message>
+        <source>{report}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
         <source>The logo is flat: no aligned node has a residue at any of these positions, so it draws no letters.</source>
         <translation type="unfinished"></translation>
     </message>
