@@ -246,7 +246,7 @@ class ViewerLauncherWatchTests(unittest.TestCase):
 
 
 class OffscreenConfigIntegrationTests(unittest.TestCase):
-    def test_shared_status_tooltip_preserves_statistics_report(self):
+    def test_shared_status_tip_panel_preserves_statistics_report(self):
         script = textwrap.dedent(
             f"""
             import os

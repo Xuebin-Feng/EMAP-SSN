@@ -291,7 +291,7 @@ class PosixSetupLockTests(unittest.TestCase):
 
 
 class LauncherStructureTests(unittest.TestCase):
-    def test_desktop_launchers_show_then_dismiss_and_keep_direct_diagnostics(self):
+    def test_the_installers_and_launcher_scripts_contain_their_entries_flags_and_markers(self):
         install_bat = (PROJECT_ROOT / "install.bat").read_text(encoding="utf-8")
         install_sh = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
         shell_supervisor = (SRC_DIR / "bin" / "EMAPSSN_Desktop_Launcher.sh").read_text(encoding="utf-8")

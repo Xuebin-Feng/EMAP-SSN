@@ -1901,7 +1901,7 @@ class EsmStackFingerprintTests(unittest.TestCase):
         if os.path.normcase("A") == "a":
             self.assertEqual(before, self._fingerprint(venv, Path(str(python).swapcase())))
 
-    def test_the_fingerprint_is_fast(self):
+    def test_the_fingerprint_of_300_packages_takes_under_250_ms_on_average(self):
         # Milliseconds: 300 packages, as in the real environment.
         packages = {f"package{index}": "1.0" for index in range(300)}
         venv, python = _fake_venv(self.temp.name, packages=packages)

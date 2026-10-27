@@ -310,7 +310,7 @@ class DisplayScalingTests(unittest.TestCase):
         # Drawn as Hidden Nodes is, so its position is the middle of its line too.
         self.assertEqual(display.anchor_y, "center")
 
-    def test_zero_hidden_nodes_and_zoom_use_configured_text_color(self):
+    def test_the_zero_hidden_count_takes_the_text_color_and_the_zoom_box_gets_the_zoom_and_limits(self):
         viewer = MainViewer.__new__(MainViewer)
         viewer.hud_layout = {
             "status_x_offset": 10.0,

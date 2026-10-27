@@ -971,7 +971,7 @@ class PanelTests(WithApplication):
         self.assertIsNone(change_signal(None))
         self.assertIsNone(change_signal(QLabel("x")))
 
-    def test_a_tip_renders_within_a_few_milliseconds(self):
+    def test_a_tip_renders_in_under_50_ms_on_average(self):
         entry, _ = full_entry()
         panel = self.panel()
         panel.setTip(entry)
