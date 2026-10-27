@@ -914,6 +914,16 @@ still change before version 1.0.0.
     - panning, zooming, hovering and clicking leave it alone;
     - selecting or moving nodes, or resizing the window, cancels it, saving nothing;
     - commands typed meanwhile wait for the print, and `undo` stops it.
+- **On Windows, saving no longer fails when another program holds the new file for a
+  moment.** A virus scan or a sync client can open a file just written. `print`, `label`,
+  `logo`, `save` and the structure folds then failed with "WinError 32" as they renamed it
+  into place, losing the work and leaving a hidden partial file behind.
+  - **Now:** they wait up to about 2.5 s for the other program to let go. Stopping the job
+    ends the wait at once.
+  - **Still held after that:** the message says another program kept the file in use, such
+    as a virus scan or a sync client, and the hidden partial file is deleted later.
+  - **A read-only file or a folder** of the same name fails at once, with the system's own
+    message.
 
 ## [0.4.0] - 2026-10-16
 
