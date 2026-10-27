@@ -653,6 +653,8 @@ def run_monitor(
     ready_seen = ready_path.exists()
     _atomic_write(exit_path, f"{return_code}\n")
 
+    # Only a window that ended well has its folder removed: after a failure the report below, and the
+    # launcher's error view, name the application.log in it.
     if return_code == 0:
         _wait_for_dismissal(dismissed_path)
         _cleanup_success(state_dir)

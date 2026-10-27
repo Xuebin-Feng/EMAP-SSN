@@ -286,6 +286,32 @@ class SessionAndStatusTests(unittest.TestCase):
         # The window's exit status goes to the dialog, which says what stopped it when the status shows a signal.
         dialog.assert_called_once_with(state.resolve() / "application.log", 9)
 
+    def test_the_log_the_crash_dialog_names_is_still_there_when_the_dialog_has_closed(self):
+        # The dialog names the start's own application.log, so the folder it is in must outlive the monitor:
+        # only a window that ended well has its folder removed.
+        for printed in ("Traceback (most recent call last):\nValueError: boom\n", ""):
+            with self.subTest(printed=printed), tempfile.TemporaryDirectory() as temp_dir:
+                state = Path(temp_dir) / "state"
+                state.mkdir()
+                (state / "gui.ready").write_text("ready\n", encoding="utf-8")
+                (state / "terminal.dismissed").write_text("dismissed\n", encoding="utf-8")
+
+                def window(command, **options):
+                    options["stdout"].write(printed)  # what the window prints goes to the monitor's log
+                    return self._process(1)
+
+                with mock.patch.object(
+                    Desktop_Launcher_Monitor.subprocess, "Popen", side_effect=window
+                ), mock.patch("PySide6.QtWidgets.QMessageBox.critical") as critical:
+                    result = Desktop_Launcher_Monitor.run_monitor("viewer", state, failure_report="dialog")
+
+                self.assertEqual(result, 1)
+                critical.assert_called_once()  # the dialog has been closed when this call returns, and the monitor ends
+                log = state.resolve() / "application.log"
+                self.assertIn(str(log), critical.call_args.args[2])
+                self.assertEqual(log.read_text(encoding="utf-8"), printed)
+                self.assertEqual((state / "application.exit").read_text(encoding="utf-8").strip(), "1")
+
     def test_a_failure_before_the_window_opened_leaves_the_report_to_the_launcher_whichever_way(self):
         for report in ("terminal", "dialog"):
             with self.subTest(report=report), tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
