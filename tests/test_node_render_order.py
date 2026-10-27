@@ -722,8 +722,10 @@ class ClicksWhileTypingTests(unittest.TestCase):
             ("on_mouse_press", mouse(-30, -30, button=2)),
             ("on_mouse_release", mouse(-30, -30, button=2)),
         ],
-        "shift-click a node": [("on_mouse_press", mouse(0, 0, button=1, modifiers=["Shift"]))],
-        "ctrl-click a node": [("on_mouse_press", mouse(0, 0, button=1, modifiers=["Control"]))],
+        "shift-click a node": [("on_mouse_press", mouse(0, 0, button=1, modifiers=["Shift"])),
+                               ("on_mouse_release", mouse(0, 0, button=1, modifiers=["Shift"]))],
+        "ctrl-click a node": [("on_mouse_press", mouse(0, 0, button=1, modifiers=["Control"])),
+                              ("on_mouse_release", mouse(0, 0, button=1, modifiers=["Control"]))],
         "left-click a node": [("on_mouse_press", mouse(100, 0, button=1))],
         "hover a node": [("on_mouse_move", mouse(50, 0))],
     }

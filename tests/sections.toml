@@ -80,6 +80,7 @@ modules = [
     "test_viewer_jobs_card",
     "test_viewer_markers",
     "test_viewer_motion",
+    "test_viewer_mouse_gestures",
     "test_viewer_portal_adapters",
     "test_viewer_sessions",
     "test_viewer_sidebar",

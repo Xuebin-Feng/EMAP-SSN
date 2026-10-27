@@ -285,6 +285,12 @@ SIDEBAR_SLIDE_MS = 220
 COMMAND_BOX_OPACITY = 0.95
 # Between a command being typed and what a click did, on the command line.
 CLICK_STATUS_SEPARATOR = "  ·  "
+# A press and its release this close together (px on the canvas) are a click: a right-click on
+# empty space clears the selection, and a Shift or Ctrl left-click copies the node it was on.
+CLICK_DISTANCE_PIXELS = 5.0
+# The turn of a wheel notch while dragging nodes, in degrees; Shift turns the finer step.
+ROTATE_DEGREES_PER_NOTCH = 5.0
+ROTATE_FINE_DEGREES_PER_NOTCH = 0.5
 # Between the last button of the slider row (the Console button, after the
 # controls' info button) and the threshold's value, in px: wide enough that
 # the button doesn't read as part of the number.
@@ -942,6 +948,15 @@ class MainViewer:
         self.drag_start_mouse = None
         self.drag_start_screen = None
         self.drag_start_nodes_pos = None
+        # What Esc puts back for a drag in progress (_cancel_drag), and the right-button drag it
+        # cancelled, whose moves and release then do nothing.
+        self._node_drag_press = None
+        self._box_press = None
+        self._press_history = None
+        self._drag_translation = np.zeros(2)
+        self._drag_cancelled = False
+        # A Shift or Ctrl left press on a node, copied when the button is let go (_copy_on_release).
+        self._pending_copy = None
         self.position_history = []  # Tracks states for Undo
         self.hud_displays = {}
 
@@ -1284,7 +1299,7 @@ class MainViewer:
         # command too: Command_Engine calls it).
         self.controls_button = ControlsButton(
             translate("Viewer", "Session and controls"),
-            translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes"),
+            translate("Viewer", "[ENTER] Command | [LeftClick] Highlight | [RightClick] Select/Clear | [Scroll] Zoom | [LeftClick + Shift/Ctrl] Copy Node Header/Sequence | [LeftClick + Drag] Pan | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight | [RightClick + Drag + Scroll] Rotate Nodes (Shift: Fine) | [Esc] Cancel Drag"),
             host=self.canvas.native,
             session=self._session_overview,
             controls_title=translate("Viewer", "Mouse and keyboard controls"),
@@ -2905,6 +2920,9 @@ class MainViewer:
         # --- NEW: Global Escape Interceptor ---
         if event.key == 'Escape':
             event.handled = True  # Block Vispy from closing the window
+            # A drag in progress comes first: the command line, if open, stays open.
+            if self._cancel_drag():
+                return
             if self.console_mode:
                 self.console_mode = False
                 self.console_bg.visible = False
@@ -3038,7 +3056,8 @@ class MainViewer:
         # input_buffer, and a click's message follows it (_show_click_status).
         # ---> 1. RIGHT-CLICK LOGIC (Drag & Select) <---
         if event.button == 2:
-            self.tooltip.text = "" 
+            self._drag_cancelled = False  # a new press: the drag Esc cancelled is over
+            self.tooltip.text = ""
             self.selected_node_idx = None
             
             # Clear or hide registered HUD displays
@@ -3057,7 +3076,12 @@ class MainViewer:
             self.drag_start_screen = event.pos
             
             if is_node_clicked:
+                # The snapshot is taken before the press changes the selection; Esc takes it
+                # back with the history around it if the drag is cancelled (_cancel_drag).
+                history = getattr(self, 'position_history', [])
+                kept = (list(history), list(getattr(self, 'redo_stack', [])))
                 self._save_state()
+                press_history = (kept, history[-1] if history else None)
 
                 # Modifier logic for individual node clicking
                 before = list(self.selected_indices)
@@ -3084,9 +3108,17 @@ class MainViewer:
                     self.is_multi_dragging = True
                     self._drag_selection_unsent = unsent
                     self.drag_start_nodes_pos = self.pos[self.selected_indices, :2].copy()
+                    # The wheel turns drag_start_nodes_pos in place; Esc puts back these.
+                    self._node_drag_press = (
+                        np.array(self.selected_indices, dtype=np.intp), self.drag_start_nodes_pos.copy())
+                    self._press_history = press_history
+                    self._drag_translation = np.zeros(2)
             else:
                 # Clicked empty space: Store the current state, DO NOT clear yet
                 self._pre_drag_selection = set(self.selected_indices)
+                # What Esc puts back, in the order it had: the selection, and which selections
+                # came after the commands that wait in the queue.
+                self._box_press = (list(self.selected_indices), getattr(self, 'selection_epoch', 0))
                 self._box_selection_unsent = False
                 self.is_box_selecting = True
                 self.selection_box.set_data(
@@ -3097,76 +3129,24 @@ class MainViewer:
             event.handled = True 
             return
             
-        # ---> 2. SHIFT + LEFT-CLICK LOGIC (Copy to Clipboard) <---
-        # Vispy Button 1 = Left Click
-        if event.button == 1 and 'Shift' in event.modifiers:
-            nearest_idx = self.pick_hovered_node(event.pos)
-            if nearest_idx is not None:
-                full_header = self.full_headers[nearest_idx]
-                try:
-                    # Use Vispy's native app instance, just like in on_key_press
-                    from vispy import app as vispy_app
-                    native_app = vispy_app.use_app().native
-                    native_app.clipboard().setText(full_header)
-                    
-                    self._show_click_status(Message("Copied: {node}", node=full_header))
-                    print(f"Copied to clipboard: {full_header}")
-                except Exception as e:
-                    self._show_click_status(Message("Copy Failed: {node}", node=full_header))
-                    print(f"Clipboard Error: {e}")
+        # ---> 2. SHIFT / CONTROL + LEFT-CLICK LOGIC (Copy to Clipboard, on release) <---
+        # Vispy Button 1 = Left Click. The node under the press and the key held at the press
+        # are kept; the copy is made when the button is let go within CLICK_DISTANCE_PIXELS of
+        # the press (_copy_on_release), so that a drag copies nothing.
+        if event.button == 1:
+            self._pending_copy = None
+            copies = None
+            if 'Shift' in event.modifiers:
+                copies = 'header'
+            elif 'Control' in event.modifiers or 'Meta' in event.modifiers:
+                copies = 'sequence'
+            if copies is not None:
+                nearest_idx = self.pick_hovered_node(event.pos)
+                if nearest_idx is not None:
+                    self._pending_copy = (nearest_idx, copies, np.array(event.pos[:2], dtype=float))
+                event.handled = True
+                return
 
-                self.update_console_background()
-                
-            event.handled = True
-            return
-        
-        # ---> 2.5 CONTROL + LEFT-CLICK LOGIC (Copy Sequence to Clipboard) <---
-        # Vispy Button 1 = Left Click
-        if event.button == 1 and ('Control' in event.modifiers or 'Meta' in event.modifiers):
-            nearest_idx = self.pick_hovered_node(event.pos)
-            if nearest_idx is not None:
-                full_header = self.full_headers[nearest_idx]
-                rec_id = full_header.split()[0]
-                
-                # Lazy-load sequence map if not already loaded
-                if not hasattr(self, 'sequences_map'):
-                    fasta_path = getattr(cfg, 'NODE_FASTA_FILE', None) or getattr(cfg, 'SEQUENCES_FILE', '')
-                    if fasta_path and os.path.exists(fasta_path):
-                        try:
-                            records = _load_selected_fasta_records(fasta_path)
-                            self.sequences_map = _build_sequence_lookup(records)
-                        except Exception as e:
-                            self.sequences_map = {}
-                            print(f"Warning: Failed to parse FASTA for sequences: {e}")
-                    else:
-                        self.sequences_map = {}
-                
-                # Look up sequence
-                sequence = None
-                if full_header in self.sequences_map:
-                    sequence = self.sequences_map[full_header]
-                elif rec_id in self.sequences_map:
-                    sequence = self.sequences_map[rec_id]
-                
-                if sequence:
-                    try:
-                        from vispy import app as vispy_app
-                        native_app = vispy_app.use_app().native
-                        native_app.clipboard().setText(sequence)
-                        self._show_click_status(Message("Copied sequence of: {node}", node=rec_id))
-                        print(f"Copied sequence to clipboard: {rec_id} ({len(sequence)} aa)")
-                    except Exception as e:
-                        self._show_click_status(Message("Copy Failed: {node}", node=rec_id))
-                        print(f"Clipboard Error: {e}")
-                else:
-                    self._show_click_status(Message("Sequence not found for: {node}", node=rec_id))
-                    print(f"Sequence not found in FASTA for: {rec_id}")
-
-                self.update_console_background()
-                    
-            event.handled = True
-            return
-        
         # ---> 3. PLAIN LEFT-CLICK LOGIC (Show Highlight) <---
         if event.button == 1 and 'Shift' not in event.modifiers:
             # On the node the hover highlights, apply the shared left-click focus.
@@ -3179,6 +3159,83 @@ class MainViewer:
                 
             event.handled = True
             return
+
+    def _copy_on_release(self, event):
+        """The left button was let go: copy what a Shift or Ctrl press chose, if this is a click.
+
+        A press with Shift copies the node's full header, one with Ctrl (Cmd on macOS) its
+        sequence; the node and the key are those at the press (on_mouse_press). A release
+        CLICK_DISTANCE_PIXELS or more from the press ends a drag, which copies nothing.
+        Returns whether a press was waiting, so that the release is not taken for anything else.
+        """
+        pending = getattr(self, '_pending_copy', None)
+        if pending is None:
+            return False
+        self._pending_copy = None
+        node_idx, kind, pressed_at = pending
+        moved = np.hypot(*(np.array(event.pos[:2], dtype=float) - pressed_at))
+        if moved < CLICK_DISTANCE_PIXELS:
+            if kind == 'header':
+                self._copy_node_header(node_idx)
+            else:
+                self._copy_node_sequence(node_idx)
+        return True
+
+    def _copy_node_header(self, node_idx):
+        full_header = self.full_headers[node_idx]
+        try:
+            # Use Vispy's native app instance, just like in on_key_press
+            from vispy import app as vispy_app
+            native_app = vispy_app.use_app().native
+            native_app.clipboard().setText(full_header)
+
+            self._show_click_status(Message("Copied: {node}", node=full_header))
+            print(f"Copied to clipboard: {full_header}")
+        except Exception as e:
+            self._show_click_status(Message("Copy Failed: {node}", node=full_header))
+            print(f"Clipboard Error: {e}")
+
+        self.update_console_background()
+
+    def _copy_node_sequence(self, node_idx):
+        full_header = self.full_headers[node_idx]
+        rec_id = full_header.split()[0]
+
+        # Lazy-load sequence map if not already loaded
+        if not hasattr(self, 'sequences_map'):
+            fasta_path = getattr(cfg, 'NODE_FASTA_FILE', None) or getattr(cfg, 'SEQUENCES_FILE', '')
+            if fasta_path and os.path.exists(fasta_path):
+                try:
+                    records = _load_selected_fasta_records(fasta_path)
+                    self.sequences_map = _build_sequence_lookup(records)
+                except Exception as e:
+                    self.sequences_map = {}
+                    print(f"Warning: Failed to parse FASTA for sequences: {e}")
+            else:
+                self.sequences_map = {}
+
+        # Look up sequence
+        sequence = None
+        if full_header in self.sequences_map:
+            sequence = self.sequences_map[full_header]
+        elif rec_id in self.sequences_map:
+            sequence = self.sequences_map[rec_id]
+
+        if sequence:
+            try:
+                from vispy import app as vispy_app
+                native_app = vispy_app.use_app().native
+                native_app.clipboard().setText(sequence)
+                self._show_click_status(Message("Copied sequence of: {node}", node=rec_id))
+                print(f"Copied sequence to clipboard: {rec_id} ({len(sequence)} aa)")
+            except Exception as e:
+                self._show_click_status(Message("Copy Failed: {node}", node=rec_id))
+                print(f"Clipboard Error: {e}")
+        else:
+            self._show_click_status(Message("Sequence not found for: {node}", node=rec_id))
+            print(f"Sequence not found in FASTA for: {rec_id}")
+
+        self.update_console_background()
 
     def apply_left_click_focus(self, node_idx):
         """Apply the shared temporary focus used by SSN and metadata clicks."""
@@ -3903,9 +3960,17 @@ class MainViewer:
         # ---> Rotate selected nodes if right-click dragging <---
         if getattr(self, 'is_multi_dragging', False) and 2 in event.buttons:
             self._note_view_motion()
-            # event.delta[1] is > 0 for scroll up, < 0 for scroll down
-            angle = event.delta[1] * (np.pi / 36) # 5 degrees per tick
-            
+            # event.delta[1] is > 0 for scroll up, < 0 for scroll down. Shift turns the wheel
+            # in finer steps; macOS and some mouse drivers send Shift + wheel as a sideways
+            # scroll, whose notches are in delta[0] (the same way round).
+            fine = 'Shift' in getattr(event, 'modifiers', ())
+            notches = event.delta[1]
+            if fine and notches == 0:
+                notches = event.delta[0]
+            # A high-resolution wheel or a touchpad reports a fraction of a notch.
+            step = ROTATE_FINE_DEGREES_PER_NOTCH if fine else ROTATE_DEGREES_PER_NOTCH
+            angle = notches * np.radians(step)
+
             cos_a = np.cos(angle)
             sin_a = np.sin(angle)
             
@@ -3917,10 +3982,11 @@ class MainViewer:
             self.drag_start_nodes_pos[:, 0] = rotated_x + center[0]
             self.drag_start_nodes_pos[:, 1] = rotated_y + center[1]
             
-            tr = self.canvas.scene.node_transform(self.view.scene)
-            mouse_world = tr.map(event.pos)[:2]
-            delta = mouse_world - self.drag_start_mouse
-            self.pos[self.selected_indices, :2] = self.drag_start_nodes_pos + delta
+            # The move the last mouse move gave (on_mouse_move), not one worked out again: Shift
+            # holds a move to a line, and pressing it to turn finely must not snap a diagonal
+            # move onto an axis. The line applies at the next move.
+            self.pos[self.selected_indices, :2] = (
+                self.drag_start_nodes_pos + getattr(self, '_drag_translation', 0.0))
             
             if low_resource_drawing(cfg):
                 self._move_dragged_nodes()
@@ -3932,6 +3998,15 @@ class MainViewer:
             return
 
     def on_mouse_move(self, event):
+        # ---> -1. THE REST OF A DRAG THAT ESC CANCELLED <---
+        # The right button is still down: its moves do nothing (and the camera, which takes a
+        # right-drag for a zoom, is told they are handled), until the button is let go.
+        if getattr(self, '_drag_cancelled', False):
+            if 2 in event.buttons:
+                event.handled = True
+                return
+            self._drag_cancelled = False  # the release was missed
+
         tr = self.canvas.scene.node_transform(self.view.scene)
         mouse_world = tr.map(event.pos)[:2]
 
@@ -3946,6 +4021,14 @@ class MainViewer:
         if getattr(self, 'is_multi_dragging', False):
             self._note_view_motion()
             delta = mouse_world - self.drag_start_mouse
+            if 'Shift' in event.modifiers:
+                # Held to a line: the larger of the two offsets from the press is kept, and
+                # the line turns from one axis to the other as the larger one changes.
+                if abs(delta[0]) >= abs(delta[1]):
+                    delta[1] = 0.0
+                else:
+                    delta[0] = 0.0
+            self._drag_translation = delta  # the wheel turns the nodes without moving them
             self.pos[self.selected_indices, :2] = self.drag_start_nodes_pos + delta
             
             if low_resource_drawing(cfg):
@@ -4015,6 +4098,66 @@ class MainViewer:
         if queue is not None and queue.pending():
             queue.resume()
 
+    def _cancel_drag(self):
+        """Esc during a right-button drag: put everything back as it was at the press.
+
+        A drag of selected nodes puts each node back where it was, a turn of the wheel
+        undone too, and leaves the selection as the press made it. The snapshot the press
+        took for undo is taken off the history (_take_back_press_history): it holds the
+        positions as they were, which are now the positions again, and undo does not restore
+        a selection, so it would be a step that undoes nothing. A selection box is hidden and
+        the selection from before the press comes back. The rest of the drag does nothing
+        (_drag_cancelled), and a command that waited for the drag goes on, as on release.
+
+        Returns whether there was a drag to cancel.
+        """
+        if getattr(self, 'is_multi_dragging', False):
+            self.is_multi_dragging = False
+            press = getattr(self, '_node_drag_press', None)
+            if press is not None:
+                indices, positions = press
+                self.pos[indices, :2] = positions
+            self._take_back_press_history()
+            # As a release does: the colours, the edges and the picks for the nodes' places, and
+            # the web pages told of the selection if the press held it back.
+            self.update_selection_visual(broadcast=getattr(self, '_drag_selection_unsent', True))
+            self._drag_selection_unsent = False
+        elif getattr(self, 'is_box_selecting', False):
+            self.is_box_selecting = False
+            self.selection_box.visible = False
+            press = getattr(self, '_box_press', None)
+            if press is not None:
+                selection, epoch = press
+                if self.selected_indices != selection:
+                    # A live box told the web pages of each selection it made, unless they were
+                    # left to hear once, on release: then they still have this one.
+                    unsent = getattr(self, '_box_selection_unsent', False)
+                    self.selected_indices = list(selection)
+                    self.update_selection_visual(broadcast=not unsent)
+                self.selection_epoch = epoch  # as if the box had not been drawn
+            self._box_selection_unsent = False
+        else:
+            return False
+        self._drag_cancelled = True
+        self.canvas.update()
+        self._resume_command_queue()
+        return True
+
+    def _take_back_press_history(self):
+        """Undo's history as it was before the press of a cancelled drag: the press's snapshot
+        off the end, and the steps it cleared from redo given back. Left as it is when
+        something else has been added since."""
+        press = getattr(self, '_press_history', None)
+        self._press_history = None
+        history = getattr(self, 'position_history', None)
+        redo = getattr(self, 'redo_stack', None)
+        if press is None or not history or redo is None:
+            return
+        (history_before, redo_before), snapshot = press
+        if history[-1] is snapshot:
+            history[:] = history_before
+            redo[:] = redo_before
+
     def pick_hovered_node(self, cursor):
         """The node a cursor at canvas position cursor hovers: the topmost one
         whose drawn shape covers the pixel under it, or, over no node, the
@@ -4051,9 +4194,22 @@ class MainViewer:
         self.update_nodes()
     
     def on_mouse_release(self, event):
+        # ---> 0. THE RELEASE THAT ENDS A DRAG ESC CANCELLED <---
+        # Nothing is left to do: not the box, nor the right-click's clearing of the selection.
+        if getattr(self, '_drag_cancelled', False) and getattr(event, 'button', None) == 2:
+            self._drag_cancelled = False
+            event.handled = True
+            return
+
+        # ---> 0.5 LEFT RELEASE: COPY WHAT A SHIFT OR CTRL PRESS CHOSE <---
+        if getattr(event, 'button', None) == 1 and self._copy_on_release(event):
+            event.handled = True
+            return
+
         # ---> 1. MULTI-DRAG RELEASE <---
         if getattr(self, 'is_multi_dragging', False):
             self.is_multi_dragging = False
+            self._node_drag_press = self._press_history = None  # no cancelling now
             self.update_selection_visual(broadcast=getattr(self, '_drag_selection_unsent', True))
             self._drag_selection_unsent = False
             self._resume_command_queue()
@@ -4064,6 +4220,7 @@ class MainViewer:
         if getattr(self, 'is_box_selecting', False):
             self.is_box_selecting = False
             self.selection_box.visible = False
+            self._box_press = None  # no cancelling now
             
             tr = self.canvas.scene.node_transform(self.view.scene)
             mouse_world = tr.map(event.pos)[:2]
@@ -4078,7 +4235,7 @@ class MainViewer:
             dy = event.pos[1] - drag_start_screen[1]
             drag_dist_screen = np.hypot(dx, dy)
             
-            if low_resource_drawing(cfg) and drag_dist_screen >= 5.0:
+            if low_resource_drawing(cfg) and drag_dist_screen >= CLICK_DISTANCE_PIXELS:
                 min_x, max_x = min(x0, x1), max(x0, x1)
                 min_y, max_y = min(y0, y1), max(y0, y1)
                 xs = self.pos[:, 0]
@@ -4101,7 +4258,7 @@ class MainViewer:
                 self._box_selection_unsent = False
 
             # Single click detection (no drag distance in screen pixels)
-            if drag_dist_screen < 5.0:
+            if drag_dist_screen < CLICK_DISTANCE_PIXELS:
                 if 'Shift' not in event.modifiers and 'Control' not in event.modifiers and 'Meta' not in event.modifiers:
                     self.selected_indices = []
                     self._note_hand_selection()

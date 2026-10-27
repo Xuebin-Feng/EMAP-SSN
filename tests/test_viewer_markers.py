@@ -326,7 +326,7 @@ class ClickPickTests(unittest.TestCase):
             setattr(viewer, name, mock.Mock())
         return viewer
 
-    def press(self, viewer, x, button, modifiers=()):
+    def press(self, viewer, x, button, modifiers=(), release=False):
         clipboard = mock.Mock()
         native = SimpleNamespace(clipboard=lambda: clipboard)
         event = SimpleNamespace(pos=np.array([float(x), 0.0]), button=button, buttons=[button],
@@ -335,6 +335,9 @@ class ClickPickTests(unittest.TestCase):
                 mock.patch.object(cfg, "UMAP_MODE", False), \
                 mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", False):
             viewer.on_mouse_press(event)
+            if release:     # a Shift or Ctrl click copies on release
+                viewer.on_mouse_release(SimpleNamespace(pos=event.pos, button=button, buttons=[],
+                                                        modifiers=list(modifiers), handled=False))
         return clipboard, event
 
     def test_the_old_rule_and_the_drawing_disagree_here(self):
@@ -366,9 +369,9 @@ class ClickPickTests(unittest.TestCase):
 
     def test_shift_and_control_clicks_copy_the_node_on_top(self):
         viewer = self.make_viewer()
-        clipboard, _ = self.press(viewer, 50, 1, ["Shift"])
+        clipboard, _ = self.press(viewer, 50, 1, ["Shift"], release=True)
         clipboard.setText.assert_called_once_with("B second")
-        clipboard, _ = self.press(viewer, 50, 1, ["Control"])
+        clipboard, _ = self.press(viewer, 50, 1, ["Control"], release=True)
         clipboard.setText.assert_called_once_with("MKB")
 
     def test_clicks_over_no_node_do_what_they_did(self):
@@ -379,7 +382,7 @@ class ClickPickTests(unittest.TestCase):
         viewer.apply_left_click_focus.assert_not_called()
         # Shift and Control clicks copy nothing.
         for modifier in ("Shift", "Control"):
-            clipboard, _ = self.press(viewer, 120, 1, [modifier])
+            clipboard, _ = self.press(viewer, 120, 1, [modifier], release=True)
             clipboard.setText.assert_not_called()
         # A right press starts a box; let go where it started, it clears the selection.
         viewer.selected_indices = [self.C]

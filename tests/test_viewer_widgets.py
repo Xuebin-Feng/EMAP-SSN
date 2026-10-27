@@ -118,11 +118,14 @@ class ControlsRowsTests(unittest.TestCase):
             (["LeftClick", "Shift/Ctrl"], "Copy Node Header/Sequence"),
             (["LeftClick", "Drag"], "Pan"),
             (["RightClick", "Drag"], "GroupSelect/MoveNodes"),
+            (["RightClick", "Drag", "Shift"], "Move Straight"),
+            (["RightClick", "Drag", "Scroll"], "Rotate Nodes (Shift: Fine)"),
+            (["Esc"], "Cancel Drag"),
         ])
 
     def test_the_chinese_actions_read_the_same_way(self):
         rows = controls_rows(chinese_actions(shipped_actions()))
-        self.assertEqual(len(rows), 7)
+        self.assertEqual(len(rows), 10)
         self.assertEqual(rows[0], (["回车"], "命令"))
         self.assertEqual(rows[4][0], ["左键", "Shift/Ctrl"])
         self.assertTrue(all(keys and description for keys, description in rows), rows)
@@ -367,7 +370,8 @@ class ControlsCardTests(unittest.TestCase):
                          [description for _keys, description in controls_rows(shipped_actions())])
         self.assertEqual([cap.text() for cap in card.key_caps],
                          ["ENTER", "LeftClick", "RightClick", "Scroll", "LeftClick", "Shift/Ctrl",
-                          "LeftClick", "Drag", "RightClick", "Drag"])
+                          "LeftClick", "Drag", "RightClick", "Drag", "RightClick", "Drag", "Shift",
+                          "RightClick", "Drag", "Scroll", "Esc"])
         # Each description shows whole: no row is cut short.
         for label in card.descriptions:
             self.assertGreaterEqual(label.width(), label.sizeHint().width(), label.text())
@@ -442,7 +446,7 @@ class ControlsCardTests(unittest.TestCase):
         card = button.toggle_card()
         flush(self.app)
         self.assertEqual(card.path_fields, {})
-        self.assertEqual(len(card.descriptions), 7)
+        self.assertEqual(len(card.descriptions), 10)
         # Its one heading, in the header row with the link and the cross, is the controls'.
         self.assertEqual(card.session_heading.text(), "Mouse and keyboard controls")
         self.assertIsNone(card.controls_heading)
@@ -562,7 +566,7 @@ class ControlsCardTests(unittest.TestCase):
         text = shipped_actions() + " | [Ctrl + LeftClick] Copy every header the selection holds"
         cards = []
         # The third has keys wider than any description: its first half is the keys and the gap after them.
-        wide_keys = shipped_actions() + " | [Ctrl + Shift + LeftClick] Go"
+        wide_keys = shipped_actions() + " | [Ctrl + Shift + Alt + LeftClick] Go"
         for source in (shipped_actions(), text, wide_keys):
             card = ControlsCard("x", source, parent=self.host, controls_title="Mouse and keyboard controls",
                                 area=lambda: self.host.rect())
