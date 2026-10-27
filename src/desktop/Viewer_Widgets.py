@@ -276,6 +276,9 @@ class ControlsCard(QWidget):
     # The card paints its own shadow in this margin around it.
     SHADOW = 8
 
+    # Asks the card to measure itself again, in a call queued behind those Qt queued before (_jobs_resized).
+    _measure_requested = QtCore.Signal()
+
     def __init__(self, title, text, anchor=None, parent=None, *, session=None, controls_title=None,
                  area=None, command=None, command_line_open=None, jobs=None, confirm_stop=None):
         super().__init__(parent)
@@ -287,9 +290,7 @@ class ControlsCard(QWidget):
         self.command_line_open = command_line_open
         self.jobs = jobs
         self.jobs_section = None
-        self._remeasure = QtCore.QTimer(self)
-        self._remeasure.setSingleShot(True)
-        self._remeasure.timeout.connect(self._measure_again)
+        self._measure_requested.connect(self._measure_again, Qt.ConnectionType.QueuedConnection)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose, True)
         self.setMouseTracking(True)
         self.setAccessibleName(title)
@@ -426,11 +427,13 @@ class ControlsCard(QWidget):
     def _jobs_resized(self):
         """The jobs section gained or lost rows: take the card's size again, and keep it above its button.
 
-        Qt lays the new rows out in the event loop's next turn, and their sizes can only be read after, so
-        the card measures itself then.
+        A row added to a card that is open is shown by a call Qt queues, and counts for nothing in the card's
+        size until then. So the card measures itself in a call queued after those, not in a timer: a timer
+        can run first, as it did when a job's change reached the card as a queued event and the card measured
+        itself without the new rows, and then kept the size.
         """
         self._natural = None
-        self._remeasure.start(0)
+        self._measure_requested.emit()
 
     def _measure_again(self):
         self._natural = None
