@@ -384,6 +384,19 @@ still change before version 1.0.0.
   own grabs and events, so it needs no screenshot or accessibility permission on GNOME
   Wayland, X11, Windows or macOS. It acts only while its gate file exists, never in a test
   run, and nothing in `src` knows about it. Its README gives the commands.
+- **Node drags in the Viewer can be cancelled, kept straight and turned finely.**
+  - **Esc cancels a drag:** moved nodes go back where they were, any wheel rotation
+    included, and a box selection gives back the selection from before it. The rest of
+    that drag does nothing until the button is let go, and a cancelled move leaves no
+    undo step.
+  - **Shift keeps a move straight:** held while moving nodes, it keeps the move
+    horizontal or vertical, whichever is larger. Shift at the click still adds the node
+    to the selection.
+  - **Shift + wheel turns ten times more finely:** while nodes are moved, the wheel turns
+    them 5° a notch, and 0.5° with Shift. A high-resolution wheel or a touchpad turns
+    them by the share of a notch it reports, and a Shift + wheel that arrives as a
+    sideways scroll, as on macOS, turns them too.
+  - The ⓘ card and the Quick Start list these gestures.
 
 ### Changed
 
@@ -397,6 +410,9 @@ still change before version 1.0.0.
   - **No redraw:** moving the cursor or the blink no longer redraws the network.
   - **Prints:** a `print` or MCP view capture taken with the command line open shows the
     command without a cursor.
+- **Shift- and Ctrl-clicking a node copies on release,** not on the press: its header or
+  sequence is copied when the button is let go within 5 px of where it went down, so a
+  slipped click or a drag copies nothing.
 - **Recolouring keeps a node's alpha.** `color #noise# red` used to make faded nodes, such as
   subcluster Noise at 40 %, fully opaque. It now changes only their colour; add `100%` to
   make them opaque.
