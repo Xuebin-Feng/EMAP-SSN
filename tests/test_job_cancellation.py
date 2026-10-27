@@ -33,7 +33,6 @@ import openpyxl  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 
 from utilities.Job_Cancellation import (  # noqa: E402
-    CancelToken,
     CancellableFile,
     JobCancelled,
     JobHandle,
@@ -86,7 +85,7 @@ class CheckPointTests(unittest.TestCase):
         raise_if_cancelled()
 
     def test_a_job_told_to_stop_raises_at_its_next_check_point_and_not_before(self):
-        token = CancelToken()
+        token = JobHandle()
         with bound_to(token):
             raise_if_cancelled()
             self.assertFalse(cancel_requested())
@@ -99,7 +98,7 @@ class CheckPointTests(unittest.TestCase):
     def test_the_exception_is_not_an_exception_so_error_handlers_cannot_swallow_it(self):
         self.assertTrue(issubclass(JobCancelled, BaseException))
         self.assertFalse(issubclass(JobCancelled, Exception))
-        token = CancelToken()
+        token = JobHandle()
         token.request()
         swallowed = []
         with self.assertRaises(JobCancelled), bound_to(token):
@@ -111,7 +110,7 @@ class CheckPointTests(unittest.TestCase):
         self.assertEqual(swallowed, [])
 
     def test_the_token_belongs_to_the_thread_that_bound_it(self):
-        token = CancelToken()
+        token = JobHandle()
         token.request()
         seen = []
 
@@ -127,7 +126,7 @@ class CheckPointTests(unittest.TestCase):
         self.assertEqual(seen, [False])
 
     def test_bound_blocks_nest_and_restore_the_one_outside(self):
-        outer, inner = CancelToken(), CancelToken()
+        outer, inner = JobHandle(), JobHandle()
         outer.request()
         with bound_to(outer):
             with bound_to(inner):
@@ -136,7 +135,7 @@ class CheckPointTests(unittest.TestCase):
         self.assertFalse(cancel_requested())
 
     def test_the_token_is_unbound_when_the_job_ends_by_an_exception(self):
-        token = CancelToken()
+        token = JobHandle()
         token.request()
         with self.assertRaises(JobCancelled), bound_to(token):
             raise_if_cancelled()
@@ -145,7 +144,7 @@ class CheckPointTests(unittest.TestCase):
 
 class CancellableFileTests(unittest.TestCase):
     def test_writes_pass_through_until_the_job_is_told_to_stop(self):
-        token = CancelToken()
+        token = JobHandle()
         target = io.BytesIO()
         wrapper = CancellableFile(target)
         with bound_to(token):
@@ -162,7 +161,7 @@ class CancellableFileTests(unittest.TestCase):
         self.assertEqual(target.getvalue(), b"abc")
 
     def test_after_the_stop_it_does_nothing_more_so_a_half_done_writer_ends_quietly(self):
-        token = CancelToken()
+        token = JobHandle()
         token.request()
         target = io.BytesIO(b"keep")
         target.seek(4)
@@ -260,9 +259,6 @@ class JobHandleTests(unittest.TestCase):
         self.assertEqual(handle.partial_paths(), [])
         self.assertIsNone(current_job())
 
-    def test_the_old_name_of_the_stop_request_still_works(self):
-        self.assertIs(CancelToken, JobHandle)
-
 
 class OpenAtFirstWriteTests(unittest.TestCase):
     """CancellableFile.at opens the file only when something is written, and never once the job was told to stop."""
@@ -333,7 +329,7 @@ class EncodersThroughItTests(unittest.TestCase):
     def test_a_png_encode_stops_within_a_few_chunks_of_the_output(self):
         # Noise does not compress, so the PNG goes out in many 64 kB writes.
         image = (np.random.default_rng(7).random((900, 1200, 4)) * 255).astype(np.uint8)
-        token = CancelToken()
+        token = JobHandle()
         sink = StopAfter(token, 4)
         with bound_to(token), self.assertRaises(JobCancelled):
             mpimg.imsave(CancellableFile(sink), image, format="png")
@@ -372,7 +368,7 @@ class EncodersThroughItTests(unittest.TestCase):
             self.assertEqual(Path(direct).read_bytes(), Path(through).read_bytes())
 
     def test_an_svg_figure_stops_while_it_is_drawn(self):
-        token = CancelToken()
+        token = JobHandle()
         sink = StopAfter(token, 20)
         with bound_to(token), self.assertRaises(JobCancelled):
             self.figure().savefig(CancellableFile(sink), format="svg")
@@ -404,7 +400,7 @@ class EncodersThroughItTests(unittest.TestCase):
         original = sys.unraisablehook
         sys.unraisablehook = lambda info: unraisable.append(info)
         self.addCleanup(setattr, sys, "unraisablehook", original)
-        token = CancelToken()
+        token = JobHandle()
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "book.xlsx")
             with bound_to(token), self.assertRaises(JobCancelled):

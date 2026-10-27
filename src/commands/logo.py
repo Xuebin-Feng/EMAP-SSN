@@ -21,10 +21,9 @@ import numpy as np
 from datetime import datetime  # <--- NEW IMPORT
 import EMAPSSN_Config as cfg
 import Command_Engine
-from utilities import Alignment_Profiles as _profiles
 from utilities.Alignment_Profiles import (
-    NUMBA_AVAILABLE,
     STANDARD_AAS,
+    aligned_row_strings,
     calculate_identity_weights,
     calculate_logo_matrix,
     choose_balanced_thread_count,
@@ -45,23 +44,9 @@ from utilities.Sequence_Utils import (
 
 LOGO_DIRECTORY = os.path.join("$analysis_result$", "Sequence_Logos")
 
-# The computation these names stand for is in utilities.Alignment_Profiles, which
-# `label` and the residue data of `esmfold` use too. The names imported above
-# and assigned below are the ones this module and its tests have always had,
-# and they are the same objects. To change what the computation does (a Numba
-# switch, a stand-in kernel), patch the utility, not these.
-_ASCII_TO_STANDARD_CODE = _profiles._ASCII_TO_STANDARD_CODE
-_DECODE_BLOCK_ROWS = _profiles._DECODE_BLOCK_ROWS
-_IDENTITY_CHUNKS_PER_THREAD = _profiles._IDENTITY_CHUNKS_PER_THREAD
-_IDENTITY_TILE_ROWS = _profiles._IDENTITY_TILE_ROWS
-_aligned_row_strings = _profiles.aligned_row_strings
-_calculate_identity_neighbour_counts_numpy = _profiles._calculate_identity_neighbour_counts_numpy
-_encode_standard_amino_acids = _profiles.encode_standard_amino_acids
-_pack_identity_planes = _profiles._pack_identity_planes
-_unique_encoded_rows = _profiles._unique_encoded_rows
-if NUMBA_AVAILABLE:
-    _identity_neighbour_counts_kernel = _profiles._identity_neighbour_counts_kernel
-    _popcount64 = _profiles._popcount64
+# The identity computation is in utilities.Alignment_Profiles, which `label` and
+# the residue data of `esmfold` use too. To change what it does (a Numba switch,
+# a stand-in kernel), patch the utility.
 
 _BARE_IDENTITY_THRESHOLD = re.compile(
     r"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)%?$"
@@ -911,7 +896,7 @@ def run(viewer, args):
 
     # 8. Extract Sequences for Selected Nodes
     selected_rows = [int(viewer_to_aln[idx]) for idx in selected_nodes]
-    selected_seqs = _aligned_row_strings(
+    selected_seqs = aligned_row_strings(
         viewer.alignment.aln,
         [row_idx for row_idx in selected_rows if row_idx != -1],
     )

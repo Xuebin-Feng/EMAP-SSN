@@ -31,10 +31,12 @@ from tests.sparse_alignment import sparse_alignment
 from commands import logo as logo_command
 from utilities.Job_Cancellation import cancel_requested
 from utilities import Alignment_Profiles
+from utilities.Alignment_Profiles import (
+    _calculate_identity_neighbour_counts_numpy,
+    encode_standard_amino_acids,
+)
 from commands.logo import (
     _configure_logo_y_axis,
-    _calculate_identity_neighbour_counts_numpy,
-    _encode_standard_amino_acids,
     calculate_identity_weights,
     calculate_logo_matrix,
     extract_identity_threshold,
@@ -485,7 +487,7 @@ class LogoSequenceWeightingTests(unittest.TestCase):
             "----------",
             "XXXXXXXXXX",
         ]
-        encoded = _encode_standard_amino_acids(sequences)
+        encoded = encode_standard_amino_acids(sequences)
         multiplicities = np.array([2, 1, 3, 1, 2, 1, 4, 2], dtype=np.int64)
 
         for threshold in (0.8, 0.9, 1.0):
@@ -688,31 +690,7 @@ class LogoColumnHeightTests(unittest.TestCase):
 
 
 class LogoUtilityAliasTests(unittest.TestCase):
-    """The computation lives in utilities.Alignment_Profiles; logo keeps the names it always had for it."""
-
-    SAME_NAME = (
-        "STANDARD_AAS", "NUMBA_AVAILABLE", "calculate_identity_weights", "calculate_logo_matrix",
-        "choose_balanced_thread_count", "get_balanced_thread_count", "get_num_threads",
-        "set_num_threads", "run_identity_neighbour_counts", "_ASCII_TO_STANDARD_CODE",
-        "_DECODE_BLOCK_ROWS", "_IDENTITY_CHUNKS_PER_THREAD", "_IDENTITY_TILE_ROWS",
-        "_calculate_identity_neighbour_counts_numpy", "_pack_identity_planes", "_unique_encoded_rows",
-    )
-    RENAMED = {
-        "_encode_standard_amino_acids": "encode_standard_amino_acids",
-        "_aligned_row_strings": "aligned_row_strings",
-    }
-
-    def test_every_name_logo_always_had_is_the_utilitys_object(self):
-        for name in self.SAME_NAME:
-            with self.subTest(name=name):
-                self.assertIs(getattr(logo_command, name), getattr(Alignment_Profiles, name))
-        for old, new in self.RENAMED.items():
-            with self.subTest(name=old):
-                self.assertIs(getattr(logo_command, old), getattr(Alignment_Profiles, new))
-        if Alignment_Profiles.NUMBA_AVAILABLE:
-            for name in ("_identity_neighbour_counts_kernel", "_popcount64"):
-                with self.subTest(name=name):
-                    self.assertIs(getattr(logo_command, name), getattr(Alignment_Profiles, name))
+    """The computation lives in utilities.Alignment_Profiles; logo calls it through the names it imports."""
 
     def test_patching_the_utility_reaches_logos_aliases(self):
         with mock.patch.object(Alignment_Profiles, "NUMBA_AVAILABLE", False):

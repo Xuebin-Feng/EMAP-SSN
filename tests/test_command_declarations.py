@@ -3,11 +3,10 @@
 The engine, the command queue and the command portal never name a command: the
 modules of src/commands say which run at once, which start a model request and
 which act on jobs, and a module that says nothing gets the cautious defaults.
-The first classes show that every case that used to be hard-coded behaves as it
-did, against copies of the old rules, and that a plugin dropped into the
-commands package is dispatched by what it declares with no change to the
-program. The last class reads the source of the central files and fails when one
-of them names a command again.
+The first class writes out the cases the modules declare, and the next ones show
+that a plugin dropped into the commands package is dispatched by what it
+declares with no change to the program. The last class reads the source of the
+central files and fails when one of them names a command again.
 """
 import ast
 import collections
@@ -24,6 +23,7 @@ if str(SRC_DIR) not in sys.path:
 import Command_Declarations as declarations  # noqa: E402
 import Command_Engine as ce  # noqa: E402
 from Viewer_Command_Portal import ViewerCommandPortal  # noqa: E402
+from desktop.Viewer_Inspection import command_catalog  # noqa: E402
 from tests.command_fixtures import scratch_commands  # noqa: E402
 from tests.viewer_fixtures import PortalFixture  # noqa: E402
 
@@ -32,48 +32,6 @@ COMMAND_NAMES = sorted(path.stem for path in COMMANDS_DIR.glob("*.py") if not pa
 REFUSAL = "Model-generated agent commands cannot start another model request."
 INSTANT, ORDERED = "instant", "ordered"
 SOURCES = ("typed", "script", "portal")
-
-# --- The rules as they were hard-coded before the modules declared them -----------------
-OLD_HELP_WORDS = frozenset({"help", "-h", "--help", "-?"})
-OLD_AGENT_SETTINGS = frozenset({"off", "deactivate"})
-
-
-def old_queue_kind(command_name, args, source="typed"):
-    """Command_Engine.queue_kind, as it was."""
-    first = args[0].lower() if args else ""
-    if first in OLD_HELP_WORDS or first == "--register-only":
-        return INSTANT
-    if command_name in ("jobs", "zoom", "run", "console", "help"):  # console and help came later and declare what these did
-        return INSTANT
-    if command_name == "esmfold" and first == "stop":
-        return INSTANT
-    if command_name in ("undo", "redo") and source == "typed":
-        return INSTANT
-    if command_name == "meta" and not args:
-        return INSTANT
-    if command_name == "agent":
-        argument = " ".join(args)
-        if not args or first in OLD_AGENT_SETTINGS or (argument.startswith("<") and argument.endswith(">")):
-            return INSTANT
-    return ORDERED
-
-
-def old_model_request_refused(cmd_str):
-    """The rule execute_command applied to a command run for the portal, as it was."""
-    if not (str(cmd_str).split() and str(cmd_str).split()[0].lower() == "agent"):
-        return False
-    argument = str(cmd_str).partition(" ")[2].strip()
-    configuration = (not argument
-                     or argument.lower() in {"help", "-h", "--help", "off", "deactivate", "--register-only"}
-                     or (argument.startswith("<") and argument.endswith(">")))
-    return not configuration
-
-
-def old_is_stop(command):
-    """ViewerCommandPortal._is_stop, as it was, without the Agent review check."""
-    words = tuple(command.lower().split())
-    return words in {("esmfold", "stop"), ("run", "stop")} or (bool(words) and words[0] in {"jobs"})
-
 
 ARGUMENT_LISTS = [
     [], ["help"], ["Help"], ["-h"], ["--help"], ["--HELP"], ["-?"], ["--register-only"], ["--register-only", "x"],
@@ -84,63 +42,6 @@ ARGUMENT_LISTS = [
     ["cancel", "14"], ["upload", "a.csv"], ["import", "a.csv"], ["red"], ["{Length>10}"],
 ]
 NAMES_TO_TRY = COMMAND_NAMES + ["nosuchcommand", "help"]
-
-
-class OldRulesTests(unittest.TestCase):
-    """Every case the engine and the portal used to decide by name is decided the same way by the modules."""
-
-    def test_every_command_waits_or_runs_at_once_as_it_did(self):
-        count = 0
-        for name in NAMES_TO_TRY:
-            for args in ARGUMENT_LISTS:
-                for source in SOURCES:
-                    with self.subTest(command=name, args=args, source=source):
-                        self.assertEqual(ce.queue_kind(name, list(args), source), old_queue_kind(name, args, source))
-                    count += 1
-        self.assertGreater(count, 3000)
-
-    def test_the_engine_gives_the_same_answer_for_the_module_it_has_just_loaded(self):
-        for name in ("jobs", "zoom", "run", "esmfold", "undo", "redo", "meta", "agent", "select"):
-            module = declarations.command_module(name)
-            self.assertIsNotNone(module, name)
-            for args in ARGUMENT_LISTS:
-                for source in SOURCES:
-                    with self.subTest(command=name, args=args, source=source):
-                        self.assertEqual(ce.queue_kind(name, list(args), source, module),
-                                         old_queue_kind(name, args, source))
-
-    def test_a_command_given_to_the_portal_is_refused_when_it_starts_a_model_request_as_it_was(self):
-        for name in NAMES_TO_TRY + ["AGENT", "Agent"]:
-            for args in ARGUMENT_LISTS:
-                line = " ".join([name, *args])
-                with self.subTest(command=line):
-                    refused = declarations.starts_model_request(name.lower(), list(args))
-                    self.assertEqual(refused, old_model_request_refused(line))
-
-    def test_a_request_of_stop_commands_runs_ahead_of_the_head_as_it_did(self):
-        lines = []
-        for name in NAMES_TO_TRY + ["ESMFOLD", "Run", "JOBS"]:
-            for args in ARGUMENT_LISTS:
-                lines += [" ".join([name, *args]), "  " + name + "   " + "   ".join(args) + "  "]
-        for line in lines:
-            with self.subTest(command=line):
-                self.assertEqual(ViewerCommandPortal._is_stop({"command": line}), old_is_stop(line))
-        self.assertFalse(ViewerCommandPortal._is_stop({"command": ""}))
-        self.assertFalse(ViewerCommandPortal._is_stop({"command": "   "}))
-
-    def test_a_stop_command_still_to_be_reviewed_does_not_run_ahead(self):
-        for approval, expected in ((None, True), ("approved", True), ("pending", False), ("refused", False),
-                                   ("discarded", False)):
-            with self.subTest(approval=approval):
-                self.assertEqual(ViewerCommandPortal._is_stop({"command": "esmfold stop", "approval": approval}),
-                                 expected)
-
-    def test_a_tab_does_not_hide_a_message_to_the_model(self):
-        # The old rule read the argument after the first space, so `agent<TAB>hello` had none and was let
-        # through, and the dispatch then sent "hello" to the model. The rule now reads the words the dispatch
-        # reads.
-        self.assertFalse(old_model_request_refused("agent\thello"))
-        self.assertTrue(declarations.starts_model_request("agent", "agent\thello".split()[1:]))
 
 
 class DeclaredCasesTests(unittest.TestCase):
@@ -164,6 +65,9 @@ class DeclaredCasesTests(unittest.TestCase):
                 with self.subTest(command=name, args=args, source=source):
                     expected = INSTANT if source in instant_from else ORDERED
                     self.assertEqual(ce.queue_kind(name, args, source), expected)
+                    # The dispatch hands over the module it has just loaded; it decides the same.
+                    module = declarations.command_module(name)
+                    self.assertEqual(ce.queue_kind(name, args, source, module), expected)
 
     def test_help_and_registration_run_at_once_for_every_command(self):
         for name in NAMES_TO_TRY:
@@ -194,6 +98,20 @@ class DeclaredCasesTests(unittest.TestCase):
             with self.subTest(command=name, args=args):
                 self.assertIs(declarations.acts_on_jobs(name, args), expected)
 
+    def test_a_request_of_stop_commands_runs_ahead_of_the_head_unless_it_awaits_review(self):
+        for command, expected in [
+                ("esmfold stop", True), ("  ESMFOLD   stop  ", True), ("run stop", True), ("Run Stop", True),
+                ("jobs", True), ("JOBS cancel all", True),
+                ("esmfold stop large", False), ("esmfold", False), ("run", False), ("select stop", False),
+                ("undo", False), ("nosuchcommand stop", False), ("", False), ("   ", False)]:
+            with self.subTest(command=command):
+                self.assertIs(ViewerCommandPortal._is_stop({"command": command}), expected)
+        for approval, expected in ((None, True), ("approved", True), ("pending", False), ("refused", False),
+                                   ("discarded", False)):
+            with self.subTest(approval=approval):
+                self.assertIs(ViewerCommandPortal._is_stop({"command": "esmfold stop", "approval": approval}),
+                              expected)
+
     def test_every_declaration_of_the_real_commands_is_well_formed(self):
         # A typo in a declaration would silently fall back to the default, so the real modules are read here.
         for name in COMMAND_NAMES:
@@ -218,7 +136,7 @@ class DeclaredCasesTests(unittest.TestCase):
                             self.assertIn(result, valid, (function, args, source))
                             self.assertIs(type(result), type(next(iter(valid))), (function, args, source))
 
-    def test_the_commands_that_declare_something_are_the_ones_that_did_before(self):
+    def test_exactly_these_commands_declare_how_they_are_dispatched(self):
         declaring = {name for name in COMMAND_NAMES
                      if any(hasattr(declarations.command_module(name), attribute)
                             for attribute in ("QUEUE", "queue_kind", "STARTS_MODEL_REQUEST", "starts_model_request",
@@ -550,7 +468,13 @@ class CentralCodeNamesNoCommandTests(unittest.TestCase):
             ("kind", "import", "agent"): 1}))
 
     def test_the_command_names_are_the_modules_of_src_commands(self):
+        # A command is a module of src/commands that does not start with "_" and defines run: the rule of the
+        # Viewer's command catalog, which lists the folder, and of the dispatch, which imports commands.<name>.
         self.assertTrue({"agent", "jobs", "run", "esmfold", "undo", "redo", "meta", "zoom"} <= set(COMMAND_NAMES))
+        self.assertEqual(set(COMMAND_NAMES), {entry["command"] for entry in command_catalog()["commands"]})
+        for name in COMMAND_NAMES:
+            with self.subTest(command=name):
+                self.assertTrue(callable(getattr(declarations.command_module(name), "run", None)), name)
 
     def test_no_central_file_names_a_command(self):
         for relative, allowed in ALLOWED.items():

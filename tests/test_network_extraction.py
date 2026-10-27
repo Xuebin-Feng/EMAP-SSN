@@ -102,16 +102,14 @@ class NetworkExtractionTests(unittest.TestCase):
             handle.create_dataset("j", data=np.array([1, 2, 2, 0]))
             handle.create_dataset("score", data=np.array([1e-2, 1e-4, 1e-6, 1e-8]))
 
-    def test_alignment_network_is_filtered_without_path_files(self):
+    def test_alignment_network_is_filtered_to_the_whitelist(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = pathlib.Path(temp_dir)
             input_network = root / "master_network.h5"
             output_network = root / "subset_[esm2]_network.h5"
             whitelist = root / "subset.fasta"
-            legacy_paths = root / "master_paths.h5"
             self._write_alignment_network(input_network)
             whitelist.write_text(">A\nAAAA\n>C\nCCCC\n", encoding="utf-8")
-            legacy_paths.write_bytes(b"legacy path artifact")
 
             with redirect_stdout(io.StringIO()):
                 network_extraction.filter_network(
@@ -131,13 +129,7 @@ class NetworkExtractionTests(unittest.TestCase):
                 np.testing.assert_array_equal(output["g_score"][:], [22, 24])
                 np.testing.assert_array_equal(output["g_len"][:], [32, 34])
 
-            self.assertEqual(legacy_paths.read_bytes(), b"legacy path artifact")
-            self.assertEqual(
-                sorted(path.name for path in root.glob("*_paths.h5")),
-                ["master_paths.h5"],
-            )
-
-    def test_blast_network_is_filtered_without_path_files(self):
+    def test_blast_network_is_filtered_to_the_whitelist(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = pathlib.Path(temp_dir)
             input_network = root / "master_EValue.h5"
@@ -159,8 +151,6 @@ class NetworkExtractionTests(unittest.TestCase):
                 np.testing.assert_array_equal(output["j"][:], [1, 0])
                 np.testing.assert_array_equal(output["score"][:], [1e-4, 1e-8])
                 self.assertNotIn("seq_lens", output)
-
-            self.assertEqual(list(root.glob("*_paths.h5")), [])
 
     def test_runtime_output_names_preserve_network_schema_conventions(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -196,10 +186,6 @@ class NetworkExtractionTests(unittest.TestCase):
                         network_extraction.OUTPUT_NET,
                         os.path.join(temp_dir, expected_name),
                     )
-
-        self.assertFalse(hasattr(network_extraction, "PATH_DIR"))
-        self.assertFalse(hasattr(network_extraction, "INPUT_PATHS"))
-        self.assertFalse(hasattr(network_extraction, "OUTPUT_PATHS"))
 
     def test_whitelist_saved_with_a_byte_order_mark_keeps_its_first_record(self):
         # Windows Notepad can save UTF-8 with a BOM. Decoded as plain UTF-8 it

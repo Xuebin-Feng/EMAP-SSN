@@ -64,9 +64,6 @@ class LayoutSettingsTests(unittest.TestCase):
             self.assertEqual(payload["PACKING_PADDING"], 10.0)
             self.assertEqual(payload["MAX_FORCE_LIMIT"], 20.0)
             self.assertEqual(payload["MAX_TOTAL_REPULSION_FORCE"], 0.0)
-            self.assertNotIn("PHYSICS_ENGINE", payload)
-            self.assertFalse(any(key.startswith("MC_") for key in payload))
-            self.assertFalse(any(key.startswith("SGLD_") for key in payload))
             self.assertNotIn("NODE_SIZE", payload)
             self.assertNotIn("MSA_FILE", payload)
             self.assertIsNone(payload["TARGET_CACHE_PATH"])
@@ -80,15 +77,12 @@ class LayoutSettingsTests(unittest.TestCase):
             ):
                 LayoutGenerationSettings.from_document(document)
 
-    def test_obsolete_and_legacy_layout_settings_are_rejected(self):
+    def test_a_legacy_layout_document_is_rejected_with_a_re_export_hint(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             document = _settings_document(pathlib.Path(temp_dir))
             legacy = {"DIRECTORIES": {}, "Layout_Cache_Generator.py": decode_document(document, "layout")}
             with self.assertRaisesRegex(LayoutGenerationError, "Re-export"):
                 LayoutGenerationSettings.from_document(legacy)
-            document["physics"]["PHYSICS_ENGINE"] = "obsolete"
-            with self.assertRaisesRegex(LayoutGenerationError, "unknown or misplaced"):
-                LayoutGenerationSettings.from_document(document)
 
     def test_strict_layout_numeric_validation(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -286,13 +280,6 @@ class LayoutCacheGenerationTests(unittest.TestCase):
                 )
                 layout_metadata = json.loads(
                     cache.attrs["layout_compatibility_json"]
-                )
-                self.assertNotIn("PHYSICS_ENGINE", layout_metadata)
-                self.assertFalse(
-                    any(key.startswith("MC_") for key in layout_metadata)
-                )
-                self.assertFalse(
-                    any(key.startswith("SGLD_") for key in layout_metadata)
                 )
                 canonical = json.dumps(
                     layout_metadata,

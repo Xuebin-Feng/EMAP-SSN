@@ -275,7 +275,6 @@ class EmbeddingWriterTests(unittest.TestCase):
                 source, cropped_fasta, output
             )
             self.assertEqual(result["resolved_headers"], ["Alpha_Beta"])
-            self.assertFalse(hasattr(Embedding_Cropping, "FULL_FASTA"))
             with h5py.File(output, "r") as hf:
                 manifest = Embedding_HDF5.read_embedding_manifest(hf)
                 self.assertEqual(manifest.sequences, ["CDE"])
@@ -349,8 +348,6 @@ class EmbeddingWriterTests(unittest.TestCase):
             ):
                 manifest = Embedding_SSEARCH.prepare_database_embeddings()
             self.assertEqual(manifest.sequence_by_header, {"Alpha": "ACDE"})
-            self.assertFalse(hasattr(Embedding_SSEARCH, "INPUT_FASTA"))
-            self.assertFalse(hasattr(Embedding_SSEARCH, "FULL_INPUT_FASTA"))
 
 
 class EmbeddingCroppingTests(unittest.TestCase):

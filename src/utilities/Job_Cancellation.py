@@ -211,9 +211,6 @@ class JobHandle:
             self._on_change()
 
 
-# The stop request's earlier name; the tests still say it.
-CancelToken = JobHandle
-
 _bound = threading.local()
 
 
@@ -381,7 +378,6 @@ class CancellableFile:
 
 
 __all__ = [
-    "CancelToken",
     "CancellableFile",
     "JobCancelled",
     "JobHandle",
