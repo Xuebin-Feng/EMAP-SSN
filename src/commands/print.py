@@ -1508,7 +1508,8 @@ def _print_job(job):
     for note in notes:
         print(note)
     return {
-        "message": JoinedMessage([status, *notes]) if notes else status,
+        # A note is a sentence of its own, so the report before it ends with a full stop.
+        "message": JoinedMessage([Message("{report}.", report=status), *notes]) if notes else status,
         # The scheduler opens the save folder in the system file explorer.
         "reveal_directory": job.save_dir,
     }

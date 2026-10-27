@@ -1857,7 +1857,7 @@ class PrintAutomaticNameTests(unittest.TestCase):
                     first = self.print_in_this_second(save_dir, arguments, svg_viewer=svg_viewer)
                     second = self.print_in_this_second(save_dir, arguments, svg_viewer=svg_viewer)
                 self.assertEqual(first.background_job_scheduler.report, written)
-                self.assertEqual(second.background_job_scheduler.report, f"{written} {replaced}")
+                self.assertEqual(second.background_job_scheduler.report, f"{written}. {replaced}")
 
 
 # A rendered tile, rows by columns: the 800 x 600 canvas of zoom_viewer().
@@ -2229,7 +2229,7 @@ class PrintZoomTests(unittest.TestCase):
         )
         self.assertIn("Successfully saved full stitched snapshot: ", result.output)
         self.assertTrue(result.output.rstrip().endswith(warning), result.output)
-        self.assertEqual(result.scheduler.report, f"Saved PNG: fig1.png {warning}")
+        self.assertEqual(result.scheduler.report, f"Saved PNG: fig1.png. {warning}")
 
     # --- size limit ------------------------------------------------------
 
@@ -2579,7 +2579,7 @@ class PrintFileNameTests(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 result = self.run_print(arguments, existing=(existing,))
                 result.engine.command_failed.assert_not_called()
-                self.assertEqual(result.scheduler.report, f"{shown} {self.REPLACED}")
+                self.assertEqual(result.scheduler.report, f"{shown}. {self.REPLACED}")  # the report ends with a full stop
                 self.assertIn("Successfully saved ", result.output)
                 self.assertTrue(result.output.rstrip().endswith(self.REPLACED), result.output)
 
@@ -2605,9 +2605,33 @@ class PrintFileNameTests(unittest.TestCase):
             "so a bigger N zooms in and gives a larger image."
         )
         self.assertEqual(
-            result.scheduler.report, f"Saved PNG: mine.png {self.REPLACED} {warning}"
+            result.scheduler.report, f"Saved PNG: mine.png. {self.REPLACED} {warning}"
         )
         self.assertTrue(result.output.rstrip().endswith(f"{self.REPLACED}\n{warning}"), result.output)
+
+    def test_the_report_with_a_note_joins_in_chinese_punctuation_and_shows_every_part_translated(self):
+        from PySide6.QtWidgets import QApplication
+        from tests.translation_fixtures import outside_the_catalog, pseudo_language
+        from utilities import Localization
+        from utilities.Language_Packs import read_pack
+
+        message = self.run_print(["mine"], existing=("mine.png",)).scheduler.reports[-1]["message"]
+        # The report's own full stop is the language's: the sentence after it follows with no space.
+        translated = {
+            "{report}.": "{report}。",
+            "Saved {format}: {file}": "已保存 {format}：{file}",
+            self.REPLACED: "已替换同名的现有文件。",
+        }
+        previous = Localization.set_translator(lambda template, n: translated.get(template, template))
+        self.addCleanup(Localization.set_translator, previous)
+        previous_punctuation = Localization.set_punctuation(read_pack("zh_CN").punctuation)
+        self.addCleanup(Localization.set_punctuation, previous_punctuation)
+        self.assertEqual(message.display(), "已保存 PNG：mine.png。已替换同名的现有文件。")
+        # Under the pseudo-language no letter of it comes from outside the catalog.
+        Localization.set_translator(previous)
+        Localization.set_punctuation(previous_punctuation)
+        pseudo_language(self, QApplication.instance() or QApplication([]))
+        self.assertEqual(outside_the_catalog(message.display()), "")
 
     def test_a_refusal_never_reports_a_replacement(self):
         result = self.run_print(["mine", "ful"], existing=("mine.png",))

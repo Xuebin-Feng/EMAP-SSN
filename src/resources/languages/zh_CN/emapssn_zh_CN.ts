@@ -4457,7 +4457,7 @@ Command-line usage:
         <location line="+3"/>
         <location filename="../../../commands/label.py" line="+141"/>
         <location filename="../../../commands/logo.py" line="+623"/>
-        <location filename="../../../commands/print.py" line="+230"/>
+        <location filename="../../../commands/print.py" line="+231"/>
         <source>Output file is already reserved by a background job: {path}</source>
         <translation type="unfinished">输出文件已被某个后台任务占用：{path}</translation>
     </message>
@@ -5804,6 +5804,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+8"/>
+        <location filename="../../../commands/print.py" line="-164"/>
         <source>{report}.</source>
         <translation type="unfinished">{report}。</translation>
     </message>
@@ -5821,7 +5822,7 @@ Command-line usage:
     </message>
     <message>
         <location line="+16"/>
-        <location filename="../../../commands/print.py" line="-66"/>
+        <location filename="../../../commands/print.py" line="+98"/>
         <source>Filename &apos;{file}&apos; needs a name before its extension.</source>
         <translation type="unfinished">文件名“{file}”在扩展名之前需要有名称。</translation>
     </message>
@@ -6032,7 +6033,7 @@ Command-line usage:
         <translation type="unfinished">比对偏移量已设为 {offset}，位置编号已更新。</translation>
     </message>
     <message>
-        <location filename="../../../commands/print.py" line="-429"/>
+        <location filename="../../../commands/print.py" line="-430"/>
         <source>the Viewer window was resized during the capture, so nothing was saved. Run print again.</source>
         <translation type="unfinished">截取过程中查看器窗口大小发生了变化，因此未保存任何内容。请再次运行 print。</translation>
     </message>
@@ -6060,7 +6061,7 @@ Command-line usage:
         <translation type="unfinished">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是缩放百分比，N 越大，视图放得越大，图像也越大。</translation>
     </message>
     <message>
-        <location line="+71"/>
+        <location line="+72"/>
         <source>Error: {syntax} needs a zoom percentage, as in {example}.</source>
         <translation type="unfinished">错误：{syntax} 需要一个缩放百分比，例如 {example}。</translation>
     </message>
@@ -6110,7 +6111,7 @@ Command-line usage:
         <translation type="obsolete">警告：图像只有 {width}×{height} 像素。{syntax} 中的 N 是视图宽度，N 越小，视图放得越大，图像也越大。</translation>
     </message>
     <message>
-        <location line="-346"/>
+        <location line="-347"/>
         <source>Saved {format}: {file}</source>
         <translation type="unfinished">已保存 {format}：{file}</translation>
     </message>
@@ -6120,7 +6121,7 @@ Command-line usage:
         <translation type="unfinished">已替换同名的现有文件。</translation>
     </message>
     <message>
-        <location line="+330"/>
+        <location line="+331"/>
         <source>Capturing tile {done} of {total}</source>
         <translation type="unfinished">正在截取第 {done} 个分块，共 {total} 个</translation>
     </message>
@@ -9683,7 +9684,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">查看器</translation>
     </message>
     <message>
-        <location line="+507"/>
+        <location line="+509"/>
         <location line="+234"/>
         <source>Copy</source>
         <translation type="unfinished">复制</translation>
