@@ -872,7 +872,19 @@ class HiddenWorkerFixture(PortalFixture):
         import psutil
         _, alive = psutil.wait_procs(processes, timeout=10)
         self.assertEqual(alive, [], 'A process the hidden worker started is still running')
-        self.assertIsNotNone(process.poll())
+        self.assert_ended(process)
+
+    def assert_ended(self, process):
+        """Fail unless the worker's process has ended, waiting for its exit status to be collected.
+
+        launch_without_window has a thread wait on the process, and that thread holds the Popen's lock
+        until it has the status. When psutil collects it first, poll() answers None for a moment after
+        the process is gone, so poll() is no test of whether a worker has ended.
+        """
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.fail('The worker is still running')
 
 class HiddenWorkerTests(HiddenWorkerFixture, unittest.TestCase):
     """A worker with no window (a headless Viewer's) is ended by the Viewer, and its failures name its log.
@@ -1084,7 +1096,7 @@ class StartedWorkerTests(HiddenWorkerFixture, unittest.TestCase):
 
         self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 1)
 
-        self.assertIsNotNone(worker.poll())
+        self.assert_ended(worker)
         self.assertEqual(self.finish(request_id)['status'], 'cancelled')
 
     def test_stop_ends_only_what_the_registry_started(self):
@@ -1097,7 +1109,7 @@ class StartedWorkerTests(HiddenWorkerFixture, unittest.TestCase):
 
         self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 1)
 
-        self.assertIsNotNone(process.poll())
+        self.assert_ended(process)
         self.assertIsNone(bystander.poll())
         self.assertEqual(Viewer_Worker_Tracking.stop_workers('stopped'), 0)
 
@@ -1208,7 +1220,7 @@ class StartedWorkerTests(HiddenWorkerFixture, unittest.TestCase):
         # What the application's aboutToQuit signal runs for a hidden worker.
         self.assertEqual(Viewer_Worker_Tracking.stop_hidden_workers(), 1)
 
-        self.assertIsNotNone(process.poll())
+        self.assert_ended(process)
         self.assertFalse(os.path.exists(input_path))
 
     def test_the_quit_hook_for_every_worker_is_connected_once(self):
