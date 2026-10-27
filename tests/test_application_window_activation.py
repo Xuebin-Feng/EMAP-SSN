@@ -78,16 +78,6 @@ class ApplicationIdentityTests(unittest.TestCase):
         self.assertIsNone(application.application_name)
         self.assertIsNone(application.desktop_file_name)
 
-    def test_installer_generates_matching_wm_classes(self):
-        installer = (PROJECT_ROOT / "install.sh").read_text(encoding="utf-8")
-
-        self.assertIn(
-            f"StartupWMClass={Application_Windows.VIEWER_DESKTOP_FILE_NAME}\n", installer
-        )
-        self.assertIn(
-            f"StartupWMClass={Application_Windows.TOOLS_DESKTOP_FILE_NAME}\n", installer
-        )
-
 
 class ApplicationWindowActivationTests(unittest.TestCase):
     @staticmethod

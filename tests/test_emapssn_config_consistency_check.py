@@ -89,16 +89,6 @@ class ConsistencyHeaderSanitizationTests(unittest.TestCase):
         self.assertEqual(hdf5_headers, ["Alpha_Beta"])
 
 
-def _left_press():
-    from PySide6.QtCore import QEvent, QPoint
-    from PySide6.QtGui import QMouseEvent
-
-    return QMouseEvent(
-        QEvent.Type.MouseButtonPress, QPoint(1, 1), Qt.MouseButton.LeftButton,
-        Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier,
-    )
-
-
 class _Choice:
     def __init__(self, text):
         self._text = text

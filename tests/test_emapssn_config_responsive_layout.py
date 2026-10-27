@@ -901,10 +901,6 @@ class WrappedPlaceholderTests(unittest.TestCase):
         self.assertEqual(self.hint(box).font(), box.viewport().font())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ResponsiveColumnsLayoutTests(unittest.TestCase):
     """Equal columns side by side while they fit, else one full-width row each."""
 
@@ -1006,3 +1002,7 @@ class StackedLabelWidthTests(unittest.TestCase):
         self.assertEqual([control.geometry().x() for _l, control in layout.pairs],
                          [control.geometry().x() for _l, control in plain.pairs])
         self.assertIsNone(plain.stacked_label_width)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -562,10 +562,6 @@ class ViewerPageOpenerTests(unittest.TestCase):
         failed.assert_called_once_with(viewer, "Could not open the metadata interface.")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class WindowStateBrowserPageTests(unittest.TestCase):
     """Pages, their dialogs and the bare agent and meta commands in the four window states."""
 
@@ -673,3 +669,7 @@ class WindowStateBrowserPageTests(unittest.TestCase):
                         command.run(viewer, [])
                     succeeded.assert_not_called()
                     failed.assert_called_once()
+
+
+if __name__ == "__main__":
+    unittest.main()
