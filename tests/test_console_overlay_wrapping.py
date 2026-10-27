@@ -3,12 +3,18 @@ console line, the rounded background box and its safe geometry updates, the
 background-job status line below it, and DPI-independent overlay geometry.
 As shipped, the command line sits at the top of the canvas, its box level with
 the sidebar toggle: the mouse and keyboard controls open from a button by the
-threshold slider (desktop.Viewer_Widgets), not from a line above it."""
+threshold slider (desktop.Viewer_Widgets), not from a line above it.
+Also the idle-time warm-up of the glyphs those texts draw (MainViewer._warm_text_glyphs)."""
 
 import ast
 import collections
+import contextlib
+import importlib
+import io
+import math
 import os
 import sys
+import time
 import unittest
 from types import SimpleNamespace
 from unittest import mock
@@ -30,6 +36,7 @@ from EMAPSSN_Viewer import (
     _vispy_text_line_height_pixels,
     _wrap_console_text_for_display,
 )
+from PySide6 import QtCore, QtWidgets
 from utilities import Localization
 from utilities.Localization import Message
 from vispy.visuals import RectangleVisual
@@ -956,6 +963,324 @@ class StatusStackRenderTests(unittest.TestCase):
         # The box's middle and the two lines' (without descenders) are evenly spaced.
         hidden_middle, size_middle = (hidden_top + hidden_bottom) / 2, (size_top + size_bottom) / 2
         self.assertAlmostEqual(row - hidden_middle, hidden_middle - size_middle, delta=2.0, msg=inks)
+
+
+class FakeClock:
+    """The clock a warm-up slice reads (EMAPSSN_Viewer.time): it moves only when a font says so."""
+
+    def __init__(self):
+        self.now = 0.0
+
+    def perf_counter(self):
+        return self.now
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+class GlyphRecordingFont(FixedWidthFont):
+    """A VisPy font that records each character indexed from it, as VisPy builds a glyph on first sight.
+
+    Each build costs `cost` seconds of the clock it is given (none by default), `fails_on` is a character
+    whose glyph cannot be built, and `after_first_glyph` runs once the first glyph is built.
+    """
+
+    def __init__(self, clock=None, cost=0.0, fails_on=None, after_first_glyph=None):
+        self.built = []
+        self.clock = clock
+        self.cost = cost
+        self.fails_on = fails_on
+        self.after_first_glyph = after_first_glyph
+
+    def __getitem__(self, character):
+        if character == self.fails_on:
+            raise RuntimeError("the glyph atlas is full")
+        self.built.append(character)
+        if self.clock is not None:
+            self.clock.now += self.cost
+        if self.after_first_glyph is not None and len(self.built) == 1:
+            self.after_first_glyph()
+        return super().__getitem__(character)
+
+
+class GlyphWarmupTests(unittest.TestCase):
+    """MainViewer._warm_text_glyphs: the glyphs of the console line and the status line, built while idle.
+
+    The Viewer is a stand-in with the two texts and a window to own the timer, the fonts record what they
+    are asked to build, and the timer is the real one, served by processing events.
+    """
+
+    MODULES = ["Viewer_Command_Portal", "Command_Declarations"]
+    # What a language without a font of its own warms, in the order it warms it.
+    ALL_CHARS = list(dict.fromkeys(EMAPSSN_Viewer.GLYPH_EXTENT_CHARS + EMAPSSN_Viewer.GLYPH_WARMUP_CHARS))
+    EXTENT_CHARS = list(EMAPSSN_Viewer.GLYPH_EXTENT_CHARS)
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QtWidgets.QApplication.instance() or QtWidgets.QApplication([])
+
+    def setUp(self):
+        # Registered first, so it runs last: the windows the tests made are really gone.
+        self.addCleanup(QtCore.QCoreApplication.sendPostedEvents, None, QtCore.QEvent.Type.DeferredDelete)
+        self.window = self.make_window()
+        language = mock.patch.object(EMAPSSN_Viewer, "installed_language", return_value=None)
+        self.language = language.start()
+        self.addCleanup(language.stop)
+
+    def make_window(self):
+        window = QtWidgets.QWidget()  # never shown: it owns the warm-up's timer
+
+        def discard():
+            with contextlib.suppress(RuntimeError):  # a test may have deleted it already
+                window.deleteLater()
+
+        self.addCleanup(discard)
+        return window
+
+    def make_viewer(self, console_font, status_font, window=None):
+        return SimpleNamespace(
+            main_window=window or self.window,
+            console_text=SimpleNamespace(_font=console_font),
+            background_job_status_text=SimpleNamespace(_font=status_font),
+        )
+
+    @contextlib.contextmanager
+    def modules_imported(self, failing=()):
+        """The two modules the warm-up imports are not really imported; the attempts are recorded."""
+        real = importlib.import_module
+        self.imports = []
+
+        def import_module(name, package=None):
+            if name not in self.MODULES:
+                return real(name, package)
+            self.imports.append(name)
+            if name in failing:
+                raise ImportError(f"No module named {name!r}")
+            return mock.sentinel.module
+
+        with mock.patch.object(EMAPSSN_Viewer.importlib, "import_module", import_module):
+            yield
+
+    def serve_events_until(self, done, seconds=10.0):
+        deadline = time.monotonic() + seconds
+        while not done() and time.monotonic() < deadline:
+            QtWidgets.QApplication.processEvents()
+        return done()
+
+    def warm(self, viewer, failing_imports=(), clock=None, watch=None, after_call=None):
+        """Start the warm-up as the Viewer's own timer does and serve events until it ends.
+
+        Returns what it printed. `after_call` runs as soon as the call returns, `watch` after each timer
+        pass. Fails if anything escapes a slot.
+        """
+        printed = io.StringIO()
+        escaped = []
+        with contextlib.ExitStack() as stack:
+            stack.enter_context(contextlib.redirect_stdout(printed))
+            stack.enter_context(self.modules_imported(failing_imports))
+            stack.enter_context(mock.patch.object(sys, "excepthook", lambda kind, error, trace: escaped.append(error)))
+            if clock is not None:
+                stack.enter_context(mock.patch.object(EMAPSSN_Viewer, "time", clock))
+            MainViewer._warm_text_glyphs(viewer)
+            if after_call is not None:
+                after_call()
+            if watch is not None:
+                viewer._glyph_warmup_timer.timeout.connect(watch)
+            ended =self.serve_events_until(lambda: hasattr(viewer, "_glyph_warmup_done"))
+        self.assertEqual(escaped, [])
+        self.assertTrue(ended, "the warm-up did not end")
+        return printed.getvalue()
+
+    def test_a_language_without_a_font_of_its_own_builds_every_glyph_of_each_font_once(self):
+        for language in (None, "xx"):
+            with self.subTest(language=language):
+                self.language.return_value = language
+                console, status = GlyphRecordingFont(), GlyphRecordingFont()
+                viewer = self.make_viewer(console, status)
+                printed = self.warm(viewer)
+                for font in (console, status):
+                    # The 'j' of the measuring glyphs and of ASCII is one glyph, built once.
+                    self.assertEqual(sorted(font.built), sorted(self.ALL_CHARS))
+                    self.assertEqual(max(collections.Counter(font.built).values()), 1)
+                    # The accented capitals, the slowest to build, come first.
+                    self.assertEqual(font.built[:len(self.EXTENT_CHARS)], self.EXTENT_CHARS)
+                self.assertTrue(viewer._glyph_warmup_done)
+                self.assertFalse(viewer._glyph_warmup_timer.isActive())
+                self.assertEqual(self.imports, self.MODULES)
+                self.assertEqual(printed, "")
+
+    def test_a_language_with_a_font_of_its_own_builds_only_the_glyphs_a_text_is_measured_from(self):
+        self.assertIn("zh_CN", EMAPSSN_Viewer.LANGUAGE_FONTS)
+        self.language.return_value = "zh_CN"
+        console, status = GlyphRecordingFont(), GlyphRecordingFont()
+        viewer = self.make_viewer(console, status)
+        self.warm(viewer)
+        self.assertEqual(console.built, self.EXTENT_CHARS)
+        self.assertEqual(status.built, self.EXTENT_CHARS)
+        self.assertTrue(viewer._glyph_warmup_done)
+
+    def test_the_glyphs_a_texts_height_is_measured_from_are_built_ahead(self):
+        # The cursor's span also measures a "d", which the measuring glyphs do not include.
+        for language, chars, measures in ((None, self.ALL_CHARS, (_vispy_text_line_height_pixels,
+                                                                  _vispy_text_cursor_span_pixels)),
+                                          ("zh_CN", self.EXTENT_CHARS, (_vispy_text_line_height_pixels,))):
+            for measure in measures:
+                with self.subTest(language=language, measure=measure.__name__):
+                    self.language.return_value = language
+                    font = GlyphRecordingFont()
+                    self.warm(self.make_viewer(font, GlyphRecordingFont()))
+                    warmed = set(font.built)
+                    self.assertEqual(warmed, set(chars))
+                    font.built.clear()
+                    visual = SimpleNamespace(_font=font, transforms=SimpleNamespace(dpi=72.0),
+                                             font_size=16.0, _line_height=1.2)
+                    measure(visual)
+                    self.assertTrue(font.built)
+                    self.assertLessEqual(set(font.built), warmed)
+
+    def test_visuals_sharing_a_font_build_each_glyph_once(self):
+        font = GlyphRecordingFont()
+        self.warm(self.make_viewer(font, font))
+        self.assertEqual(sorted(font.built), sorted(self.ALL_CHARS))
+        self.assertEqual(max(collections.Counter(font.built).values()), 1)
+
+    def test_a_visual_without_a_font_is_left_out(self):
+        for status in (SimpleNamespace(), SimpleNamespace(_font=None)):
+            with self.subTest(status=status):
+                font = GlyphRecordingFont()
+                viewer = self.make_viewer(font, None)
+                viewer.background_job_status_text = status
+                self.warm(viewer)
+                self.assertEqual(sorted(font.built), sorted(self.ALL_CHARS))
+        bare = SimpleNamespace(main_window=self.window, console_text=SimpleNamespace(),
+                               background_job_status_text=SimpleNamespace(_font=None))
+        self.warm(bare)
+        self.assertTrue(bare._glyph_warmup_done)
+
+    def test_a_glyph_longer_than_a_slice_leaves_one_glyph_to_each_pass_and_serves_events_between(self):
+        clock = FakeClock()
+        served = []
+        font = GlyphRecordingFont(clock, cost=EMAPSSN_Viewer.GLYPH_WARMUP_SLICE_S * 2)
+        # An event queued while the first glyph is built waits for that pass to end, and runs before the next.
+        font.after_first_glyph = lambda: QtCore.QTimer.singleShot(
+            0, lambda: served.append((len(font.built), hasattr(viewer, "_glyph_warmup_done"))))
+        viewer = self.make_viewer(font, font)
+        passes = []
+        # The call itself builds nothing: the timer does, in the passes.
+        self.warm(viewer, clock=clock, watch=lambda: passes.append(len(font.built)),
+                  after_call=lambda: self.assertEqual(font.built, []))
+        total = len(self.ALL_CHARS)
+        self.assertEqual(passes, list(range(1, total + 1)))
+        self.assertEqual(len(served), 1)
+        built_when_served, ended_when_served = served[0]
+        self.assertGreater(built_when_served, 0)
+        self.assertLess(built_when_served, total)
+        self.assertFalse(ended_when_served)
+
+    def test_a_slice_builds_glyphs_until_its_time_is_up(self):
+        clock = FakeClock()
+        cost = EMAPSSN_Viewer.GLYPH_WARMUP_SLICE_S / 2.5
+        per_pass = math.ceil(EMAPSSN_Viewer.GLYPH_WARMUP_SLICE_S / cost)
+        self.assertEqual(per_pass, 3)
+        font = GlyphRecordingFont(clock, cost=cost)
+        passes = []
+        self.warm(self.make_viewer(font, font), clock=clock, watch=lambda: passes.append(len(font.built)))
+        total = len(self.ALL_CHARS)
+        self.assertEqual(passes, [min(built, total) for built in range(per_pass, total + per_pass, per_pass)])
+        self.assertEqual(sorted(font.built), sorted(self.ALL_CHARS))
+
+    def test_glyphs_that_build_at_once_take_one_pass(self):
+        clock = FakeClock()  # a clock that does not move: no slice ever ends
+        font = GlyphRecordingFont(clock)
+        passes = []
+        self.warm(self.make_viewer(font, font), clock=clock, watch=lambda: passes.append(len(font.built)))
+        self.assertEqual(passes, [len(self.ALL_CHARS)])
+
+    def test_a_glyph_that_cannot_be_built_ends_the_warm_up_with_a_warning(self):
+        console, status = GlyphRecordingFont(fails_on="A"), GlyphRecordingFont()
+        viewer = self.make_viewer(console, status)
+        printed = self.warm(viewer)  # warm() also checks that nothing was raised out of the timer
+        before = self.ALL_CHARS[:self.ALL_CHARS.index("A")]
+        self.assertEqual(console.built, before)
+        self.assertEqual(status.built, before)
+        self.assertEqual(printed.splitlines(),
+                         ["Warning: the glyph of 'A' could not be built ahead (the glyph atlas is full)."])
+        self.assertTrue(viewer._glyph_warmup_done)
+        self.assertFalse(viewer._glyph_warmup_timer.isActive())
+
+    def test_a_module_that_cannot_be_loaded_ahead_is_a_warning_and_the_glyphs_are_still_built(self):
+        for failing in (self.MODULES[:1], self.MODULES[1:], self.MODULES):
+            with self.subTest(failing=failing):
+                console, status = GlyphRecordingFont(), GlyphRecordingFont()
+                viewer = self.make_viewer(console, status)
+                printed = self.warm(viewer, failing_imports=failing)
+                # Each is tried whatever became of the other, and the glyphs follow.
+                self.assertEqual(self.imports, self.MODULES)
+                self.assertEqual(printed.splitlines(),
+                                 [f"Warning: {name} could not be loaded ahead (No module named {name!r})."
+                                  for name in failing])
+                for font in (console, status):
+                    self.assertEqual(sorted(font.built), sorted(self.ALL_CHARS))
+                self.assertTrue(viewer._glyph_warmup_done)
+
+    def test_a_window_that_closes_between_passes_ends_the_warm_up_quietly(self):
+        window = self.make_window()
+        clock = FakeClock()
+        font = GlyphRecordingFont(clock, cost=EMAPSSN_Viewer.GLYPH_WARMUP_SLICE_S * 2)
+        viewer = self.make_viewer(font, font, window=window)
+        passes = []
+        escaped = []
+        with contextlib.redirect_stdout(io.StringIO()) as printed, self.modules_imported(), \
+                mock.patch.object(sys, "excepthook", lambda kind, error, trace: escaped.append(error)), \
+                mock.patch.object(EMAPSSN_Viewer, "time", clock):
+            MainViewer._warm_text_glyphs(viewer)
+            viewer._glyph_warmup_timer.timeout.connect(lambda: passes.append(len(font.built)))
+            self.assertTrue(self.serve_events_until(lambda: len(passes) >= 3))
+            window.deleteLater()
+            QtCore.QCoreApplication.sendPostedEvents(None, QtCore.QEvent.Type.DeferredDelete)
+            for _ in range(20):
+                QtWidgets.QApplication.processEvents()
+        self.assertEqual(len(font.built), 3)
+        self.assertEqual(passes, [1, 2, 3])
+        self.assertFalse(hasattr(viewer, "_glyph_warmup_done"))
+        self.assertEqual(escaped, [])
+        self.assertEqual(printed.getvalue(), "")
+
+    def test_a_real_texts_glyphs_are_built_so_that_measuring_its_height_builds_none(self):
+        self.language.return_value = "zh_CN"  # the four accented capitals and five descenders
+        text = EMAPSSN_Viewer.scene.visuals.Text("Cmd: ", font_size=16.0)
+        font = text._font
+        self.assertEqual(len(font._glyphs), 0)
+        viewer = SimpleNamespace(main_window=self.window, console_text=text,
+                                 background_job_status_text=SimpleNamespace())
+        self.warm(viewer)
+        self.assertEqual(sorted(font._glyphs), sorted(set(self.EXTENT_CHARS)))
+        measured = SimpleNamespace(_font=font, transforms=SimpleNamespace(dpi=72.0), font_size=16.0)
+        with mock.patch.object(type(font), "_load_char", side_effect=AssertionError("a glyph was built")):
+            self.assertGreater(_vispy_text_glyph_height_pixels(measured), 0.0)
+
+    def test_only_a_windowed_viewer_schedules_the_warm_up(self):
+        """MainViewer.__init__ is a real canvas and web server: its source is read, as the HUD order test does."""
+        with open(EMAPSSN_Viewer.__file__, encoding="utf-8") as source:
+            tree = ast.parse(source.read())
+        viewer_class = next(node for node in ast.walk(tree)
+                            if isinstance(node, ast.ClassDef) and node.name == "MainViewer")
+        init = next(node for node in viewer_class.body
+                    if isinstance(node, ast.FunctionDef) and node.name == "__init__")
+        # One place names the method, and it is a one-shot timer after the delay...
+        named = [node for node in ast.walk(viewer_class)
+                 if isinstance(node, ast.Attribute) and node.attr == "_warm_text_glyphs"]
+        self.assertEqual(len(named), 1)
+        schedules = [call for call in ast.walk(init)
+                     if isinstance(call, ast.Call) and getattr(call.func, "attr", None) == "singleShot"
+                     and len(call.args) == 2 and call.args[1] is named[0]]
+        self.assertEqual(len(schedules), 1)
+        self.assertEqual(ast.unparse(schedules[0].args[0]), "GLYPH_WARMUP_DELAY_MS")
+        # ...inside the branch taken by every mode but headless.
+        windowed = [node for node in ast.walk(init)
+                    if isinstance(node, ast.If) and ast.unparse(node.test) == "self.window_mode != HEADLESS"
+                    and any(schedules[0] in ast.walk(statement) for statement in node.body)]
+        self.assertEqual(len(windowed), 1)
 
 
 if __name__ == "__main__":
