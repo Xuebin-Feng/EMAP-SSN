@@ -881,7 +881,7 @@ class PrintSvgNodeOrderTests(unittest.TestCase):
 
         # Node 0 is selected, so its neighbours 1 and 3 are raised below it.
         with mock.patch.multiple(
-            EMAPSSN_Config, create=True,
+            EMAPSSN_Config,
             CONNECTED_NODE_COLOR="red", NODE_BOUNDARY_COLOR="black",
         ):
             selected = real_viewer(selected_indices=[0])
@@ -1365,7 +1365,7 @@ class PrintSvgOutlineTests(unittest.TestCase):
         viewer.left_click_highlight_indices = None
         viewer.selected_indices = [0]
         with mock.patch.multiple(
-            EMAPSSN_Config, create=True,
+            EMAPSSN_Config,
             CONNECTED_NODE_COLOR="red", NODE_BOUNDARY_COLOR="black", HOVER_COLOR="blue",
         ):
             svg = export_svg(viewer)
@@ -3139,7 +3139,7 @@ class PrintTransientMarksTests(unittest.TestCase):
 
         self.hover_rgba = np.array(mcolors.to_rgba(EMAPSSN_Config.HOVER_COLOR), dtype=np.float32)
         patcher = mock.patch.multiple(
-            EMAPSSN_Config, create=True, CONNECTED_NODE_COLOR="red", NODE_BOUNDARY_COLOR="black",
+            EMAPSSN_Config, CONNECTED_NODE_COLOR="red", NODE_BOUNDARY_COLOR="black",
         )
         patcher.start()
         self.addCleanup(patcher.stop)

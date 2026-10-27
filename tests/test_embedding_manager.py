@@ -273,13 +273,13 @@ class ViewerLoadingTests(EmbeddingFileTestCase):
         import EMAPSSN_Config as cfg
 
         viewer = self.viewer()
-        with mock.patch.object(cfg, "EMBED_FILE", self.path, create=True), \
+        with mock.patch.object(cfg, "EMBED_FILE", self.path), \
                 redirect_stdout(io.StringIO()):
             MainViewer.load_embedding(viewer)
         self.assertEqual(viewer.embedding.viewer_to_emb.tolist(), [-1, 0])
         self.assertEqual(viewer.embedding.mismatched_headers, ["node_b"])
         first = viewer.embedding
-        with mock.patch.object(cfg, "EMBED_FILE", self.path, create=True), \
+        with mock.patch.object(cfg, "EMBED_FILE", self.path), \
                 redirect_stdout(io.StringIO()) as output:
             MainViewer.load_embedding(viewer, reuse_loaded=True)
         self.assertIn("Reusing the loaded embedding manifest", output.getvalue())
@@ -305,7 +305,7 @@ class ViewerLoadingTests(EmbeddingFileTestCase):
         import EMAPSSN_Config as cfg
 
         viewer = self.viewer()
-        with mock.patch.object(cfg, "EMBED_FILE", "", create=True), \
+        with mock.patch.object(cfg, "EMBED_FILE", ""), \
                 redirect_stdout(io.StringIO()):
             MainViewer.load_embedding(viewer)
         self.assertIsNone(viewer.embedding.source)

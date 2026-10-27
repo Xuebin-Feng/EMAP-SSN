@@ -722,7 +722,7 @@ class ViewerRunTimeTextTests(WindowTestCase):
         self.addCleanup(folder.cleanup)
         viewer = SimpleNamespace(main_window=mock.Mock())
         with mock.patch.object(meta_backend.QtWidgets, "QFileDialog", RecordingFileDialog), \
-                mock.patch.object(meta_backend.cfg, "METADATA_DIR", folder.name, create=True):
+                mock.patch.object(meta_backend.cfg, "METADATA_DIR", folder.name):
             meta_backend.handle_import_metadata(viewer, {})
             meta_backend.handle_export_metadata(viewer, {})
         self.assertEqual(len(texts), 5, texts)
@@ -953,7 +953,7 @@ class ViewerCanvasTextTests(WindowTestCase):
             viewer.console_text.text = ""
             with self.subTest(command=relative), contextlib.redirect_stdout(io.StringIO()), \
                     mock.patch.object(module, "register", create=True), \
-                    mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True), \
+                    mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder), \
                     mock.patch.object(EMAPSSN_Config, "resolve_directory_path", lambda value, *rest: folder):
                 module.run(viewer, ["help"])
                 shown = viewer.console_text.text
@@ -1052,8 +1052,8 @@ class ViewerCanvasTextTests(WindowTestCase):
         for module, args, attributes, values in cases:
             viewer = self.command_viewer(**attributes)
             with self.subTest(command=module.__name__, args=args), contextlib.redirect_stdout(io.StringIO()), \
-                    mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True), \
-                    mock.patch.object(EMAPSSN_Config, "HEADER_LIST_DIR", folder, create=True):
+                    mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder), \
+                    mock.patch.object(EMAPSSN_Config, "HEADER_LIST_DIR", folder):
                 module.run(viewer, args)
                 self.assert_translated(viewer.console_text.text, *values)
         self.assertEqual(os.listdir(folder), [])
@@ -1070,10 +1070,10 @@ class ViewerCanvasTextTests(WindowTestCase):
         folder = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, folder, True)
         network = SimpleNamespace(model_name="1", network_type="blast")
-        with mock.patch.object(EMAPSSN_Config, "NODE_FASTA_FILE", os.path.join(folder, "1.fasta"), create=True), \
-                mock.patch.object(EMAPSSN_Config, "INPUT_HDF5", "1.h5", create=True), \
-                mock.patch.object(EMAPSSN_Config, "TOP_EDGE_PERCENT", None, create=True), \
-                mock.patch.object(EMAPSSN_Config, "SIMILARITY_THRESHOLD", 0.5, create=True), \
+        with mock.patch.object(EMAPSSN_Config, "NODE_FASTA_FILE", os.path.join(folder, "1.fasta")), \
+                mock.patch.object(EMAPSSN_Config, "INPUT_HDF5", "1.h5"), \
+                mock.patch.object(EMAPSSN_Config, "TOP_EDGE_PERCENT", None), \
+                mock.patch.object(EMAPSSN_Config, "SIMILARITY_THRESHOLD", 0.5), \
                 mock.patch.object(export, "SEQUENCE_EXPORT_DIRECTORY", folder), \
                 mock.patch.object(export.cache_manifest, "validate_network_schema", return_value=network), \
                 mock.patch.object(export, "open_in_file_manager"):
@@ -1110,7 +1110,7 @@ class ViewerCanvasTextTests(WindowTestCase):
             _hud_font_size_points=lambda: 10, _status_hud_position=lambda index, size: (0, 0),
             hud_layout={"status_anchor_y": "center"},
         )
-        with mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True), \
+        with mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder), \
                 mock.patch.object(EMAPSSN_Viewer.scene.visuals, "Text", Visual), \
                 contextlib.redirect_stdout(io.StringIO()):
             meta.run(viewer, ["show", "9"])
@@ -1134,7 +1134,7 @@ class ViewerCanvasTextTests(WindowTestCase):
         folder = tempfile.mkdtemp()
         self.addCleanup(__import__("shutil").rmtree, folder, True)
         viewer = self.command_viewer(metadata={"9": {"type": "number", "values": [1.5, float("nan")]}})
-        with mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder, create=True), \
+        with mock.patch.object(EMAPSSN_Config, "METADATA_DIR", folder), \
                 contextlib.redirect_stdout(io.StringIO()):
             spectrum.run(viewer, ["{9}"])
         self.assert_translated(viewer.console_text.text, "9", "1.5", "coolwarm")

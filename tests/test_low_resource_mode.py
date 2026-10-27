@@ -292,7 +292,7 @@ class NodeDragTests(unittest.TestCase):
             for motion in (False, True):
                 with self.subTest(drawing=drawing, motion=motion), \
                         mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing), \
-                        mock.patch.object(cfg, "UMAP_MODE", False, create=True):
+                        mock.patch.object(cfg, "UMAP_MODE", False):
                     viewer = self.make_viewer(motion)
                     layer = viewer.edge_layer
                     for step in range(1, 4):
@@ -318,7 +318,7 @@ class NodeDragTests(unittest.TestCase):
         for drawing in (False, True):
             with self.subTest(drawing=drawing), \
                     mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing), \
-                    mock.patch.object(cfg, "UMAP_MODE", False, create=True):
+                    mock.patch.object(cfg, "UMAP_MODE", False):
                 viewer = self.make_viewer(motion=True)
                 colours = viewer.markers._data["a_bg_color"].copy()
                 for step in range(1, 4):
@@ -334,7 +334,7 @@ class NodeDragTests(unittest.TestCase):
 
     def test_a_drag_after_a_hover_change_sends_every_marker(self):
         with mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", True), \
-                mock.patch.object(cfg, "UMAP_MODE", False, create=True):
+                mock.patch.object(cfg, "UMAP_MODE", False):
             viewer = self.make_viewer(motion=False)
             viewer.hovered_node_idx = 3
             viewer._show_hover_change(None)
@@ -353,7 +353,7 @@ class BoxSelectionTests(unittest.TestCase):
     def run_box(self, webserver, drawing, umap=False):
         maker = marker_tests.DraggedNodePickTests("test_a_dragged_node_can_be_dragged_again")
         event = marker_tests.DraggedNodePickTests.event
-        with mock.patch.object(cfg, "UMAP_MODE", umap, create=True), \
+        with mock.patch.object(cfg, "UMAP_MODE", umap), \
                 mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", webserver), \
                 mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
             viewer = maker.make_viewer()        # nodes at (0, 0), (40, 0), (80, 0) ...
@@ -471,7 +471,7 @@ class UmapModeTests(unittest.TestCase):
         for umap in (False, True):
             for webserver in (False, True):
                 with self.subTest(umap=umap, webserver=webserver), \
-                        mock.patch.object(cfg, "UMAP_MODE", umap, create=True), \
+                        mock.patch.object(cfg, "UMAP_MODE", umap), \
                         mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", webserver):
                     viewer = maker.make_viewer()
                     viewer.selected_indices = [1]

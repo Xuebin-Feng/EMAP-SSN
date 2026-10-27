@@ -108,7 +108,7 @@ class ColorBatchTests(unittest.TestCase):
         original_colors = viewer.current_colors.copy()
         original_sizes = viewer.current_sizes.copy()
         with tempfile.TemporaryDirectory() as temp_dir:
-            with mock.patch.object(cfg, "HEADER_LIST_DIR", temp_dir, create=True):
+            with mock.patch.object(cfg, "HEADER_LIST_DIR", temp_dir):
                 color_command.run(
                     viewer,
                     ['"node"', "red", "#cluster_99#", "blue"],

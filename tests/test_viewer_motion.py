@@ -494,7 +494,7 @@ class MotionTriggerTests(unittest.TestCase):
         for drawing, dragging in ((True, True), (False, False)):
             with self.subTest(drawing=drawing, dragging=dragging), \
                     mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing), \
-                    mock.patch.object(cfg, "UMAP_MODE", True, create=True):
+                    mock.patch.object(cfg, "UMAP_MODE", True):
                 viewer.is_multi_dragging = dragging
                 viewer.update_edges()
                 self.assertTrue(viewer.edge_layer.show_edges.call_args.kwargs.get("thinned", True))

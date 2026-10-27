@@ -446,7 +446,7 @@ class MetadataFilteredDownloadTests(unittest.TestCase):
         viewer = self.make_viewer()
         with tempfile.TemporaryDirectory() as temp_dir:
             output_path = os.path.join(temp_dir, "metadata.csv")
-            with mock.patch.object(cfg, "HEADER_LIST_DIR", temp_dir, create=True):
+            with mock.patch.object(cfg, "HEADER_LIST_DIR", temp_dir):
                 result = meta_backend.download_metadata(
                     viewer,
                     output_path,

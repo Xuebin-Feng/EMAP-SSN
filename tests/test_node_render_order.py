@@ -488,7 +488,7 @@ class CommandPromotionTests(unittest.TestCase):
     def test_color_promotes_one_union_for_color_size_and_shape(self):
         viewer = self.make_viewer()
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            cfg, "HEADER_LIST_DIR", temp_dir, create=True
+            cfg, "HEADER_LIST_DIR", temp_dir
         ):
             color_command.run(viewer, ["red", "2x", "triangle"])
 
@@ -503,7 +503,7 @@ class CommandPromotionTests(unittest.TestCase):
         viewer = self.make_viewer()
         viewer.selected_indices = []
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            cfg, "HEADER_LIST_DIR", temp_dir, create=True
+            cfg, "HEADER_LIST_DIR", temp_dir
         ):
             color_command.run(viewer, ['"A"', "red", '"C"', "blue"])
 
@@ -517,7 +517,7 @@ class CommandPromotionTests(unittest.TestCase):
         viewer.visible_mask = np.array([False, True, False])
         viewer.selected_indices = []
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            cfg, "HEADER_LIST_DIR", temp_dir, create=True
+            cfg, "HEADER_LIST_DIR", temp_dir
         ):
             color_command.run(
                 viewer,
@@ -546,7 +546,7 @@ class CommandPromotionTests(unittest.TestCase):
         viewer.selected_indices = []
         fake_meta = SimpleNamespace(run=mock.Mock())
         with tempfile.TemporaryDirectory() as temp_dir, mock.patch.object(
-            cfg, "HEADER_LIST_DIR", temp_dir, create=True
+            cfg, "HEADER_LIST_DIR", temp_dir
         ), mock.patch("importlib.import_module", return_value=fake_meta):
             spectrum_command.run(viewer, ["{Length}"])
 
@@ -733,7 +733,7 @@ class ClicksWhileTypingTests(unittest.TestCase):
         native = SimpleNamespace(clipboard=lambda: clipboard)
         with mock.patch("vispy.app.use_app", return_value=SimpleNamespace(native=native)), \
                 mock.patch.object(cfg, "NODE_SIZE", 10), \
-                mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                mock.patch.object(cfg, "UMAP_MODE", False), \
                 mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", False), \
                 mock.patch("builtins.print"):
             for handler, event in steps:
@@ -809,7 +809,7 @@ class ClicksWhileTypingTests(unittest.TestCase):
             modifiers = ["Control"] if ctrl else []
             with self.subTest(webserver=webserver, drawing=drawing, ctrl=ctrl), \
                     mock.patch.object(cfg, "NODE_SIZE", 10), \
-                    mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                    mock.patch.object(cfg, "UMAP_MODE", False), \
                     mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", webserver), \
                     mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing), \
                     mock.patch("builtins.print"):

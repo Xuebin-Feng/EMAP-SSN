@@ -325,7 +325,7 @@ class StrictExpressionTests(unittest.TestCase):
 
     def test_missing_file_raises_but_existing_empty_file_is_valid(self):
         with tempfile.TemporaryDirectory() as temp_dir:
-            with mock.patch.object(cfg, "HEADER_LIST_DIR", temp_dir, create=True):
+            with mock.patch.object(cfg, "HEADER_LIST_DIR", temp_dir):
                 with self.assertRaisesRegex(Command_Engine.SelectionContextError, "missing.txt"):
                     self.evaluate("@missing.txt@")
 
@@ -459,7 +459,7 @@ class HeaderListFileTests(unittest.TestCase):
         self.addCleanup(temp_dir.cleanup)
         self.header_dir = temp_dir.name
         patcher = mock.patch.object(
-            cfg, "HEADER_LIST_DIR", self.header_dir, create=True
+            cfg, "HEADER_LIST_DIR", self.header_dir
         )
         patcher.start()
         self.addCleanup(patcher.stop)

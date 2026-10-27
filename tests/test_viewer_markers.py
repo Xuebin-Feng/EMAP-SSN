@@ -332,7 +332,7 @@ class ClickPickTests(unittest.TestCase):
         event = SimpleNamespace(pos=np.array([float(x), 0.0]), button=button, buttons=[button],
                                 modifiers=list(modifiers), handled=False)
         with mock.patch("vispy.app.use_app", return_value=SimpleNamespace(native=native)), \
-                mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                mock.patch.object(cfg, "UMAP_MODE", False), \
                 mock.patch.object(cfg, "LOW_RESOURCE_WEBSERVER", False):
             viewer.on_mouse_press(event)
         return clipboard, event
@@ -485,7 +485,7 @@ class DraggedNodePickTests(unittest.TestCase):
     def test_a_dragged_node_can_be_dragged_again(self):
         for drawing in (False, True):
             with self.subTest(drawing=drawing), \
-                    mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                    mock.patch.object(cfg, "UMAP_MODE", False), \
                     mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
                 viewer = self.make_viewer()
                 self.drag(viewer, (40, 0), (60, 30))
@@ -504,7 +504,7 @@ class DraggedNodePickTests(unittest.TestCase):
     def test_rotated_nodes_are_picked_where_they_turned_to(self):
         for drawing in (False, True):
             with self.subTest(drawing=drawing), \
-                    mock.patch.object(cfg, "UMAP_MODE", False, create=True), \
+                    mock.patch.object(cfg, "UMAP_MODE", False), \
                     mock.patch.object(cfg, "LOW_RESOURCE_DRAWING", drawing):
                 viewer = self.make_viewer()
                 viewer.selected_indices = [1, 2]

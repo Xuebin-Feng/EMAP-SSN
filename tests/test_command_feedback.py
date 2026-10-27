@@ -128,7 +128,7 @@ class FeedbackTests(PortalFixture, unittest.TestCase):
     def test_metadata_file_summary_and_artifact(self):
         self.viewer.metadata = {'Example': {'type': 'number', 'values': np.arange(3)}}
         target = Path(self.directory.name) / 'metadata.csv'
-        with mock.patch('EMAPSSN_Config.METADATA_DIR', self.directory.name, create=True):
+        with mock.patch('EMAPSSN_Config.METADATA_DIR', self.directory.name):
             record = self.execute('meta download metadata.csv')
             self.assertIn(str(target), self.success_text(record))
             self.assertEqual(record['artifacts'], [str(target)])
@@ -142,7 +142,7 @@ class FeedbackTests(PortalFixture, unittest.TestCase):
         self.viewer.metadata = {'Example': {'type': 'number', 'values': np.arange(3)}}
         target = Path(self.directory.name) / 'escaped.csv'
         meta_dir = Path(self.directory.name) / 'Meta_Data'
-        with mock.patch('EMAPSSN_Config.METADATA_DIR', str(meta_dir), create=True):
+        with mock.patch('EMAPSSN_Config.METADATA_DIR', str(meta_dir)):
             for name in (str(target), r'..\escaped.csv'):
                 with self.subTest(name=name):
                     record = self.execute(f'meta download {name}', 'failed')

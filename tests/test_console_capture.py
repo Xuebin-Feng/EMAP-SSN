@@ -358,11 +358,11 @@ class ColourPlumbingTests(unittest.TestCase):
             with mock.patch.object(Console_Capture.sys, "platform", "linux"):
                 self.assertTrue(Console_Capture._takes_colours(5))
             with mock.patch.object(Console_Capture.sys, "platform", "win32"), mock.patch.object(
-                Console_Capture, "_windows_console_takes_ansi", return_value=False, create=True
+                Console_Capture, "_windows_console_takes_ansi", return_value=False
             ):
                 self.assertFalse(Console_Capture._takes_colours(5))  # a console that cannot read them gets none
             with mock.patch.object(Console_Capture.sys, "platform", "win32"), mock.patch.object(
-                Console_Capture, "_windows_console_takes_ansi", return_value=True, create=True
+                Console_Capture, "_windows_console_takes_ansi", return_value=True
             ):
                 self.assertTrue(Console_Capture._takes_colours(5))
 
