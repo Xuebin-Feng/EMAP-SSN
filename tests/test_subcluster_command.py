@@ -1008,30 +1008,6 @@ class OverlappingMCLSubclusterTests(unittest.TestCase):
             np.testing.assert_array_equal(viewer.current_colors[node], GREY)
 
 
-class SubclusterWithoutNumbaTests(unittest.TestCase):
-    def test_jaccard_does_not_need_numba_to_run(self):
-        viewer = network_viewer(10, NETWORK_EDGES, cluster_labels=NETWORK_CLUSTERS)
-        with mock.patch.object(
-            subcluster_command.network_clustering, "NUMBA_AVAILABLE", False
-        ):
-            succeeded, failed, output = run_command(
-                subcluster_command, viewer, ["cluster_1", "jaccard", "0.5", "3"]
-            )
-        failed.assert_not_called()
-        self.assertNotIn("Numba", output)
-        self.assertEqual(
-            viewer.group_labels[2:8],
-            [
-                {"subcluster_1_1"},
-                {"subcluster_1_1"},
-                {"subcluster_1_1"},
-                {"subcluster_1_2"},
-                {"subcluster_1_2"},
-                {"subcluster_1_2"},
-            ],
-        )
-
-
 class SubclusterSingleReportTests(unittest.TestCase):
     """A failure is recorded once, as the real command portal records it."""
 

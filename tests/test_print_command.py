@@ -1044,7 +1044,9 @@ class PrintSvgFrameTests(unittest.TestCase):
         svg = export_svg(square_network(current_sizes=np.full(4, 40.0)))
 
         width, height = self.view_box(svg)
-        for circle in elements(svg, "circle"):
+        circles = elements(svg, "circle")
+        self.assertEqual(len(circles), 4)
+        for circle in circles:
             cx, cy, r = (
                 float(re.search(rf'{name}="([\d.]+)"', circle).group(1))
                 for name in ("cx", "cy", "r")
@@ -1096,10 +1098,14 @@ class PrintSvgScaleTests(unittest.TestCase):
             self.network(current_shapes=np.array(["cross"] * 4, dtype=object))
         )
 
-        for square in elements(squares, "rect")[1:]:  # the first is the background
+        drawn_squares = elements(squares, "rect")[1:]  # the first is the background
+        self.assertEqual(len(drawn_squares), 4)
+        for square in drawn_squares:
             self.assertAlmostEqual(number(square, "width"), 12 * self.UNITS_PER_PIXEL)
         # A cross reaches the radius, with bars a third of it each side of its centre.
-        for cross in elements(crosses, "polygon"):
+        drawn_crosses = elements(crosses, "polygon")
+        self.assertEqual(len(drawn_crosses), 4)
+        for cross in drawn_crosses:
             points = re.search(r'points="([^"]+)"', cross).group(1).split()
             xs = [float(point.split(",")[0]) for point in points]
             offsets = sorted({round(x - (max(xs) + min(xs)) / 2, 3) for x in xs})
@@ -1109,12 +1115,14 @@ class PrintSvgScaleTests(unittest.TestCase):
         svg = export_svg(self.network(), EDGE_WIDTH=1.5)
 
         lines = elements(svg, "line")
-        self.assertTrue(lines)
+        self.assertEqual(len(lines), 2)
         # GL draws a 1.5-pixel edge 2 pixels wide.
         for line in lines:
             self.assertAlmostEqual(number(line, "stroke-width"), 2 * self.UNITS_PER_PIXEL)
         # The 0.5-pixel outline of every filled node, as wide as VisPy draws it.
-        for circle in elements(svg, "circle"):
+        circles = elements(svg, "circle")
+        self.assertEqual(len(circles), 4)
+        for circle in circles:
             self.assertAlmostEqual(
                 number(circle, "stroke-width"), 0.9818 * self.UNITS_PER_PIXEL, delta=0.001,
             )
@@ -1124,7 +1132,9 @@ class PrintSvgScaleTests(unittest.TestCase):
         for setting in (2.0, 4.0):
             with self.subTest(setting=setting):
                 svg = export_svg(self.network(), NODE_BOUNDARY_WIDTH=setting)
-                for circle in elements(svg, "circle"):
+                circles = elements(svg, "circle")
+                self.assertEqual(len(circles), 4)
+                for circle in circles:
                     self.assertAlmostEqual(
                         number(circle, "stroke-width"), (setting - 0.2317) * self.UNITS_PER_PIXEL,
                         delta=0.001,
@@ -1206,7 +1216,9 @@ class PrintSvgScaleTests(unittest.TestCase):
     def test_a_view_without_area_leaves_sizes_as_they_are(self):
         svg = export_svg(self.network(view=view_at(self.UNITS_PER_PIXEL, size=(0, 0))))
 
-        for circle in elements(svg, "circle"):
+        circles = elements(svg, "circle")
+        self.assertEqual(len(circles), 4)
+        for circle in circles:
             self.assertAlmostEqual(number(circle, "r"), 6.0)
 
     def test_the_scale_matches_the_real_camera_mapping_in_any_view_shape(self):
@@ -1321,6 +1333,7 @@ class PrintSvgOutlineTests(unittest.TestCase):
     def test_a_node_drawn_with_its_own_outline_keeps_it(self):
         circles = elements(export_svg(self.outlined_network()), "circle")
 
+        self.assertEqual(len(circles), 4)
         for index, circle in enumerate(circles):
             with self.subTest(node=index):
                 if index == 2:
@@ -2327,7 +2340,9 @@ class PrintSvgZoomTests(unittest.TestCase):
             # The 0.5-pixel outline looks 0.98 pixels wide on screen.
             self.assertAlmostEqual(number(circle, "stroke-width"), 0.9818 * 500 / 800, delta=0.001)
         # GL draws the 1.5-pixel edges 2 pixels wide.
-        for line in elements(svg, "line"):
+        lines = elements(svg, "line")
+        self.assertEqual(len(lines), 2)
+        for line in lines:
             self.assertAlmostEqual(number(line, "stroke-width"), 2 * 500 / 800, delta=0.001)
 
     def test_the_scale_ignores_the_current_zoom(self):

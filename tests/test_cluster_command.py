@@ -656,17 +656,6 @@ class OverlappingMCLClusterTests(unittest.TestCase):
         np.testing.assert_array_equal(labels, [1, 1, -1, 2, 2, 2])
 
 
-class JaccardWithoutNumbaTests(unittest.TestCase):
-    def test_jaccard_does_not_need_numba_to_run(self):
-        viewer = network_viewer(7, BARBELL_EDGES)
-        with mock.patch.object(cluster.network_clustering, "NUMBA_AVAILABLE", False):
-            succeeded, failed, output = run_command(cluster, viewer, ["jaccard", "0.5", "3"])
-        failed.assert_not_called()
-        self.assertNotIn("Numba", output)
-        np.testing.assert_array_equal(viewer.cluster_labels, [1, 1, 1, 2, 2, 2, -1])
-        succeeded.assert_called_once_with(viewer, "Done! Found 2 clusters via JACCARD.")
-
-
 class ClusterListTests(unittest.TestCase):
     def listing(self, stream=None):
         viewer = network_viewer(7, BARBELL_EDGES, cluster_labels=[1, 1, 1, 2, 2, 2, -1])

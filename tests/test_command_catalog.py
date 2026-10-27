@@ -156,10 +156,11 @@ class RequiredInputTests(unittest.TestCase):
         self.assertEqual(calling, declaring)
 
     def test_a_command_requiring_the_alignment_refuses_to_run_without_its_rows(self):
-        for name, metadata in COMMAND_METADATA.items():
-            if 'alignment' in metadata['requires']:
-                with self.subTest(command=name):
-                    self.assertTrue(tests_for_missing_alignment_rows(name))
+        requiring = [name for name, metadata in COMMAND_METADATA.items() if 'alignment' in metadata['requires']]
+        self.assertTrue(requiring)
+        for name in requiring:
+            with self.subTest(command=name):
+                self.assertTrue(tests_for_missing_alignment_rows(name))
 
     def test_the_checks_see_a_call_and_a_test_in_any_form(self):
         sources = {

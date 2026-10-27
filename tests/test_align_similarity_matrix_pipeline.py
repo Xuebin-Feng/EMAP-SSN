@@ -193,17 +193,18 @@ class AlignmentPipelineTests(unittest.TestCase):
         mps = similarity_matrix.Hardware_Utils.DeviceCandidate(
             "mps", "MPS", torch.device("mps"), "mps"
         )
+        # Candidates in the order cpu, cuda, xpu, mps.
         expectations = {
             "auto": (
                 ["scalar"],
                 ["scalar", "tiled"],
                 ["scalar", "tiled"],
-                ["scalar"],
+                ["scalar", "tiled"],
             ),
             "scalar": (
                 ["scalar"], ["scalar"], ["scalar"], ["scalar"]
             ),
-            "tiled": ([], ["tiled"], ["tiled"], []),
+            "tiled": ([], ["tiled"], ["tiled"], ["tiled"]),
         }
         for mode, expected_variants in expectations.items():
             with self.subTest(mode=mode), mock.patch.object(
@@ -212,7 +213,7 @@ class AlignmentPipelineTests(unittest.TestCase):
                 similarity_matrix,
                 "tiled_accelerator_support",
                 side_effect=lambda device, require_memory=False: (
-                    device.type in {"cuda", "xpu"}, "mock capability"
+                    device.type in {"cuda", "xpu", "mps"}, "mock capability"
                 ),
             ):
                 for candidate, expected in zip(

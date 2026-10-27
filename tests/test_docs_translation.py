@@ -246,8 +246,10 @@ class RealPagesTests(unittest.TestCase):
                     parsed = T.Page(folder / (page + ".html"))
                     links = {e.attrs["href"] for e in parsed.root.walk() if e.tag == "a" and e.attrs.get("href", "").startswith(other)}
                     self.assertEqual(links, {other + ".html"})
-                    self.assertEqual((folder / (other + ".html")).resolve(), (folder / (other + ".html")).resolve())
-                    self.assertTrue((folder / (other + ".html")).is_file())
+                    for href in links:
+                        target = (folder / href).resolve()
+                        self.assertEqual(target, (folder / (other + ".html")).resolve())
+                        self.assertTrue(target.is_file(), target)
 
     def test_every_link_to_a_section_reaches_a_section_of_the_page(self):
         for page in PAGES:
@@ -300,8 +302,11 @@ class RealPagesTests(unittest.TestCase):
             self.assertEqual(T.main(["generate", "--check"]), 0, out.getvalue() + err.getvalue())
 
 
-class TemporaryPages(unittest.TestCase):
-    """Copies of the real pages, laid out as the project is, in a temporary folder, to change."""
+class TemporaryPages:
+    """Mixin: copies of the real pages, laid out as the project is, in a temporary folder, to change.
+
+    It holds no test of its own, so each class that mixes it in with unittest.TestCase runs only its own tests.
+    """
 
     PAGE = COMMANDS
 
@@ -353,12 +358,13 @@ class TemporaryPages(unittest.TestCase):
             code = T.main(list(argv), docs=self.docs, languages_dir=self.languages)
         return code, out.getvalue(), err.getvalue()
 
+class TemporaryCopiesTests(TemporaryPages, unittest.TestCase):
     def test_the_copies_start_out_matching(self):
         for page in PAGES:
             self.assertTrue(self.check(page).ok, self.check(page).format())
 
 
-class EnglishChangesTests(TemporaryPages):
+class EnglishChangesTests(TemporaryPages, unittest.TestCase):
     def test_a_changed_english_sentence_makes_only_its_section_stale(self):
         self.edit(self.english, self.a.lead, self.reworded(self.a.lead))
         report = self.check()
@@ -464,7 +470,7 @@ class EnglishChangesTests(TemporaryPages):
         self.assertIn("class syntax-content", "\n".join(T.unused_rules(self.docs)))
 
 
-class TranslationChangesTests(TemporaryPages):
+class TranslationChangesTests(TemporaryPages, unittest.TestCase):
     def test_a_missing_code_snippet_is_noticed_in_its_section(self):
         self.edit(self.chinese, "<code>COMMAND help</code>、", "")
         problems = self.problems()
@@ -599,7 +605,7 @@ class TranslationChangesTests(TemporaryPages):
         self.assertIn("in its own language", self.problems())
 
 
-class QuickStartChangesTests(TemporaryPages):
+class QuickStartChangesTests(TemporaryPages, unittest.TestCase):
     """The Quick Start has no <section>s: its sections are each divider with the elements that follow it."""
 
     PAGE = QUICK
@@ -709,7 +715,7 @@ class QuickStartChangesTests(TemporaryPages):
         self.assertEqual(self.run_main()[0], 0)
 
 
-class LanguageSwitchTests(TemporaryPages):
+class LanguageSwitchTests(TemporaryPages, unittest.TestCase):
     def test_a_page_without_a_switch_is_named(self):
         self.sub(self.chinese, r'<div class="lang-switch">.*?</select>\s*</div>', "")
         self.assertIn("list_of_commands.html has no language switch", self.problems())
@@ -781,7 +787,7 @@ class LanguageSwitchTests(TemporaryPages):
         self.assertTrue(self.check().ok, self.check().format())
 
 
-class UpdateWorkflowTests(TemporaryPages):
+class UpdateWorkflowTests(TemporaryPages, unittest.TestCase):
     def test_translating_a_changed_section_and_stamping_it_brings_the_pages_back_in_step(self):
         self.edit(self.english, self.a.lead, self.reworded(self.a.lead))
         before = self.chinese.read_bytes().decode("utf-8")
@@ -883,7 +889,7 @@ class UpdateWorkflowTests(TemporaryPages):
         self.assertEqual([o.attrs["data-lang"] for o in select.elements() if o.tag == "option"], ["en"])
 
 
-class DiscoveryTests(TemporaryPages):
+class DiscoveryTests(TemporaryPages, unittest.TestCase):
     """Translated pages are found in the language folders, by the English pages in docs/."""
 
     def found(self):
@@ -932,7 +938,7 @@ class DiscoveryTests(TemporaryPages):
         self.assertEqual([code for code, _ in T.page_languages(self.docs / "list_of_commands.html", self.languages)], ["en", "zh_CN"])
 
 
-class GenerateTests(TemporaryPages):
+class GenerateTests(TemporaryPages, unittest.TestCase):
     """The language dropdowns and the language.css files, made from the language folders."""
 
     def pages(self):
