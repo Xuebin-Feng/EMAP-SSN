@@ -756,6 +756,9 @@ still change before version 1.0.0.
   - **The side panel can be made wider,** from 340 px up to half the window (640 px at
     most), by dragging the handle on its left edge, or with the arrow keys once the handle
     has focus. Double-click or Home resets it. The browser remembers the width.
+- **`esmfold` with nothing selected folds nothing.** It opens Fold View, even if a node was
+  clicked: a clicked node is no longer folded in place of a selection. `esmfold multi` and
+  `esmfold large` with nothing selected fail with "No nodes selected".
 
 ### Fixed
 
