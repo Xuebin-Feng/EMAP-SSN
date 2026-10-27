@@ -2266,10 +2266,15 @@ class ViewerEntryPointTests(WindowCase):
         self.assertEqual([button.text() for button in window.button_controls()], ["Meta Data"])
 
     def test_the_button_opens_the_window_when_output_is_kept(self):
+        self.recorder.add("stdout", "kept by the viewer")
         with mock.patch.object(Console_Capture, "_capture", self.recorder):
             self.viewer.console_button.click()
-        self.assertIsNotNone(Console_View._window)
-        self.addCleanup(Console_View._window.deleteLater)
+        window = Console_View._window
+        self.assertIsNotNone(window)
+        self.addCleanup(window.deleteLater)
+        self.assertTrue(window.kept)
+        self.assertEqual(self.lines(window), ["kept by the viewer"])
+        self.assertNotEqual(window.text.toPlainText(), Console_View.not_available_text())
 
     def test_closing_the_viewers_window_closes_its_console_and_closing_the_console_leaves_the_window_alone(self):
         viewer = self.viewer

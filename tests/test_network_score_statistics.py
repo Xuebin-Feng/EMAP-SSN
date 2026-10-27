@@ -759,7 +759,9 @@ class McpSummaryIsUnchanged(unittest.TestCase):
                             self.compare(path, str(fasta), score, norm, **options)
 
     def test_without_a_fasta_every_node_is_kept(self):
-        for path in sorted(self.networks.folder.glob("*.h5")):
+        paths = sorted(self.networks.folder.glob("*.h5"))
+        self.assertTrue(paths, "no networks were built to compare")
+        for path in paths:
             with self.subTest(network=path.name):
                 self.compare(path, None, "global", "alignment_length", thresholds=[0.3])
 

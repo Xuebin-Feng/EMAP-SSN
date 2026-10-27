@@ -315,6 +315,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         from PySide6.QtWidgets import QAbstractSpinBox
 
         original_index = self.window.tabs.currentIndex()
+        checked = 0
         try:
             self.window.resize(1400, 900)
             self.window.show()
@@ -327,6 +328,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                 ):
                     if not spinbox.isVisibleTo(self.window):
                         continue
+                    checked += 1
                     with self.subTest(
                         tab=self.window.tabs.tabText(tab_index),
                         spinbox=spinbox.objectName() or type(spinbox).__name__,
@@ -335,6 +337,8 @@ class CacheDropdownRefreshTests(unittest.TestCase):
                             spinbox.geometry().bottom(),
                             spinbox.parentWidget().rect().bottom(),
                         )
+            # The visibility filter above must let spin boxes through, or nothing is checked.
+            self.assertGreater(checked, 0)
         finally:
             self.window.tabs.setCurrentIndex(original_index)
             self.app.processEvents()
@@ -1358,7 +1362,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         finally:
             self.window.tip_panel.setText(original_tip)
 
-    def test_save_only_reports_success_in_tooltip_without_popup(self):
+    def test_save_only_reports_success_in_the_tip_panel_without_popup(self):
         original_tip = self.window.tip_panel.text()
         try:
             with mock.patch.object(
@@ -1380,7 +1384,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         finally:
             self.window.tip_panel.setText(original_tip)
 
-    def test_save_reports_default_tabs_in_tooltip(self):
+    def test_save_reports_default_tabs_in_the_tip_panel(self):
         original_tip = self.window.tip_panel.text()
         try:
             with mock.patch.object(
@@ -1406,7 +1410,7 @@ class CacheDropdownRefreshTests(unittest.TestCase):
         finally:
             self.window.tip_panel.setText(original_tip)
 
-    def test_new_profile_without_name_reports_in_tooltip_without_popup(self):
+    def test_new_profile_without_name_reports_in_the_tip_panel_without_popup(self):
         globals_dict = self.window.save_settings.__globals__
         original_settings_file = globals_dict["DEFAULT_SETTINGS_FILE"]
         original_root = self.window.inputs["SAVED_CONFIG_DIR"].text()
@@ -2344,7 +2348,10 @@ class TipPanelStatusLockTests(unittest.TestCase):
         self.hover(self.labels["ALIGNMENT_OFFSET"])
         self.assert_panel_shows_tip("ALIGNMENT_OFFSET")
         self.hover(self.window.btn_clear_top_edge)
-        self.assertNotEqual(self.panel(), self.tips["ALIGNMENT_OFFSET"])
+        # The Clear button's own tooltip replaces the offset tip in the panel.
+        clear_tip = self.window.btn_clear_top_edge.toolTip()
+        self.assertTrue(clear_tip)
+        self.assertEqual(self.panel(), clear_tip)
 
     def test_a_consistency_check_result_stays_until_a_left_click_on_a_tip(self):
         from PySide6.QtCore import Qt
