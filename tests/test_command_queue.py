@@ -29,7 +29,7 @@ from PySide6 import QtCore, QtWidgets  # noqa: E402
 import Command_Engine as ce  # noqa: E402
 from Command_Queue import CommandQueue, ManualExecutor, ThreadExecutor  # noqa: E402
 from Viewer_Command_Portal import ViewerCommandPortal, bind  # noqa: E402
-from tests.command_fixtures import scratch_commands  # noqa: E402
+from tests.command_fixtures import end_scheduler, scratch_commands  # noqa: E402
 
 # Two 4-cliques joined by the bridge 3-4, and two nodes with no edge. Jaccard
 # at 0.5 with MIN_SIZE 3 makes the cliques cluster_1 (nodes 0-3) and
@@ -509,7 +509,7 @@ class FileJobTests(QueueTestCase):
         from Background_Job_Scheduler import BackgroundJobScheduler
         self.scheduler = BackgroundJobScheduler(self.viewer)
         self.viewer.background_job_scheduler = self.scheduler
-        self.addCleanup(self.scheduler.shutdown)
+        self.addCleanup(end_scheduler, self.scheduler)
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.release = threading.Event()

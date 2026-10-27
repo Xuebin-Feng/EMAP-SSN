@@ -38,6 +38,8 @@ SRC_DIR = os.path.join(PROJECT_ROOT, "src")
 if SRC_DIR not in sys.path:
     sys.path.insert(0, SRC_DIR)
 
+from tests.command_fixtures import end_scheduler  # noqa: E402
+
 
 def load_print_command():
     # Import print.py's real dependencies before the sys.modules window below.
@@ -2703,11 +2705,12 @@ class PrintBackgroundJobTests(unittest.TestCase):
         self.addCleanup(self.stop_scheduler)
 
     def stop_scheduler(self, release=None):
-        """Discard the queued jobs, let a blocked one end, and wait for the queue to empty."""
+        """Discard the queued jobs, let a blocked one end, wait for the queue to empty, and delete the scheduler."""
         self.scheduler.shutdown()
         if release is not None:
             release.set()
         self.assertTrue(wait_for(lambda: self.scheduler.queue_depth == 0))
+        end_scheduler(self.scheduler)
 
     def viewer(self, svg=False):
         if svg:

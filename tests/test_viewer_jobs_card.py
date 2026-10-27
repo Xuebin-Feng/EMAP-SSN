@@ -32,6 +32,7 @@ from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 from desktop.Viewer_Jobs import JobLane, JobRow, ViewerJobs, job_lanes, job_lines  # noqa: E402
 from desktop.Viewer_Jobs_Card import ElidedLabel, JobsSection, clock  # noqa: E402
 from desktop.Viewer_Widgets import ControlsButton  # noqa: E402
+from tests.command_fixtures import end_scheduler  # noqa: E402
 from tests.test_viewer_widgets import RecordingCanvas, flush, shipped_actions  # noqa: E402
 from tests.theme_fixture import apply_theme_for_class  # noqa: E402
 from utilities.Localization import Message  # noqa: E402
@@ -385,7 +386,7 @@ class ScheduledJobsCase(SectionCase):
         self.viewer = Viewer()
         self.scheduler = BackgroundJobScheduler(self.viewer)
         self.viewer.background_job_scheduler = self.scheduler
-        self.addCleanup(self.scheduler.shutdown, 0.2)
+        self.addCleanup(end_scheduler, self.scheduler, 0.2)
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         self.gate = threading.Event()

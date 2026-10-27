@@ -28,6 +28,7 @@ from Background_Job_Scheduler import BackgroundJobScheduler
 from Viewer_Command_Portal import ExecutionContext, ViewerCommandPortal, bind
 from utilities.Job_Cancellation import JobCancelled, cancel_requested, raise_if_cancelled
 from utilities.Localization import Message, display_text
+from tests.command_fixtures import end_scheduler
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_state
 
 
@@ -96,7 +97,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
             with self.subTest(state=state):
                 viewer = apply_window_state(ViewerStub(), state)
                 scheduler = BackgroundJobScheduler(viewer)
-                self.addCleanup(scheduler.shutdown)
+                self.addCleanup(end_scheduler, scheduler)
                 done = []
                 scheduler.job_succeeded.connect(lambda job, result, elapsed: done.append(job.job_id))
                 with tempfile.TemporaryDirectory() as directory, mock.patch(
@@ -119,7 +120,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
         self.assertNotIn("job_numbers", inspect.signature(BackgroundJobScheduler).parameters)
         for _run in range(2):
             scheduler = BackgroundJobScheduler(ViewerStub())
-            self.addCleanup(scheduler.shutdown)
+            self.addCleanup(end_scheduler, scheduler)
             with tempfile.TemporaryDirectory() as directory:
                 numbers = [scheduler.enqueue("test", f"job {n}", None, lambda payload: {}, os.path.join(directory, f"{n}.out"))
                            for n in range(3)]
@@ -127,7 +128,7 @@ class BackgroundJobSchedulerTests(unittest.TestCase):
 
     def test_a_viewer_that_is_gone_reveals_nothing(self):
         scheduler = BackgroundJobScheduler(ViewerStub())
-        self.addCleanup(scheduler.shutdown)
+        self.addCleanup(end_scheduler, scheduler)
         scheduler._viewer_ref = lambda: None
         done = []
         scheduler.job_succeeded.connect(lambda job, result, elapsed: done.append(job.job_id))
@@ -363,6 +364,7 @@ class LineTestCase(unittest.TestCase):
         self.release.set()
         self.scheduler.shutdown()
         wait_for(lambda: self.scheduler.queue_depth == 0)
+        end_scheduler(self.scheduler)
 
     def path(self, name):
         return os.path.join(self.directory.name, name)

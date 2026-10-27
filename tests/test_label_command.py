@@ -30,6 +30,7 @@ if SRC_DIR not in sys.path:
 import Alignment_Manager
 from commands import label
 from desktop import Desktop_App as application_windows
+from tests.command_fixtures import end_scheduler
 from tests.sparse_alignment import sparse_alignment
 from utilities.Job_Cancellation import cancel_requested
 
@@ -1301,7 +1302,7 @@ class LabelJobCancellationTests(unittest.TestCase):
         self.runner = LabelWorkbookPercentTests()
         self.status = StatusLine()
         self.scheduler = BackgroundJobScheduler(self.status)
-        self.addCleanup(self.scheduler.shutdown)
+        self.addCleanup(end_scheduler, self.scheduler)
         # A finished label job asks for its folder to be shown, to a stand-in that has windows.
         self.reveal = self.enterContext(mock.patch("Background_Job_Scheduler.open_in_file_manager"))
         self.reports = []
@@ -1454,8 +1455,9 @@ class LabelJobCancellationTests(unittest.TestCase):
                 # Before the job that ignores the stop is let go: the scheduler deleted the partial file itself.
                 self.assertEqual(left_when_closed, [])
                 self.assertEqual(os.listdir(directory), [])
+                end_scheduler(self.scheduler)
                 self.scheduler = type(self.scheduler)(self.status)   # the next subtest's scheduler
-                self.addCleanup(self.scheduler.shutdown)
+                self.addCleanup(end_scheduler, self.scheduler)
 
     def test_closing_the_viewer_during_a_report_leaves_an_earlier_finished_one_as_it_was(self):
         with tempfile.TemporaryDirectory() as directory:
