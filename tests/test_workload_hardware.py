@@ -575,7 +575,7 @@ class LayoutHardwareTests(unittest.TestCase):
         for field in fields:
             np.testing.assert_array_equal(getattr(prepared, field), before[field], err_msg=field)
 
-    def test_gpu_constructors_accept_an_explicit_device(self):
+    def test_the_ssn_gpu_constructor_accepts_an_explicit_device(self):
         import inspect
         import Layout_Engine_SSN as ssn_layout
 

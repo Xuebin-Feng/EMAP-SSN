@@ -46,7 +46,7 @@ class HideCommandTests(unittest.TestCase):
     def make_viewer(self):
         return one_node_viewer()
 
-    def test_hide_single_uses_configured_threshold(self):
+    def test_hide_single_hides_the_only_node_of_a_network_without_edges(self):
         viewer = self.make_viewer()
         viewer.edges = np.empty((0, 2), dtype=int)
         viewer.edge_scores = np.array([], dtype=float)

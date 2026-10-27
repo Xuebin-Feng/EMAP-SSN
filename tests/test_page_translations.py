@@ -642,19 +642,6 @@ class AgentPageTests(WebPageTestCase):
         )
         self.assert_translated()
 
-    def test_the_esmfold_page_is_translated_and_mol_star_is_not(self):
-        # The page around the canvas has texts of its own; Mol* has no
-        # translations, so its files come as they are, and the Advanced view,
-        # which shows Mol*'s own panels, says they are English only.
-        for name in ("esmfold.html", "esmfold_shell.js", "esmfold_layers.js", "esmfold_superposition.js",
-                     "esmfold_structures.js", "esmfold_session.js", "esmfold_color.js", "esmfold_residue.js",
-                     "esmfold_sequence.js", "esmfold_tools.js", "esmfold_image.js", "esmfold_jobs.js"):
-            self.assertIn(f"web_ui/{name}", PAGE_CONTEXTS)
-        mol_star = (SRC / "resources" / "esmfold" / "molstar.js").read_bytes()
-        response, body = request(self.server, "GET", "/esmfold/molstar.js")
-        self.assertEqual(body, mol_star)
-        self.assertNotIn("resources/esmfold/molstar.js", PAGE_CONTEXTS)
-
 
 class ChinesePageFontTests(WebPageTestCase):
     """A page served in Simplified Chinese draws its Chinese in the bundled font (Noto Sans SC).

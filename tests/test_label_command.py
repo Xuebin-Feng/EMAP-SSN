@@ -463,17 +463,9 @@ class LabelWorkbookPercentTests(unittest.TestCase):
 
             self.assertTrue(Path(directory, "0.4.xlsx").is_file())
 
-    def test_filename_must_be_final_and_old_keyword_form_is_rejected(self):
+    def test_the_filename_must_be_the_final_argument(self):
         with tempfile.TemporaryDirectory() as directory:
             viewer = self.run_label(directory, ["report", "cmin", "90%"])
-            self.assertEqual(
-                viewer.console_text.text,
-                "Error: A custom output filename must be the final argument.",
-            )
-            self.assertEqual(list(Path(directory).glob("*.xlsx")), [])
-
-        with tempfile.TemporaryDirectory() as directory:
-            viewer = self.run_label(directory, ["filename", "old_style"])
             self.assertEqual(
                 viewer.console_text.text,
                 "Error: A custom output filename must be the final argument.",

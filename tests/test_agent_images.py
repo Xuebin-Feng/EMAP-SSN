@@ -118,10 +118,6 @@ class ReplyTimeoutTests(unittest.TestCase):
         self.assertEqual(agent.AGENT_REPLY_TIMEOUT_SECONDS, 300.0)
 
 
-if __name__ == '__main__':
-    unittest.main()
-
-
 def saved_turn(number, *, images=0, explanation=None, commands=(), output_padding=0, submission_id=None):
     """The two entries a finished turn leaves in the saved history (agent_backend.save_and_broadcast_agent_response)."""
     explanation = explanation or f'answer {number}'
@@ -277,3 +273,7 @@ class RequestsUseTheBoundTests(unittest.TestCase):
         self.assertEqual(len(viewer.llm_history), 62)
         self.assertEqual(len(saved), 62)
         self.assertEqual(len(viewer.events[-1]['llm_history']), 62)
+
+
+if __name__ == '__main__':
+    unittest.main()

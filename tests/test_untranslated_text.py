@@ -11,9 +11,10 @@ Until a window's text is marked, all of it shows that way. Once none is
 left, the window joins FULLY_MARKED, and from then on a new unmarked text
 fails its test. Text that is translated must also show whole.
 
-The Viewer is covered by its window: the title, the sidebar its web
-plugins fill, and the sidebar's toggle. Its canvas text (the HUD, the
-console line and the background-job status) isn't Qt widgets. Each file
+The Viewer is covered by its main window (its title) and by the Console
+window, which shows the page buttons its web plugins register. Its canvas
+text (the HUD, the console line and the background-job status) isn't Qt
+widgets. Each file
 that writes it is read instead, and a file whose canvas text is all marked
 joins CANVAS_MARKED; ViewerCanvasTextTests shows the texts put together
 from several parts under the pseudo-language.

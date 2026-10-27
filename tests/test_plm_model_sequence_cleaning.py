@@ -67,7 +67,7 @@ class ModelSequenceCleaningTests(unittest.TestCase):
             with self.subTest(plugin=name):
                 self.assertEqual(plugin._clean_sequence("--??ACD??--"), "ACD")
 
-    def test_cleaners_reject_inputs_without_residue_codes(self):
+    def test_cleaners_give_an_empty_sequence_for_inputs_without_residue_codes(self):
         for name, plugin in self.plugins.items():
             with self.subTest(plugin=name):
                 self.assertEqual(plugin._clean_sequence("---...***"), "")

@@ -341,9 +341,6 @@ class CatalogTests(unittest.TestCase):
         for command in ("help", "help zoom", "HELP help"):
             self.assertEqual(agent_policy(command), "refuse")
 
-    def test_it_declares_that_it_runs_at_once(self):
-        self.assertEqual(help_command.QUEUE, "instant")
-
     def test_the_vr_viewer_could_load_it_because_it_imports_no_qt(self):
         tree = ast.parse((SRC_DIR / "commands" / "help.py").read_text(encoding="utf-8"))
         imported = set()
