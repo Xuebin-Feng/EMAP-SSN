@@ -197,3 +197,19 @@ def run(viewer, args):
         msg = Message("Hidden %n selected node(s).", n=num_hidden)
         Command_Engine.print_help(viewer, msg)
     Command_Engine.command_succeeded(viewer, msg)
+
+
+# What "reset hide" restores: commands/reset.py asks each command module for its targets.
+RESET_TARGETS = ('hide', 'hidden')
+
+
+def reset_changes_state(viewer, target):
+    """False when no node is hidden."""
+    return not np.all(viewer.visible_mask)
+
+
+def reset(viewer, target):
+    """Show every hidden node."""
+    from commands.reset import ResetOutcome
+    viewer.visible_mask.fill(True)
+    return ResetOutcome("hidden", nodes=True, edges=True)

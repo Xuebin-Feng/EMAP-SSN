@@ -1408,147 +1408,16 @@ def print_help(viewer, msg, *, terminal_msg=None, report_message=True):
             viewer.update_console_background()
 
 
-def _reset_changes_state(viewer, base_p):
-    """True unless resetting base_p, a name reset's target_name returns, is
-    certain to leave everything an undo step saves as it is."""
-    if base_p == "color":
-        colors = getattr(viewer, 'current_colors', None)
-        if colors is None:
-            return False
-        import matplotlib.colors as mcolors
-        initial = np.asarray(mcolors.to_rgba(cfg.INITIAL_NODE_COLOR), dtype=colors.dtype)
-        return not np.all(colors == initial)
-    if base_p == "size":
-        sizes = getattr(viewer, 'current_sizes', None)
-        return sizes is not None and bool(np.any(sizes != np.asarray(cfg.NODE_SIZE, dtype=sizes.dtype)))
-    if base_p == "shape":
-        shapes = getattr(viewer, 'current_shapes', None)
-        return shapes is not None and bool(np.any(shapes != 'disc'))
-    if base_p == "cluster":
-        from commands import group as group_command
-        groups = getattr(viewer, 'group_labels', None) or []
-        return (getattr(viewer, 'cluster_labels', None) is not None
-                or getattr(viewer, 'last_cluster_params', None) is not None
-                or any(group_command.is_generated_subcluster_name(g) for g_set in groups for g in g_set))
-    if base_p == "group":
-        groups = getattr(viewer, 'group_labels', None)
-        return groups is None or any(groups)
-    if base_p in ["hide", "hidden"]:
-        return not np.all(viewer.visible_mask)
-    if base_p == "network":
-        original = getattr(viewer, 'original_pos', None)
-        if original is None:
-            return False
-        pos = getattr(viewer, 'pos', None)
-        return pos is None or not np.array_equal(pos, original)
-    if base_p in ["order", "layer"]:
-        identity_order = np.arange(viewer.n_nodes, dtype=np.int32)
-        return not np.array_equal(getattr(viewer, 'node_render_order', identity_order), identity_order)
-    return True
-
-
 def execute_reset(viewer, targets):
-    """Executes reset on the specified targets.
+    """Executes reset on the specified targets, and returns the reply's text.
 
-    Raises ValueError, before any undo state is saved or anything is reset,
-    when no target is given or any target is unknown. Undo state is saved
-    only when a target has something to reset.
+    The reset command's own code is commands/reset.py, which finds what can be
+    reset in the modules of the commands that own it. This is the name the
+    other commands call, and the one the VR viewer aliases, so it stays.
     """
-    from commands import group as group_command
     from commands import reset as reset_command
-    reset_command.check_targets(targets)
+    return reset_command.execute_reset(viewer, targets)
 
-    targets_found = []
-    needs_update = False
-    removed_subclusters = []
-
-    # A reset that changes nothing must not push an undo entry: the history
-    # holds 50, and an empty one would push out a real one.
-    if any(_reset_changes_state(viewer, reset_command.target_name(p)) for p in targets):
-        viewer._save_state()
-
-    for p in targets:
-        base_p = reset_command.target_name(p)
-
-        if base_p == "color":
-            if hasattr(viewer, 'current_colors'):
-                import matplotlib.colors as mcolors
-                n_rgba = mcolors.to_rgba(cfg.INITIAL_NODE_COLOR)
-                viewer.current_colors[:] = n_rgba
-            needs_update = True
-            targets_found.append("colors")
-            
-        elif base_p == "size":
-            if hasattr(viewer, 'current_sizes'):
-                viewer.current_sizes.fill(cfg.NODE_SIZE)
-            needs_update = True
-            targets_found.append("sizes")
-        
-        elif base_p == "shape":
-            if hasattr(viewer, 'current_shapes'):
-                viewer.current_shapes.fill('disc')
-            needs_update = True
-            targets_found.append("shapes")
-
-        elif base_p == "cluster":
-            viewer.cluster_labels = None
-            # The parameters belong to the clusters just cleared, and so do
-            # the groups the subcluster command generated for them.
-            viewer.last_cluster_params = None
-            removed_subclusters = group_command.remove_generated_subcluster_groups(viewer)
-            if hasattr(viewer, 'label_visuals'):
-                for visual in viewer.label_visuals:
-                    visual.parent = None
-                viewer.label_visuals = []
-            viewer.tooltip.text = "" 
-            targets_found.append("clusters")
-
-        elif base_p == "group":
-            viewer.group_labels = [set() for _ in range(viewer.n_nodes)]
-            if hasattr(viewer, 'label_visuals'):
-                for visual in viewer.label_visuals:
-                    visual.parent = None
-                viewer.label_visuals = []
-            viewer.tooltip.text = "" 
-            targets_found.append("groups")
-                
-        elif base_p in ["hide", "hidden"]:
-            viewer.visible_mask.fill(True)
-            needs_update = True
-            targets_found.append("hidden")
-            
-        elif base_p == "network":
-            if hasattr(viewer, 'original_pos'):
-                viewer.pos = viewer.original_pos.copy()
-            needs_update = True
-            targets_found.append("network")
-
-        elif base_p in ["order", "layer"]:
-            reset_command.reset_node_render_order(viewer)
-            needs_update = True
-            if "node order" not in targets_found:
-                targets_found.append("node order")
-
-    if needs_update:
-        viewer.update_nodes()
-        if "hidden" in targets_found or "network" in targets_found:
-            viewer.update_edges()
-
-    # The targets are the reset command's own words, which stay English. A
-    # target named twice is reported once.
-    msg = Message("Reset successful: {targets}.", targets=", ".join(dict.fromkeys(targets_found)))
-    if removed_subclusters:
-        msg = JoinedMessage([msg, Message(
-            "Removed %n generated subcluster group(s) of the previous clustering.",
-            n=len(removed_subclusters),
-        )])
-
-    show_status(viewer, msg)
-    print(f"{msg}")
-    if hasattr(viewer, 'update_console_background'):
-        viewer.update_console_background()
-
-    return str(msg)
 
 # Shared command dispatch and explicit outcome reporting.
 # A typed command has no command-portal record to read its outcome from. A

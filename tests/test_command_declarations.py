@@ -386,7 +386,8 @@ GENERIC_WORDS = frozenset({"help", "-h", "--help", "-?", "--register-only"})
 # (enclosing function or class, kind, word) with how many times it occurs there: it fails when a
 # new one appears (a command named in code) and when one is gone (the entry has to be removed).
 SELECTION_GRAMMAR = "the selection grammar's own vocabulary: what a #label# or an amino-acid target is read from"
-RESET_TARGETS = "reset's targets, which the viewer's engine carries out (the VR viewer reuses its execute_reset)"
+RESET_SHIM = ("the old name of reset's code (commands/reset.py reads each module's RESET_TARGETS), kept for the other "
+              "commands that reset and for the VR viewer, which aliases it; it names no target")
 JOBS_KEY = "the 'jobs' entry of a command request's record"
 ALLOWED = {
     "src/Command_Engine.py": {
@@ -399,17 +400,7 @@ ALLOWED = {
         ("_unterminated_target_message", "string", "label"): (1, SELECTION_GRAMMAR),
         ("_SelectionSyntaxParser._parse_primary", "string", "label"): (1, SELECTION_GRAMMAR),
         ("_evaluate_selection_node", "string", "label"): (1, SELECTION_GRAMMAR),
-        ("_reset_changes_state", "string", "color"): (1, RESET_TARGETS),
-        ("_reset_changes_state", "string", "cluster"): (1, RESET_TARGETS),
-        ("_reset_changes_state", "string", "group"): (1, RESET_TARGETS),
-        ("_reset_changes_state", "string", "hide"): (1, RESET_TARGETS),
-        ("_reset_changes_state", "import", "group"): (1, RESET_TARGETS),
-        ("execute_reset", "string", "color"): (1, RESET_TARGETS),
-        ("execute_reset", "string", "cluster"): (1, RESET_TARGETS),
-        ("execute_reset", "string", "group"): (1, RESET_TARGETS),
-        ("execute_reset", "string", "hide"): (1, RESET_TARGETS),
-        ("execute_reset", "import", "group"): (1, RESET_TARGETS),
-        ("execute_reset", "import", "reset"): (1, RESET_TARGETS),
+        ("execute_reset", "import", "reset"): (1, RESET_SHIM),
         ("_dispatch_user_command", "string", "run"): (1, "the entry point every command module has: hasattr(module, 'run')"),
     },
     "src/Viewer_Command_Portal.py": {

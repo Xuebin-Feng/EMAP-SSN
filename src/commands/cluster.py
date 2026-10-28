@@ -580,6 +580,16 @@ def compute(inputs, progress):
     return ClusterResult(labels, unique_labels, label_slots, counts, get_cluster_color_map(unique_clusters))
 
 
+def removed_subclusters_message(removed):
+    """The note that names how many generated subcluster groups a new or cleared clustering removed, or None."""
+    if not removed:
+        return None
+    return Message(
+        "Removed %n generated subcluster group(s) of the previous clustering.",
+        n=len(removed),
+    )
+
+
 def apply(viewer, plan, result):
     """Write the clusters and their colours, as one undo step, and report them."""
     mode, param1, min_sz = plan.mode, plan.param1, plan.min_size
@@ -638,11 +648,9 @@ def apply(viewer, plan, result):
     n_clusters = len(sorted_clusters)
     msg = Message("Done! Found %n cluster(s) via {mode}.", n=n_clusters, mode=mode.upper())
     parts = [msg]
-    if removed_subclusters:
-        parts.append(Message(
-            "Removed %n generated subcluster group(s) of the previous clustering.",
-            n=len(removed_subclusters),
-        ))
+    removed_note = removed_subclusters_message(removed_subclusters)
+    if removed_note is not None:
+        parts.append(removed_note)
 
     # A custom group made before this run may already carry a new cluster's
     # name, which makes #cluster_N# ambiguous. Custom groups are not renamed or removed.
@@ -675,3 +683,27 @@ def run(viewer, args):
     if inputs is None:
         return
     apply(viewer, command_plan, compute(inputs, _no_progress))
+
+
+# What "reset clusters" restores: commands/reset.py asks each command module for its targets.
+RESET_TARGETS = ('cluster',)
+
+
+def reset_changes_state(viewer, target):
+    """False when there are no clusters, no clustering parameters and no generated subcluster groups."""
+    groups = getattr(viewer, 'group_labels', None) or []
+    return (getattr(viewer, 'cluster_labels', None) is not None
+            or getattr(viewer, 'last_cluster_params', None) is not None
+            or any(group_cmd.is_generated_subcluster_name(g) for g_set in groups for g in g_set))
+
+
+def reset(viewer, target):
+    """Clear the clusters, the parameters they were made with, and the subcluster groups generated for them."""
+    from commands.reset import ResetOutcome
+    viewer.cluster_labels = None
+    # The parameters belong to the clusters just cleared, and so do the groups
+    # the subcluster command generated for them.
+    viewer.last_cluster_params = None
+    removed_subclusters = group_cmd.remove_generated_subcluster_groups(viewer)
+    group_cmd.clear_label_visuals(viewer)
+    return ResetOutcome("clusters", note=removed_subclusters_message(removed_subclusters))

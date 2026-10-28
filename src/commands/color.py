@@ -577,3 +577,24 @@ def run(viewer, args):
     else:
         print("\nNo nodes matched your criteria.")
     Command_Engine.command_succeeded(viewer, msg)
+
+
+# What "reset colors" restores: commands/reset.py asks each command module for its targets.
+RESET_TARGETS = ('color',)
+
+
+def reset_changes_state(viewer, target):
+    """False when every node already has the default colour."""
+    colors = getattr(viewer, 'current_colors', None)
+    if colors is None:
+        return False
+    initial = np.asarray(mcolors.to_rgba(cfg.INITIAL_NODE_COLOR), dtype=colors.dtype)
+    return not np.all(colors == initial)
+
+
+def reset(viewer, target):
+    """Give every node the default colour."""
+    from commands.reset import ResetOutcome
+    if hasattr(viewer, 'current_colors'):
+        viewer.current_colors[:] = mcolors.to_rgba(cfg.INITIAL_NODE_COLOR)
+    return ResetOutcome("colors", nodes=True)

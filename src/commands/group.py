@@ -394,3 +394,33 @@ def run(viewer, args):
         Command_Engine.show_status(viewer, msg)
         print("\nNo nodes matched your criteria.")
     Command_Engine.command_succeeded(viewer, msg)
+
+
+# What "reset groups" restores: commands/reset.py asks each command module for its targets.
+RESET_TARGETS = ('group',)
+
+
+def clear_label_visuals(viewer):
+    """Drop the label visuals the Viewer holds and the tooltip, which may name a label that is gone.
+
+    The cluster and group resets both end with this.
+    """
+    if hasattr(viewer, 'label_visuals'):
+        for visual in viewer.label_visuals:
+            visual.parent = None
+        viewer.label_visuals = []
+    viewer.tooltip.text = ""
+
+
+def reset_changes_state(viewer, target):
+    """False when no node is in a group."""
+    groups = getattr(viewer, 'group_labels', None)
+    return groups is None or any(groups)
+
+
+def reset(viewer, target):
+    """Take every node out of every group."""
+    from commands.reset import ResetOutcome
+    viewer.group_labels = [set() for _ in range(viewer.n_nodes)]
+    clear_label_visuals(viewer)
+    return ResetOutcome("groups")
