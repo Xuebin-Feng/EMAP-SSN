@@ -6,13 +6,20 @@ act on jobs and which bring a Console button back when a session loads, and a
 module that says nothing gets the cautious defaults.
 The first class writes out the cases the modules declare, and the next ones show
 that a plugin dropped into the commands package is dispatched by what it
-declares with no change to the program. The last class reads the source of the
-central files and fails when one of them names a command again.
+declares with no change to the program. CentralCodeNamesNoCommandTests reads the
+source of every file of central code (all of src but the commands, the tools and
+the resources) and fails when one names a command, imports one or holds a table
+of command names, apart from the few cases ALLOWED lists with their reasons.
+tests/test_command_removal.py shows the same from the other side: the program
+runs with any one command taken away.
 """
 import ast
 import collections
 import inspect
+import os
+import re
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -25,6 +32,7 @@ import Command_Declarations as declarations  # noqa: E402
 import Command_Engine as ce  # noqa: E402
 from Viewer_Command_Portal import ViewerCommandPortal  # noqa: E402
 from desktop.Viewer_Inspection import command_catalog  # noqa: E402
+from web_ui.Plugin_Manager import discover_plugin_descriptors  # noqa: E402
 from tests.command_fixtures import only_commands, scratch_commands  # noqa: E402
 from tests.viewer_fixtures import PortalFixture  # noqa: E402
 
@@ -425,15 +433,43 @@ class AgentDeclarationsOfAPluginTests(PortalFixture, unittest.TestCase):
 
 
 # --- No central file names a command -----------------------------------------------------
-GENERIC_WORDS = frozenset({"help", "-h", "--help", "-?", "--register-only"})
+# Central code is every .py file of src except the commands themselves, the tools (scripts run from a terminal) and
+# the bundled resources. It may not name a command. Four rules read its source (command_words_in):
+#   1. a string constant that is a command's name (a name that is also an ordinary word counts only where
+#      a command is meant, rule 4);
+#   2. an import of a command module, in any form: from, import, an attribute of the package, a module path in a
+#      string such as importlib.import_module('commands.zoom');
+#   3. a dict, set, list or tuple literal, up to two levels deep, that holds two or more command names: a table;
+#   4. the names that are ordinary words (AMBIGUOUS_NAMES) count only as the first argument of a call that takes a
+#      command's name or line (LINE_CALLS, NAME_CALLS), or compared with a variable called command* or cmd*, or in a
+#      table (rule 3); every other name counts wherever a string equals it.
+# What a file may hold anyway is in ALLOWED, with the reason. The files that dispatch commands (DISPATCH_FILES) are
+# read more strictly: there an ordinary word counts wherever it stands.
+NOT_CENTRAL = ("commands", "tools", "resources")
+# The names of commands that are ordinary words as well: nouns of the network and the alignment, and the verbs of what
+# is done to them. "help" is the word every command answers (the engine handles it for all of them, as it does -h,
+# --help and -?), so it counts only where a command is meant, even in the files that dispatch.
+AMBIGUOUS_NAMES = frozenset({"alignment", "embedding", "cluster", "group", "label", "color", "hide", "offset", "reference",
+                             "select", "reset", "print", "save", "export", "query", "help"})
+# The calls that take a command's line, and those that take a command's name, as their first argument.
+LINE_CALLS = frozenset({"process_command", "execute_command", "agent_policy"})
+NAME_CALLS = frozenset({"queue_kind", "command_module", "starts_model_request", "acts_on_jobs", "registers_console_button",
+                        "get_command_metadata", "import_module"})
+COMMAND_VARIABLE = re.compile(r"^(command|cmd)", re.IGNORECASE)
+COMMAND_MODULE_PATH = re.compile(r"^commands\.([A-Za-z_]\w*)")
+CONTAINERS = (ast.Dict, ast.List, ast.Tuple, ast.Set)
+# The files that dispatch, queue, run, review and describe commands.
+DISPATCH_FILES = ("src/Command_Engine.py", "src/Viewer_Command_Portal.py", "src/Command_Queue.py",
+                  "src/Background_Job_Scheduler.py", "src/Viewer_Worker_Tracking.py", "src/Command_Declarations.py",
+                  "src/desktop/Command_Metadata.py", "src/web_ui/agent_prompt.py")
 
-# Where a central file may hold a word that is also a command's name, and why. Each entry is
-# (enclosing function or class, kind, word) with how many times it occurs there: it fails when a
-# new one appears (a command named in code) and when one is gone (the entry has to be removed).
 SELECTION_GRAMMAR = "the selection grammar's own vocabulary: what a #label# or an amino-acid target is read from"
-RESET_SHIM = ("the old name of reset's code (commands/reset.py reads each module's RESET_TARGETS), kept for the other "
-              "commands that reset and for the VR viewer, which aliases it; it names no target")
+RESET_DELEGATE = ("the one place the engine hands a reset to the reset command (commands/reset.py reads each module's "
+                  "RESET_TARGETS and does the rest); the other commands call this and the VR viewer aliases it")
 JOBS_KEY = "the 'jobs' entry of a command request's record"
+ENTRY_POINT = "'run', the entry point every command module has: hasattr(module, 'run')"
+ALIGNMENT_SETTINGS = "the keys of an alignment's settings (its reference and its offset), nouns that are not commands"
+LABEL_KINDS = "the two kinds of label a node can have (a cluster and a group), nouns that are not commands"
 ALLOWED = {
     "src/Command_Engine.py": {
         ("resolve_label_target", "string", "cluster"): (1, SELECTION_GRAMMAR),
@@ -445,12 +481,12 @@ ALLOWED = {
         ("_unterminated_target_message", "string", "label"): (1, SELECTION_GRAMMAR),
         ("_SelectionSyntaxParser._parse_primary", "string", "label"): (1, SELECTION_GRAMMAR),
         ("_evaluate_selection_node", "string", "label"): (1, SELECTION_GRAMMAR),
-        ("execute_reset", "import", "reset"): (1, RESET_SHIM),
-        ("_dispatch_user_command", "string", "run"): (1, "the entry point every command module has: hasattr(module, 'run')"),
+        ("execute_reset", "import", "reset"): (1, RESET_DELEGATE),
+        ("_dispatch_user_command", "string", "run"): (1, ENTRY_POINT),
     },
     "src/Viewer_Command_Portal.py": {
-        ("<module>", "string", "run"): (1, "a value of APPROVAL, the review's verdict, not a command"),
-        ("agent_page_connected", "string", "agent"): (1, "the client id of the Agent web page"),
+        ("<module>", "string", "run"): (1, "a value of APPROVAL, the review's verdict (run at once), not a command"),
+        ("agent_page_connected", "string", "agent"): (1, "the client id of the Agent web page, which is a web plugin's id"),
         ("ExecutionContext.add_job", "string", "jobs"): (1, JOBS_KEY),
         ("ExecutionContext.job_event", "string", "jobs"): (1, JOBS_KEY),
         ("ExecutionContext.job_progress", "string", "jobs"): (1, JOBS_KEY),
@@ -459,7 +495,6 @@ ALLOWED = {
         ("ViewerCommandPortal._frees_the_line", "string", "jobs"): (1, JOBS_KEY),
         ("ViewerCommandPortal.read_output", "string", "offset"): (1, "a key of an output page"),
     },
-    "src/Command_Queue.py": {},
     "src/Background_Job_Scheduler.py": {
         ("BackgroundJobScheduler._update_records", "string", "jobs"): (1, JOBS_KEY),
         ("BackgroundJobScheduler._report_succeeded", "string", "jobs"): (1, JOBS_KEY),
@@ -467,25 +502,125 @@ ALLOWED = {
     "src/Viewer_Worker_Tracking.py": {
         ("WorkerTracker.poll", "string", "jobs"): (1, JOBS_KEY),
     },
-    "src/Command_Declarations.py": {},
-    # What the modules declare about themselves for the catalog and the Agent is read from them: the code that
-    # reads it, and the Agent's prompt that is written from it, name no command.
     "src/desktop/Command_Metadata.py": {
-        ("<module>", "string", "alignment"): (1, "REQUIRABLE_INPUTS: an optional input a command can need, not a command"),
-        ("<module>", "string", "embedding"): (1, "REQUIRABLE_INPUTS: an optional input a command can need, not a command"),
+        ("<module>", "table", "alignment, embedding"): (1, "REQUIRABLE_INPUTS: the optional inputs a command can need, not commands"),
         ("<module>", "string", "run"): (1, "RUN, a class of the Agent policy: a reply's command runs at once"),
-        ("read_declarations", "string", "run"): (1, "the entry point every command module has"),
+        ("read_declarations", "string", "run"): (1, ENTRY_POINT),
     },
-    "src/web_ui/agent_prompt.py": {},
+    "src/desktop/Viewer_Inspection.py": {
+        ("command_catalog_entry", "string", "run"): (1, ENTRY_POINT + ", read from the module's source"),
+        ("SnapshotStore._execute", "table", "cluster, group"): (1, LABEL_KINDS),
+        ("SnapshotStore._execute", "table", "offset, reference"): (1, ALIGNMENT_SETTINGS),
+        ("SnapshotStore.capture", "table", "alignment, offset, reference"): (1, ALIGNMENT_SETTINGS),
+    },
+    "src/desktop/Alignment_Snapshot.py": {
+        ("freeze_alignment", "table", "offset, reference"): (1, ALIGNMENT_SETTINGS),
+    },
+    "src/desktop/Viewer_State.py": {
+        ("<module>", "table", "alignment, embedding"): (1, "VIEWER_SECTIONS: the sections of a Viewer settings document, "
+                                                           "named for the files they set"),
+    },
+    "src/mcp_server/viewer/Viewer_Operations.py": {
+        ("_wait_line", "string", "jobs"): (1, JOBS_KEY),
+        ("get_residue_distribution", "table", "cluster, group"): (1, "group_by's choices: " + LABEL_KINDS),
+    },
+    "src/web_ui/Page_Texts.py": {
+        ("<module>", "string", "meta"): (1, "HTML's <meta> element, which has no end tag: the name of a tag, not of a command"),
+    },
+    "src/web_ui/agent_backend.py": {
+        ("handle_decide_agent_command", "string", "run"): (1, "the 'run' field of the Agent page's message: the user's decision on a command"),
+    },
+    "src/web_ui/esmfold_backend.py": {
+        ("handle_esmfold_job", "string", "run"): (2, "the 'run' field of the Fold View's messages: the id of a fold run"),
+        ("handle_open_log", "string", "run"): (1, "the 'run' field of the Fold View's messages: the id of a fold run"),
+        ("handle_structure_folded", "string", "run"): (1, "the 'run' field of the Fold View's messages: the id of a fold run"),
+    },
+    "src/web_ui/residue_layers.py": {
+        ("plddt_layer", "table", "color, label"): (1, "the keys of a legend band (its colour and its label), nouns that are not commands"),
+    },
 }
 
 
-def command_words_in(source, names):
-    """Counter of (enclosing scope, 'string' | 'import', command name) for the code of a module's source.
+def central_files(src_dir=SRC_DIR):
+    """Every .py file of central code under ``src_dir``: all but the commands, the tools and the resources."""
+    return sorted(path for path in Path(src_dir).rglob("*.py") if path.relative_to(src_dir).parts[0] not in NOT_CENTRAL)
 
-    A string constant equal to a command's name (docstrings and the generic help words are not counted), and an
-    import of a command module (from commands import x, from commands.x import y, import commands.x, commands.x).
+
+def plugin_pairs():
+    """{name: relative paths of its two files} for each web plugin whose id is also a command's name.
+
+    A page and its command are one plugin pair (the Agent page and the agent command, ...): the page's manifest and
+    its backend say the name as the id of the page, and the backend reaches its own command. Read from the manifests
+    on disk, so the pair of a plugin added later is covered without a change here.
     """
+    descriptors, diagnostics = discover_plugin_descriptors(str(SRC_DIR / "web_ui" / "plugins"))
+    assert not diagnostics, diagnostics
+    pairs = {}
+    for descriptor in descriptors:
+        if descriptor.plugin_id in COMMAND_NAMES:
+            backend = Path(*descriptor.backend.split(".")).with_suffix(".py")
+            pairs[descriptor.plugin_id] = (Path(descriptor.source_path).resolve().relative_to(SRC_DIR.parent).as_posix(),
+                                           (SRC_DIR / backend).relative_to(SRC_DIR.parent).as_posix())
+    return pairs
+
+
+def _held_strings(node, depth):
+    """The string constants a dict, list, tuple or set literal holds, and those of the literals inside it, ``depth`` levels."""
+    children = ([child for child in node.keys if child is not None] + list(node.values)
+                if isinstance(node, ast.Dict) else list(node.elts))
+    held = []
+    for child in children:
+        if isinstance(child, ast.Constant) and isinstance(child.value, str):
+            held.append(child)
+        elif depth > 1 and isinstance(child, CONTAINERS):
+            held.extend(_held_strings(child, depth - 1))
+    return held
+
+
+def _call_name(call):
+    function = call.func
+    return function.id if isinstance(function, ast.Name) else function.attr if isinstance(function, ast.Attribute) else None
+
+
+def _leading_string(node):
+    """The string constant an expression that builds a string starts with: 'a', f'a{x}', 'a' + x, 'a %s' % x."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node
+    if isinstance(node, ast.JoinedStr) and node.values and isinstance(node.values[0], ast.Constant):
+        return node.values[0]
+    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Mod)):
+        return _leading_string(node.left)
+    return None
+
+
+def _is_command_variable(node):
+    while (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+           and node.func.attr in ("lower", "upper", "strip", "casefold")):
+        node = node.func.value
+    return bool(COMMAND_VARIABLE.match(node.id if isinstance(node, ast.Name) else node.attr if isinstance(node, ast.Attribute) else ""))
+
+
+def _constants_of(node):
+    """The string constants of a comparand: one, or the elements of a tuple, list or set of them."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return [node]
+    if isinstance(node, (ast.Tuple, ast.List, ast.Set)):
+        return [element for element in node.elts if isinstance(element, ast.Constant) and isinstance(element.value, str)]
+    return []
+
+
+def command_words_in(source, names, strict=False, exempt=frozenset()):
+    """Counter of (enclosing scope, 'string' | 'import' | 'table', word) for the code of a module's source.
+
+    'string': a string constant that names a command (docstrings and the generic help words are not counted; a name
+    that is an ordinary word counts only where a command is meant, or anywhere when ``strict``). 'import': an import
+    of a command module (from commands import x, from commands.x import y, import commands.x, commands.x, and a
+    module path in a string, 'commands.x'). 'table': a dict, set, list or tuple literal that holds two or more
+    command names, up to two levels deep, the names it holds then counted once, in it, and the word is those names.
+    ``exempt`` names are not counted at all: the pair of a page and its command, in the page's own files.
+    """
+    names = set(names) - set(exempt)
+    counted = names - {"help"}
     tree = ast.parse(source)
     parents = {}
     for node in ast.walk(tree):
@@ -506,21 +641,69 @@ def command_words_in(source, names):
                 parts.append(node.name)
         return ".".join(reversed(parts)) or "<module>"
 
+    def names_a_command(node):
+        return (isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings
+                and node.value in counted)
+
     found = collections.Counter()
+
+    # Tables, outermost first: a literal that holds two names takes them, and a literal inside it only what is left.
+    in_table = set()
+
+    def find_tables(node):
+        if isinstance(node, CONTAINERS):
+            held = [constant for constant in _held_strings(node, 2) if names_a_command(constant) and id(constant) not in in_table]
+            if len({constant.value for constant in held}) >= 2:
+                found[(scope(node), "table", ", ".join(sorted({constant.value for constant in held})))] += 1
+                in_table.update(id(constant) for constant in held)
+        elif isinstance(node, ast.Call) and _call_name(node) == "dict":
+            keywords = {keyword.arg for keyword in node.keywords if keyword.arg in counted}
+            if len(keywords) >= 2:
+                found[(scope(node), "table", ", ".join(sorted(keywords)))] += 1
+        for child in ast.iter_child_nodes(node):
+            find_tables(child)
+
+    find_tables(tree)
+
+    # Where a command is meant: {id of the string constant: the name it holds}.
+    meant = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and node.args and _call_name(node) in LINE_CALLS | NAME_CALLS:
+            constant = _leading_string(node.args[0])
+            if constant is not None:
+                word = (constant.value.split() or [""])[0].lower() if _call_name(node) in LINE_CALLS else constant.value
+                if word in names:
+                    meant[id(constant)] = word
+        elif isinstance(node, ast.Compare):
+            sides = [node.left, *node.comparators]
+            if any(_is_command_variable(side) for side in sides):
+                for side in sides:
+                    for constant in _constants_of(side):
+                        if constant.value in names:
+                            meant[id(constant)] = constant.value
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Constant) and isinstance(node.value, str) and id(node) not in docstrings:
-            if node.value in names and node.value not in GENERIC_WORDS:
-                found[(scope(node), "string", node.value)] += 1
+            if id(node) in in_table:
+                continue
+            module = COMMAND_MODULE_PATH.match(node.value)
+            if module and module.group(1) not in exempt:
+                found[(scope(node), "import", module.group(1))] += 1
+            word = meant.get(id(node))
+            if word is None and node.value in counted and (strict or node.value not in AMBIGUOUS_NAMES):
+                word = node.value
+            if word is not None:
+                found[(scope(node), "string", word)] += 1
         elif isinstance(node, ast.ImportFrom):
             module = (node.module or "").split(".")
             if module == ["commands"]:
-                found.update((scope(node), "import", alias.name) for alias in node.names if alias.name in names)
-            elif module[0] == "commands" and len(module) > 1 and module[1] in names:
+                found.update((scope(node), "import", alias.name) for alias in node.names if alias.name not in exempt)
+            elif module[0] == "commands" and len(module) > 1 and module[1] not in exempt:
                 found[(scope(node), "import", module[1])] += 1
         elif isinstance(node, ast.Import):
             for alias in node.names:
                 parts = alias.name.split(".")
-                if parts[0] == "commands" and len(parts) > 1 and parts[1] in names:
+                if parts[0] == "commands" and len(parts) > 1 and parts[1] not in exempt:
                     found[(scope(node), "import", parts[1])] += 1
         elif (isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "commands"
               and node.attr in names):
@@ -528,12 +711,30 @@ def command_words_in(source, names):
     return found
 
 
-class CentralCodeNamesNoCommandTests(unittest.TestCase):
-    """The engine, the portal, the queue, the scheduler and the worker tracking name no command."""
+def central_findings(src_dir=SRC_DIR):
+    """{relative path: the command_words_in of the file} for every central file, and the paths read, in order."""
+    pairs = plugin_pairs()
+    names = set(COMMAND_NAMES)
+    findings, scanned = {}, []
+    for path in central_files(src_dir):
+        relative = path.relative_to(Path(src_dir).parent).as_posix()
+        exempt = {name for name, files in pairs.items() if relative in files}
+        scanned.append(relative)
+        findings[relative] = command_words_in(path.read_text(encoding="utf-8"), names, relative in DISPATCH_FILES, exempt)
+    return findings, scanned
 
-    def test_the_scanner_finds_a_command_named_in_code(self):
-        # A positive control: without it a scanner that finds nothing would pass every file.
-        names = {"jobs", "zoom", "run", "undo", "agent"}
+
+class CentralCodeNamesNoCommandTests(unittest.TestCase):
+    """No file of central code names a command, imports one or holds a table of them (the rules above)."""
+
+    NAMES = {"jobs", "zoom", "run", "undo", "agent", "redo", "meta", "esmfold", "select", "reset", "cluster", "group",
+             "label", "alignment", "offset", "hide", "color", "print", "save", "export", "help", "embedding"}
+
+    def scan(self, source, **options):
+        return command_words_in(source, self.NAMES, **options)
+
+    def test_the_scanner_finds_a_command_named_in_code_and_an_import_of_one_in_every_form(self):
+        # Positive controls: without them a scanner that finds nothing would pass every file.
         source = ("from commands import zoom\n"
                   "import commands.run\n"
                   "from commands.undo import steps\n"
@@ -542,13 +743,114 @@ class CentralCodeNamesNoCommandTests(unittest.TestCase):
                   "    '''A docstring that says jobs.'''\n"
                   "    if name in ('jobs', 'zoom'):\n"
                   "        return 'instant'\n"
-                  "    if name == 'agent' and args == ['help', '--help']:\n"
-                  "        return commands.agent\n"
-                  "    return 'a jobs sentence'\n")
-        self.assertEqual(command_words_in(source, names), collections.Counter({
+                  "    if name == 'agent' and args == ['--help', '-?']:\n"
+                  "        return commands.redo\n"
+                  "    return 'a jobs sentence'\n"
+                  "def load(name):\n"
+                  "    importlib.import_module('commands.meta')\n"
+                  "    importlib.import_module(f'commands.{name}')\n"
+                  "    __import__('commands.esmfold')\n"
+                  "    return sys.modules['commands.reset'], sys.modules.get('commands.' + name)\n")
+        self.assertEqual(self.scan(source), collections.Counter({
             ("<module>", "import", "zoom"): 1, ("<module>", "import", "run"): 1, ("<module>", "import", "undo"): 1,
-            ("kind", "string", "jobs"): 1, ("kind", "string", "zoom"): 1, ("kind", "string", "agent"): 1,
-            ("kind", "import", "agent"): 1}))
+            ("kind", "table", "jobs, zoom"): 1, ("kind", "string", "agent"): 1, ("kind", "import", "redo"): 1,
+            ("load", "import", "meta"): 1, ("load", "import", "esmfold"): 1, ("load", "import", "reset"): 1}))
+
+    def test_a_name_that_is_an_ordinary_word_counts_only_where_a_command_is_meant(self):
+        source = ("def f(command, cmd_name, words, viewer, name):\n"
+                  "    word = 'select'\n"                                    # a noun
+                  "    print('save', 'export')\n"                            # two arguments, no table
+                  "    if words[0] == 'reset' or name == 'label':\n"         # not a variable of a command
+                  "        a = ['cluster', 'x']\n"                           # one name in a literal is no table
+                  "        b = {'group': 1}\n"
+                  "    if command == 'cluster':\n"
+                  "        pass\n"
+                  "    if cmd_name.lower() in ('hide', 'x'):\n"
+                  "        pass\n"
+                  "    viewer.process_command('color red')\n"                # a line: its first word
+                  "    viewer.process_command(f'group {words}')\n"
+                  "    viewer.process_command('select ' + words)\n"
+                  "    viewer.process_command(words)\n"
+                  "    queue_kind('print', [], 'typed')\n"                   # a name
+                  "    Command_Declarations.command_module('help')\n"
+                  "    return agent_policy('Export 1')\n")
+        self.assertEqual(self.scan(source), collections.Counter({
+            ("f", "string", "cluster"): 1, ("f", "string", "hide"): 1, ("f", "string", "color"): 1,
+            ("f", "string", "group"): 1, ("f", "string", "select"): 1, ("f", "string", "print"): 1,
+            ("f", "string", "help"): 1, ("f", "string", "export"): 1}))
+        # In the files that dispatch, an ordinary word counts wherever it stands (but not "help", the generic word).
+        self.assertEqual(self.scan("x = ['select', 'help']\ny = 'label'\n", strict=True), collections.Counter({
+            ("<module>", "string", "select"): 1, ("<module>", "string", "label"): 1}))
+        # A name that is no ordinary word counts wherever a string equals it, and only then.
+        self.assertEqual(self.scan("x = 'zoom'\ny = 'zoom 200'\nz = 'a zoom'\n"), collections.Counter({
+            ("<module>", "string", "zoom"): 1}))
+
+    def test_a_table_is_a_dict_set_list_or_tuple_of_two_names_up_to_two_levels_deep(self):
+        source = ("A = {'alignment': 1, 'offset': 2}\n"
+                  "B = ['cluster', 'group', 'other']\n"
+                  "C = ('select', 'x')\n"
+                  "D = {'a': ('hide', 'x'), 'b': {'color', 'y'}}\n"           # the names are one level down
+                  "E = [[['print', 'save']]]\n"                                # the inner literal is two levels deep
+                  "F = dict(export=1, label=2, other=3)\n"
+                  "G = {'meta': 1}\n"
+                  "def f():\n"
+                  "    return frozenset({'embedding', 'reset'})\n")
+        self.assertEqual(self.scan(source), collections.Counter({
+            ("<module>", "table", "alignment, offset"): 1, ("<module>", "table", "cluster, group"): 1,
+            ("<module>", "table", "color, hide"): 1, ("<module>", "table", "print, save"): 1,
+            ("<module>", "table", "export, label"): 1, ("<module>", "string", "meta"): 1,
+            ("f", "table", "embedding, reset"): 1}))
+        # The names of a table are counted once, in it, not again as strings.
+        self.assertEqual(self.scan("T = {'zoom': 'undo', 'run': ['agent']}\n"), collections.Counter({
+            ("<module>", "table", "agent, run, undo, zoom"): 1}))
+
+    def test_a_pair_name_is_not_counted_in_its_own_files(self):
+        source = ("from commands import esmfold\n"
+                  "import commands.esmfold as pair\n"
+                  "ID = 'esmfold'\n"
+                  "LIST = {'esmfold': 1, 'label': 2}\n"
+                  "OTHER = 'zoom'\n"
+                  "def f():\n"
+                  "    return importlib.import_module('commands.esmfold'), commands.esmfold, 'commands.undo'\n")
+        self.assertEqual(self.scan(source, exempt={"esmfold"}), collections.Counter({
+            ("<module>", "string", "zoom"): 1, ("f", "import", "undo"): 1}))
+        self.assertEqual(self.scan(source), collections.Counter({
+            ("<module>", "import", "esmfold"): 2, ("<module>", "string", "esmfold"): 1,
+            ("<module>", "table", "esmfold, label"): 1, ("<module>", "string", "zoom"): 1,
+            ("f", "import", "esmfold"): 2, ("f", "import", "undo"): 1}))
+
+    def test_the_central_files_are_all_of_src_but_the_commands_the_tools_and_the_resources(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for relative in ("a.py", "pkg/b.py", "pkg/sub/c.py", "commands/d.py", "tools/e.py", "resources/languages/f.py",
+                             "pkg/commands/g.py", "pkg/readme.md"):
+                (root / relative).parent.mkdir(parents=True, exist_ok=True)
+                (root / relative).write_text("x = 1\n", encoding="utf-8")
+            # Only the top folders are not central: a folder of that name further down is.
+            self.assertEqual([path.relative_to(root).as_posix() for path in central_files(root)],
+                             ["a.py", "pkg/b.py", "pkg/commands/g.py", "pkg/sub/c.py"])
+
+    def test_the_scan_reads_every_file_of_src_but_the_commands_the_tools_and_the_resources(self):
+        # The list is made again here, by walking the folders, so a scan that left a file out would differ from it.
+        expected = set()
+        for folder, _dirs, files in os.walk(SRC_DIR):
+            relative = Path(folder).relative_to(SRC_DIR)
+            if relative.parts[:1] in (("commands",), ("tools",), ("resources",)):
+                continue
+            expected |= {(Path("src") / relative / name).as_posix() for name in files if name.endswith(".py")}
+        findings, scanned = central_findings()
+        self.assertEqual(len(scanned), len(set(scanned)))
+        self.assertEqual(set(scanned), expected)
+        self.assertEqual(set(findings), expected)
+        self.assertTrue(all(path.startswith("src/") for path in scanned))   # nothing of opt_vr
+        for path in ("src/EMAPSSN_Viewer.py", "src/Command_Engine.py", "src/desktop/Viewer_Widgets.py",
+                     "src/web_ui/Web_Server.py", "src/mcp_server/viewer/Viewer_Operations.py",
+                     "src/utilities/Localization.py", "src/Layout_Engine_SSN.py"):
+            self.assertIn(path, expected)
+        for path in ("src/commands/zoom.py", "src/tools/Sanitize_FASTA.py", "src/resources/languages/Docs_Translation.py"):
+            self.assertNotIn(path, expected)
+        self.assertEqual(NOT_CENTRAL, ("commands", "tools", "resources"))
+        self.assertTrue(set(DISPATCH_FILES) <= expected)
 
     def test_the_command_names_are_the_modules_of_src_commands(self):
         # A command is a module of src/commands that does not start with "_" and defines run: the rule of the
@@ -558,22 +860,42 @@ class CentralCodeNamesNoCommandTests(unittest.TestCase):
         for name in COMMAND_NAMES:
             with self.subTest(command=name):
                 self.assertTrue(callable(getattr(declarations.command_module(name), "run", None)), name)
+        # The names that are ordinary words are commands; one that stopped being a command would be a stale entry.
+        self.assertTrue(AMBIGUOUS_NAMES <= set(COMMAND_NAMES), AMBIGUOUS_NAMES - set(COMMAND_NAMES))
 
-    def test_no_central_file_names_a_command(self):
-        for relative, allowed in ALLOWED.items():
-            source = (SRC_DIR.parent / relative).read_text(encoding="utf-8")
-            found = command_words_in(source, set(COMMAND_NAMES))
-            expected = collections.Counter({key: count for key, (count, _reason) in allowed.items()})
+    def test_the_pairs_of_a_page_and_its_command_are_these(self):
+        # A new plugin whose page and command share a name is exempt in its own files; it is added here on purpose.
+        pairs = plugin_pairs()
+        self.assertEqual(set(pairs), {"agent", "esmfold", "meta"})
+        for name, files in pairs.items():
+            self.assertEqual(files, (f"src/web_ui/plugins/{name}.py", f"src/web_ui/{name}_backend.py"))
+            for relative in files:
+                self.assertTrue((SRC_DIR.parent / relative).is_file(), relative)
+
+    def test_no_central_file_names_a_command_imports_one_or_holds_a_table_of_them(self):
+        findings, scanned = central_findings()
+        self.assertTrue(set(ALLOWED) <= set(scanned), set(ALLOWED) - set(scanned))
+        for relative in sorted({relative for relative, found in findings.items() if found} | set(ALLOWED)):
+            expected = collections.Counter({key: count for key, (count, _reason) in ALLOWED.get(relative, {}).items()})
             with self.subTest(file=relative):
-                named = found - expected
-                gone = expected - found
-                self.assertFalse(named, f"{relative} names a command in code: {dict(named)}. A command is dispatched "
-                                        "by what its module declares (Command_Declarations), not by name here.")
+                named = findings[relative] - expected
+                gone = expected - findings[relative]
+                self.assertFalse(named, f"{relative} names a command, imports one or holds a table of them: {dict(named)}. "
+                                        "A command is dispatched, described and reset by what its module declares "
+                                        "(Command_Declarations, desktop.Command_Metadata, commands/reset.py), not by name here.")
                 self.assertFalse(gone, f"{relative} no longer holds {dict(gone)}: remove these entries from ALLOWED.")
+
+    def test_every_allowed_entry_has_a_reason(self):
+        for relative, allowed in ALLOWED.items():
+            for key, (count, reason) in allowed.items():
+                with self.subTest(file=relative, entry=key):
+                    self.assertGreaterEqual(count, 1)
+                    self.assertGreater(len(reason.split()), 3)
+                    self.assertIn(key[1], ("string", "import", "table"))
 
     def test_the_viewers_console_button_code_names_no_command(self):
         # The Viewer brings back the Console buttons a session had by asking each command's module (CONSOLE_BUTTON);
-        # EMAPSSN_Viewer.py is not in ALLOWED (it holds many strings that are also command names), so these three are read.
+        # these three functions of EMAPSSN_Viewer.py are read as strictly as the files that dispatch.
         import textwrap
 
         source = (SRC_DIR / "EMAPSSN_Viewer.py").read_text(encoding="utf-8")
@@ -584,13 +906,8 @@ class CentralCodeNamesNoCommandTests(unittest.TestCase):
                 found.add(node.name)
                 text = textwrap.dedent(" " * node.col_offset + ast.get_source_segment(source, node))
                 with self.subTest(function=node.name):
-                    self.assertEqual(command_words_in(text, set(COMMAND_NAMES)), collections.Counter())
+                    self.assertEqual(command_words_in(text, set(COMMAND_NAMES), strict=True), collections.Counter())
         self.assertEqual(found, wanted)
-
-    def test_the_central_files_are_the_ones_that_dispatch(self):
-        # A file that moved or was renamed would otherwise stop being checked.
-        for relative in ALLOWED:
-            self.assertTrue((SRC_DIR.parent / relative).is_file(), relative)
 
 
 # --- The Session card's pick buttons ---------------------------------------------------
