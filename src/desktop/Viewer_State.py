@@ -85,6 +85,24 @@ VISUAL_PROFILE_DEFAULTS.update({
 })
 
 
+# Visual keys of the desktop Viewer alone. They are kept out of
+# VISUAL_PROFILE_DEFAULTS, which opt_vr's Config builds its Visual Effects
+# profiles and controls from, so that the VR front end is left as it was.
+DESKTOP_VISUAL_PROFILE_DEFAULTS = {
+    # Edge Opacity's Auto switch: each edge's opacity follows its score
+    # (desktop.Viewer_Edges.SCORE_ALPHA_MIN to SCORE_ALPHA_MAX) instead of the
+    # slider's value. For the SSN layout method only; see edge_opacity_follows_score.
+    "AUTO_EDGE_ALPHA": False,
+}
+
+
+def edge_opacity_follows_score(configuration):
+    """Edge Opacity's Auto switch (AUTO_EDGE_ALPHA), which draws each edge's
+    opacity by its score. It applies to the SSN layout method only: a UMAP or
+    PaCMAP layout draws its edges at the slider's value whatever the switch says."""
+    return bool(getattr(configuration, "AUTO_EDGE_ALPHA", False)) and not knn_topology_layout(configuration)
+
+
 def fewer_edges_while_moving(configuration):
     """Fewer Edges Drawn While Moving: whether the Viewer may thin the edges
     while the view moves (SSN_EDGE_MOTION_LOD=0 still turns it off)."""
@@ -224,7 +242,7 @@ VIEWER_SECTIONS = {
     "inputs": ("TARGET_CACHE_PATH", "NODE_FASTA_FILE", "INPUT_HDF5"),
     "alignment": ("MSA_FILE", "ALIGNMENT_REFERENCE", "FILTER_MIN_OCCUPANCY", "ALIGNMENT_OFFSET"),
     "embedding": ("EMBED_FILE",),
-    "visualization": tuple(VISUAL_PROFILE_DEFAULTS),
+    "visualization": (*VISUAL_PROFILE_DEFAULTS, *DESKTOP_VISUAL_PROFILE_DEFAULTS),
     "directories": tuple(DIRECTORY_PROFILE_DEFAULTS),
 }
 
@@ -243,6 +261,8 @@ OPTIONAL_DOCUMENT_KEYS = {
         # (migrate_low_resource_mode).
         **{key: VISUAL_PROFILE_DEFAULTS[key] for key in (
             "FEWER_EDGES_WHILE_MOVING", *LOW_RESOURCE_DEFAULTS, "SHOW_FPS")},
+        # Edge Opacity's Auto switch came later still.
+        **DESKTOP_VISUAL_PROFILE_DEFAULTS,
     },
 }
 
@@ -312,7 +332,7 @@ class ViewerSettingsError(ValueError):
 
 DEFAULTS = {
     **DIRECTORY_PROFILE_DEFAULTS, **INPUT_PROFILE_DEFAULTS,
-    **VISUAL_PROFILE_DEFAULTS, **PHYSICS_PROFILE_DEFAULTS,
+    **VISUAL_PROFILE_DEFAULTS, **DESKTOP_VISUAL_PROFILE_DEFAULTS, **PHYSICS_PROFILE_DEFAULTS,
     "TARGET_CACHE_PATH": "", "TARGET_CACHE_MODE": "existing",
     "CACHE_FILENAME": "",
     "SAVED_CONFIG_DIR": "$cache_file$/Saved_Config", "BOX_SCALE": 2.0,
@@ -1088,6 +1108,8 @@ __all__ = [
     "EMBEDDING_ALIAS",
     "INPUT_PROFILE_DEFAULTS",
     "VISUAL_PROFILE_DEFAULTS",
+    "DESKTOP_VISUAL_PROFILE_DEFAULTS",
+    "edge_opacity_follows_score",
     "LOW_RESOURCE_DEFAULTS",
     "LEGACY_LOW_RESOURCE_KEY",
     "migrate_low_resource_mode",

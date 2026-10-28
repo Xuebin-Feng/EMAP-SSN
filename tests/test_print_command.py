@@ -3,7 +3,8 @@ and EMAPSSN_Config modules: HUD hiding during capture, PNG margin trimming,
 output-name confinement, and the layered SVG export (edges filtered like the
 screen, configured colours, a failure with nothing written when every node is
 hidden), plus what the command checks before it writes (options, visible nodes),
-when it makes the save folder, and its automatic names; the `zoom N` scale of
+when it makes the save folder, and its automatic names; the SVG's opacity bands under Edge
+Opacity's Auto switch; the `zoom N` scale of
 full and svg, and the hover colour and click halo a PNG leaves out; the file
 name as one word, an .svg name selecting SVG, and the report of a file replaced;
 the background job that finishes and writes the file, in the viewer's queue; and
@@ -53,6 +54,8 @@ def load_print_command():
     import vispy.scene  # noqa: F401
     import commands.zoom  # noqa: F401
     import desktop.Desktop_App  # noqa: F401
+    import desktop.Viewer_Edges  # noqa: F401
+    import desktop.Viewer_State  # noqa: F401
     import utilities.Job_Cancellation  # noqa: F401  (its thread-local token must be the scheduler's)
     import utilities.Output_Names  # noqa: F401
     import Viewer_Visual_State  # noqa: F401
@@ -786,6 +789,203 @@ class PrintSvgExportTests(unittest.TestCase):
         self.assertTrue(all('stroke="rgb(255,0,0)" stroke-opacity="0.400"' in line for line in lines))
         self.assertEqual(len(circles), 4)
         self.assertTrue(all('stroke="rgb(0,255,0)"' in circle for circle in circles))
+
+
+class PrintSvgOpacityBandsTests(unittest.TestCase):
+    """With Edge Opacity's Auto switch on, the SVG's edges go out in opacity bands.
+
+    The screen draws each edge at an alpha that follows its score (15 % at the
+    lowest score drawn, 85 % at the highest); the SVG groups the edges in
+    SVG_OPACITY_BANDS evenly spaced opacities, most opaque first, each in a
+    <g> with its stroke-opacity (and on every line too, so a reader that
+    ignores the group's still has it). With Auto off, or in a layout that
+    ignores it, the file is the one it always was.
+    """
+
+    SVG = "{http://www.w3.org/2000/svg}"
+    SCORES = [0.2, 0.4, 0.6, 0.8, 1.0, 0.5]
+
+    @classmethod
+    def network(cls, scores=None, threshold=0.3, by_score=True, **overrides):
+        from desktop.Viewer_Edges import ViewerEdges
+        scores = np.array(cls.SCORES if scores is None else scores)
+        viewer = square_network(
+            edges=np.array([[0, 1], [1, 2], [2, 3], [3, 0], [0, 2], [1, 3]], dtype=np.int32)[:len(scores)],
+            edge_scores=scores, current_slider_threshold=threshold, **overrides)
+        layer = ViewerEdges(None, viewer.edges, scores, viewer.pos, (0, 0, 0, 0.2), 1.0,
+                            use_position_texture=True)
+        layer.set_opacity_by_score(by_score)
+        viewer.edge_layer = layer
+        return viewer
+
+    @staticmethod
+    def band_opacity(alpha, bands=128):
+        """The opacity of the band an edge of this alpha belongs in, worked out here on its own."""
+        step = round((alpha - 0.15) / 0.7 * (bands - 1))
+        return 0.15 + 0.7 * step / (bands - 1)
+
+    def groups(self, svg):
+        import xml.etree.ElementTree as ElementTree
+        root = ElementTree.fromstring(svg)
+        edges = next(group for group in root.iter(self.SVG + "g") if group.get("id") == "edges")
+        return edges, edges.findall(self.SVG + "g")
+
+    @staticmethod
+    def coordinates(line):
+        return tuple(line.get(name) for name in ("x1", "y1", "x2", "y2"))
+
+    def test_the_edges_are_in_bands_most_opaque_first_with_each_edges_own_opacity(self):
+        viewer = self.network()
+        svg = export_svg(viewer, AUTO_EDGE_ALPHA=True)
+        plain = ElementTreeLines.parse(export_svg(viewer, AUTO_EDGE_ALPHA=False))
+        edges, groups = self.groups(svg)
+        # The scores kept by the 0.3 threshold, in loaded order: 0.4, 0.6, 0.8, 1.0, 0.5 (0.2 is below it).
+        kept = [score for score in self.SCORES if score >= 0.3]
+        alphas = [0.15 + 0.7 * (score - 0.4) / 0.6 for score in kept]
+        wanted = [f"{self.band_opacity(alpha):.3f}" for alpha in alphas]
+        self.assertEqual(len(plain), len(kept))
+        by_edge = {}
+        opacities = []
+        for number, group in enumerate(groups, start=1):
+            self.assertEqual(group.get("id"), f"edges-band-{number}")
+            opacities.append(group.get("stroke-opacity"))
+            lines = group.findall(self.SVG + "line")
+            self.assertTrue(lines)
+            for line in lines:
+                # Every line states its own opacity, the group's.
+                self.assertEqual(line.get("stroke-opacity"), group.get("stroke-opacity"))
+                self.assertEqual(line.get("stroke"), "rgb(0,0,0)")
+                by_edge[self.coordinates(line)] = group.get("stroke-opacity")
+        self.assertEqual(len(by_edge), len(kept))
+        for coordinates, expected in zip(plain, wanted):
+            self.assertEqual(by_edge[coordinates], expected)
+        # Most opaque first: the edges go out in descending score, as the screen draws them.
+        self.assertEqual(opacities, sorted(set(wanted), reverse=True))
+        self.assertEqual(opacities[0], "0.850")
+        self.assertEqual(opacities[-1], "0.150")
+        # The groups hold the edges and nothing else; the nodes layer is as it was.
+        self.assertEqual(len(edges), len(groups))
+        self.assertEqual(len(elements(svg, "circle")), 4)
+
+    def test_the_file_stays_plain_svg(self):
+        import xml.etree.ElementTree as ElementTree
+        svg = export_svg(self.network(), AUTO_EDGE_ALPHA=True)
+        root = ElementTree.fromstring(svg)  # well formed
+        self.assertEqual(root.tag, self.SVG + "svg")
+        _, groups = self.groups(svg)
+        for group in groups:
+            self.assertEqual(sorted(group.attrib), ["id", "name", "stroke-opacity"])
+        # Only the elements and attributes the file always had, and the groups.
+        tags = {element.tag.removeprefix(self.SVG) for element in root.iter()}
+        self.assertEqual(tags, {"svg", "rect", "g", "line", "circle"})
+        lines = elements(svg, "line")
+        for line in lines:
+            self.assertEqual(re.findall(r'(\w[\w-]*)="', line),
+                             ["x1", "y1", "x2", "y2", "stroke", "stroke-opacity", "stroke-width"])
+
+    def test_equal_scores_are_one_band_at_85_percent(self):
+        for scores in ([0.7, 0.7, 0.7], [0.9, 0.2]):
+            with self.subTest(scores=scores):
+                threshold = 0.5 if len(scores) == 2 else 0.3
+                svg = export_svg(self.network(scores, threshold=threshold), AUTO_EDGE_ALPHA=True)
+                _, groups = self.groups(svg)
+                self.assertEqual([group.get("stroke-opacity") for group in groups], ["0.850"])
+                self.assertEqual(len(groups[0].findall(self.SVG + "line")), len(
+                    [score for score in scores if score >= threshold]))
+
+    def test_the_threshold_decides_which_edge_is_the_faintest(self):
+        low = self.groups(export_svg(self.network(threshold=0.3), AUTO_EDGE_ALPHA=True))[1]
+        high = self.groups(export_svg(self.network(threshold=0.7), AUTO_EDGE_ALPHA=True))[1]
+        for groups in (low, high):
+            self.assertEqual(groups[0].get("stroke-opacity"), "0.850")
+            self.assertEqual(groups[-1].get("stroke-opacity"), "0.150")
+        self.assertEqual(sum(len(group) for group in low), 5)
+        self.assertEqual(sum(len(group) for group in high), 2)
+
+    def test_the_file_is_the_same_whatever_the_chunk_size(self):
+        viewer = self.network()
+        whole = export_svg(viewer, AUTO_EDGE_ALPHA=True)
+        for chunk in (1, 2, 4):
+            with self.subTest(chunk=chunk), mock.patch.object(print_command, "SVG_CHUNK_SIZE", chunk):
+                self.assertEqual(export_svg(viewer, AUTO_EDGE_ALPHA=True), whole)
+
+    def test_auto_off_is_the_file_it_always_was(self):
+        # Byte for byte what the code before the switch wrote for this network.
+        expected_edges = (
+            '  <g id="edges" name="Edges">\n'
+            '    <line x1="26.250" y1="36.250" x2="36.250" y2="36.250" stroke="rgb(0,0,0)" '
+            'stroke-opacity="0.200" stroke-width="1.000" />\n'
+            '    <line x1="36.250" y1="26.250" x2="26.250" y2="26.250" stroke="rgb(0,0,0)" '
+            'stroke-opacity="0.200" stroke-width="1.000" />\n'
+            '  </g>\n')
+        bare = export_svg(square_network())
+        self.assertIn(expected_edges, bare)
+        for configuration in ({}, {"AUTO_EDGE_ALPHA": False}):
+            with self.subTest(configuration=configuration):
+                viewer = self.network(scores=[0.90, 0.20, 0.95, 0.10], threshold=0.5)
+                self.assertEqual(export_svg(viewer, **configuration), bare)
+        self.assertNotIn("edges-band", bare)
+
+    def test_a_layout_that_ignores_auto_writes_the_plain_file(self):
+        # UMAP and PaCMAP draw every edge at the slider's alpha.
+        viewer = self.network(threshold=0.0, selected_indices=[0])
+        plain = export_svg(viewer, AUTO_EDGE_ALPHA=False, UMAP_MODE=True)
+        self.assertEqual(export_svg(viewer, AUTO_EDGE_ALPHA=True, UMAP_MODE=True), plain)
+        self.assertNotIn("edges-band", plain)
+        # So does an edge layer that does not draw by score (the coordinate fallback, no scores).
+        viewer = self.network(by_score=False)
+        self.assertEqual(export_svg(viewer, AUTO_EDGE_ALPHA=True), export_svg(viewer, AUTO_EDGE_ALPHA=False))
+        viewer = square_network()
+        self.assertEqual(export_svg(viewer, AUTO_EDGE_ALPHA=True), export_svg(viewer, AUTO_EDGE_ALPHA=False))
+
+    def test_the_scores_line_up_with_the_edges_the_screen_keeps(self):
+        rng = np.random.default_rng(8)
+        visible = rng.random(20) > 0.2
+        viewer = SimpleNamespace(
+            edges=rng.integers(0, 20, (200, 2)).astype(np.int32), edge_scores=rng.random(200).astype(np.float32),
+            visible_mask=visible, n_nodes=20, current_slider_threshold=0.4, selected_indices=[])
+        configuration = SimpleNamespace(UMAP_MODE=False)
+        active, _ = print_command.edge_stages(viewer, configuration)
+        scores = print_command.active_edge_scores(viewer, configuration)
+        keep = (viewer.edge_scores >= 0.4) & visible[viewer.edges[:, 0]] & visible[viewer.edges[:, 1]]
+        np.testing.assert_array_equal(active, viewer.edges[keep])
+        np.testing.assert_array_equal(scores, viewer.edge_scores[keep])
+
+    def test_at_least_32_bands_and_each_edge_is_within_half_a_step_of_its_alpha(self):
+        self.assertEqual(print_command.SVG_OPACITY_BANDS, 128)
+        self.assertGreaterEqual(print_command.SVG_OPACITY_BANDS, 32)
+        rng = np.random.default_rng(3)
+        alphas = np.concatenate(([0.15, 0.85], rng.uniform(0.15, 0.85, 5000))).astype(np.float32)
+        order, bands = print_command._svg_edge_bands(alphas)
+        self.assertEqual(sorted(order.tolist()), list(range(len(alphas))))
+        self.assertEqual(bands[0][1], 0)
+        self.assertEqual(bands[-1][2], len(alphas))
+        opacities = [band[0] for band in bands]
+        self.assertEqual(opacities, sorted(opacities, reverse=True))
+        step = 0.7 / 127
+        worst = 0.0
+        for opacity, start, stop in bands:
+            members = order[start:stop]
+            self.assertTrue((np.diff(members) > 0).all())  # a band keeps the edges' own order
+            worst = max(worst, float(np.abs(alphas[members] - opacity).max()))
+        self.assertLessEqual(worst, step / 2 + 1e-6)
+        # Half a step is under one 8-bit level for a contrast of 255: 0.0028 * 255 < 1.
+        self.assertLess(step / 2 * 255, 1.0)
+        self.assertEqual(len(bands), len({round(opacity, 9) for opacity in opacities}))
+        # No edges, no bands.
+        empty_order, empty = print_command._svg_edge_bands(np.empty(0, dtype=np.float32))
+        self.assertEqual((len(empty_order), empty), (0, []))
+
+
+class ElementTreeLines:
+    """The line elements of an SVG as their coordinates, in file order."""
+
+    @staticmethod
+    def parse(svg):
+        import xml.etree.ElementTree as ElementTree
+        namespace = "{http://www.w3.org/2000/svg}"
+        return [tuple(line.get(name) for name in ("x1", "y1", "x2", "y2"))
+                for line in ElementTree.fromstring(svg).iter(namespace + "line")]
 
 
 class PrintSvgStreamingTests(unittest.TestCase):
@@ -1531,7 +1731,7 @@ _PNG_SVG_SCRIPT = textwrap.dedent(
     layer = None
 
     def show(pos, sizes, shapes, outline_colors, outline_widths, edges=(), edge_width=1.0,
-             color=(1.0, 1.0, 1.0, 1.0)):
+             color=(1.0, 1.0, 1.0, 1.0), scores=None, auto=False):
         global layer
         pos = np.asarray(pos, dtype=np.float32)
         count = len(pos)
@@ -1545,16 +1745,19 @@ _PNG_SVG_SCRIPT = textwrap.dedent(
             layer = None
         edges = np.asarray(edges, dtype=np.int32).reshape(-1, 2)
         if len(edges):
-            layer = ViewerEdges(view.scene, edges, None, pos, (0.0, 0.0, 0.0, 1.0), edge_width)
+            layer = ViewerEdges(view.scene, edges, scores, pos, (0.0, 0.0, 0.0, 1.0), edge_width)
+            layer.set_opacity_by_score(auto)
             layer.visible = layer.show_threshold(pos, None, 0.0) > 0
             markers.order = 1
         config.EDGE_COLOR, config.EDGE_ALPHA, config.EDGE_WIDTH = "#000000", 1.0, edge_width
         config.UMAP_MODE = False
+        config.AUTO_EDGE_ALPHA = auto
         return SimpleNamespace(
             canvas=canvas, view=view, markers=markers, n_nodes=count,
             visible_mask=np.ones(count, dtype=bool), pos=pos, current_colors=colors,
             current_sizes=np.asarray(sizes, dtype=np.float32), current_shapes=np.array(shapes, dtype=object),
-            edges=edges, edge_scores=np.ones(len(edges)), current_slider_threshold=0.0, selected_indices=[],
+            edges=edges, edge_scores=np.ones(len(edges)) if scores is None else np.asarray(scores),
+            current_slider_threshold=0.0, selected_indices=[], edge_layer=layer,
             node_outlines=lambda: (outline_colors, outline_widths), background_job_scheduler=Scheduler(),
         )
 
@@ -1616,6 +1819,22 @@ _PNG_SVG_SCRIPT = textwrap.dedent(
                            [[0, 1], [2, 3], [4, 5], [6, 7]], 1.3), "edges")
     length = (2 * 180.0 + 2 * 80.0) * PPU * DPR
     results["edges"] = dict(frame(png, svg), png_ink=float(png.sum() / length), svg_ink=float(svg.sum() / length))
+
+    # Edges whose alpha follows their score (Auto): the PNG has them drawn by the shader, the SVG
+    # writes them in opacity bands; each edge is as dark on both. Scores 0.1 to 1: 15 % to 85 %.
+    pos = [[10.0, 20.0], [190.0, 20.0], [10.0, 50.0], [190.0, 50.0],
+           [10.0, 80.0], [190.0, 80.0], [10.0, 110.0], [190.0, 110.0]]
+    scores = [0.1, 0.4, 0.7, 1.0]
+    png, svg = prints(show(pos, [0.0] * 8, ["disc"] * 8, np.tile([0, 0, 0, 1.0], (8, 1)), [0.5] * 8,
+                           [[0, 1], [2, 3], [4, 5], [6, 7]], 1.3, scores=scores, auto=True), "auto_edges")
+
+    def edge_inks(cover):
+        # The ink of each edge: the coverage of the rows it lies in, one run of rows to an edge.
+        rows = np.flatnonzero(cover.max(axis=1) > 0.02)
+        runs = np.split(rows, np.flatnonzero(np.diff(rows) > 1) + 1)
+        return [float(cover[run[0]:run[-1] + 1].sum()) for run in runs]
+
+    results["auto_edges"] = dict(frame(png, svg), png_inks=edge_inks(png), svg_inks=edge_inks(svg))
 
     # One node of each marker, filled and outlined.
     shapes = {}
@@ -1716,6 +1935,19 @@ class PrintSvgMatchesPngTests(unittest.TestCase):
                 scene = self.compare(scale)["edges"]
                 self.assertAlmostEqual(scene["png_ink"], drawn, delta=0.05, msg=scene)
                 self.assertAlmostEqual(scene["svg_ink"] / scene["png_ink"], 1.0, delta=0.05, msg=scene)
+
+    def test_edges_whose_alpha_follows_the_score_are_as_dark_as_on_the_png(self):
+        # Four edges of scores 0.1, 0.4, 0.7 and 1 (listed from the top row down): opacities 85, 62, 38 and 15 %.
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                scene = self.compare(scale)["auto_edges"]
+                png, svg = scene["png_inks"], scene["svg_inks"]
+                self.assertEqual((len(png), len(svg)), (4, 4), scene)
+                # The PNG really draws them by score, the top row (score 1) darkest: 85 % to 15 %.
+                self.assertEqual(png, sorted(png, reverse=True), scene)
+                self.assertAlmostEqual(png[0] / png[3], 0.85 / 0.15, delta=0.6, msg=scene)
+                for edge, (on_png, on_svg) in enumerate(zip(png, svg)):
+                    self.assertAlmostEqual(on_svg / on_png, 1.0, delta=0.06, msg=(edge, scene))
 
     def test_every_shape_is_drawn_as_on_the_png(self):
         for scale in (1, 2):

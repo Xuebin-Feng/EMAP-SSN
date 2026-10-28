@@ -453,6 +453,46 @@ class UpdateEdgesTests(unittest.TestCase):
                     viewer.update_edges()
                     self.assertEqual(len(viewer.edge_layer.visual.drawn("threshold")), 4)
 
+    def test_auto_edge_alpha_makes_the_alpha_follow_the_scores_in_the_ssn_layout(self):
+        viewer = self.make_viewer()
+        layer = viewer.edge_layer
+        viewer.update_edges()
+        # Off, as it is by default, nothing is made.
+        self.assertEqual((layer.score_upload_count, layer.visual.grade_bytes()), (0, 0))
+        self.assertIsNone(layer.visual._score_opacity)
+        with mock.patch.object(cfg, "AUTO_EDGE_ALPHA", True):
+            viewer.update_edges()
+            self.assertTrue(layer.opacity_by_score)
+            self.assertEqual(layer.score_upload_count, 1)
+            self.assertEqual(layer.visual._score_opacity, layer.opacity_map(0.5))
+            # The threshold slider remaps without uploading.
+            uploads = (layer.upload_count, layer.score_upload_count)
+            viewer.current_slider_threshold = 0.2
+            viewer.update_edges()
+            self.assertEqual(layer.visual._score_opacity, layer.opacity_map(0.2))
+            self.assertEqual((layer.upload_count, layer.score_upload_count), uploads)
+        # Turned off again, the edges are drawn at the colour's alpha.
+        viewer.update_edges()
+        self.assertFalse(layer.opacity_by_score)
+        self.assertIsNone(layer.visual._score_opacity)
+
+    def test_a_manifold_layout_draws_the_same_whatever_auto_says(self):
+        drawn = {}
+        for auto in (False, True):
+            viewer = self.make_viewer()
+            viewer.current_slider_threshold = 0.0
+            viewer.selected_indices = [0, 2]
+            with mock.patch.object(cfg, "UMAP_MODE", True), mock.patch.object(cfg, "AUTO_EDGE_ALPHA", auto):
+                viewer.update_edges()
+                layer = viewer.edge_layer
+                drawn[auto] = (as_rows(layer.visual.drawn("explicit")), layer.visual.edge_style(),
+                               layer.visual._score_opacity, layer.opacity_by_score, layer.score_upload_count,
+                               layer.visual.grade_bytes(), layer.drawn_edge_count)
+        self.assertEqual(drawn[True], drawn[False])
+        rows, style, opacity, by_score, score_uploads, grade_bytes, count = drawn[True]
+        self.assertEqual((rows, count), ([(0, 1), (1, 2), (2, 3)], 3))
+        self.assertEqual((opacity, by_score, score_uploads, grade_bytes), (None, False, 0, 0))
+
     def test_no_edge_layer_is_a_no_op(self):
         viewer = self.make_viewer()
         viewer.edge_layer = None

@@ -48,6 +48,18 @@ def edge_stages(viewer, configuration, cache=False):
                     'visible_endpoint_edge_count': visible_count, 'rendered_edge_count': len(active)}
 
 
+def active_edge_scores(viewer, configuration):
+    """The scores of the edges edge_stages keeps, in its order, for a layout
+    that draws by threshold (one that does not follow the selection; see
+    edges_follow_selection)."""
+    edges = np.asarray(getattr(viewer, 'edges', ()), dtype=np.int32).reshape(-1, 2)
+    threshold = getattr(viewer, 'current_slider_threshold', getattr(configuration, 'SIMILARITY_THRESHOLD', 0.0))
+    scores = np.asarray(getattr(viewer, 'edge_scores', ()))
+    visible = np.asarray(getattr(viewer, "visible_mask", [True] * getattr(viewer, "n_nodes", len(getattr(viewer, "full_headers", ())))), dtype=bool)
+    qualified = scores >= threshold if len(scores) else np.ones(len(edges), dtype=bool)
+    return scores[qualified & visible[edges[:, 0]] & visible[edges[:, 1]]]
+
+
 def visual_overview(viewer, configuration):
     counts = edge_stages(viewer, configuration)[1]
     camera = getattr(getattr(viewer, 'view', None), 'camera', None)

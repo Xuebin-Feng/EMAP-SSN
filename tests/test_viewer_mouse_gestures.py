@@ -92,6 +92,9 @@ class RecordingEdges:
     def show_edges(self, positions, edges):
         return self.show_threshold(positions, None, 0.0)
 
+    def set_opacity_by_score(self, enabled):
+        return False
+
     def note_motion(self):
         pass
 

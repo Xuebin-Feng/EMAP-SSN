@@ -208,6 +208,41 @@ class HeadlessSettingsTests(HeadlessSettingsFixture, unittest.TestCase):
         self.assertEqual({key: exported["visualization"][key] for key in categories},
                          {key: True for key in categories})
 
+    def test_viewer_exports_carry_edge_opacity_auto_and_older_files_have_it_off(self):
+        """AUTO_EDGE_ALPHA: saved with the Config's settings, an export carries it; an overlay that
+        leaves it out keeps it, one that sets it wins; a document exported before it validates, as off."""
+        from desktop.Viewer_State import validate_viewer_document
+        saved = self.saved_config()
+        self.generate(export_config_settings("layout", self.root)["settings_document"])
+        settings = self.root / "viewer_settings.json"
+        # Nothing saved: off.
+        legacy = {key: value for key, value in saved.items() if key != "AUTO_EDGE_ALPHA"}
+        settings.write_text(json.dumps(legacy))
+        document = export_config_settings("viewer", self.root)["settings_document"]
+        self.assertIs(document["visualization"]["AUTO_EDGE_ALPHA"], False)
+        # Saved on, as the Config writes it.
+        settings.write_text(json.dumps({**legacy, "AUTO_EDGE_ALPHA": True}))
+        exported = export_config_settings("viewer", self.root)["settings_document"]
+        self.assertIs(exported["visualization"]["AUTO_EDGE_ALPHA"], True)
+        validated = validate_viewer_document(exported, self.root)
+        self.assertIs(validated["visualization"]["AUTO_EDGE_ALPHA"], True)
+        # An overlay without it keeps the saved value; an overlay with it wins.
+        overlay = self.root / "overlay.json"
+        overlay.write_text(json.dumps({"schema_version": 2, "kind": "viewer",
+                                       "visualization": {"NODE_SIZE": 5}}))
+        kept = export_config_settings("viewer", self.root, settings_path=overlay)["settings_document"]
+        self.assertIs(kept["visualization"]["AUTO_EDGE_ALPHA"], True)
+        overlay.write_text(json.dumps({"schema_version": 2, "kind": "viewer",
+                                       "visualization": {"AUTO_EDGE_ALPHA": False}}))
+        off = export_config_settings("viewer", self.root, settings_path=overlay)["settings_document"]
+        self.assertIs(off["visualization"]["AUTO_EDGE_ALPHA"], False)
+        # A document exported before the switch existed still validates, and is off.
+        older = copy.deepcopy(exported)
+        del older["visualization"]["AUTO_EDGE_ALPHA"]
+        self.assertIs(validate_viewer_document(older, self.root)["visualization"]["AUTO_EDGE_ALPHA"], False)
+        # A layout export has no visualization, so no such key.
+        self.assertNotIn("AUTO_EDGE_ALPHA", json.dumps(export_config_settings("layout", self.root)))
+
     def test_viewer_full_snapshot_newest_and_explicit_selection(self):
         self.saved_config()
         with self.assertRaisesRegex(ValueError, "No compatible"):

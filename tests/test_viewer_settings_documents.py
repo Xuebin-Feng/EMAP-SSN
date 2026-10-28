@@ -23,21 +23,99 @@ import Cache_Manifest
 from desktop.Viewer_State import (
     ALIASES,
     DEFAULTS,
+    DESKTOP_VISUAL_PROFILE_DEFAULTS,
     DIRECTORY_PROFILE_DEFAULTS,
     EMBEDDING_ALIAS,
+    LAYOUT_SECTIONS,
     VIEWER_SECTIONS,
+    VISUAL_PROFILE_DEFAULTS,
     ViewerSettingsError,
     alias_form,
     decode_document,
+    edge_opacity_follows_score,
     encode_document,
     get_viewer_settings_schema,
     normalize_viewer_paths,
+    normalize_viewer_settings,
+    optional_keys,
     resolve_viewer_document,
     validate_viewer_document,
 )
 from utilities.Headless_Settings import export_config_settings
 from tests.embedding_fixtures import write_embedding_file
 from tests.layout_fixtures import HeadlessSettingsFixture
+
+
+class EdgeOpacitySettingTests(unittest.TestCase):
+    """AUTO_EDGE_ALPHA, Edge Opacity's Auto switch: a setting of the desktop Viewer, off by default,
+    that an older document, profile or settings file does not have and so loads as off."""
+
+    FLAT = {"TARGET_CACHE_PATH": "", "NODE_FASTA_FILE": "set.fasta", "INPUT_HDF5": "network.h5",
+            "MSA_FILE": "", "UMAP_MODE": False, "SIMILARITY_THRESHOLD": 0.1, "TOP_EDGE_PERCENT": None}
+
+    def test_it_is_off_by_default_and_a_desktop_only_setting(self):
+        self.assertEqual(DESKTOP_VISUAL_PROFILE_DEFAULTS, {"AUTO_EDGE_ALPHA": False})
+        self.assertIs(DEFAULTS["AUTO_EDGE_ALPHA"], False)
+        # opt_vr's Config builds its Visual Effects profile from VISUAL_PROFILE_DEFAULTS, and draws
+        # no such switch: the key stays out of it, so that the VR front end is as it was.
+        self.assertNotIn("AUTO_EDGE_ALPHA", VISUAL_PROFILE_DEFAULTS)
+        self.assertEqual({key for key in DEFAULTS if key not in VISUAL_PROFILE_DEFAULTS
+                          and key in VIEWER_SECTIONS["visualization"]}, {"AUTO_EDGE_ALPHA"})
+
+    def test_a_viewer_document_holds_it_in_visualization_and_an_older_one_loads_as_off(self):
+        for value in (True, False):
+            with self.subTest(value=value):
+                document = encode_document("viewer", {**DEFAULTS, "AUTO_EDGE_ALPHA": value})
+                self.assertIs(document["visualization"]["AUTO_EDGE_ALPHA"], value)
+                self.assertIs(decode_document(document, "viewer")["AUTO_EDGE_ALPHA"], value)
+                # Through JSON, as an export is written and read.
+                self.assertIs(decode_document(json.loads(json.dumps(document)), "viewer")["AUTO_EDGE_ALPHA"], value)
+        older = encode_document("viewer", DEFAULTS)
+        del older["visualization"]["AUTO_EDGE_ALPHA"]
+        self.assertIs(decode_document(older, "viewer")["AUTO_EDGE_ALPHA"], False)
+        # An encoder given values without it writes it off.
+        without = {key: value for key, value in DEFAULTS.items() if key != "AUTO_EDGE_ALPHA"}
+        self.assertIs(encode_document("viewer", without)["visualization"]["AUTO_EDGE_ALPHA"], False)
+        self.assertIn("AUTO_EDGE_ALPHA", optional_keys("viewer"))
+        self.assertNotIn("AUTO_EDGE_ALPHA", optional_keys("layout"))
+        # A layout document has no visualization: the key is not there.
+        self.assertNotIn("AUTO_EDGE_ALPHA", [key for keys in LAYOUT_SECTIONS.values() for key in keys])
+
+    def test_the_schema_lists_it_as_an_optional_boolean(self):
+        section = get_viewer_settings_schema()["properties"]["visualization"]
+        self.assertEqual(section["properties"]["AUTO_EDGE_ALPHA"]["type"], "boolean")
+        self.assertIs(section["properties"]["AUTO_EDGE_ALPHA"]["default"], False)
+        self.assertNotIn("AUTO_EDGE_ALPHA", section["required"])
+
+    def test_an_overlay_without_it_keeps_the_saved_value_and_one_with_it_sets_it(self):
+        from utilities.Headless_Settings import overlay_edits
+        bare = {"schema_version": 2, "kind": "viewer", "visualization": {"NODE_SIZE": 5}}
+        self.assertNotIn("AUTO_EDGE_ALPHA", overlay_edits(bare, "viewer"))
+        for value in (True, False):
+            bare["visualization"]["AUTO_EDGE_ALPHA"] = value
+            self.assertIs(overlay_edits(bare, "viewer")["AUTO_EDGE_ALPHA"], value)
+
+    def test_flat_settings_take_a_boolean_and_refuse_anything_else(self):
+        with tempfile.TemporaryDirectory() as folder:
+            for given, expected in ((True, True), (False, False), ("true", True), ("0", False)):
+                with self.subTest(given=given):
+                    values = normalize_viewer_settings({**self.FLAT, "AUTO_EDGE_ALPHA": given}, folder,
+                                                       require_cache=False)
+                    self.assertIs(values["AUTO_EDGE_ALPHA"], expected)
+            self.assertIs(normalize_viewer_settings(self.FLAT, folder, require_cache=False)["AUTO_EDGE_ALPHA"], False)
+            with self.assertRaisesRegex(ViewerSettingsError, "AUTO_EDGE_ALPHA: expected a boolean"):
+                normalize_viewer_settings({**self.FLAT, "AUTO_EDGE_ALPHA": "maybe"}, folder, require_cache=False)
+
+    def test_it_applies_to_the_ssn_layout_method_only(self):
+        from types import SimpleNamespace
+        cases = ((True, False, True), (True, True, False), (False, False, False), (False, True, False))
+        for auto, umap_mode, expected in cases:
+            with self.subTest(auto=auto, umap_mode=umap_mode):
+                self.assertIs(edge_opacity_follows_score(
+                    SimpleNamespace(AUTO_EDGE_ALPHA=auto, UMAP_MODE=umap_mode)), expected)
+        # A configuration without it, such as a VR viewer's, is off.
+        self.assertIs(edge_opacity_follows_score(SimpleNamespace(UMAP_MODE=False)), False)
+        self.assertIs(edge_opacity_follows_score(SimpleNamespace()), False)
 
 
 class ViewerSettingsDocumentTests(HeadlessSettingsFixture, unittest.TestCase):

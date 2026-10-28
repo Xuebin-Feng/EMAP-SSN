@@ -742,7 +742,7 @@ exported before they existed):
 | `inputs` | `TARGET_CACHE_PATH`, `NODE_FASTA_FILE`, `INPUT_HDF5` |
 | `alignment` | `MSA_FILE`, `ALIGNMENT_REFERENCE`, `FILTER_MIN_OCCUPANCY`, `ALIGNMENT_OFFSET` |
 | `embedding` | `EMBED_FILE`, the optional protein language model embedding |
-| `visualization` | All visual-profile node, edge, text and color preferences, the Low Resource Mode categories (`FEWER_EDGES_WHILE_MOVING`, `LOW_RESOURCE_ANIMATIONS`, `LOW_RESOURCE_DRAWING`, `LOW_RESOURCE_WEBSERVER`) and `SHOW_FPS`; an older export's `LOW_RESOURCE_MODE` still loads, as the last three categories |
+| `visualization` | All visual-profile node, edge, text and color preferences, the Low Resource Mode categories (`FEWER_EDGES_WHILE_MOVING`, `LOW_RESOURCE_ANIMATIONS`, `LOW_RESOURCE_DRAWING`, `LOW_RESOURCE_WEBSERVER`), `SHOW_FPS` and `AUTO_EDGE_ALPHA` (Edge Opacity's Auto switch: each edge's opacity follows its score, for the SSN layout method only; an export without it loads with it `false`); an older export's `LOW_RESOURCE_MODE` still loads, as the last three categories |
 | `directories` | All directory-profile input-resolution and output directories |
 
 Export first, then change only intended fields. To select a cache during export,

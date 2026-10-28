@@ -201,6 +201,7 @@ from desktop.Viewer_Widgets import (
     ConsoleButton, ControlsButton, SIDEBAR_INSET, SidebarButton, SidebarPanel, ThresholdSpinBox, ZoomBox,
 )
 from desktop.Viewer_State import (
+    edge_opacity_follows_score,
     fewer_edges_while_moving,
     knn_topology_layout,
     low_resource_animations,
@@ -2658,7 +2659,9 @@ class MainViewer:
             return
         # The edge layer re-sends only what changed: the node positions (a
         # small texture), the visible edges, or the selection's edge list. A
-        # threshold change only changes how many score-sorted edges it draws.
+        # threshold change only changes how many score-sorted edges it draws,
+        # and, under Edge Opacity's Auto switch, what opacity each one has.
+        edge_layer.set_opacity_by_score(edge_opacity_follows_score(cfg))
         if edges_follow_selection(self, cfg):
             active_edges, _ = edge_stages(self, cfg, cache=True)
             drawn = edge_layer.show_edges(self.pos, active_edges)

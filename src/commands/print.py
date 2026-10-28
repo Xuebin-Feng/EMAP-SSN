@@ -28,12 +28,14 @@ from vispy.scene.visuals import VisualNode
 from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
 from commands.zoom import ZOOM_100_PERCENT_WIDTH, view_for_zoom, zoom_percent
+from desktop.Viewer_Edges import SCORE_ALPHA_MAX, SCORE_ALPHA_MIN
+from desktop.Viewer_State import edge_opacity_follows_score
 from utilities.Job_Cancellation import (
     CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled, remove_partial, replace_file,
 )
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
-from Viewer_Visual_State import edge_stages, opengl_failure_note
+from Viewer_Visual_State import active_edge_scores, edge_stages, opengl_failure_note
 
 def __getattr__(name):
     """print.mpimg, matplotlib's image writer, loads when it is first asked for.
@@ -75,6 +77,13 @@ CAPTURE_HIDDEN_OVERLAYS = (
 # The SVG is written as it is made, this many edges or nodes at a time, so a
 # large network never holds the whole document in memory.
 SVG_CHUNK_SIZE = 100_000
+# With Config's Auto switch beside Edge Opacity, the SVG's edges are written in
+# this many groups, one per opacity, evenly spaced from the lowest edge opacity
+# to the highest. Each edge takes the nearest, so its opacity is off by at most
+# half a step, (0.85 - 0.15) / 127 / 2 = 0.0028, which is 0.7 of an 8-bit
+# level of the strongest contrast: less than the one level the PNG's own
+# blending rounds to. (A file of 32 groups would be off by up to 1.4 levels.)
+SVG_OPACITY_BANDS = 128
 # Longest stretch of a full capture without letting Qt paint and run timers.
 CAPTURE_EVENT_INTERVAL_S = 0.1
 # A frame the window takes this long to show, its buffer swap waiting that long, is a window the desktop is not
@@ -593,6 +602,31 @@ def _svg_edge_chunks(pos, edges, target_min_x, target_max_y, tail):
         yield (template * len(chunk)) % tuple(coordinates.ravel().tolist())
 
 
+def _svg_edge_bands(alphas):
+    """The opacity bands of edges with these alphas (each from SCORE_ALPHA_MIN
+    to SCORE_ALPHA_MAX): the edges' order, by band from the most opaque to the
+    faintest and, within a band, as they were, and the (opacity, start, stop)
+    of each band that has edges, as slices of that order."""
+    alphas = np.asarray(alphas)
+    steps = SVG_OPACITY_BANDS - 1
+    band = np.empty(len(alphas), dtype=np.uint8)
+    for start in range(0, len(alphas), SVG_CHUNK_SIZE):
+        part = np.clip(alphas[start:start + SVG_CHUNK_SIZE].astype(np.float64), SCORE_ALPHA_MIN, SCORE_ALPHA_MAX)
+        band[start:start + SVG_CHUNK_SIZE] = np.rint(
+            (part - SCORE_ALPHA_MIN) / (SCORE_ALPHA_MAX - SCORE_ALPHA_MIN) * steps)
+    # A stable sort of 8-bit keys is a radix sort: linear in the edges.
+    order = np.argsort(steps - band, kind='stable')
+    counts = np.bincount(band, minlength=SVG_OPACITY_BANDS)
+    bands = []
+    start = 0
+    for index in range(steps, -1, -1):
+        if counts[index]:
+            opacity = SCORE_ALPHA_MIN + (SCORE_ALPHA_MAX - SCORE_ALPHA_MIN) * index / steps
+            bands.append((opacity, start, start + int(counts[index])))
+            start += int(counts[index])
+    return order, bands
+
+
 def _svg_node_chunks(cx, cy, d, kinds, colors, outline_colors, stroke_widths):
     """The node lines in drawing order, SVG_CHUNK_SIZE nodes at a time.
 
@@ -654,6 +688,22 @@ class _SvgSnapshot:
     outline_widths: np.ndarray
     pixel_scale: float = 1.0
     antialias: float = MARKER_ANTIALIAS_PX
+    # Each edge's alpha when Config's Auto switch beside Edge Opacity has the
+    # screen draw it by its score; None when every edge has edge_alpha.
+    edge_alphas: object = None
+
+
+def _svg_edge_alphas(viewer, edge_count):
+    """The alpha the screen draws each edge of the snapshot with when it follows
+    the edges' scores (the edge layer has Auto on), else None."""
+    layer = getattr(viewer, 'edge_layer', None)
+    if layer is None or not edge_opacity_follows_score(cfg):
+        return None
+    threshold = getattr(viewer, 'current_slider_threshold', getattr(cfg, 'SIMILARITY_THRESHOLD', 0.0))
+    alphas = layer.opacities_of(active_edge_scores(viewer, cfg), threshold)
+    if alphas is None or len(alphas) != edge_count:
+        return None
+    return alphas.astype(np.float32)
 
 
 def _svg_snapshot(viewer, view_width=None):
@@ -707,6 +757,7 @@ def _svg_snapshot(viewer, view_width=None):
         outline_widths=outline_widths,
         pixel_scale=_display_scale(viewer),
         antialias=_marker_antialias(viewer),
+        edge_alphas=_svg_edge_alphas(viewer, len(active_edges)),
     )
 
 
@@ -834,11 +885,33 @@ def _write_svg(snapshot, filepath):
         with open(partial_path, 'x', encoding='utf-8') as handle:
             handle.write('\n'.join(header) + '\n')
             handle.write('  <!-- Edges -->\n  <g id="edges" name="Edges">\n')
-            for text in _svg_edge_chunks(
-                snapshot.all_positions, snapshot.edges, target_min_x, target_max_y, edge_tail,
-            ):
-                raise_if_cancelled()
-                handle.write(text)
+            if snapshot.edge_alphas is None:
+                for text in _svg_edge_chunks(
+                    snapshot.all_positions, snapshot.edges, target_min_x, target_max_y, edge_tail,
+                ):
+                    raise_if_cancelled()
+                    handle.write(text)
+            else:
+                # The alpha follows each edge's score: the edges go out in
+                # groups of one opacity each, the most opaque (highest score)
+                # first, as the screen draws them. Each line states its own
+                # opacity, so that a reader that ignores the group's has it too.
+                edges = np.asarray(snapshot.edges).reshape(-1, 2)
+                order, bands = _svg_edge_bands(snapshot.edge_alphas)
+                for number, (opacity, first, last) in enumerate(bands, start=1):
+                    handle.write(
+                        f'    <g id="edges-band-{number}" name="Edges, opacity {opacity:.3f}" '
+                        f'stroke-opacity="{opacity:.3f}">\n')
+                    band_tail = f' {_svg_color_attrs((*edge_rgba[:3], opacity), is_stroke=True)}' \
+                                f' stroke-width="{edge_width:.3f}" />'
+                    for start in range(first, last, SVG_CHUNK_SIZE):
+                        members = edges[order[start:min(start + SVG_CHUNK_SIZE, last)]]
+                        for text in _svg_edge_chunks(
+                            snapshot.all_positions, members, target_min_x, target_max_y, band_tail,
+                        ):
+                            raise_if_cancelled()
+                            handle.write(text)
+                    handle.write('    </g>\n')
             handle.write('  </g>\n  <!-- Nodes -->\n  <g id="nodes" name="Nodes">\n')
             for text in _svg_node_chunks(
                 node_x, node_y, diameters, kinds, colors, snapshot.outline_colors, stroke_widths,

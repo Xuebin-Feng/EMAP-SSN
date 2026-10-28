@@ -663,7 +663,8 @@ class SliderOverlayTests(unittest.TestCase):
             viewer.edge_layer.drawn_edge_count = int(np.count_nonzero(scores >= threshold))
             return viewer.edge_layer.drawn_edge_count
 
-        viewer.edge_layer = SimpleNamespace(drawn_edge_count=edges, show_threshold=show_threshold, visible=True)
+        viewer.edge_layer = SimpleNamespace(drawn_edge_count=edges, show_threshold=show_threshold, visible=True,
+                                            set_opacity_by_score=lambda enabled: False)
         viewer.viewer_inspection = EMAPSSN_Viewer.ViewerInspectionService(
             viewer, SimpleNamespace(NODE_FASTA_FILE="set.fasta", INPUT_HDF5="", MSA_FILE="", TARGET_CACHE_PATH=None))
         self.app.processEvents()
