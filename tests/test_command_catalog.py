@@ -600,6 +600,16 @@ def run(viewer, args):
                 self.assertEqual(values.get('AGENT_PROMPT'), found.agent_prompt)
                 self.assertEqual(values.get('AGENT_PROMPT_ORDER'), found.agent_prompt_order)
 
+    def test_what_is_read_is_never_the_shared_constant(self):
+        from desktop.Command_Metadata import CLUSTER_MODE
+        source = "CATALOG_ENTRY = entry('x', CLUSTER_MODE)\n"
+        before = json.dumps(CLUSTER_MODE)
+        first = read(source).catalog_entry
+        first['arguments'][0]['choices'].append({'value': 'tampered', 'aliases': []})
+        first['arguments'][0]['description'] = 'tampered'
+        self.assertEqual(json.dumps(CLUSTER_MODE), before)
+        self.assertEqual(json.dumps(read(source).catalog_entry['arguments'][0]), before)
+
     def test_a_plain_dictionary_is_an_entry_too_and_a_word_is_a_policy(self):
         declared = read("CATALOG_ENTRY = {'summary': 'Plain.', 'arguments': [{'name': 'n', 'description': 'd', "
                         "'choices': [{'value': 'v', 'aliases': []}]}]}\nAGENT_POLICY = 'refuse'\ndef run(v, a): pass\n")
@@ -648,6 +658,7 @@ def run(viewer, args):
             'a deletion': "AGENT_POLICY = 'run'\ndel AGENT_POLICY",
             'an import of that name': "AGENT_POLICY = 'run'\nfrom elsewhere import AGENT_POLICY",
             'an import as that name': "AGENT_POLICY = 'run'\nimport elsewhere as AGENT_POLICY",
+            'a global statement': "AGENT_POLICY = 'run'\ndef f():\n    global AGENT_POLICY\n    return AGENT_POLICY",
         }
         for why, source in unreadable.items():
             with self.subTest(why):
@@ -668,6 +679,8 @@ def run(viewer, args):
             "CATALOG_ENTRY = entry(f'{1}')",
             "CATALOG_ENTRY = entry('x', argument('n', 'd', *[choice(s) for s in 'ab']))",
             "CATALOG_ENTRY = entry(UNKNOWN)",
+            "CATALOG_ENTRY = describe('A summary.')",
+            "CATALOG_ENTRY = entry(summary_of('A summary.'))",
             "CATALOG_ENTRY = entry(module.attribute)",
             "CATALOG_ENTRY = entry('x').copy()",
             "CATALOG_ENTRY = {**entry('x')}",
@@ -772,6 +785,24 @@ AGENT_PROMPT = compute_the_prompt()
 def run(viewer, args):
     return None
 '''
+# Not a command (no run()), whatever it declares.
+HELPER = '''AGENT_POLICY = 'run'
+AGENT_PROMPT = """
+`zhelper`
+- Not a command.
+"""
+
+
+def helper():
+    return 1
+'''
+# Declares a policy and nothing else.
+POLICY_ONLY = '''AGENT_POLICY = {'default': 'approve', 'first_argument': {'peek': 'run'}}
+
+
+def run(viewer, args):
+    return None
+'''
 
 
 class PluginDeclarationsTests(unittest.TestCase):
@@ -784,7 +815,7 @@ class PluginDeclarationsTests(unittest.TestCase):
         cls.addClassCleanup(cls.folder.cleanup)
         cls.commands = Path(cls.folder.name) / 'commands'
         shutil.copytree(COMMANDS_DIR, cls.commands, ignore=shutil.ignore_patterns('__pycache__'))
-        for name, source in {'zplain': PLAIN, 'zfull': FULL, 'zbroken': BROKEN}.items():
+        for name, source in {'zplain': PLAIN, 'zfull': FULL, 'zbroken': BROKEN, 'zhelper': HELPER, 'zpolicyonly': POLICY_ONLY}.items():
             (cls.commands / f'{name}.py').write_text(source, encoding='utf-8')
         cls.entries = {e['command']: e for e in command_catalog(commands_dir=cls.commands)['commands']}
 
@@ -843,6 +874,43 @@ class PluginDeclarationsTests(unittest.TestCase):
         self.assertNotIn('zbroken', AGENT_POLICY)
         self.assertEqual([(i.name, i.text, i.order) for i in agent_prompt_items() if i.name == 'zbroken'],
                          [('zbroken', None, None)])
+
+    def test_what_is_not_a_command_declares_nothing(self):
+        # A module without run() is not catalogued or offered, whatever it declares.
+        self.assertNotIn('zhelper', self.entries)
+        self.assertEqual(agent_policy('zhelper'), 'approve')
+        self.assertNotIn('zhelper', AGENT_POLICY)
+        self.assertEqual([item.name for item in agent_prompt_items() if item.name == 'zhelper'], [])
+
+    def test_a_module_that_declares_only_a_policy_is_handled_and_catalogued_by_it(self):
+        found = self.entries['zpolicyonly']
+        self.assertIs(found['metadata_declared'], False)
+        self.assertEqual(found['agent_policy'], {'default': 'approve', 'first_argument': {'peek': 'run'}})
+        self.assertEqual((agent_policy('zpolicyonly peek'), agent_policy('zpolicyonly')), ('run', 'approve'))
+        self.assertEqual(AGENT_POLICY['zpolicyonly'], found['agent_policy'])
+
+    def test_the_module_the_dispatch_would_load_is_the_one_that_counts(self):
+        # A folder earlier on the commands package's path (the VR viewer's has its own commands) shadows a module of
+        # a later one when the dispatch imports it, so it is its declarations that apply, or none.
+        with tempfile.TemporaryDirectory() as folder:
+            (Path(folder) / 'zoom.py').write_text('def run(viewer, args):\n    return None\n', encoding='utf-8')
+            with mock.patch.object(Command_Metadata, 'command_directories', return_value=[Path(folder), self.commands]):
+                self.assertEqual(agent_policy('zoom 200'), 'approve')
+                self.assertNotIn('zoom', AGENT_POLICY)
+                self.assertEqual([(i.name, i.text) for i in agent_prompt_items() if i.name == 'zoom'], [('zoom', None)])
+                self.assertEqual(agent_policy('color red'), 'run')
+                # The main program's own catalog, which the VR viewer's help reads, is not hidden by it.
+                with mock.patch.object(Command_Metadata, 'COMMANDS_DIR', self.commands):
+                    self.assertIn('zoom', COMMAND_METADATA)
+                    self.assertEqual(get_command_metadata('zoom')['agent_policy']['default'], 'run')
+
+    def test_only_export_and_label_take_the_question_mark_for_help(self):
+        for name in SHIPPED:
+            help_choices = [item for item in self.entries[name]['arguments'] if item['name'] == 'help']
+            self.assertEqual(len(help_choices), 1, name)
+            self.assertEqual([word for choice in help_choices[0]['choices'] for word in (choice['value'], *choice['aliases'])],
+                             ['help', '-h', '-?', '--help'] if name in ('export', 'label') else ['help', '-h', '--help'], name)
+            self.assertEqual(self.entries[name]['arguments'][-1], help_choices[0], 'the help argument comes last')
 
     def test_the_shipped_commands_are_untouched_by_the_plugins(self):
         shipped = {e['command']: e for e in command_catalog()['commands']}
