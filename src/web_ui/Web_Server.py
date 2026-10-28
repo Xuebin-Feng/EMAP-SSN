@@ -253,6 +253,7 @@ def served_type(filepath):
     """The content type the server gives the file ``filepath``, or None when it serves no such file."""
     return MIME_TYPES.get(os.path.splitext(filepath)[1].lower())
 
+
 # Content-Security-Policy sent with every HTML page. Inline <script> blocks
 # run only by their SHA-256 hashes, computed from the file being served, so
 # markup injected into a page (event-handler attributes, javascript: URLs)
@@ -427,8 +428,10 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         """Answer a request for the file ``relative`` names inside ``directory``.
 
         A path that leaves ``directory`` is 403. A file that is not there, or
-        whose extension is not one of MIME_TYPES (the extension of the path
-        contained_path returns, which is the file's own spelling), is 404.
+        whose extension is not one of MIME_TYPES, is 404. The extension is read
+        from the path contained_path returns, which is the file's own name: on
+        Windows a trailing dot, which the system drops when it opens the file,
+        does not hide a ``.py``.
         """
         filepath = contained_path(directory, relative)
         if filepath is None:
