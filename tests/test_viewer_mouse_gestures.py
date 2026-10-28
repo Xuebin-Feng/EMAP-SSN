@@ -18,8 +18,9 @@ on_mouse_release).
 * Shift while dragging nodes holds the move to one of eight directions, and the wheel's
   rotation never moves it.
 * The wheel during a drag turns the nodes 5 degrees a notch about the press, Shift or not.
-* Ctrl + right-drag from a selected node turns the selection about its centre, following the
-  pointer, full turns included; Shift rounds the angle to 15 degrees.
+* Ctrl + right-drag from a selected node turns the selection about the exact point where the
+  button went down, following the pointer, full turns included. The angle is measured from where
+  the pointer first leaves 15 px of that point, so nothing jumps; Shift rounds it to 15 degrees.
 * Ctrl + wheel turns the selection 5 degrees a notch about the cursor, a run of notches being
   one turn and one undo step, and the camera does not zoom meanwhile: its wrapper gets the
   scene's own copy of the event, so CameraWheelTests send notches through a real canvas.
@@ -967,63 +968,133 @@ class RotationTests(GestureTestCase):
 
 
 # =====================================================================
-# Ctrl + right-drag turns the selection about its centre
+# Ctrl + right-drag turns the selection about the press point
 # =====================================================================
 
-class TurnByDragTests(GestureTestCase):
-    """The selection is nodes 1 and 3, at (40, 0) and (120, 0): its centre is (80, 0).
+class ViewTransform:
+    """A node transform for a view that has panned and zoomed: the canvas place c is the place c * scale + offset
+    in the network (a vector of four, as VisPy's transforms and IdentityTransforms give)."""
 
-    Pressing on node 1 puts the pointer at angle 180 degrees about the centre, 40 px out.
+    def __init__(self, scale, offset):
+        self.scale, self.offset = float(scale), np.asarray(offset, dtype=float)
+
+    def map(self, point):
+        place = np.asarray(point, dtype=float)[:2] * self.scale + self.offset
+        return np.array([place[0], place[1], 0.0, 1.0])
+
+    def imap(self, point):
+        place = (np.asarray(point, dtype=float)[:2] - self.offset) / self.scale
+        return np.array([place[0], place[1], 0.0, 1.0])
+
+
+class TurnByDragTests(GestureTestCase):
+    """The selection is nodes 1 and 3, at (40, 0) and (120, 0); its bounding box is centred on (80, 0).
+
+    The press is on node 1 but off its centre, at (42.5, 1.5): that exact place is the pivot, not
+    node 1's centre and not the box's. The pointer is at the pivot at the press, so it has no angle
+    about it until it first leaves the dead zone; start_turn takes it out to 180 degrees, 40 px
+    away, and the angle is measured from there.
     """
 
-    CENTRE = np.array([80.0, 0.0])
+    PRESS = np.array([42.5, 1.5])
+    PIVOT = PRESS
+    BOX_CENTRE = np.array([80.0, 0.0])
+    FIRST = 180.0
 
     def setUp(self):
         super().setUp()
         self.viewer = self.make_viewer(selected=[1, 3])
         self.start = self.places(self.viewer, [1, 3])
 
-    def start_turn(self, viewer=None, modifiers=CTRL):
+    def press_turn(self, viewer=None, modifiers=CTRL, where=None):
+        """Press the right button, with Ctrl, on a selected node, at `where` (the press point by default)."""
         viewer = viewer or self.viewer
-        self.press(viewer, *NODE[1], modifiers=modifiers)
+        self.press(viewer, *(self.PRESS if where is None else where), modifiers=modifiers)
         self.assertTrue(viewer.is_multi_dragging)
 
-    def at(self, angle, radius=40.0, centre=None, viewer=None, modifiers=()):
-        """Move the pointer to the place at angle degrees about the centre, radius px out."""
-        centre = self.CENTRE if centre is None else centre
-        radians = np.radians(angle)
-        return self.move(viewer or self.viewer, centre[0] + radius * np.cos(radians),
-                         centre[1] + radius * np.sin(radians), modifiers=modifiers)
+    def start_turn(self, viewer=None, modifiers=CTRL):
+        """Press and take the pointer out of the dead zone, to FIRST degrees about the pivot: nothing has moved."""
+        viewer = viewer or self.viewer
+        self.press_turn(viewer, modifiers)
+        self.at(self.FIRST, viewer=viewer)
 
-    def round_about(self, degrees, first=180.0, step=10.0, radius=40.0, viewer=None, modifiers=()):
-        """Move the pointer round the centre from angle `first` by `degrees` more, in steps."""
+    def at(self, angle, radius=40.0, pivot=None, viewer=None, modifiers=()):
+        """Move the pointer to the place at angle degrees about the pivot, radius px out."""
+        pivot = self.PIVOT if pivot is None else pivot
+        radians = np.radians(angle)
+        return self.move(viewer or self.viewer, pivot[0] + radius * np.cos(radians),
+                         pivot[1] + radius * np.sin(radians), modifiers=modifiers)
+
+    def round_about(self, degrees, first=FIRST, step=10.0, radius=40.0, viewer=None, modifiers=()):
+        """Move the pointer round the pivot from angle `first` by `degrees` more, in steps."""
         for index in range(1, int(round(abs(degrees) / step)) + 1):
             self.at(first + np.sign(degrees) * step * index, radius, viewer=viewer, modifiers=modifiers)
 
-    def turned(self, degrees, centre=None):
-        return self.rotated(self.start, self.CENTRE if centre is None else centre, degrees)
+    def turned(self, degrees, pivot=None):
+        return self.rotated(self.start, self.PIVOT if pivot is None else pivot, degrees)
 
-    def test_the_centre_is_the_middle_of_the_selections_bounding_box_not_the_mean(self):
-        viewer = self.make_viewer(selected=[0, 1, 5])      # at x = 0, 40 and 200: the middle is 100, the mean 80
+    def test_the_pivot_is_the_exact_press_point_not_the_nodes_centre_nor_the_selections(self):
+        # Pressed anywhere on a selected node's disc, off its centre: that place is the pivot. The
+        # offsets are within the pick (a node of size 10 takes a press about 5 px out).
+        for node, offset in ((1, (2.5, 1.5)), (1, (-3.0, 2.0)), (1, (1.0, -3.5)), (1, (-2.0, -2.5)),
+                              (1, (3.0, 0.0)), (3, (-2.0, 3.0)), (3, (3.5, -1.0)), (3, (0.0, 0.0))):
+            with self.subTest(node=node, offset=offset):
+                viewer = self.make_viewer(selected=[1, 3])
+                press = np.array(NODE[node]) + offset
+                self.press_turn(viewer, where=press)
+                np.testing.assert_array_equal(viewer._drag_turn.pivot, press)
+                self.at(0, pivot=press, viewer=viewer)                  # out to the first angle: 0 degrees
+                self.at(90, pivot=press, viewer=viewer)                 # a quarter turn on
+                self.assert_places(viewer, [1, 3], self.rotated(self.start, press, 90.0))
+                if any(offset):      # a different pivot would have put the nodes somewhere else
+                    for other in (NODE[node], self.BOX_CENTRE):
+                        self.assertFalse(np.allclose(self.places(viewer, [1, 3]),
+                                                     self.rotated(self.start, other, 90.0), atol=0.5))
+
+    def test_the_pivot_is_the_press_point_whatever_the_selections_extent(self):
+        # Nodes 0, 1 and 5 lie at x = 0, 40 and 200: the box's middle is 100 and the mean of the nodes 80.
+        viewer = self.make_viewer(selected=[0, 1, 5])
         start = self.places(viewer, [0, 1, 5])
-        self.press(viewer, *NODE[5], modifiers=CTRL)
+        press = np.array([NODE[5][0] + 2.0, NODE[5][1] + 2.0])
+        self.press(viewer, *press, modifiers=CTRL)
+        np.testing.assert_array_equal(viewer._drag_turn.pivot, press)
+        self.at(0, pivot=press, viewer=viewer)
         for angle in range(10, 100, 10):
-            self.move(viewer, 100 + 100 * np.cos(np.radians(angle)), 100 * np.sin(np.radians(angle)))
-        self.assert_places(viewer, [0, 1, 5], self.rotated(start, [100.0, 0.0], 90.0))
-        np.testing.assert_allclose(viewer.pos[5, :2], [100.0, 100.0], atol=1e-3)         # on the pointer
+            self.at(angle, pivot=press, viewer=viewer)
+        self.assert_places(viewer, [0, 1, 5], self.rotated(start, press, 90.0))
 
     def test_the_nodes_follow_the_pointer_and_only_its_direction_counts(self):
         for degrees in (30, 100, 170, -50, -120, -170):
             with self.subTest(degrees=degrees):
                 viewer = self.make_viewer(selected=[1, 3])
                 self.start_turn(viewer)
-                self.at(180 + degrees, radius=25 + abs(degrees), viewer=viewer)          # one move, any distance
+                self.at(self.FIRST + degrees, radius=25 + abs(degrees), viewer=viewer)    # one move, any distance
                 self.assert_places(viewer, [1, 3], self.turned(degrees))
-                # The node pressed lies in the pointer's direction from the centre.
-                node = viewer.pos[1, :2] - self.CENTRE
-                pointer = np.array([np.cos(np.radians(180 + degrees)), np.sin(np.radians(180 + degrees))])
-                self.assertAlmostEqual(float(node[0] * pointer[1] - node[1] * pointer[0]), 0.0, delta=1e-3)
-                self.assertGreater(float(np.dot(node, pointer)), 0.0)
+
+    def test_the_angle_is_measured_from_the_first_point_outside_the_dead_zone_and_nothing_jumps(self):
+        for first in (0.0, 70.0, 180.0, 250.0, -135.0):
+            with self.subTest(first=first):
+                viewer = self.make_viewer(selected=[1, 3])
+                self.press_turn(viewer)
+                self.assertIsNone(viewer._drag_turn.last)             # at the pivot, the pointer has no angle
+                self.at(first + 20, radius=6.0, viewer=viewer)        # past the click radius, inside the dead zone
+                np.testing.assert_array_equal(self.places(viewer, [1, 3]), self.start)
+                self.assertIsNone(viewer._drag_turn.last)
+                self.assertEqual(self.status(viewer), [])
+                self.at(first, radius=15.5, viewer=viewer)            # the first point outside: the reference
+                np.testing.assert_array_equal(self.places(viewer, [1, 3]), self.start)      # exactly: no jump
+                self.assertIsNotNone(viewer._drag_turn.last)
+                self.assertEqual(viewer._drag_turn.degrees, 0.0)
+                self.assertEqual(self.status(viewer), ["Rotate 0°"])
+                self.at(first + 90, radius=60.0, viewer=viewer)       # a quarter turn on, from that reference
+                self.assert_places(viewer, [1, 3], self.turned(90.0))
+
+    def test_a_fast_drag_that_leaves_the_dead_zone_in_its_first_move_takes_that_move_as_the_reference(self):
+        self.press_turn()
+        self.at(33.0, radius=80.0)                            # past the click radius and the dead zone at once
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
+        self.at(63.0, radius=80.0)
+        self.assert_places(self.viewer, [1, 3], self.turned(30.0))
 
     def test_two_circles_make_720_degrees(self):
         for direction in (1, -1):
@@ -1033,10 +1104,17 @@ class TurnByDragTests(GestureTestCase):
                 self.round_about(direction * 540, viewer=viewer)                         # one and a half circles
                 self.assertAlmostEqual(viewer._drag_turn.degrees, direction * 540.0, places=6)
                 self.assert_places(viewer, [1, 3], self.turned(180.0))
-                self.round_about(direction * 180, first=180 + direction * 540, viewer=viewer)    # to two
+                self.round_about(direction * 180, first=self.FIRST + direction * 540, viewer=viewer)    # to two
                 self.assertAlmostEqual(viewer._drag_turn.degrees, direction * 720.0, places=6)
                 self.assert_places(viewer, [1, 3], self.start)
                 self.assertEqual(self.status(viewer)[-1], f"Rotate {direction * 720}°")
+
+    def test_one_circle_makes_360_degrees(self):
+        self.start_turn()
+        self.round_about(360)
+        self.assertAlmostEqual(self.viewer._drag_turn.degrees, 360.0, places=6)
+        self.assertEqual(self.status(self.viewer)[-1], "Rotate 360°")
+        self.assert_places(self.viewer, [1, 3], self.start)
 
     def test_a_step_across_the_half_turn_is_taken_the_short_way(self):
         self.start_turn()
@@ -1059,23 +1137,56 @@ class TurnByDragTests(GestureTestCase):
         self.at(270, radius=30)                            # out again: 50 degrees on from where it left (220)
         self.assert_places(self.viewer, [1, 3], self.turned(90.0))
 
-    def test_the_dead_zone_ends_fifteen_pixels_out(self):
-        self.start_turn()
+    def test_the_dead_zone_ends_fifteen_pixels_from_the_press_point(self):
+        self.press_turn()
         self.at(210, radius=14.99)
+        self.assertIsNone(self.viewer._drag_turn.last)     # still no reference
+        self.at(210, radius=15.01)                         # the first point outside: the reference
+        self.assertIsNotNone(self.viewer._drag_turn.last)
         np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
-        self.at(210, radius=15.01)
+        self.at(240, radius=14.99)                         # in again: holds
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
+        self.at(240, radius=15.01)
         self.assert_places(self.viewer, [1, 3], self.turned(30.0))
 
-    def test_a_press_inside_the_dead_zone_takes_its_angle_at_the_first_point_outside(self):
-        viewer = self.make_viewer(selected=[1, 2, 3])        # the centre is (80, 0): node 2 is on it
-        start = self.places(viewer, [1, 2, 3])
-        self.press(viewer, *NODE[2], modifiers=CTRL)
-        self.move(viewer, 86, 0)                             # past the click's radius, still inside the dead zone
-        np.testing.assert_array_equal(self.places(viewer, [1, 2, 3]), start)
-        self.move(viewer, 80, 30)                            # the first point outside, at angle 90: no jump
-        self.assert_places(viewer, [1, 2, 3], start)
-        self.move(viewer, 50, 0)                             # a quarter turn on, to angle 180
-        self.assert_places(viewer, [1, 2, 3], self.rotated(start, [80.0, 0.0], 90.0))
+    def test_the_dead_zone_is_round_the_press_point_not_the_selections_centre(self):
+        self.start_turn()
+        # 5 px from the box's centre, 37 px from the press point: outside the dead zone, so it turns.
+        self.move(self.viewer, 80.0, 5.0)
+        swept = np.degrees(np.arctan2(5.0 - self.PIVOT[1], 80.0 - self.PIVOT[0])) - self.FIRST
+        self.assert_places(self.viewer, [1, 3], self.turned(swept))
+        # 10 px from the press point, 37 from the box's centre: inside, so the angle holds.
+        before = self.viewer.pos.copy()
+        self.move(self.viewer, self.PIVOT[0] - 10.0, self.PIVOT[1])
+        np.testing.assert_array_equal(self.viewer.pos, before)
+
+    def test_the_pivot_stays_where_it_was_in_the_network_when_the_view_pans_or_zooms_mid_drag(self):
+        viewer = self.viewer
+        self.start_turn(viewer)
+        self.at(200, viewer=viewer)                        # 20 degrees on
+        np.testing.assert_array_equal(viewer._drag_turn.pivot, self.PIVOT)
+
+        def canvas_place(view, angle, radius):
+            """The canvas place `radius` px from where the pivot is drawn in this view, at angle in the network."""
+            radians = np.radians(angle)
+            return view.imap(self.PIVOT)[:2] + radius * np.array([np.cos(radians), np.sin(radians)])
+
+        # The view zooms in twofold and pans: the canvas place c is now c / 2 + (30, -20) in the network.
+        zoomed = ViewTransform(0.5, (30.0, -20.0))
+        viewer.canvas.scene = SimpleNamespace(node_transform=lambda _scene: zoomed)
+        before = viewer.pos.copy()
+        self.move(viewer, *canvas_place(zoomed, 250, 14.5))          # inside the dead zone of the pivot as drawn now
+        np.testing.assert_array_equal(viewer.pos, before)
+        self.move(viewer, *canvas_place(zoomed, 250, 15.5))          # outside: 70 degrees from the reference
+        self.assert_places(viewer, [1, 3], self.turned(70.0))
+        # It pans and zooms out: still the same place in the network.
+        panned = ViewTransform(4.0, (-90.0, 60.0))
+        viewer.canvas.scene = SimpleNamespace(node_transform=lambda _scene: panned)
+        self.move(viewer, *canvas_place(panned, 300, 30.0))
+        self.assert_places(viewer, [1, 3], self.turned(120.0))
+        np.testing.assert_array_equal(viewer._drag_turn.pivot, self.PIVOT)
+        self.release(viewer, 0, 0)
+        self.assert_places(viewer, [1, 3], self.turned(120.0))
 
     def test_shift_rounds_the_angle_to_steps_of_15_degrees(self):
         self.assertEqual(ROTATE_SNAP_DEGREES, 15.0)
@@ -1083,10 +1194,10 @@ class TurnByDragTests(GestureTestCase):
             with self.subTest(degrees=degrees):
                 viewer = self.make_viewer(selected=[1, 3])
                 self.start_turn(viewer)
-                self.at(180 + degrees, radius=100, viewer=viewer, modifiers=SHIFT)
+                self.at(self.FIRST + degrees, radius=100, viewer=viewer, modifiers=SHIFT)
                 self.assert_places(viewer, [1, 3], self.turned(held))
                 self.assertEqual(self.status(viewer)[-1], f"Rotate {held}°")
-                self.at(180 + degrees, radius=101, viewer=viewer)              # Shift let go: free again
+                self.at(self.FIRST + degrees, radius=101, viewer=viewer)       # Shift let go: free again
                 self.assert_places(viewer, [1, 3], self.turned(degrees))
 
     def test_shift_held_at_the_press_as_well_still_turns_and_removes_nothing(self):
@@ -1097,17 +1208,19 @@ class TurnByDragTests(GestureTestCase):
         self.assertEqual(self.viewer.selected_indices, [1, 3])
 
     def test_the_nodes_wait_for_the_click_radius(self):
-        self.start_turn()
-        self.move(self.viewer, NODE[1][0], 4.9)
+        self.press_turn()
+        self.move(self.viewer, self.PRESS[0], self.PRESS[1] + 4.9)
         np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
         self.assertEqual(self.status(self.viewer), [])
-        self.move(self.viewer, NODE[1][0], 5.0)               # 5 px: a drag, turned from the press
-        swept = np.degrees(np.arctan2(5.0, -40.0)) - 180.0
-        self.assert_places(self.viewer, [1, 3], self.turned(swept))
+        self.assertTrue(self.viewer._drag_in_click)           # still a click
+        self.move(self.viewer, self.PRESS[0], self.PRESS[1] + 5.0)        # 5 px: a drag, though no turn yet
+        self.assertFalse(self.viewer._drag_in_click)
+        np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)      # the dead zone holds it
+        self.assertEqual(self.status(self.viewer), [])
 
     def test_a_ctrl_click_without_a_drag_turns_nothing(self):
-        self.start_turn()
-        self.release(self.viewer, *NODE[1])
+        self.press_turn()
+        self.release(self.viewer, *self.PRESS)
         np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
         self.assertEqual(self.viewer.selected_indices, [1, 3])
         self.assertEqual(self.status(self.viewer), [])
@@ -1146,7 +1259,7 @@ class TurnByDragTests(GestureTestCase):
         self.assertEqual(viewer.selected_indices, [1, 3])
 
     def test_a_cancel_before_the_click_radius_is_left_changes_nothing(self):
-        self.start_turn()
+        self.press_turn()
         self.assertTrue(self.esc(self.viewer).handled)
         np.testing.assert_array_equal(self.places(self.viewer, [1, 3]), self.start)
         self.assertEqual(self.viewer.position_history, [])
@@ -1159,12 +1272,12 @@ class TurnByDragTests(GestureTestCase):
         self.assertTrue(wheel.handled)
         np.testing.assert_array_equal(self.viewer.pos, before)
         self.assertAlmostEqual(self.viewer._drag_turn.degrees, 40.0, places=6)
-        self.round_about(10, first=220)                      # and the drag goes on
+        self.round_about(10, first=self.FIRST + 40)          # and the drag goes on
         self.assertAlmostEqual(self.viewer._drag_turn.degrees, 50.0, places=6)
 
     def test_it_is_refused_where_moving_is_refused(self):
         with mock.patch.object(EMAPSSN_Viewer, "knn_topology_layout", return_value=True):
-            self.press(self.viewer, *NODE[1], modifiers=CTRL)
+            self.press(self.viewer, *self.PRESS, modifiers=CTRL)
             self.assertFalse(self.viewer.is_multi_dragging)
             self.assertIsNone(self.viewer._drag_turn)
             self.at(250)
@@ -1186,12 +1299,12 @@ class TurnByDragTests(GestureTestCase):
         self.assert_places(self.viewer, [1, 3], self.turned(30.0))
 
     def test_the_status_line_shows_the_angle_when_it_changes(self):
-        self.start_turn()
+        self.start_turn()                                    # the turn takes hold at 0 degrees
         self.at(217)
         self.at(217.04)                                      # the same to a tenth of a degree
         self.at(217.5)
         self.at(142.0)                                       # -38
-        self.assertEqual(self.status(self.viewer), ["Rotate 37°", "Rotate 37.5°", "Rotate -38°"])
+        self.assertEqual(self.status(self.viewer), ["Rotate 0°", "Rotate 37°", "Rotate 37.5°", "Rotate -38°"])
 
     def test_the_turn_goes_on_the_selection_without_changing_it(self):
         self.start_turn()
@@ -1258,7 +1371,7 @@ class TurnByWheelTests(GestureTestCase):
         self.notch(x=200, y=100)
         self.notch(x=-30, y=-90)
         self.assert_places(self.viewer, [1, 2], self.turned(15.0))
-        np.testing.assert_allclose(self.viewer._wheel_turn.centre, [60, 30])
+        np.testing.assert_allclose(self.viewer._wheel_turn.pivot, [60, 30])
 
     def test_notches_back_and_forth_add_up(self):
         for _ in range(4):
@@ -1297,7 +1410,7 @@ class TurnByWheelTests(GestureTestCase):
                 self.assertFalse(self.timer(viewer).running)
                 self.notch(x=10, y=10, viewer=viewer)
                 self.assertEqual(len(viewer.position_history), 2)
-                self.assertTrue(np.allclose(viewer._wheel_turn.centre, [10, 10]))
+                self.assertTrue(np.allclose(viewer._wheel_turn.pivot, [10, 10]))
 
     def test_another_key_let_go_does_not(self):
         self.notch()
@@ -1570,7 +1683,7 @@ class CameraWheelTests(GestureTestCase):
                     self.play_out(viewer)
                     self.assertEqual(self.view_of(viewer), self.RECT)
                     self.assert_places(viewer, [1, 2], self.rotated(start, self.FIRST_PLACE, 5.0 * notches))
-                np.testing.assert_allclose(viewer._wheel_turn.centre, self.FIRST_PLACE, atol=1e-6)
+                np.testing.assert_allclose(viewer._wheel_turn.pivot, self.FIRST_PLACE, atol=1e-6)
                 # A second without a notch ends the turn; the next one takes the cursor's place as its pivot.
                 viewer._wheel_turn_timer.fire()
                 turned = self.places(viewer, [1, 2])

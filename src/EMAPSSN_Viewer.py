@@ -310,7 +310,7 @@ CLICK_DISTANCE_PIXELS = 5.0
 ROTATE_DEGREES_PER_NOTCH = 5.0
 # Shift holds a Ctrl + right-drag turn to a multiple of this, in degrees.
 ROTATE_SNAP_DEGREES = 15.0
-# A Ctrl + right-drag turn holds still this close (px on the canvas) to the selection's centre.
+# A Ctrl + right-drag turn holds still this close (px on the canvas) to the pivot, the press point.
 ROTATE_DEAD_ZONE_PIXELS = 15.0
 # A run of Ctrl + wheel notches is one turn, and one undo step, until this long (s) passes with no notch.
 WHEEL_TURN_IDLE_SECONDS = 1.0
@@ -485,18 +485,20 @@ def _snapped_offset(offset):
 class _Turn:
     """Selected nodes being turned, by a Ctrl + right-drag or by Ctrl + wheel notches.
 
-    The nodes turn about centre from `start`, their places when the turn began, so the turn
-    adds up without drift and Esc has the places to put back. A drag also keeps the angle the
-    pointer last had about the centre (`last`), the angle it has swept in all (`swept`, radians,
-    over full turns too), and `shown`, the angle the status line gives.
+    The nodes turn about pivot, a place in the network (the point a drag was pressed at, or
+    the cursor of a wheel turn's first notch), from `start`, their places when the turn
+    began, so the turn adds up without drift and Esc has the places to put back. A drag also
+    keeps the angle the pointer last had about the pivot (`last`, None until it first leaves
+    the dead zone), the angle it has swept in all (`swept`, radians, over full turns too), and
+    `shown`, the angle the status line gives.
     """
 
-    __slots__ = ("indices", "start", "centre", "degrees", "last", "swept", "shown")
+    __slots__ = ("indices", "start", "pivot", "degrees", "last", "swept", "shown")
 
-    def __init__(self, indices, start, centre):
+    def __init__(self, indices, start, pivot):
         self.indices = indices
         self.start = start
-        self.centre = np.asarray(centre, dtype=float)
+        self.pivot = np.array(pivot, dtype=float)   # a copy: the pivot never moves with its source
         self.degrees = 0.0
         self.last = None
         self.swept = 0.0
@@ -3263,13 +3265,11 @@ class MainViewer:
                     self._press_history = press_history
                     self._drag_translation = np.zeros(2)
                     if was_selected and ctrl:
-                        # A turn about the centre of the selection's bounding box.
-                        low, high = self.drag_start_nodes_pos.min(axis=0), self.drag_start_nodes_pos.max(axis=0)
-                        turn = _Turn(*self._node_drag_press, (low + high) / 2.0)
-                        # The angle the press is at, if it is clear of the centre.
-                        if self._clear_of_centre(turn, tr, event.pos):
-                            turn.last = self._angle_about(turn, mouse_world)
-                        self._drag_turn = turn
+                        # A turn about the press point, the exact place under the pointer, which
+                        # stays the pivot for the whole drag. The pointer is at the pivot, so it
+                        # has no angle yet: the first move out of the dead zone takes it
+                        # (_turn_by_drag), and the nodes do not move then.
+                        self._drag_turn = _Turn(*self._node_drag_press, mouse_world)
                         self._drag_in_click = True
                     elif was_selected and shift:
                         self._remove_on_click = nearest_idx
@@ -4278,9 +4278,9 @@ class MainViewer:
         self._restart_timer('_wheel_turn_timer', WHEEL_TURN_IDLE_SECONDS, self._end_wheel_turn)
 
     def _show_turn(self, turn, degrees):
-        """Put the nodes of turn where degrees about its centre takes them, and show them and the angle."""
+        """Put the nodes of turn where degrees about its pivot takes them, and show them and the angle."""
         turn.degrees = degrees
-        self.pos[turn.indices, :2] = _rotated_about(turn.start, turn.centre, degrees)
+        self.pos[turn.indices, :2] = _rotated_about(turn.start, turn.pivot, degrees)
         self._redraw_moved_nodes()
         shown = f"{round(degrees, 1) + 0.0:g}"
         if shown != turn.shown:
@@ -4314,23 +4314,29 @@ class MainViewer:
 
     @staticmethod
     def _angle_about(turn, mouse_world):
-        """The angle (radians) of a place in the network about the centre of turn."""
-        return float(np.arctan2(mouse_world[1] - turn.centre[1], mouse_world[0] - turn.centre[0]))
+        """The angle (radians) of a place in the network about the pivot of turn."""
+        return float(np.arctan2(mouse_world[1] - turn.pivot[1], mouse_world[0] - turn.pivot[0]))
 
     @staticmethod
-    def _clear_of_centre(turn, transform, cursor):
-        """Whether the cursor, at canvas place cursor, is outside the dead zone around the centre of turn."""
-        centre = transform.imap(turn.centre)[:2]
-        return np.hypot(*(np.asarray(cursor[:2], dtype=float) - centre)) >= ROTATE_DEAD_ZONE_PIXELS
+    def _clear_of_pivot(turn, transform, cursor):
+        """Whether the cursor, at canvas place cursor, is outside the dead zone around the pivot of turn.
+
+        The pivot is a place in the network, so its canvas place is looked up each time: the
+        dead zone stays round it if the view changes meanwhile.
+        """
+        pivot = transform.imap(turn.pivot)[:2]
+        return np.hypot(*(np.asarray(cursor[:2], dtype=float) - pivot)) >= ROTATE_DEAD_ZONE_PIXELS
 
     def _turn_by_drag(self, turn, event, mouse_world, transform):
-        """The pointer moved during a Ctrl + right-drag: turn the nodes by the angle it has swept about the centre.
+        """The pointer moved during a Ctrl + right-drag: turn the nodes by the angle it has swept about the pivot.
 
         The angle is added up from the changes between one move and the next, each taken the
         short way round, so that the pointer can go round more than once. It holds still within
-        ROTATE_DEAD_ZONE_PIXELS of the centre; Shift rounds it to ROTATE_SNAP_DEGREES.
+        ROTATE_DEAD_ZONE_PIXELS of the pivot, the press point; Shift rounds it to ROTATE_SNAP_DEGREES.
+        The pointer's first move out of the dead zone only takes the angle it is at as the one to
+        turn from (`last` is None until then), so the nodes do not jump.
         """
-        if not self._clear_of_centre(turn, transform, event.pos):
+        if not self._clear_of_pivot(turn, transform, event.pos):
             return
         angle = self._angle_about(turn, mouse_world)
         if turn.last is not None:
