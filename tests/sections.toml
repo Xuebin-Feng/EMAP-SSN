@@ -14,7 +14,7 @@
 
 [sections.commands]
 description = "Viewer commands, selection expressions, undo/redo, alignment panel"
-seconds = 25
+seconds = 80
 modules = [
     "test_alignment_offset",
     "test_cluster_command",

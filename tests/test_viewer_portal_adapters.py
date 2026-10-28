@@ -48,7 +48,9 @@ class PortalHTTPTests(SnapshotHTTPFixture, unittest.TestCase):
         detailed = self.request('get_command_catalog', {'command': 'reset'})['payload']
         self.assertTrue(all(entry['help'] is None for entry in general['commands']))
         self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['commands'][0]['syntax'])
-        self.assertIn('order, layer', detailed['commands'][0]['help'])
+        # The help is read from the source; the targets are declared by the commands, so it has a line in their place.
+        for part in ('Network Reset Tool', '<each target the commands declare', 'Examples:'):
+            self.assertIn(part, detailed['commands'][0]['help'])
         self.assertIn('summary', detailed['commands'][0])
         self.assertIn('targets', [a['name'] for a in detailed['commands'][0]['arguments']])
         self.assertEqual(len(portal.requests), before)
