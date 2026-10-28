@@ -8,6 +8,12 @@ what it must: a threshold change nothing, a node move the position texture,
 hiding nodes the edge buffer once. The GL tests render the old Line visual
 and the new one on a real GL canvas and compare their pixels, and check that
 the stencil overdraw limit (EdgeStencilLimit) leaves every pixel as it was.
+
+Edge Opacity's Auto switch makes each edge's alpha follow its score: the tests
+check the grades and the map the shader gets, that nothing is made or uploaded
+until it is first on or by a threshold move, that the explicit (selection)
+edges and the fallback ignore it, and, on a real GL canvas, the alpha each
+edge is drawn with.
 """
 import os
 import subprocess
@@ -33,6 +39,10 @@ from desktop import Viewer_Edges  # noqa: E402
 from desktop.Viewer_Edges import (  # noqa: E402
     EdgeOrder,
     EdgeSegmentsVisual,
+    SCORE_ALPHA_MAX,
+    SCORE_ALPHA_MIN,
+    SCORE_GRADES,
+    ScoreOpacity,
     TEXTURE_WIDTH,
     ViewerEdges,
     _contiguous_line_positions,
@@ -40,7 +50,10 @@ from desktop.Viewer_Edges import (  # noqa: E402
     _edge_segment_positions,
     position_texels,
     position_texture_enabled,
+    score_grades,
+    score_opacity,
 )
+from desktop.Viewer_Motion import MotionDetail  # noqa: E402
 
 
 def random_network(seed, nodes=60, edges=400):
@@ -63,16 +76,29 @@ class RecordingSegmentsVisual(EdgeSegmentsVisual):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.uploaded = {}
+        self.uploaded_grades = {}
 
     def set_segments(self, key, edges, **kwargs):
         self.uploaded[key] = np.array(edges, copy=True)
         super().set_segments(key, edges, **kwargs)
+
+    def _upload_grades(self, key, vertex_grades):
+        self.uploaded_grades[key] = np.array(vertex_grades, copy=True)
+        super()._upload_grades(key, vertex_grades)
 
     def drawn(self, key):
         return self.uploaded[key][: self.segment_count]
 
 
 RecordingSegments = create_visual_node(RecordingSegmentsVisual)
+
+
+class NoGpuTimer:
+    """MotionDetail's GPU timer when there is none to ask: draws are just drawn."""
+    available = False
+
+    def time(self, draw, tag, on_result):
+        draw()
 
 
 def recording_layer(edges, scores, positions, **kwargs):
@@ -458,6 +484,361 @@ class UpdateEdgesTests(unittest.TestCase):
             viewer.draw_network()
             self.assertIsNone(viewer.edge_layer)
             self.assertEqual(layer_class.call_count, 1)
+
+
+class ScoreOpacityTests(unittest.TestCase):
+    """The grades a score is kept as, and the opacity a grade gets (the shader's uniforms)."""
+
+    def test_the_grades_span_the_range_in_65536_steps(self):
+        scores = np.array([0.0, 0.25, 0.5, 1.0, 0.125], dtype=np.float32)
+        grades = score_grades(scores, 0.0, 1.0)
+        self.assertEqual(grades.dtype, np.uint16)
+        self.assertEqual(SCORE_GRADES, 65536)
+        self.assertEqual(grades.tolist(), [0, 16384, 32768, 65535, 8192])
+        # The range need not start at 0, and scores outside it are clamped.
+        outside = score_grades(np.array([-1.0, 2.0, 2.5, 3.0, 9.0]), 2.0, 3.0)
+        self.assertEqual(outside.tolist(), [0, 0, 32768, 65535, 65535])
+
+    def test_a_high_threshold_still_has_a_thousand_grades(self):
+        # 100 thousand scores over the network's range, a threshold keeping the top 2 %.
+        scores = np.linspace(0.0, 1.0, 100_000, dtype=np.float32)
+        kept = score_grades(scores[scores >= 0.98], 0.0, 1.0)
+        self.assertGreater(len(np.unique(kept)), 1000)
+
+    def test_grades_do_not_depend_on_the_chunk_or_the_dtype(self):
+        rng = np.random.default_rng(1)
+        scores = rng.normal(size=1000).astype(np.float32)
+        whole = score_grades(scores, float(scores.min()), float(scores.max()))
+        with mock.patch.object(Viewer_Edges, "_GRADE_CHUNK", 7):
+            np.testing.assert_array_equal(
+                score_grades(scores, float(scores.min()), float(scores.max())), whole)
+        np.testing.assert_array_equal(
+            score_grades(scores.astype(np.float64), float(scores.min()), float(scores.max())), whole)
+
+    def test_scores_without_a_span_have_grade_zero(self):
+        scores = np.full(5, 0.4, dtype=np.float32)
+        for low, high in ((0.4, 0.4), (0.5, 0.4), (float("nan"), 1.0), (0.0, float("inf"))):
+            with self.subTest(low=low, high=high):
+                self.assertEqual(score_grades(scores, low, high).tolist(), [0] * 5)
+        self.assertEqual(len(score_grades(np.empty(0), 0.0, 1.0)), 0)
+
+    def test_the_lowest_score_is_15_percent_and_the_highest_85(self):
+        self.assertEqual((SCORE_ALPHA_MIN, SCORE_ALPHA_MAX), (0.15, 0.85))
+        opacity = score_opacity(0.2, 0.9, 0.0, 1.0)
+        low, high = score_grades(np.array([0.2, 0.9]), 0.0, 1.0)
+        alphas = opacity.alphas([low, 0.5 * (int(low) + int(high)), high])
+        np.testing.assert_allclose(alphas, [0.15, 0.5, 0.85], atol=2e-5)
+        # Straight between them, and held at the ends beyond them.
+        np.testing.assert_allclose(opacity.alphas([0, 65535]), [0.15, 0.85])
+        grades = np.linspace(low, high, 9)
+        np.testing.assert_allclose(np.diff(opacity.alphas(grades)), 0.7 / 8, atol=2e-5)
+
+    def test_the_uniforms_are_four_numbers(self):
+        opacity = score_opacity(0.25, 0.75, 0.0, 1.0)
+        self.assertIsInstance(opacity, ScoreOpacity)
+        self.assertEqual(len(opacity), 4)
+        grade_low, grade_scale, alpha_low, alpha_high = opacity
+        self.assertAlmostEqual(grade_low, 0.25 * 65535)
+        self.assertAlmostEqual(1.0 / grade_scale, 0.5 * 65535)
+        self.assertEqual((alpha_low, alpha_high), (0.15, 0.85))
+
+    def test_equal_scores_are_all_85_percent(self):
+        for opacity in (score_opacity(0.4, 0.4, 0.4, 0.4), score_opacity(0.4, 0.4, 0.0, 1.0),
+                        # A spread of under half a grade is none.
+                        score_opacity(0.4, 0.4 + 1e-6, 0.0, 1.0),
+                        score_opacity(0.0, 0.0, float("nan"), 1.0)):
+            with self.subTest(opacity=opacity):
+                np.testing.assert_allclose(opacity.alphas([0, 20000, 65535]), 0.85)
+
+
+class OpacityByScoreLayerTests(unittest.TestCase):
+    """ViewerEdges.set_opacity_by_score: what it makes, when, and what draws."""
+
+    def make(self, count=400, seed=21, **kwargs):
+        edges, scores, positions = random_network(seed, edges=count)
+        layer = recording_layer(edges, scores, positions, **kwargs)
+        return layer, edges, scores, positions
+
+    def grades_of(self, layer):
+        scores = layer.order.scores
+        return score_grades(scores, scores[-1], scores[0])
+
+    def test_nothing_is_made_until_the_opacity_first_follows_the_score(self):
+        layer, _, _, positions = self.make()
+        layer.show_threshold(positions, None, 0.3)
+        layer.show_threshold(positions, None, 0.6)
+        self.assertEqual((layer.score_upload_count, layer.visual.grade_bytes()), (0, 0))
+        self.assertIsNone(layer._grades)
+        self.assertIsNone(layer.visual._score_opacity)
+        self.assertTrue(layer.set_opacity_by_score(True))
+        # Asking makes nothing either: the next show_threshold does.
+        self.assertEqual((layer.score_upload_count, layer.visual.grade_bytes()), (0, 0))
+        layer.show_threshold(positions, None, 0.3)
+        self.assertEqual(layer.score_upload_count, 1)
+        # A float32 at each of an edge's two vertices.
+        self.assertEqual(layer.visual.grade_bytes(), 8 * len(layer.order))
+        expected = np.repeat(self.grades_of(layer).astype(np.float32), 2)
+        np.testing.assert_array_equal(layer.visual.uploaded_grades["threshold"], expected)
+        self.assertIsNotNone(layer.visual._score_opacity)
+
+    def test_a_threshold_move_remaps_and_uploads_nothing(self):
+        layer, _, scores, positions = self.make()
+        layer.set_opacity_by_score(True)
+        layer.show_threshold(positions, None, 0.0)
+        counts = (layer.upload_count, layer.score_upload_count, layer.position_upload_count)
+        buffers = (layer.visual._buffers["threshold"], layer.visual._grade_buffers["threshold"])
+        seen = []
+        for threshold in (0.3, 0.5, 0.8, 0.97, 0.0, 0.5):
+            layer.show_threshold(positions, None, threshold)
+            opacity = layer.visual._score_opacity
+            seen.append(opacity)
+            self.assertEqual(opacity, layer.opacity_map(threshold))
+            # The lowest score at or above the threshold is 15 %, the top score 85 %.
+            drawn = scores[scores >= threshold]
+            low, high = score_grades(np.array([drawn.min(), drawn.max()]), scores.min(), scores.max())
+            np.testing.assert_allclose(opacity.alphas([low, high]), [0.15, 0.85], atol=2e-3)
+        self.assertEqual(len(set(seen)), 5)  # a move remaps; the same threshold again is the same map
+        self.assertEqual(seen[1], seen[-1])
+        self.assertEqual(
+            (layer.upload_count, layer.score_upload_count, layer.position_upload_count), counts)
+        self.assertIs(layer.visual._buffers["threshold"], buffers[0])
+        self.assertIs(layer.visual._grade_buffers["threshold"], buffers[1])
+
+    def thinned(self):
+        """A layer that keeps thinned copies of even 400 edges."""
+        patcher = mock.patch.object(Viewer_Edges, "MIN_SUBSET_SEGMENTS", 10)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return self.make(motion=MotionDetail(enabled=True, gpu_timer=NoGpuTimer()))
+
+    def test_the_shader_gets_the_map_and_the_thinning(self):
+        layer, _, scores, positions = self.thinned()
+        layer.set_opacity_by_score(True)
+        layer.show_threshold(positions, None, 0.4)
+        visual = layer.visual
+        for k in (1, 4, 16):
+            visual.detail = k
+            visual._bound = None
+            visual._bind()
+            self.assertEqual(visual.shared_program["u_thinning"], float(k))
+            self.assertEqual(visual.shared_program["u_alpha_map"], tuple(layer.opacity_map(0.4)))
+        # The colour's own alpha is not what is drawn.
+        self.assertEqual(visual.shared_program["u_color"], (0, 0, 0, 0.5))
+
+    def test_a_thinned_copy_keeps_the_grades_of_its_edges(self):
+        layer, _, _, positions = self.thinned()
+        layer.show_threshold(positions, None, 0.0)
+        layer.set_opacity_by_score(True)
+        layer.show_threshold(positions, None, 0.0)
+        grades = self.grades_of(layer)
+        recorded = layer.visual.uploaded_grades
+        np.testing.assert_array_equal(recorded["threshold"], np.repeat(grades.astype(np.float32), 2))
+        for k in (4, 16, 64):
+            np.testing.assert_array_equal(
+                recorded[("threshold", k)], np.repeat(grades[::k].astype(np.float32), 2))
+            self.assertEqual(layer.visual._grade_buffers[("threshold", k)].size,
+                             layer.visual._buffers[("threshold", k)].size)
+
+    def test_hiding_nodes_rebuilds_the_grades_with_the_edges(self):
+        layer, _, _, positions = self.make()
+        layer.set_opacity_by_score(True)
+        visible = np.ones(len(positions), dtype=bool)
+        visible[:12] = False
+        # The grades are made after the nodes were hidden, ...
+        layer.show_threshold(positions, visible, 0.2)
+        grades = self.grades_of(layer)
+        edges = layer.order.edges
+        keep = visible[edges[:, 0]] & visible[edges[:, 1]]
+        np.testing.assert_array_equal(
+            layer.visual.uploaded_grades["threshold"], np.repeat(grades[keep].astype(np.float32), 2))
+        # ... and follow every later change of what is visible.
+        for hidden in (slice(20, 30), slice(0, 0), slice(5, 40)):
+            visible[:] = True
+            visible[hidden] = False
+            layer.show_threshold(positions, visible.copy(), 0.2)
+            keep = visible[edges[:, 0]] & visible[edges[:, 1]]
+            np.testing.assert_array_equal(
+                layer.visual.uploaded_grades["threshold"],
+                np.repeat(grades[keep].astype(np.float32), 2))
+            self.assertEqual(layer.visual.grade_bytes(), 8 * int(keep.sum()))
+        # Hiding costs no new map, and the opacity still comes from the edges at the threshold.
+        self.assertEqual(layer.visual._score_opacity, layer.opacity_map(0.2))
+
+    def test_the_opacity_comes_from_the_threshold_not_from_which_nodes_are_hidden(self):
+        layer, _, _, positions = self.make()
+        layer.set_opacity_by_score(True)
+        layer.show_threshold(positions, None, 0.3)
+        shown = layer.visual._score_opacity
+        visible = np.ones(len(positions), dtype=bool)
+        visible[:30] = False
+        layer.show_threshold(positions, visible, 0.3)
+        self.assertEqual(layer.visual._score_opacity, shown)
+
+    def test_a_selections_edges_are_drawn_at_the_colours_alpha_and_make_no_grades(self):
+        layer, edges, _, positions = self.make()
+        layer.set_opacity_by_score(True)
+        layer.show_edges(positions, edges[:30])
+        self.assertEqual((layer.score_upload_count, layer.visual.grade_bytes()), (0, 0))
+        self.assertIsNone(layer._grades)
+        self.assertIsNone(layer.visual._score_opacity)
+        self.assertNotIn("explicit", layer.visual._grade_buffers)
+        self.assertEqual(layer.visual.edge_style(), ((0.0, 0.0, 0.0, 0.5), 1.0))
+        layer.show_threshold(positions, None, 0.3)
+        self.assertEqual(layer.score_upload_count, 1)
+        self.assertIsNotNone(layer.visual._score_opacity)
+        bytes_ = layer.visual.grade_bytes()
+        layer.show_edges(positions, edges[:30])
+        layer.show_edges(positions, edges[5:25])
+        self.assertIsNone(layer.visual._score_opacity)
+        self.assertNotIn("explicit", layer.visual._grade_buffers)
+        self.assertEqual((layer.score_upload_count, layer.visual.grade_bytes()), (1, bytes_))
+
+    def test_the_shaders_follow_the_opacity_even_when_it_is_on_from_the_first_show(self):
+        # The scene node's own opacity (1.0) is left alone, and a layer that is
+        # never shown plain first still gets the shaders of an alpha by score.
+        layer, _, _, positions = self.make()
+        visual = layer.visual
+        self.assertEqual(visual.opacity, 1.0)
+        self.assertNotIn("v_alpha", visual.shared_program._fcode)
+        layer.set_opacity_by_score(True)
+        layer.show_threshold(positions, None, 0.3)
+        self.assertIn("v_alpha", visual.shared_program._fcode)
+        self.assertIn("a_grade", visual.shared_program._vcode)
+        self.assertEqual(visual.opacity, 1.0)
+        layer.set_opacity_by_score(False)
+        layer.show_threshold(positions, None, 0.3)
+        self.assertNotIn("v_alpha", visual.shared_program._fcode)
+        self.assertNotIn("a_grade", visual.shared_program._vcode)
+        self.assertEqual(visual.opacity, 1.0)
+
+    def test_turning_it_off_draws_plain_and_back_on_uploads_nothing_new(self):
+        layer, _, _, positions = self.make()
+        layer.set_opacity_by_score(True)
+        layer.show_threshold(positions, None, 0.3)
+        self.assertFalse(layer.set_opacity_by_score(False))
+        layer.show_threshold(positions, None, 0.3)
+        self.assertIsNone(layer.visual._score_opacity)
+        self.assertEqual(layer.visual.edge_style(), ((0.0, 0.0, 0.0, 0.5), 1.0))
+        self.assertIsNone(layer.opacities_of(np.array([0.5]), 0.3))
+        layer.set_opacity_by_score(True)
+        layer.show_threshold(positions, None, 0.3)
+        self.assertIsNotNone(layer.visual._score_opacity)
+        self.assertEqual(layer.score_upload_count, 1)
+
+    def test_the_fallback_draws_at_the_sliders_alpha_and_says_why_once(self):
+        edges, scores, positions = random_network(11)
+        said = []
+        layer = ViewerEdges(None, edges, scores, positions, (0, 0, 0, 0.5), 1.0,
+                            use_position_texture=False, report=said.append)
+        for _ in range(3):
+            self.assertFalse(layer.set_opacity_by_score(True))
+            layer.show_threshold(positions, None, 0.3)
+        self.assertEqual(len(said), 1)
+        self.assertIn("coordinate fallback", said[0])
+        self.assertIn("Edge Opacity", said[0])
+        self.assertFalse(layer.opacity_by_score)
+        self.assertIsInstance(layer.visual, Viewer_Edges.LimitedLine)
+        np.testing.assert_allclose(layer.visual.color, (0, 0, 0, 0.5))
+        self.assertIsNone(layer.opacities_of(scores, 0.3))
+        # Turning it off says nothing more.
+        layer.set_opacity_by_score(False)
+        self.assertEqual(len(said), 1)
+
+    def test_edges_without_scores_are_drawn_at_the_sliders_alpha_and_it_says_so(self):
+        edges, _, positions = random_network(12)
+        said = []
+        layer = ViewerEdges(None, edges, None, positions, (0, 0, 0, 0.5), 1.0,
+                            use_position_texture=True, report=said.append)
+        self.assertFalse(layer.set_opacity_by_score(True))
+        self.assertFalse(layer.set_opacity_by_score(True))
+        self.assertEqual(len(said), 1)
+        self.assertIn("no scores", said[0])
+        self.assertEqual(layer.show_threshold(positions, None, 0.3), len(edges))
+        self.assertIsNone(layer.visual._score_opacity)
+
+    def test_opacities_of_scores_follow_the_map_the_layer_draws(self):
+        layer, _, scores, positions = self.make()
+        layer.set_opacity_by_score(True)
+        layer.show_threshold(positions, None, 0.4)
+        drawn = scores[scores >= 0.4]
+        alphas = layer.opacities_of(drawn, 0.4)
+        self.assertAlmostEqual(float(alphas.min()), 0.15, delta=2e-3)
+        self.assertAlmostEqual(float(alphas.max()), 0.85, delta=1e-6)
+        self.assertTrue((np.diff(alphas[np.argsort(drawn)]) >= -1e-12).all())
+
+
+class OpacityGenerationTests(unittest.TestCase):
+    """What the image cache keys a picture by: the opacity map is part of it."""
+
+    def layer(self):
+        edges, scores, positions = random_network(31)
+        layer = recording_layer(edges, scores, positions)
+        layer.show_threshold(positions, None, 0.0)
+        return layer, positions
+
+    def test_the_opacity_bumps_the_generation_and_changes_the_style(self):
+        layer, positions = self.layer()
+        visual = layer.visual
+        style = visual.edge_style()
+        layer.set_opacity_by_score(True)
+        generation = visual.generation
+        layer.show_threshold(positions, None, 0.0)
+        self.assertGreater(visual.generation, generation)
+        self.assertNotEqual(visual.edge_style(), style)
+        self.assertEqual(visual.edge_style()[:2], style)
+        # A new map is a new picture; the same one again is not.
+        for threshold in (0.4, 0.7):
+            before = visual.generation, visual.edge_style()
+            layer.show_threshold(positions, None, threshold)
+            self.assertGreater(visual.generation, before[0])
+            self.assertNotEqual(visual.edge_style(), before[1])
+        before = visual.generation, visual.edge_style()
+        layer.show_threshold(positions, None, 0.7)
+        self.assertEqual((visual.generation, visual.edge_style()), before)
+        # Turned off, the picture is the plain one again.
+        layer.set_opacity_by_score(False)
+        layer.show_threshold(positions, None, 0.7)
+        self.assertGreater(visual.generation, before[0])
+        self.assertEqual(visual.edge_style(), style)
+
+    def test_the_cache_key_changes_with_auto_and_with_the_map(self):
+        layer, positions = self.layer()
+        visual = layer.visual
+
+        def key():
+            # The generation is held still, so that only the style can tell the keys apart.
+            proxy = SimpleNamespace(
+                generation=3, edge_style=visual.edge_style, stencil_limit=SimpleNamespace(enabled=True),
+                transforms=SimpleNamespace(get_transform=lambda map_from, map_to: FakeTransform()))
+            canvas = SimpleNamespace(physical_size=(400, 300), pixel_scale=1.0,
+                                     bgcolor=SimpleNamespace(rgba=(1.0, 1.0, 1.0, 1.0)))
+            return Viewer_Edges._picture_key(proxy, canvas)
+
+        keys = [key()]
+        layer.set_opacity_by_score(True)
+        layer.show_threshold(positions, None, 0.0)
+        keys.append(key())
+        layer.show_threshold(positions, None, 0.5)
+        keys.append(key())
+        layer.set_opacity_by_score(False)
+        layer.show_threshold(positions, None, 0.5)
+        keys.append(key())
+        self.assertEqual(keys[3], keys[0])
+        self.assertEqual(len(set(keys[:3])), 3)
+
+    def test_new_grades_bump_the_generation(self):
+        layer, positions = self.layer()
+        layer.set_opacity_by_score(True)
+        generation = layer.visual.generation
+        layer.show_threshold(positions, None, 0.0)
+        self.assertGreater(layer.visual.generation, generation)
+        hidden = np.ones(len(positions), dtype=bool)
+        hidden[:5] = False
+        generation = layer.visual.generation
+        layer.show_threshold(positions, hidden, 0.0)
+        self.assertGreater(layer.visual.generation, generation)
+        with self.assertRaisesRegex(ValueError, "grades for the"):
+            layer.visual.set_grades("threshold", np.zeros(3, dtype=np.uint16))
 
 
 class FakeGL:
@@ -1350,6 +1731,25 @@ _CACHE_SCRIPT = textwrap.dedent(
         cache.enabled = True
         results.append(("capture", int(counts != (cache.render_count, cache.reuse_count)),
                         int((printed != printed_direct).any(axis=2).sum())))
+    # Edge Opacity's Auto switch: the picture the cache holds is drawn with the alpha by score,
+    # and a new threshold, new hidden nodes or Auto turned off draw a new one.
+    layer = layers[True]
+    for other in layers.values():
+        other.visible = other is layer
+    layer.visual.set_color((0.5, 0.5, 0.5, 0.1))
+    layer.show_threshold(pos, None, -1.0)
+    layer.set_opacity_by_score(True)
+    layer.show_threshold(pos, None, -1.0)
+    check("auto on")
+    layer.show_threshold(pos, None, 0.5)
+    check("auto threshold")
+    hidden = np.ones(len(pos), dtype=bool)
+    hidden[40:55] = False
+    layer.show_threshold(pos, hidden, 0.5)
+    check("auto hidden")
+    layer.set_opacity_by_score(False)
+    layer.show_threshold(pos, hidden, 0.5)
+    check("auto off")
     for name, drew, differ in results:
         print("CASE", name.replace(" ", "_"), drew, differ, flush=True)
 
@@ -1398,6 +1798,7 @@ class EdgeImageCachePixelTests(unittest.TestCase):
                 "explicit_edges", "colour_and_alpha", "width", "edges_shown", "background",
                 "overdraw_limit_off", "overdraw_limit_on")
     COPIES = ("unchanged", "hover", "hud_text")
+    AUTO = ("auto_on", "auto_threshold", "auto_hidden", "auto_off")
 
     def test_cached_frames_equal_direct_ones(self):
         for scale in (1, 2):
@@ -1405,7 +1806,7 @@ class EdgeImageCachePixelTests(unittest.TestCase):
                 output = run_gl_script(self, _CACHE_SCRIPT, scale)
                 cases = [line.split()[1:] for line in output.splitlines() if line.startswith("CASE ")]
                 failures = [line.split()[1:] for line in output.splitlines() if line.startswith("FAIL ")]
-                self.assertEqual(len(cases), 2 * (3 + len(self.TRIGGERS) + len(self.COPIES)), output)
+                self.assertEqual(len(cases), 2 * (3 + len(self.TRIGGERS) + len(self.COPIES)) + len(self.AUTO), output)
                 for name, drew, differ in cases:
                     with self.subTest(case=name):
                         self.assertEqual(int(differ), 0, output)
@@ -1447,6 +1848,313 @@ class EdgeStencilLimitPixelTests(unittest.TestCase):
                 self.assertEqual(contrasting, 12)
                 self.assertEqual(engaged, contrasting, output)
                 self.assertEqual(printed_differ, 0, output)
+
+
+_OPACITY_SCRIPT = textwrap.dedent(
+    """
+    import sys
+    from unittest import mock
+    import numpy as np
+    sys.path.insert(0, sys.argv[1])
+    from vispy import app, gloo, scene
+    from desktop import Viewer_Edges as VE
+    from desktop import Viewer_Motion as VM
+    app.use_app("pyside6")
+    WIDTH, HEIGHT = 200, 130
+    canvas = scene.SceneCanvas(size=(WIDTH, HEIGHT), bgcolor="white", show=False, config=dict(stencil_size=8))
+    view = canvas.central_widget.add_view()
+    view.camera = scene.PanZoomCamera(aspect=1)
+    view.camera.set_range(x=(0, WIDTH), y=(0, HEIGHT), margin=0)
+
+    def rows(count, step):
+        # Edge i is a horizontal line along its own row, on a pixel's middle.
+        pos = np.zeros((2 * count, 2), dtype=np.float32)
+        for i in range(count):
+            pos[2 * i] = (20, 4.5 + step * i)
+            pos[2 * i + 1] = (180, 4.5 + step * i)
+        return pos, np.array([[2 * i, 2 * i + 1] for i in range(count)], dtype=np.int32)
+
+    def measure(image, i, step):
+        # The darkest pixel at the middle of edge i's row: 255 less what the edge added to the white.
+        scale = canvas.pixel_scale
+        row = int(round((HEIGHT - (4.5 + step * i)) * scale))
+        return int(image[max(0, row - 2):row + 2, int(100 * scale), 0].min())
+
+    def differing(a, b):
+        return int((a != b).any(axis=2).sum())
+
+    COLOR = (0.0, 0.0, 0.0, 0.3)
+    N, STEP = 8, 12
+    pos, edges = rows(N, STEP)
+    scores = np.array([0.2, 0.9, 0.5, 1.0, 0.0, 0.7, 0.35, 0.6], dtype=np.float32)
+    layers = []
+
+    def make(edges_, scores_, pos_, **options):
+        layer = VE.ViewerEdges(view.scene, edges_, scores_, pos_, COLOR, 1.0, use_position_texture=True, **options)
+        layer.show_threshold(pos_, None, -1.0)
+        layer.visible = False
+        layers.append(layer)
+        return layer
+
+    def only(layer):
+        for other in layers:
+            other.visible = other is layer
+
+    plain = make(edges, scores, pos)
+    only(plain)
+    plain.visible = True
+    if (canvas.render()[..., 0] < 250).sum() == 0:
+        sys.exit(3)
+    print("CONTEXT OK", flush=True)
+    print("SCALE", canvas.pixel_scale, flush=True)
+
+    def expected(alpha):
+        return 255.0 * (1.0 - alpha)
+
+    def alpha_of(score, drawn):
+        return 0.15 + 0.7 * (score - drawn.min()) / (drawn.max() - drawn.min())
+
+    # Plain, as before; then Auto on, then off again: the same pixels as plain.
+    layer = make(edges, scores, pos)
+    only(layer)
+    before = canvas.render()
+    layer.set_opacity_by_score(True)
+    layer.show_threshold(pos, None, 0.0)
+    levels = canvas.render()
+    for i in range(N):
+        print("ROW levels", i, measure(levels, i, STEP), round(expected(alpha_of(scores[i], scores)), 2), flush=True)
+    uploads_before = (layer.upload_count, layer.score_upload_count, layer.position_upload_count)
+    buffers_before = (layer.visual._buffers["threshold"], layer.visual._grade_buffers["threshold"])
+    layer.show_threshold(pos, None, 0.5)
+    half = canvas.render()
+    drawn = scores[scores >= 0.5]
+    for i in range(N):
+        wanted = alpha_of(scores[i], drawn) if scores[i] >= 0.5 else 0.0
+        print("ROW threshold", i, measure(half, i, STEP), round(expected(wanted), 2), flush=True)
+    layer.show_threshold(pos, None, 0.0)
+    again = canvas.render()
+    print("UPLOADS", int(uploads_before == (layer.upload_count, layer.score_upload_count, layer.position_upload_count)),
+          int(buffers_before[0] is layer.visual._buffers["threshold"]),
+          int(buffers_before[1] is layer.visual._grade_buffers["threshold"]),
+          layer.score_upload_count, differing(levels, again), flush=True)
+    layer.set_opacity_by_score(False)
+    layer.show_threshold(pos, None, -1.0)
+    print("CASE off_again", differing(before, canvas.render()), flush=True)
+
+    # Hiding nodes leaves the others' alpha as it was: the map comes from the threshold.
+    layer.set_opacity_by_score(True)
+    layer.show_threshold(pos, None, 0.0)
+    visible = np.ones(2 * N, dtype=bool)
+    visible[[4, 5, 10, 11]] = False
+    layer.show_threshold(pos, visible, 0.0)
+    hidden = canvas.render()
+    for i in range(N):
+        gone = i in (2, 5)
+        print("ROW hidden", i, measure(hidden, i, STEP),
+              255 if gone else round(expected(alpha_of(scores[i], scores)), 2), flush=True)
+
+    # Scores that are all the same are all 85 %.
+    equal = make(edges, np.full(N, 0.4, dtype=np.float32), pos)
+    equal.set_opacity_by_score(True)
+    equal.show_threshold(pos, None, 0.0)
+    only(equal)
+    flat = canvas.render()
+    for i in range(N):
+        print("ROW equal", i, measure(flat, i, STEP), round(expected(0.85), 2), flush=True)
+
+    # A selection's edges are drawn at the colour's alpha, whatever Auto says.
+    auto = make(edges, scores, pos)
+    auto.set_opacity_by_score(True)
+    # One that has drawn by score before, and one that has not.
+    used = make(edges, scores, pos)
+    used.set_opacity_by_score(True)
+    used.show_threshold(pos, None, 0.0)
+    ordinary = make(edges, scores, pos)
+    chosen = edges[::2]
+    auto.show_edges(pos, chosen)
+    used.show_edges(pos, chosen)
+    ordinary.show_edges(pos, chosen)
+    only(auto)
+    first = canvas.render()
+    only(used)
+    third = canvas.render()
+    only(ordinary)
+    second = canvas.render()
+    print("CASE explicit", differing(first, second), differing(third, second), int((first[..., 0] < 250).any()),
+          auto.score_upload_count, used.score_upload_count, flush=True)
+
+    # Moving: every k-th edge is drawn, each as opaque as k of them: 1 - (1 - alpha) ** k.
+    class NoTimer:
+        available = False
+
+        def time(self, draw, tag, on_result):
+            draw()
+
+    VE.MIN_SUBSET_SEGMENTS = 8
+    motion = VM.MotionDetail(enabled=True, gpu_timer=NoTimer(), report=lambda text: None)
+    motion.level_for = lambda segments, levels, into_window: 4
+    pos16, edges16 = rows(16, 7)
+    scores16 = np.linspace(1.0, 0.0, 16).astype(np.float32)
+    thin = make(edges16, scores16, pos16, motion=motion)
+    thin.set_opacity_by_score(True)
+    thin.show_threshold(pos16, None, 0.0)
+    only(thin)
+    moving = canvas.render()
+    print("CASE thinned", int(thin.visual.detail), thin.visual.drawn_segments(), flush=True)
+    for i in range(16):
+        alpha = 0.85 - 0.7 * i / 15.0
+        wanted = 1.0 - (1.0 - alpha) ** 4 if i % 4 == 0 else 0.0
+        print("ROW motion", i, measure(moving, i, 7), round(expected(wanted), 2), flush=True)
+
+    # The overdraw limit leaves every pixel as it was with the alpha following the score, and counts.
+    rng = np.random.default_rng(42)
+    dense = np.vstack([rng.normal((20, 50), 1.5, (30, 2)), rng.normal((80, 52), 1.5, (30, 2)),
+                       rng.random((100, 2)) * 100]).astype(np.float32)
+    dense_edges = np.vstack([np.stack([rng.integers(0, 30, 2500), rng.integers(30, 60, 2500)], axis=1),
+                             rng.integers(60, 160, (300, 2))]).astype(np.int32)
+    dense_scores = rng.random(len(dense_edges)).astype(np.float32)
+    limit = VE.EdgeStencilLimit(enabled=True, report=lambda text: None)
+    bundle = make(dense_edges, dense_scores, dense, stencil_limit=limit)
+    bundle.set_opacity_by_score(True)
+    bundle.show_threshold(dense, None, 0.0)
+    shape = canvas.render().shape[:2]
+    stenciled = gloo.FrameBuffer(color=gloo.RenderBuffer(shape))
+    packed = gloo.RenderBuffer(shape, format=0x88F0)
+    stenciled.depth_buffer = packed
+    stenciled.stencil_buffer = packed
+
+    def draw(bg):
+        canvas.push_fbo(stenciled, (0, 0), canvas.size)
+        try:
+            canvas._draw_scene(bgcolor=bg)
+            return stenciled.read()
+        finally:
+            canvas.pop_fbo()
+
+    only(bundle)
+    cases = inexact = contrasting = engaged = followed = 0
+    for rgb in ((0.0, 0.0, 0.0), (0.9, 0.3, 0.1), (1.0, 1.0, 1.0)):
+        bundle.visual.set_color((*rgb, 0.3))
+        for bg in ("white", "black"):
+            cases += 1
+            # Edges the colour of the background show nothing.
+            visible = not ((rgb == (0.0, 0.0, 0.0) and bg == "black") or (rgb == (1.0, 1.0, 1.0) and bg == "white"))
+            contrasting += visible
+            limit.enabled = False
+            everything = draw(bg)
+            limit.enabled = True
+            if differing(draw(bg), everything):
+                inexact += 1
+            # Highest scores first, an edge takes up to 85 %: 8 fragments settle a pixel already, so
+            # it takes a limit of 1 to see the stencil count.
+            with mock.patch.object(VE, "STENCIL_LIMIT", 1):
+                if visible and differing(draw(bg), everything):
+                    engaged += 1
+            bundle.set_opacity_by_score(False)
+            bundle.show_threshold(dense, None, 0.0)
+            if visible and differing(draw(bg), everything):
+                followed += 1
+            bundle.set_opacity_by_score(True)
+            bundle.show_threshold(dense, None, 0.0)
+    print("CASE limit", cases, inexact, contrasting, engaged, followed, flush=True)
+    """
+)
+
+
+class EdgeOpacityPixelTests(unittest.TestCase):
+    """Edge Opacity's Auto switch on a real GL canvas, at display scales 1 and 2.
+
+    One edge to a row, on a white background, in black at the colour's alpha
+    0.3: with Auto on, each is drawn at the alpha its score gives it, 15 % for
+    the lowest score drawn and 85 % for the highest, whichever the threshold
+    and the hidden nodes, and 85 % for all of them when their scores are equal.
+    A threshold move changes the opacity with no upload and no new buffer; Auto
+    turned off draws the plain picture again; a selection's edges ignore it;
+    thinned edges are as opaque as k of them; the overdraw limit still leaves
+    every pixel as it was.
+    """
+
+    TOLERANCE = 2.0
+
+    def rows(self, output, name):
+        return [(int(line.split()[2]), int(line.split()[3]), float(line.split()[4]))
+                for line in output.splitlines() if line.startswith(f"ROW {name} ")]
+
+    def case(self, output, name):
+        for line in output.splitlines():
+            if line.startswith(f"CASE {name} "):
+                return [int(value) for value in line.split()[2:]]
+        self.fail(f"no CASE {name}: {output}")
+
+    def check_rows(self, output, name, count):
+        rows = self.rows(output, name)
+        self.assertEqual(len(rows), count, output)
+        for index, measured, wanted in rows:
+            with self.subTest(case=name, edge=index):
+                self.assertAlmostEqual(measured, wanted, delta=self.TOLERANCE, msg=output)
+
+    def test_the_alpha_follows_the_score_on_screen(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                output = run_gl_script(self, _OPACITY_SCRIPT, scale)
+                self.assertIn(f"SCALE {float(scale)}", output)
+                # The lowest score is 15 % (255 * 0.85 = 217), the highest 85 % (38), the rest between.
+                levels = self.rows(output, "levels")
+                self.assertEqual(len(levels), 8, output)
+                by_score = sorted(zip([0.2, 0.9, 0.5, 1.0, 0.0, 0.7, 0.35, 0.6], levels))
+                self.assertAlmostEqual(by_score[0][1][1], 216.75, delta=self.TOLERANCE)
+                self.assertAlmostEqual(by_score[-1][1][1], 38.25, delta=self.TOLERANCE)
+                self.assertAlmostEqual(by_score[3][1][1], 255 * (1 - (0.15 + 0.7 * 0.5)), delta=self.TOLERANCE)
+                self.assertEqual([entry[1][1] for entry in by_score],
+                                 sorted((entry[1][1] for entry in by_score), reverse=True), output)
+                self.check_rows(output, "levels", 8)
+                self.check_rows(output, "hidden", 8)
+                self.check_rows(output, "equal", 8)
+
+    def test_a_threshold_move_remaps_without_an_upload(self):
+        output = run_gl_script(self, _OPACITY_SCRIPT, 1)
+        # Edges below 0.5 are gone, the faintest left is 15 %, the top one 85 %.
+        self.check_rows(output, "threshold", 8)
+        faintest = [measured for _, measured, wanted in self.rows(output, "threshold") if wanted < 255]
+        self.assertAlmostEqual(max(faintest), 216.75, delta=self.TOLERANCE)
+        line = next(line for line in output.splitlines() if line.startswith("UPLOADS "))
+        same_counts, same_edges, same_grades, score_uploads, changed_back = map(int, line.split()[1:])
+        self.assertEqual((same_counts, same_edges, same_grades, score_uploads), (1, 1, 1, 1))
+        self.assertEqual(changed_back, 0)  # back at the first threshold, the first picture again
+
+    def test_auto_off_draws_the_plain_picture_again(self):
+        output = run_gl_script(self, _OPACITY_SCRIPT, 1)
+        self.assertEqual(self.case(output, "off_again"), [0])
+
+    def test_a_selections_edges_ignore_auto(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                output = run_gl_script(self, _OPACITY_SCRIPT, scale)
+                differ, differ_after_auto, drawn, score_uploads, uploads_after_auto = self.case(output, "explicit")
+                # Drawn as plain edges are, whether or not the layer had drawn by score before,
+                # and no grades are made for them.
+                self.assertEqual((differ, differ_after_auto, drawn), (0, 0, 1), output)
+                self.assertEqual((score_uploads, uploads_after_auto), (0, 1), output)
+
+    def test_thinned_edges_are_as_opaque_as_the_edges_they_stand_for(self):
+        output = run_gl_script(self, _OPACITY_SCRIPT, 1)
+        self.assertEqual(self.case(output, "thinned"), [4, 4], output)
+        self.check_rows(output, "motion", 16)
+        drawn = [measured for index, measured, wanted in self.rows(output, "motion") if index % 4 == 0]
+        self.assertEqual(len(drawn), 4)
+        self.assertLess(drawn[0], 255 * (1 - 0.85) + self.TOLERANCE + 1)
+
+    def test_the_overdraw_limit_leaves_every_pixel_as_it_was(self):
+        for scale in (1, 2):
+            with self.subTest(display_scale=scale):
+                output = run_gl_script(self, _OPACITY_SCRIPT, scale)
+                cases, inexact, contrasting, engaged, followed = self.case(output, "limit")
+                self.assertEqual((cases, contrasting), (6, 4))
+                self.assertEqual(inexact, 0, output)
+                # A limit of 1 does change them, so the stencil counts these fragments;
+                self.assertEqual(engaged, contrasting, output)
+                # and the alpha by score is a different picture from the colour's alpha.
+                self.assertEqual(followed, contrasting, output)
 
 
 if __name__ == "__main__":

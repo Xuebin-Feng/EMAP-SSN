@@ -21,18 +21,35 @@ ViewerEdges.show_edges uploads those as given.
 All edges share one colour and alpha, so the order they are blended in leaves
 every pixel the same as drawing them in their loaded order.
 
+Config's Auto switch beside Edge Opacity (AUTO_EDGE_ALPHA) changes the alpha, not
+the colour: each edge is SCORE_ALPHA_MIN opaque at the lowest score drawn and
+SCORE_ALPHA_MAX opaque at the highest, in between by its score
+(ViewerEdges.set_opacity_by_score). The first time it is on, each edge's score
+is kept as one of SCORE_GRADES grades over the network's whole score range
+(a uint16, so a high threshold does not band), sent as a vertex attribute beside
+the node numbers, in the same order and with the same thinned copies. The
+vertex shader turns a grade into an alpha with a few uniforms, so a threshold
+move still uploads nothing. A viewer that never turns it on makes no such
+buffer and draws with the shaders above. It needs the position texture and
+applies to the threshold's edges only: the edges chosen by a selection (UMAP
+and PaCMAP layouts, where the Viewer does not ask for it) are drawn at the
+colour's alpha.
+
 With SSN_EDGE_POSITION_TEXTURE=0, or a network of 2**24 nodes or more (a
 float vertex attribute numbers nodes exactly only below that), the edges are
 drawn by VisPy's Line visual from coordinates gathered on the CPU, as before:
 the prefix still spares the filtering, but every slider or node move uploads
-the drawn edges' coordinates again.
+the drawn edges' coordinates again. It draws every edge at the colour's alpha,
+whatever the Auto switch says.
 
 Inside a dense cluster each pixel can lie under thousands of edges, but an
 8-bit pixel stops changing long before: the stencil buffer counts the edge
 fragments each pixel takes and drops those past STENCIL_LIMIT before they are
 blended (EdgeStencilLimit), which leaves every pixel as it was. It needs a
 framebuffer with an 8-bit stencil buffer; without one, or with
-SSN_EDGE_STENCIL_LIMIT=0, the edges are drawn as before.
+SSN_EDGE_STENCIL_LIMIT=0, the edges are drawn as before. Edges are drawn in
+descending score, so with the Auto switch on the fragments it drops are those
+of the faintest edges, and none is fainter than SCORE_ALPHA_MIN.
 
 Most frames change only the nodes or the HUD: a hover, a click, typing. The
 window keeps the edges' last picture in a texture (EdgeImageCache) and copies
@@ -48,6 +65,7 @@ from __future__ import annotations
 
 import os
 import weakref
+from typing import NamedTuple
 
 import numpy as np
 from vispy import gloo, scene
@@ -68,7 +86,10 @@ _OFF_VALUES = {"0", "off", "false", "no"}
 # and 8-bit blending leaves a pixel unchanged once alpha times its distance
 # from the edge colour is under half a level: within about 190 layers for any
 # alpha above 1/510 (below that an edge changes no pixel at all). So 255, all
-# an 8-bit stencil counts, leaves every pixel as drawing every edge does.
+# an 8-bit stencil counts, leaves every pixel as drawing every edge does. The
+# same holds when the alpha follows the score: edges are drawn from the highest
+# score down and none is fainter than SCORE_ALPHA_MIN, so a pixel is settled
+# within 40 layers, and what the limit drops is the faintest.
 STENCIL_LIMIT = 255
 # The stencil bits the limit needs: it counts to STENCIL_LIMIT.
 STENCIL_BITS_NEEDED = 8
@@ -80,6 +101,19 @@ TEXTURE_WIDTH = 2048
 # ViewerEdges' visibility key before the first visible-edge upload; None means
 # every node is visible.
 _NOT_BUILT = object()
+# With Config's Auto switch beside Edge Opacity, an edge's alpha follows its
+# score: SCORE_ALPHA_MIN at the lowest score drawn, SCORE_ALPHA_MAX at the
+# highest (all edges at SCORE_ALPHA_MAX when their scores are equal).
+SCORE_ALPHA_MIN = 0.15
+SCORE_ALPHA_MAX = 0.85
+# A score is kept as one of this many grades over the network's whole score
+# range, as a uint16, so a high threshold, whose scores span a few percent of
+# it, still has hundreds of grades, more than an 8-bit alpha tells apart.
+SCORE_GRADES = 1 << 16
+# Scores graded this many at a time, so no float64 copy of them all is made. A
+# chunk that fits the processor's cache grades 48.7 million scores 2 to 7 times
+# faster than a big one (0.16 s against 0.34 s for 4 million).
+_GRADE_CHUNK = 1 << 16
 
 
 def position_texture_enabled(node_count):
@@ -604,6 +638,74 @@ def _descending_order(scores):
     return order, ordered
 
 
+def score_grades(scores, low, high):
+    """Each score as a grade, a uint16: SCORE_GRADES - 1 at ``high``, 0 at ``low``,
+    the nearest of the SCORE_GRADES evenly spaced grades between them.
+
+    Scores outside low..high are clamped. With no span (high not above low,
+    or not finite) every grade is 0.
+    """
+    scores = np.asarray(scores)
+    grades = np.zeros(len(scores), dtype=np.uint16)
+    low, high = float(low), float(high)
+    if not (np.isfinite(low) and np.isfinite(high) and high > low):
+        return grades
+    scale = (SCORE_GRADES - 1) / (high - low)
+    for start in range(0, len(scores), _GRADE_CHUNK):
+        part = (scores[start:start + _GRADE_CHUNK].astype(np.float64) - low) * scale
+        np.rint(part, out=part)
+        np.clip(part, 0.0, SCORE_GRADES - 1, out=part)
+        grades[start:start + _GRADE_CHUNK] = part
+    return grades
+
+
+def _vertex_grades(grades):
+    """Grades (E,) as the attribute of 2 * E vertices: a float32 at each of an
+    edge's two vertices."""
+    vertex = np.empty(2 * len(grades), dtype=np.float32)
+    vertex[0::2] = grades
+    vertex[1::2] = grades
+    return vertex
+
+
+class ScoreOpacity(NamedTuple):
+    """How an edge's alpha follows its grade: ``alpha_low`` at ``grade_low``
+    and below, ``alpha_high`` ``1 / grade_scale`` grades above it and beyond,
+    in a straight line between. These four numbers are the vertex shader's
+    uniforms; ``grade_scale`` is 0 when every drawn score is the same."""
+    grade_low: float
+    grade_scale: float
+    alpha_low: float
+    alpha_high: float
+
+    def alphas(self, grades):
+        """The alpha of each grade, as the vertex shader works it out."""
+        along = np.clip((np.asarray(grades, dtype=np.float64) - self.grade_low) * self.grade_scale,
+                        0.0, 1.0)
+        return self.alpha_low + (self.alpha_high - self.alpha_low) * along
+
+
+def score_opacity(lowest, highest, range_low, range_high):
+    """The opacity of edges scoring from ``lowest`` (SCORE_ALPHA_MIN) up to
+    ``highest`` (SCORE_ALPHA_MAX), their grades spanning range_low..range_high.
+
+    Edges that all score the same, or whose scores lie within half a grade of
+    each other, are all SCORE_ALPHA_MAX.
+    """
+    lowest, highest, range_low, range_high = (
+        float(lowest), float(highest), float(range_low), float(range_high))
+    flat = ScoreOpacity(0.0, 0.0, SCORE_ALPHA_MAX, SCORE_ALPHA_MAX)
+    if not (np.isfinite(range_low) and np.isfinite(range_high) and range_high > range_low
+            and np.isfinite(lowest) and np.isfinite(highest) and highest > lowest):
+        return flat
+    scale = (SCORE_GRADES - 1) / (range_high - range_low)
+    grade_low = (lowest - range_low) * scale
+    span = (highest - range_low) * scale - grade_low
+    if span < 0.5:
+        return flat
+    return ScoreOpacity(grade_low, 1.0 / span, SCORE_ALPHA_MIN, SCORE_ALPHA_MAX)
+
+
 class EdgeOrder:
     """The network's edges by descending score, for prefix thresholds.
 
@@ -628,6 +730,13 @@ class EdgeOrder:
 
     def __len__(self):
         return len(self.edges)
+
+    def score_range(self):
+        """The lowest and highest score of the drawable edges, or None without
+        scores or edges."""
+        if self.scores is None or len(self.scores) == 0:
+            return None
+        return float(self.scores[-1]), float(self.scores[0])
 
     def count_at_or_above(self, threshold):
         """Return how many leading edges have ``score >= threshold``.
@@ -675,13 +784,50 @@ void main() {
 }
 """
 
+# The shaders of an edge layer whose opacity follows the score
+# (EdgeSegmentsVisual.set_score_opacity): the same positions, and an alpha worked out
+# from each vertex's grade. u_alpha_map holds a ScoreOpacity's four numbers.
+# u_thinning is k while every k-th edge is drawn (Viewer_Motion), each edge's
+# alpha then 1 - (1 - alpha) ** k as compensated_alpha makes it.
+_SCORE_VERTEX_SHADER = """
+uniform sampler2D u_node_xy;
+uniform float u_texture_width;
+uniform vec2 u_texel_size;
+uniform vec4 u_alpha_map;
+uniform float u_thinning;
+attribute float a_node;
+attribute float a_grade;
+varying float v_alpha;
+
+void main() {
+    float row = floor(a_node * u_texel_size.x);
+    float column = a_node - row * u_texture_width;
+    vec2 xy = texture2DLod(u_node_xy, (vec2(column, row) + 0.5) * u_texel_size, 0.0).xy;
+    float along = clamp((a_grade - u_alpha_map.x) * u_alpha_map.y, 0.0, 1.0);
+    float alpha = mix(u_alpha_map.z, u_alpha_map.w, along);
+    v_alpha = 1.0 - pow(1.0 - alpha, u_thinning);
+    gl_Position = $transform(vec4(xy, 0.0, 1.0));
+}
+"""
+
+_SCORE_FRAGMENT_SHADER = """
+uniform vec4 u_color;
+varying float v_alpha;
+
+void main() {
+    gl_FragColor = vec4(u_color.rgb, v_alpha);
+}
+"""
+
 
 class EdgeSegmentsVisual(Visual):
     """Line segments between nodes whose positions live in a float texture.
 
     Draws the first ``count`` segments of one of its node-number buffers,
     each two vertices ``(source, target)``, in one colour, like VisPy's
-    Line visual with ``connect='segments'`` and the 'gl' method.
+    Line visual with ``connect='segments'`` and the 'gl' method. After
+    set_score_opacity it draws each edge's alpha from its grade (set_segments or
+    set_grades) instead of the colour's.
     """
 
     def __init__(self, color=(0.0, 0.0, 0.0, 1.0), width=1.0):
@@ -693,6 +839,12 @@ class EdgeSegmentsVisual(Visual):
         self._bounds = None
         self._buffers = {}
         self._buffer_sizes = {}
+        # The grade of each vertex, one buffer per node-number buffer (same
+        # keys); empty until the opacity first follows the score.
+        self._grade_buffers = {}
+        # The ScoreOpacity the edges are drawn with; None draws them all at the colour's alpha.
+        # Not named _opacity: the scene node this is mixed into keeps its own opacity there.
+        self._score_opacity = None
         self._segment_count = 0
         self._drawn = None
         self._bound = None
@@ -716,7 +868,8 @@ class EdgeSegmentsVisual(Visual):
         return self._segment_count
 
     def edge_style(self):
-        return (self._color, self._width)
+        return (self._color, self._width) if self._score_opacity is None else (
+            self._color, self._width, self._score_opacity)
 
     def set_color(self, color):
         self._color = tuple(float(value) for value in color)
@@ -758,10 +911,12 @@ class EdgeSegmentsVisual(Visual):
         self.generation += 1
         self.update()
 
-    def set_segments(self, key, edges, thinned=True):
+    def set_segments(self, key, edges, thinned=True, grades=None):
         """Upload the (E, 2) node numbers of ``edges`` as buffer ``key``, with
         its thinned copies (every k-th edge, for MOTION_LEVELS) when it has
-        MIN_SUBSET_SEGMENTS or more, thinned is true and motion detail is on."""
+        MIN_SUBSET_SEGMENTS or more, thinned is true and motion detail is on.
+        ``grades``, the (E,) uint16 grade of each edge, is uploaded beside
+        them (set_grades); without it the buffer has none."""
         node_numbers = np.ascontiguousarray(edges, dtype=np.float32).reshape(-1)
         self._upload(key, node_numbers)
         pairs = node_numbers.reshape(-1, 2)
@@ -771,8 +926,66 @@ class EdgeSegmentsVisual(Visual):
                 self._upload((key, k), np.ascontiguousarray(pairs[::k]).reshape(-1))
             else:
                 self._drop((key, k))
+        if grades is None:
+            self._drop_grades(key)
+        else:
+            self.set_grades(key, grades)
         self._bound = None
         self.generation += 1
+
+    def set_grades(self, key, grades):
+        """Upload the (E,) uint16 grades of buffer ``key``'s edges, in its
+        order, with a copy for each thinned copy it has. Each grade goes to
+        both vertices of its edge, as a float32 (VisPy reads every float
+        attribute as GL_FLOAT, so 2 bytes a vertex would not do)."""
+        grades = np.asarray(grades)
+        if len(grades) != self._buffer_sizes.get(key, 0):
+            raise ValueError(
+                f"{len(grades)} grades for the {self._buffer_sizes.get(key, 0)} edges of buffer {key!r}.")
+        self._upload_grades(key, _vertex_grades(grades))
+        for k in MOTION_LEVELS[1:]:
+            if (key, k) in self._buffers:
+                self._upload_grades((key, k), _vertex_grades(grades[::k]))
+            else:
+                self._drop_grades((key, k))
+        self._bound = None
+        self.generation += 1
+
+    def _upload_grades(self, key, vertex_grades):
+        buffer = self._grade_buffers.get(key)
+        if buffer is None or len(vertex_grades) == 0:
+            buffer = gloo.VertexBuffer(vertex_grades if len(vertex_grades) else
+                                       np.zeros(2, dtype=np.float32))
+            self._grade_buffers[key] = buffer
+        else:
+            buffer.set_data(vertex_grades)
+
+    def _drop_grades(self, key):
+        buffer = self._grade_buffers.pop(key, None)
+        if buffer is not None:
+            buffer.delete()
+
+    def grade_bytes(self):
+        """The bytes of the grade buffers on the GPU."""
+        return sum(buffer.nbytes for buffer in self._grade_buffers.values())
+
+    def set_score_opacity(self, opacity):
+        """Draw each edge at the alpha ``opacity`` (a ScoreOpacity) gives its
+        grade, or, with None, all at the colour's alpha. The first one made
+        needs grades (set_grades) for the buffer drawn."""
+        if opacity is not None:
+            opacity = ScoreOpacity(*(float(value) for value in opacity))
+        if opacity == self._score_opacity:
+            return
+        if (opacity is None) != (self._score_opacity is None):
+            vertex, fragment = ((_VERTEX_SHADER, _FRAGMENT_SHADER) if opacity is None
+                                else (_SCORE_VERTEX_SHADER, _SCORE_FRAGMENT_SHADER))
+            self.shared_program.vert = vertex
+            self.shared_program.frag = fragment
+        self._score_opacity = opacity
+        self._bound = None
+        self.generation += 1
+        self.update()
 
     def _upload(self, key, node_numbers):
         buffer = self._buffers.get(key)
@@ -796,8 +1009,10 @@ class EdgeSegmentsVisual(Visual):
         """Free buffer ``key`` and its thinned copies; the next set_segments
         for it uploads afresh."""
         self._drop(key)
+        self._drop_grades(key)
         for k in MOTION_LEVELS[1:]:
             self._drop((key, k))
+            self._drop_grades((key, k))
         self._bound = None
         self.generation += 1
 
@@ -824,19 +1039,29 @@ class EdgeSegmentsVisual(Visual):
     def _bind(self):
         """Bind the buffer and colour the detail set calls for. The first
         ceil(count / k) edges of the copy keeping every k-th edge are every
-        k-th edge of the first count, whose opacity compensated_alpha raises."""
+        k-th edge of the first count, whose opacity compensated_alpha raises
+        (for an opacity that follows the score, the shader raises it)."""
         key, count = self._drawn
         k = self.detail if self.detail in self.available_levels() else 1
         drawn = -(-count // k)
         bound = (key, k, drawn)
         if bound != self._bound:
-            buffer = self._buffers[key] if k == 1 else self._buffers[(key, k)]
+            which = key if k == 1 else (key, k)
+            buffer = self._buffers[which]
             # A view of the buffer's first 2 * drawn vertices sets the vertex
             # count VisPy passes to glDrawArrays; nothing is uploaded.
             self.shared_program['a_node'] = buffer[:2 * drawn]
             red, green, blue, alpha = self._color
-            self.shared_program['u_color'] = (
-                self._color if k == 1 else (red, green, blue, compensated_alpha(alpha, k)))
+            if self._score_opacity is None:
+                self.shared_program['u_color'] = (
+                    self._color if k == 1 else (red, green, blue, compensated_alpha(alpha, k)))
+            else:
+                self.shared_program['u_color'] = self._color
+                self.shared_program['u_alpha_map'] = tuple(self._score_opacity)
+                self.shared_program['u_thinning'] = float(k)
+                grades = self._grade_buffers.get(which)
+                # A buffer without grades (the caller's mistake) is drawn at grade 0.
+                self.shared_program['a_grade'] = 0.0 if grades is None else grades[:2 * drawn]
             self._bound = bound
 
     def _prepare_transforms(self, view):
@@ -897,11 +1122,17 @@ class ViewerEdges:
     ``image_cache`` (an EdgeImageCache unless one is given); the texture
     visual draws every k-th edge while the view moves (``motion``, a
     MotionDetail unless one is given, which note_motion() tells of input).
+
+    set_opacity_by_score makes show_threshold draw each edge at an alpha that
+    follows its score (see the module's documentation); the grades it needs
+    are made and uploaded by the first show_threshold after that, and counted
+    in ``score_upload_count``. ``report`` (print by default) says why it
+    cannot be done.
     """
 
     def __init__(self, parent, edges, scores, positions, color, width,
                  name='network_edges', use_position_texture=None, stencil_limit=None,
-                 image_cache=None, motion=None):
+                 image_cache=None, motion=None, report=print):
         self.order = EdgeOrder(edges, scores)
         node_count = len(positions)
         if len(self.order) and (
@@ -934,7 +1165,14 @@ class ViewerEdges:
         self.visual.visible = False
         self.upload_count = 0
         self.position_upload_count = 0
+        self.score_upload_count = 0
         self.drawn_edge_count = 0
+        # Whether show_threshold draws the alpha by score (set_opacity_by_score).
+        self.opacity_by_score = False
+        self._report = report
+        self._said = set()
+        # The grade of each edge in score order, made the first time it is needed.
+        self._grades = None
         self._positions = None
         self._visibility = _NOT_BUILT
         self._visible_counts = None
@@ -955,6 +1193,72 @@ class ViewerEdges:
     def note_motion(self):
         """A pan, zoom or node-drag input: draw fewer edges until the view settles."""
         self.motion.note()
+
+    def set_opacity_by_score(self, enabled):
+        """Draw the edges of show_threshold with an alpha that follows their
+        score (Config's Auto switch beside Edge Opacity), or, with False, all
+        at the colour's alpha. Nothing is made or uploaded until the next
+        show_threshold. Returns whether it is on: the coordinate fallback and
+        edges without scores cannot, which is said once."""
+        enabled = bool(enabled)
+        if enabled:
+            if not self.uses_position_texture:
+                why = "the coordinate fallback draws every edge at the Edge Opacity alpha"
+            elif self.order.score_range() is None:
+                why = "the edges have no scores"
+            else:
+                why = None
+            if why is not None:
+                if why not in self._said:
+                    self._said.add(why)
+                    self._report(f"Edges: opacity by score is off, {why}.")
+                enabled = False
+        self.opacity_by_score = enabled
+        return enabled
+
+    def _opacity_for(self, qualified):
+        """The ScoreOpacity of the first ``qualified`` edges of the order: the
+        lowest of their scores is SCORE_ALPHA_MIN, the highest SCORE_ALPHA_MAX."""
+        scores = self.order.scores
+        low, high = self.order.score_range()
+        if qualified == 0:
+            return score_opacity(0.0, 0.0, low, high)
+        return score_opacity(scores[qualified - 1], scores[0], low, high)
+
+    def opacity_map(self, threshold):
+        """The ScoreOpacity the edges at or above ``threshold`` are drawn with,
+        or None for edges without scores."""
+        if self.order.score_range() is None:
+            return None
+        return self._opacity_for(self.order.count_at_or_above(threshold))
+
+    def opacities_of(self, scores, threshold):
+        """The alpha, from 0 to 1, each of ``scores`` is drawn with when the
+        edges at or above ``threshold`` are, as an array; None when the layer
+        draws every edge at the colour's alpha."""
+        mapping = self.opacity_map(threshold) if self.opacity_by_score else None
+        if mapping is None:
+            return None
+        return mapping.alphas(score_grades(scores, *self.order.score_range()))
+
+    def _visible_grades(self):
+        """The grades of the visible edges, in score order."""
+        if self._visibility is None or self._visibility is _NOT_BUILT:
+            return self._grades
+        visible = np.frombuffer(self._visibility, dtype=bool)
+        edges = self.order.edges
+        return self._grades[visible[edges[:, 0]] & visible[edges[:, 1]]]
+
+    def _ensure_grades(self):
+        """Make and upload the grades the first time the alpha is to follow
+        the score; return whether it is."""
+        if not self.opacity_by_score:
+            return False
+        if self._grades is None:
+            self._grades = score_grades(self.order.scores, *self.order.score_range())
+            self.visual.set_grades('threshold', self._visible_grades())
+            self.score_upload_count += 1
+        return True
 
     def _upload_positions(self, positions):
         """Send the node positions if they changed; return whether they did."""
@@ -979,6 +1283,7 @@ class ViewerEdges:
         if self._visibility is not _NOT_BUILT and self._visibility == key:
             return False
         edges = self.order.edges
+        keep = None
         if key is None:
             visible_edges, counts = edges, None
         else:
@@ -988,7 +1293,12 @@ class ViewerEdges:
         self._visibility = key
         self._visible_counts = counts
         if self.uses_position_texture:
-            self.visual.set_segments('threshold', visible_edges)
+            # The grades, once made, follow the visible edges.
+            grades = None
+            if self._grades is not None:
+                grades = self._grades if keep is None else self._grades[keep]
+                self.score_upload_count += 1
+            self.visual.set_segments('threshold', visible_edges, grades=grades)
             self.upload_count += 1
             self._visible_edges = None
         else:
@@ -1010,7 +1320,9 @@ class ViewerEdges:
         counts = self._visible_counts
         drawn = qualified if counts is None else (int(counts[qualified - 1]) if qualified else 0)
         if self.uses_position_texture:
+            by_score = self._ensure_grades()
             self.visual.draw_segments('threshold', drawn)
+            self.visual.set_score_opacity(self._opacity_for(qualified) if by_score else None)
         else:
             key = ('threshold', self._visibility, drawn)
             if moved or rebuilt or key != self._drawn_key:
@@ -1034,6 +1346,8 @@ class ViewerEdges:
                 self.visual.set_segments('explicit', edges, thinned=thinned)
                 self.upload_count += 1
             self.visual.draw_segments('explicit', drawn)
+            # A selection's edges have no grades: they are drawn at the colour's alpha.
+            self.visual.set_score_opacity(None)
         elif moved or changed or self._drawn_key != ('explicit',):
             self._upload_line(positions, edges)
             self._drawn_key = ('explicit',)
