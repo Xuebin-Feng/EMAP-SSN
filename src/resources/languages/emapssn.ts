@@ -9202,4 +9202,15 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <translation type="unfinished"></translation>
     </message>
 </context>
+<context>
+    <name>ViewerHistory</name>
+    <message>
+        <source>Undo (Ctrl+Z)</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Redo (Ctrl+Y)</source>
+        <translation type="unfinished"></translation>
+    </message>
+</context>
 </TS>

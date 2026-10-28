@@ -6921,12 +6921,12 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1635"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1637"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
     <message>
-        <location line="+793"/>
+        <location line="+794"/>
         <source>Undo successful.</source>
         <translation type="unfinished">已撤销。</translation>
     </message>
@@ -6937,7 +6937,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">没有可撤销的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+35"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+36"/>
         <source>Redo successful.</source>
         <translation type="unfinished">已重做。</translation>
     </message>
@@ -6948,7 +6948,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">没有可重做的操作。</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+918"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+919"/>
         <source>Copied: {node}</source>
         <translation type="unfinished">已复制：{node}</translation>
     </message>
@@ -6989,7 +6989,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">已选择：{node}</translation>
     </message>
     <message>
-        <location line="+444"/>
+        <location line="+489"/>
         <source>Metadata UI</source>
         <translation type="unfinished">元数据界面</translation>
     </message>
@@ -7014,7 +7014,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">旋转 {angle}°</translation>
     </message>
     <message numerus="yes">
-        <location line="+382"/>
+        <location line="+383"/>
         <source>Selected %n node(s).</source>
         <translation type="unfinished">
             <numerusform>已选择 %n 个节点。</numerusform>
@@ -8777,7 +8777,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
     </message>
     <message numerus="yes">
         <location line="+23"/>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-844"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-849"/>
         <source>Nothing to redo: the undone steps were followed by %n waiting command(s).</source>
         <translation type="unfinished">
             <numerusform>没有可重做的操作：撤销的步骤之后还有 %n 条等待中的命令。</numerusform>
@@ -9067,7 +9067,7 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         <translation type="unfinished">此结构的逐残基数据中没有可用的属性。</translation>
     </message>
     <message>
-        <location filename="../../../Command_Queue.py" line="+334"/>
+        <location filename="../../../Command_Queue.py" line="+336"/>
         <source>The command queue is shutting down.</source>
         <translation type="unfinished">命令队列正在关闭。</translation>
     </message>
@@ -9086,12 +9086,12 @@ Add one in the ⚙ Models panel of the Agent UI.</source>
         </translation>
     </message>
     <message>
-        <location line="+30"/>
+        <location line="+31"/>
         <source>{command}: waiting for {ahead_command}.</source>
         <translation type="unfinished">{command}：正在等待 {ahead_command}。</translation>
     </message>
     <message>
-        <location line="+265"/>
+        <location line="+266"/>
         <source>Cancelled: {command}, given before it, failed.</source>
         <translation type="unfinished">已取消：在它之前提交的 {command} 失败了。</translation>
     </message>
@@ -13152,7 +13152,7 @@ Fedora / RHEL：
         <translation type="unfinished">EMAP-SSN 查看器</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="-2153"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="-2197"/>
         <source>Toggle sidebar panel</source>
         <translation type="unfinished">显示或隐藏侧边栏</translation>
     </message>
@@ -13212,7 +13212,7 @@ Fedora / RHEL：
         <translation type="obsolete">视图宽度：{width}</translation>
     </message>
     <message>
-        <location line="+2017"/>
+        <location line="+2020"/>
         <source>Hidden Nodes: {count}</source>
         <translation type="unfinished">隐藏节点：{count}</translation>
     </message>
@@ -13548,7 +13548,7 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
 <context>
     <name>ViewerFps</name>
     <message>
-        <location filename="../../../desktop/Viewer_Fps.py" line="+61"/>
+        <location filename="../../../desktop/Viewer_Fps.py" line="+62"/>
         <source>Idle</source>
         <translation type="unfinished">空闲</translation>
     </message>
@@ -13566,6 +13566,19 @@ It stops at its next step, and the unfinished file it was writing is deleted. A 
         <location line="+3"/>
         <source>edges 1/{step}</source>
         <translation type="unfinished">边 1/{step}</translation>
+    </message>
+</context>
+<context>
+    <name>ViewerHistory</name>
+    <message>
+        <location filename="../../../desktop/Viewer_History.py" line="+105"/>
+        <source>Undo (Ctrl+Z)</source>
+        <translation type="unfinished">撤销（Ctrl+Z）</translation>
+    </message>
+    <message>
+        <location line="+3"/>
+        <source>Redo (Ctrl+Y)</source>
+        <translation type="unfinished">重做（Ctrl+Y）</translation>
     </message>
 </context>
 </TS>

@@ -4,11 +4,11 @@
 """The Viewer's view of its background jobs: the jobs badge, and what the Session card lists.
 
 * **The badge** shows how many background jobs wait or run, over the canvas's top
-  right, only while the background scheduler holds a job, under the frame-rate
-  display's place, right-aligned with it; its tooltip lists them. The commands in
-  the command queue (Command_Queue) are not background jobs and are not counted.
-  Like the frame rate it is a QLabel on the canvas, never in a picture the canvas
-  renders.
+  right, only while the background scheduler holds a job, under the top-right row
+  (the Undo and Redo buttons and the frame rate), right-aligned with it; its
+  tooltip lists them. The commands in the command queue (Command_Queue) are not
+  background jobs and are not counted. Like the frame rate it is a QLabel on the
+  canvas, never in a picture the canvas renders.
 * **The rows** (job_lanes) are what the Session card's Background jobs section
   lists: one JobLane for each lane of the scheduler that holds a job, with a
   JobRow for each of its jobs, the running one first, then the ones waiting, then
@@ -162,7 +162,7 @@ def open_log_file(viewer, path):
 
 
 class JobsBadge(QLabel):
-    """A small card counting the jobs; place() puts it under the frame rate's row."""
+    """A small card counting the jobs; place() puts it under the top-right row."""
 
     def __init__(self, canvas):
         super().__init__(canvas.native)

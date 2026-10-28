@@ -46,7 +46,8 @@ FPS_UPDATE_MS = 500
 # With no frame for this long (or twice the last interval, if longer) the
 # display reads Idle.
 FPS_IDLE_S = 0.5
-# Between the display and the sidebar's toggle, in px.
+# Between the top-right row's items, in px: the display, the Undo and Redo buttons
+# (desktop.Viewer_History) and the sidebar's toggle.
 FPS_GAP = 8
 # The display's height, the toggle's.
 FPS_HEIGHT = 30
@@ -109,11 +110,12 @@ class FrameRate:
 
 
 class FpsOverlay(QLabel):
-    """The frame-rate display: a small card at the canvas's top right, left of the sidebar's toggle where that shows.
+    """The frame-rate display: a small card at the canvas's top right, left of the Undo and Redo buttons
+    (and of the sidebar's toggle where that shows).
 
     canvas is the VisPy canvas; edge_detail() gives the step the edges were
     last drawn with (1 for every edge). attach() hooks it to the canvas's
-    draws and shown frames; place() puts it by the toggle.
+    draws and shown frames; place() puts it by the buttons.
     """
 
     def __init__(self, canvas, edge_detail=None, *, clock=time.perf_counter, gpu_timer=None):

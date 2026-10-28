@@ -287,6 +287,8 @@ class CommandQueue(QtCore.QObject):
     """The Viewer's command queue (see the module docstring). Lives on the GUI thread."""
 
     _computed = QtCore.Signal(object, object, object)
+    # What waits or runs has changed: a command was given to the queue, or one finished or was cancelled.
+    changed = QtCore.Signal()
 
     HISTORY = 20
 
@@ -360,6 +362,7 @@ class CommandQueue(QtCore.QObject):
         if context is not None:
             context.join_queue()
         self._update_places()
+        self.changed.emit()
         if ahead is not None:
             message = Message("{command}: waiting for {ahead_command}.", command=line, ahead_command=ahead.line)
             print(message)
@@ -604,6 +607,7 @@ class CommandQueue(QtCore.QObject):
         if not any(waiting.status == 'running' and (waiting.heavy or waiting.cooperative) for waiting in self.jobs):
             self._status_timer.stop()
         self._update_places()
+        self.changed.emit()
         self._show_finished(job, viewer)
         self._schedule(0)
 

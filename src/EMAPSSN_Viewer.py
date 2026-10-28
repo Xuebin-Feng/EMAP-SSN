@@ -215,6 +215,7 @@ from desktop.Viewer_Caret import CommandCaret
 from desktop.Viewer_Edges import ViewerEdges
 from desktop.Viewer_Motion import MotionDetail
 from desktop.Viewer_Fps import FPS_GAP, FPS_HEIGHT, FpsOverlay
+from desktop.Viewer_History import HistoryButtons, history_availability
 from desktop.Viewer_Jobs import BADGE_GAP, JobsBadge, ViewerJobs, job_lines
 from desktop.Viewer_Markers import HoverMarkers, MarkerPicker, symbol_codes_of, uniform_symbol
 from web_ui.Browser_Page import open_browser_page
@@ -1206,6 +1207,7 @@ class MainViewer:
         
         # --- 6. Set up MainWindow & WebServer ---
         self._build_main_window()
+        self._build_history_buttons()
         self._build_fps_overlay()
         self._build_jobs_badge()
         self._build_command_caret()
@@ -2307,6 +2309,7 @@ class MainViewer:
         if len(self.position_history) > 50:
             self.position_history.pop(0)
         self.redo_stack.clear()
+        self._refresh_history_buttons()
 
     def _save_metadata_cell_history(self, column, row, before, after):
         """Record one metadata cell edit without copying the full network state."""
@@ -2435,6 +2438,7 @@ class MainViewer:
         else:
             msg = Message("Nothing to undo.")
             changed = False
+        self._refresh_history_buttons()
         if announce:
             Command_Engine.show_status(self, msg)
             print(msg)
@@ -2473,6 +2477,7 @@ class MainViewer:
         else:
             msg = Message("Nothing to redo.")
             changed = False
+        self._refresh_history_buttons()
         if announce:
             Command_Engine.show_status(self, msg)
             print(msg)
@@ -3698,8 +3703,9 @@ class MainViewer:
         """Put the sidebar and its toggle where the room it covers now leaves them.
 
         While it slides, the panel's left part shows and the canvas clips the
-        rest; the toggle keeps 10 px clear of its left edge, and the frame
-        rate, if shown, FPS_GAP left of the toggle.
+        rest; the toggle keeps 10 px clear of its left edge, the Undo and Redo
+        buttons FPS_GAP left of the toggle, and the frame rate, if shown,
+        FPS_GAP left of them.
         """
         if hasattr(self, 'canvas'):
             w, h = self.canvas.size
@@ -3709,21 +3715,61 @@ class MainViewer:
                 self.right_panel.setGeometry(left, 0, panel_w, h)
             if hasattr(self, 'toggle_sidebar_btn'):
                 self.toggle_sidebar_btn.setGeometry(left - 40, 10, 30, 30)
+            buttons = getattr(self, 'history_buttons', None)
+            if buttons is not None:
+                buttons.place(self._top_row_right(left), 25)
             overlay = getattr(self, 'fps_overlay', None)
             if overlay is not None:
                 overlay.place(self._fps_overlay_right(left), 25)
             badge = getattr(self, 'jobs_badge', None)
             if badge is not None:
-                # Under the frame rate's row (the toggle's), right-aligned with it.
-                badge.place(self._fps_overlay_right(left), 25 + FPS_HEIGHT / 2 + BADGE_GAP)
+                # Under the top-right row (the toggle's), right-aligned with it.
+                badge.place(self._top_row_right(left), 25 + FPS_HEIGHT / 2 + BADGE_GAP)
 
-    def _fps_overlay_right(self, left):
-        """The frame rate's right edge, in canvas px, with the sidebar's room starting at left:
-        FPS_GAP left of the toggle, or where the toggle would be when it is hidden."""
+    def _top_row_right(self, left):
+        """The right edge of the canvas's top-right row (the Undo and Redo buttons, with the frame
+        rate beside them), in canvas px, with the sidebar's room starting at left: FPS_GAP left of
+        the toggle, or where the toggle would be when it is hidden."""
         button = getattr(self, 'toggle_sidebar_btn', None)
         if button is not None and not button.isHidden():
             return left - 40 - FPS_GAP
         return left - 10
+
+    def _fps_overlay_right(self, left):
+        """The frame rate's right edge, in canvas px, with the sidebar's room starting at left:
+        FPS_GAP left of the Undo and Redo buttons, which take the row's right end."""
+        right = self._top_row_right(left)
+        buttons = getattr(self, 'history_buttons', None)
+        return right if buttons is None else right - buttons.width() - FPS_GAP
+
+    def _build_history_buttons(self):
+        """The Undo and Redo buttons (desktop.Viewer_History) at the canvas's top right, in every window mode as the
+        other overlays are; nothing shows in a window that is not on screen. A click is Ctrl+Z or Ctrl+Y."""
+        self.history_buttons = HistoryButtons(
+            self.canvas, lambda: self._click_history(self.undo_by_hand), lambda: self._click_history(self.redo_by_hand))
+        queue = getattr(self, 'command_queue', None)
+        if queue is not None:
+            queue.changed.connect(self._refresh_history_buttons)
+        self._refresh_history_buttons()
+        self.reposition_expand_btn()
+
+    def _click_history(self, step):
+        """A click on Undo or Redo: step, undo_by_hand or redo_by_hand, as Ctrl+Z or Ctrl+Y call it.
+
+        The keys do nothing while the command line is open, but the buttons can be clicked then: the
+        message the step showed follows the command being typed, as a click on the network's does
+        (_show_click_status), instead of replacing it.
+        """
+        typing = getattr(self, 'console_mode', False)
+        step()
+        if typing and getattr(self, 'console_mode', False):
+            self._show_click_status(self.console_text.text)
+
+    def _refresh_history_buttons(self):
+        """Enable the Undo and Redo buttons as the keys could act now: called wherever the history or the queue changes."""
+        buttons = getattr(self, 'history_buttons', None)
+        if buttons is not None:
+            buttons.show_state(*history_availability(self))
 
     def _build_jobs_badge(self):
         """The jobs badge (desktop.Viewer_Jobs): shown while a background job waits or runs."""
@@ -3747,7 +3793,7 @@ class MainViewer:
         self.selection_epoch = getattr(self, 'selection_epoch', 0) + 1
 
     def undo_by_hand(self):
-        """Ctrl+Z and the Meta Data sheet's undo: take back the newest command that waits or runs, else undo.
+        """Ctrl+Z, the Undo button and the Meta Data sheet's undo: take back the newest command that waits or runs, else undo.
 
         A command that has not finished has not happened yet: undoing it is not
         doing it. Returns whether anything was taken back.
@@ -3760,7 +3806,7 @@ class MainViewer:
         return self._do_undo()
 
     def redo_by_hand(self):
-        """Ctrl+Y and the sheet's redo: nothing to redo while commands wait (they come after the undone steps)."""
+        """Ctrl+Y, the Redo button and the sheet's redo: nothing to redo while commands wait (they come after the undone steps)."""
         queue = getattr(self, 'command_queue', None)
         if queue is not None and queue.pending():
             message = Message("Nothing to redo: the undone steps were followed by %n waiting command(s).",
@@ -3790,13 +3836,17 @@ class MainViewer:
     def _command_line_right(self):
         """Where the command line's box may reach, in canvas px: as wide as the
         canvas less the sidebar's room and 40 px, from its left offset, and
-        short of the frame rate's room when that is shown."""
+        short of the room the top-right row takes: the Undo and Redo buttons,
+        and the frame rate beside them when that is shown."""
         left = getattr(self, 'hud_layout', {}).get("console_bg_left_offset", 20.0)
-        right = left + self.canvas.size[0] - _sidebar_room(self) - 40.0
+        room_left = self.canvas.size[0] - _sidebar_room(self)
+        right = left + room_left - 40.0
         overlay = getattr(self, 'fps_overlay', None)
+        buttons = getattr(self, 'history_buttons', None)
         if overlay is not None:
-            right = min(right, self._fps_overlay_right(self.canvas.size[0] - _sidebar_room(self))
-                        - overlay.widest_width() - FPS_GAP)
+            right = min(right, self._fps_overlay_right(room_left) - overlay.widest_width() - FPS_GAP)
+        elif buttons is not None:
+            right = min(right, self._top_row_right(room_left) - buttons.width() - FPS_GAP)
         return right
 
     def toggle_sidebar(self):
@@ -4495,6 +4545,7 @@ class MainViewer:
         if history[-1] is snapshot:
             history[:] = history_before
             redo[:] = redo_before
+            self._refresh_history_buttons()
 
     def pick_hovered_node(self, cursor):
         """The node a cursor at canvas position cursor hovers: the topmost one
