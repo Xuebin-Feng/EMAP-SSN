@@ -3177,7 +3177,7 @@ Command-line usage:
     <message>
         <location line="+1"/>
         <location line="+309"/>
-        <location line="+51"/>
+        <location line="+107"/>
         <location filename="../../../web_ui/esmfold_image.js" line="+66"/>
         <location filename="../../../web_ui/esmfold_residue.js" line="-2"/>
         <location line="+185"/>
@@ -3186,7 +3186,7 @@ Command-line usage:
         <translation type="unfinished">无数据</translation>
     </message>
     <message>
-        <location line="-299"/>
+        <location line="-355"/>
         <source>Could not color {file} by that layer.</source>
         <translation type="unfinished">无法按该图层给 {file} 着色。</translation>
     </message>
@@ -3253,8 +3253,8 @@ Command-line usage:
         <translation type="unfinished">无数据：{names}。此图层对它们没有数值。</translation>
     </message>
     <message>
-        <location line="+52"/>
-        <location filename="../../../web_ui/esmfold.html" line="+903"/>
+        <location line="+108"/>
+        <location filename="../../../web_ui/esmfold.html" line="+924"/>
         <source>Color by</source>
         <translation type="unfinished">着色依据</translation>
     </message>
@@ -3552,7 +3552,7 @@ Command-line usage:
         <translation type="unfinished">表示方式</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold_color.js" line="-436"/>
+        <location filename="../../../web_ui/esmfold_color.js" line="-492"/>
         <location filename="../../../web_ui/esmfold_structures.js" line="+11"/>
         <source>Other (set in Advanced)</source>
         <translation type="unfinished">其他（在高级视图中设置）</translation>
@@ -3776,8 +3776,8 @@ Command-line usage:
         <translation type="unfinished">只能配对 {n} 个 CA 原子</translation>
     </message>
     <message>
-        <location filename="../../../web_ui/esmfold.html" line="-767"/>
-        <location line="+762"/>
+        <location filename="../../../web_ui/esmfold.html" line="-788"/>
+        <location line="+783"/>
         <source>EMAP-SSN Fold View</source>
         <translation type="unfinished">EMAP-SSN 结构视图</translation>
     </message>
@@ -5589,7 +5589,7 @@ Command-line usage:
         <location filename="../../../commands/subcluster.py" line="-235"/>
         <location filename="../../../commands/undo.py" line="+57"/>
         <location line="+13"/>
-        <location filename="../../../commands/zoom.py" line="+289"/>
+        <location filename="../../../commands/zoom.py" line="+65"/>
         <source>Usage: {syntax}</source>
         <translation type="unfinished">用法：{syntax}</translation>
     </message>
@@ -6726,7 +6726,7 @@ Command-line usage:
         <translation type="obsolete">错误：缩放宽度必须是有限的正数。</translation>
     </message>
     <message>
-        <location filename="../../../commands/zoom.py" line="-90"/>
+        <location filename="../../../desktop/Viewer_Zoom.py" line="+206"/>
         <source>Error: Zoom must be a number, with an optional % sign, as in {example}.</source>
         <translation type="unfinished">错误：缩放必须是数字，可以带百分号，例如 {example}。</translation>
     </message>
@@ -6756,7 +6756,7 @@ Command-line usage:
         <translation type="unfinished">错误：缩放必须介于 {lowest}% 和 {highest}% 之间，下限是能显示所有节点的缩放。</translation>
     </message>
     <message>
-        <location line="+52"/>
+        <location filename="../../../commands/zoom.py" line="+25"/>
         <source>Zoom set to {zoom}%</source>
         <translation type="unfinished">缩放已设为 {zoom}%</translation>
     </message>
@@ -6773,7 +6773,7 @@ Command-line usage:
         <translation type="obsolete">错误：缩放宽度必须介于 {narrowest} 和能显示所有节点的最大视图宽度 {widest} 之间。</translation>
     </message>
     <message>
-        <location line="-36"/>
+        <location filename="../../../desktop/Viewer_Zoom.py" line="+16"/>
         <source>Error: Zoom could not be applied: {error}</source>
         <translation type="unfinished">错误：无法应用缩放：{error}</translation>
     </message>

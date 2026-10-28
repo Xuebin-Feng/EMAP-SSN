@@ -330,9 +330,9 @@ class DisplayScalingTests(unittest.TestCase):
         viewer.update_console_background = mock.Mock()
 
         # With 100% a view 1000 units wide, as test_zoom_command's literal numbers assume.
-        from commands import zoom as zoom_command
+        from desktop import Viewer_Zoom as viewer_zoom
 
-        with mock.patch.multiple(zoom_command, ZOOM_100_PERCENT_WIDTH=1000.0, MAX_ZOOM_PERCENT=200000.0):
+        with mock.patch.multiple(viewer_zoom, ZOOM_100_PERCENT_WIDTH=1000.0, MAX_ZOOM_PERCENT=200000.0):
             viewer._update_hud_elements()
 
         self.assertEqual(viewer.hidden_text.color, cfg.TEXT_COLOR)

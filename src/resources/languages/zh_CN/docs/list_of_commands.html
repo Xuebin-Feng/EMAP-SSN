@@ -263,7 +263,7 @@
 
 <div class="section-divider" id="sec-core" data-source-sha256="c175c22301f1c83e5c269ea71faf430518141facb6b84eec8c37fa3320cf6319">核心命令</div>
 
-            <section class="command-card" id="cmd-zoom" data-source-sha256="94270695e16267d9fa9528082f4cb641b7eee0a1d52ed20f40804e3a60f3533e">
+            <section class="command-card" id="cmd-zoom" data-source-sha256="a8be39fbfe4cc73cd3262d9fc0609b0831533d4404aa0bd1e9c9d32815b8b344">
                 <div class="command-card-header">
                     <div class="command-card-title">
                         <span class="command-card-name">zoom</span>
@@ -275,7 +275,7 @@
                     <div class="syntax-content">zoom &lt;percent&gt;</div>
                     <button class="copy-btn" onclick="copyText('zoom', this)">复制</button>
                 </div>
-                <p><strong>功能：</strong>把相机缩放设为恰好等于指定的百分比，同时保持其当前中心和画布宽高比。100% 是宽 300 个布局单位的视图（<code>ZOOM_100_PERCENT_WIDTH</code>，位于 <code>src/commands/zoom.py</code> 中），百分比越大视图越近：200% 的视图宽度只有一半。百分号可以省略，因此 <code>zoom 200</code> 和 <code>zoom 200%</code> 相同，百分号前也可以有一个空格。缩放必须至多为 60000%（视图宽 0.5 个单位），且至少为能显示所有节点（包括隐藏节点）的缩放，并向下取整为两位有效数字；该最低缩放会随节点移动和窗口形状而变化。超出这些限制的缩放会被拒绝，并同时指出两个限制。鼠标滚轮、触控板捏合以及阈值滑块旁的缩放框遵守同样的限制。</p>
+                <p><strong>功能：</strong>把相机缩放设为恰好等于指定的百分比，同时保持其当前中心和画布宽高比。100% 是宽 300 个布局单位的视图（<code>ZOOM_100_PERCENT_WIDTH</code>，位于 <code>src/desktop/Viewer_Zoom.py</code> 中），百分比越大视图越近：200% 的视图宽度只有一半。百分号可以省略，因此 <code>zoom 200</code> 和 <code>zoom 200%</code> 相同，百分号前也可以有一个空格。缩放必须至多为 60000%（视图宽 0.5 个单位），且至少为能显示所有节点（包括隐藏节点）的缩放，并向下取整为两位有效数字；该最低缩放会随节点移动和窗口形状而变化。超出这些限制的缩放会被拒绝，并同时指出两个限制。鼠标滚轮、触控板捏合以及阈值滑块旁的缩放框遵守同样的限制。</p>
                 <div class="subheading">示例</div>
                 <ul class="example-list">
                     <li class="example-item"><span>zoom 200</span><button class="copy-btn" onclick="copyText('zoom 200', this)">复制</button></li>

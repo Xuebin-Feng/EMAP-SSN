@@ -4870,34 +4870,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Error: Zoom must be a number, with an optional % sign, as in {example}.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Zoom must be a positive, finite percentage.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: The canvas has no visible area, so the zoom cannot be applied.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Zoom is too low for the current view.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Zoom is too high to draw accurately at the current view centre.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Zoom must be between {lowest}% and {highest}%, the lowest being the zoom that shows every node.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
-        <source>Error: Zoom could not be applied: {error}</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message>
         <source>Zoom set to {zoom}%</source>
         <translation type="unfinished"></translation>
     </message>
@@ -4938,6 +4910,34 @@ The whole output is in {log}.</source>
         <translation type="unfinished">
             <numerusform></numerusform>
         </translation>
+    </message>
+    <message>
+        <source>Error: Zoom must be a number, with an optional % sign, as in {example}.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Zoom must be a positive, finite percentage.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: The canvas has no visible area, so the zoom cannot be applied.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Zoom is too low for the current view.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Zoom is too high to draw accurately at the current view centre.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Zoom must be between {lowest}% and {highest}%, the lowest being the zoom that shows every node.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Error: Zoom could not be applied: {error}</source>
+        <translation type="unfinished"></translation>
     </message>
     <message>
         <source>Enter a profile name.</source>

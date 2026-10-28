@@ -399,20 +399,20 @@ class SliderOverlayTests(unittest.TestCase):
         viewer.canvas.native.setFocus = mock.Mock()
         spin_box = viewer.zoom_box.spin_box
         spin_box.show_zoom(242.0, 220.0, 200000.0)
-        with mock.patch("commands.zoom.set_zoom") as set_zoom:
+        with mock.patch("desktop.Viewer_Zoom.set_zoom") as set_zoom:
             spin_box.setValue(500.0)
         set_zoom.assert_called_once_with(viewer, 500.0)
         viewer._hud_timer.start.assert_called()
         # A zoom that zoom refuses shows its error on the console line.
         viewer._show_click_status = mock.Mock()
         error = ValueError(EMAPSSN_Viewer.Message("Error: Zoom is too low for the current view."))
-        with mock.patch("commands.zoom.set_zoom", side_effect=error), mock.patch("builtins.print"):
+        with mock.patch("desktop.Viewer_Zoom.set_zoom", side_effect=error), mock.patch("builtins.print"):
             spin_box.setValue(600.0)
         viewer._show_click_status.assert_called_once_with(error.args[0])
 
     def test_the_zoom_box_says_what_a_hundred_percent_is(self):
         # The tip names the width, from the constant, and how to use the box.
-        from commands.zoom import ZOOM_100_PERCENT_WIDTH
+        from desktop.Viewer_Zoom import ZOOM_100_PERCENT_WIDTH
 
         viewer = self.make_viewer()
         tip = viewer.zoom_box.toolTip()
@@ -725,7 +725,7 @@ class SliderOverlayTests(unittest.TestCase):
         viewer.update_console_background = lambda: None
         viewer.hud_displays = {}
         viewer.canvas.update = lambda: None
-        with mock.patch("commands.zoom.zoom_limits", return_value=(1.0, 200000.0)):
+        with mock.patch("desktop.Viewer_Zoom.zoom_limits", return_value=(1.0, 200000.0)):
             viewer._update_hud_elements()
         self.assertEqual(card.count_labels["nodes"].text(), "5 (3 visible)")
         # Undo restores them and redraws the edges.

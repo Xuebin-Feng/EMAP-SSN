@@ -1165,8 +1165,8 @@ class MainViewer:
             qapp.aboutToQuit.connect(self.shutdown_web_server)
         
         # Open on every node with a margin, so none touches the window's edge
-        # (commands.zoom.opening_view); the widest zoom always leaves this view.
-        from commands.zoom import opening_view
+        # (desktop.Viewer_Zoom.opening_view); the widest zoom always leaves this view.
+        from desktop.Viewer_Zoom import opening_view
         self.view.camera.rect = opening_view(self.pos)
         
         # --- 5. Setup Similarity / E-value Slider Bar ---
@@ -1368,14 +1368,14 @@ class MainViewer:
 
     def _limit_camera_zoom(self):
         """Keep zooming by the wheel or a pinch within the zooms the zoom
-        command keeps to (commands.zoom.zoom_limits): it stops at the highest zoom
+        command keeps to (desktop.Viewer_Zoom.zoom_limits): it stops at the highest zoom
         (MAX_ZOOM_PERCENT) and at the zoom, rounded down to two figures, that
         shows every node, wherever they are now."""
         original_zoom = self.view.camera.zoom
 
         def limited_zoom(factor, center=None):
             """Zoom, cut at the limits, and return the factor applied."""
-            from commands.zoom import limited_zoom_factor
+            from desktop.Viewer_Zoom import limited_zoom_factor
             limited = limited_zoom_factor(self, factor)
             original_zoom(limited, center)
             return limited
@@ -1503,7 +1503,7 @@ class MainViewer:
 
         # The view's zoom, to read and to set as `zoom` does, at the row's
         # right; its text keeps the HUD's text colour, as the slider's value does.
-        from commands.zoom import ZOOM_100_PERCENT_WIDTH
+        from desktop.Viewer_Zoom import ZOOM_100_PERCENT_WIDTH
         self.zoom_box = ZoomBox(translate("Viewer", "Zoom: {zoom}%"), self.canvas.native)
         self.zoom_box.setToolTip(translate(
             "Viewer",
@@ -1559,8 +1559,8 @@ class MainViewer:
             button.refresh_card()
 
     def _zoom_to_box(self, percent):
-        """Zoom to the percentage set in the Zoom box, as `zoom` does (commands.zoom.set_zoom)."""
-        from commands.zoom import set_zoom
+        """Zoom to the percentage set in the Zoom box, as `zoom` does (desktop.Viewer_Zoom.set_zoom)."""
+        from desktop.Viewer_Zoom import set_zoom
         self._note_view_motion()
         try:
             set_zoom(self, percent)
@@ -3552,7 +3552,7 @@ class MainViewer:
         # 1. The Zoom box: the view's zoom, and the limits zooms keep to
         box = getattr(self, 'zoom_box', None)
         if box is not None:
-            from commands.zoom import current_zoom, zoom_limits
+            from desktop.Viewer_Zoom import current_zoom, zoom_limits
             zoom = current_zoom(self)
             if zoom is not None:
                 box.spin_box.show_zoom(zoom, *zoom_limits(self))

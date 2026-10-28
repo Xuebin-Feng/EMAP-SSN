@@ -27,9 +27,9 @@ from vispy import app
 from vispy.scene.visuals import VisualNode
 from vispy.scene.widgets import Widget
 import EMAPSSN_Config as cfg
-from commands.zoom import ZOOM_100_PERCENT_WIDTH, view_for_zoom, zoom_percent
 from desktop.Viewer_Edges import SCORE_ALPHA_MAX, SCORE_ALPHA_MIN
 from desktop.Viewer_State import edge_opacity_follows_score
+from desktop.Viewer_Zoom import ZOOM_100_PERCENT_WIDTH, view_for_zoom, zoom_percent
 from utilities.Job_Cancellation import (
     CancellableFile, forget_partial_path, note_partial_path, raise_if_cancelled, remove_partial, replace_file,
 )

@@ -451,7 +451,7 @@ class MotionTriggerTests(unittest.TestCase):
         viewer._hud_timer.start.assert_called_once_with()
         viewer = self.make_viewer()
         viewer._return_keyboard_to_canvas = mock.Mock()
-        with mock.patch("commands.zoom.set_zoom") as set_zoom:
+        with mock.patch("desktop.Viewer_Zoom.set_zoom") as set_zoom:
             viewer._zoom_to_box(250.0)
         set_zoom.assert_called_once()
         viewer.edge_layer.note_motion.assert_called_once_with()

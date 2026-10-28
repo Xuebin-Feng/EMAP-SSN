@@ -80,11 +80,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from commands.zoom import MAX_ZOOM_PERCENT
 from desktop.Desktop_App import UI_QSS_FONT_STACK, button_icon_room, fit_buttons_to_text, installed_language
 from desktop.Studio_Theme import TOKENS, icon_button, key_cap_qss, studio_icon
 from desktop.Viewer_Jobs_Card import JobsSection, section_qss
 from desktop.Viewer_State import alias_form
+from desktop.Viewer_Zoom import MAX_ZOOM_PERCENT
 from utilities import Desktop_Open
 from utilities.Help_Pages import command_list_path
 
@@ -1082,7 +1082,7 @@ ZOOM_UNIT_GAP = 4
 # the text beside it takes the same baseline.
 ZOOM_LABEL_DROP = 1
 # The widest zoom its field shows without scrolling, which is the highest the
-# Viewer zooms to (commands.zoom.MAX_ZOOM_PERCENT); with no limit to keep to (no
+# Viewer zooms to (desktop.Viewer_Zoom.MAX_ZOOM_PERCENT); with no limit to keep to (no
 # nodes), also the highest it takes.
 ZOOM_ROOM = MAX_ZOOM_PERCENT
 # The lowest zoom the box takes while there is no node to set a limit.
@@ -1156,7 +1156,7 @@ def shown_zoom(percent):
 
 
 class ZoomSpinBox(CanvasSpinBox):
-    """The view's zoom, a percentage: 100% is a view of commands.zoom.ZOOM_100_PERCENT_WIDTH
+    """The view's zoom, a percentage: 100% is a view of desktop.Viewer_Zoom.ZOOM_100_PERCENT_WIDTH
     scene units, and a bigger number is closer.
 
     The arrows, the wheel over it and Up/Down zoom in (Up, wheel forward) or out

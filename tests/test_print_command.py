@@ -52,10 +52,10 @@ def load_print_command():
     import matplotlib.pyplot  # noqa: F401
     import vispy.app  # noqa: F401
     import vispy.scene  # noqa: F401
-    import commands.zoom  # noqa: F401
     import desktop.Desktop_App  # noqa: F401
     import desktop.Viewer_Edges  # noqa: F401
     import desktop.Viewer_State  # noqa: F401
+    import desktop.Viewer_Zoom  # noqa: F401
     import utilities.Job_Cancellation  # noqa: F401  (its thread-local token must be the scheduler's)
     import utilities.Output_Names  # noqa: F401
     import Viewer_Visual_State  # noqa: F401
@@ -96,9 +96,9 @@ def setUpModule():
     # `zoom N` is a percentage of a view ZOOM_100_PERCENT_WIDTH units wide. The numbers in
     # these tests (zoom 200 is a view 500 units wide, zoom 2000 is 50) assume that is 1000, so
     # they hold whatever the shipped number is; test_zoom_command.ShippedZoomTests checks that.
-    import commands.zoom
+    import desktop.Viewer_Zoom
 
-    for target in (commands.zoom, print_command):
+    for target in (desktop.Viewer_Zoom, print_command):
         patcher = mock.patch.object(target, "ZOOM_100_PERCENT_WIDTH", 1000.0)
         patcher.start()
         _zoom_patches.append(patcher)
@@ -1694,7 +1694,7 @@ _PNG_SVG_SCRIPT = textwrap.dedent(
     import matplotlib.image as mpimg
     from PySide6 import QtCore, QtGui, QtSvg
     from desktop.Viewer_Edges import ViewerEdges
-    import commands.zoom, utilities.Output_Names, Viewer_Visual_State
+    import desktop.Viewer_Zoom, utilities.Output_Names, Viewer_Visual_State
 
     SAVE_DIR = tempfile.mkdtemp(prefix="print_png_svg_")
     engine = types.ModuleType("Command_Engine")
