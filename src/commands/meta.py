@@ -40,6 +40,11 @@ from web_ui.meta_backend import (
 )
 
 
+# `meta --register-only` brings back the Meta Data button of the Console when a session loads
+# (Command_Declarations).
+CONSOLE_BUTTON = True
+
+
 def queue_kind(args, source):
     """How the Viewer dispatches this command (Command_Declarations).
 

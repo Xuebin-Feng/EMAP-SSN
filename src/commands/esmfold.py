@@ -36,6 +36,10 @@ from web_ui.Browser_Page import is_headless
 
 
 # How the Viewer dispatches this command (Command_Declarations).
+# `esmfold --register-only` brings back the Fold View button of the Console when a session loads.
+CONSOLE_BUTTON = True
+
+
 def queue_kind(args, source):
     """`esmfold stop` ends the fold the line may be waiting for, so it runs at once; any other form waits its turn."""
     return 'instant' if args and args[0].lower() == 'stop' else 'ordered'

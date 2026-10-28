@@ -1009,7 +1009,9 @@ program. At its top level a module may define `QUEUE = "instant"` (or `queue_kin
 `"instant"` or `"ordered"`) to run at once even while other commands wait; `STARTS_MODEL_REQUEST = True` (or
 `starts_model_request(args)`) to be refused when a model generated the command, so that a model cannot start
 another model request; and `ACTS_ON_JOBS = True` (or `acts_on_jobs(args)`) for a stop or job command that the
-portal runs ahead of a request waiting for jobs. `args` is the list of words after the command's name and
+portal runs ahead of a request waiting for jobs; and `CONSOLE_BUTTON = True` (a constant only) for a command that
+adds a button to the Console window, so that a layout cache that lists the command brings the button back (the Viewer
+runs `<command> --register-only` for a listed bare command name that declares it, and for nothing else). `args` is the list of words after the command's name and
 `source` is `"typed"`, `"script"` or `"portal"`. A module that declares nothing waits its turn, starts no model
 request and acts on no jobs; a declaration that raises or returns the wrong kind of value counts as
 undeclared, except that an unreadable `STARTS_MODEL_REQUEST` refuses the command. The convention is written

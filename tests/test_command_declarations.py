@@ -1,8 +1,9 @@
 """What a command module declares about how the Viewer dispatches it (Command_Declarations).
 
 The engine, the command queue and the command portal never name a command: the
-modules of src/commands say which run at once, which start a model request and
-which act on jobs, and a module that says nothing gets the cautious defaults.
+modules of src/commands say which run at once, which start a model request, which
+act on jobs and which bring a Console button back when a session loads, and a
+module that says nothing gets the cautious defaults.
 The first class writes out the cases the modules declare, and the next ones show
 that a plugin dropped into the commands package is dispatched by what it
 declares with no change to the program. The last class reads the source of the
@@ -120,7 +121,7 @@ class DeclaredCasesTests(unittest.TestCase):
             with self.subTest(command=name):
                 if hasattr(module, "QUEUE"):
                     self.assertIn(module.QUEUE, (INSTANT, ORDERED))
-                for constant in ("STARTS_MODEL_REQUEST", "ACTS_ON_JOBS"):
+                for constant in ("STARTS_MODEL_REQUEST", "ACTS_ON_JOBS", "CONSOLE_BUTTON"):
                     if hasattr(module, constant):
                         self.assertIsInstance(getattr(module, constant), bool, constant)
                 for function, parameters, valid in (("queue_kind", ["args", "source"], {INSTANT, ORDERED}),
@@ -140,8 +141,16 @@ class DeclaredCasesTests(unittest.TestCase):
         declaring = {name for name in COMMAND_NAMES
                      if any(hasattr(declarations.command_module(name), attribute)
                             for attribute in ("QUEUE", "queue_kind", "STARTS_MODEL_REQUEST", "starts_model_request",
-                                              "ACTS_ON_JOBS", "acts_on_jobs"))}
+                                              "ACTS_ON_JOBS", "acts_on_jobs", "CONSOLE_BUTTON"))}
         self.assertEqual(declaring, {"jobs", "zoom", "run", "esmfold", "undo", "redo", "meta", "agent", "console", "help"})
+
+    def test_exactly_these_commands_declare_a_console_button(self):
+        # Only a command that declares one is run by name when a layout cache lists it: a cache cannot extend this.
+        buttons = {name for name in COMMAND_NAMES if declarations.registers_console_button(name)}
+        self.assertEqual(buttons, {"agent", "esmfold", "meta"})
+        for name in COMMAND_NAMES:
+            with self.subTest(command=name):
+                self.assertIs(getattr(declarations.command_module(name), "CONSOLE_BUTTON", False), name in buttons)
 
 
 # --- Throwaway plugins -----------------------------------------------------------------
@@ -172,6 +181,13 @@ PLUGINS = {
     "zzdecl_mutates": ("def queue_kind(args, source):\n    args.clear()\n    return 'instant'\n"
                        "def starts_model_request(args):\n    args.append('x')\n    return False\n"
                        "def acts_on_jobs(args):\n    args.clear()\n    return False\n" + RECORD),
+    "zzdecl_button": "CONSOLE_BUTTON = True\n" + RECORD,
+    "zzdecl_no_button": "CONSOLE_BUTTON = False\n" + RECORD,
+    "zzdecl_button_wrong_kinds": "CONSOLE_BUTTON = 'yes'\n" + RECORD,
+    "zzdecl_button_one": "CONSOLE_BUTTON = 1\n" + RECORD,
+    "zzdecl_button_function": "def console_button():\n    return True\n" + RECORD,
+    "zzdecl_button_import_error": "CONSOLE_BUTTON = True\nraise RuntimeError('this plugin cannot be imported')\n",
+    "_zzdecl_button_private": "CONSOLE_BUTTON = True\n" + RECORD,
     "zzdecl_import_error": "raise RuntimeError('this plugin cannot be imported')\n",
     "zzdecl_syntax_error": "def run(viewer, args:\n",
 }
@@ -189,6 +205,7 @@ class DefaultsTests(unittest.TestCase):
                 self.assertEqual(ce.queue_kind(name, list(args), source), ORDERED, (name, args, source))
             self.assertFalse(declarations.starts_model_request(name, list(args)), (name, args))
             self.assertFalse(declarations.acts_on_jobs(name, list(args)), (name, args))
+        self.assertIs(declarations.registers_console_button(name), False, name)
 
     def test_an_undeclared_module_waits_its_turn_starts_no_model_request_and_acts_on_no_jobs(self):
         self.assertDefaults("zzdecl_plain")
@@ -231,6 +248,27 @@ class DefaultsTests(unittest.TestCase):
                     self.assertFalse(declarations.acts_on_jobs(name, ["x"]))
                     # A model rule that cannot be read refuses the command instead of letting it through.
                     self.assertTrue(declarations.starts_model_request(name, ["x"]))
+
+    def test_a_console_button_is_declared_by_the_constant_true_and_nothing_else(self):
+        self.assertIs(declarations.registers_console_button("zzdecl_button"), True)
+        for name in ("zzdecl_plain", "zzdecl_no_button", "zzdecl_button_wrong_kinds", "zzdecl_button_one",
+                     "zzdecl_button_function", "zzdecl_button_import_error", "zzdecl_import_error",
+                     "zzdecl_syntax_error", "nosuchcommand", "select", "run", "help", "console"):
+            with self.subTest(command=name):
+                self.assertIs(declarations.registers_console_button(name), False)
+
+    def test_what_is_not_a_bare_command_name_has_no_console_button(self):
+        # A name a layout cache lists may be anything. A module of the commands folder that starts with "_" is not a
+        # command, so it is not imported by name even though it declares one.
+        for name in ("zzdecl_button x", " zzdecl_button", "zzdecl_button ", "zzdecl_button --register-only",
+                     "zzdecl_button\n", "commands.zzdecl_button", "zzdecl_button.py", "..", "", "a.b", "-h",
+                     "_zzdecl_button_private", "__init__", "run C:/script.py"):
+            with self.subTest(command=name):
+                self.assertIs(declarations.registers_console_button(name), False)
+        for name in (None, 7, 1.5, True, b"zzdecl_button", ["zzdecl_button"], ("zzdecl_button",),
+                     {"zzdecl_button"}, {"zzdecl_button": 1}):
+            with self.subTest(command=name):
+                self.assertIs(declarations.registers_console_button(name), False)
 
     def test_a_declaration_cannot_change_the_arguments_that_are_dispatched(self):
         args = ["keep", "me"]

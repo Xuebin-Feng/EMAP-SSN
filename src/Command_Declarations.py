@@ -49,12 +49,21 @@ script typed there (run), 'portal' for MCP and the Agent page.
       def acts_on_jobs(args):               # or a function of the arguments
           return ...
 
+* Whether the command puts a button in the Console window's second row, which comes
+  back when a session that had it is loaded. The Viewer saves the commands that
+  registered one with the session and, when it opens a layout cache, runs
+  ``<command> --register-only`` for each of them. A cache is a file people share,
+  so what it lists is run only for a command whose module declares this. Default:
+  it does not.
+
+      CONSOLE_BUTTON = True                 # a constant, and only a constant
+
 A function wins over the constant of the same declaration. A value that is not
 what the declaration asks for, or a function that raises, counts as undeclared
-(ordered; not acting on jobs), except for STARTS_MODEL_REQUEST: a declaration
-that cannot be read counts as true there, so that a mistake refuses the command
-rather than lets it start a request. A module that cannot be imported has
-declared nothing, and its command fails when it is run, as it did before.
+(ordered; not acting on jobs; no Console button), except for STARTS_MODEL_REQUEST:
+a declaration that cannot be read counts as true there, so that a mistake refuses
+the command rather than lets it start a request. A module that cannot be imported
+has declared nothing, and its command fails when it is run, as it did before.
 """
 import importlib
 
@@ -122,3 +131,14 @@ def acts_on_jobs(name, args, module=None):
     declared = _declared(module if module is not None else command_module(name), 'ACTS_ON_JOBS',
                          'acts_on_jobs', args)
     return declared is True
+
+
+def registers_console_button(name):
+    """Whether the command ``name`` declares a Console button that comes back when a session loads.
+
+    False for anything that is not a bare command name (a string that is an identifier and does not start with
+    "_", which no command does), for a module that cannot be imported, and for a value that is not exactly True.
+    """
+    if not isinstance(name, str) or not name.isidentifier() or name.startswith('_'):
+        return False
+    return getattr(command_module(name), 'CONSOLE_BUTTON', False) is True

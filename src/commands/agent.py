@@ -36,6 +36,8 @@ from web_ui.agent_backend import (
 
 # How the Viewer dispatches this command (Command_Declarations). The forms that only open the Agent page
 # or set up the model (agent, agent off, agent deactivate, agent <Model Name>) send no message to a model.
+# `agent --register-only` brings back the Agent button of the Console when a session loads.
+CONSOLE_BUTTON = True
 _SETTINGS_WORDS = frozenset({'off', 'deactivate'})
 _CONFIGURATION_FORMS = frozenset({'help', '-h', '--help', 'off', 'deactivate', '--register-only'})
 
