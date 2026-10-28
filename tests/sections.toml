@@ -116,7 +116,7 @@ modules = [
 # web server and the bundled Mol*, and spend most of their time in waits for Mol* and the page's saves. They
 # were one section with the rest of plugins, which made it by far the slowest (475 s alone, where the next
 # slowest took 174 s) and so the whole run's time; sections run in parallel, so these eight share the work,
-# each of them 60 to 110 s.
+# each of them 60 to 120 s.
 [sections.fold_color]
 description = "Fold View page: Color by card, residue tooltip, pinned residue and Residue card"
 seconds = 105
@@ -153,8 +153,8 @@ modules = [
 ]
 
 [sections.fold_layout]
-description = "Fold View page: names with no spaces to break at in the tooltip, the legends and the Color by chips"
-seconds = 80
+description = "Fold View page: names with no spaces to break at in the tooltip, the legends and the Color by chips, the legend's note and its chevron"
+seconds = 115
 modules = [
     "test_esmfold_layout",
 ]
@@ -167,8 +167,8 @@ modules = [
 ]
 
 [sections.fold_panel]
-description = "Fold View page: the resizable side panel (its handle, its limits, the keys, the width kept in the browser)"
-seconds = 60
+description = "Fold View page: the resizable side panel (its handle, its limits, the keys, the width kept in the browser) and how it looks beside the canvas"
+seconds = 115
 modules = [
     "test_esmfold_panel",
 ]
