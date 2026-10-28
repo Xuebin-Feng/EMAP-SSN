@@ -58,14 +58,30 @@ script typed there (run), 'portal' for MCP and the Agent page.
 
       CONSOLE_BUTTON = True                 # a constant, and only a constant
 
+* Which of the Session card's files the command picks. The card, which the Viewer's
+  info button opens, lists the files the session was built from and puts a button
+  beside each that the Viewer lets it change; the button types the command that picks
+  another file, with no argument, as if it were typed. The Viewer keeps the file keys
+  that can be changed ('msa', 'embedding') and the buttons' tooltips; the command says
+  which of them it picks, and the card never names the command. Default: it picks
+  none, and a file no command picks has no button.
+
+      PICKS_SESSION_FILE = 'msa'            # a constant, and only a constant: the card's key of the file
+
+  session_file_pickers() reads it over the commands folder: {file key: command}. Two
+  commands that declare the same file make a button that could type either, so that
+  file has none, and a note on stderr names the commands.
+
 A function wins over the constant of the same declaration. A value that is not
 what the declaration asks for, or a function that raises, counts as undeclared
-(ordered; not acting on jobs; no Console button), except for STARTS_MODEL_REQUEST:
+(ordered; not acting on jobs; no Console button; picking no file), except for STARTS_MODEL_REQUEST:
 a declaration that cannot be read counts as true there, so that a mistake refuses
 the command rather than lets it start a request. A module that cannot be imported
 has declared nothing, and its command fails when it is run, as it did before.
 """
 import importlib
+import sys
+from pathlib import Path
 
 INSTANT = 'instant'
 ORDERED = 'ordered'
@@ -142,3 +158,53 @@ def registers_console_button(name):
     if not isinstance(name, str) or not name.isidentifier() or name.startswith('_'):
         return False
     return getattr(command_module(name), 'CONSOLE_BUTTON', False) is True
+
+
+def _commands_that_mention(word):
+    """The names of the commands whose source mentions ``word``, sorted, over the folders of the commands package.
+
+    A cheap look before importing: only the modules that can declare something are imported, not every command
+    (importing them all takes seconds). A name in an earlier folder hides the same name in a later one, as the
+    import does, and a file that cannot be read is skipped.
+    """
+    try:
+        folders = list(importlib.import_module('commands').__path__)
+    except Exception:
+        return []
+    names = set()
+    for folder in folders:
+        for path in sorted(Path(folder).glob('*.py')):
+            name = path.stem
+            if name in names or name.startswith('_') or not name.isidentifier():
+                continue
+            try:
+                if word in path.read_text(encoding='utf-8', errors='replace'):
+                    names.add(name)
+            except OSError:
+                continue
+    return sorted(names)
+
+
+def session_file_pickers():
+    """The Session card's pick buttons as the commands declare them: {file key: command name}.
+
+    A command declares the file it picks with ``PICKS_SESSION_FILE = '<file key>'`` in its module, a constant that is
+    a non-empty string; the key is the Viewer's name for the file (the card decides which keys it can change and
+    what their buttons say). A module that cannot be imported, one without the declaration and one whose value is
+    anything but such a string pick no file. When two commands declare the same file, neither is used: a button
+    that could type either would run one by chance, so that file has no button, and a note on stderr names the
+    commands. Read afresh at each call, so a plugin dropped into the commands folder is seen when the card next opens.
+    """
+    claims = {}
+    for name in _commands_that_mention('PICKS_SESSION_FILE'):
+        key = getattr(command_module(name), 'PICKS_SESSION_FILE', None)
+        if isinstance(key, str) and key:
+            claims.setdefault(key, []).append(name)
+    pickers = {}
+    for key, names in claims.items():
+        if len(names) == 1:
+            pickers[key] = names[0]
+        else:
+            print(f"The commands {', '.join(names)} all declare PICKS_SESSION_FILE = {key!r}, so the Session card "
+                  "offers no button to pick that file.", file=sys.stderr)
+    return pickers

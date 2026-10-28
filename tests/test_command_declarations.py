@@ -25,7 +25,7 @@ import Command_Declarations as declarations  # noqa: E402
 import Command_Engine as ce  # noqa: E402
 from Viewer_Command_Portal import ViewerCommandPortal  # noqa: E402
 from desktop.Viewer_Inspection import command_catalog  # noqa: E402
-from tests.command_fixtures import scratch_commands  # noqa: E402
+from tests.command_fixtures import only_commands, scratch_commands  # noqa: E402
 from tests.viewer_fixtures import PortalFixture  # noqa: E402
 
 COMMANDS_DIR = SRC_DIR / "commands"
@@ -546,6 +546,122 @@ class CentralCodeNamesNoCommandTests(unittest.TestCase):
         # A file that moved or was renamed would otherwise stop being checked.
         for relative in ALLOWED:
             self.assertTrue((SRC_DIR.parent / relative).is_file(), relative)
+
+
+# --- The Session card's pick buttons ---------------------------------------------------
+PICK_PLUGINS = {
+    "zzpick_plain": RECORD,
+    "zzpick_msa": "PICKS_SESSION_FILE = 'msa'\n" + RECORD,
+    "zzpick_embedding": "PICKS_SESSION_FILE = 'embedding'\n" + RECORD,
+    "zzpick_msa_too": "PICKS_SESSION_FILE = 'msa'\n" + RECORD,
+    "zzpick_fixed_file": "PICKS_SESSION_FILE = 'node_fasta'\n" + RECORD,
+    "zzpick_unknown_file": "PICKS_SESSION_FILE = 'nosuchfile'\n" + RECORD,
+    "zzpick_empty": "PICKS_SESSION_FILE = ''\n" + RECORD,
+    "zzpick_none": "PICKS_SESSION_FILE = None\n" + RECORD,
+    "zzpick_number": "PICKS_SESSION_FILE = 7\n" + RECORD,
+    "zzpick_true": "PICKS_SESSION_FILE = True\n" + RECORD,
+    "zzpick_list": "PICKS_SESSION_FILE = ['msa']\n" + RECORD,
+    "zzpick_bytes": "PICKS_SESSION_FILE = b'msa'\n" + RECORD,
+    "zzpick_function": "def PICKS_SESSION_FILE():\n    return 'msa'\n" + RECORD,
+    "zzpick_import_error": "PICKS_SESSION_FILE = 'msa'\nraise RuntimeError('this plugin cannot be imported')\n",
+    "zzpick_syntax_error": "PICKS_SESSION_FILE = 'msa'\ndef run(viewer, args:\n",
+    "_zzpick_private": "PICKS_SESSION_FILE = 'msa'\n" + RECORD,
+}
+# A module that does not mention the declaration is never imported by the lookup; one that does is.
+IMPORT_RECORD = "import Command_Engine\nCommand_Engine.SCRATCH_IMPORTS.append(__name__.split('.')[-1])\n"
+WRONG_VALUES = ("zzpick_empty", "zzpick_none", "zzpick_number", "zzpick_true", "zzpick_list", "zzpick_bytes",
+                "zzpick_function", "zzpick_import_error", "zzpick_syntax_error", "_zzpick_private")
+
+
+def pickers_with(plugins, real=False):
+    """session_file_pickers() with only the plugins (or the real commands as well), and what it wrote to stderr."""
+    import contextlib
+    import io
+
+    manager = scratch_commands(plugins) if real else only_commands(plugins)
+    errors = io.StringIO()
+    with manager, contextlib.redirect_stderr(errors):
+        return declarations.session_file_pickers(), errors.getvalue()
+
+
+class SessionFilePickerTests(unittest.TestCase):
+    """The Session card's pick buttons type the command that declares the file it picks, and no code names one."""
+
+    def test_exactly_these_commands_declare_a_file_they_pick(self):
+        # The card's two buttons type the same commands as before; only the two declare it.
+        picking = {name: declarations.command_module(name).PICKS_SESSION_FILE for name in COMMAND_NAMES
+                   if hasattr(declarations.command_module(name), "PICKS_SESSION_FILE")}
+        self.assertEqual(picking, {"alignment": "msa", "embedding": "embedding"})
+        for key in picking.values():
+            self.assertIsInstance(key, str)
+        pickers, note = pickers_with({}, real=True)
+        self.assertEqual(pickers, {"msa": "alignment", "embedding": "embedding"})
+        self.assertEqual(note, "")
+
+    def test_a_command_that_declares_nothing_picks_no_file(self):
+        self.assertEqual(pickers_with({"zzpick_plain": PICK_PLUGINS["zzpick_plain"]}), ({}, ""))
+        self.assertEqual(pickers_with({}), ({}, ""))
+
+    def test_a_plugin_that_declares_a_file_is_read_with_no_change_to_the_program(self):
+        plugins = {name: PICK_PLUGINS[name] for name in ("zzpick_plain", "zzpick_msa", "zzpick_embedding")}
+        self.assertEqual(pickers_with(plugins), ({"msa": "zzpick_msa", "embedding": "zzpick_embedding"}, ""))
+        # With only one of them, the other file has none.
+        self.assertEqual(pickers_with({"zzpick_msa": PICK_PLUGINS["zzpick_msa"]}), ({"msa": "zzpick_msa"}, ""))
+
+    def test_the_file_key_is_the_viewers_to_judge_the_lookup_passes_any_string_on(self):
+        # A file that cannot change, and a key the card does not have, are the card's to refuse (no button).
+        plugins = {name: PICK_PLUGINS[name] for name in ("zzpick_fixed_file", "zzpick_unknown_file")}
+        self.assertEqual(pickers_with(plugins),
+                         ({"node_fasta": "zzpick_fixed_file", "nosuchfile": "zzpick_unknown_file"}, ""))
+
+    def test_a_value_that_is_not_a_non_empty_string_or_a_module_that_cannot_be_used_picks_no_file(self):
+        for name in WRONG_VALUES:
+            with self.subTest(command=name):
+                self.assertEqual(pickers_with({name: PICK_PLUGINS[name]}), ({}, ""))
+        # Together, none of them spoils a good declaration beside them.
+        plugins = {name: PICK_PLUGINS[name] for name in WRONG_VALUES + ("zzpick_msa",)}
+        self.assertEqual(pickers_with(plugins), ({"msa": "zzpick_msa"}, ""))
+
+    def test_two_commands_that_declare_the_same_file_leave_it_with_no_button_and_say_so(self):
+        plugins = {name: PICK_PLUGINS[name] for name in ("zzpick_msa", "zzpick_msa_too", "zzpick_embedding")}
+        pickers, note = pickers_with(plugins)
+        self.assertEqual(pickers, {"embedding": "zzpick_embedding"})
+        self.assertIn("zzpick_msa", note)
+        self.assertIn("zzpick_msa_too", note)
+        self.assertIn("'msa'", note)
+        self.assertNotIn("zzpick_embedding", note)
+        # A plugin that claims what a built-in command picks is a conflict too: the built-in one is not preferred.
+        pickers, note = pickers_with({"zzpick_msa": PICK_PLUGINS["zzpick_msa"]}, real=True)
+        self.assertEqual(pickers, {"embedding": "embedding"})
+        self.assertIn("alignment", note)
+        self.assertIn("zzpick_msa", note)
+
+    def test_only_a_module_that_mentions_the_declaration_is_imported(self):
+        # The lookup runs each time the card opens, so it does not import every command (that takes seconds).
+        imported = []
+        plugins = {"zzpick_quiet": IMPORT_RECORD, "zzpick_loud": "PICKS_SESSION_FILE = 'msa'\n" + IMPORT_RECORD}
+        with mock.patch.object(ce, "SCRATCH_IMPORTS", imported, create=True):
+            self.assertEqual(pickers_with(plugins), ({"msa": "zzpick_loud"}, ""))
+        self.assertEqual(imported, ["zzpick_loud"])
+
+    def test_it_is_read_afresh_each_time(self):
+        with only_commands({}):
+            self.assertEqual(declarations.session_file_pickers(), {})
+        with only_commands({"zzpick_msa": PICK_PLUGINS["zzpick_msa"]}):
+            self.assertEqual(declarations.session_file_pickers(), {"msa": "zzpick_msa"})
+        with only_commands({}):
+            self.assertEqual(declarations.session_file_pickers(), {})
+
+    def test_the_viewers_window_code_imports_no_command(self):
+        # The Session card, the Zoom box and the Viewer take what they need from the Viewer's own modules and from
+        # what commands declare; none of them imports a command module (EMAPSSN_Viewer.py and Viewer_Widgets.py hold
+        # many strings that are also command names, so only their imports are read).
+        names = set(COMMAND_NAMES)
+        for relative in ("src/EMAPSSN_Viewer.py", "src/desktop/Viewer_Widgets.py", "src/desktop/Viewer_Zoom.py"):
+            source = (SRC_DIR.parent / relative).read_text(encoding="utf-8")
+            imports = [key for key in command_words_in(source, names) if key[1] == "import"]
+            with self.subTest(file=relative):
+                self.assertEqual(imports, [])
 
 
 if __name__ == "__main__":

@@ -80,6 +80,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from Command_Declarations import session_file_pickers
 from desktop.Desktop_App import UI_QSS_FONT_STACK, button_icon_room, fit_buttons_to_text, installed_language
 from desktop.Studio_Theme import TOKENS, icon_button, key_cap_qss, studio_icon
 from desktop.Viewer_Jobs_Card import JobsSection, section_qss
@@ -124,11 +125,12 @@ SESSION_FILES = (
     ("msa", QT_TRANSLATE_NOOP("ViewerControls", "Alignment:")),
     ("embedding", QT_TRANSLATE_NOOP("ViewerControls", "Embedding:")),
 )
-# The files the card can change: the command its pick button runs, typed with no argument (it opens
-# the command's file dialog), and the button's tooltip.
-PICK_FILES = {
-    "msa": ("alignment", QT_TRANSLATE_NOOP("ViewerControls", "Choose another alignment file…")),
-    "embedding": ("embedding", QT_TRANSLATE_NOOP("ViewerControls", "Choose another embedding file…")),
+# The files the card lets a command change, and the tooltip of the pick button beside each. Which
+# command a button types is not said here: the command declares the file it picks (PICKS_SESSION_FILE,
+# Command_Declarations.session_file_pickers), and a file no command picks has no button.
+PICK_TOOLTIPS = {
+    "msa": QT_TRANSLATE_NOOP("ViewerControls", "Choose another alignment file…"),
+    "embedding": QT_TRANSLATE_NOOP("ViewerControls", "Choose another embedding file…"),
 }
 # The line the tooltip of a fixed file's field adds to its path.
 FIXED_NOTE = QT_TRANSLATE_NOOP("ViewerControls", "Fixed for this Viewer session.")
@@ -219,12 +221,14 @@ class ControlsCard(QWidget):
     written with the alias of the folder it is in. The sequence set, network
     and layout cache are fixed for the session: their fields are quiet, have no
     button, and their tooltip says so after the full path. The alignment and
-    the embedding (PICK_FILES) come after a small gap and can be changed: the
-    button after each calls ``command`` (a function taking a Viewer command
-    line, as process_command does) with "alignment" or "embedding" and nothing
-    else, as if it were typed, which opens that command's file dialog, and then
+    the embedding (PICK_TOOLTIPS) come after a small gap and can be changed when
+    a command declares that it picks them (Command_Declarations.session_file_pickers):
+    the button after each calls ``command`` (a function taking a Viewer command
+    line, as process_command does) with that command's name and nothing else,
+    as if it were typed, which opens the command's file dialog, and then
     leaves the keyboard with the canvas; the row shows the new file when the
-    owner refreshes the card. ``session`` is a function returning
+    owner refreshes the card. A file with no such command has no button and is
+    fixed like the first three. ``session`` is a function returning
     ViewerInspectionService.session_overview()'s dictionary (its "inputs" are
     the files' absolute paths, its "directories" and "project_root" what the
     aliases are written from); refresh() reads it again, and does only the
@@ -298,6 +302,8 @@ class ControlsCard(QWidget):
         self._current = None   # the field Select All selects in: the last one clicked or selected in
         self.path_fields = {}
         self.pick_buttons = {}
+        # The command each changeable file's button types, read when the card is made.
+        self.pickers = session_file_pickers() if session is not None else {}
         self.file_labels = {}
         self.count_labels = {}
         self._paths = {}
@@ -475,7 +481,7 @@ class ControlsCard(QWidget):
         grid.setColumnStretch(1, 1)
         row = 0
         for key, label_text in SESSION_FILES:
-            changeable = key in PICK_FILES
+            changeable = key in PICK_TOOLTIPS and key in self.pickers
             if changeable and not self.pick_buttons:
                 # A gap before the files that can be changed.
                 grid.setRowMinimumHeight(row, self.GROUP_GAP)
@@ -489,7 +495,7 @@ class ControlsCard(QWidget):
             self._paths[key] = None
             grid.addWidget(label, row, 0, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
             if changeable:
-                button = icon_button("file-input", QtCore.QCoreApplication.translate("ViewerControls", PICK_FILES[key][1]))
+                button = icon_button("file-input", QtCore.QCoreApplication.translate("ViewerControls", PICK_TOOLTIPS[key]))
                 button.setFixedWidth(self.PICK_WIDTH)
                 button.clicked.connect(lambda checked=False, name=key: self.pick_file(name))
                 self.pick_buttons[key] = button
@@ -611,7 +617,7 @@ class ControlsCard(QWidget):
                 continue
             self._paths[key] = path
             self.path_fields[key].show_path(path, alias_form(path, directories, root),
-                                            None if key in PICK_FILES else fixed)
+                                            None if key in self.pick_buttons else fixed)
 
     @staticmethod
     def _show(label, text):
@@ -621,16 +627,17 @@ class ControlsCard(QWidget):
     def pick_file(self, key):
         """Run the command that picks another file for ``key``, as typed with no argument; returns whether one was run.
 
-        "alignment" or "embedding" goes to ``command`` alone, which opens that
-        command's file dialog and does the rest as it does when typed (history,
-        the messages, the rollback of a file that fails). The keyboard stays
-        with the canvas afterwards. A file the card cannot change, or a card
-        given no command, runs nothing.
+        The command's name, as its module declares the file it picks, goes to
+        ``command`` alone, which opens that command's file dialog and does the
+        rest as it does when typed (history, the messages, the rollback of a
+        file that fails). The keyboard stays with the canvas afterwards. A file
+        the card cannot change or no command picks, or a card given no command,
+        runs nothing.
         """
-        entry = PICK_FILES.get(key)
-        if entry is None or self.command is None:
+        picker = self.pickers.get(key) if key in PICK_TOOLTIPS else None
+        if picker is None or self.command is None:
             return False
-        self.command(entry[0])
+        self.command(picker)
         host = self.parentWidget()
         if host is not None:
             host.setFocus()

@@ -4799,11 +4799,11 @@ Command-line usage:
     </message>
     <message>
         <location filename="../../../commands/agent.py" line="-93"/>
-        <location filename="../../../commands/alignment.py" line="+49"/>
+        <location filename="../../../commands/alignment.py" line="+54"/>
         <location filename="../../../commands/cluster.py" line="+370"/>
         <location filename="../../../commands/color.py" line="+476"/>
         <location filename="../../../commands/console.py" line="+57"/>
-        <location filename="../../../commands/embedding.py" line="+57"/>
+        <location filename="../../../commands/embedding.py" line="+62"/>
         <location filename="../../../commands/esmfold.py" line="-225"/>
         <location filename="../../../commands/export.py" line="+120"/>
         <location filename="../../../commands/group.py" line="+141"/>
@@ -6943,7 +6943,7 @@ The whole output is in {log}.</source>
         <translation type="unfinished">{key} 的颜色值无效：{value}</translation>
     </message>
     <message>
-        <location filename="../../../EMAPSSN_Viewer.py" line="+1652"/>
+        <location filename="../../../EMAPSSN_Viewer.py" line="+1653"/>
         <source>Cmd: {command}</source>
         <translation type="unfinished">命令：{command}</translation>
     </message>
@@ -13188,7 +13188,7 @@ Fedora / RHEL：
         <translation type="obsolete">隐藏交互说明</translation>
     </message>
     <message>
-        <location line="-178"/>
+        <location line="-179"/>
         <source>Mouse and keyboard controls</source>
         <translation type="unfinished">鼠标和键盘操作</translation>
     </message>
@@ -13206,7 +13206,7 @@ Fedora / RHEL：
         <translation type="obsolete">[回车] 命令 | [左键] 高亮 | [右键] 选择/清除 | [滚轮] 缩放 | [左键 + Shift/Ctrl] 复制节点标题/序列 | [左键 + 拖动] 平移 | [右键 + 拖动] 框选/移动节点 | [右键 + 拖动 + Shift] 直线移动 | [右键 + 拖动 + 滚轮] 旋转节点（Shift：精细） | [Esc] 取消拖动</translation>
     </message>
     <message>
-        <location line="+64"/>
+        <location line="+65"/>
         <source>Zoom: {zoom}%</source>
         <translation type="unfinished">缩放：{zoom}%</translation>
     </message>
@@ -13216,12 +13216,12 @@ Fedora / RHEL：
         <translation type="unfinished">控制台</translation>
     </message>
     <message>
-        <location line="-17"/>
+        <location line="-18"/>
         <source>[ENTER] Command | [LeftClick] Highlight | [LeftClick + Drag] Pan | [LeftClick + Shift] Copy Node Header | [LeftDoubleClick + Shift] Copy Node Sequence | [RightClick] Select/Clear | [RightClick + Shift] Add/Remove Nodes | [RightClick + Drag] GroupSelect/MoveNodes | [RightClick + Drag + Shift] Move Straight (45° Steps) | [RightClick + Drag + Scroll] Rotate Around Grab Point | [RightClick + Drag + Ctrl] Rotate Nodes (Shift: 15° Steps) | [Scroll] Zoom | [Scroll + Ctrl] Rotate Around Cursor | [Esc] Cancel Drag</source>
         <translation type="unfinished">[回车] 命令 | [左键] 高亮 | [左键 + 拖动] 平移 | [左键 + Shift] 复制节点标题 | [左键双击 + Shift] 复制节点序列 | [右键] 选择/清除 | [右键 + Shift] 添加/移除节点 | [右键 + 拖动] 框选/移动节点 | [右键 + 拖动 + Shift] 直线移动（45° 步进） | [右键 + 拖动 + 滚轮] 绕抓取点旋转 | [右键 + 拖动 + Ctrl] 旋转节点（Shift：15° 步进） | [滚轮] 缩放 | [滚轮 + Ctrl] 绕光标旋转 | [Esc] 取消拖动</translation>
     </message>
     <message>
-        <location line="+18"/>
+        <location line="+19"/>
         <source>Show everything this Viewer has printed: progress, warnings and errors</source>
         <translation type="unfinished">显示此查看器打印的全部内容：进度、警告和错误</translation>
     </message>
@@ -13344,7 +13344,7 @@ Fedora / RHEL：
 <context>
     <name>ViewerControls</name>
     <message>
-        <location filename="../../../desktop/Viewer_Widgets.py" line="+121"/>
+        <location filename="../../../desktop/Viewer_Widgets.py" line="+122"/>
         <source>Sequence Set:</source>
         <translation type="unfinished">序列集：</translation>
     </message>
@@ -13369,7 +13369,7 @@ Fedora / RHEL：
         <translation type="unfinished">布局缓存：</translation>
     </message>
     <message>
-        <location line="+7"/>
+        <location line="+8"/>
         <source>Choose another alignment file…</source>
         <translation type="unfinished">选择其他比对文件…</translation>
     </message>
@@ -13389,7 +13389,7 @@ Fedora / RHEL：
         <translation type="unfinished">无</translation>
     </message>
     <message>
-        <location line="+152"/>
+        <location line="+156"/>
         <source>Close</source>
         <translation type="unfinished">关闭</translation>
     </message>
@@ -13436,7 +13436,7 @@ Fedora / RHEL：
         <translation type="unfinished">{total}（显示 {shown}）</translation>
     </message>
     <message>
-        <location line="+100"/>
+        <location line="+101"/>
         <source>Open the list of commands in your web browser</source>
         <translation type="unfinished">在网页浏览器中打开命令列表</translation>
     </message>

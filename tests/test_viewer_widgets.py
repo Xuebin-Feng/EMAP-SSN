@@ -52,7 +52,7 @@ from desktop.Desktop_App import clipped_button_text, fit_buttons_to_text  # noqa
 from desktop.Studio_Theme import TOKENS, key_cap_qss, studio_icon  # noqa: E402
 from desktop.Viewer_Widgets import (  # noqa: E402
     FIXED_NOTE,
-    PICK_FILES,
+    PICK_TOOLTIPS,
     SESSION_FILES,
     SIDEBAR_INSET,
     ConsoleButton,
@@ -320,7 +320,7 @@ class ControlsCardTests(unittest.TestCase):
     @staticmethod
     def tip(key, path):
         """A path field's tooltip: the full path, and after it for a fixed file the note that it is."""
-        return path if key in PICK_FILES else path + "\n" + FIXED_NOTE
+        return path if key in PICK_TOOLTIPS else path + "\n" + FIXED_NOTE
 
     def open_card(self):
         card = self.button.toggle_card()
@@ -687,7 +687,8 @@ class ControlsCardTests(unittest.TestCase):
             icon = button.icon().pixmap(16, 16).toImage()
             self.assertEqual(icon, studio_icon("file-input").pixmap(16, 16).toImage())
             self.assertNotEqual(icon, studio_icon("folder-open").pixmap(16, 16).toImage())
-        self.assertEqual({PICK_FILES[key][0] for key in expected}, {"alignment", "embedding"})
+        # The commands the buttons type are the ones that declare the files (Command_Declarations).
+        self.assertEqual(card.pickers, {"msa": "alignment", "embedding": "embedding"})
         self.assertNotIn("Open Folder", [widget.toolTip() for widget in card.findChildren(QWidget)])
 
     def test_a_pick_button_types_its_command_with_no_argument_and_leaves_the_keyboard_with_the_canvas(self):
@@ -1230,6 +1231,119 @@ class ControlsCardTests(unittest.TestCase):
             self.assertIn("docs/list_of_commands.html", card.commands_button.toolTip())
             self.assertFalse(card.open_command_list())
             services.open_path.assert_not_called()
+
+
+class ControlsCardPickerTests(unittest.TestCase):
+    """The card's pick buttons type the command that declares the file they pick (PICKS_SESSION_FILE).
+
+    The card keeps which files can be changed and what their buttons say; it names no command. A file no
+    command picks, and a file the card cannot change, have no button.
+    """
+
+    PICKING = "PICKS_SESSION_FILE = '%s'\ndef run(viewer, args):\n    pass\n"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.app = QApplication.instance() or QApplication([])
+        apply_theme_for_class(cls, cls.app)
+
+    def setUp(self):
+        self.host = RecordingCanvas()
+        self.addCleanup(self.host.deleteLater)
+        self.host.setGeometry(10, 0, 1000, 760)
+        self.command = mock.Mock()
+        self.info = {"node_count": 3, "edge_count": 2, "directories": {}, "project_root": "",
+                     "inputs": {key: os.path.abspath(key + ".dat") for key, _label in SESSION_FILES}}
+
+    def card(self):
+        card = ControlsCard("x", shipped_actions(), parent=self.host, session=lambda: self.info, command=self.command)
+        self.addCleanup(card.close)
+        return card
+
+    def card_with(self, plugins, real=False):
+        """A card made while only the plugins (or the real commands too) are in the commands package."""
+        import contextlib
+        import io
+
+        from tests.command_fixtures import only_commands, scratch_commands
+
+        with (scratch_commands(plugins) if real else only_commands(plugins)), contextlib.redirect_stderr(io.StringIO()):
+            return self.card()
+
+    def assert_no_button(self, card, key):
+        self.assertNotIn(key, card.pick_buttons)
+        self.assertTrue(card.path_fields[key].fixed, key)
+        self.assertEqual(card.path_fields[key].toolTip().splitlines()[1:], [FIXED_NOTE], key)
+        self.command.reset_mock()
+        self.assertFalse(card.pick_file(key), key)
+        self.command.assert_not_called()
+
+    def test_the_two_buttons_type_the_commands_the_alignment_and_embedding_commands_declare(self):
+        card = self.card()
+        self.assertEqual(set(card.pick_buttons), {"msa", "embedding"})
+        self.assertEqual(card.pickers, {"msa": "alignment", "embedding": "embedding"})
+        for key, command, tip in (("msa", "alignment", "Choose another alignment file…"),
+                                  ("embedding", "embedding", "Choose another embedding file…")):
+            self.command.reset_mock()
+            card.pick_buttons[key].click()
+            self.command.assert_called_once_with(command)
+            self.assertEqual(card.pick_buttons[key].toolTip(), tip)
+            self.assertFalse(card.path_fields[key].fixed)
+        for key in ("node_fasta", "network_hdf5", "layout_cache"):
+            self.assert_no_button(card, key)
+
+    def test_a_plugin_that_declares_a_file_takes_its_button_over(self):
+        # A program with a plugin in place of the alignment command: its button types the plugin, and the
+        # embedding, which no command picks, has none.
+        card = self.card_with({"zzpick_msa": self.PICKING % "msa"})
+        self.assertEqual(set(card.pick_buttons), {"msa"})
+        card.pick_buttons["msa"].click()
+        self.command.assert_called_once_with("zzpick_msa")
+        self.assertEqual(card.pick_buttons["msa"].toolTip(), "Choose another alignment file…")
+        self.assert_no_button(card, "embedding")
+        self.assertTrue(card.pick_file("msa"))
+        # Both files: each button types its own plugin.
+        self.command.reset_mock()
+        card = self.card_with({"zzpick_msa": self.PICKING % "msa", "zzpick_embedding": self.PICKING % "embedding"})
+        self.assertEqual(set(card.pick_buttons), {"msa", "embedding"})
+        for key, command in (("msa", "zzpick_msa"), ("embedding", "zzpick_embedding")):
+            self.command.reset_mock()
+            card.pick_buttons[key].click()
+            self.command.assert_called_once_with(command)
+
+    def test_with_no_declaration_there_is_no_button(self):
+        card = self.card_with({})
+        self.assertEqual(card.pick_buttons, {})
+        self.assertEqual(card.body.findChildren(QPushButton), [])
+        for key, _label in SESSION_FILES:
+            self.assert_no_button(card, key)
+        # A command that declares nothing does not give one either.
+        card = self.card_with({"zzpick_plain": "def run(viewer, args):\n    pass\n"})
+        self.assertEqual(card.pick_buttons, {})
+
+    def test_a_declaration_for_a_file_that_cannot_change_or_is_not_there_gives_no_button(self):
+        card = self.card_with({"zzpick_fixed": self.PICKING % "node_fasta", "zzpick_unknown": self.PICKING % "nosuchfile",
+                               "zzpick_layout": self.PICKING % "layout_cache"})
+        self.assertEqual(card.pick_buttons, {})
+        for key, _label in SESSION_FILES:
+            self.assert_no_button(card, key)
+
+    def test_two_commands_that_declare_the_same_file_leave_it_with_no_button(self):
+        card = self.card_with({"zzpick_one": self.PICKING % "msa", "zzpick_two": self.PICKING % "msa",
+                               "zzpick_embedding": self.PICKING % "embedding"})
+        self.assertEqual(set(card.pick_buttons), {"embedding"})
+        self.assert_no_button(card, "msa")
+        # A plugin that claims what the alignment command picks is such a conflict as well.
+        card = self.card_with({"zzpick_one": self.PICKING % "msa"}, real=True)
+        self.assertEqual(set(card.pick_buttons), {"embedding"})
+        self.assert_no_button(card, "msa")
+
+    def test_a_card_without_a_session_has_no_pick_command(self):
+        card = ControlsCard("x", shipped_actions(), parent=self.host, command=self.command)
+        self.addCleanup(card.close)
+        self.assertEqual((card.pickers, card.pick_buttons), ({}, {}))
+        self.assertFalse(card.pick_file("msa"))
+        self.command.assert_not_called()
 
 
 class ControlsCardLanguageTests(unittest.TestCase):

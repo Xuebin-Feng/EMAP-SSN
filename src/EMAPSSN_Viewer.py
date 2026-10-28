@@ -1446,7 +1446,8 @@ class MainViewer:
             session=self._session_overview,
             controls_title=translate("Viewer", "Mouse and keyboard controls"),
             area=self._session_card_area,
-            # The card's pick buttons type "alignment" and "embedding": the same command path.
+            # The card's pick buttons type the command that declares the file they pick
+            # (Command_Declarations.session_file_pickers): the same command path.
             command=self.process_command,
             # Ctrl+C copies a selected path of the card, unless the command line is open: it copies its own text.
             command_line_open=lambda: getattr(self, 'console_mode', False),

@@ -7,7 +7,8 @@ reported_outcomes() records which outcome a command reported. network_viewer()
 and BARBELL_EDGES give the clustering commands a small network, and
 run_command() runs a command quietly and returns its outcomes and output.
 scratch_commands() drops throwaway command modules into the commands package,
-as a plugin is dropped in. end_scheduler() is the cleanup for a test's own
+as a plugin is dropped in, and only_commands() does so with the real commands out
+of the package's folders. end_scheduler() is the cleanup for a test's own
 background job scheduler.
 """
 import io
@@ -109,6 +110,25 @@ def scratch_commands(modules):
                 delattr(commands, name)
         importlib.invalidate_caches()
         shutil.rmtree(folder, ignore_errors=True)
+
+
+@contextmanager
+def only_commands(modules):
+    """scratch_commands, with the commands folder itself out of the package's way for the block.
+
+    Code that lists the commands (Command_Declarations.session_file_pickers) then sees only ``modules``, as in
+    a program that has none of the real commands. A real command already imported stays in sys.modules and
+    importable by name; it is no longer in the folders the package lists.
+    """
+    import commands
+
+    with scratch_commands(modules) as names:
+        folders = list(commands.__path__)
+        commands.__path__[:] = folders[-1:]  # scratch_commands appended its folder last
+        try:
+            yield names
+        finally:
+            commands.__path__[:] = folders
 
 
 def run_command(command, viewer, args):

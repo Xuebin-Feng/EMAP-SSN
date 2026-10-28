@@ -41,6 +41,11 @@ def print_help():
       Unreadable or malformed files still fail and restore the previous alignment.
     """)
 
+# The Session card's file this command picks: the button beside it types this command
+# (Command_Declarations.session_file_pickers).
+PICKS_SESSION_FILE = 'msa'
+
+
 def run(viewer, args):
     # Check for help argument
     if args and args[0].lower() in ['help', '-h', '--help']:

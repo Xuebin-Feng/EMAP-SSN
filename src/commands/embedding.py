@@ -49,6 +49,11 @@ def refresh_session_card(viewer):
         refresh()
 
 
+# The Session card's file this command picks: the button beside it types this command
+# (Command_Declarations.session_file_pickers).
+PICKS_SESSION_FILE = 'embedding'
+
+
 def run(viewer, args):
     # Check for help argument
     if args and args[0].lower() in ['help', '-h', '--help']:
