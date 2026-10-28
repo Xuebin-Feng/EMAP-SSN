@@ -415,7 +415,8 @@ def i18n_files(page: WebPageDescriptor, src_root: str) -> list:
     found = []
     root = os.path.abspath(src_root)
     for pattern in page.i18n_files:
-        for match in sorted(glob.glob(os.path.join(root, *pattern.split("/")))):
+        # The folder is a path, not a pattern: a [ or * in its name is its own.
+        for match in sorted(glob.glob(os.path.join(glob.escape(root), *pattern.split("/")))):
             if not os.path.isfile(match):
                 continue
             try:
@@ -685,6 +686,10 @@ class WebPluginRegistry:
         if any(existing.path == page.path for existing in self.pages.values()):
             raise WebPluginError(f"page '{page.path}' is already registered")
         file_key = self._page_file(page, web_root)
+        if file_key in self._page_files:
+            raise WebPluginError(
+                f"page '{page.path}': its file is already the page '{self._page_files[file_key].path}'s"
+            )
         texts = i18n_files(page, src_root) if page.i18n_context else []
         keys = [page_file_key(os.path.join(src_root, *relative.split("/"))) for relative in texts]
         for key in keys:

@@ -42,6 +42,7 @@ from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, PortalFixture
 from utilities import Hardware_Acceleration as Hardware_Utils
 from utilities.Localization import display_text
 from web_ui import Browser_Page
+from web_ui.Plugin_Manager import bundled_pages
 
 
 # What every run says about per-residue data while no alignment is loaded, as the stand-in Viewers here are.
@@ -51,6 +52,16 @@ URL = f"{ADDRESS}/api/action"
 # Where the command module under test says the project is, as it computes it.
 COMMAND_SRC = os.path.dirname(os.path.dirname(os.path.abspath(esmfold_command.__file__)))
 COMMAND_PROJECT = os.path.dirname(COMMAND_SRC)
+
+
+def opening_pages(viewer):
+    """viewer, which opens the pages the bundled plugins declare through the Viewer's own open_page."""
+    from EMAPSSN_Viewer import MainViewer
+
+    viewer._open_web_ui = lambda *args, **kwargs: Browser_Page.open_browser_page(viewer, *args, **kwargs)
+    viewer.web_plugin_registry = bundled_pages()
+    viewer.open_page = lambda client, **kwargs: MainViewer.open_page(viewer, client, **kwargs)
+    return viewer
 
 
 class FakeDevice:
@@ -910,8 +921,7 @@ class WindowStateTests(unittest.TestCase):
         )
         if headless is not None:
             viewer.headless = headless
-        viewer._open_web_ui = lambda *args, **kwargs: Browser_Page.open_browser_page(viewer, *args, **kwargs)
-        return viewer
+        return opening_pages(viewer)
 
     def run_esmfold(self, viewer, arguments):
         """Run the command with only the scheduler stubbed; return what happened."""
@@ -1515,7 +1525,7 @@ class ProcessCase(PortalFixture, unittest.TestCase):
         viewer.full_headers = ["one", "two", "three"]
         viewer.get_web_url = lambda path="/": f"{self.address}/{str(path).lstrip('/')}"
         viewer.web_server = SimpleNamespace(has_event_client=lambda client_id: False)
-        viewer._open_web_ui = lambda *args, **kwargs: Browser_Page.open_browser_page(viewer, *args, **kwargs)
+        opening_pages(viewer)
         if state is not None:
             apply_window_state(viewer, state)
         return viewer

@@ -23,6 +23,8 @@ from PySide6.QtTest import QTest
 from PySide6.QtWebEngineCore import QWebEngineScript
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from http.server import ThreadingHTTPServer
+from web_ui import agent_backend
+from web_ui.Plugin_Manager import WebPluginRegistry
 from web_ui.Web_Server import MIME_TYPES, WebServerHandler
 from tests.agent_fixtures import image_bytes
 
@@ -62,6 +64,11 @@ class ComposerTests(unittest.TestCase):
         cls.actions = []
         cls.server = ThreadingHTTPServer(('127.0.0.1', 0), FixtureHandler)
         cls.server.viewer = SimpleNamespace(communicator=SimpleNamespace(handle_action=cls.actions.append))
+        # The page checks the images it attaches with the Agent plugin's own API route, registered as the Viewer's
+        # plugin manager registers it; the handler answers it through the server's own checks.
+        registry = WebPluginRegistry(cls.server.viewer)
+        agent_backend.register_backend(registry, cls.server.viewer)
+        cls.server.api_routes = registry.api_routes
         cls.thread = threading.Thread(target=cls.server.serve_forever, daemon=True)
         cls.thread.start()
         cls.view = QWebEngineView()
