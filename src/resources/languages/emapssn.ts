@@ -3246,16 +3246,6 @@ Command-line usage:
         <translation type="unfinished"></translation>
     </message>
     <message>
-        <source>Reset successful: {targets}.</source>
-        <translation type="unfinished"></translation>
-    </message>
-    <message numerus="yes">
-        <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
-        <translation type="unfinished">
-            <numerusform></numerusform>
-        </translation>
-    </message>
-    <message>
         <source>Error: Line {line} of the script ends with a backslash, but no line follows it for the command to continue on. None were run.</source>
         <translation type="unfinished"></translation>
     </message>
@@ -3428,6 +3418,12 @@ Command-line usage:
     <message>
         <source>Missing library! Run: {command}</source>
         <translation type="unfinished"></translation>
+    </message>
+    <message numerus="yes">
+        <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
+        <translation type="unfinished">
+            <numerusform></numerusform>
+        </translation>
     </message>
     <message numerus="yes">
         <source>Done! Found %n cluster(s) via {mode}.</source>
@@ -4551,6 +4547,10 @@ Command-line usage:
     </message>
     <message>
         <source>Unknown reset target(s): {targets}. Nothing was reset.</source>
+        <translation type="unfinished"></translation>
+    </message>
+    <message>
+        <source>Reset successful: {targets}.</source>
         <translation type="unfinished"></translation>
     </message>
     <message>

@@ -4738,12 +4738,12 @@ Command-line usage:
         <translation type="unfinished">布尔表达式没有为每个 SSN 节点得出一个选择值。请检查是否有空的或格式错误的目标。</translation>
     </message>
     <message>
-        <location line="+194"/>
+        <location filename="../../../commands/reset.py" line="+283"/>
         <source>Reset successful: {targets}.</source>
         <translation type="unfinished">已重置：{targets}。</translation>
     </message>
     <message>
-        <location line="+129"/>
+        <location filename="../../../Command_Engine.py" line="+192"/>
         <source>Error: Line {line} of the script ends with a backslash, but no line follows it for the command to continue on. None were run.</source>
         <translation type="unfinished">错误：脚本第 {line} 行以反斜杠结尾，但其后没有可供该命令续写的行。未运行任何命令。</translation>
     </message>
@@ -4786,7 +4786,7 @@ Command-line usage:
         <location line="+15"/>
         <location line="+10"/>
         <location filename="../../../commands/query.py" line="+562"/>
-        <location filename="../../../commands/reset.py" line="+114"/>
+        <location filename="../../../commands/reset.py" line="+25"/>
         <location filename="../../../commands/select.py" line="-195"/>
         <location filename="../../../web_ui/agent_backend.py" line="+373"/>
         <location filename="../../../web_ui/meta_backend.py" line="+57"/>
@@ -4927,15 +4927,14 @@ Command-line usage:
         <translation type="unfinished">正在聚类（{mode}）…</translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../Command_Engine.py" line="-372"/>
-        <location filename="../../../commands/cluster.py" line="+154"/>
+        <location line="+99"/>
         <source>Removed %n generated subcluster group(s) of the previous clustering.</source>
         <translation type="unfinished">
             <numerusform>已移除上一次聚类生成的 %n 个子簇分组。</numerusform>
         </translation>
     </message>
     <message numerus="yes">
-        <location filename="../../../commands/cluster.py" line="+11"/>
+        <location line="+74"/>
         <source>Warning: custom groups and clusters now share %n name(s): {names}. Selecting them with #name# is ambiguous until the group is removed.</source>
         <translation type="unfinished">
             <numerusform>警告：自定义分组与簇现在有 %n 个相同的名称：{names}。在删除该分组之前，用 #name# 选择它们会有歧义。</numerusform>
@@ -4946,7 +4945,7 @@ Command-line usage:
         <translation type="obsolete">错误：缺少 Numba 库。</translation>
     </message>
     <message>
-        <location line="-159"/>
+        <location line="-167"/>
         <location filename="../../../commands/subcluster.py" line="+166"/>
         <source>Missing libraries! Run: {command}</source>
         <translation type="unfinished">缺少库！请运行：{command}</translation>
@@ -4958,7 +4957,7 @@ Command-line usage:
         <translation type="unfinished">缺少库！请运行：{command}</translation>
     </message>
     <message numerus="yes">
-        <location line="+131"/>
+        <location line="+141"/>
         <source>Done! Found %n cluster(s) via {mode}.</source>
         <translation type="unfinished">
             <numerusform>完成！通过 {mode} 找到 %n 个簇。</numerusform>
@@ -5575,7 +5574,7 @@ Command-line usage:
         <translation type="unfinished">没有节点符合分组条件。</translation>
     </message>
     <message>
-        <location filename="../../../commands/cluster.py" line="-445"/>
+        <location filename="../../../commands/cluster.py" line="-455"/>
         <location filename="../../../commands/console.py" line="+6"/>
         <location filename="../../../commands/help.py" line="+68"/>
         <location filename="../../../commands/hide.py" line="+40"/>
@@ -6321,7 +6320,7 @@ Command-line usage:
         <translation type="unfinished">错误：找不到参考序列“{reference}”。</translation>
     </message>
     <message>
-        <location filename="../../../commands/reset.py" line="-23"/>
+        <location filename="../../../commands/reset.py" line="-114"/>
         <source>Specify at least one reset target.</source>
         <translation type="unfinished">请至少指定一个重置目标。</translation>
     </message>
