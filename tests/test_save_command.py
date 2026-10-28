@@ -433,6 +433,18 @@ class CustomDatasetLoadingTests(HeadlessSettingsFixture, unittest.TestCase):
         self.assertEqual(viewer.sidebar_buttons_to_persist, ["agent"])
         self.assertNotIn("ignoring", printed)
 
+    def test_a_name_listed_as_a_custom_attribute_is_accepted_before_it_is_registered_too(self):
+        from EMAPSSN_Viewer import MainViewer
+
+        viewer = MainViewer.__new__(MainViewer)
+        viewer._cacheable_attrs = set()
+        viewer.sidebar_buttons_to_persist = ["meta"]
+        with h5py.File("scratch.h5", "w", driver="core", backing_store=False) as cache:
+            dataset = cache.create_dataset("sidebar_buttons_to_persist", data=1)
+            self.assertIsNone(viewer._custom_dataset_problem("sidebar_buttons_to_persist", dataset))
+            self.assertEqual(viewer._custom_dataset_problem("process_command", dataset),
+                             "the Viewer already has that name")
+
     def test_a_cache_saved_with_custom_attributes_loads_them_back_as_it_always_did(self):
         # The round trip, with a custom attribute that is not in CUSTOM_ATTRIBUTES_INIT, an array and a JSON one.
         viewer, _printed = self.load()
