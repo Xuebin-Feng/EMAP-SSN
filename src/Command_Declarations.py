@@ -8,7 +8,12 @@ portal that serves MCP and the Agent page (Viewer_Command_Portal) never name a
 command. Where one has to be treated differently from the rest, they ask its
 module, and a module that says nothing is treated cautiously. A new command, or
 a plugin dropped into src/commands, is therefore dispatched correctly without
-any change to the program.
+any change to the program. The few places where central code still holds a
+command's name are listed, each with its reason, in ALLOWED of
+tests/test_command_declarations.py (CentralCodeNamesNoCommandTests), which fails
+when any other file of the program names a command, imports one or tabulates them.
+The docstring of the commands package (src/commands/__init__.py) lists every
+declaration a module can make and where each is read.
 
 A module may declare any of the following at its top level. ``args`` is a list
 of the words after the command's name, as they were given (a function compares
@@ -71,6 +76,11 @@ script typed there (run), 'portal' for MCP and the Agent page.
   session_file_pickers() reads it over the commands folder: {file key: command}. Two
   commands that declare the same file make a button that could type either, so that
   file has none, and a note on stderr names the commands.
+
+* What the command resets, and what `reset help` says of it. ``RESET_TARGETS = ('cluster',)``
+  with ``reset(viewer, target)``, and optionally ``reset_changes_state(viewer, target)`` and
+  ``RESET_HELP = {'clusters': (40, 'what it restores')}``, are not read here: commands/reset.py
+  imports the modules that mention RESET_TARGETS, and its docstring says what each means.
 
 A function wins over the constant of the same declaration. A value that is not
 what the declaration asks for, or a function that raises, counts as undeclared

@@ -1011,18 +1011,26 @@ command) and `AGENT_PROMPT` with `AGENT_PROMPT_ORDER` (its item of the Agent's i
 read from the module's source, never by importing it, and what cannot be read is not obeyed: a policy that is missing or
 invalid makes the command wait for approval, never run. A command that offers no `AGENT_PROMPT` gets a short item made from
 its catalog summary and syntax. The forms and what reads them are written out in `src/desktop/Command_Metadata.py`.
-How the Viewer dispatches a command is declared by its module too, so a plugin needs no change to the
+How the Viewer dispatches and treats a command is declared by its module too, so a plugin needs no change to the
 program. At its top level a module may define `QUEUE = "instant"` (or `queue_kind(args, source)`, returning
 `"instant"` or `"ordered"`) to run at once even while other commands wait; `STARTS_MODEL_REQUEST = True` (or
 `starts_model_request(args)`) to be refused when a model generated the command, so that a model cannot start
 another model request; and `ACTS_ON_JOBS = True` (or `acts_on_jobs(args)`) for a stop or job command that the
 portal runs ahead of a request waiting for jobs; and `CONSOLE_BUTTON = True` (a constant only) for a command that
 adds a button to the Console window, so that a layout cache that lists the command brings the button back (the Viewer
-runs `<command> --register-only` for a listed bare command name that declares it, and for nothing else). `args` is the list of words after the command's name and
+runs `<command> --register-only` for a listed bare command name that declares it, and for nothing else); and
+`PICKS_SESSION_FILE = "msa"` (a constant only: the key of a file on the Session card) for the command that picks
+that file, which the card's pick button beside it types (a file that two commands claim has no button). What `reset`
+can restore is declared the same way: `RESET_TARGETS = ("cluster",)` with `reset(viewer, target)`, optionally
+`reset_changes_state(viewer, target)`, and `RESET_HELP = {"clusters": "what it restores"}` for the line `reset help`
+and its usage line show for the target. `args` is the list of words after the command's name and
 `source` is `"typed"`, `"script"` or `"portal"`. A module that declares nothing waits its turn, starts no model
-request and acts on no jobs; a declaration that raises or returns the wrong kind of value counts as
-undeclared, except that an unreadable `STARTS_MODEL_REQUEST` refuses the command. The convention is written
-out in `src/Command_Declarations.py`.
+request, acts on no jobs, has no Console button, picks no file and resets nothing; a declaration that raises or
+returns the wrong kind of value counts as undeclared, except that an unreadable `STARTS_MODEL_REQUEST` refuses the
+command. The convention is written out in `src/Command_Declarations.py` (the reset declarations in
+`src/commands/reset.py`), and the docstring of `src/commands/__init__.py` lists every declaration a module can make
+beside the catalog and Agent ones above. The rest of the program names no command, apart from the few cases
+`tests/test_command_declarations.py` lists with their reasons.
 Finite choices contain `value` and `aliases`; an empty choices list denotes an
 open-ended argument such as a filename, expression or number. Descriptions explain
 defaults and prerequisites. This is documentation, not another command parser.
