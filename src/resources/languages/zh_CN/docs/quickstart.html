@@ -506,7 +506,7 @@
             </div>
 
             <!-- SECTION 5: VIEWER GUI -->
-            <div id="gui-viewer" class="section-divider" data-source-sha256="a8cc1c7309632e47a03c1a9c366da45077f7ffc44c9d4dfd8ef0b4a7013bcfe9">
+            <div id="gui-viewer" class="section-divider" data-source-sha256="3de8f059459f09cbdbe40a7ce65dd5fc7715f2829dc3d084fc9aaff2e4dca9d8">
                 <span>5. EMAP-SSN 查看器 GUI（EMAPSSN_Viewer.py）</span>
             </div>
 
@@ -586,9 +586,9 @@
                                 <td>绕拖动的起点旋转正在移动的节点：滚轮每转一格旋转 5&deg;。触控板或高分辨率滚轮按其发送的格数的小数部分旋转，横向滚动的转向相同。按住 <span class="kbd">Shift</span> 旋转不会移动节点；直线约束在指针下次移动时生效。</td>
                             </tr>
                             <tr>
-                                <td><strong>绕节点中心旋转</strong></td>
+                                <td><strong>绕按下点旋转节点</strong></td>
                                 <td>在选中节点上 <span class="kbd">Ctrl</span>（macOS 上为 <span class="kbd">Cmd</span>） + <span class="kbd">右键单击</span> + 拖动</td>
-                                <td>绕选中节点外接矩形的中心旋转选中节点（UMAP 或 PaCMAP 模式下不可用）。节点跟随指针：它们旋转的角度等于指针从按下处起绕中心扫过的角度，因此绕两圈就旋转两圈。在中心 15 像素以内，角度保持不变。按住 <span class="kbd">Shift</span> 可按 15&deg; 的步进旋转。状态行显示角度，此时鼠标滚轮不起作用，整个旋转是一个可撤销的步骤。不拖动的 <span class="kbd">Ctrl</span> + 右键单击与普通右键单击相同。</td>
+                                <td>绕按下鼠标时所在的位置旋转选中节点（UMAP 或 PaCMAP 模式下不可用）。节点跟随指针：它们旋转的角度等于指针绕该点扫过的角度，因此绕两圈就旋转两圈。在该点 15 像素以内，角度保持不变，所以请先稍微移开再旋转；角度从指针首次离开该圆圈的位置开始计算，节点不会跳动。按住 <span class="kbd">Shift</span> 可按 15&deg; 的步进旋转。状态行显示角度，此时鼠标滚轮不起作用，整个旋转是一个可撤销的步骤。不拖动的 <span class="kbd">Ctrl</span> + 右键单击与普通右键单击相同。</td>
                             </tr>
                             <tr>
                                 <td><strong>绕光标旋转节点</strong></td>

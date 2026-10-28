@@ -594,9 +594,9 @@
                                 <td>Rotates the nodes being moved about the point where the drag began: 5&deg; per wheel notch. A touchpad or a high-resolution wheel turns by the fraction of a notch it sends, and a sideways scroll turns the same way. Turning with <span class="kbd">Shift</span> held does not move the nodes; the line hold applies when the pointer next moves.</td>
                             </tr>
                             <tr>
-                                <td><strong>Rotate Nodes About Their Centre</strong></td>
+                                <td><strong>Rotate Nodes About the Press Point</strong></td>
                                 <td><span class="kbd">Ctrl</span> (<span class="kbd">Cmd</span> on macOS) + <span class="kbd">Right-Click</span> + Drag on a selected node</td>
-                                <td>Rotates the selected nodes about the centre of the box that encloses them (not available in UMAP or PaCMAP mode). The nodes follow the pointer: they turn by the angle it sweeps about the centre from where you pressed, so going round twice turns them twice. Within 15 pixels of the centre the angle holds still. Hold <span class="kbd">Shift</span> to turn in steps of 15&deg;. The status line shows the angle, the mouse wheel is ignored meanwhile, and the whole turn is one undo step. A <span class="kbd">Ctrl</span> + right-click without a drag does what a right-click does.</td>
+                                <td>Rotates the selected nodes about the point where you pressed (not available in UMAP or PaCMAP mode). The nodes follow the pointer: they turn by the angle it sweeps about that point, so going round twice turns them twice. Within 15 pixels of that point the angle holds still, so move away a little before turning; the angle is then measured from where the pointer first leaves that circle, and the nodes do not jump. Hold <span class="kbd">Shift</span> to turn in steps of 15&deg;. The status line shows the angle, the mouse wheel is ignored meanwhile, and the whole turn is one undo step. A <span class="kbd">Ctrl</span> + right-click without a drag does what a right-click does.</td>
                             </tr>
                             <tr>
                                 <td><strong>Rotate Nodes About the Cursor</strong></td>
