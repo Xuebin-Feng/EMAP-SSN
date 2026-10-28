@@ -433,6 +433,18 @@ still change before version 1.0.0.
   - Viewer settings documents carry it as `AUTO_EDGE_ALPHA` under `visualization`; older
     documents load with it off. The VR Config and VR viewer are unchanged.
   - Text Size is now the first row of Visual Effects.
+- **A command can go on over several lines with a backslash.** A line ending in a space
+  and `\` continues on the next line, so a long command can be shown wrapped, as in
+  `color #BCAT# cyan #C-DAAT# pink \` followed by `#R-ATA# red #ADCL# magenta`.
+  - **Pasted into the command line,** a continued command arrives as one line. **Typed,**
+    Enter on a line ending in ` \` keeps the line open for the rest, and the Up arrow
+    recalls the whole command.
+  - **In `run` scripts,** text or the lines a Python script prints, continued lines are
+    joined before they run. The line after a continuation is always command text, even
+    when it starts with a `#label#`. A script whose last line ends in ` \` is refused,
+    and none of it runs.
+  - A backslash with no space before it is part of the text, as in `C:\data\aln.fasta`.
+    MCP and Agent replies still take one command per string or line.
 
 ### Changed
 
