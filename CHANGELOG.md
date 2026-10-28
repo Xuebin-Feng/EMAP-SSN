@@ -394,10 +394,11 @@ still change before version 1.0.0.
     nothing until the button is let go, and a cancelled move or turn leaves no undo step.
   - **Shift keeps a move on a line:** held while moving nodes, it holds the move to the
     nearest of eight directions, every 45°.
-  - **Ctrl + right-drag turns the selection about its centre:** dragged from a selected
-    node, the nodes follow the pointer round, as many times as it goes round, and hold
-    still while it is near the centre. Shift turns them in 15° steps, and the status line
-    shows the angle. One undo step takes the turn back.
+  - **Ctrl + right-drag turns the selection about the point where it was pressed:**
+    dragged from a selected node, the nodes follow the pointer round that point, as many
+    times as it goes round. They hold still until the pointer is 15 px away, and the turn
+    is measured from there, so they do not jump. Shift turns them in 15° steps, and the
+    status line shows the angle. One undo step takes the turn back.
   - **Ctrl + wheel turns the selection about the pointer,** 5° a notch, with no button
     held, so the nodes cannot slip. The point stays where the turn began while you
     scroll. Letting go of Ctrl, or a second's pause, ends the turn, and one undo step
