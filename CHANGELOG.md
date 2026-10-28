@@ -977,6 +977,17 @@ still change before version 1.0.0.
     answered as missing.
   - **Mol*'s script exception now belongs to the Fold View page itself.** It used to
     follow any page named `esmfold.html`, wherever it was served from.
+- **A shared layout cache can no longer type a command when the Viewer opens it.** A
+  session's Console buttons are saved in the cache as a list of commands, and the Viewer
+  typed each entry at start-up with `--register-only`. An entry such as `run <script>`
+  would have run that script.
+  - **Now:** an entry is run only when it is a bare command name whose command declares a
+    Console button (`CONSOLE_BUTTON = True` in its module: today Agent, Fold View and
+    Meta Data), and only once. Anything else is dropped from the list, so `save` does not
+    write it back, and one warning line in the Console names it.
+  - **Other extra datasets** of a cache still load as custom attributes, as `save` writes
+    them, but one can no longer replace a method or the Viewer's own state, or carry a
+    name starting with `_`. Those are skipped with one warning line.
 
 ## [0.4.0] - 2026-10-16
 
