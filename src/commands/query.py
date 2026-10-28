@@ -27,6 +27,27 @@ from utilities.Sequence_Utils import (
     rejoin_split_brackets,
     split_position_list,
 )
+from desktop.Command_Metadata import argument, entry, EXPRESSION
+
+# --- What this command declares about itself ---
+# Only prints to the Console.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Print alignment-position distributions or search positions by residue-frequency logic; requires a nonempty MSA.',
+    argument('expression', EXPRESSION + ' Defaults to selected nodes, otherwise all nodes. An expression that matches no node succeeds with a note; nodes that match but are not in the alignment make the query fail.'),
+    argument('positions_or_logic', 'Required brackets: positions/ranges separated by commas or by spaces, not both, as in [1,5,20-30] or [1 5 20-30] (E or END denotes the last displayed position), or comparisons such as [(RHK)>50%]. Combined comparisons need outer parentheses, e.g. [((RHK)>50%)&((DE)>20%)]. GAP or _ denotes gaps. Frequencies divide by all mapped subset sequences, including gaps. Each position prints its gap percentage and each residue of at least 1% (X and other symbols count as residues), then one line, "other (<1% each)", summing the residues under 1%.'),
+    requires=('alignment',))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 140
+AGENT_PROMPT = """
+`query EXPRESSION [POSITIONS_OR_FREQUENCY_LOGIC] | query [POSITIONS_OR_FREQUENCY_LOGIC]`
+- Requires a loaded MSA and exactly one literal bracketed argument containing the positions or frequency logic. EXPRESSION uses the shared expression language and must remain outside the square brackets. For example, use `query #cluster_N#&!#GROUP_NAME# [POSITION]`, never `query [#cluster_N#&!#GROUP_NAME#] [POSITION]`.
+- If EXPRESSION is omitted, the current selection is queried; when there is no selection, all mapped nodes are queried. An expression that matches no node succeeds with a note and prints no positions; nodes that match but are not in the loaded MSA make the query fail.
+- Each queried position prints its gap percentage and each residue of at least 1%, largest first, then an `other (<1% each)` line.
+- Position-breakdown mode accepts a literal bracketed list of positions and ranges, comma- or space-separated, never both. With an active reference, labels may be integers or decimal insertion labels and reflect the offset. Without an active reference, occupancy-mode labels are sequential positive integers. `E` and `END` denote the last mapped position and may terminate a range. Every negative position or range endpoint must be enclosed individually in parentheses: emit `[(-1),(-1.1),0]` or `[(-3)-2]`, never `[-1]`, `[-1.1,0]`, or `[-3--1]`.
+- Frequency-search mode accepts literal bracketed residue-frequency comparisons joined by `&`, `|`, `!`, and `^`. Comparisons support `<`, `<=`, `>`, and `>=`; thresholds may be decimal fractions or percentages (a bare number of at most 1 is a fraction and a larger one is a percentage, so `1` means 100%; prefer an explicit `%`); residues are one-letter codes and gaps are `GAP` or `_`. Parenthesize individual comparisons when combining them. Residue percentages use every mapped sequence in the queried subset as the denominator, so gaps dilute each residue's percentage; gap frequency can be queried explicitly.
+"""
 
 
 _QUERY_POSITION_ENDPOINT_PATTERN = (

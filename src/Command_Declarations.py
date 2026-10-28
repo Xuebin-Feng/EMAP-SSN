@@ -78,6 +78,14 @@ what the declaration asks for, or a function that raises, counts as undeclared
 a declaration that cannot be read counts as true there, so that a mistake refuses
 the command rather than lets it start a request. A module that cannot be imported
 has declared nothing, and its command fails when it is run, as it did before.
+
+A module also declares what the command catalog and the Agent say about it: CATALOG_ENTRY
+(its summary and arguments), AGENT_POLICY (whether an Agent reply may run it at once, needs the
+user's approval or is refused), AGENT_PROMPT and AGENT_PROMPT_ORDER (its item in the Agent's
+instructions). Those are not read by importing the module, as the ones above are, but from its
+source, as literals that nothing in the module can change when it runs: desktop.Command_Metadata
+says how, and what stands in for one that is missing or cannot be read ('approve' for the policy,
+never 'run').
 """
 import importlib
 import sys

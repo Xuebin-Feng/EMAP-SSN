@@ -24,6 +24,15 @@ waits for jobs), or CONSOLE_BUTTON = True (the command adds a Console button, an
 a loaded session runs `<command> --register-only` to bring it back). A module that
 declares nothing waits its turn, starts no model request, acts on no jobs and has
 no Console button. The convention is documented in Command_Declarations.
+
+A module also says what the command catalog and the Agent are told about it, in
+one block after its imports: CATALOG_ENTRY (summary and arguments), AGENT_POLICY
+('run', 'approve' or 'refuse' for a command in an Agent reply, by default and by
+first argument), AGENT_PROMPT and AGENT_PROMPT_ORDER (its item in the Agent's
+instructions). They are literals, read from the source without importing the
+module (desktop.Command_Metadata). A module that declares none is catalogued
+with cautious defaults, waits for the user's approval in an Agent reply and gets
+a short generated item in the Agent's instructions.
 """
 
 import Command_Engine

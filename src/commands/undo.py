@@ -17,6 +17,22 @@ import re
 
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, entry
+
+# --- What this command declares about itself ---
+# Moves through the session's own undo history.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Restore the previous state; report a no-op if undo history is empty.',
+    argument('steps', 'Optional positive whole number N: undoes up to N steps, stopping early when the history runs out, and reports how many were undone. Omitted, one step is undone. Any other argument is refused before anything changes.'))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 60
+AGENT_PROMPT = """
+`undo [N]`
+- Restores the previous saved visual or spatial state recorded by a mutating command. It operates on viewer state, not on the text of the command history.
+- N is an optional positive whole number. `undo N` restores up to N states, stops early when the history runs out, and reports how many were undone. A zero, negative, non-integer, or extra argument is refused, and nothing is undone.
+"""
 
 # ASCII digits only: int() would also take signs, underscores and other digits.
 _STEP_COUNT = re.compile(r"[0-9]+")

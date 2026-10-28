@@ -18,6 +18,24 @@ import re
 import Command_Engine
 import EMAPSSN_Config as cfg
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, entry
+
+# --- What this command declares about itself ---
+# Changes only the numbering that is shown.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Inspect or change reference-position numbering without changing alignment columns.',
+    argument('integer', 'Omit to inspect. A supplied integer offset requires a loaded alignment with active reference; default launch offset is configured separately.'))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 110
+AGENT_PROMPT = """
+`offset [INTEGER]`
+- With no integer, reports the configured alignment offset and whether reference numbering is active.
+- With one positive, negative, or zero integer, changes reference-anchored numbering for the current viewer session. Displayed position equals reference position plus offset; insertion suffixes are preserved.
+- Requires a loaded MSA and a resolved reference. It changes displayed numbering only, and the new value is not saved to the viewer settings.
+- The updated numbering is immediately used by `query`, `label`, `logo`, and amino-acid expressions handled by `color`, `select`, `group`, `hide`, and `spectrum`.
+"""
 
 # An optional sign and ASCII digits only; int() would also take "1_0" and
 # non-ASCII digits. The limit matches the ALIGNMENT_OFFSET range in the Config.

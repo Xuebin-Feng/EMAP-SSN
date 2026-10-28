@@ -9,6 +9,13 @@ window of this kind, and the command says so there.
 """
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import entry
+
+# --- What this command declares about itself ---
+# A window for the person at the Viewer: nothing in it an Agent can read.
+AGENT_POLICY = 'refuse'
+
+CATALOG_ENTRY = entry("Open the Console window, which shows everything this Viewer's process has printed since it started, with the time of each line and warnings and errors marked; the log file it names keeps every line. Needs a Viewer that shows windows: a headless or hidden one has none. Runs at once.")
 
 # How the Viewer dispatches this command (Command_Declarations): it only opens a window and reads nothing
 # a waiting command would change, so it runs at once.

@@ -20,6 +20,23 @@ from PySide6 import QtWidgets
 from desktop.Desktop_App import translate
 from utilities.Localization import JoinedMessage, Message
 from Viewer_Command_Portal import user_interaction
+from desktop.Command_Metadata import argument, entry
+
+# --- What this command declares about itself ---
+# Loads a file, or opens a file dialog.
+AGENT_POLICY = 'approve'
+
+CATALOG_ENTRY = entry('Load another embedding file and report coverage, model and width; restore the previous embedding on loader failure. The switch lasts for the session and is not an undo step.',
+    argument('filename', 'Optional HDF5 embedding filename or path (.h5, which may be omitted), as given, relative to the working directory or inside the Embedding Directory; omission opens a file dialog requiring a visible Viewer. The file must be a complete embedding database as the pipeline writes it; partial and zero node coverage are accepted.'), opens_interface=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 130
+AGENT_PROMPT = """
+`embedding [FILEPATH]`
+- With no filepath, opens an embedding chooser. With a filepath, loads a protein language model embedding database (`.h5`) directly; absolute paths, relative paths, and files in the configured embedding directory are resolved, and the `.h5` extension may be omitted.
+- Exact full headers with identical sequences map embedding records to viewer nodes. Other nodes remain visible but are excluded from embedding-dependent calculations; a parseable partial or zero-overlap embedding is allowed. The command reports how many nodes are embedded.
+- A malformed, unreadable or incomplete file fails without replacing the previously active embedding. The switch lasts for the session and is not an undo step.
+"""
 
 def print_help():
     print("""

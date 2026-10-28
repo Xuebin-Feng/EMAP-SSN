@@ -27,6 +27,27 @@ from utilities.Output_Names import (
     validate_output_basename,
 )
 from utilities.Sequence_Utils import write_fasta_atomic
+from desktop.Command_Metadata import argument, choice, entry, HELP_DESCRIPTION
+
+# --- What this command declares about itself ---
+# Writes files.
+AGENT_POLICY = 'approve'
+
+CATALOG_ENTRY = entry('Export in-memory sequences as FASTA subsets beneath Analysis Results.',
+    argument('target', 'Default clusters, excluding noise; groups exports all custom groups. Requires corresponding memberships and in-memory sequences. Do not mix these modes with explicit labels. Group labels name the files and clustering parameters the cluster folder; one that is not a plain filename (only a hand-edited layout cache can carry one) is refused before anything is written.', choice('clusters', 'cluster'), choice('groups', 'group')),
+    argument('labels', 'One or more labels for existing clusters, groups, or noise, each written #LABEL# or, for a plain name (letters, digits, underscores, hyphens, periods), bare, as in cluster_1 or noise; the words clusters, cluster, group, groups and help keep their meaning, and #LABEL# names anything else. Repeated labels are deduplicated. Legacy group: prefixes are rejected.'),
+    argument('help', HELP_DESCRIPTION, choice('help', '-h', '-?', '--help')),
+    writes_files=True, opens_interface=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 200
+AGENT_PROMPT = """
+`export [clusters | groups | #LABEL# ...]`
+- Exports the viewer's current in-memory FASTA records as separate files using current cluster or custom-group memberships.
+- With no target, or with `clusters`, exports every non-noise topology cluster and requires prior clustering. `group`/`groups` exports every defined custom group. One or more repeatable `#LABEL#` targets export specific custom groups, topology clusters, or `#noise#`; mixed targets are allowed and duplicates are removed.
+- Do not combine an all-target mode with specific labels. The removed `group:NAME` form is invalid. Every label is resolved before any output is created, and an ambiguous name shared by a cluster and custom group is rejected.
+- Files are written beneath the configured Analysis Results directory, using `Analysis_Results/Sequence_Export/` by default. This command chooses artifact names from cluster/group labels and does not accept a custom output filename. If a group label or the clustering parameters would make a file or folder name a path (only a hand-edited layout cache can carry one), export refuses and writes nothing; report the refused name to the user instead of retrying.
+"""
 
 SEQUENCE_EXPORT_DIRECTORY = os.path.join(
     "$analysis_result$", "Sequence_Export"

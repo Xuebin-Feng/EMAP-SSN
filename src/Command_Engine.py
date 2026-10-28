@@ -563,7 +563,7 @@ def require_embedding(viewer):
     its help, as the alignment commands check viewer.alignment. On None the
     failure has been reported (the command fails, and the terminal and the
     console line say why), so the command just returns. Declare the need in
-    the command's catalog entry too: desktop.Command_Metadata, requires=('embedding',).
+    the command's catalog entry too: CATALOG_ENTRY (see desktop.Command_Metadata), requires=('embedding',).
     """
     message = embedding_unavailable_message(viewer)
     if message is not None:

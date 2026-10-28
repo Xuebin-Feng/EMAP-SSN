@@ -2,10 +2,13 @@
 
 Covers the catalog's argument metadata and finite choices, which must be literal
 tokens of each command's parser, the syntax and help text it extracts from the
-command sources without importing or executing any handler, and the policy for
-commands in Agent replies.
+command sources without importing or executing any handler, how a command module
+declares what the catalog and the Agent say about it (CATALOG_ENTRY, AGENT_POLICY,
+AGENT_PROMPT) and how those are read, and the policy for commands in Agent replies:
+what each shipped command and form is handled as, and which run without review.
 """
 import ast
+import json
 from pathlib import Path
 import shutil
 import sys
@@ -15,28 +18,42 @@ from unittest import mock
 
 COMMANDS_DIR = Path(__file__).resolve().parents[1] / 'src' / 'commands'
 sys.path.insert(0, str(COMMANDS_DIR.parent))
+from desktop import Command_Metadata  # noqa: E402
 from desktop.Command_Metadata import (  # noqa: E402
-    AGENT_POLICY, COMMAND_METADATA, UNLISTED_POLICY, agent_policy, default_command_metadata, entry, get_command_metadata)
+    AGENT_POLICY, COMMAND_METADATA, DECLARATIONS, UNLISTED_POLICY, agent_policy, agent_policy_summary,
+    agent_prompt_items, declarations_of, default_command_metadata, entry, get_command_metadata, read_declarations)
 from desktop.Viewer_Inspection import command_catalog, _command_syntax  # noqa: E402
+
+# The commands that ship in src/commands. A test that names them checks what is known of them; none is a list that
+# a command added later has to join.
+SHIPPED = ('agent', 'alignment', 'cluster', 'color', 'console', 'embedding', 'esmfold', 'export', 'group', 'help', 'hide',
+           'jobs', 'label', 'logo', 'meta', 'offset', 'print', 'query', 'redo', 'reference', 'reset', 'run', 'save',
+           'select', 'spectrum', 'subcluster', 'undo', 'zoom')
 
 
 def string_literals(command):
-    source = (COMMANDS_DIR / (command + '.py')).read_text(encoding='utf-8')
-    return {n.value for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    """The string constants of a command's source other than its declarations: what its parser can match."""
+    tree = ast.parse((COMMANDS_DIR / (command + '.py')).read_text(encoding='utf-8'))
+    declared = {id(node) for statement in tree.body if isinstance(statement, ast.Assign)
+                and any(isinstance(target, ast.Name) and target.id in DECLARATIONS for target in statement.targets)
+                for node in ast.walk(statement)}
+    return {n.value for n in ast.walk(tree) if isinstance(n, ast.Constant) and isinstance(n.value, str)
+            and id(n) not in declared}
 
 
 class MetadataTests(unittest.TestCase):
     def test_complete_independent_metadata_and_finite_choice_sources(self):
         catalog = command_catalog()['commands']
-        self.assertEqual(set(COMMAND_METADATA), {c['command'] for c in catalog})
+        # Every command that declares a catalog entry is catalogued with it; one that declares none is marked so.
+        self.assertEqual(set(COMMAND_METADATA), {c['command'] for c in catalog if 'metadata_declared' not in c})
+        self.assertTrue(set(SHIPPED) <= set(COMMAND_METADATA), set(SHIPPED) - set(COMMAND_METADATA))
         for entry in catalog:
             name = entry['command']
             with self.subTest(command=name):
                 self.assertTrue(entry['summary'])
                 self.assertIsNone(entry['help'])
                 self.assertEqual(len({a['name'] for a in entry['arguments']}), len(entry['arguments']))
-                source = (COMMANDS_DIR / (name + '.py')).read_text(encoding='utf-8')
-                literals = {n.value for n in ast.walk(ast.parse(source)) if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+                literals = string_literals(name)
                 for arg in entry['arguments']:
                     self.assertEqual(set(arg), {'name', 'description', 'choices'})
                     self.assertTrue(arg['description'])
@@ -81,7 +98,7 @@ reset hide
         with mock.patch('Command_Engine.execute_command', side_effect=AssertionError('executed')):
             general = command_catalog()
             detailed = command_catalog('reset')['commands'][0]
-        self.assertEqual(len(general['commands']), 28)
+        self.assertTrue(set(SHIPPED) <= {c['command'] for c in general['commands']})
         self.assertTrue(all(c['help'] is None and isinstance(c['syntax'], list)
                             for c in general['commands']))
         self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['syntax'])
@@ -146,7 +163,7 @@ class RequiredInputTests(unittest.TestCase):
                 self.assertTrue(set(entry['requires']) <= set(REQUIRABLE_INPUTS), entry['requires'])
                 self.assertEqual(len(entry['requires']), len(set(entry['requires'])))
         self.assertEqual(
-            {name for name, metadata in COMMAND_METADATA.items() if 'alignment' in metadata['requires']},
+            {name for name, metadata in COMMAND_METADATA.items() if 'alignment' in metadata['requires'] and name in SHIPPED},
             {'label', 'logo', 'query'},
         )
 
@@ -268,7 +285,7 @@ class PluginWithoutMetadataTests(unittest.TestCase):
         cls.shipped = {entry['command']: entry for entry in command_catalog()['commands']}
 
     def test_every_command_is_still_listed_and_no_other_entry_changes(self):
-        self.assertEqual(len(self.shipped), 28)
+        self.assertTrue(set(SHIPPED) <= set(self.shipped))
         for name, expected in self.shipped.items():
             with self.subTest(command=name):
                 self.assertEqual(self.entries[name], expected)
@@ -327,16 +344,6 @@ class PluginWithoutMetadataTests(unittest.TestCase):
             with self.subTest(command=name):
                 self.assertIs(self.shipped[name]['background_work'], False)
 
-    def test_a_plugin_can_declare_its_own_entry_and_flags_without_touching_the_catalog_code(self):
-        declared = {'zbare': entry('Scratch command that only reads.', writes_files=False, opens_interface=False)}
-        declared['zbare']['agent_policy'] = {'default': 'run', 'first_argument': {}}
-        with mock.patch.dict(COMMAND_METADATA, declared):
-            found = {e['command']: e for e in command_catalog(commands_dir=self.commands)['commands']}['zbare']
-        self.assertEqual((found['summary'], found['writes_files'], found['opens_interface']),
-                         ('Scratch command that only reads.', False, False))
-        self.assertEqual(found['agent_policy']['default'], 'run')
-        self.assertNotIn('metadata_declared', found)
-
     def test_the_default_policy_is_the_one_agent_replies_already_apply_to_unknown_commands(self):
         self.assertEqual(UNLISTED_POLICY, {'default': 'approve', 'first_argument': {}})
         for name in ('zbare', 'zunknown'):
@@ -350,9 +357,9 @@ class PluginWithoutMetadataTests(unittest.TestCase):
         self.assertEqual(UNLISTED_POLICY['default'], 'approve')
 
     def test_the_flags_of_the_shipped_commands_are_declared_in_their_entries(self):
-        self.assertEqual({n for n, m in COMMAND_METADATA.items() if m['writes_files']},
+        self.assertEqual({n for n, m in COMMAND_METADATA.items() if m['writes_files'] and n in SHIPPED},
                          {'esmfold', 'export', 'label', 'logo', 'meta', 'print', 'run', 'save', 'select'})
-        self.assertEqual({n for n, m in COMMAND_METADATA.items() if m['opens_interface']},
+        self.assertEqual({n for n, m in COMMAND_METADATA.items() if m['opens_interface'] and n in SHIPPED},
                          {'agent', 'alignment', 'embedding', 'esmfold', 'export', 'label', 'logo', 'meta', 'print', 'run'})
         self.assertEqual(entry('x')['writes_files'], False)
         self.assertEqual(entry('x')['opens_interface'], False)
@@ -369,15 +376,120 @@ class PluginWithoutMetadataTests(unittest.TestCase):
         self.assertIs(detailed['commands'][0]['background_work'], True)
 
 
+# What every shipped command, and every form of it, is handled as in an Agent reply. It is what the one central table
+# said before each module declared its own policy: the default, then the first words handled otherwise ('' is no
+# argument at all). The modules must declare exactly this, in this order of words.
+TODAYS_POLICY = {
+    'agent': ('refuse', {}),
+    'alignment': ('approve', {}),
+    'cluster': ('run', {}),
+    'color': ('run', {}),
+    'console': ('refuse', {}),
+    'embedding': ('approve', {}),
+    'esmfold': ('approve', {}),
+    'export': ('approve', {}),
+    'group': ('run', {}),
+    'help': ('refuse', {}),
+    'hide': ('run', {}),
+    'jobs': ('run', {'cancel': 'approve'}),
+    'label': ('approve', {'reset': 'run'}),
+    'logo': ('approve', {}),
+    'meta': ('approve', dict.fromkeys(
+        ('', 'show', 'display', 'delete', 'remove', 'clear', 'help', '-h', '--help', '--register-only'), 'run')),
+    'offset': ('run', {}),
+    'print': ('approve', {}),
+    'query': ('run', {}),
+    'redo': ('run', {}),
+    'reference': ('run', {}),
+    'reset': ('run', {}),
+    'run': ('approve', {}),
+    'save': ('approve', {}),
+    'select': ('run', {'save': 'approve'}),
+    'spectrum': ('run', {}),
+    'subcluster': ('run', {}),
+    'undo': ('run', {}),
+    'zoom': ('run', {}),
+}
+
+# THE REVIEW POINT. Every command and form of src/commands that an Agent reply runs at once, with no review by the
+# user. A command is listed by name; '*' is every form of it that its default covers, a word is the first word after
+# the command, and '' no word at all. A module that declares AGENT_POLICY = 'run' (or a form that runs) fails
+# test_only_the_pinned_commands_and_forms_run_without_review until it is added here, which is the moment to ask
+# whether an Agent reply should be allowed to do that unreviewed: the command must change only the view or the
+# session's in-memory state, never write or import a file, start a process, open a dialog or spend credit.
+RUNS_WITHOUT_REVIEW = {
+    'cluster': {'*'},
+    'color': {'*'},
+    'group': {'*'},
+    'hide': {'*'},
+    'jobs': {'*'},
+    'label': {'reset'},
+    'meta': {'', 'show', 'display', 'delete', 'remove', 'clear', 'help', '-h', '--help', '--register-only'},
+    'offset': {'*'},
+    'query': {'*'},
+    'redo': {'*'},
+    'reference': {'*'},
+    'reset': {'*'},
+    'select': {'*'},
+    'spectrum': {'*'},
+    'subcluster': {'*'},
+    'undo': {'*'},
+    'zoom': {'*'},
+}
+
+
+def unreviewed():
+    """{command: forms} of every command found by the dispatch's search that an Agent reply runs without review.
+
+    Read through the public functions only, as the Viewer does: the command's default, and each first word its
+    policy names.
+    """
+    found = {}
+    for name in AGENT_POLICY:
+        rule = AGENT_POLICY[name]
+        forms = {word for word, kind in rule['first_argument'].items() if agent_policy(f'{name} {word}'.strip()) == 'run'}
+        if rule['default'] == 'run':
+            forms.add('*')
+        if forms:
+            found[name] = forms
+    return found
+
+
 class AgentPolicyTests(unittest.TestCase):
     """How a command in an Agent reply is handled; Viewer_Command_Portal applies it."""
 
+    def test_every_shipped_command_and_form_is_handled_as_it_was_before_the_modules_declared_it(self):
+        self.assertEqual(sorted(TODAYS_POLICY), sorted(SHIPPED))
+        for name, (default, forms) in TODAYS_POLICY.items():
+            with self.subTest(command=name):
+                self.assertEqual(AGENT_POLICY[name], {'default': default, 'first_argument': forms})
+                # The order of the words is the order the Agent's instructions list them in.
+                self.assertEqual(list(AGENT_POLICY[name]['first_argument']), list(forms))
+                for word in ['', *forms, 'zz-unlisted', 'HELP', 'Cancel', 'Save', 'SHOW', '--x', '-?']:
+                    expected = forms.get(word.lower(), default)
+                    texts = ([name, name.upper(), f'  {name.title()}  '] if not word else
+                             [f'{name} {word}', f'{name.upper()} {word.upper()}', f'{name}  {word} 1 "two" three',
+                              f'  {name.title()} {word}  '])
+                    for text in texts:
+                        self.assertEqual(agent_policy(text), expected, text)
+
+    def test_the_summary_groups_the_shipped_policy_as_the_table_did(self):
+        plain, by_form = agent_policy_summary()
+        for kind in ('run', 'approve', 'refuse'):
+            self.assertEqual([name for name in plain[kind] if name in SHIPPED],
+                             [name for name, (default, forms) in TODAYS_POLICY.items()
+                              if default == kind and not any(other != kind for other in forms.values())])
+        self.assertEqual([entry for entry in by_form if entry[0] in SHIPPED],
+                         [(name, default, {word: kind for word, kind in forms.items() if kind != default})
+                          for name, (default, forms) in TODAYS_POLICY.items()
+                          if any(kind != default for kind in forms.values())])
+
     def test_every_command_has_a_policy_in_the_catalog(self):
-        self.assertEqual(set(AGENT_POLICY), set(COMMAND_METADATA))
+        self.assertTrue(set(SHIPPED) <= set(AGENT_POLICY), set(SHIPPED) - set(AGENT_POLICY))
         for entry in command_catalog()['commands']:
             with self.subTest(command=entry['command']):
                 rule = entry['agent_policy']
-                self.assertEqual(rule, AGENT_POLICY[entry['command']])
+                self.assertEqual(rule, AGENT_POLICY.get(entry['command'], UNLISTED_POLICY))
                 self.assertTrue({rule['default'], *rule['first_argument'].values()} <= {'run', 'approve', 'refuse'})
                 # Keywords are the command's own parser literals.
                 self.assertTrue(set(rule['first_argument']) - {''} <= string_literals(entry['command']))
@@ -399,6 +511,357 @@ class AgentPolicyTests(unittest.TestCase):
                 with self.subTest(command=command):
                     self.assertEqual(agent_policy(command), expected)
 
+    def test_only_the_pinned_commands_and_forms_run_without_review(self):
+        self.assertEqual(
+            unreviewed(), RUNS_WITHOUT_REVIEW,
+            'The commands an Agent reply runs without the user\'s review changed. A module that now declares '
+            "AGENT_POLICY = 'run' (or a form that runs) must be added to RUNS_WITHOUT_REVIEW on purpose, after "
+            'asking whether an Agent reply may do that unreviewed; one that no longer does is removed.')
+
+    def test_the_pin_sees_a_command_a_module_makes_run_and_one_it_stops_running(self):
+        with tempfile.TemporaryDirectory() as folder:
+            commands = Path(folder) / 'commands'
+            shutil.copytree(COMMANDS_DIR, commands, ignore=shutil.ignore_patterns('__pycache__'))
+            (commands / 'zrunner.py').write_text("AGENT_POLICY = 'run'\n\n\ndef run(viewer, args):\n    return None\n", encoding='utf-8')
+            for name, old, new in (('save', "AGENT_POLICY = 'approve'", "AGENT_POLICY = 'run'"),
+                                   ('select', "{'save': 'approve'}", "{'save': 'approve', 'wipe': 'run'}"),
+                                   ('zoom', "AGENT_POLICY = 'run'", "AGENT_POLICY = 'approve'")):
+                source = (commands / f'{name}.py').read_text(encoding='utf-8')
+                self.assertEqual(source.count(old), 1, (name, old))
+                (commands / f'{name}.py').write_text(source.replace(old, new), encoding='utf-8')
+            with mock.patch.object(Command_Metadata, 'command_directories', return_value=[commands]):
+                changed = unreviewed()
+        self.assertEqual(set(changed) ^ set(RUNS_WITHOUT_REVIEW), {'zrunner', 'save', 'zoom'})
+        self.assertEqual(changed['select'], {'*', 'wipe'})
+        self.assertNotEqual(changed, RUNS_WITHOUT_REVIEW)
+
+
+def read(source):
+    return read_declarations(ast.parse(source))
+
+
+class ReadingDeclarationsTests(unittest.TestCase):
+    """A module's declarations are read from its source, by literals only; what cannot be read is not obeyed."""
+
+    FULL = '''
+from desktop.Command_Metadata import argument, choice, entry, EXPRESSION, plain_choices
+
+AGENT_POLICY = {'default': 'run', 'first_argument': {'cancel': 'approve', '': 'run'}}
+CATALOG_ENTRY = entry('Does a thing.',
+    argument('action', 'What. ' + EXPRESSION, choice('list'), choice('remove', 'delete'), *plain_choices('a', 'b')),
+    requires=('alignment',), writes_files=True)
+AGENT_PROMPT_ORDER = 40
+AGENT_PROMPT = """
+`thing [ACTION]`
+- Does a thing.
+"""
+
+
+def run(viewer, args):
+    return None
+'''
+
+    def test_every_declaration_is_read_with_its_helpers_and_constants(self):
+        declared = read(self.FULL)
+        self.assertTrue(declared.has_run)
+        self.assertEqual(declared.agent_policy, {'default': 'run', 'first_argument': {'cancel': 'approve', '': 'run'}})
+        self.assertEqual(declared.catalog_entry['summary'], 'Does a thing.')
+        self.assertEqual(declared.catalog_entry['requires'], ['alignment'])
+        self.assertEqual((declared.catalog_entry['writes_files'], declared.catalog_entry['opens_interface']), (True, False))
+        action = declared.catalog_entry['arguments'][0]
+        self.assertTrue(action['description'].startswith('What. Boolean node selection'))
+        self.assertEqual([item['value'] for item in action['choices']], ['list', 'remove', 'a', 'b'])
+        self.assertEqual(action['choices'][1]['aliases'], ['delete'])
+        self.assertEqual(declared.agent_prompt_order, 40)
+        self.assertEqual(declared.agent_prompt, "\n`thing [ACTION]`\n- Does a thing.\n")
+
+    def test_what_python_evaluates_and_what_is_read_are_one_value(self):
+        # The module imports the helpers it is written with and runs: the value it gets is the value read.
+        namespace = {}
+        exec(compile(self.FULL, 'full', 'exec'), namespace)
+        declared = read(self.FULL)
+        self.assertEqual(namespace['CATALOG_ENTRY'], declared.catalog_entry)
+        self.assertEqual(namespace['AGENT_PROMPT'], declared.agent_prompt)
+        # ... and so does each shipped command: its import of the helpers and its declarations, run alone.
+        for name in SHIPPED:
+            with self.subTest(command=name):
+                tree = ast.parse((COMMANDS_DIR / f'{name}.py').read_text(encoding='utf-8'))
+                keep = [statement for statement in tree.body
+                        if (isinstance(statement, ast.ImportFrom) and statement.module == 'desktop.Command_Metadata')
+                        or (isinstance(statement, ast.Assign) and isinstance(statement.targets[0], ast.Name)
+                            and statement.targets[0].id in DECLARATIONS)]
+                values = {}
+                exec(compile(ast.Module(keep, []), name, 'exec'), values)
+                found = read_declarations(tree)
+                self.assertEqual(values['CATALOG_ENTRY'], found.catalog_entry)
+                run_as = values['AGENT_POLICY']
+                self.assertEqual({'default': run_as, 'first_argument': {}} if isinstance(run_as, str) else run_as,
+                                 found.agent_policy)
+                self.assertEqual(values.get('AGENT_PROMPT'), found.agent_prompt)
+                self.assertEqual(values.get('AGENT_PROMPT_ORDER'), found.agent_prompt_order)
+
+    def test_a_plain_dictionary_is_an_entry_too_and_a_word_is_a_policy(self):
+        declared = read("CATALOG_ENTRY = {'summary': 'Plain.', 'arguments': [{'name': 'n', 'description': 'd', "
+                        "'choices': [{'value': 'v', 'aliases': []}]}]}\nAGENT_POLICY = 'refuse'\ndef run(v, a): pass\n")
+        self.assertEqual(declared.catalog_entry, entry('Plain.', {'name': 'n', 'description': 'd',
+                                                                   'choices': [{'value': 'v', 'aliases': []}]}))
+        self.assertEqual(declared.agent_policy, {'default': 'refuse', 'first_argument': {}})
+
+    def test_nothing_declared_is_nothing(self):
+        declared = read('def run(viewer, args):\n    return None\n')
+        self.assertEqual(declared[1:], (None, None, None, None))
+        self.assertTrue(declared.has_run)
+        self.assertFalse(read('VALUE = 1\n').has_run)
+
+    def test_a_policy_that_cannot_be_read_is_never_run(self):
+        # Each is a way to ask for 'run' that must not get it: the command is left to wait for approval.
+        unreadable = {
+            'a word that is no kind': "AGENT_POLICY = 'sure'",
+            'a kind in capitals': "AGENT_POLICY = 'Run'",
+            'a default that is no kind': "AGENT_POLICY = {'default': 'ok'}",
+            'a missing default': "AGENT_POLICY = {'first_argument': {'x': 'run'}}",
+            'an unknown key': "AGENT_POLICY = {'default': 'run', 'then': 'refuse'}",
+            'a word that is no kind in a form': "AGENT_POLICY = {'default': 'run', 'first_argument': {'x': 'sure'}}",
+            'a form with a capital, which never matches': "AGENT_POLICY = {'default': 'run', 'first_argument': {'Cancel': 'approve'}}",
+            'a form with a space': "AGENT_POLICY = {'default': 'run', 'first_argument': {'two words': 'approve'}}",
+            'a form that is not a string': "AGENT_POLICY = {'default': 'run', 'first_argument': {1: 'approve'}}",
+            'first_argument that is not a dictionary': "AGENT_POLICY = {'default': 'run', 'first_argument': ['x']}",
+            'a call': "AGENT_POLICY = policy('run')",
+            'a name': "RUN = 'run'\nAGENT_POLICY = RUN",
+            'a conditional': "AGENT_POLICY = 'run' if True else 'approve'",
+            'a computed word': "AGENT_POLICY = 'ru' + 'n'.upper()",
+            'a function call of the module': "def verdict():\n    return 'run'\nAGENT_POLICY = verdict()",
+            'an f-string': "AGENT_POLICY = f'{1}'",
+            'a list': "AGENT_POLICY = ['run']",
+            'None': "AGENT_POLICY = None",
+            'a bare annotation': "AGENT_POLICY: str",
+            'an assignment that follows with something unreadable': "AGENT_POLICY = 'run'\nAGENT_POLICY = compute()",
+            'a second assignment inside an if': "AGENT_POLICY = 'run'\nif True:\n    AGENT_POLICY = 'approve'",
+            'only an assignment inside an if': "if True:\n    AGENT_POLICY = 'run'",
+            'only an assignment inside a try': "try:\n    AGENT_POLICY = 'run'\nexcept Exception:\n    pass",
+            'one of several targets': "OTHER = AGENT_POLICY = 'run'",
+            'a tuple target': "OTHER, AGENT_POLICY = 1, 'run'",
+            'an augmented assignment': "AGENT_POLICY = 'run'\nAGENT_POLICY += 'x'",
+            'a change in a function': "AGENT_POLICY = 'run'\ndef change():\n    global AGENT_POLICY\n    AGENT_POLICY = 'refuse'",
+            'a function parameter of that name': "AGENT_POLICY = 'run'\ndef f(AGENT_POLICY):\n    return AGENT_POLICY",
+            'a loop variable': "AGENT_POLICY = 'run'\nfor AGENT_POLICY in ('refuse',):\n    pass",
+            'a deletion': "AGENT_POLICY = 'run'\ndel AGENT_POLICY",
+            'an import of that name': "AGENT_POLICY = 'run'\nfrom elsewhere import AGENT_POLICY",
+            'an import as that name': "AGENT_POLICY = 'run'\nimport elsewhere as AGENT_POLICY",
+        }
+        for why, source in unreadable.items():
+            with self.subTest(why):
+                self.assertIsNone(read(source + '\ndef run(viewer, args):\n    return None\n').agent_policy)
+
+    def test_the_last_plain_assignment_is_the_one_python_ends_with(self):
+        self.assertEqual(read("AGENT_POLICY = 'approve'\nAGENT_POLICY = 'run'")[2]['default'], 'run')
+        self.assertEqual(read("AGENT_POLICY = 'run'\nAGENT_POLICY = 'refuse'")[2]['default'], 'refuse')
+        self.assertEqual(read("AGENT_POLICY: str = 'run'")[2]['default'], 'run')
+
+    def test_nothing_but_literals_constants_and_the_catalogs_helpers_is_evaluated(self):
+        unreadable = [
+            "CATALOG_ENTRY = __import__('os').getcwd()",
+            "CATALOG_ENTRY = entry(open('x').read())",
+            "CATALOG_ENTRY = entry('a' * 3)",
+            "CATALOG_ENTRY = entry('a', *argument_list)",
+            "CATALOG_ENTRY = entry(**{'summary': 'x'})",
+            "CATALOG_ENTRY = entry(f'{1}')",
+            "CATALOG_ENTRY = entry('x', argument('n', 'd', *[choice(s) for s in 'ab']))",
+            "CATALOG_ENTRY = entry(UNKNOWN)",
+            "CATALOG_ENTRY = entry(module.attribute)",
+            "CATALOG_ENTRY = entry('x').copy()",
+            "CATALOG_ENTRY = {**entry('x')}",
+            "CATALOG_ENTRY = entry('x', requires=SOME)",
+            "CATALOG_ENTRY = entry(b'bytes')",
+            "CATALOG_ENTRY = entry(1j)",
+            "CATALOG_ENTRY = entry('a', 'b')",
+            "CATALOG_ENTRY = entry('x', writes_files='yes')",
+            "CATALOG_ENTRY = entry('x', unknown=True)",
+            "CATALOG_ENTRY = entry('   ')",
+            "CATALOG_ENTRY = entry('x', argument('', 'd'))",
+            "CATALOG_ENTRY = entry('x', argument('n', 'd', choice(1)))",
+            "CATALOG_ENTRY = entry('x', argument('n', 'd', choice('v', 1)))",
+            "CATALOG_ENTRY = entry('x', requires=(1,))",
+            "CATALOG_ENTRY = 'a summary'",
+            "CATALOG_ENTRY = {'summary': 'x', 'extra': 1}",
+            "CATALOG_ENTRY = {'summary': 'x', 'arguments': [{'name': 'n'}]}",
+            "CATALOG_ENTRY = 'x' + 1",
+        ]
+        for source in unreadable:
+            with self.subTest(source[:60]):
+                self.assertIsNone(read(source + '\ndef run(viewer, args):\n    return None\n').catalog_entry)
+
+    def test_an_expression_nested_beyond_what_can_be_evaluated_is_unreadable_not_an_error(self):
+        deep = ast.Constant('x')
+        for _ in range(5000):
+            deep = ast.BinOp(deep, ast.Add(), ast.Constant('y'))
+        tree = ast.Module([ast.Assign([ast.Name('CATALOG_ENTRY', ast.Store())], deep, lineno=1)], [])
+        self.assertIsNone(read_declarations(tree).catalog_entry)
+
+    def test_a_prompt_and_its_order_must_be_plain_text_and_a_finite_number(self):
+        for source, text, order in (("AGENT_PROMPT = ''", None, None), ("AGENT_PROMPT = '   '", None, None),
+                                    ("AGENT_PROMPT = 5", None, None), ("AGENT_PROMPT = b'x'", None, None),
+                                    ("AGENT_PROMPT = 'a' + 'b'", 'ab', None), ("AGENT_PROMPT = 'a' 'b'", 'ab', None),
+                                    ("AGENT_PROMPT_ORDER = True", None, None), ("AGENT_PROMPT_ORDER = '3'", None, None),
+                                    ("AGENT_PROMPT_ORDER = 1e999", None, None), ("AGENT_PROMPT_ORDER = -5", None, -5),
+                                    ("AGENT_PROMPT_ORDER = 2.5", None, 2.5), ("AGENT_PROMPT_ORDER = 3 * 2", None, None)):
+            with self.subTest(source):
+                declared = read(source)
+                self.assertEqual((declared.agent_prompt, declared.agent_prompt_order), (text, order))
+
+    def test_the_declarations_of_a_file_follow_the_file(self):
+        with tempfile.TemporaryDirectory() as folder:
+            path = Path(folder) / 'zchanging.py'
+            path.write_text("AGENT_POLICY = 'run'\ndef run(v, a): pass\n", encoding='utf-8')
+            self.assertEqual(declarations_of(path).agent_policy['default'], 'run')
+            path.write_text("AGENT_POLICY = 'refuse'\ndef run(v, a): pass\n", encoding='utf-8')
+            self.assertEqual(declarations_of(path).agent_policy['default'], 'refuse')
+            path.write_text("AGENT_POLICY = (\n", encoding='utf-8')
+            self.assertEqual(declarations_of(path)[1:], (None, None, None, None))
+            path.unlink()
+            self.assertFalse(declarations_of(path).has_run)
+
+    def test_reading_runs_nothing_of_the_module(self):
+        with tempfile.TemporaryDirectory() as folder:
+            marker = Path(folder) / 'ran'
+            source = f"open({str(marker)!r}, 'w').close()\nAGENT_POLICY = 'run'\ndef run(v, a): pass\n"
+            path = Path(folder) / 'zeffect.py'
+            path.write_text(source, encoding='utf-8')
+            self.assertEqual(declarations_of(path).agent_policy['default'], 'run')
+            self.assertFalse(marker.exists())
+
+
+# A plugin as it is dropped into src/commands: one that declares nothing, one that declares it all, and one whose
+# declarations cannot be read.
+PLAIN = '''"""Scratch command that declares nothing."""
+def print_help():
+    print("Usage: zplain <thing>\\n  or: zplain reset")
+
+
+def run(viewer, args):
+    return None
+'''
+FULL = '''"""Scratch command that declares everything."""
+from desktop.Command_Metadata import argument, choice, entry
+
+# --- What this command declares about itself ---
+AGENT_POLICY = {'default': 'run', 'first_argument': {'wipe': 'approve', 'nuke': 'refuse', '': 'run'}}
+CATALOG_ENTRY = entry('Declared scratch command.',
+    argument('mode', 'How it goes.', choice('fast', 'quick'), choice('slow')),
+    requires=('alignment',), writes_files=True)
+AGENT_PROMPT_ORDER = 25
+AGENT_PROMPT = """
+`zfull [fast|quick|slow]`
+- Does the declared thing.
+"""
+
+
+def print_help():
+    print("Usage: zfull [mode]")
+
+
+def run(viewer, args):
+    return None
+'''
+BROKEN = '''"""Scratch command whose declarations cannot be used."""
+AGENT_POLICY = {'default': 'run', 'first_argument': {'Cancel': 'approve'}}
+CATALOG_ENTRY = entry(summary_of_the_command())
+AGENT_PROMPT = compute_the_prompt()
+
+
+def run(viewer, args):
+    return None
+'''
+
+
+class PluginDeclarationsTests(unittest.TestCase):
+    """A module dropped into src/commands is catalogued and handled by what it declares: no edit to the catalog code,
+    the Agent's instructions or any table of the tests is needed."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.folder = tempfile.TemporaryDirectory()
+        cls.addClassCleanup(cls.folder.cleanup)
+        cls.commands = Path(cls.folder.name) / 'commands'
+        shutil.copytree(COMMANDS_DIR, cls.commands, ignore=shutil.ignore_patterns('__pycache__'))
+        for name, source in {'zplain': PLAIN, 'zfull': FULL, 'zbroken': BROKEN}.items():
+            (cls.commands / f'{name}.py').write_text(source, encoding='utf-8')
+        cls.entries = {e['command']: e for e in command_catalog(commands_dir=cls.commands)['commands']}
+
+    def setUp(self):
+        self.enterContext(mock.patch.object(Command_Metadata, 'command_directories', return_value=[self.commands]))
+
+    def test_a_module_that_declares_nothing_gets_the_defaults(self):
+        found = self.entries['zplain']
+        self.assertIs(found['metadata_declared'], False)
+        self.assertEqual(found['summary'], 'Scratch command that declares nothing.')
+        self.assertEqual((found['arguments'], found['requires']), ([], []))
+        self.assertTrue(found['writes_files'] and found['opens_interface'])
+        self.assertEqual(found['agent_policy'], {'default': 'approve', 'first_argument': {}})
+        self.assertEqual(found['syntax'], ['zplain <thing>', 'zplain reset'])
+        for text in ('zplain', 'zplain reset', 'ZPLAIN anything'):
+            self.assertEqual(agent_policy(text), 'approve')
+        self.assertNotIn('zplain', AGENT_POLICY)
+        self.assertNotIn('zplain', agent_policy_summary()[0]['run'] + agent_policy_summary()[0]['approve'])
+        self.assertEqual([(item.name, item.text, item.order) for item in agent_prompt_items() if item.name == 'zplain'],
+                         [('zplain', None, None)])
+
+    def test_a_module_that_declares_everything_shows_it_all(self):
+        found = self.entries['zfull']
+        self.assertNotIn('metadata_declared', found)
+        self.assertEqual(found['summary'], 'Declared scratch command.')
+        self.assertEqual(found['requires'], ['alignment'])
+        self.assertEqual((found['writes_files'], found['opens_interface']), (True, False))
+        self.assertEqual([(a['name'], [c['value'] for c in a['choices']]) for a in found['arguments']],
+                         [('mode', ['fast', 'slow']), ('help', ['help'])])
+        self.assertEqual(found['arguments'][0]['choices'][0], {'value': 'fast', 'aliases': ['quick']})
+        self.assertEqual(found['agent_policy'], {'default': 'run', 'first_argument': {'wipe': 'approve', 'nuke': 'refuse', '': 'run'}})
+        self.assertEqual(found['syntax'], ['zfull [mode]'])
+        for text, expected in (('zfull', 'run'), ('zfull fast', 'run'), ('zfull wipe now', 'approve'), ('ZFULL Nuke', 'refuse')):
+            self.assertEqual(agent_policy(text), expected)
+        self.assertEqual(AGENT_POLICY['zfull'], found['agent_policy'])
+        plain, by_form = agent_policy_summary()
+        self.assertEqual([entry for entry in by_form if entry[0] == 'zfull'],
+                         [('zfull', 'run', {'wipe': 'approve', 'nuke': 'refuse'})])
+        items = {item.name: item for item in agent_prompt_items()}
+        self.assertEqual((items['zfull'].order, items['zfull'].text.strip().splitlines()[0]), (25, '`zfull [fast|quick|slow]`'))
+        # Its entry is the one the main program's catalog serves (what the VR viewer's help reads) where its folder is.
+        with mock.patch.object(Command_Metadata, 'COMMANDS_DIR', self.commands):
+            self.assertEqual({key: value for key, value in COMMAND_METADATA['zfull'].items()},
+                             {key: found[key] for key in ('summary', 'arguments', 'requires', 'writes_files',
+                                                          'opens_interface', 'agent_policy')})
+            self.assertEqual(get_command_metadata('zfull'), COMMAND_METADATA['zfull'])
+        with self.assertRaises(KeyError):
+            get_command_metadata('zplain')
+
+    def test_a_declaration_that_cannot_be_used_counts_as_none(self):
+        found = self.entries['zbroken']
+        self.assertIs(found['metadata_declared'], False)
+        self.assertEqual(found['agent_policy'], {'default': 'approve', 'first_argument': {}})
+        self.assertEqual(agent_policy('zbroken'), 'approve')
+        self.assertEqual(agent_policy('zbroken cancel'), 'approve')
+        self.assertNotIn('zbroken', AGENT_POLICY)
+        self.assertEqual([(i.name, i.text, i.order) for i in agent_prompt_items() if i.name == 'zbroken'],
+                         [('zbroken', None, None)])
+
+    def test_the_shipped_commands_are_untouched_by_the_plugins(self):
+        shipped = {e['command']: e for e in command_catalog()['commands']}
+        for name in SHIPPED:
+            self.assertEqual(self.entries[name], shipped[name])
+            self.assertEqual(agent_policy(name), TODAYS_POLICY[name][1].get('', TODAYS_POLICY[name][0]))
+
+    def test_the_catalog_is_json_as_the_mcp_server_serves_it(self):
+        json.dumps(command_catalog(commands_dir=self.commands))
+        detailed = command_catalog('zfull', commands_dir=self.commands)['commands'][0]
+        self.assertIn('Usage: zfull [mode]', detailed['help'])
+
+    def test_defaults_are_never_the_shared_constant(self):
+        self.entries['zplain']['agent_policy']['default'] = 'run'
+        self.assertEqual(default_command_metadata('x')['agent_policy'], {'default': 'approve', 'first_argument': {}})
+        self.assertEqual(default_command_metadata('x', {'default': 'refuse', 'first_argument': {}})['agent_policy']['default'],
+                         'refuse')
+        self.assertEqual(UNLISTED_POLICY['default'], 'approve')
+        self.assertEqual(agent_prompt_items.__module__, 'desktop.Command_Metadata')
 
 if __name__ == '__main__':
     unittest.main()

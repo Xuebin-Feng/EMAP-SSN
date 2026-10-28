@@ -32,6 +32,26 @@ try:
     import commands.cluster as cluster_cmd
 except ImportError:
     import cluster as cluster_cmd
+from desktop.Command_Metadata import argument, choice, entry, CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE
+
+# --- What this command declares about itself ---
+# Changes only the session's in-memory state.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Subcluster a topology cluster into custom group labels, numbered by size, while retaining original cluster membership.',
+    argument('action', 'clear removes the generated subcluster_N_M group labels, keeps custom groups with lookalike names such as subcluster_0_2, and leaves colors unchanged.', choice('clear')),
+    argument('cluster_name', 'Required existing topology cluster when not clearing, written #cluster_2# as in an expression or as the bare cluster_2 (the same cluster), without leading zeros (cluster_01 is refused). Exactly one cluster: another label such as #noise# or an expression such as #cluster_2#|#cluster_3# is refused. When no subcluster reaches MIN_SIZE, nothing changes: earlier subclusters, colors and undo history stay as they were, and the run still reports success. Arguments beyond the cluster name, MODE, PARAMETER and MIN_SIZE are refused, as are extras after clear.'),
+    CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 160
+AGENT_PROMPT = """
+`subcluster <CLUSTER_NAME> [MODE] [PARAM_1] [MIN_SIZE] | subcluster clear`
+- Reclusters one existing topology cluster written `#cluster_N#` or the bare `cluster_N`, e.g. `subcluster #cluster_2#`, without leading zeros: `subcluster cluster_01` is refused with the canonical name; any other label or expression is refused. Main cluster labels remain unchanged; retained subcommunities are stored as overlapping custom groups named with the `subcluster_N_M` pattern and numbered by size, so `subcluster_N_1` is the largest. They describe the current clusters, so a later `cluster` run removes them.
+- Supports the same Leiden, MCL, and Jaccard parameters and defaults as `cluster`; MIN_SIZE defaults to `10`, and smaller subcommunities are treated as subcluster noise. A node with no edge inside the cluster is a singleton subcluster when MIN_SIZE is `1`, in every mode.
+- Requires existing main clusters and internal edges within the target cluster. A successful run recolors nodes in the target cluster by retained subcluster; nodes below MIN_SIZE are subcluster noise and become gray. The group and color changes participate in undo/redo. When no subcluster reaches MIN_SIZE, the run reports success but changes nothing: the cluster keeps its colors and its earlier subclusters, and no undo step is added. Arguments beyond those the command takes, or after `subcluster clear`, are refused with an error naming the first one, and nothing changes.
+- `subcluster clear` removes only the generated `subcluster_N_M` groups; user-created lookalikes such as `subcluster_0_2` are kept. It does not restore the colors that subclustering applied; use `undo` when the previous combined state is still on the undo stack, or issue a separate color/reset action when appropriate.
+"""
 
 if sys.platform == 'win32' and not globals().get("_WINDOWS_ANSI_ENABLED", False):
     os.system('')

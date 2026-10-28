@@ -17,6 +17,22 @@ import re
 
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, entry
+
+# --- What this command declares about itself ---
+# Moves through the session's own undo history.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Reapply the last undone state; report a no-op if redo history is empty.',
+    argument('steps', 'Optional positive whole number N: reapplies up to N undone states, stopping early when there is nothing left to redo, and reports how many were redone. Omitted, one state is reapplied. Any other argument is refused before anything changes.'))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 70
+AGENT_PROMPT = """
+`redo [N]`
+- Reapplies the viewer state most recently removed by `undo`. It has no effect when there is no undone state available to reapply.
+- N is an optional positive whole number, handled as for `undo`: `redo N` reapplies up to N states, stops early when none are left to reapply, and reports how many were reapplied.
+"""
 
 # ASCII digits only: int() would also take signs, underscores and other digits.
 _STEP_COUNT = re.compile(r"[0-9]+")

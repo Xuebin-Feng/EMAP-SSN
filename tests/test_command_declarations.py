@@ -379,6 +379,51 @@ class EngineDispatchTests(PortalFixture, unittest.TestCase):
         self.assertEqual(self.viewer.command_history, [])
 
 
+AGENT_PLUGINS = {
+    # Declares nothing about the Agent.
+    "zagentless": "def run(viewer, args):\n    return None\n",
+    # Declares its policy, where it goes in the Agent's instructions and the text of its item.
+    "zagentful": '''AGENT_POLICY = {'default': 'run', 'first_argument': {'wipe': 'approve', 'nuke': 'refuse'}}
+AGENT_PROMPT_ORDER = 25
+AGENT_PROMPT = """
+`zagentful [wipe]`
+- Does the declared thing.
+"""
+
+
+def run(viewer, args):
+    return None
+''',
+}
+
+
+class AgentDeclarationsOfAPluginTests(PortalFixture, unittest.TestCase):
+    """A plugin dropped into the commands package is reviewed and described for the Agent by what it declares."""
+
+    def test_the_portal_reviews_an_agent_reply_by_the_policy_the_plugin_declares(self):
+        with scratch_commands(AGENT_PLUGINS):
+            submitted = self.portal.submit("agent plugin", ["zagentful", "zagentful wipe", "ZAGENTFUL Nuke", "zagentless x"],
+                                           source="web_agent")
+        self.assertEqual([record["approval"] for record in submitted["commands"]], [None, "pending", "refused", "pending"])
+
+    def test_without_the_plugin_the_same_commands_wait_for_approval(self):
+        # A command no module declares is unknown: it waits, as a command added without a policy does.
+        submitted = self.portal.submit("agent gone", ["zagentful", "zagentful wipe"], source="web_agent")
+        self.assertEqual([record["approval"] for record in submitted["commands"]], ["pending", "pending"])
+
+    def test_the_agents_instructions_describe_the_plugin_and_its_review(self):
+        from web_ui.agent_prompt import render_system_prompt
+
+        template = (SRC_DIR / "resources" / "agent" / "system_prompt.md").read_text(encoding="utf-8")
+        with scratch_commands(AGENT_PLUGINS):
+            text = render_system_prompt(template)
+        self.assertIn("\n3. `zagentful [wipe]`\n   - Does the declared thing.\n", text)
+        self.assertIn("\n27. `zagentless`\n    - The zagentless command; its module declares no description.\n", text)
+        self.assertIn("`zagentful` waits for the user to press Run only with the first word `wipe`", text)
+        self.assertIn("; is refused only with the first word `nuke`; any other form runs at once.", text)
+        self.assertNotIn("zagent", render_system_prompt(template))
+
+
 # --- No central file names a command -----------------------------------------------------
 GENERIC_WORDS = frozenset({"help", "-h", "--help", "-?", "--register-only"})
 
@@ -423,6 +468,15 @@ ALLOWED = {
         ("WorkerTracker.poll", "string", "jobs"): (1, JOBS_KEY),
     },
     "src/Command_Declarations.py": {},
+    # What the modules declare about themselves for the catalog and the Agent is read from them: the code that
+    # reads it, and the Agent's prompt that is written from it, name no command.
+    "src/desktop/Command_Metadata.py": {
+        ("<module>", "string", "alignment"): (1, "REQUIRABLE_INPUTS: an optional input a command can need, not a command"),
+        ("<module>", "string", "embedding"): (1, "REQUIRABLE_INPUTS: an optional input a command can need, not a command"),
+        ("<module>", "string", "run"): (1, "RUN, a class of the Agent policy: a reply's command runs at once"),
+        ("read_declarations", "string", "run"): (1, "the entry point every command module has"),
+    },
+    "src/web_ui/agent_prompt.py": {},
 }
 
 

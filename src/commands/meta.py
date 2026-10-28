@@ -38,6 +38,32 @@ from web_ui.meta_backend import (
     metadata_download_path,
     download_metadata,
 )
+from desktop.Command_Metadata import argument, choice, entry
+
+# --- What this command declares about itself ---
+# A bare filename imports a file, like upload. Opening the spreadsheet, showing or deleting a column and help change
+# only the session.
+AGENT_POLICY = {'default': 'approve', 'first_argument': {
+    '': 'run', 'show': 'run', 'display': 'run', 'delete': 'run', 'remove': 'run', 'clear': 'run', 'help': 'run',
+    '-h': 'run', '--help': 'run', '--register-only': 'run'}}
+
+CATALOG_ENTRY = entry('Open the metadata spreadsheet, import/export metadata, or manage columns and the metadata HUD.',
+    argument('action', 'Omit to open the spreadsheet. upload accepts files; download writes metadata; delete removes columns; show enables the HUD. A filename without upload also imports it.',
+        choice('upload', 'import'), choice('download', 'retrieve', 'export'), choice('delete', 'remove', 'clear'), choice('show', 'display'), choice('--register-only')),
+    argument('filenames', 'Upload one or more CSV/XLS/XLSX paths or names from the metadata directory; in a text column the words NA, N/A, None, null and NaN are kept as written and only an empty cell is blank, while in a number column they are missing. Download accepts an optional plain filename, not a path, written to the metadata directory: .csv or .xlsx in any case, .csv when the extension is omitted; an explicit name overwrites, automatic names avoid overwrite.'),
+    argument('properties', 'delete requires one or more existing column names, case-insensitive, bare or in braces as spectrum writes them ({Length}); deleting all with all is unsupported. show takes one property name, bare or in braces as spectrum writes it ({Length}); a name in braces is never read as clear or off; an unknown name fails, listing the available properties.'),
+    argument('display_action', 'Only after show/display: clear the metadata HUD. Undo and redo then leave it closed until the next show or spectrum opens it.', choice('clear', 'off')), writes_files=True, opens_interface=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 180
+AGENT_PROMPT = """
+`meta | meta [upload|import] <FILENAME> [FILENAME ...] | meta show <PROPERTY_NAME>|{PROPERTY_NAME} | meta download [FILENAME] | meta delete|remove|clear <PROPERTY_NAME>|{PROPERTY_NAME} [PROPERTY_NAME ...]`
+- `meta` opens the browser metadata spreadsheet and adds its Console button.
+- One or more bare filenames, or filenames after `upload`/`import`, load and merge `.xlsx`, `.xls`, or `.csv` metadata into the current session in argument order. Paths may be absolute, relative, or relative to the configured metadata directory. In a text column the words `NA`, `N/A`, `None`, `null`, and `NaN` are kept as written and only an empty cell is blank; in a number column they are missing, like any other non-number.
+- `show`/`display` enables a click-driven HUD for one property, named bare (`meta show Length`) or in braces as `spectrum` writes it (`meta show {Length}`); a name in braces is always a property, so `meta show {off}` shows a property called `off`. `meta show clear` and `meta show off` remove the HUD, and undo and redo leave it removed until the next `meta show` or `spectrum` opens it again.
+- `delete`/`remove`/`clear` atomically deletes one or more metadata properties, named bare or as `{Length}`, case-insensitively. Node ID/Sequence Header is protected, the FASTA-derived `Length`, `kDa`, `pI`, and `GRAVY` columns are ordinary deletable metadata, and `all` is not supported. Undo/redo covers them.
+- `download`/`retrieve`/`export` writes all current session metadata into the configured metadata directory. Without a filename it chooses the next free generic CSV name. A filename must be a plain file name (no directory or path) ending in `.csv` or `.xlsx`; `.csv` is added when no extension is present, and an existing file of that name is overwritten. This form does not accept a node expression.
+"""
 
 
 # `meta --register-only` brings back the Meta Data button of the Console when a session loads

@@ -21,6 +21,23 @@ from PySide6 import QtWidgets
 from desktop.Desktop_App import translate
 from utilities.Localization import JoinedMessage, Message
 from Viewer_Command_Portal import user_interaction, CURRENT
+from desktop.Command_Metadata import argument, entry
+
+# --- What this command declares about itself ---
+# Loads a file, or opens a file dialog.
+AGENT_POLICY = 'approve'
+
+CATALOG_ENTRY = entry('Load another alignment and report coverage; restore the previous alignment on loader failure.',
+    argument('filename', 'Optional FASTA/HDF5 MSA filename or path; omission opens a file dialog requiring a visible Viewer. Partial and zero node overlap are accepted.'), opens_interface=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 120
+AGENT_PROMPT = """
+`alignment [FILEPATH]`
+- With no filepath, opens an MSA chooser. With a filepath, loads a FASTA alignment or sparse HDF5 alignment directly; absolute paths, relative paths, and files in the configured MSA directory are resolved.
+- Exact full headers map alignment rows to viewer nodes. Nodes absent from the MSA remain visible but are excluded from alignment-dependent calculations; a parseable partial or zero-overlap alignment is allowed.
+- A malformed or unreadable file fails without replacing the previously active alignment.
+"""
 
 def print_help():
     print("""

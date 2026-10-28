@@ -23,6 +23,25 @@ import matplotlib.cm as cm
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Colors import colours_enabled
+from desktop.Command_Metadata import argument, entry, EXPRESSION
+
+# --- What this command declares about itself ---
+# Changes only the view.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Color visible nodes by a numerical metadata property.',
+    argument('property', 'Required bare {PROPERTY_NAME} selector for a numerical metadata column; arguments may occur in any order.'),
+    argument('expression', EXPRESSION + ' Defaults to all visible nodes.'),
+    argument('color_scheme', 'Optional installed Matplotlib colormap name, default coolwarm; names are not case-sensitive, and an unknown name is an error. A token that is also a valid selection expression is read as the expression.'))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 170
+AGENT_PROMPT = """
+`spectrum [EXPRESSION] {PROPERTY_NAME} [COLOR_SCHEME]`
+- Colors visible nodes by values from exactly one loaded numerical metadata property enclosed in braces. A bare target such as `{Length}` selects the spectrum property, while a complete predicate such as `{Length>500}` remains a Boolean selection expression. The expression, property, and optional standalone color scheme may appear in any order.
+- If EXPRESSION is omitted, all visible nodes are targeted. Hidden matches remain unchanged. Text properties are invalid for spectrum coloring. Nodes whose value is missing, non-numeric, or infinite are excluded from the gradient minimum/maximum and colored light gray.
+- The default Matplotlib color scheme is `coolwarm`. Scheme names are not case-sensitive. An unrecognized scheme is an error that changes no colors, so use a Matplotlib colormap name such as `viridis`. Do not emit the removed `prop:`, `property:`, `scheme:`, or `color:` forms.
+"""
 
 
 if sys.platform == "win32" and not globals().get("_WINDOWS_ANSI_ENABLED", False):

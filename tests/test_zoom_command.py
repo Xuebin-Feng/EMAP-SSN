@@ -255,9 +255,12 @@ class ShippedZoomTests(unittest.TestCase):
         )
         self.assertIn(f"100% is a view {width} layout units wide", description)
         self.assertIn(highest, description)
+        # The zoom item is zoom.py's own AGENT_PROMPT: it is in the prompt as the Agent gets it, rendered.
+        from web_ui.agent_prompt import render_system_prompt
+
         prompt = os.path.join(SRC_DIR, "resources", "agent", "system_prompt.md")
         with open(prompt, encoding="utf-8") as handle:
-            text = handle.read()
+            text = render_system_prompt(handle.read())
         self.assertIn(f"100% is a view {width} viewer-coordinate units wide", text)
         self.assertIn(f"up to {highest}", text)
 

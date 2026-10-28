@@ -43,6 +43,33 @@ from utilities.Sequence_Utils import (
     rejoin_split_brackets,
     split_position_list,
 )
+from desktop.Command_Metadata import argument, choice, entry, plain_choices, EXPRESSION
+
+# --- What this command declares about itself ---
+# Writes an image file.
+AGENT_POLICY = 'approve'
+
+CATALOG_ENTRY = entry('Queue a sequence-logo image for a selected subset; requires a nonempty MSA and background scheduler.',
+    argument('positions', 'Required bracketed displayed positions/ranges, e.g. [1,5-8,10.1], [1 5-8 10.1] or [(-3)-(-1)]: reference numbering with an active reference, otherwise occupancy numbering as in query. Fractional insertions must be explicit. Separate positions by commas or by spaces, not both: a mixed list such as [1, 5 9] is refused. Spaces just inside the brackets and around the dash of a range are ignored; ranges run from lower to higher.'),
+    argument('expression', EXPRESSION + ' Defaults to selected nodes, or all nodes if nothing is selected. An expression that matches no node succeeds with a note and queues nothing; nodes that match but are not in the alignment make the command fail.'),
+    argument('filename', 'Optional SVG/PNG basename; default timestamped SVG. A filename must end in .svg or .png (any case): if the last remaining string does, it is the filename and any other remaining strings form the expression; otherwise all remaining strings form the expression, so a mistyped keyword such as nogap is refused rather than used as a filename. A PNG is one 600 dpi image, so a PNG of more than a few hundred positions (the refusal names the exact limit) is refused before it is queued; SVG has no such limit.'),
+    argument('mode', 'Default bits (information content); pcts displays frequencies. Bits subtracts a small-sample correction counting only the sequences with a residue at that position (gaps are not counted; with identity, their summed weight).', choice('bits', 'bit'), choice('pcts', 'pct', 'percentage', 'percentages')),
+    argument('gap_mode', 'Default with_gap scales height by occupancy.', choice('with_gap', 'with_gaps', 'gaps', 'gap'), choice('no_gap', 'no_gaps')),
+    argument('preset', 'Optional standalone color preset, case-insensitive; default chemistry.', *plain_choices('chemistry','classic','grays','base_pairing','colorblind_safe','weblogo_protein','skylign_protein','dmslogo_charge','dmslogo_funcgroup','hydrophobicity','charge','NajafabadiEtAl2017')),
+    argument('color_scheme', 'Alternatively color_scheme=NAME, colors=NAME, color=NAME or scheme=NAME passes a scheme to the renderer.'),
+    argument('identity', 'Optional numeric redundancy threshold: 0.9, 90 or 90%; omitted means reweighting off.'),
+    requires=('alignment',), writes_files=True, opens_interface=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 220
+AGENT_PROMPT = """
+`logo [EXPRESSION] <POSITIONS> [FILENAME] [MODE] [GAP_MODE] [COLOR_SCHEME] [IDENTITY]`
+- Generates a sequence-logo SVG or PNG beneath the configured Analysis Results directory, using `Analysis_Results/Sequence_Logos/` by default. A literal bracketed position list is required; noncontiguous positions are plotted adjacently with their mapped labels. Fractional insertion labels such as `10.1` are accepted for retained alignment columns where the reference has a gap, but ranges are integer-only, so list them explicitly. Every negative position or range endpoint must be enclosed individually in parentheses, such as `[(-1),0,1]` or `[(-3)-(-1)]`; never emit bare negative positions. Separate positions by commas or spaces, not both. Write each range from lower to higher (`[10-25]`, not `[25-10]`).
+- If EXPRESSION is omitted, the current selection is used; if nothing is selected, all mapped nodes are used. At least one viewer node must map to the loaded MSA: an expression that matches no node succeeds with a note and queues nothing, while nodes that match but are not in the MSA make the command fail. With an active reference, labels use reference numbering plus offset. Without one, occupancy mode numbers retained alignment columns sequentially from 1, the same labels `query` uses, and ignores the configured offset. Arguments may appear in nearly any order. After POSITIONS and the recognized MODE, GAP_MODE, COLOR_SCHEME, and IDENTITY tokens are removed, FILENAME must end in `.svg` or `.png` (any case): if the last remaining token does, it is FILENAME and any other remaining tokens form EXPRESSION; otherwise all remaining tokens form EXPRESSION, so a mistyped keyword (`nogap`, `percent`, `colourblind`) or an extensionless name is refused as an unrecognized argument instead of becoming a filename. Always give FILENAME its extension, e.g. `logo $sele$ [10-20] my_logo.svg`.
+- A PNG logo of more than a few hundred positions is refused before it is queued, and the error names the exact limit; use an `.svg` FILENAME, which has no such limit, or fewer positions.
+- MODE is `bits` by default or `pcts`/`percentages`. GAP_MODE is `with_gap` by default, which scales total height by occupancy, or `no_gap`.
+- COLOR_SCHEME may be a supported standalone preset or `color=SCHEME`/`scheme=SCHEME`; the default is `chemistry`. IDENTITY optionally enables sequence-redundancy weighting and accepts a fraction, percentage points, or a percent token; weighting is off when omitted.
+"""
 
 LOGO_DIRECTORY = os.path.join("$analysis_result$", "Sequence_Logos")
 

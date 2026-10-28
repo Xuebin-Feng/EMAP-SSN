@@ -95,8 +95,10 @@ class CatalogTests(unittest.TestCase):
             if isinstance(node, ast.Import):
                 imported |= {alias.name.split(".")[0] for alias in node.names}
             elif isinstance(node, ast.ImportFrom) and node.level == 0:
-                imported.add((node.module or "").split(".")[0])
-        self.assertTrue(imported <= {"Command_Engine", "utilities"}, imported)
+                # desktop.Command_Metadata (the helpers its declarations are written with) imports no Qt either.
+                imported.add("desktop.Command_Metadata" if node.module == "desktop.Command_Metadata"
+                             else (node.module or "").split(".")[0])
+        self.assertTrue(imported <= {"Command_Engine", "utilities", "desktop.Command_Metadata"}, imported)
 
 
 if __name__ == "__main__":

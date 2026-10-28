@@ -22,6 +22,27 @@ from PySide6 import QtWidgets
 from desktop.Desktop_App import translate
 from utilities.Localization import JoinedMessage, Message
 from Viewer_Command_Portal import user_interaction, CURRENT, MAX_SCRIPT_COMMANDS
+from desktop.Command_Metadata import argument, choice, entry
+
+# --- What this command declares about itself ---
+# Opens a dialog and runs a script.
+AGENT_POLICY = 'approve'
+
+CATALOG_ENTRY = entry('Open a script-selection dialog and execute a text command batch or Python-generated commands, stopping at the first command that fails.',
+    argument('script', 'Chosen through a visible Viewer dialog, not a path argument. TXT lines become commands; Python stdout supplies commands. Nested run lines are ignored. A Python script runs in its own folder. The first command that fails or is cancelled ends the run and the later commands are not run; a script of more than 1000 commands is refused before any runs. MCP tracks child commands and Python workers; typed in the Viewer, a Python script runs in the background, one at a time.'),
+    argument('stop', 'Optional word stop: ends the Python scripts the Viewer is running, with every process they started, and runs none of their commands; with none running it succeeds and says so. No dialog opens. A request holding only stop commands runs at once, even while the script request it ends still waits. Closing the Viewer stops them too.', choice('stop')), writes_files=True, opens_interface=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 90
+AGENT_PROMPT = r"""
+`run`
+- Opens a file chooser for a `.txt` command script or a `.py` command-generating script. It does not accept a filepath argument.
+- Text scripts execute each nonblank line after removing a trailing `//` comment. Python scripts run in a subprocess and each nonblank stdout line is treated as a viewer command. A script line ending in ` \` continues on the next; a reply line never does.
+- Recursive `run` lines are ignored to prevent loops.
+- A Python script typed into the Viewer runs in the background, one at a time, and its commands run when it ends.
+- `run stop` stops the Python scripts the Viewer is running, with every process they started, and none of their commands run; with none running it reports that and succeeds. Closing the Viewer stops them too.
+- The run stops at the first command that fails or is cancelled: the commands after it are not run.
+"""
 
 # How the Viewer dispatches this command (Command_Declarations). run opens its dialog at once, and the
 # commands of the script then wait their turn like any other.

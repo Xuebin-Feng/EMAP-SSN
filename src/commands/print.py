@@ -36,6 +36,27 @@ from utilities.Job_Cancellation import (
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
 from Viewer_Visual_State import active_edge_scores, edge_stages, opengl_failure_note
+from desktop.Command_Metadata import argument, choice, entry
+
+# --- What this command declares about itself ---
+# Writes an image file.
+AGENT_POLICY = 'approve'
+
+CATALOG_ENTRY = entry('Queue a rendered network snapshot as PNG or SVG; requires the background scheduler. The picture is taken when the command runs (the view, every tile of full, or the nodes and edges of the SVG); trimming and encoding the PNG, or writing the SVG, run in the queue label and logo use, so later viewer changes do not alter the file, and the job reports the saved file.',
+    argument('filename', 'Optional plain filename under Saved Images: one word, not a path; .png or .svg is added. Defaults to a timestamped PNG. A name ending in .svg (any case) selects SVG as svg does, so it cannot combine with transparent or full; a name ending in .png with svg is refused. A bare .png or .svg is not a name and is refused. A second word that is not a modifier is refused, so a mistyped modifier is never saved as part of the name. An explicit name replaces an existing file of that name, and the report says so; timestamped names never replace a file.'),
+    argument('modifiers', 'transparent and full can combine for PNG; svg cannot combine with either. full stitches the network. PNG margins are trimmed to a 20-pixel border; an SVG is framed the same way, 20 of the PNG\'s pixels around the network as drawn. PNG captures leave out the hover colour and the clicked-node halo; selection borders stay. svg draws what a PNG of the view shows: marker shapes as on screen, and node outlines (selection borders too) and edges as wide as this screen draws them (a thin outline about 1.7 device pixels, edges whole device pixels), so on a high-DPI display they come out thinner beside the nodes.', choice('transparent'), choice('full'), choice('svg')),
+    argument('zoom', 'Optional zoom N, or zoom=N in one word (zoom=200, zoom=200%), only with full or svg, anywhere among the modifiers: draws at the scale zoom N would set, a zoom of N percent (100% is a view 300 scene units wide; a bigger N is closer), without moving the view; N must be a positive zoom the view can draw; the limits of the zoom command do not apply. Node sizes stay in screen pixels, so a bigger N gives a larger full PNG. A full PNG whose longest side is under 1000 px is saved with a warning; one of more than 1000 megapixels, with or without zoom N, is refused before any tile is drawn, naming the largest N that fits (MAX_FULL_IMAGE_MEGAPIXELS in src/commands/print.py). A file name cannot start with zoom=; any other name with an = is a name as before.'), writes_files=True, opens_interface=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 230
+AGENT_PROMPT = """
+`print [FILENAME] [MODIFIERS]`
+- Exports an image beneath the configured Analysis Results directory, using `Analysis_Results/Saved_Images/` by default. With no filename it creates a timestamped PNG of the current view; a supplied name must be a plain file name of one word (no directory or path; a second word that is not a modifier is refused, so a mistyped modifier is never saved as part of the name) and receives the appropriate extension when absent. A name ending in `.svg` selects SVG as `svg` does, so it cannot combine with `transparent` or `full`; a `.png` name with `svg` is refused. A bare `.png` or `.svg` is not a name and is refused. An explicit name replaces an existing file of that name, and the report says so; a timestamped name never replaces a file.
+- `transparent` creates a PNG without the background. `full` renders the whole network tile by tile off screen, without moving the view, and stitches the tiles into one high-resolution PNG; it may be combined with `transparent`.
+- `svg` writes the network as displayed (visible nodes and the edges shown on screen after the similarity-threshold and manifold-layout (UMAP or PaCMAP) filters; no text labels) as a layered vector graphic. It cannot be combined with PNG modifiers.
+- The picture is taken when the command runs, so later viewer changes do not alter the file; the file is finished in the background, and the job reports the saved file. A name a queued job is still to write is refused.
+- `zoom N`, only with `full` or `svg` and anywhere among the modifiers (`print fig1 full zoom 200`, `print svg zoom 200%`), draws at the scale `zoom N` would set, a zoom of N percent (`%` optional) on the current canvas, without moving the view; N must be a positive zoom the view can draw. With `full`, a bigger N gives a larger image, and an image whose longest side is under 1000 px is still saved with a warning; a `full` image of more than 1000 megapixels, with or without `zoom N`, is refused before any tile is drawn, and the error gives the largest N that fits. `zoom N` with a plain PNG is refused, and the word after `zoom` is always read as N, so a file named zoom must be written `zoom.png`.
+"""
 
 def __getattr__(name):
     """print.mpimg, matplotlib's image writer, loads when it is first asked for.

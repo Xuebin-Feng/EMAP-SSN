@@ -19,6 +19,27 @@ import EMAPSSN_Config as cfg
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
 from utilities.Output_Names import validate_output_basename
+from desktop.Command_Metadata import argument, choice, entry, EXPRESSION
+
+# --- What this command declares about itself ---
+# Changes only the selection; `select save` writes a file.
+AGENT_POLICY = {'default': 'run', 'first_argument': {'save': 'approve'}}
+
+CATALOG_ENTRY = entry('Modify the visible-node selection or save selected headers/sequences.',
+    argument('mode', 'Default change. Modes may precede or follow the expression; invert takes no expression. Two modes that differ (add subtract) are refused, naming both; the same mode twice is accepted. save must come first and requires a filename.',
+        choice('change'), choice('add','plus','include'), choice('subtract','minus','remove'), choice('filter','keep','intersect'), choice('invert'), choice('save')),
+    argument('expression', EXPRESSION),
+    argument('filename', 'Required for save: a plain filename of one word in the header list directory, not a path; a second word is refused. .txt saves headers; .fasta, .fa, .faa and .fas (any case) save sequences; other names get .txt. At least one selected node is needed.'), writes_files=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 20
+AGENT_PROMPT = """
+`select [MODE] <EXPRESSION> | select invert | select save <FILENAME>`
+- Selects only currently visible nodes. MODE may appear before or after the expression. Two different modes in one command (for example `add` and `subtract`) are refused, naming both; the same mode twice is accepted.
+- `change` is the default and replaces the selection. `add`/`plus`/`include` adds matches; `subtract`/`minus`/`remove` removes matches; `filter`/`keep`/`intersect` retains only already-selected nodes that also match.
+- `invert` swaps selected and unselected states among visible nodes and takes no expression.
+- `save` writes the current selection under `Input_Files/Header_Lists/`: a `.fasta`, `.fa`, `.faa` or `.fas` filename (any case) exports sequences, a `.txt` filename exports headers, and any other name receives an appended `.txt` (for example, `hits.csv` becomes `hits.csv.txt`). FILENAME must be one word and a plain file name; a directory or path, or a second word, is refused.
+"""
 
 # `select save` writes sequences under these endings, in any case (the same
 # that an @file@ selection reads as FASTA); any other name is a header list,

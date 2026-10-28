@@ -1,9 +1,13 @@
 """The Agent's system prompt (src/resources/agent/system_prompt.md): it describes every command, never offers
-the agent command, states how a reply's commands are reviewed exactly as the catalog's policy does (the
-lists are written from AGENT_POLICY when the prompt is loaded), and stays within a size ceiling."""
+the agent command, states how a reply's commands are reviewed exactly as the commands' own policies do, and stays
+within a size ceiling. The numbered list of commands and the review lists are written when the prompt is loaded, from
+what each command module declares (AGENT_PROMPT, AGENT_PROMPT_ORDER, AGENT_POLICY): a command dropped into
+src/commands reaches the prompt with no change to it, or to anything central."""
+from contextlib import contextmanager
 from pathlib import Path
 import re
 import sys
+import tempfile
 from types import SimpleNamespace
 import unittest
 from unittest import mock
@@ -11,11 +15,19 @@ from unittest import mock
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'src'))
 from desktop import Command_Metadata
-from desktop.Command_Metadata import AGENT_POLICY, agent_policy, agent_policy_summary, policy
-from web_ui.agent_prompt import PLACEHOLDERS, render_system_prompt
+from desktop.Command_Metadata import (AGENT_POLICY, UNLISTED_POLICY, agent_policy, agent_policy_summary,
+                                      agent_prompt_items, declarations_of, refused_in_every_form as policy_refuses)
+from web_ui.agent_prompt import COMMAND_ITEMS, PLACEHOLDERS, numbered_item, render_system_prompt
 
 PROMPT_FILE = ROOT / 'src' / 'resources' / 'agent' / 'system_prompt.md'
-COMMANDS = sorted(path.stem for path in (ROOT / 'src' / 'commands').glob('*.py') if not path.stem.startswith('_'))
+COMMANDS_DIR = ROOT / 'src' / 'commands'
+COMMANDS = sorted(path.stem for path in COMMANDS_DIR.glob('*.py') if not path.stem.startswith('_'))
+
+# The commands that have an item, in the order of their numbers. The order is each module's AGENT_PROMPT_ORDER; a
+# command added later may come between them, so the test keeps the relative order of these.
+ITEM_ORDER = ['color', 'select', 'hide', 'reset', 'zoom', 'undo', 'redo', 'save', 'run', 'reference', 'offset', 'alignment',
+              'embedding', 'query', 'cluster', 'subcluster', 'spectrum', 'meta', 'group', 'export', 'label', 'logo', 'print',
+              'esmfold', 'jobs']
 
 # Commands the prompt does not describe yet, as a command whose item is still to be written (jobs was
 # one until its item was). Name one here only while its item is pending; the test below fails if a
@@ -54,8 +66,18 @@ def spans(text):
 
 
 def refused_in_every_form(name):
-    rule = AGENT_POLICY[name]
+    rule = AGENT_POLICY.get(name, UNLISTED_POLICY)
     return rule['default'] == 'refuse' and not any(kind != 'refuse' for kind in rule['first_argument'].values())
+
+
+@contextmanager
+def plugins(modules):
+    """The commands of src/commands with ``modules`` ({name: source}) dropped in beside them, as a plugin is."""
+    with tempfile.TemporaryDirectory() as folder:
+        for name, source in modules.items():
+            Path(folder, name + '.py').write_text(source, encoding='utf-8')
+        with mock.patch.object(Command_Metadata, 'command_directories', return_value=[COMMANDS_DIR, Path(folder)]):
+            yield
 
 
 class CommandCoverageTests(unittest.TestCase):
@@ -86,8 +108,38 @@ class CommandCoverageTests(unittest.TestCase):
         self.assertEqual([name for _, name in items if name not in COMMANDS], [])
         self.assertEqual(len({name for _, name in items}), len(items))
 
-    def test_the_policy_covers_exactly_the_commands_on_disk(self):
-        self.assertEqual(sorted(AGENT_POLICY), COMMANDS)
+    def test_the_shipped_commands_declare_their_item_and_their_place_and_the_refused_ones_declare_none(self):
+        # What a module declares is what the prompt says: nothing central lists the commands.
+        previous = None
+        for name in ITEM_ORDER:
+            with self.subTest(command=name):
+                declared = declarations_of(COMMANDS_DIR / f'{name}.py')
+                self.assertIsInstance(declared.agent_prompt, str)
+                self.assertTrue(declared.agent_prompt.strip())
+                self.assertFalse(policy_refuses(declared.agent_policy))
+                self.assertIsNotNone(declared.agent_prompt_order)
+                self.assertTrue(previous is None or declared.agent_prompt_order > previous, 'the order is by number')
+                previous = declared.agent_prompt_order
+        for name in ('agent', 'console', 'help'):
+            with self.subTest(command=name):
+                declared = declarations_of(COMMANDS_DIR / f'{name}.py')
+                self.assertIsNone(declared.agent_prompt)
+                self.assertTrue(policy_refuses(declared.agent_policy))
+
+    def test_the_items_keep_their_order_and_numbers_and_are_the_modules_own_text(self):
+        items = item_names(prompt())
+        self.assertEqual([name for _, name in items if name in ITEM_ORDER], ITEM_ORDER)
+        text = prompt()
+        for number, name in items:
+            declared = declarations_of(COMMANDS_DIR / f'{name}.py')
+            if declared.agent_prompt is not None:
+                with self.subTest(command=name):
+                    self.assertIn('\n' + numbered_item(int(number), declared.agent_prompt) + '\n', text)
+
+    def test_an_item_is_numbered_and_its_lines_stand_under_the_number(self):
+        self.assertEqual(numbered_item(3, '\n`a [B]`\n- one\n- two\n'), '3. `a [B]`\n   - one\n   - two')
+        self.assertEqual(numbered_item(12, '`a`\n- one\n\n- two'), '12. `a`\n    - one\n\n    - two')
+        self.assertEqual(numbered_item(100, '`a`\n- one'), '100. `a`\n     - one')
 
 
 class ReviewTests(unittest.TestCase):
@@ -168,9 +220,11 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(self.parse_form(line), ('jobs', {'cancel': 'approve'}, 'run'))
 
     def test_the_lists_follow_the_policy_and_are_not_a_copy_of_it(self):
-        added = {'zzz_plugin': policy('approve'), 'yyy_plugin': policy('run', {'danger': 'approve', '': 'refuse'}),
-                 'xxx_plugin': policy('refuse')}
-        with mock.patch.dict(Command_Metadata.AGENT_POLICY, added):
+        body = '\n\ndef run(viewer, args):\n    return None\n'
+        added = {'zzz_plugin': "AGENT_POLICY = 'approve'" + body,
+                 'yyy_plugin': "AGENT_POLICY = {'default': 'run', 'first_argument': {'danger': 'approve', '': 'refuse'}}" + body,
+                 'xxx_plugin': "AGENT_POLICY = 'refuse'" + body}
+        with plugins(added):
             run, approve, refuse, by_form = self.lists()
         self.assertIn('zzz_plugin', approve)
         self.assertEqual(refuse[-1], 'xxx_plugin')
@@ -192,6 +246,109 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual({kind for kind in plain}, {'run', 'approve', 'refuse'})
         self.assertEqual([name for name, _, _ in by_form], [name for name, rule in AGENT_POLICY.items()
                          if any(kind != rule['default'] for kind in rule['first_argument'].values())])
+
+
+UNDECLARED = '''"""Scratch command that declares nothing."""
+def print_help():
+    print("Usage: zundeclared <thing>\\n  or: zundeclared stop")
+
+
+def run(viewer, args):
+    return None
+'''
+DECLARED = '''"""Scratch command that declares everything."""
+AGENT_POLICY = {'default': 'run', 'first_argument': {'wipe': 'approve'}}
+AGENT_PROMPT_ORDER = 25
+AGENT_PROMPT = """
+`zdeclared [wipe]`
+- Does the declared thing.
+- Never put %%RUN_AT_ONCE%% or %%COMMAND_ITEMS%% in an item: it stays as written.
+"""
+
+
+def run(viewer, args):
+    return None
+'''
+REFUSED_WITH_TEXT = '''AGENT_POLICY = 'refuse'
+AGENT_PROMPT_ORDER = 1
+AGENT_PROMPT = """
+`zrefused`
+- A refused command is not offered, whatever it declares.
+"""
+
+
+def run(viewer, args):
+    return None
+'''
+LAST = '''AGENT_POLICY = 'approve'
+AGENT_PROMPT = """
+`zlast`
+- Declares a text and no order, so it comes after those that declare one.
+"""
+
+
+def run(viewer, args):
+    return None
+'''
+
+
+class PluginItemsTests(unittest.TestCase):
+    """A command dropped into src/commands is in the prompt by what it declares: no change to the prompt file, to
+    desktop.Command_Metadata or to a table of these tests."""
+
+    def rendered(self, modules):
+        with plugins(modules):
+            return prompt()
+
+    def test_a_module_that_declares_nothing_gets_a_short_item_made_from_its_catalog_entry(self):
+        text = self.rendered({'zundeclared': UNDECLARED})
+        items = item_names(text)
+        self.assertEqual(items[-1], (str(len(ITEM_ORDER) + 1), 'zundeclared'))
+        self.assertEqual([name for _, name in items[:-1]], ITEM_ORDER)
+        number = len(ITEM_ORDER) + 1
+        self.assertIn(f'\n\n{number}. `zundeclared <thing>`\n    - Scratch command that declares nothing.\n'
+                      '    - Other forms: `zundeclared stop`.\n\nCommand selection and state semantics:', text)
+        # It waits for approval, as every command that declares no policy: it is in no list, and the prompt says what is.
+        self.assertNotIn('`zundeclared`', review_section(text))
+        with plugins({'zundeclared': UNDECLARED}):
+            self.assertEqual(agent_policy('zundeclared stop'), 'approve')
+            self.assertNotIn('zundeclared', agent_policy_summary()[0]['approve'])
+
+    def test_a_module_that_declares_everything_is_where_it_says_and_says_what_it_says(self):
+        text = self.rendered({'zdeclared': DECLARED})
+        items = item_names(text)
+        position = ITEM_ORDER.index('select') + 2
+        self.assertEqual(items[position - 1], (str(position), 'zdeclared'))
+        self.assertEqual([name for _, name in items if name != 'zdeclared'], ITEM_ORDER)
+        self.assertEqual([int(number) for number, _ in items], list(range(1, len(ITEM_ORDER) + 2)))
+        self.assertIn(f'\n{position}. `zdeclared [wipe]`\n   - Does the declared thing.\n   - Never put %%RUN_AT_ONCE%% or '
+                      '%%COMMAND_ITEMS%% in an item: it stays as written.\n', text)
+        review = review_section(text)
+        self.assertIn("  - `zdeclared` waits for the user to press Run only with the first word `wipe`; any other form "
+                      "runs at once.", review)
+        self.assertNotIn('`zdeclared`', next(line for line in review.splitlines() if line.startswith('- Run at once')))
+
+    def test_an_item_is_never_read_as_a_placeholder(self):
+        with plugins({'zdeclared': DECLARED}):
+            text = render_system_prompt(raw_prompt())
+        self.assertEqual(text.count('%%RUN_AT_ONCE%%'), 1)
+        self.assertEqual(text.count('%%COMMAND_ITEMS%%'), 1)
+
+    def test_a_command_with_no_order_comes_last_and_one_that_is_refused_is_not_offered(self):
+        text = self.rendered({'zlast': LAST, 'zundeclared': UNDECLARED, 'zrefused': REFUSED_WITH_TEXT, 'zdeclared': DECLARED})
+        names = [name for _, name in item_names(text)]
+        self.assertEqual([name for name in names if name != 'zdeclared'], ITEM_ORDER + ['zlast', 'zundeclared'])
+        self.assertNotIn('zrefused', names)
+        self.assertIn('`zrefused`', next(line for line in review_section(text).splitlines() if line.startswith('- Refused')))
+
+    def test_the_items_of_the_shipped_commands_are_the_same_with_plugins_beside_them(self):
+        shipped = prompt()
+        with plugins({'zlast': LAST, 'zundeclared': UNDECLARED}):
+            self.assertEqual([item.name for item in agent_prompt_items()][:len(ITEM_ORDER)], ITEM_ORDER)
+            with_plugins = prompt()
+        # Only the plugins' items and the lists' words differ from the prompt of the shipped commands.
+        self.assertTrue(with_plugins.startswith(shipped.split('\n\n25. ')[0]))
+        self.assertNotEqual(with_plugins, shipped)
 
 
 class WhatThePromptSaysTests(unittest.TestCase):

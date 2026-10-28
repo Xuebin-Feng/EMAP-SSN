@@ -33,6 +33,28 @@ from utilities.Localization import JoinedMessage, Message
 from utilities.Terminal_Launcher import launch_without_window
 from Viewer_Worker_Tracking import worker_directory
 from web_ui.Browser_Page import is_headless
+from desktop.Command_Metadata import argument, choice, entry
+
+# --- What this command declares about itself ---
+# Starts a worker process, and `large` spends Biohub credit.
+AGENT_POLICY = 'approve'
+
+CATALOG_ENTRY = entry('Open the structure viewer or submit selected sequences for ESM3 folding. With an alignment loaded, a folded node it holds also gets per-residue data (Information Content, Residue Agreement) saved beside its PDB as <pdb name>.residues.json; the result says what was saved and why not.',
+    argument('options', 'Omit with no selection to open the structure viewer: nothing is folded then, and a node that was only clicked is not folded either. With nothing selected, multi and large fail. Folding defaults to local ESM3 and exactly one selected node; multi permits multiple nodes, large uses Biohub. large and multi may be combined in either order; duplicates are invalid. Each fold is a job of the background scheduler, in its own folding line beside the line of the file jobs (label, logo, print): it is never refused because another fold is running, it waits behind the folds already queued, and one worker runs at a time so that only one model is in memory. A node that another fold is to write, or is writing, is left out and the outcome names the job that holds it; when none is left the command is refused. The worker runs without any window, with its output in a log file the outcome names. large needs your Biohub API token, saved in the Biohub API settings file or given as ESM_API_KEY: without one the Viewer asks for it in a dialog before queueing (the request shows awaiting_user_input meanwhile, a Viewer that shows no windows fails the command at once, and cancelling queues nothing), and if Biohub rejects the saved token while folding it asks for a replacement once and folds the structures not yet folded with it. The token is never accepted as a command argument.',
+        choice('large'), choice('multi'), choice('--register-only')),
+    argument('stop', 'Optional word stop, given alone: ends the fold that is running, with every process it started, and takes the folds that wait out of the line; nothing else. Structures already saved are kept, a half-written one is deleted, and each fold\'s job is reported cancelled. With none running or waiting it succeeds and says so. A request holding only stop commands runs at once, even while the esmfold request it ends still waits for its worker. Closing a Viewer that shows no windows ends its worker too.', choice('stop')), writes_files=True, opens_interface=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 240
+AGENT_PROMPT = """
+`esmfold [large] [multi] | esmfold stop`
+- With no keyword and no selected node, adds the Fold View Console button and opens the browser Mol* structure viewer, and folds nothing, even if a node was clicked. With exactly one selected node, the default mode runs local ESM3 1.4B structure prediction; if several nodes are selected, the command fails unless `multi` is supplied.
+- `large` routes structure prediction through the Biohub API; a selected node is required, and a node that was only clicked does not count. `multi` processes all selected nodes sequentially and may appear before or after `large`.
+- Sequences are resolved from the configured source FASTA and structures are stored beneath the configured Cache File directory, using `Cache_Files/Predicted_Structures/` by default; `large` does not use local compute hardware.
+- Each fold is a job of the background scheduler's folding line, beside the line of `label`, `logo` and `print`: it waits behind the folds already queued instead of being refused, one worker runs at a time, and it runs without any window. A node another fold is to write or is writing is left out, and the outcome names the job that holds it. `large` needs the user's Biohub API token: with none saved the Viewer asks for it in a dialog, which the user must answer (never ask for the token or put it in a command), and a Viewer that shows no windows fails the command.
+- While an alignment is loaded, each structure folded for a node the alignment holds also gets `<pdb name>.residues.json` beside its PDB: per-residue Information Content and Residue Agreement from the whole loaded alignment. The result says what was saved, and why not.
+- `esmfold stop` ends the fold that is running, with every process it started, and takes the folds that wait out of the line; nothing else. Structures already saved are kept, a half-written one is deleted, and each fold's job is reported cancelled; with none running or waiting it reports that and succeeds.
+"""
 
 
 # How the Viewer dispatches this command (Command_Declarations).

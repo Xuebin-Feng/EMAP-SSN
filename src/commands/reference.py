@@ -16,6 +16,25 @@
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
 from utilities.Sequence_Utils import reference_header_matches
+from desktop.Command_Metadata import argument, entry
+
+# --- What this command declares about itself ---
+# Changes only the session's reference sequence.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Inspect or change the reference sequence used for alignment mapping.',
+    argument('target', 'Omit to inspect the current reference and whether it is active. Supply a full header, a leading identifier such as WP_0123.1, a partial header, or a wildcard pattern; an exact header or identifier takes priority, and the resolved full header anchors numbering. The target must have a sequence in the loaded MSA: when several headers match, the first with a sequence in the MSA is used, and a target with none in the MSA fails without changing the reference or offset. A configured reference absent from the current MSA, such as one left by loading another alignment, remains inactive in occupancy mode. Only one target is accepted: a further argument is refused and nothing changes.'))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 100
+AGENT_PROMPT = """
+`reference [TARGET]`
+- With no target, reports the active alignment reference, or marks the configured reference inactive when it does not resolve.
+- TARGET is a full header, a leading identifier ending at `_` or `|` such as `WP_0123.1`, a case-insensitive substring, or a wildcard pattern such as `WP_01*` or `*.1`; a full header or versioned accession is safest, and an exact header or identifier takes priority over substring matches, so `WP_0123.1` selects a header whose identifier is exactly `WP_0123.1` rather than `WP_0123.10_...`. When several headers match, the first one that has a sequence in the loaded MSA is used and a warning names it.
+- Only one TARGET is accepted. A further argument fails the command, and the reference and offset are kept.
+- Changing the reference changes the position labels that position-aware commands use. A target whose sequence is absent from the loaded MSA is refused: the command fails and the previous reference and offset are kept. A configured reference that does not resolve, such as one left by loading another MSA with `alignment`, stays configured but inactive.
+- When an MSA is loaded but no reference resolves, `query`, `logo`, and amino-acid expressions use occupancy mode: retained alignment columns are numbered sequentially from 1 and the configured offset is inactive. `offset` and `label` still require an active reference.
+"""
 
 
 def _resolve_reference_header(viewer, target):

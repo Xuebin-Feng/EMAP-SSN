@@ -28,6 +28,25 @@ try:
     import commands.group as group_cmd
 except ImportError:
     import group as group_cmd
+from desktop.Command_Metadata import argument, choice, entry, CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE
+
+# --- What this command declares about itself ---
+# Changes only the session's in-memory state.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Identify topology clusters and number retained clusters by size.',
+    argument('action', 'Use list for current cluster statistics; otherwise perform clustering, which also removes the generated subcluster_N_M groups of the previous clustering (custom groups with lookalike names such as subcluster_0_2 are kept; undo restores them). Arguments beyond MODE, PARAMETER and MIN_SIZE are refused, as are extras after list.', choice('list')),
+    CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 150
+AGENT_PROMPT = """
+`cluster [MODE] [PARAM_1] [MIN_SIZE] | cluster list`
+- Clusters the current network topology and assigns mutually exclusive cluster labels. These are topology-derived candidate communities, not guaranteed functional families. Communities smaller than MIN_SIZE are labeled noise; MIN_SIZE is an integer of at least `1` and defaults to `10`. A node with no edge is its own community in all three modes: a singleton cluster when MIN_SIZE is `1`, noise when it is larger. Arguments beyond MODE, PARAM_1 and MIN_SIZE, or after `cluster list`, are refused with an error naming the first one, and nothing changes.
+- `leiden` is the default mode and uses resolution `1.0`; a higher resolution generally yields more communities. `mcl` uses inflation `2.0` in the range `1.1` to `10.0`; higher inflation generally yields tighter communities. `jaccard` uses shared-neighbor threshold `0.2` in the range `0.0` to `1.0`; higher thresholds discard more weakly supported edges. In `jaccard`, an edge outside every triangle still scores above `0`, and an isolated pair or any clique edge scores `1`.
+- Leiden and MCL use network edge scores as weights when available. MODE may be omitted for Leiden. Reclustering replaces prior cluster labels and applies cluster/noise colors; it also removes the generated `subcluster_N_M` groups of the previous clustering (custom groups with lookalike names such as `subcluster_0_2` are kept), and the change, including the removal, participates in undo/redo. `cluster list` prints current cluster sizes and proportions without reclustering.
+- Clustering uses every loaded edge and node regardless of the threshold slider or hidden nodes. Retained clusters are renumbered by size, so `cluster_1` is the largest.
+"""
 
 if sys.platform == 'win32' and not globals().get("_WINDOWS_ANSI_ENABLED", False):
     os.system('')

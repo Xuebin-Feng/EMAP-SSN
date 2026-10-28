@@ -17,6 +17,26 @@ import re
 import numpy as np
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, choice, entry, EXPRESSION
+
+# --- What this command declares about itself ---
+# Changes only the session's in-memory state.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Assign overlapping custom group labels or manage existing groups.',
+    argument('action', 'Omit to assign names; list prints statistics, remove deletes named groups (all of which must exist, or nothing is removed), reset clears all groups.', choice('list'), choice('remove', 'delete'), choice('reset')),
+    argument('expression', EXPRESSION + ' Pair each expression with a group name; a single name targets selected nodes. Only visible nodes are labelled: hidden matches are skipped, as in color, and an expression matching only hidden nodes labels none.'),
+    argument('names', 'Names use letters, digits, underscores, hyphens or periods, without spaces. Reserved command names, canonical cluster_N names of clusters that currently exist, and every subcluster_N_M name in the generated form (positive IDs without leading zeros) cannot be assigned. remove accepts multiple names, each bare or as #name# as in an expression.'))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 190
+AGENT_PROMPT = """
+`group [EXPRESSION] <GROUP_NAME> [<EXPRESSION_2> <GROUP_NAME_2> ...] | group list | group remove <GROUP_NAME...>`
+- Assigns nonexclusive custom labels: one node may belong to multiple groups. Group names are single tokens containing only letters, digits, `_`, `-`, or `.`. Do not use the reserved names `noise`, `reset`, `remove`, `delete`, `list`, `help`, `cluster`, `group`, `groups`, or `clusters`.
+- A canonical `cluster_N` group name is rejected only when cluster `N` currently exists; otherwise it may be a custom group, and leading-zero names such as `cluster_001` are custom groups. Names matching generated positive-cluster labels `subcluster_N_M` (both numbers positive, without leading zeros) are reserved; `subcluster_0_M` is allowed.
+- A single group name with no expression targets the current selection. Otherwise, arguments are expression/name pairs and multiple assignments may be made in one command. Only currently visible nodes receive a label: hidden matches, and hidden nodes in the selection, are skipped as in `color`, and an expression that matches only hidden nodes labels none and reports that no nodes matched. Labels that hidden nodes already carry are kept.
+- `group list` prints group sizes and proportions. `remove` and `delete` remove the named groups (`name` or `#name#`) from every node; if any named group does not exist, the command fails and nothing is removed. Undo state includes both.
+"""
 
 
 _RESERVED_GROUP_NAMES = {

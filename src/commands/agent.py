@@ -33,6 +33,15 @@ from web_ui.agent_backend import (
     register,
     call_api,
 )
+from desktop.Command_Metadata import argument, choice, entry
+
+# --- What this command declares about itself ---
+# An Agent reply may not reconfigure the Agent itself.
+AGENT_POLICY = 'refuse'
+
+CATALOG_ENTRY = entry('Open or configure the Agent interface; MCP blocks nested model requests.',
+    argument('action', 'Omit to open the interface; off deactivates the model. Registration only does not open it.', choice('off', 'deactivate'), choice('--register-only')),
+    argument('model_or_message', 'An existing model card name enclosed in <...> activates that model. Natural-language messages are supported manually but blocked through MCP.'), opens_interface=True)
 
 # How the Viewer dispatches this command (Command_Declarations). The forms that only open the Agent page
 # or set up the model (agent, agent off, agent deactivate, agent <Model Name>) send no message to a model.

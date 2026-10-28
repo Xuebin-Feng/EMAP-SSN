@@ -2,16 +2,73 @@
 # Author affiliation: University of Toronto
 # SPDX-License-Identifier: Apache-2.0
 
-"""Descriptive command metadata only; never imports handlers or validates commands.
+"""What the command modules say about themselves, for the catalog and for the Agent, read without importing them.
 
-Maintain alongside src/commands parsers. Choices enumerate finite keywords;
-empty choices denotes an open-ended argument, not an unavailable argument.
+The program never names a command here. A command is a module of src/commands, and
+each module that wants to be described declares, as top-level assignments in one block
+after its imports, up to four things:
+
+* ``CATALOG_ENTRY``, the command's entry in the catalog the MCP server's
+  get_command_catalog and the help command serve: a summary, its arguments (a
+  finite set of words as choices, an open-ended one with none), the optional inputs it
+  requires and whether it writes files or opens an interface of its own.
+
+      CATALOG_ENTRY = entry('Summary.',
+          argument('action', 'What it does.', choice('list'), choice('remove', 'delete')),
+          requires=('alignment',), writes_files=True, opens_interface=True)
+
+* ``AGENT_POLICY``, how a command of an Agent reply is handled: 'run' at once,
+  'approve' only after the user presses Run in the Agent page, or 'refuse'; by default,
+  and optionally by the lower-case first word after the command ('' for none).
+
+      AGENT_POLICY = 'run'
+      AGENT_POLICY = {'default': 'run', 'first_argument': {'cancel': 'approve'}}
+
+* ``AGENT_PROMPT``, the text of the command's numbered item in the Agent's instructions
+  (src/resources/agent/system_prompt.md has none): its usage line, then its bullets,
+  without the number or the indentation, which are put on when the item is rendered; and
+  ``AGENT_PROMPT_ORDER``, a number that puts the item in order (smaller first, ties by
+  name, a command with none last). A command offered to the Agent that has no
+  AGENT_PROMPT gets a short item made from its catalog summary and syntax, so a
+  plugin dropped into src/commands reaches the Agent without anyone writing it one.
+
+A module is never imported to read them. Its source is parsed and each declaration is
+evaluated by a reader that accepts nothing but literals, ``+`` of two strings, calls
+of entry, argument, choice and plain_choices, and the shared constants below
+(EXPRESSION, CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE, HELP_DESCRIPTION). The module
+imports the same names to run, so what Python evaluates and what is read are one value.
+Reading a module's declarations therefore runs no handler and no code of the module,
+this file imports no handler, and a plugin cannot compute its way to a policy: whoever
+reviews a module sees every word the Viewer will go by.
+
+What cannot be read is not obeyed, and the cautious value stands in for it: no
+CATALOG_ENTRY (a declaration the reader cannot evaluate, or one of the wrong shape) is a
+command that may write files and open an interface, with no arguments to name, listed as
+metadata_declared: false; no AGENT_POLICY, or one that is invalid or assigned in any
+other way than one plain top-level statement, is UNLISTED_POLICY: 'approve'. Never 'run'.
+A policy word that can never match (not lower case, or holding a space) is invalid,
+so a typo does not leave a form running at the default.
+
+The commands that run in an Agent reply without review are pinned by a test
+(tests/test_command_catalog.py, RUNS_WITHOUT_REVIEW): making a module 'run' fails it until
+the list is changed on purpose, which is the one place to review.
 """
+import ast
+import math
+import sys
+from collections.abc import Mapping
 from copy import deepcopy
+from pathlib import Path
+from typing import NamedTuple
 
 
 def choice(value, *aliases):
     return {'value': value, 'aliases': list(aliases)}
+
+
+def plain_choices(*values):
+    """A choice for each of values, none with an alias, to be spliced into argument(...) as *plain_choices(...)."""
+    return [choice(value) for value in values]
 
 
 def argument(name, description, *choices):
@@ -40,120 +97,15 @@ CLUSTER_MODE = argument('mode', 'Default leiden. Leiden requires graspologic-nat
                         choice('leiden'), choice('mcl'), choice('jaccard'))
 CLUSTER_PARAMETER = argument('parameter', 'Optional number: Leiden resolution defaults to 1.0; MCL inflation to 2.0, within 1.1 to 10.0; Jaccard threshold to 0.2.')
 MIN_SIZE = argument('min_size', 'Optional integer, at least 1, default 10. Smaller subsets become noise. With 1, a node with no edge is a singleton cluster in every mode; with more, it is noise.')
+# The help argument every catalog entry ends with, unless the module declares one of its own (export and label,
+# which also take -?, do).
+HELP_DESCRIPTION = 'Print command help instead of performing the operation.'
 
-COMMAND_METADATA = {
-    'agent': entry('Open or configure the Agent interface; MCP blocks nested model requests.',
-        argument('action', 'Omit to open the interface; off deactivates the model. Registration only does not open it.', choice('off', 'deactivate'), choice('--register-only')),
-        argument('model_or_message', 'An existing model card name enclosed in <...> activates that model. Natural-language messages are supported manually but blocked through MCP.'), opens_interface=True),
-    'alignment': entry('Load another alignment and report coverage; restore the previous alignment on loader failure.',
-        argument('filename', 'Optional FASTA/HDF5 MSA filename or path; omission opens a file dialog requiring a visible Viewer. Partial and zero node overlap are accepted.'), opens_interface=True),
-    'cluster': entry('Identify topology clusters and number retained clusters by size.',
-        argument('action', 'Use list for current cluster statistics; otherwise perform clustering, which also removes the generated subcluster_N_M groups of the previous clustering (custom groups with lookalike names such as subcluster_0_2 are kept; undo restores them). Arguments beyond MODE, PARAMETER and MIN_SIZE are refused, as are extras after list.', choice('list')),
-        CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE),
-    'color': entry('Apply color, alpha, scale, or shape assignments to visible nodes.',
-        argument('action', 'reset restores configured node colors, alpha included.', choice('reset')),
-        argument('expression', EXPRESSION + ' Omission targets selected nodes; assignments may be chained.'),
-        argument('attributes', 'The attributes of one target as a set, written with literal angle brackets: <ITEM,ITEM,...> or <ITEM ITEM ...>, 1 to 4 items in any order, at most one color, one alpha, one scale and one shape. Separate the items all with commas (spaces around the commas are ignored) or all with spaces, never both. A set follows its expression as a word of its own or glued to it (#cluster_1# <red,50%> or #cluster_1#<red 50%>); with no expression it targets the selected nodes. Nothing in a set is read as an expression, so <C53> is a color. An empty set, a set never closed, a mixed-separator set, two items of one kind, an unknown item and a set beside loose attributes for one target are refused and nothing changes.'),
-        argument('color', 'Optional Matplotlib color name or hex color; at least one visual attribute is needed. A color alone keeps each node\'s alpha. An 8-digit hex such as #ff000080 sets the color and the alpha. Outside a set, a valid selection expression takes precedence, so C53 selects cysteine 53 and x2 selects residue X at position 2.'),
-        argument('alpha', 'Optional opacity: a number from 0 to 100 followed by %, e.g. 50%, 12.5% or 0%. An alpha alone keeps each node\'s color; 100% makes translucent nodes opaque again. Not combinable with an 8-digit hex color for one target.'),
-        argument('scale', 'Optional multiplier of the configured node size: a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.'),
-        argument('shape', 'Optional VisPy marker token; circle and triangle are explicit parser aliases.',
-            choice('disc', 'circle'), choice('arrow'), choice('ring'), choice('clobber'), choice('square'), choice('x'),
-            choice('diamond'), choice('vbar'), choice('hbar'), choice('cross'), choice('tailed_arrow'),
-            choice('triangle_up', 'triangle'), choice('triangle_down'), choice('star'), choice('cross_lines'),
-            *[choice(s) for s in ('o', '+', '++', 's', '-', '|', '->', '>', '^', 'v', '*')])),
-    'console': entry("Open the Console window, which shows everything this Viewer's process has printed since it started, with the time of each line and warnings and errors marked; the log file it names keeps every line. Needs a Viewer that shows windows: a headless or hidden one has none. Runs at once."),
-    'embedding': entry('Load another embedding file and report coverage, model and width; restore the previous embedding on loader failure. The switch lasts for the session and is not an undo step.',
-        argument('filename', 'Optional HDF5 embedding filename or path (.h5, which may be omitted), as given, relative to the working directory or inside the Embedding Directory; omission opens a file dialog requiring a visible Viewer. The file must be a complete embedding database as the pipeline writes it; partial and zero node coverage are accepted.'), opens_interface=True),
-    'esmfold': entry('Open the structure viewer or submit selected sequences for ESM3 folding. With an alignment loaded, a folded node it holds also gets per-residue data (Information Content, Residue Agreement) saved beside its PDB as <pdb name>.residues.json; the result says what was saved and why not.',
-        argument('options', 'Omit with no selection to open the structure viewer: nothing is folded then, and a node that was only clicked is not folded either. With nothing selected, multi and large fail. Folding defaults to local ESM3 and exactly one selected node; multi permits multiple nodes, large uses Biohub. large and multi may be combined in either order; duplicates are invalid. Each fold is a job of the background scheduler, in its own folding line beside the line of the file jobs (label, logo, print): it is never refused because another fold is running, it waits behind the folds already queued, and one worker runs at a time so that only one model is in memory. A node that another fold is to write, or is writing, is left out and the outcome names the job that holds it; when none is left the command is refused. The worker runs without any window, with its output in a log file the outcome names. large needs your Biohub API token, saved in the Biohub API settings file or given as ESM_API_KEY: without one the Viewer asks for it in a dialog before queueing (the request shows awaiting_user_input meanwhile, a Viewer that shows no windows fails the command at once, and cancelling queues nothing), and if Biohub rejects the saved token while folding it asks for a replacement once and folds the structures not yet folded with it. The token is never accepted as a command argument.',
-            choice('large'), choice('multi'), choice('--register-only')),
-        argument('stop', 'Optional word stop, given alone: ends the fold that is running, with every process it started, and takes the folds that wait out of the line; nothing else. Structures already saved are kept, a half-written one is deleted, and each fold\'s job is reported cancelled. With none running or waiting it succeeds and says so. A request holding only stop commands runs at once, even while the esmfold request it ends still waits for its worker. Closing a Viewer that shows no windows ends its worker too.', choice('stop')), writes_files=True, opens_interface=True),
-    'export': entry('Export in-memory sequences as FASTA subsets beneath Analysis Results.',
-        argument('target', 'Default clusters, excluding noise; groups exports all custom groups. Requires corresponding memberships and in-memory sequences. Do not mix these modes with explicit labels. Group labels name the files and clustering parameters the cluster folder; one that is not a plain filename (only a hand-edited layout cache can carry one) is refused before anything is written.', choice('clusters', 'cluster'), choice('groups', 'group')),
-        argument('labels', 'One or more labels for existing clusters, groups, or noise, each written #LABEL# or, for a plain name (letters, digits, underscores, hyphens, periods), bare, as in cluster_1 or noise; the words clusters, cluster, group, groups and help keep their meaning, and #LABEL# names anything else. Repeated labels are deduplicated. Legacy group: prefixes are rejected.'), writes_files=True, opens_interface=True),
-    'group': entry('Assign overlapping custom group labels or manage existing groups.',
-        argument('action', 'Omit to assign names; list prints statistics, remove deletes named groups (all of which must exist, or nothing is removed), reset clears all groups.', choice('list'), choice('remove', 'delete'), choice('reset')),
-        argument('expression', EXPRESSION + ' Pair each expression with a group name; a single name targets selected nodes. Only visible nodes are labelled: hidden matches are skipped, as in color, and an expression matching only hidden nodes labels none.'),
-        argument('names', 'Names use letters, digits, underscores, hyphens or periods, without spaces. Reserved command names, canonical cluster_N names of clusters that currently exist, and every subcluster_N_M name in the generated form (positive IDs without leading zeros) cannot be assigned. remove accepts multiple names, each bare or as #name# as in an expression.')),
-    'help': entry("List the commands, or print one command's help as <command> help does, without running it. Run help help for this command's own help. It runs at once and changes nothing.",
-        argument('command', 'Optional command name, in any letter case: omit it to list the commands. A name that is no command fails and nothing else happens; a second word is refused.')),
-    'hide': entry('Hide selected or matching visible nodes and their connected edges.',
-        argument('action', 'single hides nodes with no active edges at the current threshold; reset unhides all nodes. Without arguments, hide selected nodes. single, free and reset take no other arguments: a word after one is refused.', choice('single', 'free'), choice('reset')),
-        argument('expression', EXPRESSION + ' Exactly one expression word: more are refused, so a quoted header with a space, as in "node 1", is refused rather than matching nothing.')),
-    'jobs': entry('List the background jobs that wait or run (the files label, logo and print write, and the structures esmfold folds), or cancel them. Each is numbered in the order given. A command that computes, such as cluster or subcluster, is not a background job: jobs neither lists nor cancels it. jobs itself runs at once.',
-        argument('action', 'Omit to list the background jobs, numbered, with the folding workers and Python scripts that run. cancel alone cancels the newest background job.', choice('cancel')),
-        argument('jobs', 'After cancel: job numbers (14 or #14), every one of which must name a waiting or running background job, or nothing is cancelled. A running job is only told to stop: it is listed as stopping and ends, reported cancelled with the file it had begun deleted (a file of that name from before stays as it was), at its next step; one with no step left to stop at completes and is reported completed. A job not started is dropped. all cancels every background job, running or not.', choice('all'))),
-    'label': entry('Queue an XLSX subset-conservation report; requires a nonempty MSA, active reference and background scheduler.',
-        argument('action', 'reset clears cluster labels without running analysis.', choice('reset')),
-        argument('target', 'Omit to analyze all available cluster/group results; an explicit target requires its memberships.', choice('clusters', 'cluster'), choice('groups', 'group')),
-        argument('keys', 'Each key takes a finite number written as a fraction (0.4) or a percentage (40 or 40%): a trailing % always means percent, and a bare value above 1 is a percentage. gmax defaults to 40%, cmin to 98%, identity reweighting is off by default. The ambiguity codes X, B, Z and J are never reported as conserved but still count as occupied positions. gmin is fixed at 97% and cannot be supplied.', choice('gmax', 'global_max', 'g_max'), choice('cmin', 'cluster_min', 'c_min'), choice('id')),
-        argument('numbers', 'Alternatively supply gmax, cmin, then optional identity positionally. Do not put positional numbers after keyword arguments. A key and its value may be joined with an =, as cmin=90% for cmin 90%.'),
-        argument('filename', 'Optional final XLSX basename; extension added. Numeric or reserved names must include .xlsx. Explicit filenames overwrite; automatic timestamp names avoid collisions.'),
-        requires=('alignment',), writes_files=True, opens_interface=True),
-    'logo': entry('Queue a sequence-logo image for a selected subset; requires a nonempty MSA and background scheduler.',
-        argument('positions', 'Required bracketed displayed positions/ranges, e.g. [1,5-8,10.1], [1 5-8 10.1] or [(-3)-(-1)]: reference numbering with an active reference, otherwise occupancy numbering as in query. Fractional insertions must be explicit. Separate positions by commas or by spaces, not both: a mixed list such as [1, 5 9] is refused. Spaces just inside the brackets and around the dash of a range are ignored; ranges run from lower to higher.'),
-        argument('expression', EXPRESSION + ' Defaults to selected nodes, or all nodes if nothing is selected. An expression that matches no node succeeds with a note and queues nothing; nodes that match but are not in the alignment make the command fail.'),
-        argument('filename', 'Optional SVG/PNG basename; default timestamped SVG. A filename must end in .svg or .png (any case): if the last remaining string does, it is the filename and any other remaining strings form the expression; otherwise all remaining strings form the expression, so a mistyped keyword such as nogap is refused rather than used as a filename. A PNG is one 600 dpi image, so a PNG of more than a few hundred positions (the refusal names the exact limit) is refused before it is queued; SVG has no such limit.'),
-        argument('mode', 'Default bits (information content); pcts displays frequencies. Bits subtracts a small-sample correction counting only the sequences with a residue at that position (gaps are not counted; with identity, their summed weight).', choice('bits', 'bit'), choice('pcts', 'pct', 'percentage', 'percentages')),
-        argument('gap_mode', 'Default with_gap scales height by occupancy.', choice('with_gap', 'with_gaps', 'gaps', 'gap'), choice('no_gap', 'no_gaps')),
-        argument('preset', 'Optional standalone color preset, case-insensitive; default chemistry.', *[choice(s) for s in ('chemistry','classic','grays','base_pairing','colorblind_safe','weblogo_protein','skylign_protein','dmslogo_charge','dmslogo_funcgroup','hydrophobicity','charge','NajafabadiEtAl2017')]),
-        argument('color_scheme', 'Alternatively color_scheme=NAME, colors=NAME, color=NAME or scheme=NAME passes a scheme to the renderer.'),
-        argument('identity', 'Optional numeric redundancy threshold: 0.9, 90 or 90%; omitted means reweighting off.'),
-        requires=('alignment',), writes_files=True, opens_interface=True),
-    'meta': entry('Open the metadata spreadsheet, import/export metadata, or manage columns and the metadata HUD.',
-        argument('action', 'Omit to open the spreadsheet. upload accepts files; download writes metadata; delete removes columns; show enables the HUD. A filename without upload also imports it.',
-            choice('upload', 'import'), choice('download', 'retrieve', 'export'), choice('delete', 'remove', 'clear'), choice('show', 'display'), choice('--register-only')),
-        argument('filenames', 'Upload one or more CSV/XLS/XLSX paths or names from the metadata directory; in a text column the words NA, N/A, None, null and NaN are kept as written and only an empty cell is blank, while in a number column they are missing. Download accepts an optional plain filename, not a path, written to the metadata directory: .csv or .xlsx in any case, .csv when the extension is omitted; an explicit name overwrites, automatic names avoid overwrite.'),
-        argument('properties', 'delete requires one or more existing column names, case-insensitive, bare or in braces as spectrum writes them ({Length}); deleting all with all is unsupported. show takes one property name, bare or in braces as spectrum writes it ({Length}); a name in braces is never read as clear or off; an unknown name fails, listing the available properties.'),
-        argument('display_action', 'Only after show/display: clear the metadata HUD. Undo and redo then leave it closed until the next show or spectrum opens it.', choice('clear', 'off')), writes_files=True, opens_interface=True),
-    'offset': entry('Inspect or change reference-position numbering without changing alignment columns.',
-        argument('integer', 'Omit to inspect. A supplied integer offset requires a loaded alignment with active reference; default launch offset is configured separately.')),
-    'print': entry('Queue a rendered network snapshot as PNG or SVG; requires the background scheduler. The picture is taken when the command runs (the view, every tile of full, or the nodes and edges of the SVG); trimming and encoding the PNG, or writing the SVG, run in the queue label and logo use, so later viewer changes do not alter the file, and the job reports the saved file.',
-        argument('filename', 'Optional plain filename under Saved Images: one word, not a path; .png or .svg is added. Defaults to a timestamped PNG. A name ending in .svg (any case) selects SVG as svg does, so it cannot combine with transparent or full; a name ending in .png with svg is refused. A bare .png or .svg is not a name and is refused. A second word that is not a modifier is refused, so a mistyped modifier is never saved as part of the name. An explicit name replaces an existing file of that name, and the report says so; timestamped names never replace a file.'),
-        argument('modifiers', 'transparent and full can combine for PNG; svg cannot combine with either. full stitches the network. PNG margins are trimmed to a 20-pixel border; an SVG is framed the same way, 20 of the PNG\'s pixels around the network as drawn. PNG captures leave out the hover colour and the clicked-node halo; selection borders stay. svg draws what a PNG of the view shows: marker shapes as on screen, and node outlines (selection borders too) and edges as wide as this screen draws them (a thin outline about 1.7 device pixels, edges whole device pixels), so on a high-DPI display they come out thinner beside the nodes.', choice('transparent'), choice('full'), choice('svg')),
-        argument('zoom', 'Optional zoom N, or zoom=N in one word (zoom=200, zoom=200%), only with full or svg, anywhere among the modifiers: draws at the scale zoom N would set, a zoom of N percent (100% is a view 300 scene units wide; a bigger N is closer), without moving the view; N must be a positive zoom the view can draw; the limits of the zoom command do not apply. Node sizes stay in screen pixels, so a bigger N gives a larger full PNG. A full PNG whose longest side is under 1000 px is saved with a warning; one of more than 1000 megapixels, with or without zoom N, is refused before any tile is drawn, naming the largest N that fits (MAX_FULL_IMAGE_MEGAPIXELS in src/commands/print.py). A file name cannot start with zoom=; any other name with an = is a name as before.'), writes_files=True, opens_interface=True),
-    'query': entry('Print alignment-position distributions or search positions by residue-frequency logic; requires a nonempty MSA.',
-        argument('expression', EXPRESSION + ' Defaults to selected nodes, otherwise all nodes. An expression that matches no node succeeds with a note; nodes that match but are not in the alignment make the query fail.'),
-        argument('positions_or_logic', 'Required brackets: positions/ranges separated by commas or by spaces, not both, as in [1,5,20-30] or [1 5 20-30] (E or END denotes the last displayed position), or comparisons such as [(RHK)>50%]. Combined comparisons need outer parentheses, e.g. [((RHK)>50%)&((DE)>20%)]. GAP or _ denotes gaps. Frequencies divide by all mapped subset sequences, including gaps. Each position prints its gap percentage and each residue of at least 1% (X and other symbols count as residues), then one line, "other (<1% each)", summing the residues under 1%.'),
-        requires=('alignment',)),
-    'redo': entry('Reapply the last undone state; report a no-op if redo history is empty.',
-        argument('steps', 'Optional positive whole number N: reapplies up to N undone states, stopping early when there is nothing left to redo, and reports how many were redone. Omitted, one state is reapplied. Any other argument is refused before anything changes.')),
-    'reference': entry('Inspect or change the reference sequence used for alignment mapping.',
-        argument('target', 'Omit to inspect the current reference and whether it is active. Supply a full header, a leading identifier such as WP_0123.1, a partial header, or a wildcard pattern; an exact header or identifier takes priority, and the resolved full header anchors numbering. The target must have a sequence in the loaded MSA: when several headers match, the first with a sequence in the MSA is used, and a target with none in the MSA fails without changing the reference or offset. A configured reference absent from the current MSA, such as one left by loading another alignment, remains inactive in occupancy mode. Only one target is accepted: a further argument is refused and nothing changes.')),
-    'reset': entry('Restore selected network properties in one undoable action.',
-        argument('targets', 'One or more targets: reset colors/sizes to configured defaults, shapes to discs, clear clusters/groups (clearing clusters also removes the generated subcluster_N_M groups), unhide nodes, restore original/last-saved positions, or reset render order. Keywords are case-insensitive; an unknown target fails the command without resetting anything.',
-            choice('colors','color'), choice('sizes','size'), choice('shapes','shape'), choice('clusters','cluster'), choice('groups','group'),
-            choice('hide','hides','hidden','hiddens'), choice('network','networks'), choice('order','orders','layer','layers'))),
-    'run': entry('Open a script-selection dialog and execute a text command batch or Python-generated commands, stopping at the first command that fails.',
-        argument('script', 'Chosen through a visible Viewer dialog, not a path argument. TXT lines become commands; Python stdout supplies commands. Nested run lines are ignored. A Python script runs in its own folder. The first command that fails or is cancelled ends the run and the later commands are not run; a script of more than 1000 commands is refused before any runs. MCP tracks child commands and Python workers; typed in the Viewer, a Python script runs in the background, one at a time.'),
-        argument('stop', 'Optional word stop: ends the Python scripts the Viewer is running, with every process they started, and runs none of their commands; with none running it succeeds and says so. No dialog opens. A request holding only stop commands runs at once, even while the script request it ends still waits. Closing the Viewer stops them too.', choice('stop')), writes_files=True, opens_interface=True),
-    'save': entry('Save current network state as an HDF5 layout cache; requires a valid active cache manifest and provenance binding.',
-        argument('filename', 'Optional .h5 basename in the active cache folder; omitted names use version_XX.h5. Stores positions, styling, visibility, render order, memberships and metadata.'), writes_files=True),
-    'select': entry('Modify the visible-node selection or save selected headers/sequences.',
-        argument('mode', 'Default change. Modes may precede or follow the expression; invert takes no expression. Two modes that differ (add subtract) are refused, naming both; the same mode twice is accepted. save must come first and requires a filename.',
-            choice('change'), choice('add','plus','include'), choice('subtract','minus','remove'), choice('filter','keep','intersect'), choice('invert'), choice('save')),
-        argument('expression', EXPRESSION),
-        argument('filename', 'Required for save: a plain filename of one word in the header list directory, not a path; a second word is refused. .txt saves headers; .fasta, .fa, .faa and .fas (any case) save sequences; other names get .txt. At least one selected node is needed.'), writes_files=True),
-    'spectrum': entry('Color visible nodes by a numerical metadata property.',
-        argument('property', 'Required bare {PROPERTY_NAME} selector for a numerical metadata column; arguments may occur in any order.'),
-        argument('expression', EXPRESSION + ' Defaults to all visible nodes.'),
-        argument('color_scheme', 'Optional installed Matplotlib colormap name, default coolwarm; names are not case-sensitive, and an unknown name is an error. A token that is also a valid selection expression is read as the expression.')),
-    'subcluster': entry('Subcluster a topology cluster into custom group labels, numbered by size, while retaining original cluster membership.',
-        argument('action', 'clear removes the generated subcluster_N_M group labels, keeps custom groups with lookalike names such as subcluster_0_2, and leaves colors unchanged.', choice('clear')),
-        argument('cluster_name', 'Required existing topology cluster when not clearing, written #cluster_2# as in an expression or as the bare cluster_2 (the same cluster), without leading zeros (cluster_01 is refused). Exactly one cluster: another label such as #noise# or an expression such as #cluster_2#|#cluster_3# is refused. When no subcluster reaches MIN_SIZE, nothing changes: earlier subclusters, colors and undo history stay as they were, and the run still reports success. Arguments beyond the cluster name, MODE, PARAMETER and MIN_SIZE are refused, as are extras after clear.'),
-        CLUSTER_MODE, CLUSTER_PARAMETER, MIN_SIZE),
-    'undo': entry('Restore the previous state; report a no-op if undo history is empty.',
-        argument('steps', 'Optional positive whole number N: undoes up to N steps, stopping early when the history runs out, and reports how many were undone. Omitted, one step is undone. Any other argument is refused before anything changes.')),
-    'zoom': entry('Set the camera zoom, a percentage, while retaining its center and canvas aspect ratio.',
-        argument('percent', 'Zoom as a percentage with an optional % sign: zoom 200 and zoom 200% both mean 200%, and a space may come before the sign. 100% is a view 300 layout units wide, and a bigger percentage is closer (200% is half as wide). From the zoom that shows every node, hidden ones too, rounded down to two significant figures, up to 60000% (the mouse wheel stops at the same limits); omission prints help.')),
-}
 
-# Help flags are command-specific; these are documentation, not dispatch aliases.
-for name, metadata in COMMAND_METADATA.items():
-    help_description = 'Print command help instead of performing the operation.'
-    help_choices = ('help', '-h', '-?', '--help') if name in {'export', 'label'} else ('help', '-h', '--help')
-    metadata['arguments'].append(argument('help', help_description, choice(*help_choices)))
+# --- How a command of an Agent reply is handled ---------------------------------------------------------------------
+
+RUN, APPROVE, REFUSE = 'run', 'approve', 'refuse'
+POLICY_KINDS = (RUN, APPROVE, REFUSE)
 
 
 def policy(default, first_argument=None):
@@ -163,64 +115,347 @@ def policy(default, first_argument=None):
     return {'default': default, 'first_argument': dict(first_argument or {})}
 
 
-# How a command that has no AGENT_POLICY entry, such as a plugin dropped into src/commands, is handled in an
-# Agent reply: it waits for approval, so a command added without a policy never runs unreviewed. 'refuse' is
+# How a command whose module declares no valid AGENT_POLICY, such as a plugin dropped into src/commands, is handled
+# in an Agent reply: it waits for approval, so a command added without a policy never runs unreviewed. 'refuse' is
 # kept for what an agent must never run (it may not reconfigure itself).
 UNLISTED_POLICY = policy('approve')
 
-# Commands that change only the view or the session's in-memory state run.
-# Ones that write or import files, launch processes or dialogs, or spend
-# Biohub credit wait for approval, and the agent may not reconfigure itself.
-AGENT_POLICY = {
-    'agent': policy('refuse'),
-    'alignment': policy('approve'),
-    'cluster': policy('run'),
-    'color': policy('run'),
-    'console': policy('refuse'),  # a window for the person at the Viewer: nothing in it an Agent can read
-    'embedding': policy('approve'),
-    'esmfold': policy('approve'),
-    'export': policy('approve'),
-    'group': policy('run'),
-    # Harmless, but the Agent's prompt already holds every command's usage, so the output would only fill its
-    # context (a small model's is about 4,000 tokens): the prompt has no item for it and names it as refused.
-    'help': policy('refuse'),
-    'hide': policy('run'),
-    # Cancelling throws away the user's own commands.
-    'jobs': policy('run', {'cancel': 'approve'}),
-    'label': policy('approve', {'reset': 'run'}),
-    'logo': policy('approve'),
-    # A bare filename imports a file, like upload.
-    'meta': policy('approve', dict.fromkeys(
-        ('', 'show', 'display', 'delete', 'remove', 'clear', 'help', '-h', '--help', '--register-only'), 'run')),
-    'offset': policy('run'),
-    'print': policy('approve'),
-    'query': policy('run'),
-    'redo': policy('run'),
-    'reference': policy('run'),
-    'reset': policy('run'),
-    'run': policy('approve'),
-    'save': policy('approve'),
-    'select': policy('run', {'save': 'approve'}),
-    'spectrum': policy('run'),
-    'subcluster': policy('run'),
-    'undo': policy('run'),
-    'zoom': policy('run'),
-}
-for name, metadata in COMMAND_METADATA.items():
-    metadata['agent_policy'] = AGENT_POLICY[name]
+
+# --- Reading what a module declares ---------------------------------------------------------------------------------
+
+COMMANDS_DIR = Path(__file__).resolve().parents[1] / 'commands'
+DECLARATIONS = ('CATALOG_ENTRY', 'AGENT_POLICY', 'AGENT_PROMPT', 'AGENT_PROMPT_ORDER')
+
+_FUNCTIONS = {'entry': entry, 'argument': argument, 'choice': choice, 'plain_choices': plain_choices}
+_CONSTANTS = {'EXPRESSION': EXPRESSION, 'CLUSTER_MODE': CLUSTER_MODE, 'CLUSTER_PARAMETER': CLUSTER_PARAMETER,
+              'MIN_SIZE': MIN_SIZE, 'HELP_DESCRIPTION': HELP_DESCRIPTION}
+
+
+class Unreadable(ValueError):
+    """A declaration that is more than literals, the shared constants and calls of the catalog's helpers."""
+
+
+def _spliced(value):
+    if not isinstance(value, (list, tuple)):
+        raise Unreadable('only a list or tuple can be starred')
+    return list(value)
+
+
+def _evaluate(node):
+    """The value of a declaration's expression, or Unreadable: literals, constants and the catalog's helpers only."""
+    if isinstance(node, ast.Constant):
+        if node.value is None or isinstance(node.value, (str, int, float, bool)):
+            return node.value
+    elif isinstance(node, ast.Name):
+        if node.id in _CONSTANTS:
+            return deepcopy(_CONSTANTS[node.id])
+    elif isinstance(node, (ast.List, ast.Tuple)):
+        items = []
+        for element in node.elts:
+            if isinstance(element, ast.Starred):
+                items.extend(_spliced(_evaluate(element.value)))
+            else:
+                items.append(_evaluate(element))
+        return items if isinstance(node, ast.List) else tuple(items)
+    elif isinstance(node, ast.Dict):
+        if any(key is None for key in node.keys):
+            raise Unreadable('a dictionary cannot be unpacked')
+        return {_evaluate(key): _evaluate(value) for key, value in zip(node.keys, node.values)}
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left, right = _evaluate(node.left), _evaluate(node.right)
+        if isinstance(left, str) and isinstance(right, str):
+            return left + right
+    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        operand = _evaluate(node.operand)
+        if isinstance(operand, (int, float)) and not isinstance(operand, bool):
+            return -operand
+    elif isinstance(node, ast.Call):
+        function = node.func
+        if isinstance(function, ast.Name) and function.id in _FUNCTIONS:
+            positional = []
+            for argument_node in node.args:
+                if isinstance(argument_node, ast.Starred):
+                    positional.extend(_spliced(_evaluate(argument_node.value)))
+                else:
+                    positional.append(_evaluate(argument_node))
+            if any(keyword.arg is None for keyword in node.keywords):
+                raise Unreadable('keyword arguments cannot be unpacked')
+            keywords = {keyword.arg: _evaluate(keyword.value) for keyword in node.keywords}
+            return _FUNCTIONS[function.id](*positional, **keywords)
+    raise Unreadable(type(node).__name__)
+
+
+def _value_nodes(tree):
+    """{declaration name: the expression of its one plain top-level assignment, or None when it is made in any other way}.
+
+    A declaration counts when the name is assigned by plain statements of the module's top level only; the last one
+    wins, as when the module runs. A name that is also assigned or deleted anywhere else (inside an if, a try, a
+    function, as one of several targets, augmented, imported, declared global) is not readable.
+    """
+    plain = {}
+    for statement in tree.body:
+        if isinstance(statement, ast.Assign) and len(statement.targets) == 1 and isinstance(statement.targets[0], ast.Name):
+            plain[id(statement.targets[0])] = statement.value
+        elif isinstance(statement, ast.AnnAssign) and statement.value is not None and isinstance(statement.target, ast.Name):
+            plain[id(statement.target)] = statement.value
+    found, spoiled = {}, set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name) and node.id in DECLARATIONS and not isinstance(node.ctx, ast.Load):
+            if id(node) in plain:
+                found[node.id] = plain[id(node)]
+            else:
+                spoiled.add(node.id)
+        elif isinstance(node, (ast.Global, ast.Nonlocal)):
+            spoiled.update(name for name in node.names if name in DECLARATIONS)
+        elif isinstance(node, ast.arg) and node.arg in DECLARATIONS:
+            spoiled.add(node.arg)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            spoiled.update(alias.asname or alias.name for alias in node.names if (alias.asname or alias.name) in DECLARATIONS)
+    return {name: (None if name in spoiled else found.get(name)) for name in set(found) | spoiled}
+
+
+def _valid_entry(value):
+    """The catalog entry that value says, in entry()'s form and order, or None when it is not one."""
+    if not isinstance(value, dict) or not isinstance(value.get('summary'), str) or not value['summary'].strip():
+        return None
+    if not set(value) <= {'summary', 'arguments', 'requires', 'writes_files', 'opens_interface'}:
+        return None
+    arguments, requires = value.get('arguments', []), value.get('requires', [])
+    writes_files, opens_interface = value.get('writes_files', False), value.get('opens_interface', False)
+    if (not isinstance(arguments, (list, tuple)) or not isinstance(requires, (list, tuple))
+            or not isinstance(writes_files, bool) or not isinstance(opens_interface, bool)
+            or not all(isinstance(item, str) for item in requires)):
+        return None
+    for item in arguments:
+        if (not isinstance(item, dict) or set(item) != {'name', 'description', 'choices'}
+                or not isinstance(item['name'], str) or not item['name']
+                or not isinstance(item['description'], str) or not isinstance(item['choices'], (list, tuple))):
+            return None
+        for option in item['choices']:
+            if (not isinstance(option, dict) or set(option) != {'value', 'aliases'} or not isinstance(option['value'], str)
+                    or not isinstance(option['aliases'], (list, tuple))
+                    or not all(isinstance(alias, str) for alias in option['aliases'])):
+                return None
+    return entry(value['summary'], *[argument(item['name'], item['description'],
+                                              *[choice(option['value'], *option['aliases']) for option in item['choices']])
+                                     for item in arguments],
+                 requires=requires, writes_files=writes_files, opens_interface=opens_interface)
+
+
+def _valid_policy(value):
+    """The policy that value says ('run' alone, or {'default': ..., 'first_argument': {...}}), or None when it is not one.
+
+    Every word must be one the Viewer can look up: the first word after the command is lower-cased and is a single
+    token, so a word with a capital or a space could never match and would leave its form at the default.
+    """
+    if isinstance(value, str):
+        value = {'default': value}
+    if not isinstance(value, dict) or not set(value) <= {'default', 'first_argument'}:
+        return None
+    default, words = value.get('default'), value.get('first_argument', {})
+    if not isinstance(default, str) or default not in POLICY_KINDS or not isinstance(words, dict):
+        return None
+    for word, kind in words.items():
+        if (not isinstance(word, str) or word != word.lower() or (word and word.split() != [word])
+                or not isinstance(kind, str) or kind not in POLICY_KINDS):
+            return None
+    return policy(default, words)
+
+
+def _valid_order(value):
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return value
+
+
+def _valid_prompt(value):
+    return value if isinstance(value, str) and value.strip() else None
+
+
+class Declarations(NamedTuple):
+    """What one command module declares, each None when it declares none or what it declares cannot be used."""
+    has_run: bool
+    catalog_entry: dict | None
+    agent_policy: dict | None
+    agent_prompt: str | None
+    agent_prompt_order: int | float | None
+
+
+NO_DECLARATIONS = Declarations(False, None, None, None, None)
+
+
+def read_declarations(tree):
+    """The declarations of the module whose source is ``tree`` (an ast.Module), without running any of it."""
+    nodes = _value_nodes(tree)
+
+    def read(name, valid):
+        node = nodes.get(name)
+        if node is None:
+            return None
+        try:
+            return valid(_evaluate(node))
+        except Exception:
+            return None
+
+    has_run = any(isinstance(statement, ast.FunctionDef) and statement.name == 'run' for statement in tree.body)
+    return Declarations(has_run, read('CATALOG_ENTRY', _valid_entry), read('AGENT_POLICY', _valid_policy),
+                        read('AGENT_PROMPT', _valid_prompt), read('AGENT_PROMPT_ORDER', _valid_order))
+
+
+# What reading one file gave, by the file's path, valid while its modification time and size are the same: the Agent
+# page asks for the policy of every command it runs and for the whole prompt on every turn.
+_read_files = {}
+
+
+def declarations_of(path):
+    """The declarations of the module at ``path``; NO_DECLARATIONS for a file that is missing or cannot be parsed."""
+    path = Path(path)
+    try:
+        status = path.stat()
+    except OSError:
+        return NO_DECLARATIONS
+    signature = (status.st_mtime_ns, status.st_size)
+    cached = _read_files.get(str(path))
+    if cached is not None and cached[0] == signature:
+        return cached[1]
+    try:
+        declared = read_declarations(ast.parse(path.read_text(encoding='utf-8'), filename=str(path)))
+    except (OSError, SyntaxError, ValueError, RecursionError):
+        declared = NO_DECLARATIONS
+    _read_files[str(path)] = (signature, declared)
+    return declared
+
+
+# --- Where the commands are ---------------------------------------------------------------------------------------
+
+def command_directories():
+    """The folders a command's module is searched for, in the order the dispatch searches them.
+
+    That is the commands package's own path where the program has loaded it (the VR viewer's folder comes first
+    there, a test's scratch folder last), otherwise the main program's folder of commands.
+    """
+    package = sys.modules.get('commands')
+    directories = [Path(directory) for directory in getattr(package, '__path__', ())]
+    return directories or [COMMANDS_DIR]
+
+
+def _valid_name(name):
+    return isinstance(name, str) and name.isidentifier() and not name.startswith('_')
+
+
+def command_paths(directories=None):
+    """[(name, path)] of every module in the folders, by name; where two folders have one, the first folder's."""
+    found = {}
+    for directory in (command_directories() if directories is None else directories):
+        try:
+            candidates = sorted(Path(directory).glob('*.py'))
+        except OSError:
+            continue
+        for path in candidates:
+            if _valid_name(path.stem):
+                found.setdefault(path.stem, path)
+    return sorted(found.items())
+
+
+def declarations(name, directories=None):
+    """The declarations of command ``name`` (the first module of that name in the folders), NO_DECLARATIONS if
+    there is none or it has no run(): what is not a command declares nothing."""
+    if not _valid_name(name):
+        return NO_DECLARATIONS
+    for directory in (command_directories() if directories is None else directories):
+        path = Path(directory) / f'{name}.py'
+        if path.is_file():
+            declared = declarations_of(path)
+            return declared if declared.has_run else NO_DECLARATIONS
+    return NO_DECLARATIONS
+
+
+# --- The catalog -----------------------------------------------------------------------------------------------------
+
+def catalog_entry(declared):
+    """The catalog entry the declarations say: the declared entry with the help argument added unless it declares one,
+    and the policy the module declares (UNLISTED_POLICY if none). ``declared`` must have a catalog_entry."""
+    metadata = deepcopy(declared.catalog_entry)
+    if not any(item['name'] == 'help' for item in metadata['arguments']):
+        metadata['arguments'].append(argument('help', HELP_DESCRIPTION, choice('help', '-h', '--help')))
+    metadata['agent_policy'] = deepcopy(declared.agent_policy or UNLISTED_POLICY)
+    return metadata
+
+
+class _Declared(Mapping):
+    """A read-only view of one declaration of every command: {command name: value}, read from the modules when asked.
+
+    It stands for the tables that used to be written here, for readers that want one (the VR viewer's help and the
+    tests). Nothing is stored in it, so a command added or changed is there at once. A name is a key when its module
+    has a run() and declares a value that can be used.
+    """
+
+    def __init__(self, directories, attribute, build):
+        self._directories, self._attribute, self._build = directories, attribute, build
+
+    def _declared(self, name):
+        declared = declarations(name, self._directories())
+        return declared if getattr(declared, self._attribute) is not None else None
+
+    def __getitem__(self, name):
+        declared = self._declared(name)
+        if declared is None:
+            raise KeyError(name)
+        return self._build(declared)
+
+    def __iter__(self):
+        for name, path in command_paths(self._directories()):
+            declared = declarations_of(path)
+            if declared.has_run and getattr(declared, self._attribute) is not None:
+                yield name
+
+    def __len__(self):
+        return sum(1 for _ in self)
+
+    def __repr__(self):
+        return f'<{self._attribute} of the commands: {", ".join(self)}>'
+
+
+# The main program's own commands, as the VR viewer's help reads them: its folder of commands comes first on the
+# commands package's path and holds modules that declare nothing, which must not hide the main program's entries.
+COMMAND_METADATA = _Declared(lambda: [COMMANDS_DIR], 'catalog_entry', catalog_entry)
+# How a command of an Agent reply is handled, for every command whose module declares it, in the order of the
+# dispatch's search.
+AGENT_POLICY = _Declared(lambda: command_directories(), 'agent_policy', lambda declared: deepcopy(declared.agent_policy))
+
+
+def get_command_metadata(name):
+    """Return independent response data so callers cannot mutate the catalog."""
+    return COMMAND_METADATA[name]
+
+
+def default_command_metadata(summary, agent_policy_of=None):
+    """The entry of a command module that has none above: nothing is declared, so be cautious.
+
+    It says it may write files and open an interface, takes no arguments it could name, requires nothing it
+    could know of, and in an Agent reply is handled as its module's policy says (waits for approval if it
+    declares none, as agent_policy treats any command without one).
+    """
+    return {'summary': summary, 'arguments': [], 'requires': [], 'writes_files': True, 'opens_interface': True,
+            'agent_policy': deepcopy(UNLISTED_POLICY if agent_policy_of is None else agent_policy_of)}
+
+
+# --- The Agent -----------------------------------------------------------------------------------------------------
+
+def _rule(command):
+    """The policy that applies to the command's module: its declared one, else UNLISTED_POLICY."""
+    return declarations(command).agent_policy or UNLISTED_POLICY
 
 
 def agent_policy(command):
     """'run', 'approve' or 'refuse' for one command line in an Agent reply.
 
-    The command name is read the way Command_Engine dispatches it. A name the
-    catalog does not know waits for approval, so a command added without a
-    policy never runs unreviewed.
+    The command name is read the way Command_Engine dispatches it. A command
+    whose module declares no usable AGENT_POLICY, or that is no command at all,
+    waits for approval, so a command added without a policy never runs unreviewed.
     """
     words = command.split()
-    rule = AGENT_POLICY.get(words[0].lower() if words else '')
-    if rule is None:
-        return UNLISTED_POLICY['default']
+    rule = _rule(words[0].lower() if words else '')
     return rule['first_argument'].get(words[1].lower() if len(words) > 1 else '', rule['default'])
 
 
@@ -229,15 +464,17 @@ def agent_policy_summary():
 
     Returns (plain, by_form). plain maps each class, 'run', 'approve' and
     'refuse', to the names of the commands handled that way whatever follows
-    them, in AGENT_POLICY's order. by_form lists the others, each as
+    them, by command name. by_form lists the others, each as
     (name, default class, {first argument: class}), with '' standing for no
     argument at all: the first word after the command decides how they are
     handled. The Agent's system prompt is written from this, so it cannot
-    disagree with agent_policy().
+    disagree with agent_policy(). A command that declares no policy is in
+    neither: it is the one the prompt says waits for approval.
     """
-    plain = {'run': [], 'approve': [], 'refuse': []}
+    plain = {kind: [] for kind in POLICY_KINDS}
     by_form = []
-    for name, rule in AGENT_POLICY.items():
+    for name in AGENT_POLICY:
+        rule = declarations(name).agent_policy
         exceptions = {word: kind for word, kind in rule['first_argument'].items() if kind != rule['default']}
         if exceptions:
             by_form.append((name, rule['default'], exceptions))
@@ -247,20 +484,32 @@ def agent_policy_summary():
 
 
 def unlisted_agent_policy():
-    """How an Agent reply's command is handled when the policy names none for it: UNLISTED_POLICY's default."""
+    """How an Agent reply's command is handled when its module declares no policy: UNLISTED_POLICY's default."""
     return UNLISTED_POLICY['default']
 
 
-def get_command_metadata(name):
-    """Return independent response data so callers cannot mutate the catalog."""
-    return deepcopy(COMMAND_METADATA[name])
+def refused_in_every_form(rule):
+    """Whether a policy refuses the command whatever follows it."""
+    return rule['default'] == REFUSE and all(kind == REFUSE for kind in rule['first_argument'].values())
 
 
-def default_command_metadata(summary):
-    """The entry of a command module that has none above: nothing is declared, so be cautious.
+class PromptItem(NamedTuple):
+    """One command's place in the Agent's instructions: its declared text (None: make one) and its order (None: last)."""
+    name: str
+    path: Path
+    text: str | None
+    order: int | float | None
 
-    It says it may write files and open an interface, takes no arguments it could name, requires nothing it
-    could know of, and in an Agent reply waits for approval, as agent_policy treats a name the table lacks.
+
+def agent_prompt_items():
+    """The commands the Agent's instructions describe, in order: those a reply may run in some form.
+
+    A command refused in every form is not offered, whatever its module declares. The order is the commands'
+    AGENT_PROMPT_ORDER, smaller first, then by name, with a command that declares none last.
     """
-    return {'summary': summary, 'arguments': [], 'requires': [], 'writes_files': True, 'opens_interface': True,
-            'agent_policy': deepcopy(UNLISTED_POLICY)}
+    items = []
+    for name, path in command_paths():
+        declared = declarations_of(path)
+        if declared.has_run and not refused_in_every_form(declared.agent_policy or UNLISTED_POLICY):
+            items.append(PromptItem(name, path, declared.agent_prompt, declared.agent_prompt_order))
+    return sorted(items, key=lambda item: (item.order is None, item.order or 0, item.name))

@@ -46,10 +46,26 @@ from desktop.Viewer_Zoom import (  # noqa: F401  (the names this module does not
     zoom_percent,
 )
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, entry
 
 # How the Viewer dispatches this command (Command_Declarations): the camera reads nothing a waiting
 # command would change, so zoom runs at once.
 QUEUE = 'instant'
+
+# --- What this command declares about itself ---
+# Changes only the camera.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Set the camera zoom, a percentage, while retaining its center and canvas aspect ratio.',
+    argument('percent', 'Zoom as a percentage with an optional % sign: zoom 200 and zoom 200% both mean 200%, and a space may come before the sign. 100% is a view 300 layout units wide, and a bigger percentage is closer (200% is half as wide). From the zoom that shows every node, hidden ones too, rounded down to two significant figures, up to 60000% (the mouse wheel stops at the same limits); omission prints help.'))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 50
+AGENT_PROMPT = """
+`zoom <PERCENT>`
+- Sets the camera zoom to the requested percentage while preserving the current center and the canvas aspect ratio. The `%` sign is optional (`zoom 200` and `zoom 200%` are the same). 100% is a view 300 viewer-coordinate units wide; a bigger percentage is closer, and 200% is half as wide.
+- PERCENT runs from the lowest zoom that shows every node, hidden ones too, rounded down to two significant figures, up to 60000%; that lowest zoom follows the nodes as they move. A percentage outside those limits is refused with both limits named. The mouse wheel stops at the same limits.
+"""
 
 
 def _report_error(viewer, msg):

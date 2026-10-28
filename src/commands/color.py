@@ -21,6 +21,34 @@ import matplotlib.colors as mcolors
 import EMAPSSN_Config as cfg
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, choice, entry, plain_choices, EXPRESSION
+
+# --- What this command declares about itself ---
+# Changes only the view.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Apply color, alpha, scale, or shape assignments to visible nodes.',
+    argument('action', 'reset restores configured node colors, alpha included.', choice('reset')),
+    argument('expression', EXPRESSION + ' Omission targets selected nodes; assignments may be chained.'),
+    argument('attributes', 'The attributes of one target as a set, written with literal angle brackets: <ITEM,ITEM,...> or <ITEM ITEM ...>, 1 to 4 items in any order, at most one color, one alpha, one scale and one shape. Separate the items all with commas (spaces around the commas are ignored) or all with spaces, never both. A set follows its expression as a word of its own or glued to it (#cluster_1# <red,50%> or #cluster_1#<red 50%>); with no expression it targets the selected nodes. Nothing in a set is read as an expression, so <C53> is a color. An empty set, a set never closed, a mixed-separator set, two items of one kind, an unknown item and a set beside loose attributes for one target are refused and nothing changes.'),
+    argument('color', 'Optional Matplotlib color name or hex color; at least one visual attribute is needed. A color alone keeps each node\'s alpha. An 8-digit hex such as #ff000080 sets the color and the alpha. Outside a set, a valid selection expression takes precedence, so C53 selects cysteine 53 and x2 selects residue X at position 2.'),
+    argument('alpha', 'Optional opacity: a number from 0 to 100 followed by %, e.g. 50%, 12.5% or 0%. An alpha alone keeps each node\'s color; 100% makes translucent nodes opaque again. Not combinable with an 8-digit hex color for one target.'),
+    argument('scale', 'Optional multiplier of the configured node size: a finite, non-negative number followed by x, e.g. 2x, 0.5x or 0x.'),
+    argument('shape', 'Optional VisPy marker token; circle and triangle are explicit parser aliases.',
+        choice('disc', 'circle'), choice('arrow'), choice('ring'), choice('clobber'), choice('square'), choice('x'),
+        choice('diamond'), choice('vbar'), choice('hbar'), choice('cross'), choice('tailed_arrow'),
+        choice('triangle_up', 'triangle'), choice('triangle_down'), choice('star'), choice('cross_lines'),
+        *plain_choices('o', '+', '++', 's', '-', '|', '->', '>', '^', 'v', '*')))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 10
+AGENT_PROMPT = """
+`color [EXPRESSION] <ATTRIBUTES> [EXPRESSION <ATTRIBUTES> ...]`
+- `<ATTRIBUTES>` is typed with its angle brackets: 1 to 4 items, at most one each of COLOR, ALPHA, SCALEx and SHAPE, in any order, all comma-separated (`<red,50%,star>`) or all space-separated (`<red 50% star>`), never mixed. It follows its expression, spaced or glued (`#cluster_1#<red,50%>`); alone it targets the current mouse selection. Several expression-and-set targets may be chained.
+- COLOR is a color name or hexadecimal (8 digits also set alpha); ALPHA is `0%` to `100%`, and a color alone keeps each node's alpha; SCALEx sets node size to SCALE times the default node size (not cumulative); SHAPE accepts `circle`, `square`, `triangle`, `diamond`, `star`, `cross`, `x`, `hbar`, or `vbar`.
+- Each target needs at least one attribute; add none unrequested. Loose attributes without a set (`#cluster_1# red 50% star`) also work, never beside a set for one target; there complete valid selection expressions take precedence over colors and, in `spectrum`, colormap names (`C53` is a residue selection, `x2` residue X at position 2, never a scale).
+- A scale must be finite and non-negative (`-2x`, `nanx`, `infx` fail). `0x` makes the targeted nodes zero-sized, visually absent but not hidden, and `reset sizes` restores them; use `hide` when the user asks to hide nodes.
+"""
 
 def print_help():
     print("""

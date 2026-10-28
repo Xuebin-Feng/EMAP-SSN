@@ -81,7 +81,8 @@ class ListingTests(unittest.TestCase):
         failed.assert_not_called()
         self.assertEqual(succeeded.call_args.args[1], PRINTED)
         entries = command_catalog()["commands"]
-        self.assertEqual(len(entries), len(COMMAND_METADATA))
+        # Every command that declares a catalog entry is one of the catalog's entries (a module that declares none is too).
+        self.assertEqual(len([entry for entry in entries if "metadata_declared" not in entry]), len(COMMAND_METADATA))
         shown = listed(printed)
         self.assertEqual(list(shown), [entry["command"] for entry in entries])
         for entry in entries:

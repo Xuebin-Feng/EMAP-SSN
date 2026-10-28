@@ -17,6 +17,24 @@ import Command_Engine
 import numpy as np
 import EMAPSSN_Config as cfg
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, choice, entry, EXPRESSION
+
+# --- What this command declares about itself ---
+# Changes only the view.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Hide selected or matching visible nodes and their connected edges.',
+    argument('action', 'single hides nodes with no active edges at the current threshold; reset unhides all nodes. Without arguments, hide selected nodes. single, free and reset take no other arguments: a word after one is refused.', choice('single', 'free'), choice('reset')),
+    argument('expression', EXPRESSION + ' Exactly one expression word: more are refused, so a quoted header with a space, as in "node 1", is refused rather than matching nothing.'))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 30
+AGENT_PROMPT = """
+`hide [EXPRESSION | single | free]`
+- With no argument, hides the current selection. With an expression, hides visible matching nodes and their connected edges. The expression is exactly one word without spaces: more words, such as a quoted header with a space (`"node 1"`), are refused.
+- `single` and `free` are aliases that hide visible nodes with no active edge at the current similarity threshold. They and `reset` take no other arguments: a word after one is refused.
+- Use `reset hide` to make hidden nodes visible again.
+"""
 
 
 def _drop_hidden_from_selection(viewer, selection):

@@ -22,6 +22,15 @@ import textwrap
 
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, entry
+
+# --- What this command declares about itself ---
+# Harmless, but the Agent's prompt already holds every command's usage, so the output would only fill its
+# context (a small model's is about 4,000 tokens): the prompt has no item for it and names it as refused.
+AGENT_POLICY = 'refuse'
+
+CATALOG_ENTRY = entry("List the commands, or print one command's help as <command> help does, without running it. Run help help for this command's own help. It runs at once and changes nothing.",
+    argument('command', 'Optional command name, in any letter case: omit it to list the commands. A name that is no command fails and nothing else happens; a second word is refused.'))
 
 # How the Viewer dispatches this command (Command_Declarations): it reads no state a waiting command would
 # change, so it runs at once.

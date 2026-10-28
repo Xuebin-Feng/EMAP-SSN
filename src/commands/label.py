@@ -47,6 +47,31 @@ try:
 except ImportError:
     import cluster as cluster_cmd
     import logo as logo_cmd
+from desktop.Command_Metadata import argument, choice, entry, HELP_DESCRIPTION
+
+# --- What this command declares about itself ---
+# Writes a report file; `label reset` only clears the cluster labels in memory.
+AGENT_POLICY = {'default': 'approve', 'first_argument': {'reset': 'run'}}
+
+CATALOG_ENTRY = entry('Queue an XLSX subset-conservation report; requires a nonempty MSA, active reference and background scheduler.',
+    argument('action', 'reset clears cluster labels without running analysis.', choice('reset')),
+    argument('target', 'Omit to analyze all available cluster/group results; an explicit target requires its memberships.', choice('clusters', 'cluster'), choice('groups', 'group')),
+    argument('keys', 'Each key takes a finite number written as a fraction (0.4) or a percentage (40 or 40%): a trailing % always means percent, and a bare value above 1 is a percentage. gmax defaults to 40%, cmin to 98%, identity reweighting is off by default. The ambiguity codes X, B, Z and J are never reported as conserved but still count as occupied positions. gmin is fixed at 97% and cannot be supplied.', choice('gmax', 'global_max', 'g_max'), choice('cmin', 'cluster_min', 'c_min'), choice('id')),
+    argument('numbers', 'Alternatively supply gmax, cmin, then optional identity positionally. Do not put positional numbers after keyword arguments. A key and its value may be joined with an =, as cmin=90% for cmin 90%.'),
+    argument('filename', 'Optional final XLSX basename; extension added. Numeric or reserved names must include .xlsx. Explicit filenames overwrite; automatic timestamp names avoid collisions.'),
+    argument('help', HELP_DESCRIPTION, choice('help', '-h', '-?', '--help')),
+    requires=('alignment',), writes_files=True, opens_interface=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 210
+AGENT_PROMPT = """
+`label [cluster|clusters|group|groups] [OUTSIDE_MAX] [CLUSTER_MIN] [IDENTITY] [FILENAME] | label [cluster|clusters|group|groups] [gmax VALUE] [cmin VALUE] [id VALUE] [FILENAME]`
+- Performs differential sequence analysis and writes an XLSX workbook beneath the configured Analysis Results directory, using `Analysis_Results/Cluster_Label/` by default. It requires a loaded MSA and a valid active reference.
+- With no target keyword, analyzes all available topology clusters and custom groups. `cluster`/`clusters` restricts the report to topology clusters; `group`/`groups` restricts it to custom groups.
+- `gmax` is the maximum residue frequency allowed outside the deduplicated union of all analyzed subsets where the same amino acid meets `cmin` at the same position; it defaults to `40%`. `cmin` is the minimum gap-diluted within-subset amino-acid frequency and defaults to `98%`. The ambiguity codes `X`, `B`, `Z` and `J` are never reported as conserved (`U` and `O` are residues and are reported), and an empty outside background is not reported. Values are finite numbers written as fractions (`0.4`) or percentages (`40` or `40%`): a trailing `%` always means percent, so `0.5%` is half a percent, and a bare value above 1 is a percentage. Global conservation is reported above a fixed `97%` threshold.
+- Optional identity-neighbor reweighting is off by default. Enable it with `id 0.9`, `id 90`, or `id 90%`; alternatively, a third positional number after gmax and cmin is identity. The first two positional numbers retain their gmax-then-cmin meanings, and positional thresholds must not follow keyword use.
+- An optional final bare XLSX basename controls the report name; do not invent a `filename` keyword.
+"""
 
 CLUSTER_LABEL_DIRECTORY = os.path.join("$analysis_result$", "Cluster_Label")
 

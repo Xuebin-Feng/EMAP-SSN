@@ -24,6 +24,23 @@ from desktop.Viewer_State import resolve_selected_cache
 from utilities.Cache_Metadata import validate_cache_provenance
 from utilities.Job_Cancellation import remove_partial, replace_file
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, entry
+
+# --- What this command declares about itself ---
+# Writes a layout cache file.
+AGENT_POLICY = 'approve'
+
+CATALOG_ENTRY = entry('Save current network state as an HDF5 layout cache; requires a valid active cache manifest and provenance binding.',
+    argument('filename', 'Optional .h5 basename in the active cache folder; omitted names use version_XX.h5. Stores positions, styling, visibility, render order, memberships and metadata.'), writes_files=True)
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 80
+AGENT_PROMPT = """
+`save [FILENAME]`
+- Saves the current network state (positions, colors, sizes, shapes, visibility, clusters, groups, metadata) as an HDF5 layout cache.
+- FILENAME is a cache filename, not an arbitrary output path. `.h5` is added when omitted. Without a filename, the next available versioned cache filename is generated.
+- A successful save establishes the saved positions as the new layout-reset baseline.
+"""
 
 def run(viewer, args):
     if args and args[0].lower() in ['help', '-h', '--help']:

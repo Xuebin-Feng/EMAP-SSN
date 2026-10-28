@@ -26,8 +26,8 @@ from utilities.Terminal_Colors import AnsiStripper
 
 TERMINAL = {'succeeded', 'failed', 'cancelled', 'skipped'}
 CURRENT = ContextVar('viewer_command_context', default=None)
-# Commands from these sources are checked against the catalog's agent policy
-# (desktop.Command_Metadata) before they run. A command needing approval waits
+# Commands from these sources are checked against the agent policy their modules
+# declare (AGENT_POLICY, read by desktop.Command_Metadata) before they run. A command needing approval waits
 # in awaiting_user_input until decide() runs or discards it, and a refused one
 # fails without running. Commands a run script emits are the user's own.
 REVIEWED_SOURCES = {'web_agent'}

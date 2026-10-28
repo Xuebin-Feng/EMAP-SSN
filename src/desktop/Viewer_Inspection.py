@@ -742,42 +742,58 @@ def _module_summary(name, tree, help_text):
     return f"The {name} command; its module declares no description."
 
 
-def command_catalog(command=None, commands_dir=None):
-    """Read help text from command source without executing handlers.
+def command_catalog_entry(path, detailed=False):
+    """The catalog entry of the command module at ``path``, read from its source without running it; None if it has no run().
 
-    Each command module in src/commands (or commands_dir) is one entry. Its descriptive metadata comes from
-    desktop.Command_Metadata; a module that has none there, such as a plugin dropped into the folder, gets
-    cautious defaults built from the module itself (default_command_metadata) and is marked
-    metadata_declared=False. background_work is read from every module's source, never from a table.
+    What the module declares about itself (desktop.Command_Metadata: CATALOG_ENTRY, AGENT_POLICY) is read from its
+    source. A module that declares no catalog entry, such as a plugin dropped into the folder, gets cautious
+    defaults built from the module itself (default_command_metadata) and is marked metadata_declared=False; one
+    that declares no policy waits for approval in an Agent reply. background_work is read from every module's
+    source, never from a table. ``detailed`` adds the help text.
     """
     import ast
     from pathlib import Path
-    from desktop.Command_Metadata import COMMAND_METADATA, default_command_metadata, get_command_metadata
+    from desktop.Command_Metadata import catalog_entry, default_command_metadata, read_declarations
+    path = Path(path)
+    tree = ast.parse(path.read_text(encoding='utf-8'))
+    declared = read_declarations(tree)
+    if not declared.has_run:
+        return None
+    help_text = []
+    for fn in tree.body:
+        if isinstance(fn, ast.FunctionDef) and fn.name in {'print_help', 'run'}:
+            for text in _string_literals(fn, whole_fstrings=fn.name == 'print_help'):
+                if 'Usage:' in text or 'Usage\n' in text:
+                    help_text.append(text)
+    help_text = '\n'.join(dict.fromkeys(help_text))
+    metadata_declared = declared.catalog_entry is not None
+    metadata = (catalog_entry(declared) if metadata_declared
+                else default_command_metadata(_module_summary(path.stem, tree, help_text), declared.agent_policy))
+    return {'command': path.stem, 'summary': metadata['summary'], 'arguments': metadata['arguments'],
+            'requires': metadata['requires'], 'agent_policy': metadata['agent_policy'],
+            'writes_files': metadata['writes_files'], 'opens_interface': metadata['opens_interface'],
+            'background_work': _starts_background_work(tree),
+            'syntax': _command_syntax(help_text, path.stem),
+            'help': help_text if detailed else None,
+            **({} if metadata_declared else {'metadata_declared': False})}
+
+
+def command_catalog(command=None, commands_dir=None):
+    """Read help text from command source without executing handlers.
+
+    Each command module in src/commands (or commands_dir) is one entry (command_catalog_entry), described by what
+    the module itself declares in desktop.Command_Metadata's terms. A module that declares no catalog entry gets
+    cautious defaults and is marked metadata_declared=False.
+    """
+    from pathlib import Path
     root = Path(commands_dir) if commands_dir is not None else Path(__file__).resolve().parents[1] / 'commands'
     entries = []
     for path in sorted(root.glob('*.py')):
         if path.stem.startswith('_') or (command is not None and path.stem != command):
             continue
-        tree = ast.parse(path.read_text(encoding='utf-8'))
-        if not any(isinstance(n, ast.FunctionDef) and n.name == 'run' for n in tree.body):
-            continue
-        help_text = []
-        for fn in tree.body:
-            if isinstance(fn, ast.FunctionDef) and fn.name in {'print_help', 'run'}:
-                for text in _string_literals(fn, whole_fstrings=fn.name == 'print_help'):
-                    if 'Usage:' in text or 'Usage\n' in text:
-                        help_text.append(text)
-        help_text = '\n'.join(dict.fromkeys(help_text))
-        declared = path.stem in COMMAND_METADATA
-        metadata = (get_command_metadata(path.stem) if declared
-                    else default_command_metadata(_module_summary(path.stem, tree, help_text)))
-        entries.append({'command': path.stem, 'summary': metadata['summary'], 'arguments': metadata['arguments'],
-            'requires': metadata['requires'], 'agent_policy': metadata['agent_policy'],
-            'writes_files': metadata['writes_files'], 'opens_interface': metadata['opens_interface'],
-            'background_work': _starts_background_work(tree),
-            'syntax': _command_syntax(help_text, path.stem),
-            'help': help_text if command else None,
-            **({} if declared else {'metadata_declared': False})})
+        found = command_catalog_entry(path, detailed=command is not None)
+        if found is not None:
+            entries.append(found)
     if command is not None and not entries:
         raise ValueError('Unknown command')
     return {'commands': entries, 'note': 'Only existing Viewer commands; effects depend on arguments. Model-generated agent calls are blocked. Read detailed help without executing commands: emapssn_viewer_data(action="get_command_catalog", arguments={"command":"reset"}).'}

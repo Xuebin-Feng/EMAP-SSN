@@ -15,6 +15,25 @@ import sys
 
 import Command_Engine
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, choice, entry
+
+# --- What this command declares about itself ---
+# Listing the jobs is harmless. Cancelling throws away the user's own commands.
+AGENT_POLICY = {'default': 'run', 'first_argument': {'cancel': 'approve'}}
+
+CATALOG_ENTRY = entry('List the background jobs that wait or run (the files label, logo and print write, and the structures esmfold folds), or cancel them. Each is numbered in the order given. A command that computes, such as cluster or subcluster, is not a background job: jobs neither lists nor cancels it. jobs itself runs at once.',
+    argument('action', 'Omit to list the background jobs, numbered, with the folding workers and Python scripts that run. cancel alone cancels the newest background job.', choice('cancel')),
+    argument('jobs', 'After cancel: job numbers (14 or #14), every one of which must name a waiting or running background job, or nothing is cancelled. A running job is only told to stop: it is listed as stopping and ends, reported cancelled with the file it had begun deleted (a file of that name from before stays as it was), at its next step; one with no step left to stop at completes and is reported completed. A job not started is dropped. all cancels every background job, running or not.', choice('all')))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 250
+AGENT_PROMPT = """
+`jobs | jobs cancel [N ...] | jobs cancel all`
+- Commands run in the order given; a slow one (`cluster`, `subcluster`) computes in the background, and the commands after it wait; it is not a background job, has no number, and `jobs` does not list it. `label`, `logo` and `print` write their files, and `esmfold` folds, as numbered background jobs that run beside the commands: files share one line (`files`) and folds have one of their own (`folding`), each job waiting behind those queued before it. A fold requested while another runs is queued, not refused.
+- `jobs` lists the background jobs, numbered, with each one's state (`waiting`, `running` or `stopping`) and line. It is read-only and runs at once.
+- `cancel` cancels the newest background job; `cancel N [N ...]` (`14` or `#14`) cancels those jobs, every number naming a job that waits or runs or nothing is cancelled; `cancel all` cancels every background job. A waiting job is removed at once. A running background job is only told to stop: `jobs` lists it as `stopping`, and it is reported cancelled only once it has stopped (a fold keeps the structures it had saved); one with no step left to stop at completes instead.
+- `jobs cancel` is reviewed (see "Review by the user"). When the user asks whether something has finished, emit `jobs` and report from its output: that `label`, `logo`, `print` or `esmfold` was accepted is not that it has completed.
+"""
 
 # How the Viewer dispatches this command (Command_Declarations): it never waits behind the commands
 # in the queue, and the command portal runs it ahead of a request that waits for jobs.

@@ -56,6 +56,26 @@ import Command_Engine
 import EMAPSSN_Config as cfg
 import numpy as np
 from utilities.Localization import JoinedMessage, Message
+from desktop.Command_Metadata import argument, choice, entry
+
+# --- What this command declares about itself ---
+# Changes only the view and the session's in-memory state.
+AGENT_POLICY = 'run'
+
+CATALOG_ENTRY = entry('Restore selected network properties in one undoable action.',
+    argument('targets', 'One or more targets: reset colors/sizes to configured defaults, shapes to discs, clear clusters/groups (clearing clusters also removes the generated subcluster_N_M groups), unhide nodes, restore original/last-saved positions, or reset render order. Keywords are case-insensitive; an unknown target fails the command without resetting anything.',
+        choice('colors','color'), choice('sizes','size'), choice('shapes','shape'), choice('clusters','cluster'), choice('groups','group'),
+        choice('hide','hides','hidden','hiddens'), choice('network','networks'), choice('order','orders','layer','layers')))
+
+# The Agent's instructions for this command, numbered in the order given (desktop.Command_Metadata).
+AGENT_PROMPT_ORDER = 40
+AGENT_PROMPT = """
+`reset <TARGET_1> [TARGET_2 ...]`
+- Resets any requested combination of `colors`, `sizes`, `shapes`, `clusters`, `groups`, `hide`/`hidden`, `network`, and `order`/`layer`; singular and plural target names are accepted. An unknown target fails the whole command, and nothing is reset.
+- Visual targets restore configured defaults, cluster/group targets clear those labels (clearing clusters also removes the generated `subcluster_N_M` groups), hide restores visibility, network restores layout positions to the original or most recently saved baseline, and order/layer restores node rendering to index order.
+- The command name must precede all targets.
+- Never emit `COMMAND reset` shortcuts such as `label reset`, which clears all topology clusters; use `reset TARGET` instead.
+"""
 
 # The targets with no command of their own, named as the user types them. A command's own
 # targets are declared by its module, and are listed in print_help and USAGE by hand.
