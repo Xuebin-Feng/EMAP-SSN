@@ -604,7 +604,8 @@ class ViewerRunTimeTextTests(WindowTestCase):
         from types import SimpleNamespace
 
         from EMAPSSN_Viewer import MainViewer
-        from web_ui import Browser_Page, Web_Server, esmfold_backend
+        from web_ui import Browser_Page, Web_Server
+        from web_ui.Plugin_Manager import bundled_pages
 
         class WebServer:
             def __init__(self, connected):
@@ -620,6 +621,7 @@ class ViewerRunTimeTextTests(WindowTestCase):
             viewer.update_console_background = lambda: None
             viewer.web_server = WebServer(set(connected))
             viewer.web_server_url = url
+            viewer.web_plugin_registry = bundled_pages()  # the pages the bundled plugins declare
             return viewer
 
         dialogs = []
@@ -631,28 +633,28 @@ class ViewerRunTimeTextTests(WindowTestCase):
         with mock.patch.object(Browser_Page.QMessageBox, "information",
                                side_effect=lambda parent, title, text: dialogs.extend([title, text])), \
                 mock.patch.object(Web_Server, "is_running", return_value=True):
-            for open_page in (MainViewer.open_agent_ui, MainViewer.open_metadata_ui, esmfold_backend.open_esmfold_ui):
+            for page in ("agent", "meta", "esmfold"):
                 viewer = viewer_with()
                 with mock.patch.object(Browser_Page.Desktop_Open, "open_url", return_value=True):
-                    self.assertTrue(open_page(viewer))
+                    self.assertTrue(viewer.open_page(page))
                     show(viewer)  # Opened.
-                    self.assertFalse(open_page(viewer))
+                    self.assertFalse(viewer.open_page(page))
                     show(viewer)  # Still being opened.
             viewer = viewer_with(connected={"agent"})
-            self.assertFalse(viewer.open_agent_ui())
+            self.assertFalse(viewer.open_page("agent"))
             show(viewer)  # Already open.
             viewer = viewer_with(url=None)
-            self.assertFalse(viewer.open_agent_ui())
+            self.assertFalse(viewer.open_page("agent"))
             show(viewer)  # The web server is unavailable.
             for outcome in ({"return_value": False}, {"side_effect": OSError(5)}):
                 viewer = viewer_with()
                 with mock.patch.object(Browser_Page.Desktop_Open, "open_url", **outcome):
-                    self.assertFalse(viewer.open_agent_ui())
+                    self.assertFalse(viewer.open_page("agent"))
                 show(viewer)  # Could not open it.
         with mock.patch.object(Web_Server, "is_running", return_value=False), \
                 mock.patch.object(Web_Server, "ensure_server", side_effect=OSError(98)):
             viewer = viewer_with()
-            self.assertFalse(viewer.open_agent_ui())
+            self.assertFalse(viewer.open_page("agent"))
             show(viewer)  # The web server could not start again.
         self.assertEqual(len(shown), 11, shown)
         self.assertEqual(len(dialogs), 8, dialogs)
@@ -666,11 +668,12 @@ class ViewerRunTimeTextTests(WindowTestCase):
         from types import SimpleNamespace
 
         from EMAPSSN_Viewer import MainViewer
-        from web_ui import Web_Server, esmfold_backend
+        from web_ui import Web_Server
+        from web_ui.Plugin_Manager import bundled_pages
 
-        for open_page in (MainViewer.open_agent_ui, MainViewer.open_metadata_ui, esmfold_backend.open_esmfold_ui):
-            viewer = SimpleNamespace(_open_web_ui=mock.Mock(return_value=False))
-            open_page(viewer)
+        for page in ("agent", "meta", "esmfold"):
+            viewer = SimpleNamespace(_open_web_ui=mock.Mock(return_value=False), web_plugin_registry=bundled_pages())
+            MainViewer.open_page(viewer, page)
             name = display_text(viewer._open_web_ui.call_args.args[1])
             with self.subTest(name=name):
                 self.assertTrue(is_pseudo_translated(name), name)

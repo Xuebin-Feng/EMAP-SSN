@@ -544,17 +544,14 @@ class StartFailureTests(StartFailureChecks, PageTestCase):
 
 
 class ScriptPolicyTests(StartFailureChecks, PageTestCase):
-    """The page's script policy (Web_Server.PAGE_POLICY_ADDITIONS) keeps 'unsafe-eval' because Mol*'s bundle needs it to load."""
+    """The page's script policy (the "csp" of web_ui/plugins/esmfold.py) keeps 'unsafe-eval' because Mol*'s bundle needs it to load."""
 
     def test_the_bundle_cannot_load_without_unsafe_eval_because_of_embinds_new_function(self):
-        import os
         from unittest import mock
-        from web_ui import Web_Server
 
-        # The table is keyed by the page's path, so this replaces the real page's entry.
-        page = os.path.normcase(os.path.join(Web_Server.BASE_DIR, "esmfold.html"))
-        additions = {page: {"connect-src": "https: data:"}}
-        with mock.patch.dict(Web_Server.PAGE_POLICY_ADDITIONS, additions):
+        # What the plugin declared for the page, but for 'unsafe-eval'.
+        additions = {"connect-src": "https: data:"}
+        with mock.patch.object(self.viewer.web_plugin_registry, "csp_additions", return_value=additions):
             self.view.page().scripts().insert(self.record_script())
             self.load_page()
             self.pump(3)
@@ -565,7 +562,7 @@ class ScriptPolicyTests(StartFailureChecks, PageTestCase):
             # 5.10.1 (that was the version this check was first made on), so there is no `molstar` for the page to use.
             self.assertEqual(self.js("typeof molstar"), "undefined")
             errors = json.loads(self.js("JSON.stringify(window.__errors)"))
-            self.assertTrue(errors, "the bundle did not fail: 'unsafe-eval' may be droppable (see Web_Server.py)")
+            self.assertTrue(errors, "the bundle did not fail: 'unsafe-eval' may be droppable (see web_ui/plugins/esmfold.py)")
             self.assertIn("unsafe-eval", errors[0][0])
             self.assertIn("at new Function", errors[0][1])
             self.assertIn("/esmfold/molstar.js", errors[0][1])

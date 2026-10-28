@@ -3995,20 +3995,20 @@ class MainViewer:
             self._update_hud_elements()
 
     # show_existing_dialog is keyword-only so that a Qt signal connected to
-    # these (the sidebar button's clicked(bool)) never passes it a value.
-    def open_metadata_ui(self, *, show_existing_dialog=True):
-        return self._open_web_ui(
-            "/meta.html",
-            Message("Metadata UI"),
-            "meta",
-            show_existing_dialog=show_existing_dialog,
-        )
+    # this (a button's clicked(bool)) never passes it a value.
+    def open_page(self, client, *, show_existing_dialog=True):
+        """Open the browser page a plugin declared (the "pages" of its web_ui/plugins manifest).
 
-    def open_agent_ui(self, *, show_existing_dialog=True):
+        client names the page, the id its event stream connects with. Its
+        address, its label and that id are the manifest's, so the Viewer
+        names no page. Returns whether the page opened; WebPageUnavailable
+        when no plugin registered one by that client.
+        """
+        page = self.web_plugin_registry.page(client)
         return self._open_web_ui(
-            "/agent.html",
-            Message("Agent UI"),
-            "agent",
+            page.path,
+            page.title,
+            page.client,
             show_existing_dialog=show_existing_dialog,
         )
 
@@ -4269,9 +4269,6 @@ class MainViewer:
             "columns": ["Node ID"] + [k for k in self.metadata.keys() if k.lower() != "length"],
             "selected_indices": self.selected_indices,
             "visible_mask": self.visible_mask.tolist(),
-            "llm_loaded": getattr(self, 'llm_loaded', False),
-            "llm_backend": getattr(self, 'llm_backend', None),
-            "llm_model_name": getattr(self, 'llm_model_name', "Unknown")
         }
         registry = getattr(self, "web_plugin_registry", None)
         if registry is not None:

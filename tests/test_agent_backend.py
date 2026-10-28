@@ -68,16 +68,18 @@ class ConsoleButtonTests(unittest.TestCase):
     """The Agent page declares its own button for the Console's button row."""
 
     def test_activation_registers_the_button_with_its_icon_and_page(self):
-        viewer = SimpleNamespace(add_console_button=mock.Mock(), open_agent_ui=mock.Mock())
+        viewer = SimpleNamespace(add_console_button=mock.Mock(), open_page=mock.Mock())
         agent.activate(viewer)
         viewer.add_console_button.assert_called_once()
         arguments = viewer.add_console_button.call_args.kwargs
         self.assertEqual((arguments["name"], arguments["label"], arguments["icon"]), ("agentBtn", "Agent", "bot"))
         self.assertEqual(arguments["tooltip"], "Open AI Agent Chat Console in browser")
-        self.assertIs(arguments["callback"], viewer.open_agent_ui)
+        # A click opens the page its manifest declares, with no argument.
+        arguments["callback"]()
+        viewer.open_page.assert_called_once_with("agent")
 
     def test_a_viewer_with_no_console_button_registration_is_left_alone(self):
-        agent.activate(SimpleNamespace(open_agent_ui=mock.Mock()))
+        agent.activate(SimpleNamespace(open_page=mock.Mock()))
 
     def test_the_backend_no_longer_reaches_for_the_sidebar(self):
         self.assertNotIn("add_sidebar_button", (ROOT / "src" / "web_ui" / "agent_backend.py").read_text(encoding="utf-8"))
@@ -734,7 +736,7 @@ class AgentCommandTests(unittest.TestCase):
         self.assertEqual(viewer.events, [])
 
     def open_viewer(self, opened, connected=False):
-        viewer = self.viewer(open_agent_ui=mock.Mock(return_value=opened))
+        viewer = self.viewer(open_page=mock.Mock(return_value=opened))
         viewer.web_server = SimpleNamespace(has_event_client=lambda client_id: connected and client_id == 'agent')
         return viewer
 
@@ -755,13 +757,13 @@ class AgentCommandTests(unittest.TestCase):
         from Viewer_Command_Portal import CURRENT
         viewer = self.open_viewer(False, connected=True)
         self.run_command(viewer)
-        viewer.open_agent_ui.assert_called_once_with()
+        viewer.open_page.assert_called_once_with("agent")
 
         token = CURRENT.set(object())
         self.addCleanup(CURRENT.reset, token)
         viewer = self.open_viewer(False, connected=True)
         self.run_command(viewer)
-        viewer.open_agent_ui.assert_called_once_with(show_existing_dialog=False)
+        viewer.open_page.assert_called_once_with("agent", show_existing_dialog=False)
 
 
 class SamplingParameterTests(unittest.TestCase):
@@ -1011,7 +1013,7 @@ class ApprovalNoticeTests(PortalFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.viewer.shows_windows = lambda: True
-        self.viewer.open_agent_ui = mock.Mock(return_value=True)
+        self.viewer.open_page = mock.Mock(return_value=True)
         self.viewer.llm_loaded, self.viewer.llm_backend = True, 'server'
         patcher = mock.patch.object(agent.Command_Engine, 'print_help')
         self.print_help = patcher.start()
@@ -1040,7 +1042,7 @@ class ApprovalNoticeTests(PortalFixture, unittest.TestCase):
         self.settle(self.announcements, seconds=5)
         [message] = self.announcements()
         self.assertIn('The agent wants to run save x.h5, which needs your approval.', message)
-        self.viewer.open_agent_ui.assert_called_once_with(show_existing_dialog=False)
+        self.viewer.open_page.assert_called_once_with("agent", show_existing_dialog=False)
         self.assertEqual(self.portal.get(request_id)['status'], 'awaiting_user_input')
         # The page, once open, is sent the request with its commands.
         [event] = [e for e in self.viewer.events if e['type'] == 'agent_command_request']
@@ -1059,7 +1061,7 @@ class ApprovalNoticeTests(PortalFixture, unittest.TestCase):
         self.reply('command: save x.h5')
         self.settle()
         self.assertEqual(self.announcements(), [])
-        self.viewer.open_agent_ui.assert_not_called()
+        self.viewer.open_page.assert_not_called()
 
     def test_a_viewer_without_windows_is_not_asked_to_open_a_page(self):
         # The command waits only if the Agent page is open: the page is then served to a browser by hand.
@@ -1067,7 +1069,7 @@ class ApprovalNoticeTests(PortalFixture, unittest.TestCase):
         self.viewer.web_server = SimpleNamespace(has_event_client=lambda client: False)
         request_id = self.reply('command: save x.h5')
         self.settle()
-        self.viewer.open_agent_ui.assert_not_called()
+        self.viewer.open_page.assert_not_called()
         self.assertEqual(self.announcements(), [])
         result = self.portal.get(request_id)
         self.assertEqual((result['status'], result['commands'][0]['approval']), ('failed', 'refused'))
@@ -1079,13 +1081,13 @@ class ApprovalNoticeTests(PortalFixture, unittest.TestCase):
         for shows, opens in ((True, True), (False, False)):
             with self.subTest(shows_windows=shows):
                 self.viewer.shows_windows = lambda shows=shows: shows
-                self.viewer.open_agent_ui.reset_mock()
+                self.viewer.open_page.reset_mock()
                 self.print_help.reset_mock()
                 self.viewer._agent_request_id = 'r'
                 agent._announce_approval(self.viewer, portal, 'r', 'c')
                 # The terminal is told either way; the page is opened only for a user who can see it.
                 self.assertEqual(len(self.announcements()), 1)
-                self.assertEqual(self.viewer.open_agent_ui.called, opens)
+                self.assertEqual(self.viewer.open_page.called, opens)
 
     def test_a_waiting_command_of_another_request_is_not_announced(self):
         record = {'approval': 'pending', 'status': 'awaiting_user_input', 'command': 'save x.h5'}
@@ -1102,7 +1104,7 @@ class ApprovalNoticeTests(PortalFixture, unittest.TestCase):
         agent._invalidate_agent_turn(self.viewer)  # Before the portal's first pass over the queue.
         self.settle()
         self.assertEqual(self.announcements(), [])
-        self.viewer.open_agent_ui.assert_not_called()
+        self.viewer.open_page.assert_not_called()
         self.assertEqual(self.portal.get(request_id)['status'], 'cancelled')
 
     def test_a_command_decided_in_the_meantime_or_of_another_request_is_not_announced(self):
@@ -1385,7 +1387,7 @@ class StopWithPortalTests(PortalFixture, unittest.TestCase):
     def setUp(self):
         super().setUp()
         self.viewer.shows_windows = lambda: True
-        self.viewer.open_agent_ui = mock.Mock(return_value=True)
+        self.viewer.open_page = mock.Mock(return_value=True)
         self.viewer.llm_loaded, self.viewer.llm_backend = True, 'server'
         self.viewer._agent_busy, self.viewer._agent_turn, self.viewer._agent_generation = True, {'submission_id': 's1', 'attachments': []}, 0
         patcher = mock.patch.object(agent.Command_Engine, 'print_help')
@@ -1608,13 +1610,13 @@ class DataUseNoticeTests(unittest.TestCase):
         cases = {'a page open': (True, True, False), 'windows shown, no page': (True, False, True), 'no windows': (False, False, False)}
         for label, (windows, page, opens) in cases.items():
             with self.subTest(label):
-                viewer = SimpleNamespace(events=[], shows_windows=lambda windows=windows: windows, open_agent_ui=mock.Mock(return_value=True),
+                viewer = SimpleNamespace(events=[], shows_windows=lambda windows=windows: windows, open_page=mock.Mock(return_value=True),
                                          web_server=SimpleNamespace(has_event_client=lambda client, page=page: page))
                 viewer.broadcast_event = viewer.events.append
                 self.assertFalse(agent.activate_agent_from_card(viewer, self.REMOTE, quiet=True))
                 message = agent.review_data_use(viewer)
                 self.assertIn("Model card 'Provider' sends your data to api.provider.example", str(message))
-                self.assertEqual(viewer.open_agent_ui.called, opens)
+                self.assertEqual(viewer.open_page.called, opens)
                 self.assertEqual([e['data_use']['name'] for e in viewer.events if e['type'] == 'backend_state'], ['Provider'])
         self.assertIsNone(agent.review_data_use(SimpleNamespace()))
 
@@ -1627,7 +1629,7 @@ class DataUseNoticeTests(unittest.TestCase):
                     mock.patch.object(engine, 'command_succeeded') as succeeded, \
                     mock.patch.object(agent_command, 'register'), \
                     mock.patch.object(agent_command, 'run_web_agent_query') as query:
-                viewer = SimpleNamespace(events=[], shows_windows=lambda: True, open_agent_ui=mock.Mock(return_value=True))
+                viewer = SimpleNamespace(events=[], shows_windows=lambda: True, open_page=mock.Mock(return_value=True))
                 viewer.broadcast_event = viewer.events.append
                 with redirect_stdout(io.StringIO()):
                     agent_command.run(viewer, args)
@@ -1635,7 +1637,7 @@ class DataUseNoticeTests(unittest.TestCase):
                 self.assertIn('not on this computer', str(failed.call_args.args[1]))
                 succeeded.assert_not_called()
                 query.assert_not_called()
-                viewer.open_agent_ui.assert_called_once_with(show_existing_dialog=False)
+                viewer.open_page.assert_called_once_with("agent", show_existing_dialog=False)
                 self.assertFalse(getattr(viewer, 'llm_loaded', False))
 
     def test_a_card_that_sends_a_key_over_plain_http_is_warned_about_each_time_it_is_switched_on(self):

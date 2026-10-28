@@ -72,18 +72,36 @@ def page_headers(server):
 
 
 def make_viewer():
-    """The little a Viewer must have for the real web server to run over it."""
+    """The little a Viewer must have for the real web server to run over it.
+
+    Its plugin registry holds the pages the bundled manifests declare (their
+    policy, theme and texts); serve_fold_view adds the Fold View plugin's routes.
+    """
     from desktop.Viewer_Inspection import ViewerInspectionService
     from web_ui import Web_Server
+    from web_ui.Plugin_Manager import WebPluginRegistry, register_bundled_pages
 
     viewer = SimpleNamespace(
         n_nodes=2, full_headers=["a", "b"], metadata={}, edges=[], visible_mask=[True, True], selected_indices=[],
-        group_labels=[[], []], cluster_labels=None, web_plugin_registry=None)
+        group_labels=[[], []], cluster_labels=None)
+    viewer.web_plugin_registry = register_bundled_pages(WebPluginRegistry(viewer))
     viewer.viewer_inspection = ViewerInspectionService(viewer)
     viewer.communicator = Web_Server.QtCommunicator(viewer)
     viewer.get_initial_web_state = lambda: {"rows": []}
     viewer.handle_web_action = lambda data: None
     return viewer
+
+
+def serve_fold_view(viewer, directory):
+    """Register the Fold View plugin's routes in the registry of viewer, with directory as /structures/'s folder.
+
+    The plugin's own registration, so the page's structures, Mol* and the layers
+    route are the ones the Viewer serves.
+    """
+    from web_ui import esmfold_backend
+
+    with mock.patch.object(esmfold_backend, "get_structures_directory", return_value=directory):
+        esmfold_backend.register_backend(viewer.web_plugin_registry, viewer)
 
 
 class FoldViewServerMixin:
@@ -114,10 +132,9 @@ class FoldViewServerMixin:
         environment.start()
         self.addCleanup(environment.stop)
         self.viewer = make_viewer()
+        serve_fold_view(self.viewer, self.directory)
         self.server = Web_Server.start_server(self.viewer, preferred_port=0)
         self.addCleanup(Web_Server.stop_server, self.server)
-        self.server.static_routes["/structures/"] = self.directory
-        self.server.static_routes["/esmfold/"] = str(SRC / "resources" / "esmfold")
 
     def get_json(self, path, headers=None):
         status, response_headers, body = http_get(

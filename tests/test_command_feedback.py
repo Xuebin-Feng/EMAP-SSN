@@ -111,8 +111,7 @@ class FeedbackTests(PortalFixture, unittest.TestCase):
                 self.assertEqual(summary, f'{name.title()} successful.' if changed else f'Nothing to {name}.')
 
     def test_interfaces_and_registration(self):
-        self.viewer.open_agent_ui = mock.Mock()
-        self.viewer.open_metadata_ui = mock.Mock()
+        self.viewer.open_page = mock.Mock()
         with mock.patch('web_ui.agent_backend.register') as agent_register, \
                 mock.patch('web_ui.meta_backend.register') as meta_register, \
                 mock.patch('web_ui.esmfold_backend.register') as esmfold_register:

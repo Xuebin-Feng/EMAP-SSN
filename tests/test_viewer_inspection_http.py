@@ -83,6 +83,13 @@ class SnapshotHTTPTests(SnapshotHTTPFixture, unittest.TestCase):
         # Chunked, invalid and oversized bodies stay unread, so the reply asks
         # the client to close. No body bytes are sent here, so every reply
         # arrives intact, and its status and payload are unchanged.
+        from web_ui import agent_backend
+        from web_ui.Plugin_Manager import WebPluginRegistry
+
+        # The Agent plugin's image check is one of the routes whose body the server reads for it.
+        registry = WebPluginRegistry(self.viewer)
+        agent_backend.register_backend(registry, self.viewer)
+        self.server.api_routes.update(registry.api_routes)
         denied = {'error': 'Missing or invalid Viewer inspection token.'}
         size_error = {'error': 'Inspection request must be 1..65536 bytes'}
         token = {'Authorization': 'Bearer ' + self.server.inspection_token}

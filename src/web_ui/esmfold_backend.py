@@ -16,9 +16,10 @@
 import os
 import json
 import re
+from urllib.parse import unquote
 import EMAPSSN_Config as cfg
 from desktop.Desktop_App import translate
-from utilities.Localization import Message
+from web_ui import residue_layers
 from web_ui.Plugin_Manager import ensure_registry
 from desktop.Viewer_State import resolve_selected_cache
 
@@ -68,6 +69,11 @@ def register_backend(registry, viewer):
     registry.register_static_route(
         "esmfold", "/esmfold/", os.path.join(src_dir, "resources", "esmfold")
     )
+    registry.register_api_route(
+        "esmfold",
+        residue_layers.ROUTE_PREFIX,
+        lambda request: handle_residue_layers(registry, request),
+    )
 
 
 def activate(viewer):
@@ -91,12 +97,48 @@ def register(viewer):
 
 def open_esmfold_ui(viewer, *, show_existing_dialog=True):
     """Opens the local Mol* page in the user's default browser."""
-    return viewer._open_web_ui(
-        "/esmfold.html",
-        Message("ESMFold Mol* UI"),
-        "esmfold",
-        show_existing_dialog=show_existing_dialog,
-    )
+    return viewer.open_page("esmfold", show_existing_dialog=show_existing_dialog)
+
+
+def handle_residue_layers(registry, request):
+    """Answer the Fold View page's request for a structure's per-residue layers.
+
+    /api/esmfold/layers/<structure>.pdb lists the layers offered for the
+    structure, and .../<structure>.pdb/<property> is one layer as a
+    MolViewSpec annotation (web_ui/residue_layers.py). Both read the
+    residue data file beside the structure in the folder the /structures/
+    route serves, and name their files through contained_path as that
+    route does, so a request can't reach anything it couldn't fetch there.
+    The data is shown only when it describes the PDB (residue_layers.py).
+    The web server has checked the request's origin already; this answers
+    (status, payload).
+    """
+    from web_ui.Web_Server import contained_path
+
+    directory = registry.static_routes.get("/structures/")
+    parts = [unquote(part) for part in request.path[len(residue_layers.ROUTE_PREFIX):].split("/")]
+    structure = parts[0]
+    sidecar = residue_layers.sidecar_name(structure)
+    if (directory is None or sidecar is None or len(parts) not in (1, 2) or not parts[-1]
+            or os.path.basename(structure) != structure or "\\" in structure):
+        return 404, {"error": "Not a structure layer."}
+    structure_path = contained_path(directory, structure)
+    sidecar_path = contained_path(directory, sidecar)
+    if structure_path is None or sidecar_path is None:
+        return 403, {"error": "Forbidden"}
+    if not os.path.isfile(structure_path):
+        return 404, {"error": "Structure not found."}
+    if len(parts) == 1:
+        return 200, residue_layers.layer_listing(structure, structure_path, sidecar_path)
+    try:
+        annotation = residue_layers.layer_annotation(
+            residue_layers.read_residue_data(structure, structure_path, sidecar_path), parts[1]
+        )
+    except residue_layers.ResidueDataError as error:
+        return 404, {"error": str(error)}
+    if annotation is None:
+        return 404, {"error": "This structure has no such layer."}
+    return 200, annotation
 
 def handle_save_session(viewer, data):
     """Saves the serialized Mol* JSON session snapshot to the active layout cache folder."""

@@ -57,7 +57,7 @@ from PySide6.QtWidgets import QApplication
 from commands import esmfold as esmfold_command
 from resources.esmfold import esmfold_worker
 from tests import esmfold_layer_fixtures as fixtures
-from tests.esmfold_page_harness import FoldViewPageMixin, http_get, make_viewer, page_headers
+from tests.esmfold_page_harness import FoldViewPageMixin, http_get, make_viewer, page_headers, serve_fold_view
 from tests.sparse_alignment import load_manager, write_fasta
 from tests.test_esmfold_worker import FakeClient, FakeOutput, fake_esm_modules
 from tests.translation_fixtures import pseudo_language
@@ -483,10 +483,9 @@ class ServedLayerTestCase(ResidueLayerTestCase):
         environment.start()
         self.addCleanup(environment.stop)
         self.viewer = make_viewer()
+        serve_fold_view(self.viewer, self.directory)
         self.server = Web_Server.start_server(self.viewer, preferred_port=0)
         self.addCleanup(Web_Server.stop_server, self.server)
-        self.server.static_routes["/structures/"] = self.directory
-        self.server.static_routes["/esmfold/"] = str(SRC / "resources" / "esmfold")
 
     def get_json(self, path, headers=None):
         status, response_headers, body = http_get(

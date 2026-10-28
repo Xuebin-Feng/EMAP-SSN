@@ -2337,7 +2337,7 @@ class ViewerEntryPointTests(WindowCase):
 
     def test_the_pages_register_their_own_buttons_and_the_core_names_none(self):
         viewer = self.viewer
-        viewer.open_metadata_ui, viewer.open_agent_ui = mock.Mock(), mock.Mock()
+        viewer.open_page = mock.Mock()
         self.activate_the_pages(viewer)
         specs = viewer.console_buttons.buttons()
         self.assertEqual([(spec.name, spec.label, spec.icon) for spec in specs],
@@ -2374,7 +2374,7 @@ class ViewerEntryPointTests(WindowCase):
         from web_ui import esmfold_backend
 
         viewer = self.viewer
-        viewer.open_metadata_ui, viewer.open_agent_ui = mock.Mock(), mock.Mock()
+        viewer.open_page = mock.Mock()
         self.activate_the_pages(viewer)
         with mock.patch.object(Console_Capture, "_capture", self.recorder):
             viewer.open_console_window()
@@ -2385,8 +2385,7 @@ class ViewerEntryPointTests(WindowCase):
             buttons["metaDataBtn"].click()
             buttons["agentBtn"].click()
             buttons["fold_view_btn"].click()
-        viewer.open_metadata_ui.assert_called_once_with()
-        viewer.open_agent_ui.assert_called_once_with()
+        self.assertEqual(viewer.open_page.call_args_list, [mock.call("meta"), mock.call("agent")])
         open_fold.assert_called_once_with(viewer)
 
     def test_a_persisted_button_comes_back_as_a_console_button_when_a_session_loads(self):
@@ -2424,7 +2423,7 @@ class ViewerEntryPointTests(WindowCase):
 
         from web_ui import agent_backend, esmfold_backend, meta_backend
 
-        bare = SimpleNamespace(sidebar_buttons_to_persist=[], open_metadata_ui=lambda: None)
+        bare = SimpleNamespace(sidebar_buttons_to_persist=[], open_page=lambda client: None)
         for plugin in (agent_backend, esmfold_backend, meta_backend):
             plugin.activate(bare)
         self.assertEqual(bare.sidebar_buttons_to_persist, [])

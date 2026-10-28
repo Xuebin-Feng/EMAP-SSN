@@ -51,7 +51,7 @@ from desktop.Desktop_App import translate
 from utilities.Localization import JoinedMessage, Message, display_text
 from web_ui.Plugin_Manager import ensure_registry
 from desktop.Viewer_State import resolve_selected_cache
-from web_ui.agent_images import validate_attachments, message_content, history_messages
+from web_ui.agent_images import MAX_IMAGE_BYTES, inspect_source, validate_attachments, message_content, history_messages
 from web_ui.agent_prompt import render_system_prompt
 
 # ─── Model card helpers ───────────────────────────────────────────────────────
@@ -1113,7 +1113,7 @@ def _announce_approval(viewer, portal, request_id, command_id):
         command=record['command'],
     ))
     if viewer_shows_windows(viewer):
-        viewer.open_agent_ui(show_existing_dialog=False)
+        viewer.open_page("agent", show_existing_dialog=False)
 
 
 def on_web_worker_finished(viewer, query, translated_output, reasoning, tokens_json, error_msg, generation=None, turn=None, worker=None):
@@ -1294,16 +1294,24 @@ def broadcast_backend_state(viewer, error=None):
 
     error, a Message, says why the model the page asked for is not the one loaded.
     """
-    event = {
-        "type": "backend_state",
-        "llm_loaded": getattr(viewer, 'llm_loaded', False),
-        "llm_backend": getattr(viewer, 'llm_backend', None),
-        "llm_model_name": getattr(viewer, 'llm_model_name', "Unknown")
-    }
+    event = {"type": "backend_state", **_model_state(viewer)}
     if error:
         event["error"] = display_text(error)
     event.update(_data_use_state(viewer))
     viewer.broadcast_event(event)
+
+
+def _model_state(viewer):
+    """What the Agent page is told of the model: whether one is loaded, its backend and its name.
+
+    The page is sent it with its initial state (_extend_initial_web_state) and
+    whenever the model changes (broadcast_backend_state).
+    """
+    return {
+        "llm_loaded": getattr(viewer, 'llm_loaded', False),
+        "llm_backend": getattr(viewer, 'llm_backend', None),
+        "llm_model_name": getattr(viewer, 'llm_model_name', "Unknown"),
+    }
 
 
 def _data_use_state(viewer):
@@ -1331,7 +1339,7 @@ def review_data_use(viewer):
     from Viewer_Command_Portal import agent_page_connected, viewer_shows_windows
     broadcast_backend_state(viewer)
     if viewer_shows_windows(viewer) and not agent_page_connected(viewer):
-        viewer.open_agent_ui(show_existing_dialog=False)
+        viewer.open_page("agent", show_existing_dialog=False)
     return Message(
         "Model card '{card}' sends your data to {host}, a server that is not on this computer. Switch the model on in the "
         "Agent page once to see what it receives and accept that.", card=pending["name"], host=pending["host"])
@@ -1437,6 +1445,7 @@ def handle_clear_history(viewer, data):
     _save_history_reporting(viewer)
 
 def _extend_initial_web_state(viewer, state):
+    state.update(_model_state(viewer))
     viewer.llm_history = load_agent_history(viewer)
     state["llm_history"] = viewer.llm_history
     problem = getattr(viewer, "_agent_history_problem", None)
@@ -1495,7 +1504,22 @@ def register_backend(registry, viewer):
         "/agent_resource/",
         os.path.join(_SRC_DIR, "resources", "agent"),
     )
+    # The page checks an image before it attaches it, and shows the error as it
+    # comes, so the error comes in the page's language.
+    registry.register_api_route(
+        "agent",
+        "/api/agent/image",
+        handle_image_upload,
+        methods=("POST",),
+        max_body=MAX_IMAGE_BYTES,
+        size_error=Message('Each image must be nonempty and at most 20 MiB.'),
+    )
     registry.register_state_provider("agent", "history", _extend_initial_web_state)
+
+
+def handle_image_upload(request):
+    """The Agent page's check of one image (the request's body): answers its type, or why it is not accepted."""
+    return 200, inspect_source(request.body)
 
 
 def activate(viewer):
@@ -1504,7 +1528,7 @@ def activate(viewer):
         viewer.add_console_button(
             name="agentBtn",
             label=translate("Viewer", "Agent"),
-            callback=viewer.open_agent_ui,
+            callback=lambda: viewer.open_page("agent"),
             tooltip=translate("Viewer", "Open AI Agent Chat Console in browser"),
             icon="bot",
         )

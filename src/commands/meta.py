@@ -181,7 +181,7 @@ def run(viewer, args):
         # dismiss a dialog, so an already-open page is reported on the status
         # line only.
         options = {"show_existing_dialog": False} if CURRENT.get() is not None else {}
-        if viewer.open_metadata_ui(**options):
+        if viewer.open_page("meta", **options):
             Command_Engine.command_succeeded(viewer, "Opened the metadata interface.")
         elif page_is_open(viewer, "meta"):
             Command_Engine.command_failed(viewer, "The metadata interface is already open in your browser.")

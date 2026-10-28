@@ -18,6 +18,7 @@ if str(SRC_DIR) not in sys.path:
 from commands import agent, meta  # noqa: E402
 from EMAPSSN_Viewer import MainViewer  # noqa: E402
 from web_ui import Browser_Page, esmfold_backend  # noqa: E402
+from web_ui.Plugin_Manager import WebPageUnavailable, bundled_pages  # noqa: E402
 from tests.viewer_fixtures import NO_WINDOW_STATES, WINDOW_STATES, apply_window_state  # noqa: E402
 
 
@@ -326,10 +327,11 @@ class BrowserPageOpeningTests(unittest.TestCase):
 
 class InstanceUrlRoutingTests(unittest.TestCase):
     class Viewer:
-        # MainViewer's own openers, so the URLs opened are the ones production builds.
+        # MainViewer's own openers, so the URLs opened are the ones production builds,
+        # over the pages the bundled plugins' manifests declare.
         _open_web_ui = MainViewer._open_web_ui
-        open_agent_ui = MainViewer.open_agent_ui
-        open_metadata_ui = MainViewer.open_metadata_ui
+        open_page = MainViewer.open_page
+        web_plugin_registry = bundled_pages()
 
         def __init__(self):
             self.console_text = mock.Mock(text="")
@@ -431,7 +433,10 @@ class ESMFoldBrowserOpeningTests(unittest.TestCase):
         # show_existing_dialog=False.
         for options, show_existing_dialog in (({}, True), ({"show_existing_dialog": False}, False)):
             with self.subTest(options=options):
-                viewer = SimpleNamespace(_open_web_ui=mock.Mock(return_value=False))
+                viewer = SimpleNamespace(
+                    _open_web_ui=mock.Mock(return_value=False), web_plugin_registry=bundled_pages(),
+                    open_page=lambda client, **kwargs: MainViewer.open_page(viewer, client, **kwargs),
+                )
                 self.assertFalse(esmfold_backend.open_esmfold_ui(viewer, **options))
 
                 viewer._open_web_ui.assert_called_once_with(
@@ -455,44 +460,46 @@ class ESMFoldBrowserOpeningTests(unittest.TestCase):
 
 
 class ViewerPageOpenerTests(unittest.TestCase):
-    """MainViewer.open_metadata_ui / open_agent_ui and `meta` with no arguments."""
+    """MainViewer.open_page, which opens a plugin's declared page, and `meta` with no arguments."""
 
-    def test_viewer_openers_pass_show_existing_dialog_through(self):
-        for opener, path, client_id in (
-            (MainViewer.open_metadata_ui, "/meta.html", "meta"),
-            (MainViewer.open_agent_ui, "/agent.html", "agent"),
+    def test_viewer_opener_opens_the_page_its_manifest_declares(self):
+        # The address, the name and the client are the manifest's, not the Viewer's.
+        for client_id, path, label in (
+            ("meta", "/meta.html", "Metadata UI"),
+            ("agent", "/agent.html", "Agent UI"),
+            ("esmfold", "/esmfold.html", "ESMFold Mol* UI"),
         ):
             for options, expected in (({}, True), ({"show_existing_dialog": False}, False)):
                 with self.subTest(client_id=client_id, options=options):
-                    viewer = SimpleNamespace(_open_web_ui=mock.Mock(return_value=False))
-                    self.assertFalse(opener(viewer, **options))
+                    viewer = SimpleNamespace(_open_web_ui=mock.Mock(return_value=False), web_plugin_registry=bundled_pages())
+                    self.assertFalse(MainViewer.open_page(viewer, client_id, **options))
                     viewer._open_web_ui.assert_called_once_with(
                         path, mock.ANY, client_id, show_existing_dialog=expected
                     )
+                    self.assertEqual(str(viewer._open_web_ui.call_args.args[1]), label)
+
+    def test_a_page_no_plugin_declared_is_not_opened(self):
+        viewer = SimpleNamespace(_open_web_ui=mock.Mock(), web_plugin_registry=bundled_pages())
+        with self.assertRaises(WebPageUnavailable):
+            MainViewer.open_page(viewer, "nothing")
+        viewer._open_web_ui.assert_not_called()
 
     def test_a_button_click_does_not_change_the_default(self):
-        # The sidebar buttons connect the openers to clicked(bool), whose
-        # checked flag must not reach the keyword.
+        # A Console button connects its callback to clicked(bool), whose checked
+        # flag must not reach the opener's keyword.
         from PySide6.QtWidgets import QApplication, QPushButton
+        from web_ui import agent_backend, meta_backend
 
         QApplication.instance() or QApplication([])
-
-        class Viewer:
-            open_metadata_ui = MainViewer.open_metadata_ui
-            open_agent_ui = MainViewer.open_agent_ui
-
-            def __init__(self):
-                self._open_web_ui = mock.Mock(return_value=True)
-
-        viewer = Viewer()
-        for opener in (viewer.open_metadata_ui, viewer.open_agent_ui):
-            button = QPushButton()
-            button.clicked.connect(opener)
-            button.click()
-
-        self.assertEqual(viewer._open_web_ui.call_count, 2)
-        for call in viewer._open_web_ui.call_args_list:
-            self.assertIs(call.kwargs["show_existing_dialog"], True)
+        for backend, client_id in ((agent_backend, "agent"), (meta_backend, "meta")):
+            with self.subTest(backend=backend.__name__):
+                viewer = SimpleNamespace(add_console_button=mock.Mock(), open_page=mock.Mock(), sidebar_buttons_to_persist=[])
+                backend.activate(viewer)
+                callback = viewer.add_console_button.call_args.kwargs["callback"]
+                button = QPushButton()
+                button.clicked.connect(callback)
+                button.click()
+                viewer.open_page.assert_called_once_with(client_id)
 
     def test_page_is_open_reports_a_connected_or_opening_page(self):
         viewer = BrowserPageOpeningTests.make_viewer({"meta"})
@@ -511,7 +518,8 @@ class ViewerPageOpenerTests(unittest.TestCase):
         viewer._open_web_ui = lambda *args, **kwargs: Browser_Page.open_browser_page(
             viewer, *args, **kwargs
         )
-        viewer.open_metadata_ui = lambda **kwargs: MainViewer.open_metadata_ui(viewer, **kwargs)
+        viewer.web_plugin_registry = bundled_pages()
+        viewer.open_page = lambda client, **kwargs: MainViewer.open_page(viewer, client, **kwargs)
         return viewer
 
     def run_meta(self, viewer, portal):

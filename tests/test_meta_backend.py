@@ -67,7 +67,7 @@ class MetadataHighlightActionTests(unittest.TestCase):
             left_click_highlight_indices=[1],
             broadcast_event=mock.Mock(),
             add_console_button=mock.Mock(),
-            open_metadata_ui=mock.Mock(),
+            open_page=mock.Mock(),
             sidebar_buttons_to_persist=[],
         )
         original_mouse_press = mock.Mock(
@@ -93,7 +93,7 @@ class MetadataConsoleButtonTests(unittest.TestCase):
     def test_activation_registers_the_button_with_its_icon_and_page(self):
         from web_ui import meta_backend
 
-        viewer = SimpleNamespace(add_console_button=mock.Mock(), open_metadata_ui=mock.Mock(), sidebar_buttons_to_persist=[])
+        viewer = SimpleNamespace(add_console_button=mock.Mock(), open_page=mock.Mock(), sidebar_buttons_to_persist=[])
         meta_backend.activate(viewer)
         viewer.add_console_button.assert_called_once()
         arguments = viewer.add_console_button.call_args.kwargs
@@ -101,12 +101,14 @@ class MetadataConsoleButtonTests(unittest.TestCase):
         self.assertEqual(arguments["label"], "Meta Data")
         self.assertEqual(arguments["icon"], "chart-column")
         self.assertEqual(arguments["tooltip"], "Open Metadata Spreadsheet in browser")
-        self.assertIs(arguments["callback"], viewer.open_metadata_ui)
+        # A click opens the page its manifest declares, with no argument.
+        arguments["callback"]()
+        viewer.open_page.assert_called_once_with("meta")
 
     def test_the_command_to_register_it_again_is_persisted_once_however_often_it_is_activated(self):
         from web_ui import meta_backend
 
-        viewer = SimpleNamespace(add_console_button=mock.Mock(), open_metadata_ui=mock.Mock())
+        viewer = SimpleNamespace(add_console_button=mock.Mock(), open_page=mock.Mock())
         for _ in range(3):
             meta_backend.activate(viewer)
         self.assertEqual(viewer.sidebar_buttons_to_persist, ["meta"])  # the attribute is made when it is missing
@@ -115,7 +117,7 @@ class MetadataConsoleButtonTests(unittest.TestCase):
     def test_a_viewer_with_no_console_button_registration_is_left_alone(self):
         from web_ui import meta_backend
 
-        viewer = SimpleNamespace(open_metadata_ui=mock.Mock())
+        viewer = SimpleNamespace(open_page=mock.Mock())
         meta_backend.activate(viewer)
         self.assertFalse(hasattr(viewer, "sidebar_buttons_to_persist"))
         self.assertFalse(hasattr(viewer, "add_sidebar_button"))

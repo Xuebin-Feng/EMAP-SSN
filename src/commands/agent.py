@@ -138,8 +138,8 @@ def _open_agent_page(viewer):
     """
     from Viewer_Command_Portal import CURRENT
     if CURRENT.get() is None:
-        return viewer.open_agent_ui()
-    return viewer.open_agent_ui(show_existing_dialog=False)
+        return viewer.open_page("agent")
+    return viewer.open_page("agent", show_existing_dialog=False)
 
 
 def _agent_page_connected(viewer):

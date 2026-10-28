@@ -313,7 +313,7 @@ def activate(viewer):
         viewer.add_console_button(
             name="metaDataBtn",
             label=translate("Viewer", "Meta Data"),
-            callback=viewer.open_metadata_ui,
+            callback=lambda: viewer.open_page("meta"),
             tooltip=translate("Viewer", "Open Metadata Spreadsheet in browser"),
             icon="chart-column",
         )

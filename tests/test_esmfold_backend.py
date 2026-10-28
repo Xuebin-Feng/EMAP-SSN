@@ -34,6 +34,7 @@ class RecordingRegistry:
     def __init__(self):
         self.actions = {}
         self.routes = {}
+        self.api_routes = {}
 
     def register_action(self, plugin, name, handler):
         self.actions[(plugin, name)] = handler
@@ -41,21 +42,23 @@ class RecordingRegistry:
     def register_static_route(self, plugin, prefix, directory):
         self.routes[(plugin, prefix)] = directory
 
+    def register_api_route(self, plugin, path, handler, methods=("GET",), **options):
+        self.api_routes[(plugin, path)] = handler
+
 
 class ConsoleButtonTests(unittest.TestCase):
     """The Fold View page declares its own button for the Console's button row."""
 
     def test_activation_registers_the_button_with_its_icon_and_page(self):
-        viewer = mock.Mock(spec=["add_console_button", "_open_web_ui"])
+        viewer = mock.Mock(spec=["add_console_button", "open_page"])
         esmfold_backend.activate(viewer)
         viewer.add_console_button.assert_called_once()
         name, label, callback, tooltip = viewer.add_console_button.call_args.args
         self.assertEqual((name, label), ("fold_view_btn", "Fold View"))
         self.assertEqual(tooltip, "Open ESMFold & Mol* structure viewer")
         self.assertEqual(viewer.add_console_button.call_args.kwargs, {"icon": "dna"})
-        callback()  # a click opens the Mol* page, from the Viewer
-        viewer._open_web_ui.assert_called_once()
-        self.assertEqual(viewer._open_web_ui.call_args.args[0], "/esmfold.html")
+        callback()  # a click opens the Mol* page its manifest declares, from the Viewer
+        viewer.open_page.assert_called_once_with("esmfold", show_existing_dialog=True)
 
     def test_a_viewer_with_no_console_button_registration_is_left_alone(self):
         esmfold_backend.activate(mock.Mock(spec=[]))
