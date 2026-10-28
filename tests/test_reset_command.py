@@ -406,7 +406,7 @@ class ResetDeclarationTests(unittest.TestCase):
                 unknown = ", ".join(target for target in targets if target in unknown_words)
                 self.assertIn(f"Unknown reset target(s): {unknown}. Nothing was reset." if targets
                               else "Specify at least one reset target.", text)
-                self.assertTrue(text.endswith(reset_command.USAGE))
+                self.assertTrue(text.endswith(reset_command.usage()))
 
     def test_reset_help_prints_the_help_and_resets_nothing(self):
         for word in ("help", "-h", "--help", "HELP"):
@@ -666,6 +666,181 @@ class ResetPluginFolderTests(unittest.TestCase):
             reset_command.target_names()
             self.assertIn("commands.zzreset_plain", sys.modules)
             self.assertNotIn("commands.zzreset_unnamed", sys.modules)
+
+
+
+# --- "reset help" and the usage line list the targets the modules declare ------------------
+# What "reset help" said before its list of targets was written from the modules' declarations, word for word: the
+# program's own targets must still be listed this way.
+HELP_HEAD = ("\n    Network Reset Tool\n    ==================\n    Usage:\n      reset <TARGET_1> [TARGET_2] ...\n"
+             "      reset help\n\n    Targets:")
+TODAYS_TARGETS = (
+    "\n      colors\n          Restores all node colors to the configured default color."
+    "\n      sizes\n          Restores all node sizes to the configured default size."
+    "\n      shapes\n          Restores all node shapes to discs."
+    "\n      clusters\n          Clears all cluster labels, and removes the subcluster groups"
+    "\n          (subcluster_N_M) the subcluster command generated for them. Custom"
+    "\n          groups with lookalike names, such as subcluster_0_2, are kept."
+    "\n      groups\n          Clears all group labels."
+    "\n      hide\n          Makes all hidden nodes visible."
+    "\n      network\n          Restores node positions to the original or last saved layout."
+    "\n      order, layer\n          Restores persistent node rendering to internal-index order.")
+HELP_TAIL = ("\n\n    Notes:\n      Multiple targets may be reset in one command. Singular and plural target\n"
+             "      names are accepted. The reset is stored as one undoable action. An\n"
+             "      unknown target aborts the command, and nothing is reset.\n\n    Examples:\n"
+             "      reset network hide\n      reset colors sizes shapes\n      reset order\n    ")
+TODAYS_USAGE = "Usage: reset [colors | sizes | shapes | clusters | groups | hide | network | order | layer]"
+
+
+def declares(targets, help_text=None, extra=""):
+    """The source of a plugin that resets ``targets`` and, if given, declares ``help_text`` as its RESET_HELP."""
+    return (f"RESET_TARGETS = {targets!r}\n" + ("" if help_text is None else f"RESET_HELP = {help_text}\n") + extra
+            + "def reset(viewer, target):\n    return None\n")
+
+
+HELP_PLUGINS = {
+    # Described, with a rank that puts it before every target of the program, and over two lines.
+    "zzhelp_first": declares(("zzfirst",), "{'zzfirst': (5, 'Does the first thing.\\nOn two lines.')}"),
+    # Described, with no rank: after the described targets of the program that have one.
+    "zzhelp_unranked": declares(("zzunranked",), "{'zzunranked': 'Does the unranked thing.'}"),
+    # A rank that is a float, between the program's own; a plural as typed for the singular target it resets.
+    "zzhelp_between": declares(("zzthing",), "{'zzthings': (45.5, 'Does the thing between clusters and groups.')}"),
+    # Declared, and described by no one.
+    "zzhelp_bare": declares(("zzbare",)),
+    # Several words for one target, and an alternative spelling the help need not list.
+    "zzhelp_words": declares(("zzone", "zztwo", "zzalias"),
+                             "{'zzone, zztwo': (90, 'Does both.'), 'zzalias': None}"),
+}
+# Entries that cannot be used: each plugin's targets are listed by name with no description.
+BROKEN_HELP = {
+    "zzbroken_value": declares(("zzvalue",), "{'zzvalue': 7}"),
+    "zzbroken_rank": declares(("zzrank",), "{'zzrank': ('first', 'Does a thing.')}"),
+    "zzbroken_bool": declares(("zzbool",), "{'zzbool': (True, 'Does a thing.')}"),
+    "zzbroken_nan": declares(("zznan",), "{'zznan': (float('nan'), 'Does a thing.')}"),
+    "zzbroken_empty": declares(("zzempty",), "{'zzempty': '  '}"),
+    "zzbroken_three": declares(("zzthree",), "{'zzthree': (1, 'Does a thing.', 'extra')}"),
+    "zzbroken_key": declares(("zzkey",), "{7: 'Does a thing.', '': 'Another.', ' , ': 'Another.'}"),
+    "zzbroken_not_a_dict": declares(("zznotdict",), "['zznotdict']"),
+    # Names a target of another module, one that nothing declares, and a mix: none of them is this module's.
+    "zzbroken_foreign": declares(("zzforeign",), "{'colors': 'Takes the description of color.', 'nosuchtarget': 'x', "
+                                                 "'zzforeign, hide': 'Mixed.'}"),
+    # Says how to list targets it does not declare.
+    "zzbroken_orphan": "RESET_HELP = {'zzorphan': 'Resets nothing.'}\ndef reset(viewer, target):\n    return None\n",
+}
+
+
+class ResetHelpTests(unittest.TestCase):
+    """"reset help" and the usage line of a refusal list the targets the modules declare, each with its description."""
+
+    def printed_help(self):
+        output = io.StringIO()
+        with redirect_stdout(output):
+            reset_command.print_help()
+        return output.getvalue()
+
+    def refusal(self, targets):
+        with self.assertRaises(ValueError) as caught:
+            reset_command.check_targets(targets)
+        return str(caught.exception)
+
+    def test_the_help_of_the_programs_own_targets_is_what_it_was_word_for_word(self):
+        self.assertEqual(self.printed_help(), HELP_HEAD + TODAYS_TARGETS + HELP_TAIL + "\n")
+        self.assertEqual(reset_command.targets_help(), TODAYS_TARGETS)
+        self.assertEqual(reset_command.usage(), TODAYS_USAGE)
+        self.assertEqual(self.refusal([]), "Specify at least one reset target.\n" + TODAYS_USAGE)
+        self.assertEqual(self.refusal(["bogus", "colors"]),
+                         "Unknown reset target(s): bogus. Nothing was reset.\n" + TODAYS_USAGE)
+
+    def test_the_command_prints_that_help_and_nothing_else(self):
+        for word in ("help", "-h", "--help"):
+            viewer = SimpleNamespace(console_text=SimpleNamespace(text=""))
+            output = io.StringIO()
+            with reported_outcomes() as (succeeded, failed), redirect_stdout(output):
+                reset_command.run(viewer, [word])
+            with self.subTest(word=word):
+                self.assertEqual(output.getvalue(), HELP_HEAD + TODAYS_TARGETS + HELP_TAIL + "\n")
+                failed.assert_not_called()
+
+    def test_the_program_lists_its_targets_by_the_ranks_its_modules_declare(self):
+        self.assertEqual([words for words, _description in reset_command.listed_targets()],
+                         [["colors"], ["sizes"], ["shapes"], ["clusters"], ["groups"], ["hide"], ["network"],
+                          ["order", "layer"]])
+        for words, description in reset_command.listed_targets():
+            with self.subTest(words=words):
+                self.assertTrue(description.endswith("."))
+        # "hidden" is declared, and accepted, and is another spelling of "hide": it is not listed.
+        self.assertIn("hidden", reset_command.target_names())
+        self.assertNotIn("hidden", TODAYS_USAGE)
+
+    def test_a_plugins_targets_are_listed_with_what_they_restore(self):
+        with scratch_commands(HELP_PLUGINS):
+            expected = (
+                "\n      zzfirst\n          Does the first thing.\n          On two lines."
+                + TODAYS_TARGETS.replace(
+                    "\n      groups", "\n      zzthings\n          Does the thing between clusters and groups.\n      groups")
+                + "\n      zzone, zztwo\n          Does both."
+                + "\n      zzunranked\n          Does the unranked thing."
+                + "\n      zzbare")
+            self.assertEqual(reset_command.targets_help(), expected)
+            self.assertEqual(self.printed_help(), HELP_HEAD + expected + HELP_TAIL + "\n")
+            usage = ("Usage: reset [zzfirst | colors | sizes | shapes | clusters | zzthings | groups | hide | network | "
+                     "order | layer | zzone | zztwo | zzunranked | zzbare]")
+            self.assertEqual(reset_command.usage(), usage)
+            self.assertEqual(self.refusal([]), "Specify at least one reset target.\n" + usage)
+            self.assertEqual(self.refusal(["zzbare", "nope"]), "Unknown reset target(s): nope. Nothing was reset.\n" + usage)
+
+    def test_every_declared_target_is_still_a_target_and_the_alternative_spelling_is_not_listed(self):
+        with scratch_commands(HELP_PLUGINS):
+            for typed in ("zzfirst", "zzthing", "zzthings", "ZZTHINGS", "zzone", "zztwo", "zzalias", "zzbare"):
+                with self.subTest(target=typed):
+                    reset_command.check_targets([typed])
+            self.assertNotIn("zzalias", reset_command.usage())
+            self.assertNotIn("zzalias", reset_command.targets_help())
+            self.assertNotIn("zzthing\n", reset_command.targets_help() + "\n")   # listed as typed, "zzthings", once
+
+    def test_a_target_no_entry_can_describe_is_listed_by_name_with_no_description(self):
+        with scratch_commands(BROKEN_HELP):
+            listed = dict((tuple(words), description) for words, description in reset_command.listed_targets())
+            by_name = [words[0] for words, description in reset_command.listed_targets() if description is None]
+            for name in ("zzvalue", "zzrank", "zzbool", "zznan", "zzempty", "zzthree", "zzkey", "zznotdict", "zzforeign"):
+                with self.subTest(target=name):
+                    self.assertIn(name, by_name)
+                    self.assertEqual(listed[(name,)], None)
+            self.assertEqual(by_name, sorted(by_name))
+            # Nothing the plugins say changes what the program's own modules list, and a module that resets nothing
+            # lists nothing.
+            self.assertEqual(reset_command.targets_help().split("\n      zzbool")[0], TODAYS_TARGETS)
+            self.assertNotIn("zzorphan", reset_command.usage())
+            self.assertNotIn("Takes the description", reset_command.targets_help())
+            self.assertNotIn("Mixed", reset_command.targets_help())
+            self.assertIn("Usage: reset [colors | sizes | shapes | clusters | groups | hide | network | order | layer | zzbool",
+                          reset_command.usage())
+
+    def test_the_lists_are_read_afresh_each_time(self):
+        self.assertNotIn("zzfirst", reset_command.usage())
+        with scratch_commands({"zzhelp_first": HELP_PLUGINS["zzhelp_first"]}):
+            self.assertIn("zzfirst", reset_command.usage())
+            self.assertIn("Does the first thing.", self.printed_help())
+        self.assertNotIn("zzfirst", reset_command.usage())
+        self.assertEqual(self.printed_help(), HELP_HEAD + TODAYS_TARGETS + HELP_TAIL + "\n")
+
+    def test_the_list_is_made_from_the_modules_it_is_given(self):
+        # listed_targets, targets_help and usage take the owners a caller already has (check_targets does).
+        with scratch_commands(HELP_PLUGINS):
+            owners = reset_command.declared_targets()
+        self.assertIn("zzfirst", reset_command.usage(owners))
+        self.assertIn("Does the first thing.", reset_command.targets_help(owners))
+        self.assertNotIn("zzfirst", reset_command.usage())
+
+    def test_each_module_that_declares_a_target_describes_it(self):
+        # A target with no description is listed by name only: every target of the program has one.
+        for words, description in reset_command.listed_targets():
+            with self.subTest(words=words):
+                self.assertTrue(description)
+        for name, modules in reset_command.declared_targets().items():
+            for module in modules:
+                with self.subTest(target=name, module=module.__name__):
+                    self.assertIsInstance(getattr(module, "RESET_HELP", None), dict)
 
 
 if __name__ == "__main__":

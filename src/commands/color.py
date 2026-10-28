@@ -609,6 +609,7 @@ def run(viewer, args):
 
 # What "reset colors" restores: commands/reset.py asks each command module for its targets.
 RESET_TARGETS = ('color',)
+RESET_HELP = {'colors': (10, 'Restores all node colors to the configured default color.')}
 
 
 def reset_changes_state(viewer, target):

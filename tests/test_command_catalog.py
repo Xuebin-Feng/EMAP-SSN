@@ -102,8 +102,14 @@ reset hide
         self.assertTrue(all(c['help'] is None and isinstance(c['syntax'], list)
                             for c in general['commands']))
         self.assertIn('reset <TARGET_1> [TARGET_2] ...', detailed['syntax'])
-        for target in ('colors', 'sizes', 'shapes', 'clusters', 'groups', 'hide', 'network', 'order, layer'):
-            self.assertIn(target, detailed['help'])
+        # The targets are declared by the commands that own them (RESET_HELP), so the help the catalog reads from the
+        # source, without running it, keeps the notes and the examples and has a line where the list is printed;
+        # the argument's choices name the targets of the program's own commands.
+        for part in ('Network Reset Tool', 'Targets:', '<each target the commands declare', 'Notes:', 'Examples:'):
+            self.assertIn(part, detailed['help'])
+        choices = {word for item in detailed['arguments'][0]['choices'] for word in (item['value'], *item['aliases'])}
+        for target in ('colors', 'sizes', 'shapes', 'clusters', 'groups', 'hide', 'network', 'order', 'layer'):
+            self.assertIn(target, choices)
         self.assertIn('arguments={"command":"reset"}', general['note'])
         with self.assertRaisesRegex(ValueError, 'Unknown command'):
             command_catalog('missing')

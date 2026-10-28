@@ -418,6 +418,7 @@ def run(viewer, args):
 
 # What "reset groups" restores: commands/reset.py asks each command module for its targets.
 RESET_TARGETS = ('group',)
+RESET_HELP = {'groups': (50, 'Clears all group labels.')}
 
 
 def clear_label_visuals(viewer):

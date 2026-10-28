@@ -40,12 +40,29 @@ folder becomes resettable the same way. A module may declare:
         saves as it is. The reset saves an undo step only when a target it was given has
         something to reset; a module without this function counts as having.
 
+    RESET_HELP = {'colors': (10, 'Restores all node colors.')}    # optional
+
+        What "reset help" says of the module's targets, and what the usage line of a refusal
+        lists. A key is the words a user types for a target, as the help shows them: one word
+        ("colors"), or several that do the same, separated by commas ("order, layer"); each is
+        read as a typed target is, so "colors" stands for the target 'color'. The value is the
+        description, which may run over several lines, or a pair (rank, description): the
+        lines are listed in rank order, smaller first, then by the modules' names, and a line
+        with no rank comes after those that have one. None says that the word is an
+        alternative spelling that the help need not list ("hidden" beside "hide"). A target
+        that no key names is listed after the others, by name, without a description; so is
+        one whose entry cannot be used (a key that names no target of the module, a value of
+        another kind). The usage line lists each word of each key, in the same order.
+
 Which modules declare is found by reading the source of the commands folder for the word
 RESET_TARGETS, so only the modules that mention it are imported. The targets with no
 command of their own, the node sizes and shapes, the layout and the render order, are
-declared below like any other.
+declared below like any other. The catalog entry and the Agent's item below are literals
+that are read from the source without importing it, so they name the targets of the
+program's own commands; a plugin's target is listed by "reset help" and by the usage line.
 """
 
+import math
 import os
 import pkgutil
 import sys
@@ -78,9 +95,14 @@ AGENT_PROMPT = """
 """
 
 # The targets with no command of their own, named as the user types them. A command's own
-# targets are declared by its module, and are listed in print_help and USAGE by hand.
+# targets are declared by its module; "reset help" and the usage line list them all.
 RESET_TARGETS = ("size", "shape", "network", "order", "layer")
-USAGE = "Usage: reset [colors | sizes | shapes | clusters | groups | hide | network | order | layer]"
+RESET_HELP = {
+    "sizes": (20, "Restores all node sizes to the configured default size."),
+    "shapes": (30, "Restores all node shapes to discs."),
+    "network": (70, "Restores node positions to the original or last saved layout."),
+    "order, layer": (80, "Restores persistent node rendering to internal-index order."),
+}
 
 _DECLARATION = b"RESET_TARGETS"
 _OWN_NAME = os.path.splitext(os.path.basename(__file__))[0]
@@ -101,6 +123,8 @@ class ResetOutcome(NamedTuple):
 
 
 def print_help():
+    # The targets are the modules' to declare, so their list is put together when the help is printed, in the
+    # place of the line that says so. The catalog reads this text from the source, and shows that line.
     print("""
     Network Reset Tool
     ==================
@@ -109,24 +133,7 @@ def print_help():
       reset help
 
     Targets:
-      colors
-          Restores all node colors to the configured default color.
-      sizes
-          Restores all node sizes to the configured default size.
-      shapes
-          Restores all node shapes to discs.
-      clusters
-          Clears all cluster labels, and removes the subcluster groups
-          (subcluster_N_M) the subcluster command generated for them. Custom
-          groups with lookalike names, such as subcluster_0_2, are kept.
-      groups
-          Clears all group labels.
-      hide
-          Makes all hidden nodes visible.
-      network
-          Restores node positions to the original or last saved layout.
-      order, layer
-          Restores persistent node rendering to internal-index order.
+      <each target the commands declare, with what it restores>
 
     Notes:
       Multiple targets may be reset in one command. Singular and plural target
@@ -137,7 +144,7 @@ def print_help():
       reset network hide
       reset colors sizes shapes
       reset order
-    """)
+    """.replace("\n      <each target the commands declare, with what it restores>", targets_help()))
 
 
 def _declaring_modules():
@@ -180,6 +187,53 @@ def target_names():
     return frozenset(declared_targets())
 
 
+def listed_targets(owners=None):
+    """The targets "reset help" lists, in order: [(words as typed, description or None)].
+
+    Each module's RESET_HELP says what to list for its targets (see the module's docstring). What is
+    described comes first, by rank, then by the modules' names and the order of each module's entries; the
+    targets that nothing describes follow, by name. An entry that cannot be used is left out, and its targets
+    are listed with no description.
+    """
+    if owners is None:
+        owners = declared_targets()
+    modules = sorted({module for declaring in owners.values() for module in declaring}, key=lambda module: module.__name__)
+    described, covered = [], set()
+    for module in modules:
+        declared = getattr(module, "RESET_HELP", None)
+        for position, (key, value) in enumerate(declared.items() if isinstance(declared, dict) else ()):
+            words = [word.strip() for word in key.split(",") if word.strip()] if isinstance(key, str) else []
+            names = [target_name(word, owners) for word in words]
+            if not words or any(module not in owners.get(name, ()) for name in names):
+                continue  # it names nothing this module resets
+            if value is None:
+                covered.update(names)  # an alternative spelling: accepted, not listed
+                continue
+            rank, text = value if isinstance(value, (tuple, list)) and len(value) == 2 else (math.inf, value)
+            if (isinstance(rank, bool) or not isinstance(rank, (int, float)) or math.isnan(rank)
+                    or not isinstance(text, str) or not text.strip()):
+                continue
+            covered.update(names)
+            described.append(((rank, module.__name__, position), words, text))
+    lines = [(words, text) for _order, words, text in sorted(described, key=lambda item: item[0])]
+    return lines + [([name], None) for name in sorted(owners) if name not in covered]
+
+
+def targets_help(owners=None):
+    """The lines of "reset help" that list the targets, each after a new line: the words, then the description."""
+    text = ""
+    for words, description in listed_targets(owners):
+        text += "\n      " + ", ".join(words)
+        for line in description.splitlines() if description else ():
+            text += "\n          " + line
+    return text
+
+
+def usage(owners=None):
+    """The usage line of a refusal: every word of every target that "reset help" lists, as a user types them."""
+    return "Usage: reset [" + " | ".join(word for words, _description in listed_targets(owners) for word in words) + "]"
+
+
 def target_name(target, owners=None):
     """Return the name a typed target stands for ("Colors" -> "color").
 
@@ -202,12 +256,12 @@ def check_targets(targets, owners=None):
     if owners is None:
         owners = declared_targets()
     if not targets:
-        raise ValueError(JoinedMessage([Message("Specify at least one reset target."), USAGE], separator="\n"))
+        raise ValueError(JoinedMessage([Message("Specify at least one reset target."), usage(owners)], separator="\n"))
     unknown = [target for target in targets if target_name(target, owners) not in owners]
     if unknown:
         raise ValueError(JoinedMessage([
             Message("Unknown reset target(s): {targets}. Nothing was reset.", targets=", ".join(unknown)),
-            USAGE,
+            usage(owners),
         ], separator="\n"))
 
 

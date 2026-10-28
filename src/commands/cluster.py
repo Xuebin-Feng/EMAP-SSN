@@ -706,6 +706,9 @@ def run(viewer, args):
 
 # What "reset clusters" restores: commands/reset.py asks each command module for its targets.
 RESET_TARGETS = ('cluster',)
+RESET_HELP = {'clusters': (40, 'Clears all cluster labels, and removes the subcluster groups\n'
+                               '(subcluster_N_M) the subcluster command generated for them. Custom\n'
+                               'groups with lookalike names, such as subcluster_0_2, are kept.')}
 
 
 def reset_changes_state(viewer, target):

@@ -219,6 +219,8 @@ def run(viewer, args):
 
 # What "reset hide" restores: commands/reset.py asks each command module for its targets.
 RESET_TARGETS = ('hide', 'hidden')
+# "hidden" is another spelling of "hide", which the help need not list.
+RESET_HELP = {'hide': (60, 'Makes all hidden nodes visible.'), 'hidden': None}
 
 
 def reset_changes_state(viewer, target):
