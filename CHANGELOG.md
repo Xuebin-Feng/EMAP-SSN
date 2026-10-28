@@ -408,6 +408,15 @@ still change before version 1.0.0.
   - In the UMAP and PaCMAP layouts, where nodes cannot be moved, they cannot be turned
     either. On macOS, Cmd does what Ctrl does. The ⓘ card and the Quick Start list every
     mouse control.
+- **Undo and Redo buttons in the Viewer.** Two buttons at the top right of the canvas do
+  what Ctrl+Z and Ctrl+Y do, for anyone who does not use the keys.
+  - **Undo** first takes back the newest command that still waits or computes, then the
+    newest step of the history. **Redo** steps forward again, and has nothing to do while a
+    command waits.
+  - A button is dimmed while its keys would do nothing.
+  - They take no keyboard focus, so typing goes on in the command line, and they are never
+    in a picture that `print` or MCP takes. With Show Frame Rate (FPS) on, the frame rate
+    sits to their left.
 
 ### Changed
 
