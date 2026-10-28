@@ -81,9 +81,10 @@ EXPECTED_TEXTS = {
 }
 COUNTED_TEXTS = {"%n file(s)", "%n folder(s)", "Removed %n group(s) from {name}."}
 
-# A web page and its script, at the paths web_ui/Page_Texts.py names the
-# Agent page's. Its markup, attributes and t() calls mark texts with what
-# a marker must escape: quotes, a tag and a placeholder.
+# A web page and its script, and the manifest of the plugin that serves them
+# (web_ui/plugins/<id>.py), which names the files and the catalog context of the
+# page's texts, and the page's label. The page's markup, attributes and t() calls
+# mark texts with what a marker must escape: quotes, a tag and a placeholder.
 AGENT_PAGE = '''<!DOCTYPE html>
 <html lang="en">
 <head><title data-i18n>Demo page</title></head>
@@ -97,9 +98,24 @@ const shown = t("Shown {count}", {count: 1});
 </html>
 '''
 ATTACHMENTS = "\n\nconst later = () => t('It\\'s \"quoted\"');\n"
+AGENT_PLUGIN = '''WEB_PLUGIN = {
+    "api_version": 1,
+    "id": "agent",
+    "backend": "web_ui.agent_backend",
+    "register": "register_backend",
+    "pages": [
+        {
+            "path": "/agent.html",
+            "label": "Demo \\"UI\\"",
+            "client": "agent",
+            "i18n": {"context": "AgentPage", "files": ["web_ui/agent.html", "resources/agent/*.js"]},
+        },
+    ],
+}
+'''
 PAGE_TEXTS = {
     ("AgentPage", "Demo page"), ("AgentPage", 'Says "hi"'), ("AgentPage", "Say <b>hi</b>"),
-    ("AgentPage", "Shown {count}"), ("AgentPage", 'It\'s "quoted"'),
+    ("AgentPage", "Shown {count}"), ("AgentPage", 'It\'s "quoted"'), (MESSAGE_CONTEXT, 'Demo "UI"'),
 }
 
 
@@ -462,8 +478,9 @@ class UpdateCommandTests(unittest.TestCase):
                          ["emapssn_own_de.qm", "emapssn_own_de.ts"])
         self.assertEqual(update_catalogs(own, languages, check=True, **options), 0, self.lines)
 
-    def write_pages(self, page=AGENT_PAGE, script=ATTACHMENTS):
-        (self.src / "web_ui").mkdir(exist_ok=True)
+    def write_pages(self, page=AGENT_PAGE, script=ATTACHMENTS, plugin=AGENT_PLUGIN):
+        (self.src / "web_ui" / "plugins").mkdir(parents=True, exist_ok=True)
+        (self.src / "web_ui" / "plugins" / "agent.py").write_text(plugin, encoding="utf-8")
         (self.src / "web_ui" / "agent.html").write_text(page, encoding="utf-8")
         (self.src / "resources" / "agent").mkdir(parents=True, exist_ok=True)
         (self.src / "resources" / "agent" / "attachments.js").write_text(script, encoding="utf-8")
@@ -482,9 +499,33 @@ class UpdateCommandTests(unittest.TestCase):
         self.assertEqual(found[("AgentPage", "Say <b>hi</b>")], (page, 5))
         self.assertEqual(found[("AgentPage", "Shown {count}")], (page, 8))
         self.assertEqual(found[("AgentPage", 'It\'s "quoted"')], (script, 3))
+        # The page's label, a plain string in the manifest, is listed as a Message at its own line.
+        self.assertEqual(found[(MESSAGE_CONTEXT, 'Demo "UI"')], ("../../../web_ui/plugins/agent.py", 9))
         translate_in(self.translations / "de" / "emapssn_de.ts", "Shown {count}", "Gezeigt")
         self.assertEqual(self.update(), 1)
         self.assertTrue(any("'Gezeigt'" in line and "['{count}']" in line for line in self.lines), self.lines)
+
+    def test_a_manifest_the_update_cannot_read_fails_it_instead_of_leaving_a_page_in_english(self):
+        # A page nobody can read the declaration of would be served untranslated and its texts
+        # would drop from the catalog, so the update says why.
+        self.write_pages(plugin=AGENT_PLUGIN.replace('"client": "agent"', '"client": "Agent!"'))
+        self.assertEqual(self.update(), 1)
+        self.assertTrue(any("agent.py" in line and "client must be" in line for line in self.lines), self.lines)
+
+    def test_a_file_two_pages_claim_fails_the_update(self):
+        two_pages = '''WEB_PLUGIN = {
+    "api_version": 1, "id": "agent", "backend": "web_ui.agent_backend", "register": "register_backend",
+    "pages": [
+        {"path": "/agent.html", "label": "One", "client": "agent",
+         "i18n": {"context": "AgentPage", "files": ["web_ui/agent.html"]}},
+        {"path": "/agent_two.html", "label": "Two", "client": "agent_two",
+         "i18n": {"context": "AgentPage", "files": ["web_ui/agent.html"]}},
+    ],
+}
+'''
+        self.write_pages(plugin=two_pages)
+        self.assertEqual(self.update(), 1)
+        self.assertTrue(any("holds the texts of pages" in line for line in self.lines), self.lines)
 
     def test_a_page_text_no_catalog_can_list_fails_the_update(self):
         self.write_pages(page="<script>\nt(`Built ${n}`);\n</script>\n<p data-i18n>%n pages</p>\n",

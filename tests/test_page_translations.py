@@ -389,8 +389,15 @@ class ServedPageTests(unittest.TestCase):
         self.assertIn("Could not show agent.html in the Viewer's language", printed.getvalue())
 
     def test_the_image_check_answers_in_the_viewers_language(self):
+        from web_ui import agent_backend
+        from web_ui.Plugin_Manager import WebPluginRegistry
+
         viewer = SimpleNamespace(communicator=SimpleNamespace(handle_action=lambda data: None))
         server = start_server(self, PageHandler, viewer)
+        # The Agent plugin answers it, as the Viewer's plugin manager registers it.
+        registry = WebPluginRegistry(viewer)
+        agent_backend.register_backend(registry, viewer)
+        server.api_routes = registry.api_routes
         pseudo_language(self, self.app)
         headers = {"Host": f"127.0.0.1:{server.server_port}", "Content-Type": "application/octet-stream"}
         _, body = request(server, "POST", "/api/agent/image", b"not an image", headers)

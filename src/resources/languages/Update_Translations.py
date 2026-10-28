@@ -58,6 +58,7 @@ Config shows from the main catalog.
 import argparse
 import ast
 import io
+import os
 from pathlib import Path
 import re
 import shutil
@@ -334,17 +335,75 @@ def stage_sources(source_dir, stage_dir, skip=None, shared=frozenset()):
     return problems
 
 
+def mark_page_labels(text, filename):
+    """lupdate's view of a plugin's manifest, and the problems in it.
+
+    A page's label is a plain string in the manifest, which must stay a
+    literal, and is shown as a Message (web_ui/Plugin_Manager.py PageLabel):
+    in the returned text each label is QT_TRANSLATE_NOOP("Message", label), on
+    the label's own line, as the catalog lists a Message(...) in code.
+    """
+    try:
+        tree = ast.parse(text, filename)
+    except SyntaxError as error:
+        return text, [f"{filename}:{error.lineno}: not valid Python, so its texts were not collected: {error.msg}"]
+    lines = text.splitlines(keepends=True)
+    edits, problems = [], []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Dict):
+            continue
+        keys = [key.value if isinstance(key, ast.Constant) else None for key in node.keys]
+        if not {"path", "label", "client"} <= set(keys):
+            continue
+        label = node.values[keys.index("label")]
+        if not _is_plain_string(label) or label.lineno != label.end_lineno:
+            problems.append(f"{filename}:{label.lineno}: a page's label must be a plain string on one line.")
+            continue
+        row = label.lineno - 1
+        edits.append((
+            row, _column(lines[row], label.col_offset), _column(lines[row], label.end_col_offset),
+            f'QT_TRANSLATE_NOOP("{MESSAGE_CONTEXT}", "{_marker_literal(label.value)}")',
+        ))
+    for row, column, end_column, new in sorted(edits, reverse=True):
+        lines[row] = lines[row][:column] + new + lines[row][end_column:]
+    return "".join(lines), problems
+
+
 def stage_pages(source_dir, stage_dir):
     """Write lupdate's view of each web page under source_dir into stage_dir.
 
     lupdate can't read a page's markup or its t() calls, so the staged copy
-    of a page (web_ui/Page_Texts.py lists them) holds only a page_marker
-    per marked text, on the text's own line. Returns the problems found.
+    of a page holds only a page_marker per marked text, on the text's own
+    line. Which files are pages, and their catalog contexts, are what the
+    plugins declare in their manifests (src/web_ui/plugins, read without
+    importing a backend; web_ui/Page_Texts.py tells how a page marks its
+    texts), and the staged copy of each manifest has its pages' labels marked.
+    Returns the problems found, a manifest that can't be read among them.
     """
-    from web_ui.Page_Texts import PAGE_CONTEXTS, read_page
+    from web_ui.Page_Texts import read_page
+    from web_ui.Plugin_Manager import WebPluginError, contexts_of, discover_plugin_descriptors
 
     problems = []
-    for relative, context in PAGE_CONTEXTS.items():
+    plugin_dir = Path(source_dir) / "web_ui" / "plugins"
+    if not plugin_dir.is_dir():
+        return problems
+    descriptors, diagnostics = discover_plugin_descriptors(str(plugin_dir))
+    problems += [diagnostic.format() for diagnostic in diagnostics]
+    for descriptor in descriptors:
+        if not descriptor.pages:
+            continue
+        manifest = Path(descriptor.source_path)
+        relative = Path(os.path.relpath(manifest, os.path.abspath(source_dir))).as_posix()
+        text, found = mark_page_labels(manifest.read_text(encoding="utf-8-sig"), relative)
+        problems += found
+        target = Path(stage_dir) / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8", newline="\n")
+    try:
+        contexts = contexts_of(descriptors, str(source_dir))
+    except WebPluginError as error:
+        return problems + [str(error)]
+    for relative, context in contexts.items():
         path = Path(source_dir) / relative
         if not path.is_file():
             continue

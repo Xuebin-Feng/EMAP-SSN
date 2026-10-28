@@ -29,7 +29,7 @@ import xml.etree.ElementTree as ElementTree
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
 from web_ui import Web_Server
-from web_ui.Plugin_Manager import WebPluginRegistry
+from web_ui.Plugin_Manager import WebPluginRegistry, register_bundled_pages
 from web_ui.Web_Server import content_security_policy
 
 SRC_DIR = Path(__file__).resolve().parents[1] / 'src'
@@ -190,7 +190,7 @@ class PagePolicyOverHTTPTests(unittest.TestCase):
         (files / 'data.json').write_bytes(b'{"a": 1}')
         (files / 'page.html').write_bytes(b'<script>\r\nrun();\r\n</script>')
         viewer = FakeViewer()
-        viewer.web_plugin_registry = WebPluginRegistry(viewer)
+        viewer.web_plugin_registry = register_bundled_pages(WebPluginRegistry(viewer))
         viewer.web_plugin_registry.register_static_route('files', '/files/', str(files))
         self.server = Web_Server.start_server(viewer, preferred_port=0)
         self.addCleanup(Web_Server.stop_server, self.server)
@@ -254,7 +254,8 @@ class RunningServerTestCase(unittest.TestCase):
     def setUp(self):
         use_private_session_directory(self)
         viewer = FakeViewer()
-        self.registry = viewer.web_plugin_registry = WebPluginRegistry(viewer)
+        # A Viewer whose plugins have declared the bundled pages: their policy, theme and texts.
+        self.registry = viewer.web_plugin_registry = register_bundled_pages(WebPluginRegistry(viewer))
         self.server = Web_Server.start_server(viewer, preferred_port=0)
         self.addCleanup(Web_Server.stop_server, self.server)
 

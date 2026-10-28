@@ -7,6 +7,16 @@ WEB_PLUGIN = {
     "id": "meta",
     "backend": "web_ui.meta_backend",
     "register": "register_backend",
-    "activate": "activate",
+    "pages": [
+        {
+            "path": "/meta.html",
+            "label": "Metadata UI",
+            "client": "meta",
+            "themed": True,
+            "i18n": {
+                "context": "MetadataPage",
+                "files": ["web_ui/meta.html"],
+            },
+        },
+    ],
 }
-

@@ -6,8 +6,10 @@
 
 A page marks its texts for translation, and the update command
 (src/resources/languages/Update_Translations.py) files them in the catalogs
-under the page's context (PAGE_CONTEXTS), beside the windows' texts. A text
-is marked one of three ways:
+under the page's context, beside the windows' texts. The plugin that serves
+the page declares the files that hold its texts and their context in its
+manifest (web_ui/plugins/<id>.py, "i18n"); PAGE_CONTEXTS is what the bundled
+manifests declare. A text is marked one of three ways:
 
 * An element whose content is one text carries data-i18n, as in
   <button data-i18n>Clear Chat</button>. The content may hold markup, such
@@ -36,27 +38,15 @@ import json
 from pathlib import Path
 import re
 
+from web_ui.Plugin_Manager import page_contexts as declared_page_contexts
+
 SRC_DIR = Path(__file__).resolve().parents[1]
 
 # Each file that holds a page's texts, relative to src, and the catalog
-# context its texts are filed under.
-PAGE_CONTEXTS = {
-    "web_ui/agent.html": "AgentPage",
-    "resources/agent/attachments.js": "AgentPage",
-    "web_ui/meta.html": "MetadataPage",
-    "web_ui/esmfold.html": "EsmfoldPage",
-    "web_ui/esmfold_shell.js": "EsmfoldPage",
-    "web_ui/esmfold_layers.js": "EsmfoldPage",
-    "web_ui/esmfold_superposition.js": "EsmfoldPage",
-    "web_ui/esmfold_structures.js": "EsmfoldPage",
-    "web_ui/esmfold_session.js": "EsmfoldPage",
-    "web_ui/esmfold_color.js": "EsmfoldPage",
-    "web_ui/esmfold_residue.js": "EsmfoldPage",
-    "web_ui/esmfold_sequence.js": "EsmfoldPage",
-    "web_ui/esmfold_tools.js": "EsmfoldPage",
-    "web_ui/esmfold_image.js": "EsmfoldPage",
-    "web_ui/esmfold_jobs.js": "EsmfoldPage",
-}
+# context its texts are filed under, as the bundled plugins declare them
+# (web_ui/Plugin_Manager.py page_contexts reads the manifests without
+# importing a backend).
+PAGE_CONTEXTS = declared_page_contexts(str(SRC_DIR))[0]
 MARK = "data-i18n"
 TEXT_ATTRIBUTES = frozenset({"title", "placeholder", "aria-label", "alt"})
 # Elements without an end tag, so without content to mark.
@@ -471,7 +461,7 @@ def language_tag(language):
 
 
 def page_context(path):
-    """The catalog context of the page file at path, or None for any other file."""
+    """The catalog context of the bundled page file at path, or None for any other file."""
     try:
         relative = Path(path).resolve().relative_to(SRC_DIR).as_posix()
     except (OSError, ValueError):
@@ -479,15 +469,18 @@ def page_context(path):
     return PAGE_CONTEXTS.get(relative)
 
 
-def translated_file(path, body, language, translate, styles=""):
+def translated_file(path, body, language, translate, styles="", context_of=page_context):
     """The bytes to serve for the file at path, whose own bytes are body.
 
     A page's file comes in language: translate(context, text) gives each
     text's translation, and <html lang> names a real language. styles, CSS
     such as the language's fonts, goes at the end of such a page's head.
     Any other file, and any file for language None (English), comes as it is.
+    context_of(path) names the catalog context of the texts in a file, or
+    None for a file that holds none; by default it is the bundled pages'
+    (PAGE_CONTEXTS), and a server passes the registry's of its plugins.
     """
-    context = page_context(path)
+    context = context_of(path)
     if context is None or not language:
         return body
     suffix = Path(path).suffix.lower()

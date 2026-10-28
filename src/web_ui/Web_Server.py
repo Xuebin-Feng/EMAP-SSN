@@ -27,7 +27,7 @@ import os
 import re
 import secrets
 from datetime import datetime, timezone
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, urlsplit
 from PySide6 import QtCore, QtWidgets
 
 from desktop.Desktop_App import installed_language, language_web_font_css, translate
@@ -36,9 +36,9 @@ from desktop.Viewer_Inspection import (
     ViewerInspectionError,
     ViewerInspectionService,
 )
-from web_ui import residue_layers
 from web_ui.Page_Texts import translated_file
-from utilities.Localization import Message, display_text
+from web_ui.Plugin_Manager import ApiRequest, bundled_pages, match_api_route
+from utilities.Localization import display_text
 from utilities.Viewer_Sessions import (
     SESSION_PROTOCOL_VERSION,
     VIEWER_BRIDGE_SECONDS,
@@ -173,6 +173,11 @@ class ThreadSafeHTTPServer(http.server.ThreadingHTTPServer):
         self.static_routes = (
             registry.static_routes if registry is not None else {}
         )
+        # What the plugins declared: the API routes they answer, and their
+        # pages' policy, theme and texts. Without a registry the pages are the
+        # bundled plugins' (page_registry is None, see _page_registry).
+        self.api_routes = registry.api_routes if registry is not None else {}
+        self.page_registry = registry
 
         # Vendored fonts are a shared resource rather than one panel's asset, so
         # they are registered here instead of by an individual backend. This
@@ -271,32 +276,31 @@ PAGE_POLICY = {
     "form-action": "'none'",
     "frame-ancestors": "'none'",
 }
-# Mol* compiles code while it loads: its MP4 encoder is built with embind,
-# which calls new Function, and compiles WebAssembly (also allowed by
-# 'unsafe-eval') fetched from a data: URL. Mol* 5.12 dropped its other uses of
-# new Function, but embind's remain: 5.13.1 without 'unsafe-eval' stops at the
-# first of them while the bundle loads, and the page never starts
-# (tests/test_esmfold_shell.py, ScriptPolicyTests, pins that, so that a Mol*
-# that no longer needs it shows up there). Mol* also contacts public servers
-# when asked to download structures, maps or saved states. esmfold.html turns
-# off its list of remote states, which it would otherwise fetch on load.
-# The table is keyed by the page's absolute path, normalized as THEMED_PAGES'
-# are, so that only the Fold View page that ships in this folder has them: a
-# file of the same name that a plugin route or another folder serves does not.
-PAGE_POLICY_ADDITIONS = {
-    os.path.normcase(os.path.join(BASE_DIR, "esmfold.html")): {
-        "script-src": "'unsafe-eval'", "connect-src": "https: data:",
-    },
-}
+# A page may ask for more than this base policy only as the plugin that serves
+# it declares in its manifest (web_ui/Plugin_Manager.py, "csp"), and only the
+# relaxations of Plugin_Manager.ALLOWED_CSP_RELAXATIONS, which is the server's
+# decision: a manifest that asks for another is refused. A page's relaxations
+# are kept by the absolute path of the file its plugin serves it from,
+# normalized, so that only that file has them: a file of the same name that a
+# plugin route or another folder serves does not.
 INLINE_SCRIPT = re.compile(
     rb"<script\b(?![^>]*\ssrc\s*=)[^>]*>(.*?)</script\s*>", re.IGNORECASE | re.DOTALL
 )
 
 
-def content_security_policy(filepath, body):
-    """Return the Content-Security-Policy for ``body``, the HTML page in the file ``filepath``."""
+def _page_registry(pages):
+    """The registry that answers for the pages: the server's, or the bundled plugins' pages for a server without one."""
+    return pages if pages is not None else bundled_pages()
+
+
+def content_security_policy(filepath, body, pages=None):
+    """Return the Content-Security-Policy for ``body``, the HTML page in the file ``filepath``.
+
+    pages is the registry of the plugins that declared their pages' policy:
+    the Viewer's, or by default the bundled plugins'.
+    """
     directives = dict(PAGE_POLICY)
-    additions = PAGE_POLICY_ADDITIONS.get(os.path.normcase(os.path.abspath(filepath)), {})
+    additions = _page_registry(pages).csp_additions(filepath)
     for name, sources in additions.items():
         directives[name] += " " + sources
     for script in INLINE_SCRIPT.findall(body):
@@ -308,40 +312,36 @@ def content_security_policy(filepath, body):
     return "; ".join(f"{name} {sources}" for name, sources in directives.items())
 
 
-def page_in_viewer_language(filepath, body):
+def page_in_viewer_language(filepath, body, pages=None):
     """body, the bytes of a file to serve, in the Viewer's language.
 
-    A bundled page and its scripts come with their marked texts translated
-    (web_ui/Page_Texts.py), and a page with the language's bundled font, if
-    it has one; any other file comes as it is. A page that can't be
-    translated comes in English, with a warning.
+    A plugin's page and its scripts, the files its manifest names, come with
+    their marked texts translated (web_ui/Page_Texts.py), and a page with the
+    language's bundled font, if it has one; any other file comes as it is. A
+    page that can't be translated comes in English, with a warning.
     """
     language = installed_language()
     try:
         return translated_file(
-            filepath, body, language, translate, styles=language_web_font_css(language, "/fonts/desktop/")
+            filepath, body, language, translate, styles=language_web_font_css(language, "/fonts/desktop/"),
+            context_of=_page_registry(pages).text_context,
         )
     except Exception as error:
         print(f"Warning: Could not show {os.path.basename(filepath)} in the Viewer's language: {error}")
         return body
 
 
-# The pages that take the Viewer's theme colour. The Fold View page draws
-# Mol*'s canvas inside the same look; Mol*'s own panels keep theirs.
-THEMED_PAGES = {
-    os.path.normcase(os.path.join(BASE_DIR, name)) for name in ("agent.html", "meta.html", "esmfold.html")
-}
 HEAD_END = re.compile(rb"</head\s*>", re.IGNORECASE)
 
 
-def page_in_theme_color(filepath, body):
+def page_in_theme_color(filepath, body, pages=None):
     """body, the bytes of a file to serve, in the Viewer's theme colour.
 
-    The Agent, Meta Data and Fold View pages end their head with the theme colour's
-    custom properties (desktop/Studio_Theme.py web_theme_css), after the
-    page's own, which are Purple's; any other file comes as it is.
+    A page whose plugin declared it themed ends its head with the theme
+    colour's custom properties (desktop/Studio_Theme.py web_theme_css), after
+    the page's own, which are Purple's; any other file comes as it is.
     """
-    if os.path.normcase(os.path.abspath(filepath)) not in THEMED_PAGES:
+    if not _page_registry(pages).is_themed(filepath):
         return body
     styles = f"<style>\n{web_theme_css()}\n</style>\n".encode("utf-8")
     return HEAD_END.sub(lambda match: styles + match.group(0), body, count=1)
@@ -407,8 +407,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         if clean_path == "/api/events":
             self.handle_sse(event_client_from_path(self.path))
             return
-        if clean_path.startswith(residue_layers.ROUTE_PREFIX):
-            self.handle_residue_layers(clean_path)
+        if self._plugin_api("GET", clean_path):
             return
 
         # Strip query parameters (e.g. ?v=1)
@@ -443,47 +442,60 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
             return
         self.serve_file(filepath, content_type)
 
-    def handle_residue_layers(self, clean_path):
-        """Answer the Fold View page's request for a structure's per-residue layers.
+    def _plugin_api(self, method, clean_path):
+        """Answer the request with the API route a plugin registered for it; return whether there was one.
 
-        /api/esmfold/layers/<structure>.pdb lists the layers offered for the
-        structure, and .../<structure>.pdb/<property> is one layer as a
-        MolViewSpec annotation (web_ui/residue_layers.py). Both read the
-        residue data file beside the structure in the folder the /structures/
-        route serves, and name their files through contained_path as that
-        route does, so a request can't reach anything it couldn't fetch there.
-        The data is shown only when it describes the PDB (residue_layers.py).
+        The same-origin guard has run already, as for every route. A POST's
+        body is checked and read here: 1 to the route's max_body bytes, and of
+        one of its content types if it names any. The handler gets an
+        ApiRequest and answers (status, payload) or (status, payload,
+        headers); a ValueError it raises is a 400 with its text, in the
+        Viewer's language, and any other error a 500.
         """
-        directory = self.server.static_routes.get("/structures/")
-        parts = [unquote(part) for part in clean_path[len(residue_layers.ROUTE_PREFIX):].split("/")]
-        structure = parts[0]
-        sidecar = residue_layers.sidecar_name(structure)
-        if (directory is None or sidecar is None or len(parts) not in (1, 2) or not parts[-1]
-                or os.path.basename(structure) != structure or "\\" in structure):
-            self._send_json(404, {"error": "Not a structure layer."})
-            return
-        structure_path = contained_path(directory, structure)
-        sidecar_path = contained_path(directory, sidecar)
-        if structure_path is None or sidecar_path is None:
-            self._send_json(403, {"error": "Forbidden"})
-            return
-        if not os.path.isfile(structure_path):
-            self._send_json(404, {"error": "Structure not found."})
-            return
-        if len(parts) == 1:
-            self._send_json(200, residue_layers.layer_listing(structure, structure_path, sidecar_path))
-            return
+        route = match_api_route(getattr(self.server, "api_routes", None) or {}, method, clean_path)
+        if route is None:
+            return False
+        body = b""
+        if method == "POST":
+            body = self._read_api_body(route)
+            if body is None:
+                return True
+        request = ApiRequest(method, clean_path, urlsplit(self.path).query, self.headers, body)
         try:
-            annotation = residue_layers.layer_annotation(
-                residue_layers.read_residue_data(structure, structure_path, sidecar_path), parts[1]
-            )
-        except residue_layers.ResidueDataError as error:
-            self._send_json(404, {"error": str(error)})
-            return
-        if annotation is None:
-            self._send_json(404, {"error": "This structure has no such layer."})
-            return
-        self._send_json(200, annotation)
+            reply = route.handler(request)
+            if not isinstance(reply, tuple) or len(reply) not in (2, 3):
+                raise TypeError("an API handler answers (status, payload) or (status, payload, headers)")
+            status, payload, *extra = reply
+        except ValueError as error:
+            self._send_json(400, {"error": display_text(error)})
+            return True
+        except Exception as error:
+            self._send_json(500, {"error": str(error)[:1000]})
+            return True
+        self._send_json(status, payload, headers=extra[0] if extra else None)
+        return True
+
+    def _read_api_body(self, route):
+        """The body of a POST to route, or None after answering that it is not acceptable."""
+        try:
+            length = int(self.headers.get("Content-Length", "0"))
+        except ValueError as error:
+            self._send_json(400, {"error": display_text(error)}, headers=self._discard_request_body(route.max_body))
+            return None
+        if length <= 0 or length > route.max_body:
+            self.close_connection = True
+            message = route.size_error or f"Request body must be 1..{route.max_body} bytes"
+            self._send_json(413, {"error": display_text(message)}, headers=self._discard_request_body(route.max_body))
+            return None
+        if route.content_types is not None:
+            media_type = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
+            if media_type not in route.content_types:
+                self._send_json(
+                    415, {"error": "Requests must use Content-Type: " + ", ".join(route.content_types)},
+                    headers=self._discard_request_body(route.max_body),
+                )
+                return None
+        return self.rfile.read(length)
 
     def _send_json(self, status, payload, *, headers=None):
         body = json.dumps(payload, cls=NumpyEncoder, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
@@ -606,15 +618,17 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
         if not os.path.exists(filepath):
             self.send_error(404, f"File {filepath} Not Found")
             return
+        # What the plugins declared of this file, if it is a page of theirs.
+        pages = getattr(self.server, "page_registry", None)
         with open(filepath, "rb") as f:
-            body = page_in_theme_color(filepath, page_in_viewer_language(filepath, f.read()))
+            body = page_in_theme_color(filepath, page_in_viewer_language(filepath, f.read(), pages), pages)
         self.send_response(200)
         self.send_header("Content-Type", f"{content_type}; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
         if content_type == "text/html":
             self.send_header(
                 "Content-Security-Policy",
-                content_security_policy(filepath, body),
+                content_security_policy(filepath, body, pages),
             )
         self.end_headers()
         self.wfile.write(body)
@@ -760,23 +774,7 @@ class WebServerHandler(http.server.BaseHTTPRequestHandler):
                             headers=closing)
             return
 
-        if self.path == "/api/agent/image":
-            # Only the Agent page asks, and it shows the error as it comes,
-            # so the error comes in the page's language.
-            from web_ui.agent_images import MAX_IMAGE_BYTES, inspect_source
-            body = None
-            try:
-                length = int(self.headers.get('Content-Length', '0'))
-                if length <= 0 or length > MAX_IMAGE_BYTES:
-                    self.close_connection = True
-                    self._send_json(413, {'error': display_text(Message('Each image must be nonempty and at most 20 MiB.'))},
-                                    headers=self._discard_request_body(MAX_IMAGE_BYTES))
-                    return
-                body = self.rfile.read(length)
-                self._send_json(200, inspect_source(body))
-            except ValueError as error:
-                self._send_json(400, {'error': display_text(error)},
-                                headers=self._discard_request_body(MAX_IMAGE_BYTES) if body is None else None)
+        if self._plugin_api("POST", urlsplit(self.path).path):
             return
 
         if self.path == "/api/action":
