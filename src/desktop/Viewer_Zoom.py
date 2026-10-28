@@ -374,6 +374,7 @@ class SmoothWheelZoom:
         self._pending = 0.0
         self._timer.stop()
 
+
 __all__ = [
     "FIT_MARGIN_FRACTION", "FIT_MARGIN_MIN", "LIMIT_SLACK", "MAX_ZOOM_PERCENT", "MIN_VIEW_WIDTH",
     "OPENING_RANGE_MARGIN", "SmoothWheelZoom", "WHEEL_ZOOM_DONE", "WHEEL_ZOOM_FRAME_MS", "WHEEL_ZOOM_TAU_S",
