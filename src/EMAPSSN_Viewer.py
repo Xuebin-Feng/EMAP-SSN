@@ -2109,11 +2109,17 @@ class MainViewer:
                             "visible_mask", "cluster_labels", "group_labels", "metadata",
                             "connectivity", "edge_scores", "node_render_order"
                         }
+                        # A cache is a file people share: a dataset only ever adds a custom attribute, and one
+                        # whose name is not a plain public name or is the Viewer's own is skipped.
+                        ignored_datasets = []
                         for key in hf.keys():
                             if key not in CORE_DATASETS:
                                 ds = hf[key]
+                                problem = self._custom_dataset_problem(key, ds)
+                                if problem:
+                                    ignored_datasets.append(f"{_quoted_for_log(key)} ({problem})")
+                                    continue
                                 if "is_json" in ds.attrs and ds.attrs["is_json"]:
-                                    import json
                                     raw_val = ds[()]
                                     if isinstance(raw_val, bytes):
                                         raw_val = raw_val.decode('utf-8')
@@ -2121,6 +2127,8 @@ class MainViewer:
                                 else:
                                     setattr(self, key, ds[:])
                                 self._cacheable_attrs.add(key)
+                        if ignored_datasets:
+                            print("Warning: ignoring extra datasets of the cache: " + "; ".join(ignored_datasets) + ".")
 
                         # --- Safely decode strings/bytes ---
                         if "group_labels" in hf:
@@ -2161,6 +2169,23 @@ class MainViewer:
             # Index the topology now that the layout has arrived, so the first
             # selection does not pay for the build.
             self._adjacency_index()
+
+    def _custom_dataset_problem(self, key, dataset):
+        """Why the root dataset ``key`` of a layout cache may not become a custom attribute of this Viewer, or None.
+
+        It may when it is a dataset with a plain public name (an identifier that does not start with "_") that is
+        one of CUSTOM_ATTRIBUTES_INIT, one already registered as cacheable, or a name that neither this instance
+        nor its class has: a cache never replaces a method or the Viewer's own state.
+        """
+        if not isinstance(dataset, h5py.Dataset):
+            return "not a dataset"
+        if not key.isidentifier() or key.startswith('_'):
+            return "not a plain public name"
+        if key in CUSTOM_ATTRIBUTES_INIT or key in self._cacheable_attrs:
+            return None
+        if key in vars(self) or hasattr(type(self), key):
+            return "the Viewer already has that name"
+        return None
 
     def _init_colors(self):
         import matplotlib.colors as mcolors

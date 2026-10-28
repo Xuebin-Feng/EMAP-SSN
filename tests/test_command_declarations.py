@@ -526,6 +526,22 @@ class CentralCodeNamesNoCommandTests(unittest.TestCase):
                                         "by what its module declares (Command_Declarations), not by name here.")
                 self.assertFalse(gone, f"{relative} no longer holds {dict(gone)}: remove these entries from ALLOWED.")
 
+    def test_the_viewers_console_button_code_names_no_command(self):
+        # The Viewer brings back the Console buttons a session had by asking each command's module (CONSOLE_BUTTON);
+        # EMAPSSN_Viewer.py is not in ALLOWED (it holds many strings that are also command names), so these three are read.
+        import textwrap
+
+        source = (SRC_DIR / "EMAPSSN_Viewer.py").read_text(encoding="utf-8")
+        wanted = {"_register_persisted_console_buttons", "_custom_dataset_problem", "_quoted_for_log"}
+        found = set()
+        for node in ast.walk(ast.parse(source)):
+            if isinstance(node, ast.FunctionDef) and node.name in wanted:
+                found.add(node.name)
+                text = textwrap.dedent(" " * node.col_offset + ast.get_source_segment(source, node))
+                with self.subTest(function=node.name):
+                    self.assertEqual(command_words_in(text, set(COMMAND_NAMES)), collections.Counter())
+        self.assertEqual(found, wanted)
+
     def test_the_central_files_are_the_ones_that_dispatch(self):
         # A file that moved or was renamed would otherwise stop being checked.
         for relative in ALLOWED:

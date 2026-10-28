@@ -331,5 +331,140 @@ class SnapshotProvenanceTests(HeadlessSettingsFixture, unittest.TestCase):
                 self.assertFalse(Path(str(destination) + ".partial").exists())
 
 
+class CustomDatasetLoadingTests(HeadlessSettingsFixture, unittest.TestCase):
+    """A layout cache is a file people share. Its extra root datasets (what `save` writes for the Viewer's custom
+    attributes) become custom attributes of the Viewer and nothing else: no method, no private name and no state
+    the Viewer already has is replaced, and the list of Console buttons never types a command line."""
+
+    def setUp(self):
+        super().setUp()
+        self.saved_config()
+        self.source, self.document = self.cache_and_viewer()
+
+    def add_datasets(self, path, datasets):
+        with h5py.File(path, "a") as cache:
+            for name, value in datasets.items():
+                if isinstance(value, np.ndarray):
+                    cache.create_dataset(name, data=value)
+                else:
+                    cache.create_dataset(name, data=json.dumps(value)).attrs["is_json"] = True
+
+    def load(self, path=None, before=None):
+        """Open the cache as the Viewer does, on a Viewer that already holds ``before``; return it and what it printed."""
+        import EMAPSSN_Viewer
+
+        document = copy.deepcopy(self.document)
+        if path is not None:
+            document["inputs"]["TARGET_CACHE_PATH"] = str(path)
+        viewer = EMAPSSN_Viewer.MainViewer.__new__(EMAPSSN_Viewer.MainViewer)
+        for name, value in (before or {}).items():
+            setattr(viewer, name, value)
+        output = io.StringIO()
+        with mock.patch.multiple(EMAPSSN_Viewer.cfg, create=True, CACHE_MANIFEST_ID=None, INPUT_IS_EVALUE=False,
+                                 **resolve_viewer_document(document, self.root)), redirect_stdout(output):
+            viewer.load_and_simulate()
+        return viewer, output.getvalue()
+
+    def save(self, viewer, name):
+        with mock.patch.object(save_command, "resolve_selected_cache", return_value=self.source), \
+                mock.patch.object(save_command.Command_Engine, "print_help"), \
+                mock.patch.object(save_command.Command_Engine, "command_failed") as failed:
+            save_command.run(viewer, [name])
+        failed.assert_not_called()
+        return Path(self.source).parent / name
+
+    def test_a_crafted_list_of_console_buttons_types_nothing_but_the_command_that_declares_one(self):
+        # A cache whose list held "run C:/some/script.py" made the Viewer type "run C:/some/script.py
+        # --register-only" at its command line as it opened, which runs that script. process_command is a recorder.
+        self.add_datasets(self.source, {"sidebar_buttons_to_persist": ["run C:/some/script.py", "meta", "meta", 7]})
+        viewer, printed = self.load()
+        self.assertEqual(viewer.sidebar_buttons_to_persist, ["run C:/some/script.py", "meta", "meta", 7])
+        typed = []
+        viewer.process_command = lambda command, **options: typed.append((command, options))
+        with redirect_stdout(io.StringIO()) as note:
+            viewer._register_persisted_console_buttons()
+        self.assertEqual(typed, [("meta --register-only", {"record_history": False, "silent": True})])
+        self.assertEqual(note.getvalue().count("\n"), 1)
+        self.assertIn("'run C:/some/script.py' (not a bare command name)", note.getvalue())
+        # The refused entries are gone from the list, so that a later `save` does not write them back.
+        self.assertEqual(viewer.sidebar_buttons_to_persist, ["meta"])
+        saved = self.save(viewer, "clean.h5")
+        with h5py.File(saved, "r") as cache:
+            self.assertEqual(json.loads(cache["sidebar_buttons_to_persist"][()]), ["meta"])
+
+    def test_a_cache_dataset_cannot_replace_a_method_a_private_name_or_state_the_viewer_has(self):
+        sentinel = object()
+        refused = {"process_command": "not a method", "_cacheable_attrs": ["x"], "_private_value": 3,
+                   "command_queue": "not a queue", "full_headers": ["x"], "cache_manifest_id": "0" * 64,
+                   "not a name": 1, "a-b": 2, "1st": 3}
+        accepted = {"custom_scores": np.array([0.5, 1.5], dtype=np.float32), "custom_notes": {"a": [1, 2], "b": "text"}}
+        self.add_datasets(self.source, {**refused, **accepted})
+        with h5py.File(self.source, "a") as cache:
+            cache.create_group("payload").create_dataset("x", data=1)  # a group is not a dataset
+        viewer, printed = self.load(before={"command_queue": sentinel})
+        from EMAPSSN_Viewer import MainViewer
+        self.assertIs(viewer.process_command.__func__, MainViewer.process_command)
+        self.assertIs(viewer.command_queue, sentinel)
+        self.assertIsInstance(viewer._cacheable_attrs, set)
+        self.assertEqual(len(viewer.full_headers), 2)
+        self.assertNotEqual(viewer.cache_manifest_id, "0" * 64)
+        for name in ("_private_value", "not a name", "a-b", "1st", "payload"):
+            self.assertNotIn(name, vars(viewer))
+        # The datasets that are custom attributes load, and are registered for `save`.
+        np.testing.assert_array_equal(viewer.custom_scores, accepted["custom_scores"])
+        self.assertEqual(viewer.custom_notes, accepted["custom_notes"])
+        self.assertTrue({"custom_scores", "custom_notes", "sidebar_buttons_to_persist"} <= viewer._cacheable_attrs)
+        self.assertFalse((set(refused) | {"payload"}) & viewer._cacheable_attrs)
+        # One line says which were left out and why.
+        lines = [line for line in printed.splitlines() if line.startswith("Warning: ignoring extra datasets")]
+        self.assertEqual(len(lines), 1)
+        for name in (*refused, "payload"):
+            self.assertIn(repr(name), lines[0])
+        self.assertIn("'process_command' (the Viewer already has that name)", lines[0])
+        self.assertIn("'_private_value' (not a plain public name)", lines[0])
+        self.assertIn("'payload' (not a dataset)", lines[0])
+        self.assertNotIn("custom_scores", lines[0])
+
+    def test_a_name_registered_as_cacheable_or_listed_as_a_custom_attribute_loads_though_the_viewer_has_it(self):
+        self.add_datasets(self.source, {"plugin_scores": np.array([1.0, 2.0]), "sidebar_buttons_to_persist": ["agent"]})
+        viewer, printed = self.load(before={"_cacheable_attrs": {"plugin_scores"}, "plugin_scores": np.zeros(2),
+                                            "sidebar_buttons_to_persist": ["meta"]})
+        np.testing.assert_array_equal(viewer.plugin_scores, [1.0, 2.0])
+        self.assertEqual(viewer.sidebar_buttons_to_persist, ["agent"])
+        self.assertNotIn("ignoring", printed)
+
+    def test_a_cache_saved_with_custom_attributes_loads_them_back_as_it_always_did(self):
+        # The round trip, with a custom attribute that is not in CUSTOM_ATTRIBUTES_INIT, an array and a JSON one.
+        viewer, _printed = self.load()
+        viewer.custom_scores = np.array([0.25, 0.75], dtype=np.float32)
+        viewer.custom_notes = {"a": [1, 2], "b": "text"}
+        viewer._cacheable_attrs.update({"custom_scores", "custom_notes"})
+        viewer.sidebar_buttons_to_persist = ["agent", "meta"]
+        saved = self.save(viewer, "roundtrip.h5")
+        again, printed = self.load(path=saved)
+        self.assertNotIn("ignoring", printed)
+        np.testing.assert_array_equal(again.custom_scores, viewer.custom_scores)
+        self.assertEqual(again.custom_notes, {"a": [1, 2], "b": "text"})
+        self.assertEqual(again.sidebar_buttons_to_persist, ["agent", "meta"])
+        self.assertTrue({"custom_scores", "custom_notes", "sidebar_buttons_to_persist"} <= again._cacheable_attrs)
+        # Saving that again writes the same datasets.
+        with h5py.File(self.save(again, "roundtrip_again.h5"), "r") as second, h5py.File(saved, "r") as first:
+            self.assertEqual(sorted(second.keys()), sorted(first.keys()))
+            np.testing.assert_array_equal(second["custom_scores"][:], first["custom_scores"][:])
+
+    def test_undo_snapshots_hold_only_names_the_loader_registered(self):
+        # Undo restores the names of a snapshot, and a snapshot holds the cacheable names, so a name the loader refused
+        # is never in one.
+        self.add_datasets(self.source, {"process_command": "not a method", "_private_value": 3,
+                                        "custom_scores": np.array([1.0])})
+        viewer, _printed = self.load()
+        snapshot = viewer._get_custom_attributes_snapshot()
+        self.assertEqual(set(snapshot), {"custom_scores"})
+        viewer._apply_custom_attributes_snapshot(snapshot)
+        from EMAPSSN_Viewer import MainViewer
+        self.assertIs(viewer.process_command.__func__, MainViewer.process_command)
+        self.assertNotIn("_private_value", vars(viewer))
+
+
 if __name__ == "__main__":
     unittest.main()
