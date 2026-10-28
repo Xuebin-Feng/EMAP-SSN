@@ -824,6 +824,28 @@ still change before version 1.0.0.
   is dragged, or when it has keyboard focus; dragging, double-click and the arrow keys
   work as before. The narrower layouts, where the panel covers the picture or sits below
   it, are unchanged.
+- **Commands and web pages declare themselves; the program no longer lists them.** A new
+  command module or web page plugs in without a change to the Viewer, the command engine
+  or the web server, and taking one away leaves the rest working. Nothing a user sees
+  changes, apart from the details below.
+  - **Commands:** a command module now carries its own catalog entry (what `help` and MCP
+    `get_command_catalog` show), its Agent policy (run, approve or refuse), its item in
+    the Agent's instructions, the Session card button it answers, and the targets `reset`
+    restores. An undeclared policy means the Agent's command waits for approval. The
+    catalog, the Agent's instructions and every policy are byte-for-byte as before.
+  - **`reset`** lives in its own command: each command that owns some state says how to
+    reset it, and `reset help` lists what the commands declare.
+  - **The Viewer's zoom** (the Zoom box, the wheel limits and the opening view) no longer
+    depends on the `zoom` command.
+  - **Web pages:** a page's manifest names its address, window title, theme, translation
+    files and the browser-security exceptions it needs, chosen from a fixed list the server
+    allows; a page registers its own API routes under `/api/<plugin>/`. Every page, header
+    and translation is served as before. The unused `activate` key of a manifest is gone.
+  - **Guards:** tests scan all of the program's central code for command and page names,
+    and build the program with each command taken away in turn and with one renamed. See
+    `src/commands/__init__.py` and `docs/web_plugin_development.md`.
+  - **MCP:** the catalog's detailed help for `reset` now says that each target is declared
+    by a command, instead of listing them; its argument choices still list every target.
 
 ### Fixed
 
@@ -1012,6 +1034,8 @@ still change before version 1.0.0.
   no source line above it, such as pLDDT's, had a chevron that turned over and opened
   nothing. Such a note now shows two lines, with a chevron only when there is more of it
   to read; it is checked again when the panel or the window changes size.
+- **`reset clusters cluster`** kept only one of its notes when a target was named twice:
+  the "Removed N generated subcluster groups" note was lost. Every note is now reported.
 
 ## [0.4.0] - 2026-10-16
 
